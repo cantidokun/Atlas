@@ -1,11 +1,9 @@
 """Live Stage 8 harness: conditionally execute an authorized Blender plan.
 
 The model proposes a structured evidence/action plan. Python validates exact
-argument schemas, acquires read-only evidence through the generic planning
-orchestrator, evaluates target state through named invariants, and then either
-skips all writes or executes the already-authorized action sequence. If actions
-execute, the generic verification plan requires fresh independent evidence before
-completion can be declared.
+argument schemas, acquires authoritative evidence, evaluates target state,
+constructs a deterministic future, executes only the current authorized future
+checkpoint, and requires fresh independent verification before completion.
 """
 
 import argparse
@@ -89,7 +87,6 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         {"role": "user", "content": "Create the structured Atlas task plan."},
     ]
     last_error: Exception | None = None
-
     for attempt in range(1, MAX_PLAN_ATTEMPTS + 1):
         raw = ask_qwen(messages)
         print(f"--- QWEN PLAN ATTEMPT {attempt} ---")
@@ -99,11 +96,9 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         except (TaskPlanValidationError, TypeError, ValueError) as exc:
             proposal = None
             last_error = exc
-
         if proposal is not None:
             audit.record_qwen_proposal(raw, attempt, True)
             return proposal
-
         reason = str(last_error) if last_error else "schema validation failed"
         audit.record_qwen_proposal(raw, attempt, False, reason)
         if attempt < MAX_PLAN_ATTEMPTS:
@@ -111,36 +106,26 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
                 {"role": "assistant", "content": raw},
                 {"role": "user", "content": build_correction_prompt(file_name)},
             ])
-
     raise RuntimeError(f"Qwen plan rejected after {MAX_PLAN_ATTEMPTS} attempts: {last_error}")
 
 
 def target_state_evaluator() -> TargetStateEvaluator:
-    return TargetStateEvaluator(
-        [
-            StateInvariant("left_post_location", lambda e: e["object_a"]["location"] == TARGET_LEFT),
-            StateInvariant("right_post_location", lambda e: e["object_b"]["location"] == TARGET_RIGHT),
-            StateInvariant("midpoint", lambda e: e["midpoint"] == TARGET_MIDPOINT),
-            StateInvariant("symmetric_about_origin", lambda e: e["symmetric_about_origin"] is True),
-            StateInvariant("distance", lambda e: e["distance"] == TARGET_DISTANCE),
-        ]
-    )
+    return TargetStateEvaluator([
+        StateInvariant("left_post_location", lambda e: e["object_a"]["location"] == TARGET_LEFT),
+        StateInvariant("right_post_location", lambda e: e["object_b"]["location"] == TARGET_RIGHT),
+        StateInvariant("midpoint", lambda e: e["midpoint"] == TARGET_MIDPOINT),
+        StateInvariant("symmetric_about_origin", lambda e: e["symmetric_about_origin"] is True),
+        StateInvariant("distance", lambda e: e["distance"] == TARGET_DISTANCE),
+    ])
 
 
 def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
-    """Compatibility helper for direct target-state checks and regression tests."""
     return target_state_evaluator().evaluate(relationship).satisfied
 
 
 def build_conditional_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
-    evidence = EvidencePlan([
-        EvidenceRequest(request.tool, dict(request.arguments), request.name)
-        for request in proposal.evidence
-    ])
-    actions = [
-        ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
-        for action in proposal.actions
-    ]
+    evidence = EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence])
+    actions = [ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions]
     evaluator = target_state_evaluator()
     return ConditionalPlanningOrchestrator(
         evidence_plan=evidence,
@@ -174,51 +159,26 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
     args = parser.parse_args()
-
     file_name = prepare_case(args.case)
     audit = AuditTrail()
     proposal = get_validated_plan(file_name, audit)
-
     if len(proposal.evidence) != 1 or len(proposal.actions) != 2:
         raise RuntimeError("Unexpected conditional plan shape")
 
     orchestrator = build_conditional_orchestrator(proposal)
     relationship = orchestrator.acquire_next_evidence(execute_evidence)
-    audit.record_evidence(
-        action_payload(proposal.evidence[0].tool, proposal.evidence[0].arguments, proposal.evidence[0].name),
-        relationship,
-    )
-
+    audit.record_evidence(action_payload(proposal.evidence[0].tool, proposal.evidence[0].arguments, proposal.evidence[0].name), relationship)
     state_result = orchestrator.evaluate_target_state(relationship)
-    audit.record(
-        "conditional_decision",
-        "skip" if state_result.satisfied else "execute",
-        target_satisfied=state_result.satisfied,
-        invariants=state_result.invariants,
-        failed_invariants=state_result.failed,
-        case=args.case,
-    )
+    audit.record("conditional_decision", "skip" if state_result.satisfied else "execute", target_satisfied=state_result.satisfied, invariants=state_result.invariants, failed_invariants=state_result.failed, case=args.case)
 
     print("--- TARGET STATE ---")
     print(json.dumps(state_result.snapshot(), indent=2))
-    print("--- CONDITIONAL ORCHESTRATOR ---")
-    print(json.dumps(orchestrator.snapshot(), indent=2))
+    print("--- DETERMINISTIC FUTURE ---")
+    print(json.dumps(orchestrator.snapshot()["future"], indent=2))
 
-    if state_result.satisfied:
-        if orchestrator.next_phase() != "COMPLETE":
-            raise RuntimeError("Satisfied target did not complete conditional orchestration")
-        print("TARGET ALREADY SATISFIED")
-        print("WRITE EXECUTION SKIPPED")
-        print("ATLAS CONDITIONAL ALREADY-CORRECT TEST: PASS")
-    else:
-        authorize_task_plan(
-            proposal,
-            evidence_complete=True,
-            allowed_action_tools={"move_object"},
-            allow_writes=True,
-        )
+    if not state_result.satisfied:
+        authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools={"move_object"}, allow_writes=True)
         audit.record_authorization(True, action_count=len(proposal.actions))
-
         while orchestrator.next_phase() == "ACTION":
             action = orchestrator.conditional_plan.next_action
             if action is None:
@@ -231,23 +191,28 @@ def main() -> None:
                 result = {"error": str(exc)}
                 audit.record_action(index, payload, result, False)
                 raise
-
             success = result.get("status") == "moved"
             audit.record_action(index, payload, result, success)
             if not success:
                 raise RuntimeError(f"Authorized action failed: {result}")
-
         if not orchestrator.action_complete:
             raise RuntimeError(f"Conditional action phase did not complete: {orchestrator.snapshot()}")
 
-        final = inspect_object_relationship(file_name, "Goal_Left_post", "Goal_Right_Post")
-        final_state = orchestrator.verify_post_action(final)
-        audit.record_verification(final, final_state.satisfied)
-        if not final_state.satisfied:
-            raise RuntimeError(f"Independent final verification failed: {final_state.failed}")
-        if orchestrator.next_phase() != "COMPLETE":
-            raise RuntimeError(f"Verification succeeded but orchestration did not complete: {orchestrator.snapshot()}")
+    # Always require a fresh verification read, including the already-correct path.
+    final = inspect_object_relationship(file_name, "Goal_Left_post", "Goal_Right_Post")
+    final_state = orchestrator.verify_post_action(final)
+    audit.record_verification(final, final_state.satisfied)
+    if not final_state.satisfied:
+        raise RuntimeError(f"Independent final verification failed: {final_state.failed}")
+    orchestrator.finalize_future()
+    if orchestrator.next_phase() != "COMPLETE":
+        raise RuntimeError(f"Verification succeeded but orchestration did not complete: {orchestrator.snapshot()}")
 
+    if state_result.satisfied:
+        print("TARGET ALREADY SATISFIED")
+        print("WRITE EXECUTION SKIPPED")
+        print("ATLAS CONDITIONAL ALREADY-CORRECT TEST: PASS")
+    else:
         print("FINAL STATE INDEPENDENTLY VERIFIED")
         print("ATLAS CONDITIONAL INCORRECT-STATE TEST: PASS")
 
