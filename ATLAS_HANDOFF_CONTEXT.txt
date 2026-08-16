@@ -1,0 +1,2246 @@
+ATLAS DEVELOPMENT HANDOFF
+Date: August 15, 2026
+Current Milestone: Evidence Validation Complete / General Evidence Planner Next
+
+============================================================
+1. PROJECT
+============================================================
+
+Atlas is a local Blender environment-acquisition agent.
+
+Current architecture:
+
+User task
+    ↓
+Python orchestrator
+    ↓
+Local Qwen/Ollama model
+    ↓
+Reasoning / tool selection
+    ↓
+Blender inspection tools
+    ↓
+Tool results
+    ↓
+Evidence ledger
+    ↓
+Qwen receives accumulated evidence
+    ↓
+Final-answer validator
+    ↓
+Final response OR correction/reasoning cycle
+
+Core architectural principle:
+
+Qwen handles reasoning and interpretation.
+Python handles execution, state, mandatory acquisition, and
+final-answer validation.
+
+
+============================================================
+2. CURRENT DEVELOPMENT STATUS
+============================================================
+
+The following capabilities are working:
+
+- Blender connection
+- Local Qwen/Ollama connection
+- Tool execution
+- Tool error handling
+- Factuality rules
+- Evidence ledger
+- Mandatory evidence acquisition
+- Object relationship inspection
+- Final-answer validation
+- Validator-driven correction/reasoning loop
+- Recommendation restraint
+
+The current architecture has successfully passed the
+recommendation-restraint test.
+
+NEXT MILESTONE:
+
+General Evidence Planner
+
+
+============================================================
+3. BLENDER TEST ASSET
+============================================================
+
+File:
+
+goalpost_test.blend
+
+Known relevant objects:
+
+Goal_Left_post
+Goal_Right_Post
+Cube
+Atlas_Marker
+Camera
+Light
+
+
+============================================================
+4. VERIFIED GOALPOST DATA
+============================================================
+
+Goal_Left_post:
+
+Type:
+MESH
+
+Location:
+[0.0, 5.44, 0.0]
+
+Dimensions:
+[2.0, 2.0, 2.0]
+
+
+Goal_Right_Post:
+
+Type:
+MESH
+
+Location:
+[0.0, -5.164, 0.0]
+
+Dimensions:
+[2.0, 2.0, 2.0]
+
+
+Verified relationship:
+
+Distance:
+10.603 units
+
+Midpoint:
+[0.0, 0.138, 0.0]
+
+Axis alignment:
+X = true
+Y = false
+Z = true
+
+Same dimensions:
+true
+
+Symmetric about world origin:
+false
+
+Midpoint offset:
+0.138 units along Y
+
+
+IMPORTANT:
+
+These are measured tool results.
+
+Do not describe the objects as symmetric about the origin.
+
+The relationship tool explicitly reports:
+
+symmetric_about_origin = false
+
+
+============================================================
+5. SOCCER COMPONENT INSPECTION
+============================================================
+
+The soccer-component tool uses:
+
+object-name keyword matching.
+
+It identified:
+
+Goal_Left_post
+    classification: goalpost_candidate
+    name evidence: "goal + post"
+
+Goal_Right_Post
+    classification: goalpost_candidate
+    name evidence: "goal + post"
+
+The overall classification status is:
+
+candidate_only
+
+
+IMPORTANT:
+
+goalpost_candidate means candidate only.
+
+It does NOT establish that the objects are functionally
+confirmed soccer goalposts.
+
+
+============================================================
+6. FACTUALITY RULES
+============================================================
+
+Atlas currently uses 46 factuality rules.
+
+Core principles:
+
+1. Only state facts supported by tool results or user
+   instructions.
+
+2. Never invent measurements, object types, settings,
+   capabilities, or scene information.
+
+3. Distinguish measured facts from inference and
+   recommendations.
+
+4. If information is unavailable, explicitly state that it
+   is unavailable or unestablished.
+
+5. Prefer tools over guessing.
+
+6. After modifications, perform separate verification.
+
+7. Do not claim that nothing else changed unless evidence
+   supports that claim.
+
+8. Distinguish measured data from inference.
+
+9. Do not recommend optimization merely because geometry exists.
+
+10. When evidence is insufficient, state what information
+    is needed.
+
+11. Never recommend a change merely because it is common
+    3D workflow practice.
+
+12. Do not describe materials, modifiers, geometry,
+    or object characteristics unless a tool provides them.
+
+13. Do not assume more geometry/materials/modifiers are
+    inherently better.
+
+14. When no problem is demonstrated, say so.
+
+15. Never use assumptions to fill missing tool information.
+
+16. Do not claim an object was not modified unless execution
+    or verification evidence supports that statement.
+
+17-43. Additional rules reinforce:
+    - evidence-first reasoning
+    - tool capability awareness
+    - no unsupported inference
+    - no unsupported recommendations
+    - correct handling of unavailable information
+    - avoiding redundant tool calls
+    - distinguishing evidence gaps from demonstrated problems
+    - respecting documented tool capabilities
+    - avoiding external standards without authorization
+
+44. Successful tool results are recorded in the evidence
+    ledger and must be treated as established evidence.
+
+45. Before recommending another inspection, check the evidence
+    ledger and do not repeat an inspection solely to obtain
+    information already present.
+
+46. Do not introduce real-world standards, specifications,
+    tolerances, or thresholds unless explicitly provided by
+    the user, returned by a tool, or obtained from an explicitly
+    requested external source.
+
+
+============================================================
+7. EVIDENCE LEDGER
+============================================================
+
+Atlas maintains:
+
+evidence_ledger = []
+
+Successful tool results are recorded as:
+
+{
+    "tool": function_name,
+    "arguments": arguments,
+    "result": tool_result
+}
+
+The ledger is passed explicitly to Qwen.
+
+The ledger is treated as the authoritative record of verified
+evidence for the current assessment.
+
+This prevents Qwen from later describing previously acquired
+information as unestablished.
+
+
+============================================================
+8. IMPORTANT ARCHITECTURAL DISCOVERY
+============================================================
+
+Prompt rules alone were insufficient.
+
+Qwen could previously:
+
+- recognize that additional evidence was needed
+- describe the tool it wanted to use
+- then finalize without actually calling the tool
+
+Therefore mandatory evidence acquisition was moved into the
+Python orchestrator.
+
+This established the principle:
+
+Qwen = reasoning and interpretation
+
+Python = execution and state
+
+
+============================================================
+9. MANDATORY RELATIONSHIP ACQUISITION
+============================================================
+
+The current orchestrator recognizes goalpost candidates from
+the actual tool schema:
+
+candidate_objects
+    ↓
+candidate_classifications
+    ↓
+classification
+    ↓
+goalpost_candidate
+
+When two goalpost candidates are present, Python automatically
+executes:
+
+inspect_object_relationship
+
+
+The current flow is:
+
+inspect_soccer_components
+        ↓
+two goalpost candidates
+        ↓
+Python recognizes candidates
+        ↓
+Python executes inspect_object_relationship
+        ↓
+relationship result added to evidence ledger
+        ↓
+Qwen receives evidence
+        ↓
+final reasoning
+
+
+This mechanism is now working.
+
+
+============================================================
+10. FINAL-ANSWER VALIDATOR
+============================================================
+
+A Python-level final-answer validator was added.
+
+Purpose:
+
+Prevent Qwen from producing a final response that directly
+contradicts verified evidence.
+
+Architecture:
+
+Qwen proposed answer
+        ↓
+Python validator
+        ↓
+    contradiction?
+       /      \
+     YES       NO
+      ↓         ↓
+   reject      FINAL
+      ↓
+send violation back to Qwen
+      ↓
+Qwen corrects response
+
+
+The validator currently checks evidence such as:
+
+- symmetric_about_origin
+- candidate_only classification status
+- unsupported confirmation claims
+- other evidence contradictions
+
+
+============================================================
+11. VALIDATOR BUGS THAT WERE FIXED
+============================================================
+
+The validator initially produced false positives.
+
+Example:
+
+Qwen correctly said:
+
+"not confirmed"
+
+but the validator saw the word "confirmed" and incorrectly
+treated that as a positive confirmation.
+
+The validator was updated to distinguish:
+
+"confirmed"
+
+from:
+
+"not confirmed"
+"does not confirm"
+"without confirmation"
+
+
+The symmetry validator was also refined so that it does not
+incorrectly reject neutral descriptions while still rejecting
+positive claims of symmetry about the origin when:
+
+symmetric_about_origin = false
+
+
+============================================================
+12. RECOMMENDATION-RESTRAINT TEST
+============================================================
+
+The test task was:
+
+Evaluate whether the measured relationship between
+Goal_Left_post and Goal_Right_Post demonstrates a problem that
+requires modification.
+
+Do not modify the Blender file.
+
+Base the assessment only on verified tool evidence and
+user-provided requirements.
+
+If no problem is demonstrated, say so.
+
+Do not recommend a modification merely because the measured
+values differ from the world origin or because a common
+3D workflow might normally prefer a different arrangement.
+
+
+============================================================
+13. RESULT OF RECOMMENDATION-RESTRAINT TEST
+============================================================
+
+PASS.
+
+Atlas produced:
+
+- distance = 10.603 units
+- midpoint = [0.0, 0.138, 0.0]
+- identical dimensions
+- X/Z alignment
+- symmetric_about_origin = false
+
+Atlas correctly concluded:
+
+No further action is required unless additional modifications
+are requested.
+
+It did NOT:
+
+- move the posts
+- recommend moving the posts
+- call the offset an error
+- introduce soccer regulations
+- introduce standard goal dimensions
+- recommend a crossbar
+- claim a valid soccer configuration
+- invent a reason for the offset
+- modify the Blender file
+
+
+============================================================
+14. MINOR REMAINING WORDING ISSUE
+============================================================
+
+The final successful response contained:
+
+"Their Y-axis positions are mirrored around the midpoint."
+
+This wording is unnecessary and should not be treated as an
+important architectural problem.
+
+Do NOT add a new factuality rule solely for this.
+
+The important result is that Atlas correctly stated:
+
+"Not symmetric about the origin."
+
+and did not treat the 0.138-unit offset as a demonstrated error.
+
+
+============================================================
+15. CURRENT ARCHITECTURAL MODEL
+============================================================
+
+Atlas now effectively has four layers:
+
+LAYER 1 — ACQUISITION
+
+Blender tools provide objective observations.
+
+Examples:
+
+inspect_scene
+inspect_mesh
+inspect_scene_settings
+inspect_soccer_components
+inspect_object_relationship
+inspect_scene_health
+
+
+LAYER 2 — STATE
+
+Python maintains:
+
+evidence_ledger
+
+
+LAYER 3 — REASONING
+
+Qwen interprets evidence and determines:
+
+- what the evidence means
+- what remains unknown
+- whether more evidence is needed
+- whether a recommendation is justified
+
+
+LAYER 4 — VALIDATION
+
+Python checks the proposed final response against the evidence
+ledger before accepting it.
+
+
+============================================================
+16. NEXT MILESTONE
+============================================================
+
+GENERAL EVIDENCE PLANNER
+
+
+Current system contains a task-specific mechanism:
+
+if two_goalposts:
+    inspect_object_relationship()
+
+
+This works, but it is not yet general.
+
+The next architecture should generalize the concept.
+
+Desired flow:
+
+User question
+      ↓
+Qwen identifies required evidence
+      ↓
+Python checks evidence ledger
+      ↓
+Is evidence already known?
+      ↓
+   YES       NO
+    ↓         ↓
+ Reason     Acquire
+              ↓
+       Add to evidence ledger
+              ↓
+        Reason again
+              ↓
+       Is evidence sufficient?
+              ↓
+           YES
+              ↓
+       Final-answer validator
+              ↓
+            FINAL
+
+
+============================================================
+17. GENERAL EVIDENCE PLANNER PRINCIPLE
+============================================================
+
+The planner should not simply execute every tool that seems
+potentially useful.
+
+It should acquire evidence only when:
+
+1. The current task requires the information.
+2. The information is not already in the evidence ledger.
+3. An available tool can acquire it.
+
+The desired cycle is:
+
+Evidence gap
+    ↓
+Check existing capabilities
+    ↓
+Can an existing tool resolve it?
+    ↓
+YES
+    ↓
+Acquire evidence
+    ↓
+Add to ledger
+    ↓
+Reason again
+
+If no existing tool can resolve the evidence gap:
+
+Evidence gap
+    ↓
+Capability unavailable
+    ↓
+Identify actual capability gap
+    ↓
+Only then consider adding a new tool
+
+
+============================================================
+18. IMPORTANT DEVELOPMENT CONSTRAINT
+============================================================
+
+DO NOT immediately rewrite the entire agent.
+
+DO NOT remove the evidence ledger.
+
+DO NOT remove the final-answer validator.
+
+DO NOT remove the existing mandatory acquisition mechanism
+until the generalized planner has been proven.
+
+DO NOT add more factuality rules unless an actual uncovered
+failure requires one.
+
+DO NOT add new Blender tools merely because they might be useful.
+
+
+============================================================
+19. FIRST VERSION OF GENERAL EVIDENCE PLANNER
+============================================================
+
+The first version should be deliberately simple.
+
+Goal:
+
+Allow Qwen to identify a specific evidence requirement, then
+have Python determine whether that evidence:
+
+A. already exists in the ledger
+
+B. can be acquired using an existing tool
+
+C. cannot currently be acquired
+
+
+The first implementation does NOT need to solve every possible
+Blender reasoning problem.
+
+It only needs to demonstrate:
+
+Qwen identifies evidence gap
+        ↓
+Python recognizes the required evidence
+        ↓
+Python checks ledger
+        ↓
+If absent, executes appropriate tool
+        ↓
+Result enters ledger
+        ↓
+Qwen reasons again
+
+
+============================================================
+20. SUCCESS CRITERIA FOR GENERAL EVIDENCE PLANNER
+============================================================
+
+The planner succeeds if Atlas can handle a task where:
+
+- evidence is initially missing
+- a tool exists that can obtain it
+- Qwen identifies the missing evidence
+- Python executes the appropriate tool
+- evidence enters the ledger
+- Qwen uses the new evidence
+- final-answer validator checks the result
+
+
+It should also avoid:
+
+- repeating an already completed inspection
+- inventing evidence
+- claiming an unavailable tool was used
+- finalizing before required evidence is acquired
+
+
+============================================================
+21. FUTURE ARCHITECTURE
+============================================================
+
+Longer-term target:
+
+User task
+    ↓
+Task/evidence analysis
+    ↓
+Evidence planner
+    ↓
+Evidence ledger
+    ↓
+Tool acquisition
+    ↓
+Evidence validation
+    ↓
+Reasoning
+    ↓
+Action decision
+    ↓
+Modification if explicitly justified
+    ↓
+Post-modification verification
+    ↓
+Final-answer validator
+    ↓
+Final response
+
+
+============================================================
+22. CURRENT STATUS TABLE
+============================================================
+
+Blender connection:
+PASS
+
+Local Qwen/Ollama:
+PASS
+
+Tool execution:
+PASS
+
+Tool error handling:
+PASS
+
+Factuality framework:
+PASS — 46 rules
+
+Evidence ledger:
+PASS
+
+Mandatory acquisition:
+PASS
+
+Goalpost relationship inspection:
+PASS
+
+Final-answer validator:
+PASS
+
+Validator correction loop:
+PASS
+
+Recommendation restraint:
+PASS
+
+General evidence planner:
+NEXT
+
+Autonomous modification:
+NOT YET
+
+Post-modification verification:
+NOT YET FULLY DEVELOPED
+
+Long-running autonomous Atlas development:
+NOT YET
+
+
+============================================================
+23. IMMEDIATE NEXT ACTION
+============================================================
+
+Build the FIRST VERSION of the general evidence planner.
+
+Do not redesign the whole system.
+
+Do not add new factuality rules.
+
+Do not add new Blender tools.
+
+Generalize the existing mandatory-acquisition concept.
+
+The goal is to move from:
+
+"if two goalposts, run relationship inspection"
+
+to:
+
+"if reasoning identifies required evidence, Python determines
+whether that evidence is already known and, if not, acquires it
+using an available tool."
+
+
+============================================================
+24. CORE ATLAS DESIGN PRINCIPLE
+============================================================
+
+Atlas should distinguish:
+
+"I found something unusual"
+
+from:
+
+"I have evidence that something is wrong."
+
+It should also distinguish:
+
+"I don't currently know something"
+
+from:
+
+"I have evidence that something is absent."
+
+And:
+
+"I have a candidate classification"
+
+from:
+
+"I have confirmed functional identity."
+
+And:
+
+"I can imagine a useful inspection"
+
+from:
+
+"The current task actually requires that inspection."
+
+
+============================================================
+25. CURRENT HANDOFF STATE
+============================================================
+
+The recommendation-restraint milestone is COMPLETE.
+
+The evidence acquisition system is FUNCTIONAL.
+
+The evidence ledger is FUNCTIONAL.
+
+The final-answer validator is FUNCTIONAL.
+
+The next development task is:
+
+BUILD GENERAL EVIDENCE PLANNER — V1
+
+Start from the existing working architecture.
+
+Preserve the successful components.
+
+Implement incrementally.
+
+Test each architectural change before proceeding to the next one.
+
+============================================================
+26. UPDATE — AUGUST 15, 2026: POST-HANDOFF DEVELOPMENT
+============================================================
+
+The development work after the original handoff has advanced beyond
+the recommendation-restraint milestone.
+
+The following items are now established from subsequent testing.
+
+------------------------------------------------------------
+27. REASONING-LOOP PROTECTION
+------------------------------------------------------------
+
+A controller-level reasoning/tool loop guard was added.
+
+Current limits:
+
+MAX_REASONING_STEPS = 8
+MAX_REPEATED_REASONING = 3
+MAX_REASONING_SIMILARITY = 0.92
+MAX_IDENTICAL_TOOL_CALLS = 2
+
+Purpose:
+
+- prevent Qwen from consuming excessive inference time while repeating
+  substantially identical reasoning
+- prevent repeated execution of an identical successful tool request
+- keep loop termination under Python control rather than asking Qwen
+  to determine whether it is looping
+
+This was added after a run demonstrated a long repetitive reasoning
+pattern around the availability of the Blender filename.
+
+The reasoning-loop guard subsequently executed successfully after
+the missing standard-library import was corrected.
+
+------------------------------------------------------------
+28. TEST 1 — EXPLICIT MIDPOINT REQUIREMENT
+------------------------------------------------------------
+
+Task:
+
+The midpoint between Goal_Left_post and Goal_Right_Post must be
+exactly [0.0, 0.0, 0.0].
+
+Result:
+
+Current measured midpoint:
+
+[0.0, 0.138, 0.0]
+
+Requirement:
+
+NOT SATISFIED.
+
+The measured discrepancy is:
+
+[0.0, 0.138, 0.0]
+
+------------------------------------------------------------
+29. TEST 2 — NO MIDPOINT REQUIREMENT
+------------------------------------------------------------
+
+Task:
+
+Evaluate the goalpost relationship without imposing a requirement
+that the midpoint be at the world origin.
+
+Result:
+
+PASS.
+
+Atlas did not treat the 0.138-unit offset as a demonstrated defect
+requiring modification.
+
+This confirmed the distinction between:
+
+"measured difference"
+
+and:
+
+"evidence of a problem."
+
+------------------------------------------------------------
+30. TEST 3 — ANALYSIS → PROPOSED ACTION BOUNDARY
+------------------------------------------------------------
+
+Explicit requirement:
+
+The midpoint must equal [0.0, 0.0, 0.0].
+
+Explicit constraint:
+
+Do not modify the Blender file.
+
+Required analysis:
+
+- determine whether the requirement is satisfied
+- calculate the required positional adjustment
+- calculate target positions
+- distinguish measured facts from calculated targets
+- do not execute a write operation
+
+Calculated result:
+
+Current midpoint:
+
+[0.0, 0.138, 0.0]
+
+Required translation for both objects:
+
+[0.0, -0.138, 0.0]
+
+Target positions:
+
+Goal_Left_post:
+[0.0, 5.302, 0.0]
+
+Goal_Right_Post:
+[0.0, -5.302, 0.0]
+
+Result:
+
+PASS.
+
+Atlas initially produced an incomplete final answer.
+
+The Python final-answer validator rejected the incomplete response,
+requiring the missing current positions, target positions, and
+positional adjustment.
+
+Atlas then retried and produced the complete calculation.
+
+No Blender write operation occurred.
+
+This established the following architecture:
+
+MODEL ANSWER
+    ↓
+PYTHON VALIDATOR
+    ↓
+INCOMPLETE
+    ↓
+MODEL RETRY
+    ↓
+COMPLETE FINAL ANSWER
+
+------------------------------------------------------------
+31. TASK-DRIVEN TOOL SELECTION — ARCHITECTURAL FIX
+------------------------------------------------------------
+
+A major architectural issue was discovered.
+
+The controller previously contained a hard-coded rule that forced:
+
+inspect_soccer_components
+
+before completion.
+
+This caused Atlas to ignore a task that specifically required only
+a spatial relationship calculation.
+
+The hard-coded soccer-component investigation gate was removed.
+
+The system now follows the principle:
+
+Tools should be selected according to the CURRENT TASK and the
+evidence actually required to answer it.
+
+inspect_soccer_components is NOT globally mandatory.
+
+It should only be used when the current task requires soccer-component
+candidate identification.
+
+This is an important transition away from a soccer-specific workflow.
+
+------------------------------------------------------------
+32. IMPORTANT TOOL-SELECTION RESULT
+------------------------------------------------------------
+
+After the hard-coded soccer inspection gate was removed, Atlas
+successfully began Test 3 by using:
+
+inspect_object_relationship
+
+rather than automatically beginning with:
+
+inspect_soccer_components
+
+This confirms that task-driven initial tool selection is working.
+
+However, during the successful Test 3 run Atlas still unnecessarily
+called inspect_soccer_components later in the process.
+
+This did not prevent task completion, but it demonstrates that
+general tool selection is not yet fully optimized.
+
+Do NOT add another task-specific factuality rule solely because of
+this behavior.
+
+The remaining issue belongs to evidence planning/tool selection.
+
+------------------------------------------------------------
+33. COMPLETION VALIDATION — VERIFIED
+------------------------------------------------------------
+
+The final-answer validator now performs more than contradiction
+checking.
+
+For tasks with explicit required outputs, it can reject an answer
+that is factually correct but incomplete.
+
+In Test 3, Atlas initially reported the measured midpoint but failed
+to provide all required calculated outputs.
+
+The validator rejected the response.
+
+Atlas then retried and produced:
+
+- measured current positions
+- measured current midpoint
+- requirement status
+- calculated positional adjustment
+- calculated target positions
+- explicit no-modification conclusion
+
+This establishes a task-completion contract in addition to factuality
+validation.
+
+------------------------------------------------------------
+34. CURRENT ARCHITECTURAL MODEL — UPDATED
+------------------------------------------------------------
+
+Atlas now effectively operates as:
+
+LAYER 1 — ACQUISITION
+
+Blender tools provide objective observations.
+
+        ↓
+
+LAYER 2 — STATE
+
+Python maintains the evidence ledger and controller state.
+
+        ↓
+
+LAYER 3 — TASK / EVIDENCE REASONING
+
+Qwen interprets the current user task and determines what evidence
+is needed.
+
+        ↓
+
+LAYER 4 — EVIDENCE ACQUISITION
+
+Python executes appropriate tools and records successful results.
+
+        ↓
+
+LAYER 5 — COMPLETION / FACTUALITY VALIDATION
+
+Python checks whether the proposed answer is both evidence-grounded
+and complete for the current task.
+
+        ↓
+
+FINAL RESPONSE
+
+The longer-term target remains:
+
+User task
+    ↓
+Task/evidence analysis
+    ↓
+Evidence planner
+    ↓
+Evidence ledger
+    ↓
+Tool acquisition
+    ↓
+Evidence validation
+    ↓
+Reasoning
+    ↓
+Action decision
+    ↓
+Explicit authorization
+    ↓
+Modification
+    ↓
+Post-modification verification
+    ↓
+Final-answer validator
+    ↓
+Final response
+
+------------------------------------------------------------
+35. SAFE ACTION BOUNDARY — NEXT MILESTONE
+------------------------------------------------------------
+
+The next major test should distinguish three separate states:
+
+1. ANALYSIS
+   Atlas determines whether a change is required.
+
+2. PROPOSAL
+   Atlas calculates and states the exact modification that would be
+   performed.
+
+3. AUTHORIZATION / EXECUTION
+   Atlas is explicitly permitted to perform a Blender write operation.
+
+The system must NOT collapse these states.
+
+Desired safety boundary:
+
+Requirement
+    ↓
+Evidence
+    ↓
+Decision
+    ↓
+Proposed modification
+    ↓
+Explicit user authorization
+    ↓
+Write tool
+    ↓
+Independent verification
+    ↓
+Final response
+
+A proposed modification must not itself be treated as authorization.
+
+------------------------------------------------------------
+36. NEXT TEST — SAFE ACTION AUTHORIZATION
+------------------------------------------------------------
+
+The next test should first permit Atlas to consider a modification
+while explicitly requiring a proposal before execution.
+
+Recommended progression:
+
+A. Determine whether a modification is required.
+B. Calculate and propose the exact change.
+C. Explicitly authorize modification.
+D. Confirm that authorization is present before calling a write tool.
+E. Execute the modification.
+F. Perform separate post-modification verification.
+G. Report measured before/after state.
+
+Do not execute a Blender write during the proposal-only phase.
+
+------------------------------------------------------------
+37. GENERAL EVIDENCE PLANNER — CURRENT STATUS
+------------------------------------------------------------
+
+The original handoff identified:
+
+BUILD GENERAL EVIDENCE PLANNER — V1
+
+That remains the long-term architecture.
+
+The task-driven tool-selection fix is an intermediate step toward
+that planner.
+
+Current state:
+
+- task-driven initial tool selection: WORKING
+- evidence ledger: WORKING
+- relationship acquisition: WORKING
+- reasoning-loop protection: WORKING
+- final-answer contradiction validation: WORKING
+- completion validation: WORKING
+- fully generalized evidence planner: NOT YET COMPLETE
+- autonomous modification: NOT YET TESTED
+- post-modification verification: NOT YET FULLY DEVELOPED
+
+------------------------------------------------------------
+38. UPDATED SUCCESSFUL DEVELOPMENT PRINCIPLES
+------------------------------------------------------------
+
+Atlas should continue to distinguish:
+
+"I found something unusual"
+from
+"I have evidence that something is wrong."
+
+"I don't currently know something"
+from
+"I have evidence that something is absent."
+
+"I have a candidate classification"
+from
+"I have confirmed functional identity."
+
+"I can imagine a useful inspection"
+from
+"The current task actually requires that inspection."
+
+"I calculated a modification"
+from
+"I am authorized to execute that modification."
+
+"An answer is factually correct"
+from
+"The answer is complete for the user's requested task."
+
+------------------------------------------------------------
+39. UPDATED IMMEDIATE NEXT ACTION
+------------------------------------------------------------
+
+Do NOT rewrite the entire agent.
+
+Do NOT add another soccer-specific workflow.
+
+Do NOT add factuality rules unless a concrete uncovered failure
+requires one.
+
+Next:
+
+TEST SAFE ACTION AUTHORIZATION.
+
+Use the existing working evidence acquisition, evidence ledger,
+reasoning guards, and final-answer validator.
+
+The immediate goal is to prove that Atlas can:
+
+1. analyze a requested change
+2. propose the exact change
+3. stop before execution
+4. distinguish proposal from authorization
+5. execute only after explicit authorization
+6. independently verify the resulting Blender state
+
+Only after this boundary is reliable should Atlas be given broader
+autonomous modification behavior.
+
+------------------------------------------------------------
+40. CURRENT HANDOFF STATE — AUGUST 15, 2026
+------------------------------------------------------------
+
+Recommendation-restraint milestone:
+COMPLETE
+
+Evidence acquisition:
+FUNCTIONAL
+
+Evidence ledger:
+FUNCTIONAL
+
+Task-driven initial tool selection:
+FUNCTIONAL
+
+Reasoning-loop protection:
+FUNCTIONAL
+
+Final-answer factuality validator:
+FUNCTIONAL
+
+Validator-driven correction loop:
+FUNCTIONAL
+
+Task-completion validation:
+FUNCTIONAL
+
+General Evidence Planner V1:
+NEXT ARCHITECTURAL MILESTONE
+
+Safe Action Authorization:
+NEXT TEST
+
+Autonomous Blender modification:
+NOT YET VERIFIED
+
+Post-modification verification:
+NOT YET FULLY DEVELOPED
+
+Long-running autonomous Atlas development:
+NOT YET
+
+Core principle:
+
+Start from the existing working architecture.
+Preserve successful components.
+Implement incrementally.
+Test each architectural change before proceeding to the next one.
+
+============================================================
+41. UPDATE — AUGUST 16, 2026: WRITE TOOL + POST-MODIFICATION VERIFICATION
+============================================================
+
+The safe-action work progressed further than the original handoff stated.
+
+A new Blender write tool was implemented:
+
+    move_object
+
+The tool was added to:
+
+    tools/blender.py
+
+and registered through:
+
+    tools/__init__.py
+
+The tool registry was verified from PowerShell:
+
+    python -c "from tools import TOOLS; print('move_object' in TOOLS); print(TOOLS.keys())"
+
+Result:
+
+    True
+
+and the registry now contains:
+
+    'move_object'
+
+IMPORTANT:
+
+The earlier ImportError occurred because tools/__init__.py referenced
+move_object before the function existed in tools/blender.py.
+
+That issue was corrected.
+
+The tool is now importable and executable.
+
+
+------------------------------------------------------------
+42. EXPLICIT MIDPOINT MODIFICATION TEST — SUCCESS
+------------------------------------------------------------
+
+Task:
+
+The midpoint between Goal_Left_post and Goal_Right_Post must be
+exactly:
+
+    [0.0, 0.0, 0.0]
+
+Initial measured state:
+
+    Goal_Left_post:
+    [0.0, 5.44, 0.0]
+
+    Goal_Right_Post:
+    [0.0, -5.164, 0.0]
+
+Initial measured midpoint:
+
+    [0.0, 0.138, 0.0]
+
+Therefore the requirement was not satisfied.
+
+The calculated common translation was:
+
+    [-0.0, -0.138, -0.0]
+
+Target positions:
+
+    Goal_Left_post:
+    [0.0, 5.3020000000000005, 0.0]
+
+    Goal_Right_Post:
+    [0.0, -5.302, 0.0]
+
+
+------------------------------------------------------------
+43. WRITE EXECUTION — VERIFIED
+------------------------------------------------------------
+
+Atlas successfully executed move_object for both objects.
+
+Goal_Left_post:
+
+    Target:
+    [0, 5.3020000000000005, 0]
+
+    Tool result:
+    status = moved
+
+    Resulting location:
+    [0.0, 5.302000045776367, 0.0]
+
+
+Goal_Right_Post:
+
+    Target:
+    [0, -5.302, 0]
+
+    Tool result:
+    status = moved
+
+    Resulting location:
+    [0.0, -5.302000045776367, 0.0]
+
+Both write operations therefore executed successfully.
+
+This establishes that Atlas can now perform an authorized modification
+of an existing Blender object's location.
+
+
+------------------------------------------------------------
+44. INDEPENDENT POST-MODIFICATION VERIFICATION — SUCCESS
+------------------------------------------------------------
+
+After both write operations, Atlas executed a separate:
+
+    inspect_object_relationship
+
+against the modified objects.
+
+Final verified positions:
+
+    Goal_Left_post:
+    [0.0, 5.302, 0.0]
+
+    Goal_Right_Post:
+    [0.0, -5.302, 0.0]
+
+Final measured midpoint:
+
+    [0.0, 0.0, 0.0]
+
+Final measured distance:
+
+    10.604 units
+
+Final relationship state:
+
+    same_dimensions = true
+
+    symmetric_about_origin = true
+
+    midpoint_offset_from_origin = 0.0
+
+This is the first successful end-to-end:
+
+    requirement
+        ↓
+    evidence acquisition
+        ↓
+    calculated modification
+        ↓
+    authorized write
+        ↓
+    independent verification
+
+
+------------------------------------------------------------
+45. IMPORTANT VALIDATOR LESSON — BEFORE VS AFTER STATE
+------------------------------------------------------------
+
+The final-answer validator exposed an important distinction.
+
+For a modification task, the answer may need to report BOTH:
+
+    INITIAL / MEASURED STATE
+
+and:
+
+    FINAL / VERIFIED STATE
+
+The validator repeatedly required the original measured midpoint:
+
+    [0.0, 0.138, 0.0]
+
+even after the modification had produced the final midpoint:
+
+    [0.0, 0.0, 0.0]
+
+It also required explicit reporting of:
+
+    - measured initial positions
+    - measured initial midpoint
+    - target positions
+    - positional adjustment
+    - final verified positions
+    - final verified midpoint
+
+Therefore, Atlas should not use ambiguous wording such as:
+
+    "current position"
+
+when multiple temporal states exist.
+
+Use explicit state labels:
+
+    INITIAL MEASURED STATE
+    CALCULATED TARGET STATE
+    FINAL VERIFIED STATE
+
+This should become part of the completion-validation design.
+
+
+------------------------------------------------------------
+46. IMPORTANT VALIDATOR BUG / DESIGN ISSUE
+------------------------------------------------------------
+
+The validator can reject an otherwise successful modification workflow
+if the final response does not preserve the initial evidence.
+
+This is not a Blender-tool failure.
+
+The write operation succeeded.
+
+The independent verification succeeded.
+
+The problem is that the final-answer contract was too ambiguous about
+whether "current" refers to the pre-modification or post-modification
+state.
+
+The validator therefore needs to understand temporal evidence states.
+
+Recommended conceptual model:
+
+    evidence event
+        ↓
+    state snapshot
+        ↓
+    modification event
+        ↓
+    new state snapshot
+
+A final answer should be validated against the appropriate snapshot
+for each required field.
+
+Do NOT solve this by adding a pile of task-specific factuality rules.
+
+Instead, improve the completion-validation architecture so it can
+distinguish:
+
+    before_state
+    target_state
+    after_state
+
+
+------------------------------------------------------------
+47. SAFE ACTION AUTHORIZATION — STATUS UPDATE
+------------------------------------------------------------
+
+The original handoff identified Safe Action Authorization as the
+next test.
+
+That test has now been partially surpassed.
+
+Atlas has demonstrated:
+
+    - explicit modification requirement
+    - calculation of target positions
+    - execution of move_object
+    - successful write result
+    - independent post-modification inspection
+    - final verified state
+
+Therefore:
+
+    Autonomous Blender modification:
+    VERIFIED for the tested move_object workflow
+
+However, this does NOT establish broad autonomous modification safety.
+
+The remaining architectural question is whether Atlas reliably distinguishes:
+
+    ANALYSIS
+        ↓
+    PROPOSAL
+        ↓
+    EXPLICIT AUTHORIZATION
+        ↓
+    EXECUTION
+        ↓
+    VERIFICATION
+
+across arbitrary tasks.
+
+The successful test demonstrates execution capability, not universal
+authorization safety.
+
+
+------------------------------------------------------------
+48. CURRENT ARCHITECTURAL MODEL — UPDATED
+------------------------------------------------------------
+
+Atlas now effectively operates as:
+
+LAYER 1 — ACQUISITION
+
+    Blender tools provide objective observations.
+
+        ↓
+
+LAYER 2 — STATE
+
+    Python maintains:
+    - evidence ledger
+    - controller state
+    - reasoning-loop state
+
+        ↓
+
+LAYER 3 — TASK / EVIDENCE REASONING
+
+    Qwen interprets the current task and determines:
+    - what evidence is needed
+    - whether a requirement is satisfied
+    - what remains unknown
+    - whether a modification is justified
+
+        ↓
+
+LAYER 4 — ACTION
+
+    Python executes explicitly selected write tools.
+
+        ↓
+
+LAYER 5 — POST-ACTION VERIFICATION
+
+    Read-only Blender inspection independently verifies the resulting
+    state.
+
+        ↓
+
+LAYER 6 — COMPLETION / FACTUALITY VALIDATION
+
+    Python checks that the final response:
+    - does not contradict evidence
+    - includes required outputs
+    - distinguishes initial/target/final state when relevant
+
+        ↓
+
+FINAL RESPONSE
+
+
+------------------------------------------------------------
+49. CURRENT TOOL REGISTRY — UPDATED
+------------------------------------------------------------
+
+Current known tool registry:
+
+    inspect_scene
+    inspect_mesh
+    inspect_scene_health
+    inspect_scene_settings
+    inspect_object_relationship
+    inspect_soccer_components
+    create_collection
+    create_empty_marker
+    move_object
+
+The tool registry was explicitly verified to contain move_object.
+
+No additional Blender tool should be added merely because it might be
+useful.
+
+The existing capability should be generalized before expanding the
+tool surface.
+
+
+------------------------------------------------------------
+50. UPDATED SUCCESSFUL DEVELOPMENT PRINCIPLES
+------------------------------------------------------------
+
+Atlas should continue to distinguish:
+
+    "I found something unusual"
+from
+    "I have evidence that something is wrong."
+
+    "I don't currently know something"
+from
+    "I have evidence that something is absent."
+
+    "I have a candidate classification"
+from
+    "I have confirmed functional identity."
+
+    "I can imagine a useful inspection"
+from
+    "The current task actually requires that inspection."
+
+    "I calculated a modification"
+from
+    "I am authorized to execute that modification."
+
+    "A write tool succeeded"
+from
+    "The resulting Blender state has been independently verified."
+
+    "An answer is factually correct"
+from
+    "The answer is complete for the user's requested task."
+
+    "Initial measured state"
+from
+    "Final verified state."
+
+
+============================================================
+51. UPDATED IMMEDIATE NEXT ACTION
+============================================================
+
+Do NOT rewrite the entire agent.
+
+Do NOT add another soccer-specific workflow.
+
+Do NOT add factuality rules solely to handle the goalpost example.
+
+Do NOT add another Blender write tool yet.
+
+Next architectural priority:
+
+    GENERALIZE STATE-AWARE COMPLETION VALIDATION
+
+Specifically:
+
+1. Preserve initial evidence snapshots.
+2. Preserve calculated target state separately.
+3. Record write events separately.
+4. Record post-write verification separately.
+5. Teach completion validation to distinguish before/target/after state.
+6. Ensure final answers report the appropriate state for each required field.
+7. Keep the evidence ledger authoritative.
+8. Continue using independent read-only verification after writes.
+
+
+------------------------------------------------------------
+52. GENERAL EVIDENCE PLANNER — STILL REQUIRED
+------------------------------------------------------------
+
+The General Evidence Planner V1 remains an important architectural
+milestone.
+
+The successful goalpost test should NOT become another permanent
+goalpost-specific workflow.
+
+The next generalized architecture should allow:
+
+    User task
+        ↓
+    Required evidence identification
+        ↓
+    Evidence ledger check
+        ↓
+    Existing evidence?
+       / \
+     YES  NO
+      ↓    ↓
+    Reason  Acquire with existing tool
+               ↓
+          Add to ledger
+               ↓
+            Reason
+               ↓
+        Action decision
+               ↓
+        Explicit authorization
+               ↓
+          Write tool
+               ↓
+       Independent verification
+               ↓
+     State-aware completion validation
+               ↓
+          Final response
+
+
+------------------------------------------------------------
+53. UPDATED CURRENT STATUS — AUGUST 16, 2026
+------------------------------------------------------------
+
+Blender connection:
+PASS
+
+Local Qwen/Ollama:
+PASS
+
+Tool execution:
+PASS
+
+Tool error handling:
+PASS
+
+Factuality framework:
+PASS — 46 rules
+
+Evidence ledger:
+PASS
+
+Task-driven initial tool selection:
+PASS
+
+Mandatory evidence acquisition:
+PASS
+
+Goalpost relationship inspection:
+PASS
+
+Reasoning-loop protection:
+PASS
+
+Final-answer contradiction validation:
+PASS
+
+Task-completion validation:
+PASS, but state-awareness needs improvement
+
+move_object tool:
+PASS
+
+Authorized Blender write execution:
+PASS — verified on goalpost test
+
+Independent post-modification verification:
+PASS — verified on goalpost test
+
+General Evidence Planner V1:
+NEXT ARCHITECTURAL MILESTONE
+
+State-aware completion validation:
+NEXT ARCHITECTURAL FIX
+
+Broad autonomous modification:
+NOT YET VERIFIED
+
+General authorization safety:
+NOT YET VERIFIED
+
+Long-running autonomous Atlas development:
+NOT YET
+
+
+------------------------------------------------------------
+54. UPDATE — AUGUST 16, 2026: MODIFICATION REGRESSION TEST
+------------------------------------------------------------
+
+A regression test was performed after the successful goalpost
+modification test and after the state-aware completion-validator fixes.
+
+The Blender fixture was restored to the original measured baseline:
+
+    Goal_Left_post:
+    [0.0, 5.44, 0.0]
+
+    Goal_Right_Post:
+    [0.0, -5.164, 0.0]
+
+Initial relationship inspection confirmed:
+
+    midpoint:
+    [0.0, 0.138, 0.0]
+
+The task again required the midpoint to be exactly:
+
+    [0.0, 0.0, 0.0]
+
+Atlas correctly recognized that a modification was required and
+executed move_object for Goal_Left_post.
+
+The resulting state after that write was:
+
+    Goal_Left_post:
+    [0.0, 5.302, 0.0]
+
+    Goal_Right_Post:
+    [0.0, -5.164, 0.0]
+
+The subsequent relationship inspection therefore measured:
+
+    midpoint:
+    [0.0, 0.069, 0.0]
+
+    symmetric_about_origin:
+    false
+
+This proves:
+
+    - move_object remains executable
+    - Atlas can initiate the modification workflow
+    - post-write inspection executes
+    - the controller does NOT yet reliably complete a multi-write
+      modification task
+
+Atlas then entered repeated reasoning/tool selection and reached the
+maximum reasoning-step limit before executing the required second
+move_object call for Goal_Right_Post.
+
+The test therefore did NOT produce a complete final state.
+
+IMPORTANT:
+
+The earlier successful end-to-end goalpost test remains valid as proof
+that both move_object operations can execute and that independent
+post-modification verification can succeed.
+
+This regression test instead exposed a controller/planner limitation:
+Atlas does not yet reliably sequence multiple required write operations
+within a single modification task.
+
+This should NOT be solved by adding another goalpost-specific rule.
+
+The architectural issue belongs to action planning / state-aware
+execution.
+
+------------------------------------------------------------
+55. UPDATED ARCHITECTURAL INTERPRETATION
+------------------------------------------------------------
+
+The current evidence now distinguishes three capabilities:
+
+1. SINGLE-WRITE EXECUTION
+
+    Proven.
+
+    Atlas can call move_object and successfully change an object's
+    Blender location.
+
+2. MULTI-WRITE EXECUTION CAPABILITY
+
+    The underlying tool capability is proven by the earlier successful
+    test in which both goalposts were moved.
+
+3. RELIABLE MULTI-WRITE TASK ORCHESTRATION
+
+    NOT YET RELIABLE.
+
+    The regression test demonstrated that Atlas may execute the first
+    required write, verify the intermediate state, and then become
+    trapped in repeated reasoning instead of recognizing that another
+    required write remains.
+
+Therefore, the remaining problem is not the Blender write tool.
+
+The remaining problem is the controller's ability to maintain an
+action plan across multiple required modifications.
+
+The desired architecture should eventually represent:
+
+    REQUIRED ACTIONS
+        ↓
+    ACTION 1
+        ↓
+    VERIFY / UPDATE STATE
+        ↓
+    ACTION 2
+        ↓
+    VERIFY / UPDATE STATE
+        ↓
+    COMPLETION CHECK
+
+rather than relying on Qwen to rediscover the next required action
+after every tool result.
+
+------------------------------------------------------------
+56. STATE-AWARE COMPLETION VALIDATION — CURRENT STATUS
+------------------------------------------------------------
+
+The state-aware completion-validation work remains necessary.
+
+The validator must distinguish:
+
+    BEFORE STATE
+    TARGET STATE
+    AFTER STATE
+
+For modification tasks, the evidence ledger should preserve these
+states independently rather than treating all coordinate observations
+as interchangeable current values.
+
+The validator should be able to determine:
+
+    - what was true before modification
+    - what target was calculated
+    - which writes were actually executed
+    - what was verified afterward
+    - whether all required actions were completed
+
+The recent regression test reinforces that this state model is needed
+for both final-answer validation and action orchestration.
+
+------------------------------------------------------------
+57. UPDATED GENERAL EVIDENCE PLANNER DIRECTION
+------------------------------------------------------------
+
+General Evidence Planner V1 remains the major architectural milestone.
+
+However, the current test results indicate that action planning should
+be treated as a separate but connected layer.
+
+Desired longer-term flow:
+
+    User task
+        ↓
+    Required evidence identification
+        ↓
+    Evidence ledger check
+        ↓
+    Acquire missing evidence
+        ↓
+    Reason
+        ↓
+    Action plan
+        ↓
+    Explicit authorization
+        ↓
+    Execute required actions
+        ↓
+    Update state after each action
+        ↓
+    Independent verification
+        ↓
+    State-aware completion validation
+        ↓
+    Final response
+
+The action plan should be able to represent more than one required
+write operation.
+
+Do NOT convert this into another goalpost-specific workflow.
+
+------------------------------------------------------------
+58. UPDATED IMMEDIATE NEXT ACTION
+------------------------------------------------------------
+
+Do NOT rerun the same goalpost modification merely to prove that
+move_object works.
+
+Do NOT add another Blender write tool.
+
+Do NOT add another goalpost-specific factuality rule.
+
+Do NOT rewrite the entire agent.
+
+Next architectural priorities, in order:
+
+1. Implement state-aware completion validation.
+
+2. Introduce a minimal explicit action-plan representation capable of
+   tracking multiple required actions.
+
+3. Ensure the controller can recognize when an action remains pending
+   after an intermediate tool result.
+
+4. Prevent repeated reasoning when a required action is already known
+   but has not yet executed.
+
+5. Preserve independent post-action verification.
+
+6. Then continue toward General Evidence Planner V1.
+
+The immediate goal is to move from:
+
+    Qwen decides → tool executes → Qwen decides again
+
+toward:
+
+    Task
+      ↓
+    Evidence
+      ↓
+    Action plan
+      ↓
+    Execute action 1
+      ↓
+    Update state
+      ↓
+    Execute action 2
+      ↓
+    Verify
+      ↓
+    Completion
+
+------------------------------------------------------------
+59. UPDATED CURRENT STATUS — AUGUST 16, 2026
+------------------------------------------------------------
+
+Blender connection:
+PASS
+
+Local Qwen/Ollama:
+PASS
+
+Tool execution:
+PASS
+
+Tool error handling:
+PASS
+
+Factuality framework:
+PASS — 46 rules
+
+Evidence ledger:
+PASS
+
+Task-driven initial tool selection:
+PASS
+
+Mandatory evidence acquisition:
+PASS
+
+Goalpost relationship inspection:
+PASS
+
+Reasoning-loop protection:
+PASS
+
+Final-answer contradiction validation:
+PASS
+
+Task-completion validation:
+PASS, but state-awareness needs improvement
+
+move_object tool:
+PASS
+
+Authorized Blender write execution:
+PASS — verified on goalpost test
+
+Independent post-modification verification:
+PASS — verified on goalpost test
+
+Reliable multi-write orchestration:
+NOT YET VERIFIED
+
+State-aware completion validation:
+NEXT ARCHITECTURAL FIX
+
+Multi-action planning:
+NEXT ARCHITECTURAL FIX
+
+General Evidence Planner V1:
+NEXT ARCHITECTURAL MILESTONE
+
+Broad autonomous modification:
+NOT YET VERIFIED
+
+General authorization safety:
+NOT YET VERIFIED
+
+Long-running autonomous Atlas development:
+NOT YET
+
+------------------------------------------------------------
+60. CRITICAL HANDOFF NOTE FOR NEXT SESSION
+------------------------------------------------------------
+
+The goalpost modification test remains COMPLETE as a proof of
+the underlying write and verification capabilities.
+
+The subsequent regression test exposed a separate orchestration issue:
+Atlas did not reliably complete both required writes in one task.
+
+Do NOT rerun the same goalpost modification merely to prove that
+move_object works.
+
+The important new architectural evidence is:
+
+    move_object exists
+        ↓
+    move_object is registered
+        ↓
+    move_object executes successfully
+        ↓
+    Blender state changes
+        ↓
+    inspect_object_relationship independently verifies the change
+
+The remaining problem is reliable multi-action orchestration.
+
+The next work should focus on:
+
+    1. STATE-AWARE COMPLETION VALIDATION
+    2. MINIMAL MULTI-ACTION PLAN TRACKING
+    3. GENERAL EVIDENCE PLANNER V1
+
+The system must eventually distinguish:
+
+    BEFORE
+    TARGET
+    ACTIONS PENDING
+    ACTIONS EXECUTED
+    AFTER
+
+without confusing those states.
+
+The core design principle remains:
+
+    Start from the existing working architecture.
+    Preserve successful components.
+    Implement incrementally.
+    Test each architectural change before proceeding to the next one.
