@@ -26,6 +26,7 @@ def test_builds_inert_evidence_and_action_proposal():
                     "tool": "move_object",
                     "arguments": {"object_name": "A", "location": [1, 0, 0]},
                     "name": "move",
+                    "requires_write": True,
                 }
             ],
         },
@@ -37,6 +38,7 @@ def test_builds_inert_evidence_and_action_proposal():
     assert isinstance(actions, ActionPlan)
     assert evidence.next_request.tool == "inspect_scene"
     assert actions.next_action.tool == "move_object"
+    assert actions.next_action.requires_write is True
 
 
 def test_unknown_tool_is_rejected_before_plan_creation():
@@ -72,3 +74,21 @@ def test_validation_does_not_authorize_or_execute_actions():
 
     assert actions.current_index == 0
     assert not actions.complete
+    assert actions.next_action.requires_write is False
+
+
+def test_write_flag_must_be_boolean():
+    with pytest.raises(TaskPlanValidationError, match="requires_write"):
+        build_task_plan(
+            {
+                "evidence": [],
+                "actions": [
+                    {
+                        "tool": "move_object",
+                        "arguments": {},
+                        "requires_write": "yes",
+                    }
+                ],
+            },
+            allowed_tools={"move_object"},
+        )
