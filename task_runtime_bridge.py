@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict
 from evidence_plan import EvidencePlan
 from task_execution import TaskExecutionError, TaskExecutionRuntime
 from task_planner import TaskPlanProposal
+from tool_capabilities import ALL_TOOLS, WRITE_TOOLS
 
 
 class TaskRuntimeBridgeError(RuntimeError):
@@ -30,6 +31,8 @@ class TaskRuntimeBridge:
         self.execution = TaskExecutionRuntime(
             self.proposal,
             evidence_complete=self.evidence_plan.complete,
+            allowed_action_tools=set(ALL_TOOLS),
+            write_action_tools=set(WRITE_TOOLS),
         )
 
     @property
