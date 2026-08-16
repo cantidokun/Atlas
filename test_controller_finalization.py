@@ -47,7 +47,7 @@ def test_builds_complete_state_aware_report():
     assert "CALCULATED TARGET STATE" in answer
     assert "[0.000, 5.233, 0.000]" in answer
     assert "[0.000, -5.233, 0.000]" in answer
-    assert "Positional adjustment: [0.000, -0.069, 0.000]" in answer
+    assert "- Positional adjustment: [0.000, -0.069, 0.000]" in answer
     assert "FINAL VERIFIED STATE" in answer
     assert "[0.000, 0.000, 0.000]" in answer
     assert "verified" in answer.lower()
