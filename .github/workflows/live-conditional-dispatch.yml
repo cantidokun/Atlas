@@ -36,11 +36,10 @@ jobs:
         shell: cmd
         run: |
           if not exist "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" exit /b 1
-          copy /Y "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" ".\goalpost_test.blend"
-          copy /Y "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" ".\goalpost_test_CONDITIONAL_CORRECT.blend"
-          copy /Y "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" ".\goalpost_test_CONDITIONAL_INCORRECT.blend"
+          copy /Y "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test_CONDITIONAL_CORRECT.blend"
+          copy /Y "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test_CONDITIONAL_INCORRECT.blend"
           if errorlevel 1 exit /b 1
-          echo Provisioned base and conditional Blender fixtures from the runner-local Atlas fixture.
+          echo Provisioned conditional Blender fixtures in the Atlas tool directory.
 
       - name: Run live conditional Blender harness
         shell: cmd
