@@ -3,20 +3,201 @@ Date: August 16, 2026
 Current Milestone: Qwen Structured Planning Bridge Proven / General Planner Integration
 
 ============================================================
-LATEST VERIFIED DEVELOPMENT STATE
+1. PROJECT
 ============================================================
 
-The live Qwen planning bridge has now passed locally.
+Atlas is a local Blender environment-acquisition agent.
 
-The verified flow is:
+Core architecture:
 
-Task understanding
+User task
     ↓
-Qwen structured evidence requests + action requests
+Python orchestrator
+    ↓
+Local Qwen/Ollama model
+    ↓
+Reasoning and evidence selection
+    ↓
+Blender tools
+    ↓
+Evidence ledger
+    ↓
+Python controller when an authorized action is required
+    ↓
+Independent verification
+    ↓
+Final-answer validation or deterministic finalization
+
+Core principle:
+
+Qwen handles reasoning and interpretation.
+Python handles execution, state, mandatory actions, verification,
+and completion control.
+
+============================================================
+2. VERIFIED LOCAL ENVIRONMENT
+============================================================
+
+Python: 3.9.6
+Ollama: 0.32.13
+Atlas model: qwen3:8b
+Blender: 4.4
+
+Blender executable:
+C:\Program Files\Blender Foundation\Blender 4.4\blender.exe
+
+Ollama endpoint:
+http://localhost:11434/api/chat
+
+============================================================
+3. LIVE CONTROLLER RESULT — PASS
+============================================================
+
+The real local end-to-end controller test has passed.
+
+Test file:
+goalpost_test.blend
+
+The clean BEFORE backup is:
+goalpost_test_BEFORE_ATLAS_TEST.blend
+
+BEFORE:
+Goal_Left_post  = [0.0, 5.302, 0.0]
+Goal_Right_Post = [0.0, -5.164, 0.0]
+Midpoint        = [0.0, 0.069, 0.0]
+
+TARGET:
+Goal_Left_post  = [0.0, 5.233, 0.0]
+Goal_Right_Post = [0.0, -5.233, 0.0]
+Adjustment      = [0.0, -0.069, 0.0]
+
+Both writes succeeded.
+
+FINAL VERIFIED:
+Goal_Left_post  = [0.0, 5.233, 0.0]
+Goal_Right_Post = [0.0, -5.233, 0.0]
+Midpoint        = [0.0, 0.0, 0.0]
+Distance        = 10.466 units
+Symmetric       = true
+
+The final state came from a separate relationship inspection.
+
+============================================================
+4. WHAT THE LIVE TEST PROVED
+============================================================
+
+Atlas can now complete this full sequence on the real local setup:
+
+BEFORE
+  ↓
+TARGET
+  ↓
+WRITE 1
+  ↓
+WRITE 2
+  ↓
+INDEPENDENT VERIFICATION
+  ↓
+PYTHON FINAL REPORT
+  ↓
+CLEAN EXIT
+
+The first final-answer attempt from Qwen was incomplete. The evidence
+validator rejected it. Atlas acquired the needed final verification and
+Python built the complete final report from authoritative evidence.
+
+This proved that completion no longer depends on Qwen producing a perfect
+final answer after the Blender state is already verified.
+
+============================================================
+5. CURRENT CONTROLLER COMPONENTS
+============================================================
+
+controller_state.py
+- Tracks BEFORE, TARGET, WRITE, AFTER, and COMPLETE.
+- Calculates target positions from measured evidence.
+
+controller_runtime.py
+- Executes exactly one mandatory controller action at a time.
+- Does not delegate mandatory action ordering to Qwen.
+
+controller_bridge.py
+- Connects controller state to the existing agent.
+- Hydrates BEFORE state from existing evidence.
+
+controller_execution_adapter.py
+- Mirrors controller-owned results into normal tool history and evidence.
+
+controller_integration.py
+- Provides the integration boundary between the agent and controller.
+
+run_agent_with_controller.py
+- Live compatibility entrypoint.
+- Inserts controller ownership into the existing Qwen loop without
+  rewriting the main agent.
+
+controller_finalization.py
+- Builds a deterministic final report from verified evidence.
+
+============================================================
+6. GENERAL ACTION PLANNING V1
+============================================================
+
+A generic module exists:
+
+action_plan.py
+
+It defines:
+
+ActionSpec
+- One ordered authorized action.
+
+ActionPlan
+- Tracks the current action index.
+- Exposes the next action.
+- Records successful results.
+- Blocks on required failures.
+- Reports completion state.
+- Produces a serializable snapshot for logging/evidence.
+
+This is intentionally separate from the goalpost controller.
+
+============================================================
+7. GENERAL EVIDENCE PLANNER V1
+============================================================
+
+A generic module exists:
+
+evidence_plan.py
+
+It tracks ordered evidence requests, completion, reuse, and blocking failures.
+
+============================================================
+8. PLANNING ORCHESTRATOR V1
+============================================================
+
+planning_orchestrator.py connects evidence and action plans.
+
+It blocks action execution until required evidence is complete and exposes
+the next authorized action without requiring another model reasoning cycle.
+
+============================================================
+9. QWEN STRUCTURED PLANNING BRIDGE — VERIFIED
+============================================================
+
+The live planning bridge now passes locally.
+
+Entry point:
+
+live_qwen_planning_loop.py
+
+Verified flow:
+
+Qwen structured plan
     ↓
 Python plan validation
     ↓
-Read-only evidence acquisition
+Read-only Blender evidence
     ↓
 Planning orchestrator
     ↓
@@ -24,17 +205,17 @@ Structured action plan
     ↓
 WRITE EXECUTION NOT PERFORMED
 
-The live planning test produced:
+The successful test produced:
 
 - 1 structured evidence request
 - 2 structured actions
 - validated plan
 - read-only Blender evidence
-- evidence plan complete
-- action plan structured with the next action exposed
-- no write execution
+- completed evidence plan
+- structured action plan with next action exposed
+- zero write execution
 
-The test result was:
+Result:
 
 QWEN PLAN ACCEPTED
 EVIDENCE VERIFIED READ-ONLY
@@ -42,21 +223,93 @@ ACTION PLAN STRUCTURED
 WRITE EXECUTION NOT PERFORMED
 ATLAS QWEN PLANNING BRIDGE TEST: PASS
 
-The latest local regression suite also passed:
+This is the first live boundary between Qwen task planning and the generic
+Python planning primitives.
+
+============================================================
+10. CONTROLLED FAILURE / RECOVERY — VERIFIED
+============================================================
+
+The controlled failure harness also passes.
+
+A simulated write failure produces:
+
+- recoverable = true
+- fresh evidence required = true
+- retry authorized = false
+
+Atlas refuses automatic retry after a failed write and requires fresh
+read-only evidence plus a new validated and explicitly authorized plan.
+
+============================================================
+11. AUDIT TRAIL — VERIFIED
+============================================================
+
+The live action test records the lifecycle in order:
+
+Qwen proposal
+ ↓
+Evidence
+ ↓
+Authorization
+ ↓
+Execution 1
+ ↓
+Execution 2
+ ↓
+Verification
+
+The final live run completed with an audit trail and independent verification.
+
+============================================================
+12. OFFLINE TEST STATUS
+============================================================
+
+Latest local regression result:
 
 98 passed
 
 ============================================================
-CURRENT ARCHITECTURE
+13. ROADMAP
 ============================================================
 
-Atlas is separating three responsibilities:
+Stage 1 — Basic Blender Agent
+COMPLETE
 
-1. Qwen reasons about the task and proposes structured evidence/actions.
-2. Python validates, tracks state, authorizes, and executes.
-3. Blender provides measured state and independent verification.
+Stage 2 — Reliable Evidence
+COMPLETE
 
-Current target loop:
+Stage 3 — Mandatory Evidence Acquisition
+COMPLETE
+
+Stage 4 — Evidence Validation and Recommendation Restraint
+COMPLETE
+
+Stage 5 — General Evidence Planner
+IN PROGRESS
+
+Stage 6 — Reliable Modification Control
+COMPLETE FOR CURRENT CONTROLLER PATTERN
+
+Stage 7 — General Action Planning
+IN PROGRESS
+
+The generic action-plan primitive, evidence-plan primitive, planning
+orchestrator, and Qwen structured planning bridge are now proven.
+
+Stage 8 — Broader Autonomous Task Control
+NOT STARTED
+
+============================================================
+14. NEXT DEVELOPMENT TARGET
+============================================================
+
+The next target is conditional action planning.
+
+Atlas must determine from authoritative evidence whether the requested
+state is already satisfied before executing a proposed write.
+
+Desired behavior:
 
 Task
  ↓
@@ -64,9 +317,11 @@ Structured evidence requirements
  ↓
 Evidence ledger
  ↓
-Structured action plan
+Determine whether target already holds
  ↓
-Authorization gate
+If already satisfied: skip unnecessary writes
+ ↓
+If not satisfied: retain authorized action plan
  ↓
 Python-controlled execution
  ↓
@@ -74,51 +329,61 @@ Independent verification
  ↓
 Completion
 
-The existing live controller and safety boundaries remain intact.
+The first test should use the existing goalpost fixture in an already-correct
+state and prove that Atlas does not write unnecessarily.
+
+A second test should use a genuinely incorrect state and prove that the
+necessary write path remains available.
 
 ============================================================
-NEXT DEVELOPMENT TARGET
+15. USER TEST PROTOCOL
 ============================================================
 
-The next step is to make the action plan conditional on verified evidence.
+When a new local test is ready, immediately give the user the exact command
+to run. Do not make the user wait for an announcement.
 
-Atlas must not execute a proposed write merely because Qwen supplied one.
-The planner should determine whether the requested state is already satisfied.
-If it is already satisfied, the write should be skipped and the task should
-move toward verification/completion without unnecessary modification.
-
-The next test should therefore exercise:
-
-1. Qwen proposes evidence and actions.
-2. Python acquires authoritative evidence.
-3. Python determines whether the target state is already satisfied.
-4. The action plan is reduced or blocked when no write is necessary.
-5. No unnecessary Blender write occurs.
-
-After that boundary is stable, test a case where a write is genuinely required.
+Do not ask for a test before the harness exists on main.
 
 ============================================================
-USER TEST PROTOCOL
+16. DEVELOPMENT RULES
 ============================================================
 
-When a new local test is ready, immediately provide the user with the exact
-command/prompt to run. Do not make the user wait for an announcement.
+Do not rewrite the entire agent.
 
-Do not ask the user to run a test before the corresponding harness exists on
-main.
+Do not remove the evidence ledger.
 
-============================================================
-DOCUMENTATION RULE
-============================================================
+Do not remove independent post-write verification.
+
+Do not make goalpost behavior the generic architecture.
+
+Do not add tools without proving a real capability gap.
+
+Do not let a successful Blender state depend on a perfect Qwen final answer.
+
+Do not allow an action plan to execute without explicit authorization.
+
+Preserve working components and improve incrementally.
 
 Keep README.md, ATLAS_HANDOFF_CONTEXT.txt, and DEVELOPMENT_LOG.md synchronized
 with verified milestones and test results.
 
-Do not claim a live capability until the local/live test has actually passed.
+============================================================
+17. HANDOFF SUMMARY
+============================================================
 
-============================================================
-CORE PRINCIPLE
-============================================================
+Atlas has proven the controlled modification loop in the real environment.
+It has now also proven the first live Qwen structured planning boundary.
+
+The project is moving from:
+
+"Can Python reliably control one known modification?"
+
+to:
+
+"Can Python reliably control any authorized multi-step plan generated from
+task requirements and evidence, while avoiding unnecessary writes?"
+
+Core principle remains:
 
 Reason with Qwen.
 Control with Python.
