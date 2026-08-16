@@ -36,7 +36,7 @@ class RecoveryDecision:
 class FutureRecoveryGate:
     """Decide whether a failed deterministic future may proceed.
 
-    The default policy is intentionally conservative:
+    The policy is intentionally conservative:
     * no failure is automatically retried;
     * no failed action is silently removed or replaced;
     * fresh evidence is required before any replan decision;
@@ -89,16 +89,36 @@ class FutureRecoveryGate:
     def record_fresh_evidence(self, evidence: Any) -> Any:
         if self._decision is None:
             raise RuntimeError("Classify the failure before recording recovery evidence.")
+        if self._decision.disposition == RecoveryDisposition.ABORT:
+            raise RuntimeError("This failure is terminal; recovery evidence cannot reopen it.")
         if evidence is None:
             raise ValueError("Fresh recovery evidence cannot be None.")
         self._fresh_evidence = evidence
         return evidence
 
+    def advance_after_fresh_evidence(self) -> RecoveryDecision:
+        """Move an evidence-gated failure to an explicit replan decision."""
+        if not self.fresh_evidence_acquired:
+            raise RuntimeError("Fresh authoritative evidence is required first.")
+        if self._decision is None:
+            raise RuntimeError("No recovery decision exists.")
+        if self._decision.disposition == RecoveryDisposition.ABORT:
+            raise RuntimeError("A terminal failure cannot transition to replanning.")
+        if self._decision.disposition == RecoveryDisposition.REPLAN_REQUIRED:
+            return self._decision
+        self._decision = RecoveryDecision(
+            RecoveryDisposition.REPLAN_REQUIRED,
+            "Fresh authoritative evidence was acquired; a replacement plan must be produced and independently authorized.",
+            self._decision.failed_step,
+            requires_fresh_evidence=False,
+        )
+        return self._decision
+
     def authorize_replan(self) -> Any:
         if self._decision is None:
             raise RuntimeError("No recovery decision exists.")
         if self._decision.disposition != RecoveryDisposition.REPLAN_REQUIRED:
-            raise RuntimeError("This failure does not permit replanning.")
+            raise RuntimeError("Recovery must reach REPLAN_REQUIRED before replanning.")
         if not self.fresh_evidence_acquired:
             raise RuntimeError("Fresh authoritative evidence is required before replanning.")
         return self._fresh_evidence
