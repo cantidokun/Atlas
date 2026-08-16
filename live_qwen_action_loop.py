@@ -8,6 +8,9 @@ The live model is treated as untrusted: malformed schema output is rejected
 and corrected through a bounded prompt retry rather than being coerced into an
 action. No write occurs until a fully validated proposal passes the Python
 authorization gate.
+
+Every proposal attempt, evidence result, authorization decision, execution,
+and final verification is recorded in an append-only AuditTrail.
 """
 
 import json
@@ -16,6 +19,7 @@ from typing import Any, Dict, List
 import requests
 
 from action_plan import ActionPlan
+from audit_trail import AuditTrail
 from qwen_planning_runtime import parse_qwen_plan
 from qwen_planning_executor import execute_read_only_plan
 from task_plan_authorization import authorize_task_plan
@@ -82,7 +86,7 @@ def ask_qwen(messages: List[Dict[str, str]]) -> str:
     return response.json()["message"]["content"]
 
 
-def get_validated_plan() -> TaskPlanProposal:
+def get_validated_plan(audit: AuditTrail) -> TaskPlanProposal:
     messages: List[Dict[str, str]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": "Create the authorized Atlas task plan."},
@@ -102,7 +106,11 @@ def get_validated_plan() -> TaskPlanProposal:
             last_error = exc
 
         if proposal is not None:
+            audit.record_qwen_proposal(raw, attempt, True)
             return proposal
+
+        reason = str(last_error) if last_error else "schema validation failed"
+        audit.record_qwen_proposal(raw, attempt, False, reason)
 
         if attempt < MAX_PLAN_ATTEMPTS:
             messages.extend(
@@ -123,8 +131,17 @@ def execute_move_action(action: Any) -> Dict[str, Any]:
     return move_object(**action.arguments)
 
 
+def _action_dict(action: Any) -> Dict[str, Any]:
+    return {
+        "tool": action.tool,
+        "arguments": dict(action.arguments),
+        "name": action.name,
+    }
+
+
 def main() -> None:
-    proposal = get_validated_plan()
+    audit = AuditTrail()
+    proposal = get_validated_plan(audit)
 
     print("--- PLAN VALIDATION ---")
     print(f"Evidence requests: {len(proposal.evidence)}")
@@ -136,8 +153,6 @@ def main() -> None:
     if any(action.tool != "move_object" for action in proposal.actions):
         raise RuntimeError("Unexpected action tool")
 
-    # The read-only executor must never receive actions. Give it an inert,
-    # evidence-only copy of the validated proposal.
     evidence_only = TaskPlanProposal(
         evidence=proposal.evidence,
         actions=[],
@@ -148,6 +163,11 @@ def main() -> None:
     print(json.dumps(evidence_execution, indent=2))
 
     relationship = evidence_execution["results"][0]["result"]
+    audit.record_evidence(
+        _action_dict(proposal.evidence[0]),
+        relationship,
+    )
+
     if relationship["object_a"]["location"] != [0.0, 5.302, 0.0]:
         raise RuntimeError("Unexpected BEFORE left-post location")
     if relationship["object_b"]["location"] != [0.0, -5.164, 0.0]:
@@ -157,12 +177,18 @@ def main() -> None:
 
     print("--- BEFORE STATE CONFIRMED ---")
 
-    authorize_task_plan(
-        proposal,
-        evidence_complete=True,
-        allowed_action_tools={"move_object"},
-        allow_writes=True,
-    )
+    try:
+        authorize_task_plan(
+            proposal,
+            evidence_complete=True,
+            allowed_action_tools={"move_object"},
+            allow_writes=True,
+        )
+    except Exception as exc:
+        audit.record_authorization(False, reason=str(exc), action_count=len(proposal.actions))
+        raise
+
+    audit.record_authorization(True, action_count=len(proposal.actions))
     print("--- WRITE AUTHORIZATION ---")
     print("AUTHORIZED: True")
 
@@ -172,11 +198,20 @@ def main() -> None:
         if action is None:
             raise RuntimeError("Action plan unexpectedly has no next action")
 
-        print(f"--- ACTION {action_plan.current_index + 1} ---")
-        result = execute_move_action(action)
+        action_index = action_plan.current_index
+        action_payload = _action_dict(action)
+        print(f"--- ACTION {action_index + 1} ---")
+
+        try:
+            result = execute_move_action(action)
+        except Exception as exc:
+            audit.record_action(action_index, action_payload, {"error": str(exc)}, False)
+            raise
+
         print(json.dumps(result, indent=2))
 
         success = result.get("status") == "moved"
+        audit.record_action(action_index, action_payload, result, success)
         action_plan.record_result(result, success=success)
         if not success:
             raise RuntimeError(f"Authorized action failed: {result}")
@@ -192,17 +227,27 @@ def main() -> None:
     )
     print(json.dumps(final, indent=2))
 
-    assert final["object_a"]["location"] == [0.0, 5.233, 0.0]
-    assert final["object_b"]["location"] == [0.0, -5.233, 0.0]
-    assert final["midpoint"] == [0.0, 0.0, 0.0]
-    assert final["symmetric_about_origin"] is True
-    assert final["distance"] == 10.466
+    verification_ok = (
+        final["object_a"]["location"] == [0.0, 5.233, 0.0]
+        and final["object_b"]["location"] == [0.0, -5.233, 0.0]
+        and final["midpoint"] == [0.0, 0.0, 0.0]
+        and final["symmetric_about_origin"] is True
+        and final["distance"] == 10.466
+    )
+    audit.record_verification(final, verification_ok)
+
+    if not verification_ok:
+        raise RuntimeError("Independent final verification failed")
+
+    print("--- AUDIT TRAIL ---")
+    print(json.dumps(audit.snapshot(), indent=2))
 
     print("--- ATLAS RESULT ---")
     print("QWEN PROPOSAL ACCEPTED")
     print("PYTHON AUTHORIZATION ACCEPTED")
     print("TWO WRITES EXECUTED")
     print("FINAL STATE INDEPENDENTLY VERIFIED")
+    print("AUDIT TRAIL COMPLETE")
     print("ATLAS END-TO-END WRITE TEST: PASS")
 
 
