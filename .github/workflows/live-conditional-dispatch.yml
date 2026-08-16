@@ -32,14 +32,10 @@ jobs:
           echo Workspace: %GITHUB_WORKSPACE%
           cd
 
-      - name: Provision local Blender fixture
+      - name: Provision deterministic local Blender fixtures
         shell: cmd
         run: |
-          if not exist "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" exit /b 1
-          copy /Y "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test_CONDITIONAL_CORRECT.blend"
-          copy /Y "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend" "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test_CONDITIONAL_INCORRECT.blend"
-          if errorlevel 1 exit /b 1
-          echo Provisioned conditional Blender fixtures in the Atlas tool directory.
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\scripts\provision_conditional_fixtures.ps1"
 
       - name: Run live conditional Blender harness
         shell: cmd
