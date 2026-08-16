@@ -29,10 +29,7 @@ HOOK_SOURCE = r'''
 # Qwen remains responsible for normal reasoning and all non-controller work.
 _controller_forced = controller_integration.before_model_tool_execution()
 
-if (
-    _controller_forced is not None
-    and _controller_forced.get("kind") != "complete"
-):
+if _controller_forced is not None and _controller_forced.get("kind") != "complete":
     _controller_result = controller_integration.execute_forced_action(
         lambda tool_name, tool_arguments: TOOLS[tool_name](**tool_arguments)
     )
@@ -81,25 +78,26 @@ if (
         }
     )
 
-    # A completed controller task has authoritative BEFORE, TARGET and
-    # independently verified AFTER state. Do not spend another Qwen reasoning
-    # cycle trying to rediscover a final answer that Python can construct from
-    # the verified evidence. This is a deterministic recovery path for
-    # controller-owned modifications; normal non-controller tasks still use
-    # the Qwen final-answer validator in agent.py.
-    if controller_integration.complete:
-        from controller_finalization import build_midpoint_final_answer
+# A completed controller task has authoritative BEFORE, TARGET and
+# independently verified AFTER state. Do not spend another Qwen reasoning
+# cycle trying to rediscover a final answer that Python can construct from
+# the verified evidence. This completion check intentionally runs even when
+# before_model_tool_execution() returns {"kind": "complete"}; that is the
+# exact state reached after the final forced verification action.
+if controller_integration.complete:
+    from controller_finalization import build_midpoint_final_answer
 
-        _controller_final_answer = build_midpoint_final_answer(
-            evidence_ledger,
-            tool_execution_history,
-        )
+    _controller_final_answer = build_midpoint_final_answer(
+        evidence_ledger,
+        tool_execution_history,
+    )
 
-        if _controller_final_answer is not None:
-            print("\n========== ATLAS FINAL RESPONSE ==========\n")
-            print(_controller_final_answer)
-            raise SystemExit(0)
+    if _controller_final_answer is not None:
+        print("\n========== ATLAS FINAL RESPONSE ==========\n")
+        print(_controller_final_answer)
+        raise SystemExit(0)
 
+if _controller_forced is not None:
     continue
 '''
 
@@ -126,7 +124,6 @@ def build_controller_enabled_source(agent_source: str) -> str:
     )
     tree.body.insert(0, import_node)
 
-    # Find the existing module-level reasoning loop.
     candidate_loops = []
     for node in tree.body:
         if not isinstance(node, ast.For):
@@ -144,8 +141,6 @@ def build_controller_enabled_source(agent_source: str) -> str:
 
     loop = candidate_loops[0]
 
-    # The agent already creates evidence_ledger and tool_execution_history at
-    # module scope. Create the controller beside that existing state.
     state_inserted = False
     for index, node in enumerate(tree.body):
         if (
@@ -173,9 +168,6 @@ def build_controller_enabled_source(agent_source: str) -> str:
             "Could not find tool_execution_history initialization in agent.py."
         )
 
-    # Insert the hook before the first existing statement in the reasoning
-    # loop. The hook runs before requests.post, allowing Python to take over
-    # before Qwen gets another chance to choose a mandatory action.
     loop.body[0:0] = _controller_hook_nodes()
 
     ast.fix_missing_locations(tree)
