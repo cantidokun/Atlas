@@ -55,7 +55,19 @@ def test_read_only_plan_does_not_need_write_authorization():
         evidence_complete=True,
         allowed_action_tools={"inspect_scene"},
         allow_writes=False,
+        write_action_tools={"move_object"},
     ) is True
+
+
+def test_trusted_registry_overrides_model_write_flag():
+    with pytest.raises(TaskPlanAuthorizationError, match="explicitly enabled"):
+        authorize_task_plan(
+            _proposal("move_object", requires_write=False),
+            evidence_complete=True,
+            allowed_action_tools={"move_object"},
+            allow_writes=False,
+            write_action_tools={"move_object"},
+        )
 
 
 def test_authorized_plan_is_still_inert():
@@ -65,5 +77,6 @@ def test_authorized_plan_is_still_inert():
         evidence_complete=True,
         allowed_action_tools={"move_object"},
         allow_writes=True,
+        write_action_tools={"move_object"},
     ) is True
     assert proposal.actions[0].tool == "move_object"
