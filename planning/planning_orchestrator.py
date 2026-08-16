@@ -7,6 +7,7 @@ from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import DeterministicFutureGenerator
+from planning.future_recovery import FutureRecoveryGate
 from planning.target_state import TargetStateEvaluationError, TargetStateEvaluator, TargetStateResult
 from planning.verification_plan import VerificationPlan
 
@@ -93,6 +94,7 @@ class ConditionalPlanningOrchestrator:
     target_state: Optional[TargetStateResult] = None
     evaluation_error: Optional[str] = None
     future_controller: Optional[FutureExecutionController] = None
+    recovery_gate: Optional[FutureRecoveryGate] = None
 
     def __post_init__(self) -> None:
         if self.verification_plan is None:
@@ -190,6 +192,11 @@ class ConditionalPlanningOrchestrator:
             self.future_controller.acknowledge({"writes_skipped": True})
         return result
 
+    def _record_future_failure(self) -> None:
+        if self.future_controller is not None:
+            self.recovery_gate = FutureRecoveryGate(self.future_controller)
+            self.recovery_gate.classify_failure()
+
     def execute_next_action(self, execute: ToolExecutor) -> Dict[str, Any]:
         if not self.evidence_complete:
             raise RuntimeError("Action execution is blocked until evidence is complete.")
@@ -216,8 +223,11 @@ class ConditionalPlanningOrchestrator:
         except Exception as exc:
             failure = {"error": str(exc), "exception_type": type(exc).__name__}
             self.conditional_plan.record_result(failure, False)
+            self._record_future_failure()
             raise
         self.conditional_plan.record_result(result, "error" not in result)
+        if "error" in result:
+            self._record_future_failure()
         return result
 
     def verify_post_action(self, evidence: Any) -> TargetStateResult:
@@ -236,6 +246,8 @@ class ConditionalPlanningOrchestrator:
             raise RuntimeError("Deterministic future is not at the verification checkpoint.")
         result = self.verification_plan.verify(evidence)
         self.future_controller.verify(result.snapshot())
+        if self.future_controller.blocked:
+            self._record_future_failure()
         return result
 
     def finalize_future(self) -> Dict[str, Any]:
@@ -257,4 +269,5 @@ class ConditionalPlanningOrchestrator:
             "conditional_actions": self.conditional_plan.snapshot(),
             "verification": self.verification_plan.snapshot() if self.verification_plan else None,
             "future": self.future_controller.snapshot() if self.future_controller else None,
+            "recovery": self.recovery_gate.snapshot() if self.recovery_gate else None,
         }
