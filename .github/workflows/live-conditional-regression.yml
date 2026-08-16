@@ -12,9 +12,6 @@ on:
 permissions:
   contents: read
 
-# The live regression uses one self-hosted Blender/Qwen environment. Only the
-# newest main revision should consume that environment; superseded runs are
-# cancelled rather than queued behind stale code.
 concurrency:
   group: atlas-live-conditional-main
   cancel-in-progress: true
@@ -36,20 +33,44 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
-
       - name: Show runner environment
         shell: cmd
         run: |
           echo Runner name: %RUNNER_NAME%
           echo Workspace: %GITHUB_WORKSPACE%
           cd
-
       - name: Provision deterministic local Blender fixtures
         shell: cmd
         run: |
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\scripts\provision_conditional_fixtures.ps1"
-
       - name: Run live conditional Blender harness
         shell: cmd
         run: |
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_conditional_loop.py --case '${{ matrix.case }}'"
+
+  live-generic-collection:
+    name: live generic collection (${{ matrix.case }})
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - already-correct
+          - incorrect
+
+    steps:
+      - name: Check out current Atlas main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+      - name: Run live generic collection task
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_collection_task.py --case '${{ matrix.case }}'"
