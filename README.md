@@ -7,102 +7,119 @@ Atlas is an agent that can inspect and change Blender files.
 It uses two main parts:
 
 - **Qwen**: thinks about the user's request and decides what information is needed.
-- **Python**: controls the tools, keeps track of what was proven, and checks whether the final answer is allowed.
+- **Python**: controls tools, tracks what was proven, controls required actions, and checks the final answer.
 
-The main idea is simple: **Qwen can reason, but Python controls what actually happened.**
+The main idea is simple:
+
+> **Qwen can reason, but Python controls what actually happened.**
 
 ---
 
-## Where we are now
+# Where we are now
 
-Atlas is past the first major proof-of-concept stage.
+Atlas is past the basic proof-of-concept stage.
 
-The agent can already:
+It can already:
 
 - connect to Blender
 - connect to the local Qwen model through Ollama
-- call Blender inspection tools
-- call approved write tools
+- inspect Blender scenes
+- use approved Blender write tools
 - handle tool errors
-- keep an evidence ledger of successful tool results
-- make Qwen use that evidence when reasoning
-- check final answers for claims that disagree with the evidence
-- ask for more evidence when an answer needs information that is not known yet
-- avoid making recommendations when the evidence does not show that a change is needed
+- keep an evidence ledger
+- make Qwen use the evidence ledger when reasoning
+- request missing evidence through the first version of the General Evidence Planner
+- check final answers against measured evidence
+- avoid unsupported recommendations
+- track the state of an authorized modification
+- calculate required target positions
+- track required writes
+- require a separate post-write verification
 
-The most important recent progress is that we started moving **execution control out of Qwen and into Python**.
-
-This matters because a language model can say that it wants to do something without actually doing it. Atlas now has a separate controller that can track the real steps of a modification task.
+The most important recent change is that **mandatory modification steps are moving out of Qwen's control and into Python**.
 
 ---
 
-## The test we have been using
+# The test we are using
 
 Our main test file is:
 
 `goalpost_test.blend`
 
-It contains two important objects:
+Important objects:
 
 - `Goal_Left_post`
 - `Goal_Right_Post`
 
-The current measured midpoint between them is:
+The measured starting midpoint is:
 
 `[0.0, 0.138, 0.0]`
 
-The test requirement says the midpoint must be:
+The task requires the midpoint to become:
 
 `[0.0, 0.0, 0.0]`
 
-So the file gives us a good test for whether Atlas can:
+This is a useful test because Atlas must:
 
-1. inspect a Blender scene
-2. understand a measured relationship
-3. calculate a required change
-4. make the change
-5. check the result again
-6. report only what was actually proven
+1. inspect the file
+2. measure the relationship
+3. calculate the required change
+4. perform the required writes
+5. inspect the file again
+6. prove the final result
+7. report only what the evidence supports
 
 ---
 
-## What we recently built
+# What we recently built
 
-### 1. Evidence tracking
+## 1. Evidence ledger
 
-Atlas keeps an **evidence ledger**. Every successful tool result is recorded there.
+Every successful tool result is saved in an evidence ledger.
 
-### 2. Final-answer checking
+Qwen receives that ledger when it reasons again. This gives the model a clear record of what Atlas has actually measured.
 
-A Python validator checks Qwen's proposed answer against the evidence. For example, if the tool says `symmetric_about_origin = false`, Atlas will reject an answer that says the objects are symmetric about the world origin.
+## 2. Final-answer validator
 
-The validator was also fixed so it does not mistake phrases such as **"not confirmed"** for a positive confirmation.
+Python checks the proposed answer against the evidence.
 
-### 3. Evidence planning
+For example, if the relationship tool says:
 
-Atlas now gives Qwen a way to request a specific piece of missing evidence.
+`symmetric_about_origin = false`
+
+Atlas will reject an answer that says the objects are symmetric about the world origin.
+
+The validator also handles negative wording correctly, so phrases such as **"not confirmed"** are not mistaken for positive confirmation.
+
+## 3. General Evidence Planner V1
+
+Qwen can now identify a specific evidence gap and request a tool.
+
+The basic flow is:
 
 ```text
-Qwen identifies an evidence gap
+Qwen identifies missing evidence
         ↓
-Python checks the evidence ledger
+Python checks the ledger
         ↓
-Is the evidence already known?
-        ↓
-   YES        NO
-    ↓          ↓
-Reason     Run an available tool
+Already known?
+   ↓           ↓
+  YES          NO
+   ↓           ↓
+Reason      Run a tool
                ↓
-          Add result to ledger
+          Save the result
                ↓
           Qwen reasons again
 ```
 
-This is the first version of the **General Evidence Planner** from the roadmap. It is still limited and needs more testing.
+This is the first version of the General Evidence Planner from the roadmap.
 
-### 4. A real controller state machine
+It is **not finished yet**. It still needs broader testing and better integration with different task types.
 
-We also built a separate controller for authorized modification tasks.
+## 4. Controller state machine
+
+We built a deterministic controller for the current authorized midpoint task.
 
 ```text
 BEFORE
@@ -118,11 +135,37 @@ AFTER
 COMPLETE
 ```
 
-For the current midpoint task, Atlas must measure the starting relationship, calculate the target, move both authorized objects, inspect the relationship again, and only then report success.
+Python owns this sequence.
 
-A successful first move is **not** enough to mark the task complete. A failed write also does not count as a completed step.
+Qwen cannot make one successful write and then decide that the task is finished.
 
-This is an important change because Python, not Qwen, now owns the required sequence.
+## 5. Controller runtime
+
+The runtime can execute the next required controller action without asking Qwen to choose the order.
+
+It tracks:
+
+- the measured BEFORE state
+- the TARGET state
+- successful writes
+- failed writes
+- the AFTER inspection
+- completion
+
+## 6. Controller execution adapter
+
+We have now added a small adapter that connects the controller to the existing Atlas architecture.
+
+The adapter is designed to mirror controller-owned tool results into the normal:
+
+- tool execution history
+- evidence ledger
+
+This lets us keep the existing reasoning loop and final-answer validator instead of rewriting them.
+
+The adapter has its own tests.
+
+**Important:** the adapter exists and is tested, but the live `agent.py` tool boundary has **not yet been wired to call it**. That is the next implementation step.
 
 ---
 
@@ -132,93 +175,150 @@ This is an important change because Python, not Qwen, now owns the required sequ
 
 **Status: COMPLETE**
 
-Atlas can connect to Blender, inspect objects, use tools, and communicate with the local reasoning model.
+Atlas can connect to Blender, inspect objects, use tools, and communicate with Qwen.
 
 ## Stage 2 — Reliable Evidence
 
 **Status: COMPLETE**
 
-Atlas records successful tool results and uses them as the evidence base for its answers. It also has factuality rules and a final-answer validator.
+Atlas records successful tool results and uses them as evidence. It also has factuality rules and a final-answer validator.
 
 ## Stage 3 — Mandatory Evidence Acquisition
 
 **Status: COMPLETE**
 
-Prompt instructions alone were not enough. Qwen could say that it needed an inspection and then answer without actually doing it. We solved this by putting mandatory acquisition in Python.
+We learned that prompt instructions alone were not enough. Python now controls mandatory evidence acquisition.
 
 ## Stage 4 — Evidence Validation and Recommendation Restraint
 
 **Status: COMPLETE**
 
-Atlas passed the recommendation-restraint test. It can measure an offset without automatically calling it an error or inventing outside requirements.
+Atlas passed the recommendation-restraint test. It can measure a geometric offset without inventing an outside standard or automatically calling the offset an error.
 
 ## Stage 5 — General Evidence Planner
 
 **Status: IN PROGRESS**
 
-The first planner exists. It lets Qwen request a specific missing piece of evidence, lets Python check whether that request is already satisfied, and runs an available tool when it is not.
+The first planner exists and can request specific missing evidence.
 
-The next work is to test this with more task types and make sure the planner works as a normal part of the main agent loop.
+Still needed:
+
+- more task types
+- more evidence-gap tests
+- stronger integration with the main agent loop
+- clearer rules for when an existing tool is enough
+- a clean path for deciding when a new tool is actually needed
 
 ## Stage 6 — Reliable Modification Control
 
-**Status: CORE PIECES BUILT / MAIN LOOP INTEGRATION NEXT**
+**Status: CORE SYSTEM BUILT / LIVE AGENT INTEGRATION NEXT**
 
-We have built:
+The core controller pieces now exist:
 
-- controller state
+- state machine
 - target calculation
 - required-write tracking
 - write-result tracking
 - post-write verification
 - completion gates
 - controller runtime
-- an adapter between the controller and the existing agent design
+- execution adapter
+- adapter tests
 
-The remaining job is to connect that adapter to the main `agent.py` tool-execution boundary and run the full task end-to-end.
+What is still missing is the final connection from the adapter into the live `agent.py` tool-execution boundary.
+
+We should **not** call Stage 6 complete until the live agent passes the full Blender test.
 
 ---
 
 # What just happened
 
-The latest work focused on making Atlas safer and more reliable when it changes Blender files.
+The recent development had one main goal: make Atlas control real Blender changes more reliably.
 
-We first added a state machine. Then we added tests. Then we tightened the completion rules so Atlas cannot call a task complete while required writes are still missing.
+First, we built the controller state machine.
 
-We then built a small runtime that can execute the next required controller action without asking Qwen to decide the order.
+Then we built the runtime that can execute the next required action.
 
-Finally, we added a small bridge that is designed to connect that runtime to the existing agent loop without replacing the evidence ledger or final-answer validator.
+Then we added an adapter between that controller and the rest of Atlas.
 
-We are deliberately doing this in small pieces instead of rewriting the whole agent.
+The adapter is intentionally small. It does not replace Qwen, the evidence ledger, or the final validator.
+
+The next step is to put that adapter directly into the existing tool-execution path in `agent.py`.
+
+This is the point where the controller stops being an isolated subsystem and becomes part of the actual agent.
 
 ---
 
 # What should happen next
 
-### 1. Connect the controller bridge to `agent.py`
+## 1. Wire the adapter into `agent.py`
 
-This is the immediate next step. The current agent already has a tool loop, evidence ledger, authorization checks, and final-answer validation. We should add the bridge at the tool-execution boundary instead of replacing those systems.
+This is the immediate next step.
 
-### 2. Run the full midpoint test
+The current flow is roughly:
 
-Atlas should be able to inspect the BEFORE state, calculate the TARGET, perform both required moves, perform the AFTER inspection, confirm the midpoint is exactly `[0.0, 0.0, 0.0]`, and produce a final answer that matches the evidence.
+```text
+Qwen requests tool
+        ↓
+agent.py executes tool
+        ↓
+result goes to ledger
+        ↓
+Qwen reasons again
+```
 
-### 3. Test failure cases
+We want:
 
-We should test:
+```text
+Qwen requests tool
+        ↓
+Python controller checks state
+        ↓
+Mandatory controller action?
+      ↙        ↘
+    YES         NO
+     ↓           ↓
+Controller    Normal tool
+chooses it     execution
+     ↓           ↓
+     └─────┬─────┘
+           ↓
+     Evidence ledger
+           ↓
+          Qwen
+```
+
+The controller should only take control when the current task actually requires its workflow.
+
+## 2. Run the full midpoint test
+
+The live agent must prove that it can:
+
+- collect the BEFORE relationship
+- calculate the TARGET
+- move `Goal_Left_post`
+- move `Goal_Right_Post`
+- perform the AFTER relationship inspection
+- confirm the midpoint is exactly `[0.0, 0.0, 0.0]`
+- produce a final answer supported by the evidence
+
+## 3. Test failure cases
+
+We should deliberately test:
 
 - first move fails
 - second move fails
-- verification is skipped
+- verification fails
 - Qwen tries to finish early
 - Qwen asks for an unrelated write
 - a tool returns an error
+- the scene is already correct before any write
 
-Atlas should fail safely in each case.
+Atlas should fail safely or take the correct next action in each case.
 
-### 4. Generalize the controller
+## 4. Generalize the controller
 
-Once the midpoint task works end-to-end, the controller should be generalized beyond goalposts.
+Once the live midpoint test passes, generalize the controller beyond goalposts.
 
 The long-term pattern is:
 
@@ -226,11 +326,11 @@ The long-term pattern is:
 BEFORE → TARGET → ACTIONS → AFTER → COMPLETE
 ```
 
-The user's request and the evidence planner should determine what those actions are.
+The user's request and evidence should determine what those actions are.
 
-### 5. Expand the General Evidence Planner
+## 5. Expand the General Evidence Planner
 
-After the controller is stable, test the planner with different questions and evidence needs.
+After the controller is stable, test the planner with different kinds of Blender questions.
 
 The planner should answer:
 
@@ -238,7 +338,7 @@ The planner should answer:
 2. **Can an existing tool find it?**
 3. **If not, do we actually need a new tool?**
 
-Only the third case should lead us to consider building a new Blender capability.
+Only the third case should lead us to build a new Blender capability.
 
 ---
 
@@ -246,7 +346,9 @@ Only the third case should lead us to consider building a new Blender capability
 
 Atlas is not supposed to be a chatbot that only talks about Blender.
 
-The goal is an agent that can **inspect an environment, gather evidence, reason about that evidence, make authorized changes, verify those changes, and give a factual answer.**
+The goal is an agent that can:
+
+**inspect → gather evidence → reason → act → verify → report**
 
 The system is split on purpose:
 
@@ -254,12 +356,12 @@ The system is split on purpose:
 - **Python is good at control and state.**
 - **Blender tools provide the evidence.**
 
-Together, they form the Atlas architecture.
+Together, they form Atlas.
 
 ---
 
 ## Current status in one sentence
 
-**Atlas can already inspect Blender scenes, gather and validate evidence, reason without inventing facts, and has the core pieces for controlled modifications; the next major task is to connect the controller to the main agent and prove the full modification loop end-to-end.**
+**Atlas can already inspect Blender scenes, gather and validate evidence, reason without inventing facts, and has the core system for controlled modifications; the next major step is wiring that controller into the live agent and proving the complete modification loop.**
 
-For the full technical history, see `ATLAS_HANDOFF_CONTEXT.txt`.
+For the full technical handoff, see `ATLAS_HANDOFF_CONTEXT.txt`.
