@@ -2,12 +2,9 @@
 
 Qwen proposes the plan. Python validates it, acquires read-only evidence, and
 makes the target-state decision from that evidence. A satisfied target skips
-all writes. An unsatisfied target enters the existing Python authorization gate,
-executes the already-validated actions, and independently verifies the result.
-
-Usage:
-    python live_qwen_conditional_loop.py --case already-correct
-    python live_qwen_conditional_loop.py --case incorrect
+all conditional-plan writes. An unsatisfied target enters the existing Python
+authorization gate, executes the already-validated actions, and independently
+verifies the result.
 """
 
 import argparse
@@ -28,7 +25,8 @@ from tools.blender import inspect_object_relationship, move_object
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
-CORRECT_FILE = "goalpost_test.blend"
+SOURCE_FILE = "goalpost_test.blend"
+WORKING_CORRECT_FILE = "goalpost_test_CONDITIONAL_CORRECT.blend"
 WORKING_INCORRECT_FILE = "goalpost_test_CONDITIONAL_INCORRECT.blend"
 MAX_PLAN_ATTEMPTS = 3
 
@@ -44,7 +42,7 @@ def build_system_prompt(file_name: str) -> str:
 
 Create a structured plan for {file_name} whose requested final state is:
 - Goal_Left_post = [0.0, 5.233, 0.0]
-- Goal_Right_Post = [0.0, -5.233, 0.0]
+- Goal_Right_post = [0.0, -5.233, 0.0]
 - midpoint = [0.0, 0.0, 0.0]
 
 The available tools have these EXACT Python-compatible signatures:
@@ -56,11 +54,8 @@ object2, target_position, or position.
 
 Return ONLY valid JSON with exactly two top-level fields: evidence and actions.
 Both fields MUST be arrays.
-Evidence MUST contain exactly one request:
-{{"tool":"inspect_object_relationship","arguments":{{"file_name":"{file_name}","object1_name":"Goal_Left_post","object2_name":"Goal_Right_Post"}},"name":"inspect_object_relationship"}}
-Actions MUST contain exactly two requests in left-then-right order:
-{{"tool":"move_object","arguments":{{"file_name":"{file_name}","object_name":"Goal_Left_post","location":[0.0,5.233,0.0]}},"name":"move_left_post"}}
-{{"tool":"move_object","arguments":{{"file_name":"{file_name}","object_name":"Goal_Right_Post","location":[0.0,-5.233,0.0]}},"name":"move_right_post"}}
+Evidence MUST contain exactly one request for inspect_object_relationship.
+Actions MUST contain exactly two move_object requests in left-then-right order.
 Every item must contain tool, arguments, and name.
 Do not add tools, fields, coordinates, markdown, or explanations.
 Do not execute tools yourself."""
@@ -139,17 +134,24 @@ def action_payload(action: Any) -> Dict[str, Any]:
 
 
 def prepare_case(case: str) -> str:
-    if case == "already-correct":
-        return CORRECT_FILE
+    """Create an isolated fixture; setup writes are outside Atlas execution."""
+    target_file = WORKING_CORRECT_FILE if case == "already-correct" else WORKING_INCORRECT_FILE
+    shutil.copy2(SOURCE_FILE, target_file)
 
-    # The fixture setup is isolated to a disposable copy. It deliberately does
-    # not use the conditional planner; it creates the known-incorrect starting
-    # state that the conditional planner must then repair.
-    shutil.copy2(CORRECT_FILE, WORKING_INCORRECT_FILE)
-    setup_result = move_object(WORKING_INCORRECT_FILE, "Goal_Left_post", [0.0, 5.000, 0.0])
-    if setup_result.get("status") != "moved":
-        raise RuntimeError(f"Could not prepare incorrect fixture: {setup_result}")
-    return WORKING_INCORRECT_FILE
+    # Fixture preparation is deliberately outside the conditional planner. This
+    # makes each live test deterministic even if the checked-in source fixture
+    # has drifted. These setup writes are never counted as Atlas action writes.
+    left = move_object(target_file, "Goal_Left_post", TARGET_LEFT)
+    right = move_object(target_file, "Goal_Right_Post", TARGET_RIGHT)
+    if left.get("status") != "moved" or right.get("status") != "moved":
+        raise RuntimeError(f"Could not normalize conditional fixture: {left}; {right}")
+
+    if case == "incorrect":
+        incorrect = move_object(target_file, "Goal_Left_post", [0.0, 5.000, 0.0])
+        if incorrect.get("status") != "moved":
+            raise RuntimeError(f"Could not prepare incorrect fixture: {incorrect}")
+
+    return target_file
 
 
 def main() -> None:
@@ -175,6 +177,12 @@ def main() -> None:
     audit.record_evidence(action_payload(proposal.evidence[0]), relationship)
 
     satisfied = target_is_satisfied(relationship)
+    expected_case_satisfied = args.case == "already-correct"
+    if satisfied != expected_case_satisfied:
+        raise RuntimeError(
+            f"Fixture/decision mismatch: case={args.case}, target_satisfied={satisfied}"
+        )
+
     conditional = ConditionalActionPlan(
         action_plan=ActionPlan(list(proposal.actions)),
         condition=TargetCondition(path=("target_satisfied",), expected=True),
@@ -193,13 +201,13 @@ def main() -> None:
 
     if satisfied:
         if conditional.next_action is not None or conditional.action_plan.completed:
-            raise RuntimeError("Satisfied target exposed or executed a write")
+            raise RuntimeError("Satisfied target exposed or executed a conditional write")
         final = inspect_object_relationship(file_name, "Goal_Left_post", "Goal_Right_Post")
         if not target_is_satisfied(final):
             raise RuntimeError("Independent no-op verification failed")
         audit.record_verification(final, True)
         print("TARGET ALREADY SATISFIED")
-        print("WRITE EXECUTION SKIPPED")
+        print("CONDITIONAL WRITE EXECUTION SKIPPED")
         print("ATLAS CONDITIONAL ALREADY-CORRECT TEST: PASS")
     else:
         authorize_task_plan(
