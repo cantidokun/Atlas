@@ -37,6 +37,7 @@ It can now:
 - finish a completed controller task without giving control back to Qwen
 - track a generic ordered action plan with Python
 - track a generic ordered evidence plan with Python
+- coordinate evidence completion before authorized action execution
 
 The current test asset is `goalpost_test.blend`.
 
@@ -120,6 +121,7 @@ The suite includes tests for:
 - negative-zero formatting
 - generic ordered action plans
 - generic ordered evidence plans
+- evidence-to-action orchestration
 
 ---
 
@@ -204,6 +206,50 @@ The new primitive gives Python a reliable place to track that process once those
 
 ---
 
+# New: Planning Orchestrator V1
+
+A small bridge now connects the evidence plan and action plan:
+
+`planning_orchestrator.py`
+
+Its job is intentionally narrow:
+
+```text
+Evidence plan
+     ↓
+Evidence complete?
+     ↓
+Yes
+     ↓
+Authorized action plan
+     ↓
+Execute one action
+     ↓
+Update state
+```
+
+The orchestrator blocks action execution until evidence is complete.
+
+It can also reuse evidence that is already known instead of running another tool.
+
+If evidence acquisition fails, the orchestrator stays blocked.
+
+If an authorized action fails, the action plan stays blocked.
+
+### Important limitation
+
+This is still offline plumbing.
+
+It does **not** yet connect directly to Qwen's natural-language task interpretation.
+
+It does **not** decide whether a write is authorized.
+
+It does **not** replace the current live goalpost controller.
+
+Those safeguards remain deliberate.
+
+---
+
 # The architecture we are moving toward
 
 Atlas is separating three different questions:
@@ -233,7 +279,7 @@ Evidence plan
  ↓
 Evidence ledger
  ↓
-Action plan
+Authorized action plan
  ↓
 Python-controlled execution
  ↓
@@ -278,9 +324,9 @@ Atlas distinguishes measured facts from guesses and recommendations.
 
 **IN PROGRESS**
 
-Evidence-plan primitives now exist.
+Evidence-plan primitives and the evidence-to-action bridge now exist.
 
-The next work is connecting natural-language task needs to those evidence requests and testing more task types.
+The next work is connecting natural-language task needs to evidence requests and testing more task types.
 
 ## Stage 6 — Reliable Modification Control
 
@@ -298,9 +344,9 @@ The controller no longer depends on Qwen to decide when mandatory writes or fina
 
 **IN PROGRESS**
 
-The generic action-plan primitive now exists.
+The generic action-plan primitive and planning orchestrator now exist.
 
-The next goal is to make the action plan come from the task and evidence instead of hard-coding goalpost behavior.
+The next goal is to make the plan come from task and evidence state while preserving explicit authorization and independent verification.
 
 Desired flow:
 
@@ -311,7 +357,7 @@ Evidence needed
  ↓
 Evidence ledger
  ↓
-Action plan
+Authorized action plan
  ↓
 Action 1
  ↓
@@ -351,26 +397,26 @@ http://localhost:11434/api/chat
 
 # Next step
 
-The next development step is to connect evidence planning and action planning without tying them to the current goalpost task.
+The next development step is to make Qwen's task understanding produce structured evidence requirements and an authorized action plan without weakening the Python safety gates.
 
-The first goal is a small offline orchestration layer:
+The first goal is still offline:
 
 ```text
-Task
+Task text
  ↓
-Evidence requests
+Structured evidence requests
  ↓
 Known evidence reused
  ↓
 Missing evidence acquired
  ↓
-Authorized action plan
+Structured action plan
  ↓
-Execution state
+Authorization check
  ↓
-Verification
+Python execution state
 ```
 
-Only after that layer is stable should we run another real Blender/Ollama integration test.
+Only after this layer is stable should we run another real Blender/Ollama integration test.
 
 For the full technical record, see `ATLAS_HANDOFF_CONTEXT.txt` and `DEVELOPMENT_LOG.md`.
