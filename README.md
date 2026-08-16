@@ -35,8 +35,12 @@ It can already:
 - calculate required target positions
 - track required writes
 - require a separate post-write verification
+- run the controller inside the real Qwen/Ollama + Blender loop
+- complete the tested two-write goalpost modification on a real Blender file
 
-The most important recent change is that **mandatory modification steps are moving out of Qwen's control and into Python**.
+The most important recent change is that **mandatory modification steps are now controlled by Python instead of being left entirely to Qwen.**
+
+A live test also found a final-answer problem. The Blender work succeeded, but Qwen kept trying to improve its final answer until the reasoning-step limit was reached. We have now added a deterministic Python recovery path that can build the final state-aware report directly from verified evidence when a controller-owned task is complete.
 
 ---
 
@@ -51,23 +55,39 @@ Important objects:
 - `Goal_Left_post`
 - `Goal_Right_Post`
 
-The measured starting midpoint is:
+The live test measured this starting state:
 
-`[0.0, 0.138, 0.0]`
+```text
+Goal_Left_post  = [0.0, 5.302, 0.0]
+Goal_Right_Post = [0.0, -5.164, 0.0]
+Midpoint        = [0.0, 0.069, 0.0]
+```
 
-The task requires the midpoint to become:
+The task required the midpoint to become:
 
-`[0.0, 0.0, 0.0]`
+```text
+[0.0, 0.0, 0.0]
+```
 
-This is a useful test because Atlas must:
+Atlas calculated:
 
-1. inspect the file
-2. measure the relationship
-3. calculate the required change
-4. perform the required writes
-5. inspect the file again
-6. prove the final result
-7. report only what the evidence supports
+```text
+Goal_Left_post  → [0.0, 5.233, 0.0]
+Goal_Right_Post → [0.0, -5.233, 0.0]
+Adjustment      → [0.0, -0.069, 0.0]
+```
+
+The live post-write inspection then measured:
+
+```text
+Goal_Left_post  = [0.0, 5.233, 0.0]
+Goal_Right_Post = [0.0, -5.233, 0.0]
+Midpoint        = [0.0, 0.0, 0.0]
+Distance        = 10.466 units
+Symmetric       = true
+```
+
+This is important because the final state was checked by Blender again. Atlas did not trust the write result alone.
 
 ---
 
@@ -89,7 +109,13 @@ For example, if the relationship tool says:
 
 Atlas will reject an answer that says the objects are symmetric about the world origin.
 
-The validator also handles negative wording correctly, so phrases such as **"not confirmed"** are not mistaken for positive confirmation.
+The validator also checks whether an answer contains the information required by the current task.
+
+For modification tasks, it can require the answer to separate:
+
+- initial measured state
+- calculated target state
+- final verified state
 
 ## 3. General Evidence Planner V1
 
@@ -161,7 +187,7 @@ The adapter mirrors controller-owned results into the normal:
 - tool execution history
 - evidence ledger
 
-It also hydrates the controller from BEFORE evidence that the main agent already collected. This prevents the controller from repeating an inspection unnecessarily.
+It also hydrates the controller from BEFORE evidence that the main agent already collected. This prevents the controller from repeating the first inspection unnecessarily.
 
 ## 7. Live controller entrypoint
 
@@ -189,7 +215,43 @@ Evidence ledger ←─┘
 
 The controller-generated tool result is added back into the same conversation and evidence state used by Atlas.
 
-This gives us a real live integration path without copying the whole agent loop into a second implementation.
+## 8. Deterministic controller finalization
+
+The live test showed that the actual Blender work could succeed while Qwen still got stuck trying to produce the perfect final answer.
+
+We added:
+
+`controller_finalization.py`
+
+When a controller-owned modification is complete and the final relationship inspection proves the required state, Python can build a complete report from the evidence.
+
+The report includes:
+
+- initial measured positions
+- initial midpoint
+- calculated target positions
+- positional adjustment
+- final verified positions
+- final verified midpoint
+- final relationship facts
+
+This prevents a successful Blender operation from being lost only because Qwen uses too many final reasoning steps.
+
+This is a recovery path for controller-owned tasks. Normal non-controller tasks still use the normal Qwen final-answer validation path.
+
+## 9. Offline regression tests
+
+The controller has an offline test suite.
+
+The current local test result before the latest finalization change was:
+
+```text
+20 passed
+```
+
+New tests now cover the deterministic finalization path as well.
+
+A GitHub Actions workflow was also added so the offline test suite can run automatically on pushes and pull requests.
 
 ---
 
@@ -235,72 +297,126 @@ Still needed:
 
 ## Stage 6 — Reliable Modification Control
 
-**Status: INTEGRATION BUILT / REAL BLENDER TEST NEXT**
+**Status: LIVE TEST PASSED FOR THE CURRENT MIDPOINT CONTROLLER**
 
-The controller system and live entrypoint now exist.
+The controller system and live entrypoint now exist and have been run against the real local Ollama + Blender setup.
 
-Built pieces include:
+The tested workflow successfully completed:
 
-- state machine
-- target calculation
-- required-write tracking
-- write-result tracking
-- post-write verification
-- completion gates
-- controller runtime
-- execution adapter
-- live-agent integration entrypoint
-- integration tests
+```text
+BEFORE
+  ↓
+TARGET
+  ↓
+WRITE A
+  ↓
+WRITE B
+  ↓
+AFTER VERIFICATION
+  ↓
+COMPLETE
+```
 
-We still need to run the live entrypoint against the real local Ollama + Blender setup. Until that passes, Stage 6 is not complete.
+The remaining work is to make this pattern general rather than tied to the current midpoint task.
+
+## Stage 7 — General Action Planning
+
+**Status: NEXT**
+
+The next goal is to generalize the controller pattern so Atlas can keep track of multiple required actions without making Qwen rediscover the plan after every action.
+
+The desired pattern is:
+
+```text
+Task
+ ↓
+Evidence
+ ↓
+Action plan
+ ↓
+Action 1
+ ↓
+Update state
+ ↓
+Action 2
+ ↓
+Verify
+ ↓
+Complete
+```
+
+This should be built without adding goalpost-specific rules.
 
 ---
 
 # What just happened
 
-The recent development had one main goal: make Atlas control real Blender changes more reliably.
+The recent development had one main goal: make Atlas control real Blender changes reliably.
 
-First, we built the controller state machine.
+First, we built and tested the controller state machine.
 
-Then we built the runtime that can execute the next required action.
+Then we connected it to the existing Atlas agent.
 
-Then we added an adapter between that controller and the rest of Atlas.
+We checked the real local setup:
 
-Then we added a live entrypoint that places the controller into the existing Qwen reasoning loop without rewriting the whole agent.
+- Python 3.9.6
+- Ollama 0.32.13
+- `qwen3:8b`
+- Blender 4.4
 
-We also fixed an important evidence problem: the controller can now start from BEFORE evidence already collected by Atlas instead of repeating the first inspection.
+All of those connections worked.
 
-The remaining proof is now an actual run against the user's local environment.
+We then inspected the real Blender test file. The live BEFORE state was:
+
+```text
+Goal_Left_post  = [0.0, 5.302, 0.0]
+Goal_Right_Post = [0.0, -5.164, 0.0]
+Midpoint        = [0.0, 0.069, 0.0]
+```
+
+Atlas calculated the required common movement and the controller performed both writes.
+
+A separate Blender inspection then proved that the final midpoint was exactly `[0.0, 0.0, 0.0]`.
+
+So the **core controller and Blender execution path passed a real end-to-end test**.
+
+The failure came after the successful modification. Qwen's first final answer did not include all required before/target/after information. The validator rejected it. Qwen then requested another verification even though the needed final evidence was already present, and the run eventually reached the maximum reasoning-step limit.
+
+That exposed a finalization problem, not a Blender modification problem.
+
+We have now added a deterministic Python finalization path for completed controller tasks. It builds the required state-aware final report directly from verified evidence.
 
 ---
 
 # What should happen next
 
-## 1. Run the live controller entrypoint
+## 1. Run the updated offline test suite locally
 
-Run `run_agent_with_controller.py` in the local Atlas environment.
+This is the next required local test after the new finalization code is pulled.
 
-The expected flow is:
+It should confirm that the new finalization module and controller entrypoint still pass all tests.
+
+## 2. Re-run the live controller test
+
+Once the offline tests pass, run the live controller entrypoint again.
+
+The important new behavior is:
 
 ```text
-Qwen gathers BEFORE evidence
+Controller completes
         ↓
-Python controller takes over
+Final verification exists
         ↓
-Move Goal_Left_post
+Python builds final report
         ↓
-Move Goal_Right_Post
-        ↓
-Inspect relationship again
-        ↓
-Verify midpoint = [0.0, 0.0, 0.0]
-        ↓
-Qwen produces final report
+Atlas stops cleanly
 ```
 
-## 2. Test failure cases
+Qwen should no longer consume extra reasoning steps after a completed controller task.
 
-We should deliberately test:
+## 3. Test failure cases
+
+After the normal live test is stable, we should deliberately test:
 
 - first move fails
 - second move fails
@@ -312,15 +428,9 @@ We should deliberately test:
 
 Atlas should fail safely or take the correct next action in each case.
 
-## 3. Promote the hook into `agent.py`
+## 4. Generalize the action controller
 
-Once the live entrypoint passes, move the controller hook into the permanent `agent.py` loop.
-
-This removes the temporary compatibility entrypoint and makes controller support part of the normal Atlas agent.
-
-## 4. Generalize the controller
-
-Once the live midpoint test passes, generalize the controller beyond goalposts.
+Once the current controller is stable, generalize the pattern beyond goalposts.
 
 The long-term pattern is:
 
@@ -332,7 +442,7 @@ The user's request and evidence should determine what those actions are.
 
 ## 5. Expand the General Evidence Planner
 
-After the controller is stable, test the planner with different kinds of Blender questions.
+After action control is stable, continue testing the planner with different kinds of Blender questions.
 
 The planner should answer:
 
@@ -364,6 +474,6 @@ Together, they form Atlas.
 
 ## Current status in one sentence
 
-**Atlas now has a live controller integration path; the next major step is to run it against the real local Ollama + Blender environment and prove the complete modification loop.**
+**Atlas has now proven the controller can make and independently verify a real Blender modification; the next local test is to confirm the new deterministic finalization path, then we can move toward general multi-action planning and the General Evidence Planner.**
 
 For the full technical handoff, see `ATLAS_HANDOFF_CONTEXT.txt`.
