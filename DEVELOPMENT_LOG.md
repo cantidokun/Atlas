@@ -155,43 +155,50 @@ FINAL VERIFIED STATE
 
 The live entrypoint now stops cleanly after a completed controller task instead of spending another Qwen reasoning cycle trying to rediscover the final answer.
 
+### Formatting hardening
+
+The first finalization regression exposed a harmless but real formatting issue: Python could render mathematically zero values as `-0.000`.
+
+The vector formatter now normalizes values that round to zero before display.
+
+A dedicated regression test was added so a future change cannot reintroduce negative zero into final reports.
+
 ### Tests added
 
-`test_controller_entrypoint.py` now checks the deterministic finalization hook.
+`test_controller_entrypoint.py` checks the deterministic finalization hook.
 
 `test_controller_finalization.py` checks:
 
 - complete state-aware final report generation
+- no negative zero in final reports
 - refusal to finalize without post-write verification
 - refusal to finalize when the final midpoint is wrong
+
+The local offline suite now passes:
+
+```text
+24 passed in 0.06s
+```
 
 A GitHub Actions workflow was also added at:
 
 `.github/workflows/tests.yml`
 
-It runs the offline suite on Python 3.9 and 3.11 for pushes and pull requests.
+The workflow is intended to run the offline suite on pushes and pull requests. The latest local pass is the current authoritative test result; no hosted CI run has been confirmed in this handoff yet.
 
-### Current limitation
+### Current gate
 
-The permanent `agent.py` loop has not been rewritten yet. The controller remains behind the compatibility entrypoint so the architecture can be proven without duplicating or destabilizing the main reasoning loop.
+The offline architecture is now green.
 
-The deterministic finalization path is now ready, but it still needs a local regression run after the latest commits are pulled.
-
-### Next step
-
-Run locally:
-
-```text
-python -m pytest -q
-```
-
-Then run:
+The next required test is local and live:
 
 ```text
 python .\run_agent_with_controller.py
 ```
 
-The expected live flow is:
+The test must use a restored copy of `goalpost_test.blend` so the controller starts from the known BEFORE state.
+
+The expected new behavior is:
 
 ```text
 Qwen / evidence
@@ -209,4 +216,28 @@ Deterministic final report
 Clean exit
 ```
 
-After this passes, continue with general action planning and General Evidence Planner V1. Do not add another goalpost-specific rule or Blender write tool merely to solve this test.
+After that passes, development can continue without another local test until a new Blender/Ollama integration boundary is reached.
+
+### Next architecture step
+
+After the live regression passes, generalize the controller pattern into a task-neutral action plan:
+
+```text
+Task
+  ↓
+Required evidence
+  ↓
+Action plan
+  ↓
+Action 1
+  ↓
+Update state
+  ↓
+Action 2
+  ↓
+Verify
+  ↓
+Complete
+```
+
+Do not add another goalpost-specific rule or Blender write tool merely to solve this test.
