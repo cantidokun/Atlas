@@ -127,6 +127,11 @@ def target_state_evaluator() -> TargetStateEvaluator:
     )
 
 
+def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
+    """Compatibility helper for direct target-state checks and regression tests."""
+    return target_state_evaluator().evaluate(relationship).satisfied
+
+
 def build_conditional_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
     evidence = EvidencePlan([
         EvidenceRequest(request.tool, dict(request.arguments), request.name)
