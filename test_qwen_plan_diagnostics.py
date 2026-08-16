@@ -4,7 +4,7 @@ from qwen_plan_diagnostics import diagnose_qwen_plan
 
 
 def test_valid_plan_is_classified_valid():
-    content = 'ATLAS_TASK_PLAN: {"evidence":[{"tool":"inspect_scene","arguments":{}}],"actions":[]}'
+    content = 'ATLAS_TASK_PLAN: {"evidence":[{"tool":"inspect_scene","arguments":{"file_name":"scene.blend"}}],"actions":[]}'
     result = diagnose_qwen_plan(content, allowed_tools={"inspect_scene"})
     assert result.status == "valid"
     assert result.proposal is not None

@@ -11,7 +11,7 @@ ATLAS_TASK_PLAN: {
     {"tool": "inspect_scene", "arguments": {"file_name": "scene.blend"}, "name": "scene"}
   ],
   "actions": [
-    {"tool": "move_object", "arguments": {"object_name": "A", "location": [1, 0, 0]}, "name": "move"}
+    {"tool": "move_object", "arguments": {"file_name": "scene.blend", "object_name": "Goal_Left_post", "location": [1, 0, 0]}, "name": "move"}
   ]
 }
 '''

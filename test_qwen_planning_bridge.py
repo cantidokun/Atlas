@@ -5,11 +5,11 @@ from task_planner import TaskPlanValidationError
 
 
 def _text():
-    return '''Reasoning text\nATLAS_TASK_PLAN: {"evidence": [{"tool": "inspect_scene", "arguments": {"file_name": "scene.blend"}, "name": "scene"}], "actions": [{"tool": "move_object", "arguments": {"file_name": "scene.blend", "object_name": "Cube", "location": [1, 2, 3]}, "name": "move"}]}\n'''
+    return '''Reasoning text\nATLAS_TASK_PLAN: {"evidence": [{"tool": "inspect_scene", "arguments": {"file_name": "scene.blend"}, "name": "scene"}], "actions": [{"tool": "move_object", "arguments": {"file_name": "scene.blend", "object_name": "Goal_Left_post", "location": [1, 2, 3]}, "name": "move"}]}\n'''
 
 
 def _raw_json_text():
-    return '{"evidence": [{"tool": "inspect_scene", "arguments": {}, "name": "scene"}], "actions": []}'
+    return '{"evidence": [{"tool": "inspect_scene", "arguments": {"file_name": "scene.blend"}, "name": "scene"}], "actions": []}'
 
 
 def test_extracts_marked_json_plan():

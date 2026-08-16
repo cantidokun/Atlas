@@ -23,10 +23,10 @@ def _proposal():
                 "tool": "move_object",
                 "arguments": {
                     "file_name": "scene.blend",
-                    "object_name": "A",
+                    "object_name": "Goal_Left_post",
                     "location": [1, 0, 0],
                 },
-                "name": "move A",
+                "name": "move goalpost",
             }
         ],
     }

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from action_plan import ActionPlan, ActionSpec
 from evidence_plan import EvidencePlan, EvidenceRequest
+from planning.tool_schema import validate_tool_arguments
 
 @dataclass(frozen=True)
 class TaskPlanProposal:
@@ -24,6 +25,20 @@ def _validate_arguments(arguments: Any) -> Dict[str, Any]:
         raise TaskPlanValidationError("Tool arguments must be an object.")
     return arguments
 
+def _validate_item(item: Any, kind: str, allowed_tools: Optional[set]) -> tuple[str, Dict[str, Any], str]:
+    if not isinstance(item, dict):
+        raise TaskPlanValidationError(f"Each {kind} request must be an object.")
+    tool = _validate_tool(item.get("tool"), allowed_tools)
+    arguments = _validate_arguments(item.get("arguments", {}))
+    name = item.get("name", "")
+    if not isinstance(name, str):
+        raise TaskPlanValidationError(f"{kind} name must be a string.")
+    if allowed_tools is not None:
+        # The planning bridge is the trust boundary: admitted tools must have
+        # an exact argument schema before an executor can ever see the plan.
+        validate_tool_arguments(tool, arguments)
+    return tool, arguments, name
+
 def build_task_plan(proposal: Dict[str, Any], allowed_tools: Optional[set] = None) -> TaskPlanProposal:
     if not isinstance(proposal, dict):
         raise TaskPlanValidationError("Task plan proposal must be an object.")
@@ -33,14 +48,12 @@ def build_task_plan(proposal: Dict[str, Any], allowed_tools: Optional[set] = Non
         raise TaskPlanValidationError("Evidence and actions must both be lists.")
     evidence: List[EvidenceRequest] = []
     for item in raw_evidence:
-        if not isinstance(item, dict):
-            raise TaskPlanValidationError("Each evidence request must be an object.")
-        evidence.append(EvidenceRequest(tool=_validate_tool(item.get("tool"), allowed_tools), arguments=_validate_arguments(item.get("arguments", {})), name=str(item.get("name", ""))))
+        tool, arguments, name = _validate_item(item, "evidence", allowed_tools)
+        evidence.append(EvidenceRequest(tool=tool, arguments=arguments, name=name))
     actions: List[ActionSpec] = []
     for item in raw_actions:
-        if not isinstance(item, dict):
-            raise TaskPlanValidationError("Each action must be an object.")
-        actions.append(ActionSpec(tool=_validate_tool(item.get("tool"), allowed_tools), arguments=_validate_arguments(item.get("arguments", {})), name=str(item.get("name", ""))))
+        tool, arguments, name = _validate_item(item, "action", allowed_tools)
+        actions.append(ActionSpec(tool=tool, arguments=arguments, name=name))
     return TaskPlanProposal(evidence=evidence, actions=actions)
 
 def instantiate_plans(proposal: TaskPlanProposal) -> tuple[EvidencePlan, ActionPlan]:
