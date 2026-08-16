@@ -2,58 +2,44 @@
 
 ## What Atlas is
 
-Atlas is a local agent for inspecting and changing Blender files.
+Atlas is a local Blender agent.
 
-It has two main parts:
+It follows this basic loop:
 
-- **Qwen** thinks, reasons, and helps choose what evidence is needed.
-- **Python** runs tools, tracks state, controls required actions, checks evidence, and controls completion.
+```text
+inspect → gather evidence → reason → act → verify → report
+```
 
-The key rule is:
+Atlas uses two main parts:
 
-> **Qwen can reason, but Python controls what actually happened.**
+- **Qwen** reasons about the task.
+- **Python** controls tools, state, required actions, and verification.
+
+The goal is simple: Qwen can reason, but Python keeps track of what really happened.
 
 ---
 
-# Where Atlas is now
+# Current status
 
-Atlas is past the basic proof-of-concept stage.
+Atlas has passed the core real-world controller test.
 
 It can now:
 
 - connect to Blender
 - connect to local Qwen through Ollama
 - inspect Blender scenes
-- run approved Blender write tools
-- handle tool errors
-- keep an evidence ledger
-- ask for missing evidence
-- validate factual claims in final answers
-- avoid unsupported recommendations
+- record evidence
+- use Blender write tools
 - control a required multi-step modification
-- verify the Blender state after a modification
+- require independent verification after writes
+- validate final answers
 - build a final report from verified evidence
 
-The current controller has been run against the real local Blender and Qwen setup.
+The current test asset is `goalpost_test.blend`.
 
-The real modification worked.
+The tested modification moved two objects so their midpoint became the world origin.
 
-The first live run found one problem: Qwen kept trying to improve the final answer after the Blender work was already complete. Atlas now has a Python finalization path for controller-owned tasks so that verified work can finish without wasting more reasoning steps.
-
----
-
-# Current test
-
-The main test file is:
-
-`goalpost_test.blend`
-
-The test uses:
-
-- `Goal_Left_post`
-- `Goal_Right_Post`
-
-The live BEFORE state was:
+### Measured BEFORE state
 
 ```text
 Goal_Left_post  = [0.0, 5.302, 0.0]
@@ -61,15 +47,15 @@ Goal_Right_Post = [0.0, -5.164, 0.0]
 Midpoint        = [0.0, 0.069, 0.0]
 ```
 
-Atlas calculated the required movement:
+### Calculated TARGET
 
 ```text
-Adjustment      = [0.0, -0.069, 0.0]
 Goal_Left_post  = [0.0, 5.233, 0.0]
 Goal_Right_Post = [0.0, -5.233, 0.0]
+Adjustment      = [0.0, -0.069, 0.0]
 ```
 
-The final Blender inspection proved:
+### FINAL VERIFIED state
 
 ```text
 Goal_Left_post  = [0.0, 5.233, 0.0]
@@ -79,112 +65,69 @@ Distance        = 10.466 units
 Symmetric       = true
 ```
 
-So the real controller sequence passed:
+The final state was obtained from a separate Blender relationship inspection, not from the write result alone.
+
+---
+
+# What just happened in the live test
+
+The latest live run exposed one important integration bug.
+
+The controller successfully completed the two writes and the final Blender inspection succeeded. The final inspection reported the correct positions, a zero midpoint, and `symmetric_about_origin = true`. fileciteturn162file0L45-L93
+
+However, Atlas still gave control back to Qwen after the controller reached its completed state. Qwen then tried to write the final answer itself. The validator rejected that answer because it did not include the full BEFORE, TARGET, and FINAL VERIFIED timeline. Qwen repeated the inspection and eventually reached the reasoning-step limit. fileciteturn162file0L99-L109
+
+This was not a Blender failure.
+
+It was not a write failure.
+
+It was not a verification failure.
+
+It was an **entrypoint control-flow bug**.
+
+The deterministic finalizer already existed, but the entrypoint only checked for finalization when a controller action was being executed. After the final verification action, the controller returned `kind = complete`, so the finalizer was skipped and Qwen got another turn.
+
+That has now been fixed.
+
+The completion check now runs even when the controller says it is already complete. The live path is intended to be:
 
 ```text
-BEFORE
-  ↓
-TARGET
-  ↓
-WRITE 1
-  ↓
-WRITE 2
-  ↓
-INDEPENDENT VERIFICATION
-  ↓
-CORRECT FINAL STATE
+final verification
+      ↓
+controller = COMPLETE
+      ↓
+Python finalizer
+      ↓
+complete final report
+      ↓
+clean exit
 ```
 
 ---
 
-# What we have built
+# Offline tests
 
-## Evidence ledger
-
-Atlas saves successful tool results as evidence.
-
-Qwen receives this evidence when it reasons again. This helps prevent the model from guessing facts that Atlas has already measured.
-
-## Final-answer validator
-
-Python checks the proposed answer against the evidence.
-
-It can reject things such as:
-
-- unsupported measurements
-- false symmetry claims
-- unsupported soccer classifications
-- missing required task information
-- missing BEFORE, TARGET, or FINAL information
-
-## General Evidence Planner V1
-
-The first version can find a specific evidence gap and request an existing tool when that evidence is missing.
-
-It is still being expanded.
-
-## Controller state machine
-
-The current controller follows:
-
-```text
-BEFORE
-  ↓
-TARGET
-  ↓
-WRITE A
-  ↓
-WRITE B
-  ↓
-AFTER
-  ↓
-COMPLETE
-```
-
-Python owns this order.
-
-Qwen does not get to declare the task finished after only one required write.
-
-## Live controller entrypoint
-
-`run_agent_with_controller.py` connects the controller to the existing Atlas reasoning loop.
-
-It lets Python take over when a mandatory controller action is required, while normal reasoning still goes through Qwen.
-
-## Deterministic finalization
-
-`controller_finalization.py` builds a complete final report when:
-
-- BEFORE evidence exists
-- the required writes succeeded
-- a separate FINAL inspection exists
-- the required final state is proven
-
-The report separates:
-
-```text
-INITIAL MEASURED STATE
-CALCULATED TARGET STATE
-FINAL VERIFIED STATE
-```
-
-The vector formatter also prevents values such as `-0.000` from appearing in final reports.
-
----
-
-# Test status
-
-The local offline suite now passes:
+The previous local baseline was:
 
 ```text
 24 passed
 ```
 
-The tests cover the controller, integration, runtime, entrypoint, and finalization behavior.
+The new entrypoint change adds a regression test that checks that completion is finalized before the model can run again.
 
-A regression test also makes sure negative zero cannot return to the final report.
+A fresh local test is required before the next live run.
 
-GitHub Actions has been added to run the offline tests on pushes and pull requests.
+Run:
+
+```powershell
+python -m pytest -q
+```
+
+Expected result:
+
+```text
+25 passed
+```
 
 ---
 
@@ -194,61 +137,48 @@ GitHub Actions has been added to run the offline tests on pushes and pull reques
 
 **COMPLETE**
 
-Atlas can connect to Blender, inspect it, use tools, and communicate with Qwen.
+Blender, tools, and Qwen/Ollama are connected.
 
 ## Stage 2 — Reliable Evidence
 
 **COMPLETE**
 
-Atlas has an evidence ledger, factuality rules, and final-answer validation.
+Atlas keeps an evidence ledger and validates factual claims.
 
 ## Stage 3 — Mandatory Evidence Acquisition
 
 **COMPLETE**
 
-Python can require evidence instead of trusting Qwen to remember to request it.
+Python can require missing evidence instead of trusting Qwen to remember it.
 
 ## Stage 4 — Evidence Validation and Recommendation Restraint
 
 **COMPLETE**
 
-Atlas can separate a measured fact from an unsupported recommendation.
+Atlas distinguishes measured facts from guesses and recommendations.
 
 ## Stage 5 — General Evidence Planner
 
 **IN PROGRESS**
 
-The first planner exists.
-
-Next work includes:
-
-- more task types
-- more evidence-gap tests
-- stronger integration
-- better rules for deciding whether existing evidence is enough
+The first version exists. More task types and evidence-gap cases are still needed.
 
 ## Stage 6 — Reliable Modification Control
 
-**CONTROLLER PROVEN ON THE LIVE GOALPOST TEST**
+**LIVE CONTROLLER PROVEN; FINAL EXIT FIX IN TESTING**
 
-The real Blender modification and independent verification passed.
-
-The final-answer recovery path has also passed the local offline suite.
-
-The remaining local gate is to rerun the complete live controller entrypoint with the new finalization code.
+The real Blender modification and independent verification passed. The remaining live gate is to prove that the new completion path exits cleanly.
 
 ## Stage 7 — General Action Planning
 
-**NEXT AFTER LIVE REGRESSION**
+**NEXT AFTER LIVE GATE**
 
-The controller must become task-neutral.
-
-The target design is:
+Generalize:
 
 ```text
 Task
  ↓
-Required evidence
+Evidence
  ↓
 Action plan
  ↓
@@ -267,25 +197,42 @@ This must not become another goalpost-specific rule.
 
 ---
 
-# What happens next
+# Local environment
 
-The next local test is:
+The verified local setup is:
+
+```text
+Python 3.9.6
+Ollama 0.32.13
+qwen3:8b
+Blender 4.4
+```
+
+Ollama endpoint:
+
+```text
+http://localhost:11434/api/chat
+```
+
+---
+
+# Next step
+
+The next local test is the offline suite:
 
 ```powershell
 python -m pytest -q
 ```
 
-This has already passed with 24 tests on the current local checkout.
-
-The next required live test is:
+If it passes, the next live test is:
 
 ```powershell
 python .\run_agent_with_controller.py
 ```
 
-The test should start from a restored `goalpost_test.blend` so the BEFORE state is known.
+Start the live test from the clean BEFORE Blender file.
 
-The expected flow is:
+The expected final behavior is:
 
 ```text
 Qwen / evidence
@@ -298,52 +245,11 @@ Write B
       ↓
 Independent verification
       ↓
-Python final report
+Deterministic Python final report
       ↓
-Clean exit
+CLEAN EXIT
 ```
 
-If that passes, development can continue toward general action planning without another local test until we reach another Blender or Ollama integration boundary.
+If that succeeds, Atlas can move on to general action planning without another local test until a new Blender/Ollama integration boundary is reached.
 
----
-
-# Current local environment
-
-The verified local setup is:
-
-```text
-Python 3.9.6
-Ollama 0.32.13
-qwen3:8b
-Blender 4.4
-```
-
-Atlas uses:
-
-```text
-http://localhost:11434/api/chat
-```
-
-The Blender executable is:
-
-```text
-C:\Program Files\Blender Foundation\Blender 4.4\blender.exe
-```
-
----
-
-# The bigger goal
-
-Atlas is being built to follow this loop:
-
-**inspect → gather evidence → reason → act → verify → report**
-
-Qwen provides flexible reasoning.
-
-Python provides control and state.
-
-Blender provides the real environment and measured evidence.
-
-The goal is a system that can perform useful Blender work without guessing what happened.
-
-For the full technical handoff, see `ATLAS_HANDOFF_CONTEXT.txt`.
+For the full technical record, see `ATLAS_HANDOFF_CONTEXT.txt` and `DEVELOPMENT_LOG.md`.
