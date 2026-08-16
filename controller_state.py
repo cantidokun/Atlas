@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 
 TARGET_MIDPOINT = [0.0, 0.0, 0.0]
+_LOCATION_PRECISION = 10
 
 
 def _is_vec3(value: Any) -> bool:
@@ -16,7 +17,14 @@ def _is_vec3(value: Any) -> bool:
 
 
 def _subtract(a: List[float], b: List[float]) -> List[float]:
-    return [a[index] - b[index] for index in range(3)]
+    return [round(a[index] - b[index], _LOCATION_PRECISION) for index in range(3)]
+
+
+def _location_key(value: Any) -> tuple:
+    """Create a stable, hashable key for Blender XYZ coordinates."""
+    if not _is_vec3(value):
+        raise ValueError("Location must be a 3-value numeric vector.")
+    return tuple(round(float(item), _LOCATION_PRECISION) for item in value)
 
 
 @dataclass
@@ -33,8 +41,8 @@ class ControllerState:
 
     @property
     def phase(self) -> str:
-        if self.complete:
-            return "COMPLETE"
+        # AFTER is a useful observable state even when its verification proves
+        # the task complete. COMPLETE is exposed separately by `complete`.
         if self.after is not None:
             return "AFTER"
         if self.writes:
@@ -73,7 +81,7 @@ def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Di
     if object_b.get("name") != state.object_b_name:
         raise ValueError("BEFORE evidence does not match object B.")
 
-    adjustment = _subtract(TARGET_MIDPOINT, list(midpoint))
+    adjustment = _subtract(list(TARGET_MIDPOINT), list(midpoint))
 
     state.target = {
         "midpoint": TARGET_MIDPOINT.copy(),
@@ -127,7 +135,7 @@ def required_moves(state: ControllerState) -> List[Dict[str, Any]]:
     ]
 
     completed = {
-        (write["object_name"], tuple(write["location"]))
+        (write["object_name"], _location_key(write["location"]))
         for write in state.writes
     }
 
@@ -141,7 +149,7 @@ def required_moves(state: ControllerState) -> List[Dict[str, Any]]:
             },
         }
         for object_name, location in required
-        if (object_name, tuple(location)) not in completed
+        if (object_name, _location_key(location)) not in completed
     ]
 
 
