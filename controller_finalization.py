@@ -44,7 +44,9 @@ def _location(result: Dict[str, Any], side: str) -> Optional[List[float]]:
 
 
 def _fmt_vector(values: List[float]) -> str:
-    return "[" + ", ".join(f"{float(value):.3f}" for value in values) + "]"
+    """Format vectors without exposing negative zero in human-readable output."""
+    normalized = [0.0 if abs(float(value)) < 0.0005 else float(value) for value in values]
+    return "[" + ", ".join(f"{value:.3f}" for value in normalized) + "]"
 
 
 def build_midpoint_final_answer(
