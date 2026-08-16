@@ -57,6 +57,25 @@ for step in range(2):
     assert hook_index < post_index
 
 
+def test_completed_controller_has_deterministic_finalization_path():
+    source = '''
+import requests
+
+CURRENT_TASK = "task"
+evidence_ledger = []
+tool_execution_history = []
+
+for step in range(2):
+    response = requests.post(OLLAMA_URL)
+'''
+
+    transformed = build_controller_enabled_source(source)
+
+    assert "build_midpoint_final_answer" in transformed
+    assert "controller_integration.complete" in transformed
+    assert "raise SystemExit(0)" in transformed
+
+
 def test_unexpected_agent_shape_fails_closed():
     source = '''
 CURRENT_TASK = "task"
