@@ -36,18 +36,20 @@ def test_action_is_blocked_until_evidence_and_target_evaluation():
         orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
 
 
-def test_satisfied_target_skips_action_without_execution():
+def test_satisfied_target_requires_fresh_verification_before_completion():
     orchestrator = make_orchestrator()
     orchestrator.acquire_next_evidence(lambda tool, args: {"ready": True})
     result = orchestrator.evaluate_target_state({"ready": True})
     assert result.satisfied is True
     assert orchestrator.skipped is True
+    assert orchestrator.next_phase() == "VERIFICATION"
+    orchestrator.verify_post_action({"ready": True})
     assert orchestrator.next_phase() == "COMPLETE"
     with pytest.raises(RuntimeError, match="skipped"):
         orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
 
 
-def test_unsatisfied_target_exposes_action_and_executes_in_order():
+def test_unsatisfied_target_exposes_action_and_requires_verification_after_execution():
     orchestrator = make_orchestrator()
     calls = []
     orchestrator.acquire_next_evidence(lambda tool, args: {"ready": False})
@@ -61,6 +63,8 @@ def test_unsatisfied_target_exposes_action_and_executes_in_order():
 
     assert orchestrator.execute_next_action(execute)["status"] == "moved"
     assert calls == [("move_object", {"object_name": "A", "location": [1, 0, 0]})]
+    assert orchestrator.next_phase() == "VERIFICATION"
+    orchestrator.verify_post_action({"ready": True})
     assert orchestrator.next_phase() == "COMPLETE"
 
 
