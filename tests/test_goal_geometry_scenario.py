@@ -2,6 +2,7 @@
 
 import pytest
 
+from planning.conditional_action import ConditionalActionError
 from scenarios.goal_geometry import centered_goal_condition, goal_center_alignment
 
 
@@ -35,5 +36,5 @@ def test_centered_goal_condition_rejects_wrong_distance():
 
 
 def test_centered_goal_condition_requires_authoritative_fields():
-    with pytest.raises(KeyError):
+    with pytest.raises(ConditionalActionError):
         centered_goal_condition().matches({"midpoint": [0.0, 0.0, 0.0]})
