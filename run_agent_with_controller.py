@@ -81,6 +81,25 @@ if (
         }
     )
 
+    # A completed controller task has authoritative BEFORE, TARGET and
+    # independently verified AFTER state. Do not spend another Qwen reasoning
+    # cycle trying to rediscover a final answer that Python can construct from
+    # the verified evidence. This is a deterministic recovery path for
+    # controller-owned modifications; normal non-controller tasks still use
+    # the Qwen final-answer validator in agent.py.
+    if controller_integration.complete:
+        from controller_finalization import build_midpoint_final_answer
+
+        _controller_final_answer = build_midpoint_final_answer(
+            evidence_ledger,
+            tool_execution_history,
+        )
+
+        if _controller_final_answer is not None:
+            print("\n========== ATLAS FINAL RESPONSE ==========\n")
+            print(_controller_final_answer)
+            raise SystemExit(0)
+
     continue
 '''
 
