@@ -72,9 +72,9 @@ def test_failed_action_blocks_runtime():
 
 def test_write_authorization_is_not_implicit():
     runtime = TaskExecutionRuntime(
-        TaskPlanProposal(evidence=[], actions=[ActionSpec("write", {})]),
+        TaskPlanProposal(evidence=[], actions=[ActionSpec("create_collection", {})]),
         evidence_complete=True,
-        allowed_action_tools={"write"},
+        allowed_action_tools={"create_collection"},
         allow_writes=False,
     )
 
