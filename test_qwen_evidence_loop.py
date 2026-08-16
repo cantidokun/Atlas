@@ -6,13 +6,12 @@ from qwen_evidence_loop import (
     proposal_to_evidence_plan,
 )
 from task_planner import TaskPlanProposal
-from action_plan import ActionSpec
 
 
 def test_parse_evidence_proposal_rejects_actions():
     assert parse_evidence_proposal(
         '{"evidence":[],"actions":[{"tool":"move_object","arguments":{}}]}',
-        {"inspect_scene"},
+        {"inspect_scene", "move_object"},
     ) is None
 
 
