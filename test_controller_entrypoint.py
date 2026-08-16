@@ -76,6 +76,43 @@ for step in range(2):
     assert "raise SystemExit(0)" in transformed
 
 
+def test_complete_signal_is_finalized_before_model_can_run_again():
+    source = '''
+import requests
+
+CURRENT_TASK = "task"
+evidence_ledger = []
+tool_execution_history = []
+
+for step in range(2):
+    response = requests.post(OLLAMA_URL)
+'''
+
+    transformed = build_controller_enabled_source(source)
+    tree = ast.parse(transformed)
+    loop = next(
+        node for node in tree.body
+        if isinstance(node, ast.For)
+        and "requests.post" in ast.unparse(node)
+    )
+
+    complete_index = next(
+        index for index, node in enumerate(loop.body)
+        if "controller_integration.complete" in ast.unparse(node)
+    )
+    post_index = next(
+        index for index, node in enumerate(loop.body)
+        if "requests.post" in ast.unparse(node)
+    )
+    continue_index = next(
+        index for index, node in enumerate(loop.body)
+        if isinstance(node, ast.Continue)
+    )
+
+    assert complete_index < post_index
+    assert complete_index < continue_index
+
+
 def test_unexpected_agent_shape_fails_closed():
     source = '''
 CURRENT_TASK = "task"
