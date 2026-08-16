@@ -126,6 +126,11 @@ def target_state_evaluator() -> TargetStateEvaluator:
     ])
 
 
+def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
+    """Compatibility helper used by the offline regression suite."""
+    return target_state_evaluator().evaluate(relationship).satisfied
+
+
 def build_conditional_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
     evidence = EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence])
     actions = [ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions]
