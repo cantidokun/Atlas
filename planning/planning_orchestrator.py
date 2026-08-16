@@ -112,7 +112,7 @@ class ConditionalPlanningOrchestrator:
 
     @property
     def verification_required(self) -> bool:
-        return self.verification_plan is not None and not self.skipped
+        return self.verification_plan is not None
 
     @property
     def verification_complete(self) -> bool:
@@ -136,6 +136,8 @@ class ConditionalPlanningOrchestrator:
         if not self.evaluated:
             return "TARGET_EVALUATION"
         if self.skipped:
+            if not self.verification_complete:
+                return "VERIFICATION"
             return "COMPLETE"
         if not self.action_complete:
             return "ACTION"
@@ -182,7 +184,6 @@ class ConditionalPlanningOrchestrator:
         self.future_controller = FutureExecutionController(
             DeterministicFutureGenerator(self.target_evaluator).generate(result.satisfied, actions)
         )
-        # The evidence and target checkpoints are already authoritative results in this orchestrator.
         self.future_controller.acknowledge({"evidence_complete": True})
         self.future_controller.acknowledge(result.snapshot())
         if result.satisfied:
@@ -211,30 +212,25 @@ class ConditionalPlanningOrchestrator:
         if expected is None or expected.get("index") != self.conditional_plan.action_plan.current_index:
             raise RuntimeError("Conditional action diverged from the deterministic future.")
         result = self.future_controller.execute_current(execute)
-        if "error" not in result:
-            self.conditional_plan.record_result(result, True)
-        else:
-            self.conditional_plan.record_result(result, False)
+        self.conditional_plan.record_result(result, "error" not in result)
         return result
 
     def verify_post_action(self, evidence: Any) -> TargetStateResult:
         """Verify final state from fresh authoritative evidence and advance the future."""
-        if self.skipped:
-            raise RuntimeError("Post-action verification is not applicable when the target was already satisfied.")
         if not self.evidence_complete:
             raise RuntimeError("Verification is blocked until required evidence is complete.")
         if not self.evaluated:
             raise RuntimeError("Verification is blocked until target state has been evaluated.")
-        if not self.action_complete:
+        if not self.skipped and not self.action_complete:
             raise RuntimeError("Verification is blocked until all authorized actions complete.")
         if self.verification_plan is None:
             raise RuntimeError("No verification plan is configured.")
-        result = self.verification_plan.verify(evidence)
-        if self.future_controller is None:
+        if self.future_controller is None or self.future_controller.current_step is None:
             raise RuntimeError("No deterministic future is available for verification.")
+        if self.future_controller.current_step.phase != "VERIFICATION":
+            raise RuntimeError("Deterministic future is not at the verification checkpoint.")
+        result = self.verification_plan.verify(evidence)
         self.future_controller.verify(result.snapshot())
-        if not self.future_controller.complete:
-            self.future_controller.finalize()
         return result
 
     def finalize_future(self) -> Dict[str, Any]:
