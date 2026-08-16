@@ -8,6 +8,7 @@ from evidence_plan import EvidencePlan
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import DeterministicFutureGenerator
 from planning.future_recovery import FutureRecoveryGate, RecoveryDisposition
+from planning.replan_authorization import ReplanAuthorization
 from planning.target_state import TargetStateEvaluationError, TargetStateEvaluator, TargetStateResult
 from planning.verification_plan import VerificationPlan
 
@@ -95,6 +96,7 @@ class ConditionalPlanningOrchestrator:
     evaluation_error: Optional[str] = None
     future_controller: Optional[FutureExecutionController] = None
     recovery_gate: Optional[FutureRecoveryGate] = None
+    replan_authorization: Optional[ReplanAuthorization] = None
 
     def __post_init__(self) -> None:
         if self.verification_plan is None:
@@ -209,6 +211,7 @@ class ConditionalPlanningOrchestrator:
         if self.future_controller is not None:
             self.recovery_gate = FutureRecoveryGate(self.future_controller)
             self.recovery_gate.classify_failure()
+            self.replan_authorization = None
 
     def execute_next_action(self, execute: ToolExecutor) -> Dict[str, Any]:
         if not self.evidence_complete:
@@ -268,28 +271,41 @@ class ConditionalPlanningOrchestrator:
             raise RuntimeError("No recoverable future failure exists.")
         self.recovery_gate.record_fresh_evidence(evidence)
         self.recovery_gate.advance_after_fresh_evidence()
+        self.replan_authorization = None
         return evidence
 
-    def authorize_replan(self) -> Any:
-        """Expose only the fresh evidence permitted for an independently authorized replan."""
+    def authorize_replan(self, authorization_id: str, authorized_actions: List[ActionSpec]) -> ReplanAuthorization:
+        """Create an immutable authorization receipt for a specific replacement plan."""
         if not self.recovery_replan_ready:
             raise RuntimeError("Recovery is not ready for replanning.")
-        return self.recovery_gate.authorize_replan()
+        evidence = self.recovery_gate.authorize_replan()
+        receipt = ReplanAuthorization.issue(evidence, authorized_actions, authorization_id)
+        self.replan_authorization = receipt
+        return receipt
 
-    def install_authorized_replan(self, fresh_evidence: Any, authorized_actions: List[ActionSpec]) -> TargetStateResult:
-        """Install a replacement plan supplied by an already-authorized caller.
-
-        This method does not authorize actions itself. The caller must supply the
-        replacement actions only after the normal authorization boundary has passed.
-        """
+    def install_authorized_replan(self, authorization: ReplanAuthorization) -> TargetStateResult:
+        """Install only the exact replacement plan covered by an authorization receipt."""
         if not self.recovery_replan_ready:
             raise RuntimeError("Recovery is not ready for an authorized replan.")
-        if self.recovery_gate.authorize_replan() != fresh_evidence:
-            raise RuntimeError("Replan evidence does not match the evidence recorded by recovery.")
-        if not isinstance(authorized_actions, list) or any(not isinstance(action, ActionSpec) for action in authorized_actions):
-            raise TypeError("authorized_actions must be a list of ActionSpec objects.")
+        if not isinstance(authorization, ReplanAuthorization):
+            raise TypeError("authorization must be a ReplanAuthorization.")
+        if self.replan_authorization != authorization:
+            raise RuntimeError("Replan authorization does not match the current recovery authorization.")
+        evidence = self.recovery_gate.authorize_replan()
+        raise RuntimeError("Authorized action payload is required to install the replan.")
 
-        result = self.target_evaluator.evaluate(fresh_evidence)
+    def install_authorized_replan_actions(self, authorization: ReplanAuthorization, authorized_actions: List[ActionSpec]) -> TargetStateResult:
+        """Install a replacement plan only when its actions match the issued receipt."""
+        if not self.recovery_replan_ready:
+            raise RuntimeError("Recovery is not ready for an authorized replan.")
+        if not isinstance(authorization, ReplanAuthorization):
+            raise TypeError("authorization must be a ReplanAuthorization.")
+        if self.replan_authorization != authorization:
+            raise RuntimeError("Replan authorization does not match the current recovery authorization.")
+        if not authorization.matches(self.recovery_gate.authorize_replan(), authorized_actions):
+            raise RuntimeError("Replacement actions do not match the authorized replan.")
+
+        result = self.target_evaluator.evaluate(self.recovery_gate.authorize_replan())
         self.target_state = result
         self.evaluation_error = None
         self.conditional_plan = ConditionalActionPlan(list(authorized_actions))
@@ -303,6 +319,7 @@ class ConditionalPlanningOrchestrator:
         if result.satisfied:
             self.future_controller.acknowledge({"writes_skipped": True})
         self.recovery_gate = None
+        self.replan_authorization = None
         return result
 
     def finalize_future(self) -> Dict[str, Any]:
@@ -325,4 +342,5 @@ class ConditionalPlanningOrchestrator:
             "verification": self.verification_plan.snapshot() if self.verification_plan else None,
             "future": self.future_controller.snapshot() if self.future_controller else None,
             "recovery": self.recovery_gate.snapshot() if self.recovery_gate else None,
+            "replan_authorization": self.replan_authorization.snapshot() if self.replan_authorization else None,
         }
