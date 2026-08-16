@@ -1,4 +1,4 @@
-"""Deterministic bridges between Atlas evidence, target state, actions, and verification."""
+"""Deterministic bridges between Atlas evidence, target state, and actions."""
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
@@ -84,15 +84,19 @@ class PlanningOrchestrator:
 
 @dataclass
 class ConditionalPlanningOrchestrator:
-    """Run evidence, target-state evaluation, conditional actions, verification, and deterministic future control."""
+    """Run evidence, target-state evaluation, and conditional actions deterministically."""
 
     evidence_plan: EvidencePlan
     conditional_plan: ConditionalActionPlan
     target_evaluator: TargetStateEvaluator
+    verification_plan: Optional[VerificationPlan] = None
     target_state: Optional[TargetStateResult] = None
     evaluation_error: Optional[str] = None
-    verification_plan: Optional[VerificationPlan] = None
     future_controller: Optional[FutureExecutionController] = None
+
+    def __post_init__(self) -> None:
+        if self.verification_plan is None:
+            self.verification_plan = VerificationPlan(self.target_evaluator)
 
     @property
     def evidence_complete(self) -> bool:
@@ -111,12 +115,8 @@ class ConditionalPlanningOrchestrator:
         return self.conditional_plan.complete
 
     @property
-    def verification_required(self) -> bool:
-        return self.verification_plan is not None
-
-    @property
     def verification_complete(self) -> bool:
-        return not self.verification_required or bool(self.verification_plan and self.verification_plan.complete)
+        return bool(self.verification_plan and self.verification_plan.complete)
 
     @property
     def blocked(self) -> bool:
@@ -211,7 +211,12 @@ class ConditionalPlanningOrchestrator:
         expected = self.future_controller.next_action
         if expected is None or expected.get("index") != self.conditional_plan.action_plan.current_index:
             raise RuntimeError("Conditional action diverged from the deterministic future.")
-        result = self.future_controller.execute_current(execute)
+        try:
+            result = self.future_controller.execute_current(execute)
+        except Exception as exc:
+            failure = {"error": str(exc), "exception_type": type(exc).__name__}
+            self.conditional_plan.record_result(failure, False)
+            raise
         self.conditional_plan.record_result(result, "error" not in result)
         return result
 
