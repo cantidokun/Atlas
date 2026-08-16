@@ -1,0 +1,1 @@
+Atlas test scripts are executed by the self-hosted Windows runner.
