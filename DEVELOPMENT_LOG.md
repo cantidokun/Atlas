@@ -1,6 +1,6 @@
 # Atlas Development Log
 
-## August 16, 2026 — Live Controller Passed / General Action Planning Started
+## August 16, 2026 — Live Controller Passed / General Planning Integration
 
 ### Live controller result
 
@@ -26,105 +26,135 @@ Distance        = 10.466 units
 Symmetric       = true
 ```
 
-### Important result
-
-This completes the current controller milestone.
-
-Atlas has now proven the complete controlled modification loop on the real local environment:
-
-```text
-BEFORE
- ↓
-TARGET
- ↓
-WRITE 1
- ↓
-WRITE 2
- ↓
-INDEPENDENT VERIFICATION
- ↓
-PYTHON FINAL REPORT
- ↓
-CLEAN EXIT
-```
-
-### New architecture phase: General Action Planning V1
+### General Action Planning V1
 
 The goalpost controller proved that Python should own execution state once a multi-step modification is authorized.
-
-The next problem is to make that pattern generic.
 
 Added:
 
 `action_plan.py`
 
-It contains two primitives:
+It contains:
 
 - `ActionSpec` — one ordered authorized action
 - `ActionPlan` — deterministic state for an ordered action sequence
 
-The plan can:
+The plan exposes the next action, records results, advances only after success, blocks after a required failure, reports completion, and provides a serializable state snapshot.
 
-- expose the next action
-- record results
-- advance only after success
-- block after a required failure
-- report completion
-- provide a serializable state snapshot
-
-This module does not decide what actions a task needs. That remains a separate planning problem.
-
-### Tests added
+### General Evidence Planning V1
 
 Added:
 
-`test_action_plan.py`
+`evidence_plan.py`
 
-Coverage includes:
+It tracks ordered evidence requests, completion, reuse, and blocking failures.
 
-- first action selection
-- successful advancement
-- failure blocking
-- full multi-action completion
-- preventing changes after completion
-- preventing changes after a blocking failure
+### Planning Orchestrator V1
 
-The previous local suite passed:
+Added:
+
+`planning_orchestrator.py`
+
+It connects evidence and action plans. Action execution remains blocked until required evidence is complete.
+
+### Controlled failure / recovery
+
+The live recovery harness passed.
+
+A failed write is detected as recoverable, fresh evidence is required, and automatic retry is refused. A new validated and explicitly authorized plan is required before retrying.
+
+### Audit trail
+
+The live action workflow records the lifecycle in order:
 
 ```text
-26 passed
+Qwen proposal
+ ↓
+Evidence
+ ↓
+Authorization
+ ↓
+Execution 1
+ ↓
+Execution 2
+ ↓
+Verification
 ```
 
-The new action-plan tests bring the expected local total to:
+The final live test completed with an audit trail and independent verification.
+
+### Qwen Structured Planning Bridge — PASS
+
+Added:
+
+`live_qwen_planning_loop.py`
+
+The live planning bridge now proves:
 
 ```text
-32 passed
+Qwen structured plan
+ ↓
+Python plan validation
+ ↓
+Read-only Blender evidence
+ ↓
+Planning orchestrator
+ ↓
+Structured action plan
+ ↓
+No write execution
 ```
 
-A local offline run is required before the action-plan primitive is connected to the live agent.
+The successful run produced:
 
-### Documentation updated
+- 1 structured evidence request
+- 2 structured actions
+- validated plan
+- authoritative read-only evidence
+- completed evidence plan
+- structured action plan with the next action exposed
+- zero write execution
 
-Updated:
+Result:
 
-- `README.md`
-- `ATLAS_HANDOFF_CONTEXT.txt`
-- `DEVELOPMENT_LOG.md`
+```text
+QWEN PLAN ACCEPTED
+EVIDENCE VERIFIED READ-ONLY
+ACTION PLAN STRUCTURED
+WRITE EXECUTION NOT PERFORMED
+ATLAS QWEN PLANNING BRIDGE TEST: PASS
+```
 
-The documentation now marks the live controller milestone as complete and identifies General Action Planning V1 as the current development phase.
+This is the first live boundary between Qwen task planning and the generic Python planning primitives.
+
+### Regression status
+
+Latest local regression result:
+
+```text
+98 passed
+```
+
+### Documentation
+
+`README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` are kept synchronized with the verified milestones.
 
 ### Next architecture target
 
-The next design should connect:
+The next development target is conditional action planning:
 
 ```text
-Task understanding
+Task
  ↓
-Required evidence
+Structured evidence requirements
  ↓
 Evidence ledger
  ↓
-Authorized action plan
+Determine whether target already holds
+ ↓
+If already satisfied → skip unnecessary writes
+ ↓
+If not satisfied → retain authorized action plan
  ↓
 Python-controlled execution
  ↓
@@ -133,22 +163,10 @@ Independent verification
 Completion
 ```
 
-The action plan must not become another goalpost-specific workflow.
+The first test should use the existing goalpost fixture in an already-correct state and prove that Atlas does not write unnecessarily. A second test should use a genuinely incorrect state and prove that the necessary write path remains available.
 
 Do not add a new Blender tool unless a real capability gap is proven.
 
-### Next local gate
+### User test protocol
 
-Pull the latest `main` and run:
-
-```powershell
-python -m pytest -q
-```
-
-Expected:
-
-```text
-32 passed
-```
-
-Do not run Blender or Ollama yet. The next live test will happen only after the generic action-plan integration reaches a real local environment boundary.
+When a new local test is ready, immediately provide the exact command/prompt. Do not ask the user to run a test before the harness exists on `main`.
