@@ -20,10 +20,10 @@ jobs:
     environment: local-testing
 
     steps:
-      - name: Check out tested Atlas branch
+      - name: Check out current Atlas main
         uses: actions/checkout@v4
         with:
-          ref: ai/level2-runner-setup
+          ref: main
 
       - name: Show runner environment
         shell: cmd
