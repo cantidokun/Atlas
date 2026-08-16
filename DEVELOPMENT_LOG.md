@@ -68,30 +68,145 @@ Controller results are added to the same evidence ledger and tool history used b
 
 This gives us a real live-agent integration path without duplicating the entire agent loop.
 
+### Local environment verification
+
+The live test confirmed the local environment is usable:
+
+- Python 3.9.6
+- Ollama 0.32.13
+- `qwen3:8b`
+- Blender 4.4
+- Atlas Blender tool execution
+
+### Live end-to-end result
+
+The real `goalpost_test.blend` file was inspected before modification.
+
+BEFORE:
+
+```text
+Goal_Left_post  = [0.0, 5.302, 0.0]
+Goal_Right_Post = [0.0, -5.164, 0.0]
+Midpoint        = [0.0, 0.069, 0.0]
+```
+
+The controller calculated:
+
+```text
+Adjustment      = [0.0, -0.069, 0.0]
+Goal_Left_post  = [0.0, 5.233, 0.0]
+Goal_Right_Post = [0.0, -5.233, 0.0]
+```
+
+Both `move_object` writes executed successfully.
+
+A separate `inspect_object_relationship` call then verified:
+
+```text
+Goal_Left_post  = [0.0, 5.233, 0.0]
+Goal_Right_Post = [0.0, -5.233, 0.0]
+Midpoint        = [0.0, 0.0, 0.0]
+Distance        = 10.466 units
+Symmetric       = true
+```
+
+This proves the controller can complete the tested multi-write modification sequence against a real Blender file.
+
+### Failure found after successful modification
+
+The first Qwen final answer did not include all required temporal evidence.
+
+The evidence validator correctly rejected it because it was missing:
+
+- BEFORE positions
+- BEFORE midpoint
+- TARGET positions
+- positional adjustment
+- FINAL VERIFIED state
+
+Qwen then requested another relationship inspection even though the required final evidence was already available. The final inspection was correct, but the run reached the maximum reasoning-step limit before Qwen produced an accepted final answer.
+
+Important conclusion:
+
+**The Blender modification and verification succeeded. The remaining failure was final-answer recovery.**
+
+### Finalization fix
+
+Added:
+
+`controller_finalization.py`
+
+This module builds a deterministic final report from the authoritative evidence ledger when a controller-owned midpoint task has completed.
+
+It requires:
+
+- a BEFORE relationship snapshot
+- successful `move_object` writes
+- a complete FINAL relationship snapshot
+- final midpoint exactly `[0.0, 0.0, 0.0]`
+
+The report explicitly separates:
+
+```text
+INITIAL MEASURED STATE
+CALCULATED TARGET STATE
+FINAL VERIFIED STATE
+```
+
+The live entrypoint now stops cleanly after a completed controller task instead of spending another Qwen reasoning cycle trying to rediscover the final answer.
+
 ### Tests added
 
-`test_controller_entrypoint.py` checks that:
+`test_controller_entrypoint.py` now checks the deterministic finalization hook.
 
-- the controller hook is inserted exactly once
-- it appears before the Ollama model call
-- the integration is initialized beside the existing agent state
-- an unexpected change to the agent loop causes the entrypoint to fail closed instead of silently running without the controller
+`test_controller_finalization.py` checks:
+
+- complete state-aware final report generation
+- refusal to finalize without post-write verification
+- refusal to finalize when the final midpoint is wrong
+
+A GitHub Actions workflow was also added at:
+
+`.github/workflows/tests.yml`
+
+It runs the offline suite on Python 3.9 and 3.11 for pushes and pull requests.
 
 ### Current limitation
 
-The original `agent.py` file has not been rewritten yet. The new entrypoint is intentionally the first live integration layer so we can prove the controller works with the existing agent before making a permanent edit to the main file.
+The permanent `agent.py` loop has not been rewritten yet. The controller remains behind the compatibility entrypoint so the architecture can be proven without duplicating or destabilizing the main reasoning loop.
 
-The full Blender/Qwen end-to-end test still needs to be run on the local machine because this development environment cannot connect to the user's local Ollama or Blender process.
+The deterministic finalization path is now ready, but it still needs a local regression run after the latest commits are pulled.
 
 ### Next step
 
-Run the controller-enabled entrypoint against the real local environment and verify:
+Run locally:
 
-1. Qwen gathers BEFORE evidence.
-2. Python takes control after BEFORE evidence exists.
-3. Both authorized goalpost moves execute.
-4. The post-write relationship inspection executes.
-5. The final midpoint is verified as `[0.0, 0.0, 0.0]`.
-6. Qwen receives the controller-generated evidence and produces the final report.
+```text
+python -m pytest -q
+```
 
-After that passes, promote the controller hook into the permanent `agent.py` loop and mark Reliable Modification Control complete.
+Then run:
+
+```text
+python .\run_agent_with_controller.py
+```
+
+The expected live flow is:
+
+```text
+Qwen / evidence
+      ↓
+Python controller
+      ↓
+Write A
+      ↓
+Write B
+      ↓
+Independent verification
+      ↓
+Deterministic final report
+      ↓
+Clean exit
+```
+
+After this passes, continue with general action planning and General Evidence Planner V1. Do not add another goalpost-specific rule or Blender write tool merely to solve this test.
