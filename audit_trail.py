@@ -29,7 +29,13 @@ class AuditTrail:
         self.record("authorization", "authorized" if authorized else "refused", **details)
 
     def record_action(self, index: int, action: Dict[str, Any], result: Dict[str, Any], success: bool) -> None:
-        self.record("execution", "success" if success else "failure", index=index, action=action, result=result)
+        self.record(
+            "execution",
+            "success" if success else "failure",
+            action_index=index,
+            action=action,
+            result=result,
+        )
 
     def record_verification(self, result: Dict[str, Any], success: bool) -> None:
         self.record("verification", "success" if success else "failure", result=result)
