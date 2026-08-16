@@ -65,7 +65,7 @@ def build_correction_prompt(file_name: str) -> str:
     return f"""Return ONLY corrected Atlas JSON for {file_name}.
 Evidence: inspect_object_relationship(file_name=\"{file_name}\", object1_name=\"Goal_Left_post\", object2_name=\"Goal_Right_Post\")
 Action 1: move_object(file_name=\"{file_name}\", object_name=\"Goal_Left_post\", location=[0.0,5.233,0.0])
-Action 2: move_object(file_name=\"{file_name}\", object_name=\"Goal_Right_post\", location=[0.0,-5.233,0.0])
+Action 2: move_object(file_name=\"{file_name}\", object_name=\"Goal_Right_Post\", location=[0.0,-5.233,0.0])
 Use only tool, arguments, name. Both evidence and actions must be arrays."""
 
 
@@ -135,23 +135,25 @@ def action_payload(action: Any) -> Dict[str, Any]:
 
 
 def prepare_case(case: str) -> str:
-    """Create an isolated fixture; setup writes are outside Atlas execution."""
-    target_file = WORKING_CORRECT_FILE if case == "already-correct" else WORKING_INCORRECT_FILE
-    shutil.copy2(SOURCE_FILE, target_file)
+    """Select the fixture provisioned by the workflow and isolate each case."""
+    if case == "already-correct":
+        # The workflow has already generated this fixture deterministically.
+        # Do not overwrite it with the source fixture: doing so destroys the
+        # correct state we intentionally provisioned before this harness runs.
+        target_file = WORKING_CORRECT_FILE
+        if not __import__("os").path.exists(target_file):
+            raise RuntimeError(f"Provisioned correct fixture not found: {target_file}")
+        return target_file
 
-    # Fixture preparation is deliberately outside the conditional planner. This
-    # makes each live test deterministic even if the checked-in source fixture
-    # has drifted. These setup writes are never counted as Atlas action writes.
+    target_file = WORKING_INCORRECT_FILE
+    shutil.copy2(SOURCE_FILE, target_file)
     left = move_object(target_file, "Goal_Left_post", TARGET_LEFT)
     right = move_object(target_file, "Goal_Right_Post", TARGET_RIGHT)
     if left.get("status") != "moved" or right.get("status") != "moved":
         raise RuntimeError(f"Could not normalize conditional fixture: {left}; {right}")
-
-    if case == "incorrect":
-        incorrect = move_object(target_file, "Goal_Left_post", [0.0, 5.000, 0.0])
-        if incorrect.get("status") != "moved":
-            raise RuntimeError(f"Could not prepare incorrect fixture: {incorrect}")
-
+    incorrect = move_object(target_file, "Goal_Left_post", [0.0, 5.000, 0.0])
+    if incorrect.get("status") != "moved":
+        raise RuntimeError(f"Could not prepare incorrect fixture: {incorrect}")
     return target_file
 
 
