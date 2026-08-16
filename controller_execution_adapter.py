@@ -25,6 +25,8 @@ class ControllerExecutionAdapter:
             if controller_required_for_midpoint_task(task_text, evidence_ledger)
             else None
         )
+        if self.bridge is not None:
+            self.bridge.sync_evidence(evidence_ledger)
 
     @property
     def active(self) -> bool:
@@ -35,13 +37,19 @@ class ControllerExecutionAdapter:
         return self.bridge is not None and self.bridge.is_complete()
 
     def refresh(self) -> None:
-        """Activate the controller after the required BEFORE evidence appears."""
-        if self.bridge is not None:
-            return
-        if controller_required_for_midpoint_task(self.task_text, self.evidence_ledger):
-            self.bridge = ControllerBridge(self.file_name)
+        """Activate and hydrate the controller from verified agent evidence."""
+        if self.bridge is None:
+            if controller_required_for_midpoint_task(self.task_text, self.evidence_ledger):
+                self.bridge = ControllerBridge(self.file_name)
 
-    def execute_required_step(self, execute: ToolExecutor, tool_execution_history: List[dict]) -> Dict[str, Any]:
+        if self.bridge is not None:
+            self.bridge.sync_evidence(self.evidence_ledger)
+
+    def execute_required_step(
+        self,
+        execute: ToolExecutor,
+        tool_execution_history: List[dict],
+    ) -> Dict[str, Any]:
         """Execute one mandatory controller step and mirror it into agent state."""
         self.refresh()
         if self.bridge is None:
