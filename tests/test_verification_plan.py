@@ -52,9 +52,10 @@ def test_successful_write_does_not_count_as_verification():
 
     assert orchestrator.action_complete
     assert not orchestrator.verification_complete
-    with pytest.raises(RuntimeError, match="Verification is blocked"):
-        orchestrator.verify_post_action({"ready": False})
+    result = orchestrator.verify_post_action({"ready": False})
+    assert result.satisfied is False
     assert orchestrator.blocked
+    assert orchestrator.next_phase() == "BLOCKED"
 
 
 def test_already_correct_path_skips_verification_and_write():
