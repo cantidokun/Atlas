@@ -38,6 +38,8 @@ TARGET_LEFT = [0.0, 5.233, 0.0]
 TARGET_RIGHT = [0.0, -5.233, 0.0]
 TARGET_MIDPOINT = [0.0, 0.0, 0.0]
 TARGET_DISTANCE = 10.466
+EXPECTED_LEFT_OBJECT = "Goal_Left_post"
+EXPECTED_RIGHT_OBJECT = "Goal_Right_Post"
 
 
 def build_system_prompt(file_name: str) -> str:
@@ -45,8 +47,13 @@ def build_system_prompt(file_name: str) -> str:
 
 Create a structured plan for {file_name} whose requested final state is:
 - Goal_Left_post = [0.0, 5.233, 0.0]
-- Goal_Right_post = [0.0, -5.233, 0.0]
+- Goal_Right_Post = [0.0, -5.233, 0.0]
 - midpoint = [0.0, 0.0, 0.0]
+
+IMPORTANT: The Blender fixture contains the EXACT object names
+"Goal_Left_post" and "Goal_Right_Post". You MUST use those exact strings,
+including capitalization and underscores. Do NOT shorten them to Left_post or
+Right_post, and do NOT invent aliases.
 
 The available tools have these EXACT Python-compatible signatures:
 - inspect_object_relationship(file_name, object1_name, object2_name)
@@ -66,9 +73,17 @@ Do not execute tools yourself."""
 
 def build_correction_prompt(file_name: str) -> str:
     return f"""Return ONLY corrected Atlas JSON for {file_name}.
-Evidence: inspect_object_relationship(file_name=\"{file_name}\", object1_name=\"Goal_Left_post\", object2_name=\"Goal_Right_Post\")
-Action 1: move_object(file_name=\"{file_name}\", object_name=\"Goal_Left_post\", location=[0.0,5.233,0.0])
-Action 2: move_object(file_name=\"{file_name}\", object_name=\"Goal_Right_Post\", location=[0.0,-5.233,0.0])
+
+The fixture object names are EXACTLY:
+- {EXPECTED_LEFT_OBJECT}
+- {EXPECTED_RIGHT_OBJECT}
+
+Do not use Left_post or Right_post. Do not use aliases.
+
+Evidence: inspect_object_relationship(file_name=\"{file_name}\", object1_name=\"{EXPECTED_LEFT_OBJECT}\", object2_name=\"{EXPECTED_RIGHT_OBJECT}\")
+Action 1: move_object(file_name=\"{file_name}\", object_name=\"{EXPECTED_LEFT_OBJECT}\", location=[0.0,5.233,0.0])
+Action 2: move_object(file_name=\"{file_name}\", object_name=\"{EXPECTED_RIGHT_OBJECT}\", location=[0.0,-5.233,0.0])
+
 Use only tool, arguments, name. Both evidence and actions must be arrays."""
 
 
@@ -80,6 +95,54 @@ def ask_qwen(messages: List[Dict[str, str]]) -> str:
     )
     response.raise_for_status()
     return response.json()["message"]["content"]
+
+
+def validate_conditional_proposal(proposal: TaskPlanProposal, file_name: str) -> None:
+    """Enforce the semantic object-name contract for this live fixture.
+
+    Generic plan parsing proves that a proposal is structurally valid. This
+    harness additionally requires the proposal to refer to the exact objects
+    that exist in the deterministic fixture. A structurally valid plan that
+    names different objects must not reach evidence execution.
+    """
+    if len(proposal.evidence) != 1 or len(proposal.actions) != 2:
+        raise TaskPlanValidationError("Conditional plan must contain 1 evidence item and 2 actions")
+
+    evidence = proposal.evidence[0]
+    if evidence.tool != "inspect_object_relationship":
+        raise TaskPlanValidationError("Conditional evidence must inspect object relationship")
+    evidence_args = dict(evidence.arguments)
+    if evidence_args.get("file_name") != file_name:
+        raise TaskPlanValidationError("Evidence file_name does not match the selected fixture")
+    if evidence_args.get("object1_name") != EXPECTED_LEFT_OBJECT:
+        raise TaskPlanValidationError(
+            f"Evidence object1_name must be {EXPECTED_LEFT_OBJECT!r}"
+        )
+    if evidence_args.get("object2_name") != EXPECTED_RIGHT_OBJECT:
+        raise TaskPlanValidationError(
+            f"Evidence object2_name must be {EXPECTED_RIGHT_OBJECT!r}"
+        )
+
+    expected_actions = (
+        (EXPECTED_LEFT_OBJECT, TARGET_LEFT),
+        (EXPECTED_RIGHT_OBJECT, TARGET_RIGHT),
+    )
+    for index, (action, (expected_object, expected_location)) in enumerate(
+        zip(proposal.actions, expected_actions), start=1
+    ):
+        if action.tool != "move_object":
+            raise TaskPlanValidationError(f"Action {index} must use move_object")
+        args = dict(action.arguments)
+        if args.get("file_name") != file_name:
+            raise TaskPlanValidationError(f"Action {index} file_name does not match the selected fixture")
+        if args.get("object_name") != expected_object:
+            raise TaskPlanValidationError(
+                f"Action {index} object_name must be {expected_object!r}"
+            )
+        if args.get("location") != expected_location:
+            raise TaskPlanValidationError(
+                f"Action {index} location must be {expected_location!r}"
+            )
 
 
 def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
@@ -95,6 +158,9 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         print(raw, flush=True)
         try:
             proposal = parse_qwen_plan(raw, allowed_tools=ALLOWED_TOOLS)
+            if proposal is None:
+                raise TaskPlanValidationError("Qwen output decoded to no Atlas plan proposal")
+            validate_conditional_proposal(proposal, file_name)
         except (TaskPlanValidationError, TypeError, ValueError) as exc:
             proposal = None
             last_error = exc
@@ -104,11 +170,9 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
             return proposal
 
         if last_error is None:
-            last_error = TaskPlanValidationError(
-                "Qwen output could not be decoded as an Atlas plan envelope or "
-                "the supported three-item conditional flat-plan form."
-            )
+            last_error = TaskPlanValidationError("Unknown Qwen plan validation failure")
 
+        print(f"QWEN PLAN REJECTED: {last_error}", flush=True)
         audit.record_qwen_proposal(raw, attempt, False, str(last_error))
         if attempt < MAX_PLAN_ATTEMPTS:
             messages.extend([
@@ -156,11 +220,11 @@ def prepare_case(case: str) -> str:
 
     target_file = WORKING_INCORRECT_FILE
     shutil.copy2(SOURCE_FILE, target_file)
-    left = move_object(str(target_file), "Goal_Left_post", TARGET_LEFT)
-    right = move_object(str(target_file), "Goal_Right_Post", TARGET_RIGHT)
+    left = move_object(str(target_file), EXPECTED_LEFT_OBJECT, TARGET_LEFT)
+    right = move_object(str(target_file), EXPECTED_RIGHT_OBJECT, TARGET_RIGHT)
     if left.get("status") != "moved" or right.get("status") != "moved":
         raise RuntimeError(f"Could not normalize conditional fixture: {left}; {right}")
-    incorrect = move_object(str(target_file), "Goal_Left_post", [0.0, 5.000, 0.0])
+    incorrect = move_object(str(target_file), EXPECTED_LEFT_OBJECT, [0.0, 5.000, 0.0])
     if incorrect.get("status") != "moved":
         raise RuntimeError(f"Could not prepare incorrect fixture: {incorrect}")
     return str(target_file)
@@ -174,11 +238,6 @@ def main() -> None:
     file_name = prepare_case(args.case)
     audit = AuditTrail()
     proposal = get_validated_plan(file_name, audit)
-
-    if len(proposal.evidence) != 1 or len(proposal.actions) != 2:
-        raise RuntimeError("Unexpected conditional plan shape")
-    if any(action.tool != "move_object" for action in proposal.actions):
-        raise RuntimeError("Conditional plan contains a non-write action")
 
     evidence_only = TaskPlanProposal(evidence=proposal.evidence, actions=[])
     evidence_execution = execute_read_only_plan(evidence_only)
@@ -214,7 +273,7 @@ def main() -> None:
     if satisfied:
         if conditional.next_action is not None or conditional.action_plan.completed:
             raise RuntimeError("Satisfied target exposed or executed a conditional write")
-        final = inspect_object_relationship(file_name, "Goal_Left_post", "Goal_Right_Post")
+        final = inspect_object_relationship(file_name, EXPECTED_LEFT_OBJECT, EXPECTED_RIGHT_OBJECT)
         if not target_is_satisfied(final):
             raise RuntimeError("Independent no-op verification failed")
         audit.record_verification(final, True)
@@ -243,7 +302,7 @@ def main() -> None:
             if not success:
                 raise RuntimeError(f"Authorized action failed: {result}")
 
-        final = inspect_object_relationship(file_name, "Goal_Left_post", "Goal_Right_Post")
+        final = inspect_object_relationship(file_name, EXPECTED_LEFT_OBJECT, EXPECTED_RIGHT_OBJECT)
         verification_ok = target_is_satisfied(final)
         audit.record_verification(final, verification_ok)
         if not verification_ok:
