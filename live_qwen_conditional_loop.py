@@ -20,7 +20,6 @@ from typing import Any, Dict, List
 
 import requests
 
-from action_plan import ActionPlan
 from audit_trail import AuditTrail
 from conditional_action_plan import ConditionalActionPlan
 from qwen_planning_executor import execute_read_only_plan
@@ -40,6 +39,7 @@ ALLOWED_TOOLS = {"inspect_object_relationship", "move_object"}
 TARGET_LEFT = [0.0, 5.233, 0.0]
 TARGET_RIGHT = [0.0, -5.233, 0.0]
 TARGET_MIDPOINT = [0.0, 0.0, 0.0]
+TARGET_DISTANCE = 10.466
 
 
 def build_system_prompt(file_name: str) -> str:
@@ -119,11 +119,13 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
 
 
 def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
+    """Return true only when every independent target invariant is satisfied."""
     return (
         relationship["object_a"]["location"] == TARGET_LEFT
         and relationship["object_b"]["location"] == TARGET_RIGHT
         and relationship["midpoint"] == TARGET_MIDPOINT
         and relationship["symmetric_about_origin"] is True
+        and relationship["distance"] == TARGET_DISTANCE
     )
 
 
