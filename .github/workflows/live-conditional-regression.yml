@@ -12,6 +12,13 @@ on:
 permissions:
   contents: read
 
+# The live regression uses one self-hosted Blender/Qwen environment. Only the
+# newest main revision should consume that environment; superseded runs are
+# cancelled rather than queued behind stale code.
+concurrency:
+  group: atlas-live-conditional-main
+  cancel-in-progress: true
+
 jobs:
   live-conditional:
     name: live conditional (${{ matrix.case }})
