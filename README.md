@@ -36,6 +36,7 @@ It can now:
 - build a final report from verified evidence
 - finish a completed controller task without giving control back to Qwen
 - track a generic ordered action plan with Python
+- track a generic ordered evidence plan with Python
 
 The current test asset is `goalpost_test.blend`.
 
@@ -102,13 +103,13 @@ This proved that Python can take control of a mandatory modification, perform ev
 
 # Offline tests
 
-The current local regression suite has passed:
+The latest local regression suite has passed:
 
 ```text
-26 passed
+32 passed
 ```
 
-The suite now includes tests for:
+The suite includes tests for:
 
 - controller state transitions
 - required write ordering
@@ -118,6 +119,7 @@ The suite now includes tests for:
 - controller completion before another model call
 - negative-zero formatting
 - generic ordered action plans
+- generic ordered evidence plans
 
 ---
 
@@ -159,19 +161,90 @@ It does not yet decide what actions a task needs.
 
 That decision still requires task reasoning and evidence.
 
-The next architecture work is to connect:
+---
+
+# New: Evidence Planning V1
+
+A separate module is now:
+
+`evidence_plan.py`
+
+It provides a small state machine for evidence requests.
+
+An evidence plan can contain requests such as:
 
 ```text
-Task understanding
-      ↓
-Evidence requirements
-      ↓
-Action plan
-      ↓
-Python-controlled execution
-      ↓
-Verification
+Need scene information
+        ↓
+Need relationship information
+        ↓
+Evidence complete
 ```
+
+Python tracks whether each request has been satisfied.
+
+Evidence that is already known can be marked as `reused`, so Atlas can avoid running the same inspection again.
+
+A failed required evidence request blocks the plan instead of letting the system pretend the evidence exists.
+
+### Important limitation
+
+Evidence Planning V1 is also a **primitive**.
+
+It does not yet decide what evidence is needed from natural language.
+
+Qwen and the broader evidence-planner logic still need to determine:
+
+- what the task requires
+- what is already known
+- what is missing
+- which existing tool can provide it
+
+The new primitive gives Python a reliable place to track that process once those requests have been identified.
+
+---
+
+# The architecture we are moving toward
+
+Atlas is separating three different questions:
+
+```text
+1. What do I need to know?
+          ↓
+   Evidence planning
+
+2. What should I do?
+          ↓
+   Action planning
+
+3. How do I know it worked?
+          ↓
+   Verification
+```
+
+That gives us a cleaner full loop:
+
+```text
+Task
+ ↓
+Task understanding
+ ↓
+Evidence plan
+ ↓
+Evidence ledger
+ ↓
+Action plan
+ ↓
+Python-controlled execution
+ ↓
+Independent verification
+ ↓
+Completion
+ ↓
+Final response
+```
+
+This separation is important. Atlas should not decide to change Blender simply because it can imagine a useful modification. The evidence must support the action, the action must be authorized, and the resulting state must be verified.
 
 ---
 
@@ -205,7 +278,9 @@ Atlas distinguishes measured facts from guesses and recommendations.
 
 **IN PROGRESS**
 
-The first version exists. More task types and evidence-gap cases are still needed.
+Evidence-plan primitives now exist.
+
+The next work is connecting natural-language task needs to those evidence requests and testing more task types.
 
 ## Stage 6 — Reliable Modification Control
 
@@ -223,7 +298,7 @@ The controller no longer depends on Qwen to decide when mandatory writes or fina
 
 **IN PROGRESS**
 
-The first generic action-plan primitive now exists.
+The generic action-plan primitive now exists.
 
 The next goal is to make the action plan come from the task and evidence instead of hard-coding goalpost behavior.
 
@@ -276,16 +351,26 @@ http://localhost:11434/api/chat
 
 # Next step
 
-The next development step is to connect the generic action-plan primitive to Atlas's existing evidence and authorization model without changing the proven live controller.
+The next development step is to connect evidence planning and action planning without tying them to the current goalpost task.
 
-The current design should remain:
+The first goal is a small offline orchestration layer:
 
 ```text
-Qwen = reasoning and interpretation
-Python = execution state and safety gates
-Blender tools = measured evidence and actions
+Task
+ ↓
+Evidence requests
+ ↓
+Known evidence reused
+ ↓
+Missing evidence acquired
+ ↓
+Authorized action plan
+ ↓
+Execution state
+ ↓
+Verification
 ```
 
-We will first test this connection offline. No local Blender/Ollama test is needed until the new architecture reaches another live integration boundary.
+Only after that layer is stable should we run another real Blender/Ollama integration test.
 
 For the full technical record, see `ATLAS_HANDOFF_CONTEXT.txt` and `DEVELOPMENT_LOG.md`.
