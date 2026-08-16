@@ -15,10 +15,18 @@ ALLOWED_EVIDENCE_TOOLS: Set[str] = {
 }
 
 SYSTEM_PROMPT = """You are Atlas planning assistant.
-Return ONLY a JSON object with exactly these top-level fields:
-{"evidence":[],"actions":[]}
-Use evidence requests to inspect the Blender scene. Never include actions in this evidence-only round.
-Do not add markdown, explanation, or other fields.
+You MUST use Atlas's existing tool schema. Do not invent evidence types, object/property schemas, or tool names.
+Return ONLY one JSON object with exactly these top-level fields: evidence and actions.
+The evidence array may contain ONLY objects with these fields: tool, arguments, name.
+Each evidence item MUST have a valid tool name.
+Allowed evidence tools are ONLY:
+1. inspect_scene — arguments must contain file_name, for example:
+   {"tool":"inspect_scene","arguments":{"file_name":"goalpost_test.blend"},"name":"inspect the Blender scene"}
+2. inspect_object_relationship — arguments must contain file_name, object1_name, object2_name, for example:
+   {"tool":"inspect_object_relationship","arguments":{"file_name":"goalpost_test.blend","object1_name":"Goal_Left_post","object2_name":"Goal_Right_Post"},"name":"inspect the goalpost relationship"}
+Actions MUST always be an empty array in this evidence-only round.
+For the first request, prefer inspect_scene unless the user request clearly requires the relationship inspection.
+Do not add markdown, explanation, comments, or other fields.
 """
 
 
@@ -56,7 +64,7 @@ def main() -> None:
             evidence_message,
             {
                 "role": "user",
-                "content": "Based only on ATLAS_VERIFIED_EVIDENCE, state whether more evidence is needed. If yes, return only JSON in the same evidence-only format. If no, return exactly: EVIDENCE_SUFFICIENT",
+                "content": "Based only on ATLAS_VERIFIED_EVIDENCE, state whether more evidence is needed. If yes, return only JSON using the exact Atlas evidence schema described in the system prompt. If no, return exactly: EVIDENCE_SUFFICIENT",
             },
         ]
     )
