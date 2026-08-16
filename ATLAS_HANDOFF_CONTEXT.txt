@@ -1,6 +1,6 @@
 ATLAS DEVELOPMENT HANDOFF
 Date: August 16, 2026
-Current Milestone: Live Controller Proven / Finalization Recovery Added / General Planner Next
+Current Milestone: Controller Offline Suite Green / Live Finalization Regression Next
 
 ============================================================
 1. PROJECT
@@ -26,30 +26,31 @@ Controller when an authorized action is required
     ↓
 Independent verification
     ↓
-Final-answer validation / deterministic controller finalization
+Final-answer validation or deterministic controller finalization
 
 Core principle:
 
 Qwen handles reasoning and interpretation.
 Python handles execution, state, mandatory actions, verification,
-and final-answer control.
+and completion control.
 
 
 ============================================================
-2. CURRENT DEVELOPMENT STATUS
+2. CURRENT STATUS
 ============================================================
 
 Working:
 
 - Blender connection
 - Local Qwen/Ollama connection
+- qwen3:8b integration
 - Tool execution
 - Tool error handling
 - 46 factuality rules
 - Evidence ledger
 - Task-driven evidence acquisition
 - Object relationship inspection
-- Final-answer factuality validation
+- Final-answer validation
 - Task-completion validation
 - Recommendation restraint
 - Controller state machine
@@ -60,15 +61,16 @@ Working:
 - Independent post-write verification
 - Deterministic controller finalization
 
-The controller has now been run against the real local Ollama + Blender
-setup and successfully completed the tested two-write goalpost task.
+The controller has passed a real live two-write Blender modification.
 
-The next major architecture goal remains:
+The complete local offline suite now passes:
 
-GENERAL EVIDENCE PLANNER V1
+24 passed
 
-A related next step is to generalize the controller's action planning
-pattern beyond the current midpoint test.
+The next required local test is the live controller entrypoint using the
+new deterministic finalization path.
+
+After that, general action planning is the next architecture step.
 
 
 ============================================================
@@ -87,7 +89,7 @@ qwen3:8b
 Blender:
 4.4
 
-Blender executable used by Atlas:
+Blender executable:
 C:\Program Files\Blender Foundation\Blender 4.4\blender.exe
 
 Ollama endpoint:
@@ -95,7 +97,7 @@ http://localhost:11434/api/chat
 
 
 ============================================================
-4. BLENDER TEST ASSET
+4. TEST ASSET
 ============================================================
 
 File:
@@ -111,16 +113,17 @@ Atlas_Marker
 Camera
 Light
 
-A local backup was created before the live modification test:
+Backup created before the live modification test:
 
 goalpost_test_BEFORE_ATLAS_TEST.blend
 
+The backup should be used to restore the test file before another live
+controller run.
+
 
 ============================================================
-5. LIVE BEFORE STATE — AUGUST 16, 2026
+5. LIVE BEFORE STATE — VERIFIED
 ============================================================
-
-The real Blender file was inspected through the Atlas relationship tool.
 
 Goal_Left_post:
 [0.0, 5.302, 0.0]
@@ -145,212 +148,182 @@ Z = true
 Symmetric about origin:
 false
 
-Midpoint offset from origin:
+Midpoint offset:
 0.069 units along Y
 
-These values are measured tool results and are authoritative for the
-live test.
+These are measured tool results.
 
 
 ============================================================
-6. LIVE TARGET STATE
+6. LIVE TARGET STATE — VERIFIED CALCULATION
 ============================================================
 
-The task required the midpoint to be exactly:
-
+Required midpoint:
 [0.0, 0.0, 0.0]
 
-The controller calculated a common translation of:
-
+Common adjustment:
 [0.0, -0.069, 0.0]
 
-Calculated target positions:
-
-Goal_Left_post:
+Goal_Left_post target:
 [0.0, 5.233, 0.0]
 
-Goal_Right_Post:
+Goal_Right_Post target:
 [0.0, -5.233, 0.0]
 
-The target was calculated from measured BEFORE evidence. It was not
-invented or copied from an old handoff value.
+The target was calculated from the live BEFORE evidence.
 
 
 ============================================================
-7. LIVE WRITE EXECUTION — PASS
+7. LIVE WRITE TEST — PASS
 ============================================================
 
-The live controller executed both required move_object writes.
+The controller executed both required writes:
 
 Write 1:
-
-Goal_Left_post
-→ [0.0, 5.233, 0.0]
-
-Result:
-status = moved
+Goal_Left_post → [0.0, 5.233, 0.0]
 
 Write 2:
+Goal_Right_Post → [0.0, -5.233, 0.0]
 
-Goal_Right_Post
-→ [0.0, -5.233, 0.0]
-
-Result:
+Both returned:
 status = moved
 
-This proves that the controller can own a multi-write modification
-sequence for the current authorized midpoint workflow.
-
 
 ============================================================
-8. INDEPENDENT FINAL VERIFICATION — PASS
+8. LIVE FINAL VERIFICATION — PASS
 ============================================================
 
-After the writes, Atlas executed a separate read-only:
-
-inspect_object_relationship
-
-The final verified state was:
+A separate relationship inspection proved:
 
 Goal_Left_post:
 [0.0, 5.233, 0.0]
 
 Goal_Right_Post:
 [0.0, -5.233, 0.0]
-
-Distance:
-10.466 units
 
 Midpoint:
 [0.0, 0.0, 0.0]
 
-Same dimensions:
-true
+Distance:
+10.466 units
 
 Symmetric about origin:
 true
 
-Midpoint offset from origin:
+Midpoint offset:
 0.0
 
-This is a real end-to-end proof of:
+Therefore the actual Blender modification sequence passed:
 
-requirement
+BEFORE
     ↓
-evidence
+TARGET
     ↓
-target calculation
+WRITE 1
     ↓
-write 1
+WRITE 2
     ↓
-write 2
+INDEPENDENT VERIFICATION
     ↓
-independent verification
-    ↓
-correct final state
+CORRECT FINAL STATE
 
 
 ============================================================
-9. LIVE FAILURE THAT WAS FOUND
+9. LIVE FAILURE FOUND
 ============================================================
 
-The Blender modification itself succeeded.
+The Blender modification did not fail.
 
-The failure happened during final-answer generation.
+The controller did not fail.
 
-Qwen first produced an answer that omitted required temporal evidence:
+The independent verification did not fail.
 
-- initial measured positions
-- initial midpoint
-- target positions
-- positional adjustment
-- final verified state
+The first live run failed during final-answer generation.
 
-The Python validator correctly rejected the incomplete answer.
+Qwen produced incomplete final answers, the validator correctly rejected
+them, and the reasoning loop eventually reached its step limit.
 
-Qwen then requested another relationship inspection even though the
-required final evidence was already available.
-
-The final inspection returned the correct state, but Qwen reached the
-maximum reasoning-step limit before producing an accepted final answer.
-
-Important conclusion:
-
-This was NOT a Blender write failure.
-
-This was NOT a controller movement failure.
-
-This was a final-answer recovery problem.
+This showed that successful controller work should not depend on Qwen
+being able to formulate the final report after the state is already proven.
 
 
 ============================================================
-10. FINALIZATION FIX — IMPLEMENTED
+10. FINALIZATION RECOVERY
 ============================================================
 
-A new module was added:
+Added:
 
 controller_finalization.py
 
-Purpose:
+When the controller has:
 
-When a controller-owned midpoint modification is complete and the
-independent final inspection proves the required state, Python can build
-a complete state-aware final report directly from the evidence ledger.
+- BEFORE relationship evidence
+- successful required writes
+- FINAL relationship evidence
+- the required final state
 
-The report contains:
+Python can build the final report directly.
 
-- INITIAL MEASURED STATE
-- CALCULATED TARGET STATE
-- positional adjustment
-- FINAL VERIFIED STATE
-- final relationship facts
+The report separates:
+
+INITIAL MEASURED STATE
+CALCULATED TARGET STATE
+FINAL VERIFIED STATE
 
 This is a recovery path for controller-owned tasks.
 
-Normal non-controller tasks still use the normal Qwen final-answer
-validation path.
-
-A regression test file was added:
-
-test_controller_finalization.py
-
-The controller entrypoint was also updated so that a completed
-controller task uses this deterministic finalization path instead of
-spending another Qwen reasoning cycle.
+Normal non-controller tasks still use the normal Qwen final-answer path.
 
 
 ============================================================
-11. OFFLINE TEST STATUS
+11. FORMATTING HARDENING
 ============================================================
 
-Before the finalization change, the complete controller suite passed:
+A regression exposed negative zero in formatted vectors:
 
-20 passed
+-0.000
 
-New tests now cover:
+The vector formatter now normalizes values that round to zero before
+printing them.
 
-- complete state-aware final report generation
-- refusal to finalize without post-write verification
-- refusal to finalize when the final midpoint is wrong
-- controller entrypoint finalization hook
+A dedicated regression test prevents the issue from returning.
 
-A GitHub Actions workflow was also added:
+
+============================================================
+12. OFFLINE TEST STATUS
+============================================================
+
+The current local result is:
+
+24 passed in 0.06s
+
+The tests cover:
+
+- controller state
+- controller runtime
+- controller bridge
+- controller integration
+- execution adapter
+- live entrypoint transformation
+- deterministic finalization
+- negative-zero formatting
+- missing verification rejection
+- incorrect final-state rejection
+
+GitHub Actions was added at:
 
 .github/workflows/tests.yml
 
-It runs the offline test suite on pushes and pull requests using
-Python 3.9 and 3.11.
+It is intended to run the offline suite on pushes and pull requests.
 
-The new workflow has not yet produced a completed CI run in this
-handoff. Local testing is therefore still required after the latest
-commits are pulled.
+The current authoritative result is the user's local:
+
+24 passed
 
 
 ============================================================
-12. CONTROLLER ARCHITECTURE
+13. CURRENT CONTROLLER ARCHITECTURE
 ============================================================
-
-Current controller sequence:
 
 BEFORE
   ↓
@@ -366,7 +339,7 @@ COMPLETE
 
 Python owns this sequence.
 
-The controller is connected to the existing agent through:
+Connected modules:
 
 controller_state.py
 controller_runtime.py
@@ -374,52 +347,45 @@ controller_bridge.py
 controller_execution_adapter.py
 controller_integration.py
 run_agent_with_controller.py
+controller_finalization.py
 
-The controller can hydrate its BEFORE state from evidence already
-collected by Atlas.
-
-This prevents unnecessary duplicate acquisition.
+The controller can hydrate BEFORE state from evidence already collected
+by Atlas.
 
 
 ============================================================
-13. EVIDENCE LEDGER
+14. EVIDENCE LEDGER
 ============================================================
 
 Atlas maintains:
 
 evidence_ledger = []
 
-Successful tool results are recorded with:
+Successful tool results are recorded as evidence.
 
-{
-    "tool": function_name,
-    "arguments": arguments,
-    "result": tool_result
-}
-
-The ledger is authoritative evidence for the current assessment.
+The ledger is authoritative for the current assessment.
 
 Qwen receives accumulated evidence when it reasons again.
 
 
 ============================================================
-14. FINAL-ANSWER VALIDATOR
+15. FINAL-ANSWER VALIDATION
 ============================================================
 
-Python checks proposed answers against the evidence ledger.
+Python checks proposed answers against evidence.
 
-The validator currently checks:
+The validator checks, among other things:
 
 - direct contradictions
 - unsupported symmetry claims
 - candidate-only soccer classifications
 - unsupported soccer standards
-- required BEFORE information for midpoint modification tasks
+- required BEFORE information
 - TARGET information
 - positional adjustment
 - FINAL VERIFIED information
 
-Important design distinction:
+Keep these states separate:
 
 BEFORE STATE
     ≠
@@ -427,19 +393,17 @@ TARGET STATE
     ≠
 FINAL VERIFIED STATE
 
-The validator must keep these states separate.
-
 
 ============================================================
-15. RECOMMENDATION RESTRAINT
+16. RECOMMENDATION RESTRAINT
 ============================================================
 
-The recommendation-restraint milestone is COMPLETE.
+This milestone is COMPLETE.
 
-Atlas demonstrated that a measured geometric offset does not by itself
-prove that a modification is required.
+A measured geometric offset does not automatically mean that something
+is wrong.
 
-Atlas must continue to distinguish:
+Atlas must distinguish:
 
 "I found something unusual"
 
@@ -449,57 +413,47 @@ from:
 
 
 ============================================================
-16. SOCCER COMPONENT CLASSIFICATION
+17. SOCCER CLASSIFICATION
 ============================================================
 
 The soccer-component tool uses object-name evidence.
 
-Goal_Left_post and Goal_Right_Post may be reported as:
+Goal_Left_post and Goal_Right_Post may be classified as:
 
 goalpost_candidate
 
-The overall status may be:
+This is candidate evidence only.
 
-candidate_only
-
-This does NOT establish confirmed functional soccer identity.
-
-Do not upgrade candidate evidence into confirmation without additional
-evidence.
+It does not prove confirmed functional soccer identity.
 
 
 ============================================================
-17. GENERAL EVIDENCE PLANNER
+18. GENERAL EVIDENCE PLANNER
 ============================================================
 
-General Evidence Planner V1 is still in progress.
+General Evidence Planner V1 remains IN PROGRESS.
 
 Current principle:
 
-1. Identify the evidence needed by the current task.
-2. Check the evidence ledger.
-3. If the evidence is already known, do not repeat the tool.
-4. If it is missing and an existing tool can obtain it, acquire it.
-5. If no existing tool can obtain it, identify the actual capability gap.
-6. Only then consider adding a new tool.
+1. Identify required evidence.
+2. Check the ledger.
+3. Reuse known evidence.
+4. Acquire missing evidence with an existing tool when possible.
+5. Identify a real capability gap before adding a new tool.
 
-The current goalpost controller must NOT become a permanent goalpost-
-specific workflow.
+Do not turn the goalpost controller into a permanent goalpost-specific
+workflow.
 
 
 ============================================================
-18. NEXT ARCHITECTURAL PRIORITY
+19. NEXT ARCHITECTURE STEP
 ============================================================
 
-The live controller has proven the core modification loop.
-
-The next work should generalize the pattern:
+After the live finalization regression passes, generalize action control:
 
 Task
   ↓
 Required evidence
-  ↓
-Evidence ledger
   ↓
 Action plan
   ↓
@@ -511,208 +465,80 @@ Action 2
   ↓
 Verify
   ↓
-State-aware completion
+Complete
   ↓
 Final response
 
-The system should not rely on Qwen to rediscover a known pending action
+The goal is to keep Qwen from having to rediscover a known pending action
 after every tool result.
 
-Do not solve this with another goalpost-specific rule.
-
-Do not add another Blender write tool unless a real capability gap is
-proven.
+Do not add another goalpost-specific rule to solve this.
 
 
 ============================================================
-19. IMPORTANT DEVELOPMENT RULES
+20. NEXT LOCAL TEST
 ============================================================
 
-Do not rewrite the entire agent.
+Restore the known BEFORE asset:
 
-Do not remove the evidence ledger.
+goalpost_test_BEFORE_ATLAS_TEST.blend
 
-Do not remove the final-answer validator.
+Copy it over:
 
-Do not remove independent post-write verification.
+goalpost_test.blend
 
-Do not add factuality rules unless a concrete failure requires one.
-
-Do not add tools merely because they might be useful.
-
-Preserve the working architecture and improve it incrementally.
-
-
-============================================================
-20. CURRENT STATUS TABLE — AUGUST 16, 2026
-============================================================
-
-Blender connection:
-PASS
-
-Local Qwen/Ollama:
-PASS
-
-Exact Atlas model qwen3:8b:
-PASS
-
-Tool execution:
-PASS
-
-Tool error handling:
-PASS
-
-Factuality framework:
-PASS — 46 rules
-
-Evidence ledger:
-PASS
-
-Task-driven initial tool selection:
-PASS
-
-Mandatory evidence acquisition:
-PASS
-
-Goalpost relationship inspection:
-PASS
-
-Reasoning-loop protection:
-PASS
-
-Final-answer contradiction validation:
-PASS
-
-Task-completion validation:
-PASS, state-aware
-
-move_object:
-PASS
-
-Authorized Blender write execution:
-PASS — live test
-
-Independent post-modification verification:
-PASS — live test
-
-Reliable two-write controller sequence:
-PASS — live test
-
-Deterministic controller finalization:
-IMPLEMENTED — local regression test required
-
-General Evidence Planner V1:
-IN PROGRESS
-
-Broad autonomous modification:
-NOT YET VERIFIED
-
-General authorization safety across task types:
-NOT YET VERIFIED
-
-Long-running autonomous Atlas development:
-NOT YET
-
-
-============================================================
-21. NEXT LOCAL TEST REQUIRED
-============================================================
-
-The user should next pull the latest main branch.
-
-Then run the offline suite:
+Then run:
 
 python -m pytest -q
 
-Expected result:
+Expected:
+24 passed or higher if additional tests have been added.
 
-All tests pass, including the new controller finalization tests.
-
-After the offline suite passes, run the live controller entrypoint again:
+Then run the live controller:
 
 python .\run_agent_with_controller.py
 
-The important expected behavior is:
+Expected:
 
-controller completes
-    ↓
-final relationship verification exists
-    ↓
-Python builds complete final report
-    ↓
-Atlas exits cleanly
+Qwen / evidence
+      ↓
+Python controller
+      ↓
+Write 1
+      ↓
+Write 2
+      ↓
+Independent verification
+      ↓
+Python deterministic final report
+      ↓
+Clean exit
 
-The user should not need to intervene unless a local test fails or the
-live environment reports a problem.
-
-
-============================================================
-22. CORE ATLAS DESIGN PRINCIPLE
-============================================================
-
-Atlas should distinguish:
-
-"I found something unusual"
-from
-"I have evidence that something is wrong."
-
-"I don't currently know something"
-from
-"I have evidence that something is absent."
-
-"I have a candidate classification"
-from
-"I have confirmed functional identity."
-
-"I can imagine a useful inspection"
-from
-"The current task actually requires that inspection."
-
-"I calculated a modification"
-from
-"I am authorized to execute that modification."
-
-"A write succeeded"
-from
-"The resulting Blender state was independently verified."
-
-"An answer is factually correct"
-from
-"The answer is complete for the user's requested task."
-
-"Initial measured state"
-from
-"Final verified state."
+If the live run passes, no further local test is needed until another
+Blender/Ollama integration boundary is introduced.
 
 
 ============================================================
-23. HANDOFF SUMMARY
+21. HANDOFF SUMMARY
 ============================================================
 
-The Atlas controller has now passed a real Blender modification test.
+Atlas has proven that it can:
 
-The tested sequence was:
+inspect a real Blender scene
+    ↓
+measure a relationship
+    ↓
+calculate a target
+    ↓
+execute multiple required writes
+    ↓
+independently verify the final state
 
-BEFORE
-    ↓
-TARGET
-    ↓
-WRITE 1
-    ↓
-WRITE 2
-    ↓
-FINAL INSPECTION
-    ↓
-VERIFIED MIDPOINT = [0.0, 0.0, 0.0]
+The offline controller suite is now green at:
 
-The only failure in that live run was final-answer completion after
-successful verification.
+24 passed
 
-That recovery path has now been implemented in Python and covered by
-new offline tests.
-
-The next required action is a local test after the latest commits are
-pulled.
+The remaining local gate is the live finalization regression.
 
 After that, continue toward:
 
@@ -722,9 +548,10 @@ After that, continue toward:
 4. More task types
 5. Long-running autonomous Atlas development
 
-The core design principle remains:
+Core principle:
 
-Start from the existing working architecture.
-Preserve successful components.
+Preserve working components.
 Implement incrementally.
-Test each architectural change before proceeding to the next one.
+Require evidence.
+Verify changes independently.
+Do not let a correct Blender state depend on a perfect Qwen final answer.
