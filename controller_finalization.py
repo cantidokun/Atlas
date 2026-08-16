@@ -110,7 +110,7 @@ def build_midpoint_final_answer(
         "CALCULATED TARGET STATE\n"
         f"- {object_a_name}: {_fmt_vector(target_a)}\n"
         f"- {object_b_name}: {_fmt_vector(target_b)}\n"
-        f"- Positional adjustment: {_fmt_vector(adjustment)}\n\n"
+        f"Positional adjustment: {_fmt_vector(adjustment)}\n\n"
         "FINAL VERIFIED STATE\n"
         f"- {object_a_name}: {_fmt_vector(after_a)}\n"
         f"- {object_b_name}: {_fmt_vector(after_b)}\n"
