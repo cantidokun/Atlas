@@ -135,37 +135,57 @@ Latest local regression result:
 98 passed
 ```
 
-### Documentation
+### August 16 overnight checkpoint
 
-`README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` are kept synchronized with the verified milestones.
+The repository organization/refactor is complete and the regression suite remains green at 98 tests.
 
-### Next architecture target
+The live action harness was restored to the known-good write-test version before pausing development. An experimental conditional-planning harness was deliberately not left as the primary live write path because testing exposed malformed Qwen tool-argument structures reaching the executor boundary.
 
-The next development target is conditional action planning:
+That failure is useful architectural evidence: Atlas must validate not only the top-level plan shape but also the argument schema for each proposed tool before any executor is called.
+
+The next development target is therefore:
 
 ```text
-Task
+Qwen proposal
  ↓
-Structured evidence requirements
+Tool + argument schema validation
  ↓
-Evidence ledger
+Authoritative evidence
  ↓
-Determine whether target already holds
+Determine whether target state already holds
  ↓
-If already satisfied → skip unnecessary writes
- ↓
-If not satisfied → retain authorized action plan
+Skip unnecessary write OR retain authorized action plan
  ↓
 Python-controlled execution
  ↓
 Independent verification
- ↓
-Completion
 ```
 
-The first test should use the existing goalpost fixture in an already-correct state and prove that Atlas does not write unnecessarily. A second test should use a genuinely incorrect state and prove that the necessary write path remains available.
+Two live cases are required:
 
-Do not add a new Blender tool unless a real capability gap is proven.
+1. already-correct state → no write
+2. incorrect state → required authorized write still executes and verifies
+
+### Atlas product direction update
+
+Atlas is broader than the current Blender implementation. The project is being developed as an AI-assisted sports virtual production and digital-twin platform.
+
+The wider direction includes:
+
+- sports capture and analysis
+- digital-twin construction and spatial reasoning
+- Blender production agents
+- planned Unreal Engine production agents
+- cinematic sports effects and environmental transformations
+- production orchestration across specialized tools and agents
+
+Planned Unreal capabilities include asset/scene organization, materials and look development, Lumen lighting, Nanite assets, CineCamera workflows, Sequencer, Movie Render Queue, and real-time virtual-production operations.
+
+The production-agent architecture remains environment-agnostic at the orchestration layer: AI reasons and proposes; Python validates and authorizes; the production environment executes; independent verification confirms the result.
+
+### Documentation
+
+`README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` have been updated to reflect the broader sports-production-suite direction and the verified August 16 milestone state.
 
 ### User test protocol
 
