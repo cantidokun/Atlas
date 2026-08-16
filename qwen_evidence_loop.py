@@ -33,14 +33,13 @@ def proposal_to_evidence_plan(
 
     requests = []
     for item in proposal.evidence:
-        tool = item.get("tool")
-        if tool not in allowed_tools:
-            raise ValueError(f"Evidence tool is not allowed: {tool}")
+        if item.tool not in allowed_tools:
+            raise ValueError(f"Evidence tool is not allowed: {item.tool}")
         requests.append(
             EvidenceRequest(
-                tool=tool,
-                arguments=dict(item.get("arguments", {})),
-                name=item.get("name", tool),
+                tool=item.tool,
+                arguments=dict(item.arguments),
+                name=item.name or item.tool,
             )
         )
     return EvidencePlan(requests=requests)
@@ -58,13 +57,7 @@ def execute_evidence_proposal(
         request = plan.next_request
         assert request is not None
         single = TaskPlanProposal(
-            evidence=[
-                {
-                    "tool": request.tool,
-                    "arguments": request.arguments,
-                    "name": request.name,
-                }
-            ],
+            evidence=[request],
             actions=[],
         )
         execution = execute_read_only_plan(single)
@@ -81,7 +74,6 @@ def execute_evidence_proposal(
 
 
 def build_next_qwen_messages(
-    system_prompt: str,
     prior_messages: List[Dict[str, str]],
     execution: Dict[str, Any],
 ) -> List[Dict[str, str]]:
