@@ -104,9 +104,16 @@ for step in range(2):
         index for index, node in enumerate(loop.body)
         if "requests.post" in ast.unparse(node)
     )
+
+    continue_nodes = [
+        node for node in ast.walk(loop) if isinstance(node, ast.Continue)
+    ]
+    assert len(continue_nodes) == 1
+
     continue_index = next(
         index for index, node in enumerate(loop.body)
-        if isinstance(node, ast.Continue)
+        if isinstance(node, ast.If)
+        and any(isinstance(child, ast.Continue) for child in ast.walk(node))
     )
 
     assert complete_index < post_index
