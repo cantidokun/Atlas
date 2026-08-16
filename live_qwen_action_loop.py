@@ -3,6 +3,11 @@
 The model may propose evidence and actions, but the read-only evidence executor
 receives an evidence-only copy of the proposal. The original proposal then
 passes through the Python authorization gate before any write is executed.
+
+The live model is treated as untrusted: malformed schema output is rejected
+and corrected through a bounded prompt retry rather than being coerced into an
+action. No write occurs until a fully validated proposal passes the Python
+authorization gate.
 """
 
 import json
@@ -14,12 +19,13 @@ from action_plan import ActionPlan
 from qwen_planning_runtime import parse_qwen_plan
 from qwen_planning_executor import execute_read_only_plan
 from task_plan_authorization import authorize_task_plan
-from task_planner import TaskPlanProposal
+from task_planner import TaskPlanProposal, TaskPlanValidationError
 from tools.blender import inspect_object_relationship, move_object
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
 FILE = "goalpost_test.blend"
+MAX_PLAN_ATTEMPTS = 3
 
 ALLOWED_TOOLS = {
     "inspect_object_relationship",
@@ -33,33 +39,82 @@ The user has authorized this specific Blender task:
 - Move Goal_Right_Post to [0.0, -5.233, 0.0].
 
 Return ONLY valid JSON with exactly two top-level fields: evidence and actions.
+Both fields MUST be JSON arrays.
+
+Every evidence item MUST have exactly these conceptual fields:
+- tool
+- arguments
+- name
 
 The evidence request MUST be:
 {"tool":"inspect_object_relationship","arguments":{"file_name":"goalpost_test.blend","object1_name":"Goal_Left_post","object2_name":"Goal_Right_Post"},"name":"inspect goalpost relationship"}
 
-The actions MUST contain exactly these two move_object actions, in this order:
-1. Goal_Left_post -> [0.0, 5.233, 0.0]
-2. Goal_Right_Post -> [0.0, -5.233, 0.0]
+Every action item MUST have these fields:
+- tool
+- arguments
+- name
 
-Do not add other actions, tools, coordinates, fields, markdown, or explanations.
+The actions MUST contain exactly these two move_object actions, in this order:
+1. {"tool":"move_object","arguments":{"file_name":"goalpost_test.blend","object_name":"Goal_Left_post","location":[0.0,5.233,0.0]},"name":"move left goalpost"}
+2. {"tool":"move_object","arguments":{"file_name":"goalpost_test.blend","object_name":"Goal_Right_Post","location":[0.0,-5.233,0.0]},"name":"move right goalpost"}
+
+Do NOT use alternative field names such as action, target_position, object, or type.
+Do NOT make evidence an object; it MUST be an array.
+Do NOT add other actions, tools, coordinates, fields, markdown, or explanations.
 Do not execute tools yourself."""
 
+CORRECTION_PROMPT = """Your previous output did not match the Atlas task-plan schema.
+Return ONLY the corrected JSON object.
 
-def ask_qwen() -> str:
+Required top-level shape:
+{"evidence":[{"tool":"inspect_object_relationship","arguments":{"file_name":"goalpost_test.blend","object1_name":"Goal_Left_post","object2_name":"Goal_Right_Post"},"name":"inspect goalpost relationship"}],"actions":[{"tool":"move_object","arguments":{"file_name":"goalpost_test.blend","object_name":"Goal_Left_post","location":[0.0,5.233,0.0]},"name":"move left goalpost"},{"tool":"move_object","arguments":{"file_name":"goalpost_test.blend","object_name":"Goal_Right_Post","location":[0.0,-5.233,0.0]},"name":"move right goalpost"}]}
+
+Both evidence and actions MUST be arrays. Use tool/arguments/name exactly. Do not use action or target_position."""
+
+
+def ask_qwen(messages: List[Dict[str, str]]) -> str:
     response = requests.post(
         OLLAMA_URL,
-        json={
-            "model": MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": "Create the authorized Atlas task plan."},
-            ],
-            "stream": False,
-        },
+        json={"model": MODEL, "messages": messages, "stream": False},
         timeout=120,
     )
     response.raise_for_status()
     return response.json()["message"]["content"]
+
+
+def get_validated_plan() -> TaskPlanProposal:
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": "Create the authorized Atlas task plan."},
+    ]
+
+    last_error: Exception | None = None
+
+    for attempt in range(1, MAX_PLAN_ATTEMPTS + 1):
+        raw = ask_qwen(messages)
+        print(f"--- QWEN PLAN ATTEMPT {attempt} ---")
+        print(raw)
+
+        try:
+            proposal = parse_qwen_plan(raw, allowed_tools=ALLOWED_TOOLS)
+        except (TaskPlanValidationError, TypeError, ValueError) as exc:
+            proposal = None
+            last_error = exc
+
+        if proposal is not None:
+            return proposal
+
+        if attempt < MAX_PLAN_ATTEMPTS:
+            messages.extend(
+                [
+                    {"role": "assistant", "content": raw},
+                    {"role": "user", "content": CORRECTION_PROMPT},
+                ]
+            )
+
+    raise RuntimeError(
+        f"Qwen did not produce a valid Atlas task plan after {MAX_PLAN_ATTEMPTS} attempts: {last_error}"
+    )
 
 
 def execute_move_action(action: Any) -> Dict[str, Any]:
@@ -69,13 +124,7 @@ def execute_move_action(action: Any) -> Dict[str, Any]:
 
 
 def main() -> None:
-    raw = ask_qwen()
-    print("--- QWEN PLAN ---")
-    print(raw)
-
-    proposal = parse_qwen_plan(raw, allowed_tools=ALLOWED_TOOLS)
-    if proposal is None:
-        raise RuntimeError("Qwen proposal was rejected")
+    proposal = get_validated_plan()
 
     print("--- PLAN VALIDATION ---")
     print(f"Evidence requests: {len(proposal.evidence)}")
