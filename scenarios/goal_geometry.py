@@ -15,11 +15,10 @@ EXPECTED_DISTANCE = 10.466
 
 def goal_center_alignment(evidence: Dict[str, Any]) -> bool:
     """Return True when the goal is centered and symmetrically spaced."""
-    relationship = evidence["relationship"]
     return (
-        relationship["midpoint"] == EXPECTED_MIDPOINT
-        and relationship["symmetric_about_origin"] is True
-        and relationship["distance"] == EXPECTED_DISTANCE
+        evidence["midpoint"] == EXPECTED_MIDPOINT
+        and evidence["symmetric_about_origin"] is True
+        and evidence["distance"] == EXPECTED_DISTANCE
     )
 
 
