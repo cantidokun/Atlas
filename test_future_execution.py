@@ -78,9 +78,10 @@ def test_already_satisfied_future_contains_no_executable_action():
     controller = FutureExecutionController(_future(True))
     controller.acknowledge()
     controller.acknowledge()
+    assert controller.current_step.phase == "SKIP_WRITES"
     assert controller.next_action is None
-    with pytest.raises(RuntimeError, match="Verification requires"):
-        controller.acknowledge()
+    controller.acknowledge({"skipped": True})
+    assert controller.current_step.phase == "VERIFICATION"
     controller.verify({"satisfied": True})
     controller.finalize()
     assert controller.complete
