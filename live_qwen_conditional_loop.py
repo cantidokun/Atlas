@@ -1,14 +1,8 @@
-"""Live Stage 8 harness: conditionally execute an authorized Blender plan.
-
-The model proposes a structured evidence/action plan. Python validates exact
-argument schemas, acquires authoritative evidence, evaluates target state,
-constructs a deterministic future, executes only the current authorized future
-checkpoint, and requires fresh independent verification before completion.
-"""
+"""Live conditional Atlas task harness with constrained Qwen planning."""
 
 import argparse
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -19,6 +13,7 @@ from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator
 from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.verification_plan import VerificationPlan
+from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
 from task_planner import TaskPlanProposal, TaskPlanValidationError
@@ -45,8 +40,8 @@ The user has authorized this specific Blender task for {file_name}:
 - Goal_Right_Post target = [0.0, -5.233, 0.0]
 - midpoint target = [0.0, 0.0, 0.0]
 
-Return ONLY valid JSON with exactly two top-level fields: evidence and actions.
-Both fields MUST be arrays.
+Return exactly one JSON OBJECT with exactly these top-level fields:
+{{"evidence": [...], "actions": [...]}}
 
 Evidence MUST contain exactly one inspect_object_relationship request with:
 file_name="{file_name}"
@@ -57,24 +52,36 @@ Actions MUST contain exactly these two move_object actions in this order:
 1. Goal_Left_post -> [0.0, 5.233, 0.0]
 2. Goal_Right_Post -> [0.0, -5.233, 0.0]
 
-Every item must contain tool, arguments, and name. Use exact parameter names.
+Every item must contain exactly tool, arguments, and name. Use exact argument
+names: file_name, object_name, location for move_object. Do not return a list.
 Do not add fields, tools, actions, coordinates, markdown, or explanations.
 Do not execute tools yourself."""
 
 
 def build_correction_prompt(file_name: str) -> str:
-    return f"""Return ONLY the corrected Atlas JSON task plan for {file_name}.
-Use exactly tool/arguments/name and these exact arguments:
-Evidence: inspect_object_relationship(file_name="{file_name}", object1_name="Goal_Left_post", object2_name="Goal_Right_Post")
-Action 1: move_object(file_name="{file_name}", object_name="Goal_Left_post", location=[0.0,5.233,0.0])
-Action 2: move_object(file_name="{file_name}", object_name="Goal_Right_Post", location=[0.0,-5.233,0.0])
-Both evidence and actions must be arrays. No other fields or tools."""
+    return f"""Return ONLY one JSON OBJECT, never a JSON array.
+The object MUST have exactly two fields: evidence and actions.
+Evidence is an array. Actions is an array.
+Use this exact structure and arguments:
+{{
+  "evidence": [{{"tool": "inspect_object_relationship", "arguments": {{"file_name": "{file_name}", "object1_name": "Goal_Left_post", "object2_name": "Goal_Right_Post"}}, "name": "inspect_object_relationship"}}],
+  "actions": [
+    {{"tool": "move_object", "arguments": {{"file_name": "{file_name}", "object_name": "Goal_Left_post", "location": [0.0, 5.233, 0.0]}}, "name": "move_object"}},
+    {{"tool": "move_object", "arguments": {{"file_name": "{file_name}", "object_name": "Goal_Right_Post", "location": [0.0, -5.233, 0.0]}}, "name": "move_object"}}
+  ]
+}}
+No other fields or tools."""
 
 
 def ask_qwen(messages: List[Dict[str, str]]) -> str:
     response = requests.post(
         OLLAMA_URL,
-        json={"model": MODEL, "messages": messages, "stream": False},
+        json={
+            "model": MODEL,
+            "messages": messages,
+            "stream": False,
+            "format": TASK_PLAN_JSON_SCHEMA,
+        },
         timeout=120,
     )
     response.raise_for_status()
@@ -86,7 +93,7 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         {"role": "system", "content": build_system_prompt(file_name)},
         {"role": "user", "content": "Create the structured Atlas task plan."},
     ]
-    last_error: Exception | None = None
+    last_error: Optional[Exception] = None
     for attempt in range(1, MAX_PLAN_ATTEMPTS + 1):
         raw = ask_qwen(messages)
         print(f"--- QWEN PLAN ATTEMPT {attempt} ---")
@@ -119,10 +126,6 @@ def target_state_evaluator() -> TargetStateEvaluator:
     ])
 
 
-def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
-    return target_state_evaluator().evaluate(relationship).satisfied
-
-
 def build_conditional_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
     evidence = EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence])
     actions = [ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions]
@@ -151,15 +154,11 @@ def action_payload(tool: str, arguments: Dict[str, Any], name: str = "") -> Dict
     return {"tool": tool, "arguments": dict(arguments), "name": name}
 
 
-def prepare_case(case: str) -> str:
-    return CORRECT_FILE if case == "already-correct" else INCORRECT_FILE
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
     args = parser.parse_args()
-    file_name = prepare_case(args.case)
+    file_name = CORRECT_FILE if args.case == "already-correct" else INCORRECT_FILE
     audit = AuditTrail()
     proposal = get_validated_plan(file_name, audit)
     if len(proposal.evidence) != 1 or len(proposal.actions) != 2:
@@ -169,7 +168,14 @@ def main() -> None:
     relationship = orchestrator.acquire_next_evidence(execute_evidence)
     audit.record_evidence(action_payload(proposal.evidence[0].tool, proposal.evidence[0].arguments, proposal.evidence[0].name), relationship)
     state_result = orchestrator.evaluate_target_state(relationship)
-    audit.record("conditional_decision", "skip" if state_result.satisfied else "execute", target_satisfied=state_result.satisfied, invariants=state_result.invariants, failed_invariants=state_result.failed, case=args.case)
+    audit.record(
+        "conditional_decision",
+        "skip" if state_result.satisfied else "execute",
+        target_satisfied=state_result.satisfied,
+        invariants=state_result.invariants,
+        failed_invariants=state_result.failed,
+        case=args.case,
+    )
 
     print("--- TARGET STATE ---")
     print(json.dumps(state_result.snapshot(), indent=2))
@@ -177,7 +183,12 @@ def main() -> None:
     print(json.dumps(orchestrator.snapshot()["future"], indent=2))
 
     if not state_result.satisfied:
-        authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools={"move_object"}, allow_writes=True)
+        authorize_task_plan(
+            proposal,
+            evidence_complete=True,
+            allowed_action_tools={"move_object"},
+            allow_writes=True,
+        )
         audit.record_authorization(True, action_count=len(proposal.actions))
         while orchestrator.next_phase() == "ACTION":
             action = orchestrator.conditional_plan.next_action
@@ -198,7 +209,6 @@ def main() -> None:
         if not orchestrator.action_complete:
             raise RuntimeError(f"Conditional action phase did not complete: {orchestrator.snapshot()}")
 
-    # Always require a fresh verification read, including the already-correct path.
     final = inspect_object_relationship(file_name, "Goal_Left_post", "Goal_Right_Post")
     final_state = orchestrator.verify_post_action(final)
     audit.record_verification(final, final_state.satisfied)
