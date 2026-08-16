@@ -19,28 +19,41 @@ Move mandatory modification sequencing from Qwen into Python control.
 3. Built `controller_bridge.py`.
    - Detects the current authorized midpoint workflow.
    - Connects the runtime to the existing agent design.
+   - Now hydrates the controller from relationship evidence already collected by the main agent.
 
 4. Built `controller_execution_adapter.py`.
    - Mirrors controller-owned results into the existing tool history and evidence ledger.
    - Provides a small boundary for the live agent to call.
+   - Now syncs the controller's BEFORE state from the existing evidence ledger.
 
-5. Added adapter tests.
-   - Unrelated tasks do not activate the controller.
-   - Authorized midpoint tasks activate it after the required relationship evidence exists.
-   - Controller-owned writes are recorded as such.
+5. Added `controller_integration.py`.
+   - Provides the final drop-in integration boundary for the live agent.
+   - Lets Python decide when Qwen must temporarily give up control of the mandatory action sequence.
+   - Uses the same tool executor and evidence state as the existing agent loop.
 
-6. Updated `README.md`.
-   - Roadmap status now clearly shows what is complete, what is in progress, and what remains.
+6. Added `test_controller_integration.py`.
+   - Confirms Python takes control after BEFORE evidence exists.
+   - Confirms the first and second writes are selected in order.
+   - Confirms one write cannot mark the task complete.
+   - Confirms a failed write does not advance the controller.
+
+### Important discovery
+
+During integration work, we found that the controller could be activated after the main agent had already collected BEFORE evidence, but the controller itself did not yet know about that evidence.
+
+That would have caused it to repeat the initial inspection instead of immediately taking over at the correct point.
+
+We fixed this by adding evidence hydration to `controller_bridge.py`. The controller can now start from the verified BEFORE state already stored by Atlas.
 
 ### Current limitation
 
-The live `agent.py` tool-execution loop has not yet been changed to call `ControllerExecutionAdapter`.
+The live `agent.py` tool-execution loop has **not yet been changed** to call `AgentControllerIntegration`.
 
-This is intentional. The adapter was built and tested first so the live agent can be changed at one narrow boundary instead of mixing controller changes into the existing reasoning, evidence, and validation logic all at once.
+The integration boundary is now ready and tested, but we are keeping the final `agent.py` edit as a separate step so it can be made at one narrow location without rewriting the existing reasoning, evidence, and validation logic.
 
 ### Next step
 
-Wire `ControllerExecutionAdapter` into the tool-execution section of `agent.py`.
+Wire `AgentControllerIntegration` into the tool-execution section of `agent.py`.
 
 The desired behavior is:
 
