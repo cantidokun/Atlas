@@ -18,8 +18,10 @@ if (-not $blender) { throw "Blender executable not found on PATH or known instal
 
 $workspaceBase = Join-Path $workspace "goalpost_test_BASE_ATLAS_TEST.blend"
 $workspaceBefore = Join-Path $workspace "goalpost_test_BEFORE_ATLAS_TEST.blend"
-$workspaceCorrect = Join-Path $workspace "goalpost_test.blend"
+$workspaceCorrect = Join-Path $workspace "goalpost_test_CONDITIONAL_CORRECT.blend"
 $workspaceIncorrect = Join-Path $workspace "goalpost_test_CONDITIONAL_INCORRECT.blend"
+$projectCorrect = Join-Path $projectRoot "goalpost_test_CONDITIONAL_CORRECT.blend"
+$projectIncorrect = Join-Path $projectRoot "goalpost_test_CONDITIONAL_INCORRECT.blend"
 $script = Join-Path $env:TEMP "atlas_make_correct.py"
 
 Copy-Item $base $workspaceBase -Force
@@ -49,7 +51,11 @@ finally {
 }
 
 Copy-Item $workspaceBefore $workspaceIncorrect -Force
-Write-Host "Provisioned deterministic conditional Blender fixtures in $workspace."
-Write-Host "Correct fixture: $workspaceCorrect"
-Write-Host "Incorrect fixture: $workspaceIncorrect"
-Write-Host "Clean BEFORE fixture: $workspaceBefore"
+Copy-Item $workspaceCorrect $projectCorrect -Force
+Copy-Item $workspaceIncorrect $projectIncorrect -Force
+
+Write-Host "Provisioned deterministic conditional Blender fixtures."
+Write-Host "Workspace correct fixture: $workspaceCorrect"
+Write-Host "Workspace incorrect fixture: $workspaceIncorrect"
+Write-Host "Project correct fixture: $projectCorrect"
+Write-Host "Project incorrect fixture: $projectIncorrect"
