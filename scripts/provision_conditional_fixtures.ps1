@@ -22,7 +22,8 @@ $workspaceCorrect = Join-Path $workspace "goalpost_test_CONDITIONAL_CORRECT.blen
 $workspaceIncorrect = Join-Path $workspace "goalpost_test_CONDITIONAL_INCORRECT.blend"
 $projectCorrect = Join-Path $projectRoot "goalpost_test_CONDITIONAL_CORRECT.blend"
 $projectIncorrect = Join-Path $projectRoot "goalpost_test_CONDITIONAL_INCORRECT.blend"
-$script = Join-Path $env:TEMP "atlas_make_correct.py"
+$correctScript = Join-Path $env:TEMP "atlas_make_correct.py"
+$incorrectScript = Join-Path $env:TEMP "atlas_make_incorrect.py"
 
 Copy-Item $base $workspaceBase -Force
 Copy-Item $base $workspaceBefore -Force
@@ -40,17 +41,36 @@ if left is None or right is None:
 left.location = (0.0, 5.233, 0.0)
 right.location = (0.0, -5.233, 0.0)
 bpy.ops.wm.save_as_mainfile(filepath=str(output))
-'@ | Set-Content -Encoding UTF8 $script
+'@ | Set-Content -Encoding UTF8 $correctScript
+
+@'
+import bpy
+import sys
+from pathlib import Path
+
+output = Path(sys.argv[-1])
+left = bpy.data.objects.get("Goal_Left_post")
+right = bpy.data.objects.get("Goal_Right_Post")
+if left is None or right is None:
+    raise RuntimeError("Required goalpost objects were not found")
+# Explicitly construct a known-wrong state. Do not inherit the base fixture's state.
+left.location = (0.0, 5.302, 0.0)
+right.location = (0.0, -5.164, 0.0)
+bpy.ops.wm.save_as_mainfile(filepath=str(output))
+'@ | Set-Content -Encoding UTF8 $incorrectScript
 
 try {
-    & $blender -b $workspaceBase --python $script -- $workspaceCorrect
-    if ($LASTEXITCODE -ne 0) { throw "Blender fixture generation failed." }
+    & $blender -b $workspaceBase --python $correctScript -- $workspaceCorrect
+    if ($LASTEXITCODE -ne 0) { throw "Blender correct-fixture generation failed." }
+
+    & $blender -b $workspaceBase --python $incorrectScript -- $workspaceIncorrect
+    if ($LASTEXITCODE -ne 0) { throw "Blender incorrect-fixture generation failed." }
 }
 finally {
-    Remove-Item $script -Force -ErrorAction SilentlyContinue
+    Remove-Item $correctScript -Force -ErrorAction SilentlyContinue
+    Remove-Item $incorrectScript -Force -ErrorAction SilentlyContinue
 }
 
-Copy-Item $workspaceBefore $workspaceIncorrect -Force
 Copy-Item $workspaceCorrect $projectCorrect -Force
 Copy-Item $workspaceIncorrect $projectIncorrect -Force
 
