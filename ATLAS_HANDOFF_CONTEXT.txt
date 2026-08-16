@@ -1,6 +1,6 @@
 ATLAS DEVELOPMENT HANDOFF
 Date: August 16, 2026
-Current Milestone: Qwen Structured Planning Bridge Proven / Conditional Planning Next
+Current Milestone: Conditional Execution + Generic Verification Architecture Proven; Next: Generalize Autonomous Task Control
 
 ============================================================
 1. PROJECT
@@ -14,62 +14,161 @@ in which specialized AI agents can understand captured sports footage, reason
 about environments and assets, plan production changes, execute operations,
 and independently verify the resulting state.
 
-Atlas is intended to span:
-
-- sports capture and analysis
-- digital twins and spatial understanding
-- AI-assisted virtual production
-- Blender scene construction and manipulation
-- Unreal Engine real-time production workflows
-- cinematic sports effects and environmental treatments
-- production automation and orchestration
-
-Core architecture:
-
-Sports footage / production task
-    ↓
-Atlas task understanding
-    ↓
-Evidence and scene reasoning
-    ↓
-Specialized production agents
-    ↓
-Blender / Unreal / future tools
-    ↓
-Production state
-    ↓
-Independent verification
-    ↓
-Finished production result
-
 Core control principle:
 
-Qwen/AI agents handle reasoning and interpretation.
-Python handles execution, authorization, state, mandatory actions,
-verification, and completion control.
+Qwen / AI agents
+    -> understand, reason, propose
+
+Python / Atlas control layer
+    -> validate schemas, authorize, execute, track state, verify, recover
+
+Production tools
+    -> Blender now; Unreal and other specialized tools later
+
+Independent verification
+    -> confirm what actually happened before completion
+
+The architecture must remain environment-agnostic above the production-tool
+adapter boundary. Goalpost behavior is a test case, not the generic design.
 
 ============================================================
-2. VERIFIED LOCAL ENVIRONMENT
+2. VERIFIED LOCAL RUNTIME
 ============================================================
+
+Local production/test environment:
 
 Python: 3.9.6
 Ollama: 0.32.13
-Atlas model: qwen3:8b
+Model: qwen3:8b
 Blender: 4.4
-
 Blender executable:
 C:\Program Files\Blender Foundation\Blender 4.4\blender.exe
-
 Ollama endpoint:
 http://localhost:11434/api/chat
 
+GitHub Actions regression matrix:
+- Python 3.11
+- Python 3.9
+
 ============================================================
-3. LIVE CONTROLLER RESULT — PASS
+3. CORE FILES AND RESPONSIBILITIES
 ============================================================
 
-The real local end-to-end Blender controller test has passed.
+Legacy/proven controller layer:
 
-Test file:
+controller_state.py
+- Tracks BEFORE, TARGET, WRITE, AFTER, COMPLETE.
+- Calculates target positions from measured evidence.
+
+controller_runtime.py
+- Executes exactly one mandatory controller action at a time.
+- Does not delegate mandatory ordering to Qwen.
+
+controller_bridge.py
+- Connects controller state to the existing agent.
+- Hydrates BEFORE state from evidence.
+
+controller_execution_adapter.py
+- Mirrors controller-owned results into normal tool history/evidence.
+
+controller_integration.py
+- Integration boundary between agent and controller.
+
+run_agent_with_controller.py
+- Live compatibility entrypoint.
+
+controller_finalization.py
+- Builds deterministic final reports from verified evidence.
+
+Generic planning layer:
+
+action_plan.py
+- `ActionSpec`: one ordered authorized action.
+- `ActionPlan`: exposes next action, records results, advances only after success,
+  blocks on required failure, reports completion, snapshots state.
+
+evidence_plan.py
+- Ordered evidence requests, completion, reuse, and blocking failures.
+
+planning/planning_orchestrator.py
+- `PlanningOrchestrator`: generic evidence -> action state machine.
+- `ConditionalPlanningOrchestrator`: evidence -> target evaluation -> conditional
+  action -> verification -> completion, with deterministic future/recovery gates.
+- Actions remain blocked until evidence and target-state evaluation are complete.
+- Exposes explicit phases including EVIDENCE, TARGET_EVALUATION, ACTION,
+  VERIFICATION, COMPLETE, BLOCKED, and recovery/replan states.
+
+planning/target_state.py
+- Named `StateInvariant` requirements and `TargetStateEvaluator`.
+- Produces explicit satisfied/failed invariant results and snapshots.
+
+planning/verification_plan.py
+- Generic post-action verification primitive.
+- A write result is never treated as proof of final state.
+- Requires independent evidence evaluated against the target-state evaluator.
+- Failed verification remains blocked/fails closed.
+
+planning/future_generator.py
+- `DeterministicFutureGenerator` creates the only legal execution future implied
+  by an already-authorized action list and resolved target state.
+- No model reasoning or tool execution occurs here.
+- Conditional futures explicitly branch into SKIP_WRITES or authorized ACTIONs,
+  then VERIFICATION and COMPLETE.
+
+planning/future_execution.py
+- `FutureExecutionController` owns the execution cursor.
+- Prevents skipping/reordering/inventing steps.
+- Uses a plan digest to detect mutation.
+- Only successful actions advance the cursor.
+- Verification must be independently positive before COMPLETE can be finalized.
+
+planning/future_recovery.py
+- `FutureRecoveryGate` handles failed deterministic futures.
+- No automatic retry.
+- Action failures require fresh authoritative evidence before recovery planning.
+- Verification failures require a new authorized plan.
+- Terminal/ambiguous failures fail closed.
+
+planning/replan_authorization.py
+- `ReplanAuthorization` is an immutable authorization receipt binding fresh
+  evidence and the exact replacement action list by digest.
+- Replacement actions must match the issued authorization before installation.
+
+Authorization/audit/runtime bridge:
+
+task_plan_authorization.py
+- Explicit authorization boundary for proposed plans and write tools.
+
+audit_trail.py
+- Records proposal, evidence, authorization, execution, and verification order.
+
+qwen_planning_runtime.py
+- Parses/validates Qwen structured plans.
+
+live_qwen_planning_loop.py
+- Live Qwen -> Python structured planning bridge.
+- Qwen proposes structured evidence/actions; Python validates and controls the
+  execution boundary.
+- Current conditional harness supports `--case already-correct` and
+  `--case incorrect` using deterministic test fixtures.
+
+live_qwen_conditional_loop.py
+- Live conditional Blender harness.
+- Uses `CORRECT_FILE = goalpost_test_CONDITIONAL_CORRECT.blend` and
+  `INCORRECT_FILE = goalpost_test_CONDITIONAL_INCORRECT.blend`.
+- Target left post = [0.0, 5.233, 0.0].
+- Target right post = [0.0, -5.233, 0.0].
+- Target midpoint = [0.0, 0.0, 0.0].
+- Target distance = 10.466.
+- Allowed tools are restricted to `inspect_object_relationship` and
+  `move_object`.
+- Uses generic `ConditionalPlanningOrchestrator` and generic `VerificationPlan`.
+
+============================================================
+4. LIVE GOALPOST BASELINE — PASS
+============================================================
+
+Test asset:
 goalpost_test.blend
 
 Clean BEFORE backup:
@@ -84,84 +183,18 @@ TARGET:
 Goal_Left_post  = [0.0, 5.233, 0.0]
 Goal_Right_Post = [0.0, -5.233, 0.0]
 
-FINAL VERIFIED:
+FINAL INDEPENDENTLY VERIFIED:
 Goal_Left_post  = [0.0, 5.233, 0.0]
 Goal_Right_Post = [0.0, -5.233, 0.0]
 Midpoint        = [0.0, 0.0, 0.0]
 Distance        = 10.466 units
 Symmetric       = true
 
-The final state came from a separate relationship inspection rather than the
-write result alone.
+The final state was confirmed through separate relationship inspection rather
+than trusting the write result.
 
 ============================================================
-4. CURRENT CONTROLLER COMPONENTS
-============================================================
-
-controller_state.py
-- Tracks BEFORE, TARGET, WRITE, AFTER, and COMPLETE.
-- Calculates target positions from measured evidence.
-
-controller_runtime.py
-- Executes exactly one mandatory controller action at a time.
-- Does not delegate mandatory ordering to Qwen.
-
-controller_bridge.py
-- Connects controller state to the existing agent.
-- Hydrates BEFORE state from existing evidence.
-
-controller_execution_adapter.py
-- Mirrors controller-owned results into normal tool history and evidence.
-
-controller_integration.py
-- Integration boundary between the agent and controller.
-
-run_agent_with_controller.py
-- Live compatibility entrypoint.
-
-controller_finalization.py
-- Builds a deterministic final report from verified evidence.
-
-============================================================
-5. GENERAL ACTION PLANNING V1
-============================================================
-
-action_plan.py
-
-Provides:
-
-ActionSpec
-- One ordered authorized action.
-
-ActionPlan
-- Tracks current action index.
-- Exposes the next action.
-- Records successful results.
-- Blocks on required failures.
-- Reports completion.
-- Produces a serializable snapshot.
-
-This is deliberately separate from the goalpost controller.
-
-============================================================
-6. GENERAL EVIDENCE PLANNER V1
-============================================================
-
-evidence_plan.py
-
-Tracks ordered evidence requests, completion, reuse, and blocking failures.
-
-============================================================
-7. PLANNING ORCHESTRATOR V1
-============================================================
-
-planning_orchestrator.py connects evidence and action plans.
-
-Actions remain blocked until required evidence is complete. Evidence can be
-reused when already authoritative. Failed required evidence blocks progress.
-
-============================================================
-8. QWEN STRUCTURED PLANNING BRIDGE — PASS
+5. QWEN STRUCTURED PLANNING BRIDGE — PASS
 ============================================================
 
 Entry point:
@@ -170,29 +203,22 @@ live_qwen_planning_loop.py
 Verified flow:
 
 Qwen structured plan
-    ↓
-Python plan validation
-    ↓
-Read-only Blender evidence
-    ↓
-Planning orchestrator
-    ↓
-Structured action plan
-    ↓
-WRITE EXECUTION NOT PERFORMED
+    -> Python plan validation
+    -> read-only Blender evidence
+    -> planning orchestrator
+    -> structured action plan
+    -> WRITE EXECUTION NOT PERFORMED
 
-Successful result:
-
+Successful live result:
 - 1 structured evidence request
 - 2 structured actions
 - validated plan
-- authoritative read-only Blender evidence
+- authoritative read-only evidence
 - completed evidence plan
-- structured action plan with next action exposed
+- next action exposed by Python
 - zero write execution
 
 Result:
-
 QWEN PLAN ACCEPTED
 EVIDENCE VERIFIED READ-ONLY
 ACTION PLAN STRUCTURED
@@ -200,202 +226,255 @@ WRITE EXECUTION NOT PERFORMED
 ATLAS QWEN PLANNING BRIDGE TEST: PASS
 
 ============================================================
-9. CONTROLLED FAILURE / RECOVERY — PASS
+6. CONDITIONAL EXECUTION — LIVE PASS
 ============================================================
 
-The controlled failure harness passes.
+The conditional fixture generator was corrected so the incorrect fixture is
+explicitly constructed as a known-wrong state rather than inheriting whatever
+state happens to exist in the base `.blend` file.
 
-A simulated write failure produces:
+Deterministic incorrect fixture values:
+Goal_Left_post  = [0.0, 5.302, 0.0]
+Goal_Right_Post = [0.0, -5.164, 0.0]
 
-- recoverable = true
-- fresh evidence required = true
-- retry authorized = false
+This was committed as:
+486cae7c — fix: make incorrect conditional fixture deterministic
 
-Atlas refuses automatic retry after a failed write and requires fresh
-read-only evidence plus a new validated and explicitly authorized plan.
+A subsequent orchestrator interface mismatch was fixed so conditional plans
+expose the blocked state expected by the generic orchestrator.
+
+Commit:
+c35bae0 — fix: expose conditional action blocked state
+
+After those fixes, the live conditional tests both passed:
+
+Run #29 — already-correct: PASS
+Run #30 — incorrect: PASS
+
+The two live behaviors are now proven:
+
+1. Already-correct state -> target evaluation says satisfied -> write execution
+   is skipped.
+
+2. Incorrect state -> target evaluation says unsatisfied -> authorized write
+   path executes -> final state is independently verified.
 
 ============================================================
-10. AUDIT TRAIL — PASS
+7. GENERIC VERIFICATION — PASS
 ============================================================
 
-The live action workflow records:
+A generic `VerificationPlan` was introduced and wired into
+`ConditionalPlanningOrchestrator`.
+
+The deterministic future now explicitly contains:
+
+- evidence checkpoint
+- target evaluation checkpoint
+- zero-write skip branch OR authorized action sequence
+- independent VERIFICATION checkpoint
+- COMPLETE checkpoint
+
+A successful write alone does not advance verification.
+
+A regression test initially exposed an incorrect expectation: the test expected
+failed verification to raise, while the intended contract is to return an
+unsatisfied result and transition to BLOCKED. The test was corrected to match
+the fail-closed state-machine contract.
+
+Commit:
+78081d4764e45119d2e444d590b75206531efa08
+message: test: correct verification failure assertion
+
+GitHub Actions run #172 passed:
+- Python 3.11: PASS
+- Python 3.9: PASS
+
+The latest integration commit was then created:
+33d8326f93d27474ec23212289f9a2ea37f50ab2
+message: feat: route live conditional verification through generic plan
+
+GitHub Actions run #173 passed:
+- Python 3.11: PASS
+- Python 3.9: PASS
+
+At that point the generic verification architecture was green in the full
+regression matrix and integrated into the live conditional harness.
+
+============================================================
+8. CONTROLLED FAILURE / RECOVERY — PASS
+============================================================
+
+The controlled recovery architecture is proven.
+
+A simulated/realized write failure produces a fail-closed state requiring:
+- fresh authoritative evidence
+- explicit recovery classification
+- a replacement plan where appropriate
+- independent re-authorization
+
+Automatic retry is prohibited.
+
+`FutureRecoveryGate.authorize_retry()` intentionally raises rather than
+silently repeating a potentially stale or partially applied action.
+
+============================================================
+9. AUDIT TRAIL — PASS
+============================================================
+
+The live action workflow records the lifecycle in order:
 
 Qwen proposal
- ↓
-Evidence
- ↓
-Authorization
- ↓
-Execution 1
- ↓
-Execution 2
- ↓
-Verification
+    -> evidence
+    -> authorization
+    -> execution 1
+    -> execution 2
+    -> independent verification
+
+The audit trail is intended to remain authoritative for what Atlas actually did,
+not what the model claimed it did.
 
 ============================================================
-11. REGRESSION STATUS
+10. REGRESSION STATUS
 ============================================================
 
-Latest local regression result:
+The latest verified GitHub Actions regression matrix passed on both supported
+CI Python versions:
 
-98 passed
+Run #172: 133 tests passed on Python 3.11 and Python 3.9.
+Run #173: 133 tests passed on Python 3.11 and Python 3.9.
 
-The regression suite remains green after the repository organization and
-planning work.
-
-============================================================
-12. CURRENT LIVE ACTION HARNESS STATE
-============================================================
-
-The live action harness was restored to the known-good write-test version at
-the end of the August 16 session. This intentionally avoids leaving an
-experimental conditional-planning harness as the primary live write test.
-
-The attempted conditional-planning experiment exposed an important boundary:
-Qwen can produce malformed or semantically invented tool argument structures.
-Those arguments must be rejected at the planning boundary before they reach a
-tool executor.
-
-Do not treat the failed experimental conditional harness as a verified
-capability.
+The local environment previously reported 98 passed before the latest generic
+verification/future/recovery test additions. The repository CI count is now
+higher because the new architecture has added regression coverage.
 
 ============================================================
-13. NEXT DEVELOPMENT TARGET
+11. CURRENT KNOWN ISSUES / BOUNDARIES
 ============================================================
 
-Conditional action planning.
+1. The Qwen model remains a proposal source, not an execution authority.
+   Malformed or semantically invented tool arguments must be rejected before
+   any production executor is called.
 
-Atlas must determine from authoritative evidence whether the requested state
-is already satisfied before executing a proposed write.
+2. The live conditional harness currently proves the architecture using the
+   goalpost Blender relationship. It is not yet a general-purpose autonomous
+   production task runner.
 
-Desired behavior:
+3. The deterministic future is derived from an already-authorized action plan.
+   Atlas has not yet generalized autonomous multi-task planning across arbitrary
+   production tools.
+
+4. Recovery/replanning primitives exist, but broader live end-to-end recovery
+   against arbitrary production failures still needs dedicated integration
+   coverage.
+
+5. The local live runtime uses Ollama/qwen3:8b and Blender 4.4. CI tests are
+   offline Python tests; CI does not replace the local Blender/Qwen live tests.
+
+6. The current live workflow still requires the local runner/test harness to be
+   invoked explicitly. The architecture is moving toward autonomous execution,
+   but full unattended local execution is not yet the milestone to declare.
+
+============================================================
+12. EXACT CURRENT DEVELOPMENT STATE
+============================================================
+
+Proven:
+- Blender controlled modification
+- read-only evidence acquisition
+- evidence ledger/state tracking
+- generic ordered evidence plans
+- generic ordered action plans
+- authorization boundary
+- Python-owned execution ordering
+- Qwen structured planning bridge
+- independent post-write verification
+- deterministic future generation
+- deterministic future execution gating
+- fail-closed recovery boundary
+- replan authorization receipt
+- conditional no-write branch
+- conditional write branch
+- generic verification integrated into conditional live flow
+- full CI regression matrix on Python 3.9 and 3.11
+
+Not yet proven as a general platform capability:
+- arbitrary production task planning across many tools
+- fully unattended autonomous production execution
+- broad live recovery/replanning across arbitrary failure modes
+- Unreal Engine production-agent execution
+
+============================================================
+13. EXACT NEXT STEPS
+============================================================
+
+NEXT STEP 1 — Generalize the verified conditional architecture.
+
+Extract the goalpost-specific assumptions from the live conditional harness
+while preserving the proven generic primitives:
 
 Task
- ↓
-Structured evidence requirements
- ↓
-Evidence ledger
- ↓
-Determine whether target already holds
- ↓
-Already satisfied? → skip write
- ↓
-Not satisfied? → retain authorized action plan
- ↓
-Python-controlled execution
- ↓
-Independent verification
- ↓
-Completion
+ -> structured evidence requirements
+ -> authoritative evidence
+ -> explicit target-state evaluator
+ -> conditional decision
+ -> deterministic future
+ -> authorized action sequence if needed
+ -> independent verification
+ -> completion
 
-Two tests are required:
+The next implementation should make this reusable for a second non-goalpost
+production task rather than adding another special case to the goalpost code.
 
-1. Already-correct state:
-   prove Atlas performs no unnecessary write.
+NEXT STEP 2 — Strengthen tool argument/schema validation.
 
-2. Incorrect state:
-   prove the necessary authorized write path still works.
+Before any executor call, validate:
+- tool name
+- exact required argument names
+- argument types
+- allowed values/ranges where applicable
+- action ordering requirements
+- authorization scope
 
-Before either test, malformed tool arguments must be rejected at the planning
-boundary rather than being passed to Blender tools.
+A malformed Qwen plan must fail at the planning boundary.
 
-============================================================
-14. PRODUCTION SUITE DIRECTION
-============================================================
+NEXT STEP 3 — Add generic conditional regression coverage.
 
-Atlas is broader than the current Blender implementation.
+Cover at minimum:
+- already satisfied -> zero actions executed
+- unsatisfied -> all authorized actions execute in order
+- successful action -> verification still required
+- failed verification -> BLOCKED
+- action failure -> recovery gate
+- mutated deterministic future -> integrity failure
+- unauthorized replan -> rejected
+- authorized replan matching fresh evidence -> accepted
 
-Sports capture and analysis:
-- understand captured sports footage
-- identify players, objects, events, and spatial relationships
-- extract production-relevant evidence
+NEXT STEP 4 — Prove the architecture on a second production task.
 
-Blender agents:
-- digital-twin construction
-- procedural geometry
-- scene inspection
-- spatial reasoning
-- environment manipulation
-- controlled scene writes
+Use a task with different target invariants and a different action shape so the
+architecture cannot accidentally remain goalpost-specific.
 
-Unreal Engine agents — planned:
-- asset and scene organization
-- materials and look development
-- lighting and Lumen
-- Nanite-enabled assets
-- CineCamera workflows
-- Sequencer and shot construction
-- Movie Render Queue
-- real-time virtual-production operations
+NEXT STEP 5 — Only after that, begin Stage 9 broader autonomous task control.
 
-Cinematic sports production:
-- impact frames
-- smear frames
-- cinematic bleed
-- match-cut transformations
-- environmental transformations
-- fluid-like water/smoke/glass/metal effects
-- spatial overlays and field intelligence
-- digital-twin compositing
-- cinematic interactions between real athletes and reconstructed environments
-
-These are production capabilities within Atlas, not the definition of the
-platform itself.
+Stage 9 should focus on safely composing evidence, target-state, action,
+verification, and recovery primitives into a reusable task runtime rather than
+letting Qwen directly control tools.
 
 ============================================================
-15. ROADMAP
+14. USER TEST PROTOCOL
 ============================================================
 
-Stage 1 — Basic Blender Agent
-COMPLETE
+When a new live local test is genuinely required:
+- implement the harness on `main` first
+- verify its offline/CI tests
+- then give the user the exact command to run
+- do not ask the user to run exploratory tests before the harness is stable
 
-Stage 2 — Reliable Evidence
-COMPLETE
-
-Stage 3 — Mandatory Evidence Acquisition
-COMPLETE
-
-Stage 4 — Evidence Validation and Recommendation Restraint
-COMPLETE
-
-Stage 5 — General Evidence Planner
-IN PROGRESS
-
-Stage 6 — Reliable Modification Control
-COMPLETE FOR CURRENT CONTROLLER PATTERN
-
-Stage 7 — General Action Planning
-IN PROGRESS
-
-The generic action-plan primitive, evidence-plan primitive, planning
-orchestrator, controlled recovery boundary, audit trail, and Qwen structured
-planning bridge are proven.
-
-Stage 8 — Conditional Action Planning
-NEXT
-
-Stage 9 — Broader Autonomous Task Control
-NOT STARTED
-
-Future — Unreal Production Agents
-PLANNED
-
-Future — Sports Production Orchestration
-PLANNED
+During active development, minimize status chatter and only interrupt the user
+when a real local test/action is required.
 
 ============================================================
-16. USER TEST PROTOCOL
-============================================================
-
-When a new local test is ready, immediately give the user the exact command.
-
-Do not ask for a test before the harness exists on main.
-
-The user prefers minimal status chatter during development and wants to be
-contacted when a real test or other action is required.
-
-============================================================
-17. DEVELOPMENT RULES
+15. DEVELOPMENT RULES
 ============================================================
 
 Do not rewrite the entire agent.
@@ -405,26 +484,55 @@ Do not make goalpost behavior the generic architecture.
 Do not add tools without proving a real capability gap.
 Do not let a successful production state depend on a perfect Qwen final answer.
 Do not allow an action plan to execute without explicit authorization.
-Keep Blender- and Unreal-specific logic behind appropriate boundaries.
+Do not allow Qwen to bypass Python-owned execution state.
+Do not allow automatic retry after failed writes.
+Keep Blender/Unreal-specific behavior behind appropriate adapter/tool boundaries.
 Preserve working components and improve incrementally.
-Keep README.md, ATLAS_HANDOFF_CONTEXT.txt, and DEVELOPMENT_LOG.md synchronized.
+Keep README.md, ATLAS_HANDOFF_CONTEXT.txt, and DEVELOPMENT_LOG.md synchronized
+with verified milestones and test results.
 
 ============================================================
-18. HANDOFF SUMMARY
+16. PRODUCT DIRECTION
 ============================================================
 
-Atlas has proven the controlled modification loop in the real Blender
-environment and the first live Qwen structured planning boundary.
+Atlas is an AI-assisted sports virtual production and digital-twin platform,
+not merely a Blender agent.
 
-The project is moving from:
+Planned/long-term production capabilities include:
+- sports capture and analysis
+- digital-twin construction and spatial reasoning
+- Blender production agents
+- Unreal Engine production agents
+- impact frames
+- smear frames
+- cinematic bleed
+- match-cut transformations
+- environment-driven effects
+- temporary liquid/water/smoke/glass/metal-like environmental behavior
+- spatial overlays and field intelligence
+- digital-twin compositing
+- cinematic interactions between real athletes and reconstructed environments
 
-"Can Python reliably control one known modification?"
+These are production modules within Atlas, not the definition of its core
+orchestration architecture.
 
-to:
+============================================================
+17. HANDOFF SUMMARY
+============================================================
 
-"Can Atlas reliably control authorized production plans generated from task
-requirements and evidence, while avoiding unnecessary writes and eventually
-coordinating multiple production environments?"
+Atlas has moved beyond the question "can Python reliably control one known
+modification?"
+
+The current proven answer is:
+
+Atlas can accept a structured Qwen proposal, validate it, acquire authoritative
+evidence, determine whether the requested state is already satisfied, skip an
+unnecessary write, or execute an explicitly authorized deterministic action
+sequence, and independently verify the resulting state before completion.
+
+The next architectural challenge is generalization: prove that this control
+loop is reusable across different production tasks without embedding task-
+specific assumptions into the generic planning layer.
 
 Core principle remains:
 
@@ -432,7 +540,4 @@ Reason with Qwen.
 Control with Python.
 Measure with production tools.
 Verify independently.
-
-The broader product direction is an AI-assisted sports production suite,
-with Blender as the current proven environment and Unreal Engine agents as a
-planned next production layer.
+Recover conservatively.
