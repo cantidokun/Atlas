@@ -3,8 +3,23 @@ $base = "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend"
 $correct = "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test_CONDITIONAL_CORRECT.blend"
 $incorrect = "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test_CONDITIONAL_INCORRECT.blend"
 if (-not (Test-Path $base)) { throw "Base Blender fixture not found: $base" }
+
 $blender = (Get-Command blender -ErrorAction SilentlyContinue).Source
-if (-not $blender) { throw "Blender executable not found on PATH." }
+if (-not $blender) {
+    $candidates = @(
+        (Join-Path $env:ProgramFiles "Blender Foundation\Blender\blender.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Blender Foundation\Blender\blender.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Blender Foundation\Blender\blender.exe")
+    )
+    $blender = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+}
+if (-not $blender) {
+    $found = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) -Filter blender.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { $blender = $found.FullName }
+}
+if (-not $blender) { throw "Blender executable could not be located. Install Blender or add blender.exe to PATH." }
+Write-Host "Using Blender executable: $blender"
+
 $script = Join-Path $env:TEMP "atlas_make_correct.py"
 @'
 import bpy, sys
