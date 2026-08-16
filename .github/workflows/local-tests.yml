@@ -12,7 +12,6 @@ permissions:
 jobs:
   local-test:
     runs-on: [self-hosted, windows, local-win]
-    environment: local-testing
 
     steps:
       - name: Checkout repository
