@@ -283,18 +283,7 @@ class ConditionalPlanningOrchestrator:
         self.replan_authorization = receipt
         return receipt
 
-    def install_authorized_replan(self, authorization: ReplanAuthorization) -> TargetStateResult:
-        """Install only the exact replacement plan covered by an authorization receipt."""
-        if not self.recovery_replan_ready:
-            raise RuntimeError("Recovery is not ready for an authorized replan.")
-        if not isinstance(authorization, ReplanAuthorization):
-            raise TypeError("authorization must be a ReplanAuthorization.")
-        if self.replan_authorization != authorization:
-            raise RuntimeError("Replan authorization does not match the current recovery authorization.")
-        evidence = self.recovery_gate.authorize_replan()
-        raise RuntimeError("Authorized action payload is required to install the replan.")
-
-    def install_authorized_replan_actions(self, authorization: ReplanAuthorization, authorized_actions: List[ActionSpec]) -> TargetStateResult:
+    def install_authorized_replan(self, authorization: ReplanAuthorization, authorized_actions: List[ActionSpec]) -> TargetStateResult:
         """Install a replacement plan only when its actions match the issued receipt."""
         if not self.recovery_replan_ready:
             raise RuntimeError("Recovery is not ready for an authorized replan.")
@@ -302,10 +291,11 @@ class ConditionalPlanningOrchestrator:
             raise TypeError("authorization must be a ReplanAuthorization.")
         if self.replan_authorization != authorization:
             raise RuntimeError("Replan authorization does not match the current recovery authorization.")
-        if not authorization.matches(self.recovery_gate.authorize_replan(), authorized_actions):
+        evidence = self.recovery_gate.authorize_replan()
+        if not authorization.matches(evidence, authorized_actions):
             raise RuntimeError("Replacement actions do not match the authorized replan.")
 
-        result = self.target_evaluator.evaluate(self.recovery_gate.authorize_replan())
+        result = self.target_evaluator.evaluate(evidence)
         self.target_state = result
         self.evaluation_error = None
         self.conditional_plan = ConditionalActionPlan(list(authorized_actions))
