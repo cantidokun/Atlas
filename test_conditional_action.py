@@ -73,3 +73,43 @@ def test_condition_is_evaluated_only_once():
 
 def test_root_compatibility_import_resolves_same_implementation():
     assert ConditionalActionPlan is PlanningConditionalActionPlan
+
+
+def test_custom_predicate_supports_multi_field_target_state():
+    plan = ConditionalActionPlan(
+        _plan(),
+        TargetCondition(
+            predicate=lambda evidence: (
+                evidence["left"]["y"] == 5.233
+                and evidence["right"]["y"] == -5.233
+            ),
+            name="goalposts_symmetric_at_target",
+        ),
+    )
+
+    assert plan.evaluate({"left": {"y": 5.233}, "right": {"y": -5.233}}) is True
+    assert plan.next_action is None
+    assert plan.snapshot()["condition"]["name"] == "goalposts_symmetric_at_target"
+    assert plan.snapshot()["condition"]["predicate_configured"] is True
+
+
+def test_custom_predicate_false_keeps_actions_available():
+    plan = ConditionalActionPlan(
+        _plan(),
+        TargetCondition(
+            predicate=lambda evidence: evidence["distance"] == 10.466,
+            name="target_distance",
+        ),
+    )
+
+    assert plan.evaluate({"distance": 10.0}) is False
+    assert plan.next_action is not None
+    assert plan.complete is False
+    assert plan.decision == "EXECUTE_ACTIONS"
+
+
+def test_empty_condition_definition_is_rejected():
+    plan = ConditionalActionPlan(_plan(), TargetCondition())
+
+    with pytest.raises(ConditionalActionError, match="requires a path/expected pair"):
+        plan.evaluate({"state": "unknown"})
