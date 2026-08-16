@@ -9,7 +9,9 @@ verifies the result.
 
 import argparse
 import json
+import os
 import shutil
+from pathlib import Path
 from typing import Any, Dict, List
 
 import requests
@@ -25,9 +27,10 @@ from tools.blender import inspect_object_relationship, move_object
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
-SOURCE_FILE = "goalpost_test.blend"
-WORKING_CORRECT_FILE = "goalpost_test_CONDITIONAL_CORRECT.blend"
-WORKING_INCORRECT_FILE = "goalpost_test_CONDITIONAL_INCORRECT.blend"
+WORKSPACE = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
+SOURCE_FILE = WORKSPACE / "goalpost_test.blend"
+WORKING_CORRECT_FILE = WORKSPACE / "goalpost_test_CONDITIONAL_CORRECT.blend"
+WORKING_INCORRECT_FILE = WORKSPACE / "goalpost_test_CONDITIONAL_INCORRECT.blend"
 MAX_PLAN_ATTEMPTS = 3
 
 ALLOWED_TOOLS = {"inspect_object_relationship", "move_object"}
@@ -135,26 +138,32 @@ def action_payload(action: Any) -> Dict[str, Any]:
 
 
 def prepare_case(case: str) -> str:
-    """Select the fixture provisioned by the workflow and isolate each case."""
+    """Select the deterministic fixture from the workflow workspace."""
+    print(f"HARNESS_CWD: {Path.cwd().resolve()}", flush=True)
+    print(f"HARNESS_WORKSPACE: {WORKSPACE}", flush=True)
+    print(f"HARNESS_SOURCE_FILE: {SOURCE_FILE}", flush=True)
+
     if case == "already-correct":
-        # The workflow has already generated this fixture deterministically.
-        # Do not overwrite it with the source fixture: doing so destroys the
-        # correct state we intentionally provisioned before this harness runs.
         target_file = WORKING_CORRECT_FILE
-        if not __import__("os").path.exists(target_file):
+        print(f"HARNESS_EXPECTED_FIXTURE: {target_file}", flush=True)
+        print(f"HARNESS_FIXTURE_EXISTS: {target_file.is_file()}", flush=True)
+        if not target_file.is_file():
+            print("Blend files under workspace:", flush=True)
+            for path in sorted(WORKSPACE.rglob("*.blend")):
+                print(f"  {path}", flush=True)
             raise RuntimeError(f"Provisioned correct fixture not found: {target_file}")
-        return target_file
+        return str(target_file)
 
     target_file = WORKING_INCORRECT_FILE
     shutil.copy2(SOURCE_FILE, target_file)
-    left = move_object(target_file, "Goal_Left_post", TARGET_LEFT)
-    right = move_object(target_file, "Goal_Right_Post", TARGET_RIGHT)
+    left = move_object(str(target_file), "Goal_Left_post", TARGET_LEFT)
+    right = move_object(str(target_file), "Goal_Right_Post", TARGET_RIGHT)
     if left.get("status") != "moved" or right.get("status") != "moved":
         raise RuntimeError(f"Could not normalize conditional fixture: {left}; {right}")
-    incorrect = move_object(target_file, "Goal_Left_post", [0.0, 5.000, 0.0])
+    incorrect = move_object(str(target_file), "Goal_Left_post", [0.0, 5.000, 0.0])
     if incorrect.get("status") != "moved":
         raise RuntimeError(f"Could not prepare incorrect fixture: {incorrect}")
-    return target_file
+    return str(target_file)
 
 
 def main() -> None:
