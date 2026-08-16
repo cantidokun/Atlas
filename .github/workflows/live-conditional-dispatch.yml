@@ -33,14 +33,9 @@ jobs:
           cd
 
       - name: Provision local Blender fixture
-        shell: powershell
+        shell: cmd
         run: |
-          $source = "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend"
-          if (-not (Test-Path -LiteralPath $source)) {
-            throw "Runner-local Atlas fixture not found: $source"
-          }
-          Copy-Item -LiteralPath $source -Destination ".\goalpost_test.blend" -Force
-          Write-Host "Provisioned goalpost_test.blend from the runner's local Atlas fixture."
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$source = \"C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend\"; if (-not (Test-Path -LiteralPath $source)) { throw \"Runner-local Atlas fixture not found: $source\" }; Copy-Item -LiteralPath $source -Destination '.\goalpost_test.blend' -Force; Write-Host 'Provisioned goalpost_test.blend from the runner local Atlas fixture.'"
 
       - name: Run live conditional Blender harness
         shell: cmd
