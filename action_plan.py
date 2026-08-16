@@ -20,6 +20,7 @@ class ActionSpec:
     arguments: Dict[str, Any]
     name: str = ""
     requires_success: bool = True
+    requires_write: bool = False
 
 
 @dataclass
@@ -58,6 +59,7 @@ class ActionPlan:
             "name": action.name or action.tool,
             "tool": action.tool,
             "arguments": action.arguments,
+            "requires_write": action.requires_write,
             "result": result,
             "success": bool(success),
         }
@@ -81,6 +83,7 @@ class ActionPlan:
                     "name": next_action.name or next_action.tool,
                     "tool": next_action.tool,
                     "arguments": next_action.arguments,
+                    "requires_write": next_action.requires_write,
                 }
                 if next_action is not None
                 else None
