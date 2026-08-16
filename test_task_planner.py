@@ -130,24 +130,24 @@ def test_wrong_tool_argument_shape_is_rejected():
         )
 
 
-def test_invalid_goalpost_name_is_rejected():
-    with pytest.raises(TaskPlanValidationError, match="Goal_Left_post"):
-        build_task_plan(
-            {
-                "evidence": [],
-                "actions": [
-                    {
-                        "tool": "move_object",
-                        "arguments": {
-                            "file_name": "scene.blend",
-                            "object_name": "invented_post",
-                            "location": [0, 0, 0],
-                        },
-                    }
-                ],
-            },
-            allowed_tools=ALLOWED_TOOLS,
-        )
+def test_generic_move_object_accepts_non_goalpost_names():
+    proposal = build_task_plan(
+        {
+            "evidence": [],
+            "actions": [
+                {
+                    "tool": "move_object",
+                    "arguments": {
+                        "file_name": "scene.blend",
+                        "object_name": "TrainingCone_A",
+                        "location": [0, 0, 0],
+                    },
+                }
+            ],
+        },
+        allowed_tools=ALLOWED_TOOLS,
+    )
+    assert proposal.actions[0].arguments["object_name"] == "TrainingCone_A"
 
 
 def test_relationship_schema_requires_exact_named_objects():
