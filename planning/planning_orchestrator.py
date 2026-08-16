@@ -1,13 +1,13 @@
 """Deterministic bridges between Atlas evidence, target state, and actions."""
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from action_plan import ActionPlan, ActionSpec
 from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import DeterministicFutureGenerator
-from planning.future_recovery import FutureRecoveryGate
+from planning.future_recovery import FutureRecoveryGate, RecoveryDisposition
 from planning.target_state import TargetStateEvaluationError, TargetStateEvaluator, TargetStateResult
 from planning.verification_plan import VerificationPlan
 
@@ -85,7 +85,7 @@ class PlanningOrchestrator:
 
 @dataclass
 class ConditionalPlanningOrchestrator:
-    """Run evidence, target-state evaluation, and conditional actions deterministically."""
+    """Run evidence, target-state evaluation, conditional actions, and recovery deterministically."""
 
     evidence_plan: EvidencePlan
     conditional_plan: ConditionalActionPlan
@@ -121,7 +121,18 @@ class ConditionalPlanningOrchestrator:
         return bool(self.verification_plan and self.verification_plan.complete)
 
     @property
+    def recovery_replan_ready(self) -> bool:
+        return bool(
+            self.recovery_gate
+            and self.recovery_gate.decision
+            and self.recovery_gate.decision.disposition is RecoveryDisposition.REPLAN_REQUIRED
+            and self.recovery_gate.fresh_evidence_acquired
+        )
+
+    @property
     def blocked(self) -> bool:
+        if self.recovery_replan_ready:
+            return False
         return (
             self.evidence_plan.blocked
             or self.evaluation_error is not None
@@ -131,6 +142,8 @@ class ConditionalPlanningOrchestrator:
         )
 
     def next_phase(self) -> str:
+        if self.recovery_replan_ready:
+            return "RECOVERY_REPLAN"
         if self.blocked:
             return "BLOCKED"
         if not self.evidence_complete:
@@ -231,7 +244,6 @@ class ConditionalPlanningOrchestrator:
         return result
 
     def verify_post_action(self, evidence: Any) -> TargetStateResult:
-        """Verify final state from fresh authoritative evidence and advance the future."""
         if not self.evidence_complete:
             raise RuntimeError("Verification is blocked until required evidence is complete.")
         if not self.evaluated:
@@ -248,6 +260,49 @@ class ConditionalPlanningOrchestrator:
         self.future_controller.verify(result.snapshot())
         if self.future_controller.blocked:
             self._record_future_failure()
+        return result
+
+    def record_recovery_evidence(self, evidence: Any) -> Any:
+        """Record fresh evidence after a failure and advance to explicit replanning."""
+        if self.recovery_gate is None:
+            raise RuntimeError("No recoverable future failure exists.")
+        self.recovery_gate.record_fresh_evidence(evidence)
+        self.recovery_gate.advance_after_fresh_evidence()
+        return evidence
+
+    def authorize_replan(self) -> Any:
+        """Expose only the fresh evidence permitted for an independently authorized replan."""
+        if not self.recovery_replan_ready:
+            raise RuntimeError("Recovery is not ready for replanning.")
+        return self.recovery_gate.authorize_replan()
+
+    def install_authorized_replan(self, fresh_evidence: Any, authorized_actions: List[ActionSpec]) -> TargetStateResult:
+        """Install a replacement plan supplied by an already-authorized caller.
+
+        This method does not authorize actions itself. The caller must supply the
+        replacement actions only after the normal authorization boundary has passed.
+        """
+        if not self.recovery_replan_ready:
+            raise RuntimeError("Recovery is not ready for an authorized replan.")
+        if self.recovery_gate.authorize_replan() != fresh_evidence:
+            raise RuntimeError("Replan evidence does not match the evidence recorded by recovery.")
+        if not isinstance(authorized_actions, list) or any(not isinstance(action, ActionSpec) for action in authorized_actions):
+            raise TypeError("authorized_actions must be a list of ActionSpec objects.")
+
+        result = self.target_evaluator.evaluate(fresh_evidence)
+        self.target_state = result
+        self.evaluation_error = None
+        self.conditional_plan = ConditionalActionPlan(list(authorized_actions))
+        self.conditional_plan.evaluate(result.satisfied)
+        self.verification_plan = VerificationPlan(self.target_evaluator)
+        self.future_controller = FutureExecutionController(
+            DeterministicFutureGenerator(self.target_evaluator).generate(result.satisfied, list(authorized_actions))
+        )
+        self.future_controller.acknowledge({"recovery_evidence": True})
+        self.future_controller.acknowledge(result.snapshot())
+        if result.satisfied:
+            self.future_controller.acknowledge({"writes_skipped": True})
+        self.recovery_gate = None
         return result
 
     def finalize_future(self) -> Dict[str, Any]:
