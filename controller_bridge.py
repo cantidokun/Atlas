@@ -2,13 +2,14 @@
 
 The bridge keeps the existing agent architecture intact while giving the
 controller ownership of mandatory actions for the current authorized
-midpoint task. It is intentionally small so it can later be called from
-agent.py's existing tool-execution boundary.
+midpoint task. It can also hydrate its BEFORE state from evidence already
+collected by the main agent loop.
 """
 
 from typing import Any, Dict
 
 from controller_runtime import ControllerRuntime
+from controller_state import record_before
 
 
 class ControllerBridge:
@@ -20,6 +21,28 @@ class ControllerBridge:
     @property
     def state(self):
         return self.runtime.state
+
+    def sync_evidence(self, evidence_ledger: list) -> None:
+        """Hydrate controller state from already verified agent evidence."""
+        if self.state.before is not None:
+            return
+
+        for item in evidence_ledger or []:
+            if item.get("tool") != "inspect_object_relationship":
+                continue
+
+            result = item.get("result")
+            if not isinstance(result, dict) or "error" in result:
+                continue
+
+            object_a = result.get("object_a", {})
+            object_b = result.get("object_b", {})
+            if (
+                object_a.get("name") == self.state.object_a_name
+                and object_b.get("name") == self.state.object_b_name
+            ):
+                record_before(self.state, result)
+                return
 
     def next_action(self) -> Dict[str, Any]:
         """Return the next mandatory controller action."""
@@ -43,9 +66,9 @@ def controller_required_for_midpoint_task(
 ) -> bool:
     """Detect the narrow current midpoint workflow without changing the ledger.
 
-    This helper is deliberately conservative. General task planning remains
-    the responsibility of Qwen and the evidence planner; this only identifies
-    the existing explicit midpoint workflow that already has a controller.
+    General task planning remains the responsibility of Qwen and the evidence
+    planner; this only identifies the explicit midpoint workflow that already
+    has a deterministic controller.
     """
     text = (task_text or "").lower()
 
