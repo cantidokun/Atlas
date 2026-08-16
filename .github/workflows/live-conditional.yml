@@ -1,0 +1,36 @@
+name: Live Conditional Atlas Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: "Conditional Blender scenario"
+        required: true
+        type: choice
+        options:
+          - already-correct
+          - incorrect
+
+permissions:
+  contents: read
+
+jobs:
+  live-conditional:
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+
+      - name: Run live conditional Blender harness
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_conditional_loop.py --case '${{ inputs.case }}'"
