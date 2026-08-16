@@ -85,3 +85,18 @@ def test_already_satisfied_future_contains_no_executable_action():
     controller.verify({"satisfied": True})
     controller.finalize()
     assert controller.complete
+
+
+def test_mutating_authorized_future_blocks_execution():
+    controller = FutureExecutionController(_future(False))
+    controller.acknowledge()
+    controller.acknowledge()
+
+    # Simulate an external/model mutation after the future was authorized.
+    controller.steps[2].action["arguments"]["value"] = 999
+
+    with pytest.raises(RuntimeError, match="integrity check failed"):
+        controller.execute_current(lambda _tool, _args: {"ok": True})
+
+    assert controller.blocked
+    assert controller.failed["exception_type"] == "FuturePlanIntegrityError"
