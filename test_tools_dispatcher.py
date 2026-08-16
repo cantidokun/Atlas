@@ -39,7 +39,7 @@ def test_missing_arguments_are_rejected():
 def test_write_tool_is_blocked_without_authorization():
     with pytest.raises(ToolDispatchError, match="explicit Python authorization"):
         dispatch_tool(
-            "move_object",
-            {"file_name": "scene.blend", "object_name": "Cube", "location": [0, 0, 0]},
+            "create_collection",
+            {"file_name": "scene.blend", "collection_name": "Atlas_Test"},
             allow_writes=False,
         )
