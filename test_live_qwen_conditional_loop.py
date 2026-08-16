@@ -1,6 +1,6 @@
 import pytest
 
-from live_qwen_conditional_loop import target_is_satisfied
+from live_qwen_conditional_loop import target_is_satisfied, target_state_evaluator
 
 
 def _relationship():
@@ -15,6 +15,20 @@ def _relationship():
 
 def test_target_is_satisfied_requires_all_invariants():
     assert target_is_satisfied(_relationship()) is True
+
+
+def test_target_state_reports_named_invariants():
+    result = target_state_evaluator().evaluate(_relationship())
+
+    assert result.satisfied is True
+    assert result.failed == []
+    assert set(result.invariants) == {
+        "left_post_location",
+        "right_post_location",
+        "midpoint",
+        "symmetric_about_origin",
+        "distance",
+    }
 
 
 @pytest.mark.parametrize(

@@ -21,6 +21,7 @@ import requests
 
 from audit_trail import AuditTrail
 from conditional_action_plan import ConditionalActionPlan
+from planning.target_state import StateInvariant, TargetStateEvaluator
 from qwen_planning_executor import execute_read_only_plan
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
@@ -116,15 +117,37 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
     raise RuntimeError(f"Qwen plan rejected after {MAX_PLAN_ATTEMPTS} attempts: {last_error}")
 
 
-def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
-    """Return true only when every independent target invariant is satisfied."""
-    return (
-        relationship["object_a"]["location"] == TARGET_LEFT
-        and relationship["object_b"]["location"] == TARGET_RIGHT
-        and relationship["midpoint"] == TARGET_MIDPOINT
-        and relationship["symmetric_about_origin"] is True
-        and relationship["distance"] == TARGET_DISTANCE
+def target_state_evaluator() -> TargetStateEvaluator:
+    """Build the goalpost target evaluator from explicit state invariants."""
+    return TargetStateEvaluator(
+        [
+            StateInvariant(
+                "left_post_location",
+                lambda evidence: evidence["object_a"]["location"] == TARGET_LEFT,
+            ),
+            StateInvariant(
+                "right_post_location",
+                lambda evidence: evidence["object_b"]["location"] == TARGET_RIGHT,
+            ),
+            StateInvariant(
+                "midpoint",
+                lambda evidence: evidence["midpoint"] == TARGET_MIDPOINT,
+            ),
+            StateInvariant(
+                "symmetric_about_origin",
+                lambda evidence: evidence["symmetric_about_origin"] is True,
+            ),
+            StateInvariant(
+                "distance",
+                lambda evidence: evidence["distance"] == TARGET_DISTANCE,
+            ),
+        ]
     )
+
+
+def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
+    """Compatibility helper used by the live harness and its tests."""
+    return target_state_evaluator().evaluate(relationship).satisfied
 
 
 def execute_move_action(action: Any) -> Dict[str, Any]:
@@ -160,18 +183,24 @@ def main() -> None:
     relationship = evidence_execution["results"][0]["result"]
     audit.record_evidence(action_payload(proposal.evidence[0]), relationship)
 
-    satisfied = target_is_satisfied(relationship)
-    conditional = ConditionalActionPlan(proposal.actions)
-    conditional.evaluate(satisfied)
+    state_result = target_state_evaluator().evaluate(relationship)
+    satisfied = state_result.satisfied
     audit.record(
         "conditional_decision",
         "skip" if satisfied else "execute",
         target_satisfied=satisfied,
+        invariants=state_result.invariants,
+        failed_invariants=state_result.failed,
         case=args.case,
     )
 
+    print("--- TARGET STATE ---")
+    print(json.dumps(state_result.snapshot(), indent=2))
     print("--- CONDITIONAL DECISION ---")
-    print(json.dumps(conditional.snapshot(), indent=2))
+    print(json.dumps("skip" if satisfied else "execute", indent=2))
+
+    conditional = ConditionalActionPlan(proposal.actions)
+    conditional.evaluate(satisfied)
 
     if satisfied:
         if conditional.next_action is not None:
@@ -215,10 +244,12 @@ def main() -> None:
             "Goal_Left_post",
             "Goal_Right_Post",
         )
-        verification_ok = target_is_satisfied(final)
-        audit.record_verification(final, verification_ok)
-        if not verification_ok:
-            raise RuntimeError("Independent final verification failed")
+        final_state = target_state_evaluator().evaluate(final)
+        audit.record_verification(final, final_state.satisfied)
+        if not final_state.satisfied:
+            raise RuntimeError(
+                f"Independent final verification failed: {final_state.failed}"
+            )
 
         print("FINAL STATE INDEPENDENTLY VERIFIED")
         print("ATLAS CONDITIONAL INCORRECT-STATE TEST: PASS")
