@@ -1,0 +1,30 @@
+name: Local Tests
+
+on:
+  push:
+    branches:
+      - "ai/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-test:
+    runs-on: [self-hosted, windows, local-win]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+
+      - name: Run fixed PowerShell test script
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\scripts\run-tests.ps1"
