@@ -14,23 +14,54 @@ on:
 permissions:
   contents: read
 
+env:
+  ATLAS_FIXTURE_DIR: ${{ github.workspace }}
+
 jobs:
   live-conditional:
     runs-on: [self-hosted, windows, local-win]
     environment: local-testing
 
     steps:
-      - name: Check out repository
+      - name: Check out tested Atlas branch
         uses: actions/checkout@v4
+        with:
+          ref: ai/level2-runner-setup
 
       - name: Show runner environment
-        shell: cmd
+        shell: pwsh
         run: |
-          echo Runner name: %RUNNER_NAME%
-          echo Workspace: %GITHUB_WORKSPACE%
-          cd
+          Write-Host "Runner name: $env:RUNNER_NAME"
+          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
+          Write-Host "Current location: $(Get-Location)"
+          git rev-parse HEAD
+          git status --porcelain
+
+      - name: Provision deterministic local Blender fixtures
+        shell: pwsh
+        run: |
+          .\scripts\provision_conditional_fixtures.ps1
+
+      - name: Verify fixture workspace contract
+        shell: pwsh
+        run: |
+          Write-Host "Location: $(Get-Location)"
+          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
+          Get-ChildItem -Force
+          Get-ChildItem -Recurse -Filter "goalpost_test_CONDITIONAL_*.blend" | Select-Object FullName, Length
+
+          $correct = Join-Path $env:GITHUB_WORKSPACE "goalpost_test_CONDITIONAL_CORRECT.blend"
+          $incorrect = Join-Path $env:GITHUB_WORKSPACE "goalpost_test_CONDITIONAL_INCORRECT.blend"
+
+          Write-Host "Expected correct: $correct"
+          Write-Host "Expected incorrect: $incorrect"
+          Write-Host "Correct exists: $(Test-Path -LiteralPath $correct)"
+          Write-Host "Incorrect exists: $(Test-Path -LiteralPath $incorrect)"
+
+          if (-not (Test-Path -LiteralPath $correct)) { throw "Missing correct fixture: $correct" }
+          if (-not (Test-Path -LiteralPath $incorrect)) { throw "Missing incorrect fixture: $incorrect" }
 
       - name: Run live conditional Blender harness
-        shell: cmd
+        shell: pwsh
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_conditional_loop.py --case '${{ inputs.case }}'"
+          python .\live_qwen_conditional_loop.py --case '${{ inputs.case }}'
