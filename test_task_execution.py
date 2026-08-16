@@ -46,17 +46,17 @@ def test_runtime_executes_one_action_at_a_time_and_verifies():
     assert second["tool"] == "write"
     assert runtime.action_plan.complete
 
-    with pytest.raises(TaskExecutionError, match="before all actions complete"):
-        TaskExecutionRuntime(
-            TaskPlanProposal(evidence=[], actions=[ActionSpec("inspect", {})]),
-            evidence_complete=True,
-            allowed_action_tools={"inspect"},
-            allow_writes=True,
-        ).mark_verified({"success": True})
-
     runtime.mark_verified({"success": True, "verified": "independently"})
     assert runtime.verification_complete
     assert runtime.final_result["verified"] == "independently"
+
+
+def test_verification_requires_all_actions_to_complete():
+    runtime = make_runtime()
+    runtime.authorize()
+
+    with pytest.raises(TaskExecutionError, match="before all actions complete"):
+        runtime.mark_verified({"success": True})
 
 
 def test_failed_action_blocks_runtime():
