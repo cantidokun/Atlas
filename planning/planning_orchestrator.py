@@ -47,7 +47,12 @@ class PlanningOrchestrator:
         if reused_result is not None:
             self.evidence_plan.record_result(reused_result, True, reused=True)
             return reused_result
-        result = execute(request.tool, request.arguments)
+        try:
+            result = execute(request.tool, request.arguments)
+        except Exception as exc:
+            failure = {"error": str(exc), "exception_type": type(exc).__name__}
+            self.evidence_plan.record_result(failure, False)
+            raise
         self.evidence_plan.record_result(result, "error" not in result)
         return result
 
@@ -57,11 +62,16 @@ class PlanningOrchestrator:
         if self.action_plan.complete:
             raise RuntimeError("Action plan is already complete.")
         if self.action_plan.blocked:
-            raise RuntimeError("Action plan is blocked.")
+            raise RuntimeError("Action plan is blocked by a previous failure.")
         action = self.action_plan.next_action
         if action is None:
             raise RuntimeError("No next action is available.")
-        result = execute(action.tool, action.arguments)
+        try:
+            result = execute(action.tool, action.arguments)
+        except Exception as exc:
+            failure = {"error": str(exc), "exception_type": type(exc).__name__}
+            self.action_plan.record_result(failure, False)
+            raise
         self.action_plan.record_result(result, "error" not in result)
         return result
 
@@ -94,7 +104,7 @@ class ConditionalPlanningOrchestrator:
 
     @property
     def blocked(self) -> bool:
-        return self.evidence_plan.blocked or self.evaluation_error is not None
+        return self.evidence_plan.blocked or self.evaluation_error is not None or self.conditional_plan.blocked
 
     @property
     def skipped(self) -> bool:
@@ -128,7 +138,12 @@ class ConditionalPlanningOrchestrator:
         if reused_result is not None:
             self.evidence_plan.record_result(reused_result, True, reused=True)
             return reused_result
-        result = execute(request.tool, request.arguments)
+        try:
+            result = execute(request.tool, request.arguments)
+        except Exception as exc:
+            failure = {"error": str(exc), "exception_type": type(exc).__name__}
+            self.evidence_plan.record_result(failure, False)
+            raise
         self.evidence_plan.record_result(result, "error" not in result)
         return result
 
@@ -155,10 +170,17 @@ class ConditionalPlanningOrchestrator:
             raise RuntimeError("Action execution is blocked by target-state evaluation failure.")
         if self.skipped:
             raise RuntimeError("Action execution is skipped because the target state is already satisfied.")
+        if self.conditional_plan.blocked:
+            raise RuntimeError("Action execution is blocked by a previous failure.")
         action = self.conditional_plan.next_action
         if action is None:
             raise RuntimeError("No conditional action is available.")
-        result = execute(action.tool, action.arguments)
+        try:
+            result = execute(action.tool, action.arguments)
+        except Exception as exc:
+            failure = {"error": str(exc), "exception_type": type(exc).__name__}
+            self.conditional_plan.record_result(failure, False)
+            raise
         self.conditional_plan.record_result(result, "error" not in result)
         return result
 
