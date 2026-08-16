@@ -49,7 +49,8 @@ def build_task_plan(
 
         {
             "evidence": [{"tool": "...", "arguments": {...}, "name": "..."}],
-            "actions": [{"tool": "...", "arguments": {...}, "name": "..."}]
+            "actions": [{"tool": "...", "arguments": {...}, "name": "...",
+                         "requires_write": false}]
         }
 
     The returned plans are still inert. Authorization and execution happen in
@@ -79,11 +80,15 @@ def build_task_plan(
     for item in raw_actions:
         if not isinstance(item, dict):
             raise TaskPlanValidationError("Each action must be an object.")
+        requires_write = item.get("requires_write", False)
+        if not isinstance(requires_write, bool):
+            raise TaskPlanValidationError("requires_write must be a boolean.")
         actions.append(
             ActionSpec(
                 tool=_validate_tool(item.get("tool"), allowed_tools),
                 arguments=_validate_arguments(item.get("arguments", {})),
                 name=str(item.get("name", "")),
+                requires_write=requires_write,
             )
         )
 
