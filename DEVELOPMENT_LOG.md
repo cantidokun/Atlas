@@ -1,61 +1,91 @@
 # Atlas Development Log
 
-## August 16, 2026 — Live Controller Passed / General Planning Integration
+## August 16, 2026 — Conditional Action Planning V1 Proven Live
 
-### Live controller result
+### Conditional action planning — PASS
 
-The real local end-to-end controller test passed.
+The live conditional workflow has now passed both branches against the real self-hosted Windows runner, real Blender installation, deterministic Blender fixtures, local Qwen through Ollama, and the Atlas Python execution boundary.
 
-The controller:
+#### Already-correct branch — PASS
 
-1. started from measured BEFORE evidence
-2. calculated the target state
-3. executed both required `move_object` writes
-4. performed an independent `inspect_object_relationship` verification
-5. confirmed the required final state
-6. built the final report in Python
-7. exited without another Qwen reasoning cycle
+Atlas successfully:
 
-Final verified state:
+1. provisioned the deterministic correct Blender fixture
+2. found the fixture in `GITHUB_WORKSPACE`
+3. accepted and semantically validated the Qwen proposal
+4. gathered authoritative read-only evidence
+5. determined `target_satisfied = true`
+6. skipped all conditional writes
+7. independently re-inspected the Blender scene
+8. verified the no-op result
+
+#### Incorrect branch — PASS
+
+Atlas successfully:
+
+1. provisioned the deterministic incorrect Blender fixture
+2. gathered authoritative read-only evidence
+3. determined `target_satisfied = false`
+4. crossed the explicit authorization boundary
+5. executed the required `move_object` actions
+6. independently inspected the resulting Blender state
+7. verified the corrected target state
+
+This proves the complete conditional loop:
 
 ```text
-Goal_Left_post  = [0.0, 5.233, 0.0]
-Goal_Right_Post = [0.0, -5.233, 0.0]
-Midpoint        = [0.0, 0.0, 0.0]
-Distance        = 10.466 units
-Symmetric       = true
+Qwen proposal
+ ↓
+Python validation
+ ↓
+Read-only evidence
+ ↓
+Target-state decision
+ ├── already correct → NO-OP → independent verification
+ └── incorrect → authorization → writes → independent verification
+```
+
+The important architectural result is that Qwen proposes, while Python controls whether action is necessary, authorization, execution, and verification.
+
+### Live integration debugging completed
+
+The conditional live tests exposed and resolved these integration issues:
+
+- incorrect evidence argument names
+- strict flat Qwen plan normalization
+- incorrect Qwen object names
+- incorrect deterministic fixture state
+- Blender executable discovery on the self-hosted runner
+- opaque Qwen parse failures
+- fixture generation using the developer Desktop instead of `GITHUB_WORKSPACE`
+- Blender tool path resolution using the legacy Desktop root
+- Qwen returning full Windows paths where the tool contract required basenames
+
+The final working contract is:
+
+```text
+GITHUB_WORKSPACE
+    ↓
+deterministic fixture files
+    ↓
+Blender tool resolution
+    ↓
+exact fixture object contract
+    ↓
+Qwen basename-only file references
 ```
 
 ### General Action Planning V1
 
-The goalpost controller proved that Python should own execution state once a multi-step modification is authorized.
-
-Added:
-
-`action_plan.py`
-
-It contains:
-
-- `ActionSpec` — one ordered authorized action
-- `ActionPlan` — deterministic state for an ordered action sequence
-
-The plan exposes the next action, records results, advances only after success, blocks after a required failure, reports completion, and provides a serializable state snapshot.
+The generic `action_plan.py` primitive remains the execution state machine for ordered authorized actions. The goalpost behavior is not being promoted into the generic architecture.
 
 ### General Evidence Planning V1
 
-Added:
-
-`evidence_plan.py`
-
-It tracks ordered evidence requests, completion, reuse, and blocking failures.
+The generic `evidence_plan.py` primitive remains responsible for ordered evidence requests, completion, reuse, and blocking failures.
 
 ### Planning Orchestrator V1
 
-Added:
-
-`planning_orchestrator.py`
-
-It connects evidence and action plans. Action execution remains blocked until required evidence is complete.
+`planning_orchestrator.py` continues to enforce evidence completion before authorized action execution.
 
 ### Controlled failure / recovery
 
@@ -74,96 +104,36 @@ Evidence
  ↓
 Authorization
  ↓
-Execution 1
- ↓
-Execution 2
+Execution
  ↓
 Verification
 ```
 
-The final live test completed with an audit trail and independent verification.
-
-### Qwen Structured Planning Bridge — PASS
-
-Added:
-
-`live_qwen_planning_loop.py`
-
-The live planning bridge now proves:
-
-```text
-Qwen structured plan
- ↓
-Python plan validation
- ↓
-Read-only Blender evidence
- ↓
-Planning orchestrator
- ↓
-Structured action plan
- ↓
-No write execution
-```
-
-The successful run produced:
-
-- 1 structured evidence request
-- 2 structured actions
-- validated plan
-- authoritative read-only evidence
-- completed evidence plan
-- structured action plan with the next action exposed
-- zero write execution
-
-Result:
-
-```text
-QWEN PLAN ACCEPTED
-EVIDENCE VERIFIED READ-ONLY
-ACTION PLAN STRUCTURED
-WRITE EXECUTION NOT PERFORMED
-ATLAS QWEN PLANNING BRIDGE TEST: PASS
-```
-
-This is the first live boundary between Qwen task planning and the generic Python planning primitives.
-
 ### Regression status
 
-Latest local regression result:
-
-```text
-98 passed
-```
+The local regression suite was green on the conditional planning changes, including Local Tests #51 on commit `efa6adcf`.
 
 ### Documentation
 
-`README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` are kept synchronized with the verified milestones.
+`README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` are being synchronized with the verified conditional milestone.
 
 ### Next architecture target
 
-The next development target is conditional action planning:
+The goalpost conditional harness should remain as a permanent regression test, but the next implementation step is to extract the reusable conditional behavior away from the goalpost-specific contract.
+
+The generic abstraction should allow a soccer-field task to define:
 
 ```text
-Task
+required evidence
  ↓
-Structured evidence requirements
+target-state predicate
  ↓
-Evidence ledger
+authorized actions
  ↓
-Determine whether target already holds
- ↓
-If already satisfied → skip unnecessary writes
- ↓
-If not satisfied → retain authorized action plan
- ↓
-Python-controlled execution
- ↓
-Independent verification
- ↓
-Completion
+independent verification
 ```
 
-The first test should use the existing goalpost fixture in an already-correct state and prove that Atlas does not write unnecessarily. A second test should use a genuinely incorrect state and prove that the necessary write path remains available.
+The next proof should use different soccer-field objects and a different target predicate so we can demonstrate that the conditional engine is genuinely reusable rather than merely a goalpost special case.
 
 Do not add a new Blender tool unless a real capability gap is proven.
 
