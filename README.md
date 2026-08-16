@@ -21,7 +21,7 @@ The goal is simple: Qwen can reason, but Python keeps track of what really happe
 
 # Current status
 
-Atlas has passed the first full real-world controller test and the first live Qwen structured-planning bridge test.
+Atlas has now passed the first full real-world controller test, the live Qwen structured-planning bridge test, and the complete live conditional action-planning test.
 
 It can now:
 
@@ -39,6 +39,10 @@ It can now:
 - track a generic ordered evidence plan with Python
 - coordinate evidence completion before authorized action execution
 - accept a structured Qwen evidence/action proposal without allowing that proposal to execute writes automatically
+- determine from authoritative evidence whether a target state is already satisfied
+- skip unnecessary writes when the target is already satisfied
+- authorize and execute writes when the target is not satisfied
+- independently verify both the no-op and corrective paths
 
 The current test asset is `goalpost_test.blend`.
 
@@ -102,13 +106,13 @@ This proved that completion no longer depends on Qwen producing a perfect final 
 
 # Offline tests
 
-The latest local regression suite has passed:
+The latest local regression suite has passed.
 
 ```text
-98 passed
+132 passed
 ```
 
-The suite covers controller state transitions, required write ordering, post-write verification, final-answer validation, deterministic finalization, generic ordered action plans, generic ordered evidence plans, evidence-to-action orchestration, authorization boundaries, recovery behavior, and audit-trail ordering.
+The suite covers controller state transitions, required write ordering, post-write verification, final-answer validation, deterministic finalization, generic ordered action plans, generic ordered evidence plans, evidence-to-action orchestration, authorization boundaries, recovery behavior, audit-trail ordering, and conditional planning behavior.
 
 ---
 
@@ -176,7 +180,7 @@ Expose next action
 
 The orchestrator blocks action execution until evidence is complete.
 
-It can reuse evidence that is already known instead of running another tool.
+It can reuse evidence that is already known instead of running another inspection.
 
 If evidence acquisition fails, the orchestrator stays blocked.
 
@@ -228,6 +232,51 @@ This proves Qwen can now participate in structured planning without gaining dire
 
 ---
 
+# Conditional Action Planning V1 — LIVE PASS
+
+The conditional workflow has now passed both live branches against the real self-hosted Windows runner, real Blender installation, deterministic Blender fixtures, local Qwen through Ollama, and the Atlas Python execution boundary.
+
+### Already-correct — PASS
+
+Atlas:
+
+- provisioned the correct fixture
+- gathered authoritative evidence
+- determined the requested target was already satisfied
+- skipped all conditional writes
+- independently verified the no-op state
+
+### Incorrect — PASS
+
+Atlas:
+
+- provisioned the incorrect fixture
+- gathered authoritative evidence
+- determined the target was not satisfied
+- crossed the explicit authorization boundary
+- executed the required corrective actions
+- independently verified the corrected Blender state
+
+The complete conditional loop is now proven:
+
+```text
+Qwen proposal
+    ↓
+Python validation
+    ↓
+Read-only evidence
+    ↓
+Target-state decision
+    ├── already correct → NO-OP → independent verification
+    └── incorrect → authorization → writes → independent verification
+```
+
+The goalpost-specific fixture contract remains a test harness, not the generic architecture.
+
+During live debugging we also resolved real integration problems involving fixture paths, Blender discovery, Qwen object naming, Qwen filename formatting, and semantic proposal validation.
+
+---
+
 # Controlled failure and recovery — PASS
 
 The controlled failure harness proves that a failed write does not trigger an unsafe automatic retry.
@@ -261,9 +310,7 @@ Evidence
  ↓
 Authorization
  ↓
-Execution 1
- ↓
-Execution 2
+Execution
  ↓
 Verification
 ```
@@ -336,9 +383,9 @@ The evidence must support the action, the action must be authorized, and the res
 
 ## Stage 5 — General Evidence Planner
 
-**IN PROGRESS**
+**VERIFIED / STABILIZATION**
 
-The evidence-plan primitive and live evidence loop are working. The next step is deeper conditional evidence/action reasoning.
+The evidence-plan primitive and live evidence loop are working. The conditional workflow now proves evidence-driven state decisions.
 
 ## Stage 6 — Reliable Modification Control
 
@@ -348,38 +395,34 @@ The real Blender modification, independent verification, and deterministic compl
 
 ## Stage 7 — General Action Planning
 
-**IN PROGRESS**
+**VERIFIED / STABILIZATION**
 
-The generic action-plan primitive, evidence-plan primitive, planning orchestrator, controlled recovery boundary, audit trail, and Qwen structured planning bridge are now proven.
-
-The next goal is conditional action planning: determine from authoritative evidence whether the requested state is already satisfied before executing a proposed write.
+The generic action-plan primitive, evidence-plan primitive, planning orchestrator, controlled recovery boundary, audit trail, Qwen structured planning bridge, and live conditional action branches are proven.
 
 ## Stage 8 — Broader Autonomous Task Control
 
-**NOT STARTED**
+**NEXT**
 
-This comes only after the generic planner is stable.
+The next goal is to generalize the proven conditional pattern to different soccer-field objects and target predicates without turning the goalpost fixture into the generic architecture.
 
 ---
 
 # Next development target
 
-The next test should prove that Atlas avoids an unnecessary write when authoritative evidence already shows the requested state is satisfied.
+Keep the successful goalpost conditional workflow as a permanent regression test.
 
-Desired behavior:
+Next, extract the reusable conditional behavior so a soccer-field task can define:
 
 ```text
 Task
  ↓
-Structured evidence requirements
+Required evidence
  ↓
-Evidence ledger
- ↓
-Determine whether target already holds
+Target-state predicate
  ↓
 Already satisfied? → skip write
  ↓
-Not satisfied? → retain authorized action plan
+Not satisfied? → authorized action plan
  ↓
 Python-controlled execution
  ↓
@@ -388,7 +431,7 @@ Independent verification
 Completion
 ```
 
-After that boundary is stable, test a case where a write is genuinely required.
+Then prove the abstraction with a second soccer-field task using different objects and a different target predicate.
 
 ---
 
