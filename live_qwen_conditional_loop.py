@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 
 import requests
 
+from action_plan import ActionPlan
 from audit_trail import AuditTrail
 from conditional_action import ConditionalActionPlan, TargetCondition
 from qwen_planning_executor import execute_read_only_plan
@@ -124,11 +125,7 @@ def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
 
 
 def action_payload(action: Any) -> Dict[str, Any]:
-    return {
-        "tool": action.tool,
-        "arguments": dict(action.arguments),
-        "name": action.name,
-    }
+    return {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}
 
 
 def prepare_case(case: str) -> str:
@@ -139,11 +136,7 @@ def prepare_case(case: str) -> str:
     # not use the conditional planner; it creates the known-incorrect starting
     # state that the conditional planner must then repair.
     shutil.copy2(CORRECT_FILE, WORKING_INCORRECT_FILE)
-    setup_result = move_object(
-        WORKING_INCORRECT_FILE,
-        "Goal_Left_post",
-        [0.0, 5.000, 0.0],
-    )
+    setup_result = move_object(WORKING_INCORRECT_FILE, "Goal_Left_post", [0.0, 5.000, 0.0])
     if setup_result.get("status") != "moved":
         raise RuntimeError(f"Could not prepare incorrect fixture: {setup_result}")
     return WORKING_INCORRECT_FILE
@@ -172,10 +165,9 @@ def main() -> None:
     audit.record_evidence(action_payload(proposal.evidence[0]), relationship)
 
     satisfied = target_is_satisfied(relationship)
-    condition = TargetCondition(path=("target_satisfied",), expected=True)
     conditional = ConditionalActionPlan(
-        action_plan=__import__("action_plan").ActionPlan(list(proposal.actions)),
-        condition=condition,
+        action_plan=ActionPlan(list(proposal.actions)),
+        condition=TargetCondition(path=("target_satisfied",), expected=True),
     )
     conditional.evaluate({"target_satisfied": satisfied})
 
