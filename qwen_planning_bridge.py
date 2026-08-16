@@ -16,12 +16,21 @@ PLAN_MARKER = "ATLAS_TASK_PLAN:"
 REQUIRED_PLAN_KEYS = {"evidence", "actions"}
 
 
-def extract_task_plan_proposal(content: str) -> Optional[Dict[str, Any]]:
-    """Extract one JSON object following the Atlas task-plan marker.
+def _valid_plan_envelope(parsed: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(parsed, dict):
+        return None
+    if not REQUIRED_PLAN_KEYS.issubset(parsed):
+        return None
+    return parsed
 
-    A marked object is not considered an Atlas plan unless it uses the
-    expected top-level envelope. This prevents a different JSON schema from
-    being silently interpreted as an empty plan.
+
+def extract_task_plan_proposal(content: str) -> Optional[Dict[str, Any]]:
+    """Extract one JSON task-plan proposal from model text.
+
+    The preferred format is ``ATLAS_TASK_PLAN: { ... }``. For robustness,
+    Qwen may also return the JSON object by itself when it follows the
+    instruction to output only the plan. In either case the strict Atlas
+    top-level envelope is still required, so unrelated JSON is not accepted.
     """
     if not content:
         return None
@@ -31,19 +40,20 @@ def extract_task_plan_proposal(content: str) -> Optional[Dict[str, Any]]:
         content,
         re.IGNORECASE,
     )
-    if not match:
+    if match:
+        try:
+            return _valid_plan_envelope(json.loads(match.group(1)))
+        except (TypeError, ValueError):
+            return None
+
+    stripped = content.strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
         return None
 
     try:
-        parsed = json.loads(match.group(1))
+        return _valid_plan_envelope(json.loads(stripped))
     except (TypeError, ValueError):
         return None
-
-    if not isinstance(parsed, dict):
-        return None
-    if not REQUIRED_PLAN_KEYS.issubset(parsed):
-        return None
-    return parsed
 
 
 def build_proposal_from_qwen(
