@@ -44,7 +44,7 @@ def _location(result: Dict[str, Any], side: str) -> Optional[List[float]]:
 
 
 def _fmt_vector(values: List[float]) -> str:
-    """Format vectors without exposing negative zero in human-readable output."""
+    """Format a 3D vector while collapsing negative zero to zero."""
     normalized = [0.0 if abs(float(value)) < 0.0005 else float(value) for value in values]
     return "[" + ", ".join(f"{value:.3f}" for value in normalized) + "]"
 
