@@ -55,6 +55,10 @@ IMPORTANT: The Blender fixture contains the EXACT object names
 including capitalization and underscores. Do NOT shorten them to Left_post or
 Right_post, and do NOT invent aliases.
 
+The file argument is a FILENAME ONLY. Use exactly:
+"{file_name}"
+Do NOT include a directory, drive letter, slash, backslash, or full path.
+
 The available tools have these EXACT Python-compatible signatures:
 - inspect_object_relationship(file_name, object1_name, object2_name)
 - move_object(file_name, object_name, location)
@@ -72,7 +76,12 @@ Do not execute tools yourself."""
 
 
 def build_correction_prompt(file_name: str) -> str:
-    return f"""Return ONLY corrected Atlas JSON for {file_name}.
+    return f"""Return ONLY corrected Atlas JSON for the filename {file_name!r}.
+
+IMPORTANT FILE RULE:
+The file_name argument MUST be exactly the filename {file_name!r}.
+It MUST NOT contain a directory or full path. Never use C:\\, /, \\, or any
+other path prefix. The Atlas tool accepts filenames only.
 
 The fixture object names are EXACTLY:
 - {EXPECTED_LEFT_OBJECT}
@@ -80,9 +89,9 @@ The fixture object names are EXACTLY:
 
 Do not use Left_post or Right_post. Do not use aliases.
 
-Evidence: inspect_object_relationship(file_name=\"{file_name}\", object1_name=\"{EXPECTED_LEFT_OBJECT}\", object2_name=\"{EXPECTED_RIGHT_OBJECT}\")
-Action 1: move_object(file_name=\"{file_name}\", object_name=\"{EXPECTED_LEFT_OBJECT}\", location=[0.0,5.233,0.0])
-Action 2: move_object(file_name=\"{file_name}\", object_name=\"{EXPECTED_RIGHT_OBJECT}\", location=[0.0,-5.233,0.0])
+Evidence: inspect_object_relationship(file_name={file_name!r}, object1_name={EXPECTED_LEFT_OBJECT!r}, object2_name={EXPECTED_RIGHT_OBJECT!r})
+Action 1: move_object(file_name={file_name!r}, object_name={EXPECTED_LEFT_OBJECT!r}, location=[0.0,5.233,0.0])
+Action 2: move_object(file_name={file_name!r}, object_name={EXPECTED_RIGHT_OBJECT!r}, location=[0.0,-5.233,0.0])
 
 Use only tool, arguments, name. Both evidence and actions must be arrays."""
 
@@ -98,13 +107,7 @@ def ask_qwen(messages: List[Dict[str, str]]) -> str:
 
 
 def validate_conditional_proposal(proposal: TaskPlanProposal, file_name: str) -> None:
-    """Enforce the semantic object-name contract for this live fixture.
-
-    Generic plan parsing proves that a proposal is structurally valid. This
-    harness additionally requires the proposal to refer to the exact objects
-    that exist in the deterministic fixture. A structurally valid plan that
-    names different objects must not reach evidence execution.
-    """
+    """Enforce the semantic object-name and filename contract for this fixture."""
     if len(proposal.evidence) != 1 or len(proposal.actions) != 2:
         raise TaskPlanValidationError("Conditional plan must contain 1 evidence item and 2 actions")
 
@@ -113,7 +116,9 @@ def validate_conditional_proposal(proposal: TaskPlanProposal, file_name: str) ->
         raise TaskPlanValidationError("Conditional evidence must inspect object relationship")
     evidence_args = dict(evidence.arguments)
     if evidence_args.get("file_name") != file_name:
-        raise TaskPlanValidationError("Evidence file_name does not match the selected fixture")
+        raise TaskPlanValidationError(
+            f"Evidence file_name must be exactly the selected filename {file_name!r}"
+        )
     if evidence_args.get("object1_name") != EXPECTED_LEFT_OBJECT:
         raise TaskPlanValidationError(
             f"Evidence object1_name must be {EXPECTED_LEFT_OBJECT!r}"
@@ -134,7 +139,9 @@ def validate_conditional_proposal(proposal: TaskPlanProposal, file_name: str) ->
             raise TaskPlanValidationError(f"Action {index} must use move_object")
         args = dict(action.arguments)
         if args.get("file_name") != file_name:
-            raise TaskPlanValidationError(f"Action {index} file_name does not match the selected fixture")
+            raise TaskPlanValidationError(
+                f"Action {index} file_name must be exactly the selected filename {file_name!r}"
+            )
         if args.get("object_name") != expected_object:
             raise TaskPlanValidationError(
                 f"Action {index} object_name must be {expected_object!r}"
@@ -220,11 +227,12 @@ def prepare_case(case: str) -> str:
 
     target_file = WORKING_INCORRECT_FILE
     shutil.copy2(SOURCE_FILE, target_file)
-    left = move_object(str(target_file), EXPECTED_LEFT_OBJECT, TARGET_LEFT)
-    right = move_object(str(target_file), EXPECTED_RIGHT_OBJECT, TARGET_RIGHT)
+    fixture_name = target_file.name
+    left = move_object(fixture_name, EXPECTED_LEFT_OBJECT, TARGET_LEFT)
+    right = move_object(fixture_name, EXPECTED_RIGHT_OBJECT, TARGET_RIGHT)
     if left.get("status") != "moved" or right.get("status") != "moved":
         raise RuntimeError(f"Could not normalize conditional fixture: {left}; {right}")
-    incorrect = move_object(str(target_file), EXPECTED_LEFT_OBJECT, [0.0, 5.000, 0.0])
+    incorrect = move_object(fixture_name, EXPECTED_LEFT_OBJECT, [0.0, 5.000, 0.0])
     if incorrect.get("status") != "moved":
         raise RuntimeError(f"Could not prepare incorrect fixture: {incorrect}")
     return str(target_file)
@@ -235,7 +243,9 @@ def main() -> None:
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
     args = parser.parse_args()
 
-    file_name = prepare_case(args.case)
+    fixture_path = prepare_case(args.case)
+    file_name = Path(fixture_path).name
+    print(f"HARNESS_FIXTURE_FILENAME: {file_name}", flush=True)
     audit = AuditTrail()
     proposal = get_validated_plan(file_name, audit)
 
