@@ -11,10 +11,16 @@ from task_plan_authorization import (
 )
 
 
-def _proposal(action_tool="move_object"):
+def _proposal(action_tool="move_object", requires_write=True):
     return TaskPlanProposal(
         evidence=[EvidenceRequest("inspect_scene", {})],
-        actions=[ActionSpec(action_tool, {"object_name": "A"})],
+        actions=[
+            ActionSpec(
+                action_tool,
+                {"object_name": "A"},
+                requires_write=requires_write,
+            )
+        ],
     )
 
 
@@ -41,6 +47,15 @@ def test_disallowed_action_tool_is_rejected():
             allowed_action_tools={"move_object"},
             allow_writes=True,
         )
+
+
+def test_read_only_plan_does_not_need_write_authorization():
+    assert authorize_task_plan(
+        _proposal("inspect_scene", requires_write=False),
+        evidence_complete=True,
+        allowed_action_tools={"inspect_scene"},
+        allow_writes=False,
+    ) is True
 
 
 def test_authorized_plan_is_still_inert():
