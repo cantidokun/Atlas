@@ -12,6 +12,7 @@ from evidence_plan import EvidencePlan, EvidenceRequest
 from qwen_evidence_feedback import build_evidence_message
 from qwen_planning_executor import execute_read_only_plan
 from qwen_planning_runtime import TaskPlanProposal, parse_qwen_plan
+from task_planner import TaskPlanValidationError
 
 
 @dataclass
@@ -87,8 +88,15 @@ def parse_evidence_proposal(
     content: str,
     allowed_tools: Set[str],
 ) -> Optional[TaskPlanProposal]:
-    """Parse only evidence-only Qwen proposals for this loop."""
-    proposal = parse_qwen_plan(content, allowed_tools=allowed_tools)
+    """Parse only evidence-only Qwen proposals for this loop.
+
+    Malformed or schema-invalid model output is treated as an invalid proposal
+    rather than escaping as a planner exception into the live agent loop.
+    """
+    try:
+        proposal = parse_qwen_plan(content, allowed_tools=allowed_tools)
+    except (TaskPlanValidationError, ValueError, TypeError):
+        return None
     if proposal is None or proposal.actions:
         return None
     return proposal
