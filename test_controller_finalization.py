@@ -53,6 +53,19 @@ def test_builds_complete_state_aware_report():
     assert "verified" in answer.lower()
 
 
+def test_final_report_never_emits_negative_zero():
+    answer = build_midpoint_final_answer(
+        _ledger(
+            _relationship([0.0, 5.302, 0.0], [0.0, -5.164, 0.0], [0.0, 0.069, 0.0]),
+            _relationship([0.0, 5.233, 0.0], [0.0, -5.233, 0.0], [-0.0, -0.0, -0.0], symmetric=True),
+        ),
+        _move_history(),
+    )
+
+    assert answer is not None
+    assert "-0.000" not in answer
+
+
 def test_does_not_finalize_without_post_write_verification():
     answer = build_midpoint_final_answer(
         _ledger(
