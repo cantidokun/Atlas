@@ -58,17 +58,19 @@ def test_successful_write_does_not_count_as_verification():
     assert orchestrator.next_phase() == "BLOCKED"
 
 
-def test_already_correct_path_skips_verification_and_write():
+def test_already_correct_path_requires_fresh_verification_before_complete():
     orchestrator = make_orchestrator()
     orchestrator.acquire_next_evidence(lambda tool, args: {"ready": True})
     orchestrator.evaluate_target_state({"ready": True})
 
     assert orchestrator.skipped
-    assert orchestrator.next_phase() == "COMPLETE"
+    assert orchestrator.next_phase() == "VERIFICATION"
     with pytest.raises(RuntimeError, match="already satisfied"):
         orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
-    with pytest.raises(RuntimeError, match="already satisfied"):
-        orchestrator.verify_post_action({"ready": True})
+
+    result = orchestrator.verify_post_action({"ready": True})
+    assert result.satisfied is True
+    assert orchestrator.next_phase() == "COMPLETE"
 
 
 def test_verification_failure_fails_closed():
