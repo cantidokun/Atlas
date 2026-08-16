@@ -1,13 +1,4 @@
-"""State-aware controller primitives for authorized Blender modifications.
-
-The controller separates an assessment into explicit phases:
-
-    BEFORE -> TARGET -> WRITE -> AFTER -> COMPLETE
-
-The model remains responsible for reasoning and selecting tools. This module
-provides deterministic state tracking so a successful first write cannot be
-mistaken for completion when additional required writes remain.
-"""
+"""State-aware controller primitives for authorized Blender modifications."""
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -18,7 +9,7 @@ TARGET_MIDPOINT = [0.0, 0.0, 0.0]
 
 def _is_vec3(value: Any) -> bool:
     return (
-        isinstance(value, list)
+        isinstance(value, (list, tuple))
         and len(value) == 3
         and all(isinstance(item, (int, float)) for item in value)
     )
@@ -73,11 +64,7 @@ def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Di
     location_a = object_a.get("location")
     location_b = object_b.get("location")
 
-    if not (
-        _is_vec3(midpoint)
-        and _is_vec3(location_a)
-        and _is_vec3(location_b)
-    ):
+    if not (_is_vec3(midpoint) and _is_vec3(location_a) and _is_vec3(location_b)):
         raise ValueError("Relationship evidence is missing a complete midpoint or object location.")
 
     if object_a.get("name") != state.object_a_name:
@@ -86,13 +73,13 @@ def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Di
     if object_b.get("name") != state.object_b_name:
         raise ValueError("BEFORE evidence does not match object B.")
 
-    adjustment = _subtract(TARGET_MIDPOINT, midpoint)
+    adjustment = _subtract(TARGET_MIDPOINT, list(midpoint))
 
     state.target = {
         "midpoint": TARGET_MIDPOINT.copy(),
         "adjustment": adjustment,
-        "object_a_location": _subtract(location_a, midpoint),
-        "object_b_location": _subtract(location_b, midpoint),
+        "object_a_location": _subtract(list(location_a), list(midpoint)),
+        "object_b_location": _subtract(list(location_b), list(midpoint)),
     }
 
     return state.target
@@ -123,7 +110,7 @@ def record_write(
     state.writes.append(
         {
             "object_name": object_name,
-            "location": location,
+            "location": list(location),
             "result": result,
         }
     )
@@ -140,7 +127,7 @@ def required_moves(state: ControllerState) -> List[Dict[str, Any]]:
     ]
 
     completed = {
-        (write["object_name"], write["location"])
+        (write["object_name"], tuple(write["location"]))
         for write in state.writes
     }
 
@@ -154,7 +141,7 @@ def required_moves(state: ControllerState) -> List[Dict[str, Any]]:
             },
         }
         for object_name, location in required
-        if (object_name, location) not in completed
+        if (object_name, tuple(location)) not in completed
     ]
 
 
