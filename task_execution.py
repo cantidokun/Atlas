@@ -28,6 +28,7 @@ class TaskExecutionRuntime:
     evidence_complete: bool = False
     allowed_action_tools: Optional[Set[str]] = None
     allow_writes: bool = False
+    write_action_tools: Optional[Set[str]] = None
     action_plan: ActionPlan = field(init=False)
     authorized: bool = field(default=False, init=False)
     verification_complete: bool = field(default=False, init=False)
@@ -44,6 +45,7 @@ class TaskExecutionRuntime:
                 evidence_complete=self.evidence_complete,
                 allowed_action_tools=self.allowed_action_tools,
                 allow_writes=self.allow_writes,
+                write_action_tools=self.write_action_tools,
             )
         except Exception as exc:
             raise TaskExecutionError(str(exc)) from exc
