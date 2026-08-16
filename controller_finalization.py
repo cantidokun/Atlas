@@ -44,8 +44,12 @@ def _location(result: Dict[str, Any], side: str) -> Optional[List[float]]:
 
 
 def _fmt_vector(values: List[float]) -> str:
-    """Format a 3D vector while collapsing negative zero to zero."""
-    normalized = [0.0 if abs(float(value)) < 0.0005 else float(value) for value in values]
+    """Format a 3D vector and prevent negative zero after rounding."""
+    normalized = []
+    for value in values:
+        numeric = float(value)
+        rounded = round(numeric, 3)
+        normalized.append(0.0 if rounded == 0 else rounded)
     return "[" + ", ".join(f"{value:.3f}" for value in normalized) + "]"
 
 
