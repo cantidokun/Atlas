@@ -61,7 +61,10 @@ def test_runtime_forces_both_writes_before_verification():
 
     fourth = runtime.step(execute)
     assert fourth["status"] == "complete"
-    assert runtime.state.phase == "COMPLETE"
+    assert fourth["phase"] == "AFTER"
+    assert runtime.state.phase == "AFTER"
+    assert runtime.state.complete is True
+    assert runtime._next_action()["kind"] == "complete"
 
 
 def test_failed_write_does_not_advance_controller():
