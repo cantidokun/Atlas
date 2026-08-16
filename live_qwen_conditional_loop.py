@@ -1,16 +1,17 @@
 """Live Stage 8 harness: conditionally execute an authorized Blender plan.
 
 The model proposes a structured evidence/action plan. Python validates exact
-argument schemas, executes read-only evidence, evaluates the target state from
-authoritative evidence, and then either skips all writes or executes the
-already-authorized action sequence. Final state is independently verified.
+argument schemas, acquires read-only evidence through the generic planning
+orchestrator, evaluates target state through named invariants, and then either
+skips all writes or executes the already-authorized action sequence. Final state
+is independently verified.
 
 Usage:
     python live_qwen_conditional_loop.py --case already-correct
     python live_qwen_conditional_loop.py --case incorrect
 
-The two cases use deterministic fixture files provisioned in the Atlas project
-folder. The original goalpost_test.blend is never used as a write target.
+The two cases use deterministic fixture files. The original goalpost_test.blend
+is never used as a write target.
 """
 
 import argparse
@@ -19,10 +20,12 @@ from typing import Any, Dict, List
 
 import requests
 
+from action_plan import ActionSpec
 from audit_trail import AuditTrail
 from conditional_action_plan import ConditionalActionPlan
+from evidence_plan import EvidencePlan, EvidenceRequest
+from planning.planning_orchestrator import ConditionalPlanningOrchestrator
 from planning.target_state import StateInvariant, TargetStateEvaluator
-from qwen_planning_executor import execute_read_only_plan
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
 from task_planner import TaskPlanProposal, TaskPlanValidationError
@@ -146,18 +149,51 @@ def target_state_evaluator() -> TargetStateEvaluator:
 
 
 def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
-    """Compatibility helper used by the live harness and its tests."""
+    """Compatibility helper used by offline tests."""
     return target_state_evaluator().evaluate(relationship).satisfied
 
 
-def execute_move_action(action: Any) -> Dict[str, Any]:
-    if action.tool != "move_object":
-        raise RuntimeError(f"Unexpected action tool: {action.tool}")
-    return move_object(**action.arguments)
+def build_conditional_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
+    evidence = EvidencePlan(
+        [
+            EvidenceRequest(
+                request.tool,
+                dict(request.arguments),
+                request.name,
+            )
+            for request in proposal.evidence
+        ]
+    )
+    actions = [
+        ActionSpec(
+            action.tool,
+            dict(action.arguments),
+            action.name,
+            action.requires_success,
+        )
+        for action in proposal.actions
+    ]
+    return ConditionalPlanningOrchestrator(
+        evidence_plan=evidence,
+        conditional_plan=ConditionalActionPlan(actions),
+        target_evaluator=target_state_evaluator(),
+    )
 
 
-def action_payload(action: Any) -> Dict[str, Any]:
-    return {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}
+def execute_evidence(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    if tool != "inspect_object_relationship":
+        raise RuntimeError(f"Unexpected evidence tool: {tool}")
+    return inspect_object_relationship(**arguments)
+
+
+def execute_action(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    if tool != "move_object":
+        raise RuntimeError(f"Unexpected action tool: {tool}")
+    return move_object(**arguments)
+
+
+def action_payload(tool: str, arguments: Dict[str, Any], name: str = "") -> Dict[str, Any]:
+    return {"tool": tool, "arguments": dict(arguments), "name": name}
 
 
 def prepare_case(case: str) -> str:
@@ -178,17 +214,22 @@ def main() -> None:
     if len(proposal.evidence) != 1 or len(proposal.actions) != 2:
         raise RuntimeError("Unexpected conditional plan shape")
 
-    evidence_only = TaskPlanProposal(evidence=proposal.evidence, actions=[])
-    evidence_execution = execute_read_only_plan(evidence_only)
-    relationship = evidence_execution["results"][0]["result"]
-    audit.record_evidence(action_payload(proposal.evidence[0]), relationship)
+    orchestrator = build_conditional_orchestrator(proposal)
+    relationship = orchestrator.acquire_next_evidence(execute_evidence)
+    audit.record_evidence(
+        action_payload(
+            proposal.evidence[0].tool,
+            proposal.evidence[0].arguments,
+            proposal.evidence[0].name,
+        ),
+        relationship,
+    )
 
-    state_result = target_state_evaluator().evaluate(relationship)
-    satisfied = state_result.satisfied
+    state_result = orchestrator.evaluate_target_state(relationship)
     audit.record(
         "conditional_decision",
-        "skip" if satisfied else "execute",
-        target_satisfied=satisfied,
+        "skip" if state_result.satisfied else "execute",
+        target_satisfied=state_result.satisfied,
         invariants=state_result.invariants,
         failed_invariants=state_result.failed,
         case=args.case,
@@ -196,17 +237,12 @@ def main() -> None:
 
     print("--- TARGET STATE ---")
     print(json.dumps(state_result.snapshot(), indent=2))
-    print("--- CONDITIONAL DECISION ---")
-    print(json.dumps("skip" if satisfied else "execute", indent=2))
+    print("--- CONDITIONAL ORCHESTRATOR ---")
+    print(json.dumps(orchestrator.snapshot(), indent=2))
 
-    conditional = ConditionalActionPlan(proposal.actions)
-    conditional.evaluate(satisfied)
-
-    if satisfied:
-        if conditional.next_action is not None:
-            raise RuntimeError("Satisfied target exposed an action")
-        if conditional.action_plan.completed:
-            raise RuntimeError("Satisfied target executed an action")
+    if state_result.satisfied:
+        if orchestrator.next_phase() != "COMPLETE":
+            raise RuntimeError("Satisfied target did not complete conditional orchestration")
         print("TARGET ALREADY SATISFIED")
         print("WRITE EXECUTION SKIPPED")
         print("ATLAS CONDITIONAL ALREADY-CORRECT TEST: PASS")
@@ -219,25 +255,26 @@ def main() -> None:
         )
         audit.record_authorization(True, action_count=len(proposal.actions))
 
-        while not conditional.complete:
-            action = conditional.next_action
+        while orchestrator.next_phase() == "ACTION":
+            action = orchestrator.conditional_plan.next_action
             if action is None:
-                raise RuntimeError("Conditional plan has no executable next action")
-            index = conditional.action_plan.current_index
-            payload = action_payload(action)
+                raise RuntimeError("Conditional orchestrator exposed no action")
+            index = orchestrator.conditional_plan.action_plan.current_index
+            payload = action_payload(action.tool, action.arguments, action.name)
             try:
-                result = execute_move_action(action)
+                result = orchestrator.execute_next_action(execute_action)
             except Exception as exc:
                 result = {"error": str(exc)}
                 audit.record_action(index, payload, result, False)
-                conditional.record_result(result, False)
                 raise
 
             success = result.get("status") == "moved"
             audit.record_action(index, payload, result, success)
-            conditional.record_result(result, success)
             if not success:
                 raise RuntimeError(f"Authorized action failed: {result}")
+
+        if not orchestrator.action_complete:
+            raise RuntimeError(f"Conditional action phase did not complete: {orchestrator.snapshot()}")
 
         final = inspect_object_relationship(
             file_name,
