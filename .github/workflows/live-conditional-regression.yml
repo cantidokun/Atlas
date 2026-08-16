@@ -1,0 +1,48 @@
+name: Live Conditional Atlas Regression
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-conditional:
+    name: live conditional (${{ matrix.case }})
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - already-correct
+          - incorrect
+
+    steps:
+      - name: Check out current Atlas main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+
+      - name: Provision deterministic local Blender fixtures
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\scripts\provision_conditional_fixtures.ps1"
+
+      - name: Run live conditional Blender harness
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_conditional_loop.py --case '${{ matrix.case }}'"
