@@ -6,7 +6,7 @@ not by the reasoning model, and it never grants write authorization.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from action_plan import ActionPlan, ActionSpec
 
@@ -28,17 +28,47 @@ def _read_path(value: Dict[str, Any], path: Sequence[str]) -> Any:
 
 @dataclass(frozen=True)
 class TargetCondition:
-    """A small, serializable predicate over authoritative evidence."""
+    """A deterministic predicate over authoritative evidence.
 
-    path: Sequence[str]
-    expected: Any
+    The original path/expected form remains the default for simple equality
+    checks. For more complex soccer-field tasks, callers can provide a Python
+    predicate. The predicate is still owned and executed by Python; Qwen
+    cannot supply or execute it.
+    """
+
+    path: Sequence[str] = field(default_factory=tuple)
+    expected: Any = None
+    predicate: Optional[Callable[[Dict[str, Any]], bool]] = None
+    name: str = "path_equals"
 
     def matches(self, evidence: Dict[str, Any]) -> bool:
-        """Return whether the authoritative evidence satisfies the target."""
+        """Return whether authoritative evidence satisfies the target."""
         if not isinstance(evidence, dict):
             raise ConditionalActionError("Authoritative evidence must be an object.")
+
+        if self.predicate is not None:
+            try:
+                return bool(self.predicate(evidence))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ConditionalActionError(
+                    f"Target predicate could not evaluate evidence: {exc}"
+                ) from exc
+
+        if not self.path:
+            raise ConditionalActionError(
+                "Target condition requires a path/expected pair or a predicate."
+            )
         actual = _read_path(evidence, self.path)
         return actual == self.expected
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Return a serializable description without serializing executable code."""
+        return {
+            "name": self.name,
+            "path": list(self.path),
+            "expected": self.expected,
+            "predicate_configured": self.predicate is not None,
+        }
 
 
 @dataclass
@@ -67,8 +97,7 @@ class ConditionalActionPlan:
             {
                 "decision": self.decision,
                 "target_satisfied": satisfied,
-                "condition_path": list(self.condition.path),
-                "expected": self.condition.expected,
+                "condition": self.condition.snapshot(),
             }
         )
         return satisfied
@@ -100,10 +129,7 @@ class ConditionalActionPlan:
             "decision": self.decision,
             "complete": self.complete,
             "blocked": self.blocked,
-            "condition": {
-                "path": list(self.condition.path),
-                "expected": self.condition.expected,
-            },
+            "condition": self.condition.snapshot(),
             "evidence": self.evidence,
             "history": list(self.history),
             "action_plan": self.action_plan.snapshot(),
