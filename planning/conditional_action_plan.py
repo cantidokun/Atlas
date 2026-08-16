@@ -39,6 +39,11 @@ class ConditionalActionPlan:
         return self.evaluated and self.target_satisfied is True
 
     @property
+    def blocked(self) -> bool:
+        """Mirror the underlying ActionPlan failure state for orchestration."""
+        return self.action_plan.blocked
+
+    @property
     def ready_to_execute(self) -> bool:
         return self.evaluated and self.target_satisfied is False and not self.action_plan.blocked
 
