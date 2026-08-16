@@ -154,18 +154,42 @@ It tracks:
 
 ## 6. Controller execution adapter
 
-We have now added a small adapter that connects the controller to the existing Atlas architecture.
+We added a small adapter that connects the controller to the existing Atlas architecture.
 
-The adapter is designed to mirror controller-owned tool results into the normal:
+The adapter mirrors controller-owned results into the normal:
 
 - tool execution history
 - evidence ledger
 
-This lets us keep the existing reasoning loop and final-answer validator instead of rewriting them.
+It also hydrates the controller from BEFORE evidence that the main agent already collected. This prevents the controller from repeating an inspection unnecessarily.
 
-The adapter has its own tests.
+## 7. Live controller entrypoint
 
-**Important:** the adapter exists and is tested, but the live `agent.py` tool boundary has **not yet been wired to call it**. That is the next implementation step.
+We added:
+
+`run_agent_with_controller.py`
+
+This is a thin entrypoint that uses the existing `agent.py` reasoning loop but inserts the controller immediately before the Ollama/Qwen request.
+
+The result is:
+
+```text
+Existing Atlas agent
+        ↓
+Controller checks state
+        ↓
+Mandatory action?
+   ↓             ↓
+ YES             NO
+  ↓               ↓
+Python acts     Qwen reasons
+  ↓               ↓
+Evidence ledger ←─┘
+```
+
+The controller-generated tool result is added back into the same conversation and evidence state used by Atlas.
+
+This gives us a real live integration path without copying the whole agent loop into a second implementation.
 
 ---
 
@@ -205,15 +229,17 @@ Still needed:
 
 - more task types
 - more evidence-gap tests
-- stronger integration with the main agent loop
+- stronger integration with different tasks
 - clearer rules for when an existing tool is enough
 - a clean path for deciding when a new tool is actually needed
 
 ## Stage 6 — Reliable Modification Control
 
-**Status: CORE SYSTEM BUILT / LIVE AGENT INTEGRATION NEXT**
+**Status: INTEGRATION BUILT / REAL BLENDER TEST NEXT**
 
-The core controller pieces now exist:
+The controller system and live entrypoint now exist.
+
+Built pieces include:
 
 - state machine
 - target calculation
@@ -223,11 +249,10 @@ The core controller pieces now exist:
 - completion gates
 - controller runtime
 - execution adapter
-- adapter tests
+- live-agent integration entrypoint
+- integration tests
 
-What is still missing is the final connection from the adapter into the live `agent.py` tool-execution boundary.
-
-We should **not** call Stage 6 complete until the live agent passes the full Blender test.
+We still need to run the live entrypoint against the real local Ollama + Blender setup. Until that passes, Stage 6 is not complete.
 
 ---
 
@@ -241,68 +266,39 @@ Then we built the runtime that can execute the next required action.
 
 Then we added an adapter between that controller and the rest of Atlas.
 
-The adapter is intentionally small. It does not replace Qwen, the evidence ledger, or the final validator.
+Then we added a live entrypoint that places the controller into the existing Qwen reasoning loop without rewriting the whole agent.
 
-The next step is to put that adapter directly into the existing tool-execution path in `agent.py`.
+We also fixed an important evidence problem: the controller can now start from BEFORE evidence already collected by Atlas instead of repeating the first inspection.
 
-This is the point where the controller stops being an isolated subsystem and becomes part of the actual agent.
+The remaining proof is now an actual run against the user's local environment.
 
 ---
 
 # What should happen next
 
-## 1. Wire the adapter into `agent.py`
+## 1. Run the live controller entrypoint
 
-This is the immediate next step.
+Run `run_agent_with_controller.py` in the local Atlas environment.
 
-The current flow is roughly:
-
-```text
-Qwen requests tool
-        ↓
-agent.py executes tool
-        ↓
-result goes to ledger
-        ↓
-Qwen reasons again
-```
-
-We want:
+The expected flow is:
 
 ```text
-Qwen requests tool
+Qwen gathers BEFORE evidence
         ↓
-Python controller checks state
+Python controller takes over
         ↓
-Mandatory controller action?
-      ↙        ↘
-    YES         NO
-     ↓           ↓
-Controller    Normal tool
-chooses it     execution
-     ↓           ↓
-     └─────┬─────┘
-           ↓
-     Evidence ledger
-           ↓
-          Qwen
+Move Goal_Left_post
+        ↓
+Move Goal_Right_Post
+        ↓
+Inspect relationship again
+        ↓
+Verify midpoint = [0.0, 0.0, 0.0]
+        ↓
+Qwen produces final report
 ```
 
-The controller should only take control when the current task actually requires its workflow.
-
-## 2. Run the full midpoint test
-
-The live agent must prove that it can:
-
-- collect the BEFORE relationship
-- calculate the TARGET
-- move `Goal_Left_post`
-- move `Goal_Right_Post`
-- perform the AFTER relationship inspection
-- confirm the midpoint is exactly `[0.0, 0.0, 0.0]`
-- produce a final answer supported by the evidence
-
-## 3. Test failure cases
+## 2. Test failure cases
 
 We should deliberately test:
 
@@ -315,6 +311,12 @@ We should deliberately test:
 - the scene is already correct before any write
 
 Atlas should fail safely or take the correct next action in each case.
+
+## 3. Promote the hook into `agent.py`
+
+Once the live entrypoint passes, move the controller hook into the permanent `agent.py` loop.
+
+This removes the temporary compatibility entrypoint and makes controller support part of the normal Atlas agent.
 
 ## 4. Generalize the controller
 
@@ -362,6 +364,6 @@ Together, they form Atlas.
 
 ## Current status in one sentence
 
-**Atlas can already inspect Blender scenes, gather and validate evidence, reason without inventing facts, and has the core system for controlled modifications; the next major step is wiring that controller into the live agent and proving the complete modification loop.**
+**Atlas now has a live controller integration path; the next major step is to run it against the real local Ollama + Blender environment and prove the complete modification loop.**
 
 For the full technical handoff, see `ATLAS_HANDOFF_CONTEXT.txt`.
