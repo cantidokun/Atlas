@@ -2,9 +2,11 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
-from action_plan import ActionPlan
+from action_plan import ActionPlan, ActionSpec
 from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan
+from planning.future_execution import FutureExecutionController
+from planning.future_generator import DeterministicFutureGenerator
 from planning.target_state import TargetStateEvaluationError, TargetStateEvaluator, TargetStateResult
 from planning.verification_plan import VerificationPlan
 
@@ -82,14 +84,7 @@ class PlanningOrchestrator:
 
 @dataclass
 class ConditionalPlanningOrchestrator:
-    """Run evidence, target-state evaluation, conditional actions, and verification deterministically.
-
-    No action is exposed until required evidence is complete and target-state evaluation
-    has succeeded. A satisfied target completes without exposing any action. An unsatisfied
-    target exposes the already-authorized conditional action sequence. After actions complete,
-    a separate verification phase is required when a VerificationPlan is supplied.
-    Evaluation and verification failures fail closed.
-    """
+    """Run evidence, target-state evaluation, conditional actions, verification, and deterministic future control."""
 
     evidence_plan: EvidencePlan
     conditional_plan: ConditionalActionPlan
@@ -97,6 +92,7 @@ class ConditionalPlanningOrchestrator:
     target_state: Optional[TargetStateResult] = None
     evaluation_error: Optional[str] = None
     verification_plan: Optional[VerificationPlan] = None
+    future_controller: Optional[FutureExecutionController] = None
 
     @property
     def evidence_complete(self) -> bool:
@@ -129,6 +125,7 @@ class ConditionalPlanningOrchestrator:
             or self.evaluation_error is not None
             or self.conditional_plan.blocked
             or bool(self.verification_plan and self.verification_plan.blocked)
+            or bool(self.future_controller and self.future_controller.blocked)
         )
 
     def next_phase(self) -> str:
@@ -178,6 +175,18 @@ class ConditionalPlanningOrchestrator:
             raise
         self.target_state = result
         self.conditional_plan.evaluate(result.satisfied)
+        actions = [
+            ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
+            for action in self.conditional_plan.action_plan.actions
+        ]
+        self.future_controller = FutureExecutionController(
+            DeterministicFutureGenerator(self.target_evaluator).generate(result.satisfied, actions)
+        )
+        # The evidence and target checkpoints are already authoritative results in this orchestrator.
+        self.future_controller.acknowledge({"evidence_complete": True})
+        self.future_controller.acknowledge(result.snapshot())
+        if result.satisfied:
+            self.future_controller.acknowledge({"writes_skipped": True})
         return result
 
     def execute_next_action(self, execute: ToolExecutor) -> Dict[str, Any]:
@@ -191,24 +200,25 @@ class ConditionalPlanningOrchestrator:
             raise RuntimeError("Action execution is skipped because the target state is already satisfied.")
         if self.conditional_plan.blocked:
             raise RuntimeError("Action execution is blocked by a previous failure.")
+        if self.future_controller is None or self.future_controller.current_step is None:
+            raise RuntimeError("No deterministic future is available for action execution.")
+        if self.future_controller.current_step.phase != "ACTION":
+            raise RuntimeError("Deterministic future is not at an ACTION checkpoint.")
         action = self.conditional_plan.next_action
         if action is None:
             raise RuntimeError("No conditional action is available.")
-        try:
-            result = execute(action.tool, action.arguments)
-        except Exception as exc:
-            failure = {"error": str(exc), "exception_type": type(exc).__name__}
-            self.conditional_plan.record_result(failure, False)
-            raise
-        self.conditional_plan.record_result(result, "error" not in result)
+        expected = self.future_controller.next_action
+        if expected is None or expected.get("index") != self.conditional_plan.action_plan.current_index:
+            raise RuntimeError("Conditional action diverged from the deterministic future.")
+        result = self.future_controller.execute_current(execute)
+        if "error" not in result:
+            self.conditional_plan.record_result(result, True)
+        else:
+            self.conditional_plan.record_result(result, False)
         return result
 
     def verify_post_action(self, evidence: Any) -> TargetStateResult:
-        """Verify the final state from fresh authoritative evidence.
-
-        This method is intentionally separate from execute_next_action so a successful
-        write result can never be mistaken for proof that the requested state was reached.
-        """
+        """Verify final state from fresh authoritative evidence and advance the future."""
         if self.skipped:
             raise RuntimeError("Post-action verification is not applicable when the target was already satisfied.")
         if not self.evidence_complete:
@@ -219,7 +229,22 @@ class ConditionalPlanningOrchestrator:
             raise RuntimeError("Verification is blocked until all authorized actions complete.")
         if self.verification_plan is None:
             raise RuntimeError("No verification plan is configured.")
-        return self.verification_plan.verify(evidence)
+        result = self.verification_plan.verify(evidence)
+        if self.future_controller is None:
+            raise RuntimeError("No deterministic future is available for verification.")
+        self.future_controller.verify(result.snapshot())
+        if not self.future_controller.complete:
+            self.future_controller.finalize()
+        return result
+
+    def finalize_future(self) -> Dict[str, Any]:
+        if self.future_controller is None:
+            raise RuntimeError("No deterministic future is available.")
+        if self.future_controller.current_step and self.future_controller.current_step.phase == "COMPLETE":
+            return self.future_controller.finalize()
+        if not self.future_controller.complete:
+            raise RuntimeError("Deterministic future is not ready to finalize.")
+        return self.future_controller.snapshot()
 
     def snapshot(self) -> Dict[str, Any]:
         return {
@@ -230,4 +255,5 @@ class ConditionalPlanningOrchestrator:
             "evaluation_error": self.evaluation_error,
             "conditional_actions": self.conditional_plan.snapshot(),
             "verification": self.verification_plan.snapshot() if self.verification_plan else None,
+            "future": self.future_controller.snapshot() if self.future_controller else None,
         }
