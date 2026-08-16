@@ -6,7 +6,7 @@ Authorization is an explicit Python-side decision based on the current task,
 evidence state, and allowed tools.
 """
 
-from typing import Any, Dict, Optional, Set
+from typing import Optional, Set
 
 from task_planner import TaskPlanProposal
 
@@ -24,8 +24,9 @@ def authorize_task_plan(
 ) -> bool:
     """Apply explicit Python-side authorization rules to a validated plan.
 
-    This function does not execute anything. It only answers whether the
-    proposed action list is eligible to enter an executable planning phase.
+    Read-only actions may execute with normal tool authorization. Actions
+    marked ``requires_write=True`` additionally require explicit write
+    authorization. This keeps inspection separate from state-changing work.
     """
     if not evidence_complete and proposal.actions:
         raise TaskPlanAuthorizationError(
@@ -38,7 +39,7 @@ def authorize_task_plan(
                 f"Action tool is not allowed: {action.tool}"
             )
 
-        if not allow_writes:
+        if action.requires_write and not allow_writes:
             raise TaskPlanAuthorizationError(
                 "Write authorization must be explicitly enabled by Python."
             )
