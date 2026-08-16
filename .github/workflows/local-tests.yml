@@ -19,14 +19,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Show runner environment
-        shell: powershell
+        shell: cmd
         run: |
-          Write-Host "Runner name: $env:RUNNER_NAME"
-          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
-          Get-Location
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
 
       - name: Run fixed PowerShell test script
-        shell: powershell
+        shell: cmd
         run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          .\scripts\run-tests.ps1
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\scripts\run-tests.ps1"
