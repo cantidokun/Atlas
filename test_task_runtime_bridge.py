@@ -12,7 +12,7 @@ def make_bridge():
             EvidenceRequest(tool="inspect_scene", arguments={"file": "scene.blend"})
         ],
         actions=[
-            ActionSpec(tool="modify_scene", arguments={"value": 1})
+            ActionSpec(tool="modify_scene", arguments={"value": 1}, requires_write=True)
         ],
     )
     return TaskRuntimeBridge(proposal)
@@ -68,3 +68,18 @@ def test_reused_evidence_is_recorded_without_changing_request_order():
     snapshot = bridge.snapshot()
     assert snapshot["evidence_plan"]["skipped"][0]["reused"] is True
     assert snapshot["evidence_plan"]["complete"] is True
+
+
+def test_read_only_action_does_not_need_write_authorization():
+    proposal = TaskPlanProposal(
+        evidence=[],
+        actions=[ActionSpec(tool="inspect_scene", arguments={})],
+    )
+    bridge = TaskRuntimeBridge(proposal)
+    bridge.execution.allowed_action_tools = {"inspect_scene"}
+    bridge.authorize_actions()
+
+    result = bridge.execute_next_action(
+        lambda tool, args: {"success": True, "read_only": True}
+    )
+    assert result["read_only"] is True
