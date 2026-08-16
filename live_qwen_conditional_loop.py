@@ -47,10 +47,20 @@ Create a structured plan for {file_name} whose requested final state is:
 - Goal_Right_Post = [0.0, -5.233, 0.0]
 - midpoint = [0.0, 0.0, 0.0]
 
+The available tools have these EXACT Python-compatible signatures:
+- inspect_object_relationship(file_name, object1_name, object2_name)
+- move_object(file_name, object_name, location)
+
+Use the exact argument names shown above. Do NOT use aliases such as object1,
+object2, target_position, or position.
+
 Return ONLY valid JSON with exactly two top-level fields: evidence and actions.
 Both fields MUST be arrays.
-Evidence MUST contain exactly one inspect_object_relationship request for the two goalposts.
-Actions MUST contain exactly two move_object actions in left-then-right order.
+Evidence MUST contain exactly one request:
+{{"tool":"inspect_object_relationship","arguments":{{"file_name":"{file_name}","object1_name":"Goal_Left_post","object2_name":"Goal_Right_Post"}},"name":"inspect_object_relationship"}}
+Actions MUST contain exactly two requests in left-then-right order:
+{{"tool":"move_object","arguments":{{"file_name":"{file_name}","object_name":"Goal_Left_post","location":[0.0,5.233,0.0]}},"name":"move_left_post"}}
+{{"tool":"move_object","arguments":{{"file_name":"{file_name}","object_name":"Goal_Right_Post","location":[0.0,-5.233,0.0]}},"name":"move_right_post"}}
 Every item must contain tool, arguments, and name.
 Do not add tools, fields, coordinates, markdown, or explanations.
 Do not execute tools yourself."""
