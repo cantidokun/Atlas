@@ -17,7 +17,8 @@ def _failed_action_controller():
     controller = FutureExecutionController(steps)
     controller.acknowledge({"evidence": True})
     controller.acknowledge({"satisfied": False})
-    controller.execute_current(lambda _tool, _args: (_ for _ in ()).throw(RuntimeError("write failed")))
+    with pytest.raises(RuntimeError, match="write failed"):
+        controller.execute_current(lambda _tool, _args: (_ for _ in ()).throw(RuntimeError("write failed")))
     return controller
 
 
