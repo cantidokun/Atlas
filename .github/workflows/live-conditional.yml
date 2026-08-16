@@ -3,6 +3,13 @@ name: Live Conditional Atlas Test
 on:
   workflow_dispatch:
     inputs:
+      scenario:
+        description: "Soccer-field conditional scenario"
+        required: true
+        type: choice
+        options:
+          - goalpost
+          - centered-goal
       case:
         description: "Conditional Blender scenario"
         required: true
@@ -64,4 +71,8 @@ jobs:
       - name: Run live conditional Blender harness
         shell: pwsh
         run: |
-          python .\live_qwen_conditional_loop.py --case '${{ inputs.case }}'
+          if ('${{ inputs.scenario }}' -eq 'centered-goal') {
+            python .\live_centered_goal_conditional_loop.py --case '${{ inputs.case }}'
+          } else {
+            python .\live_qwen_conditional_loop.py --case '${{ inputs.case }}'
+          }
