@@ -42,6 +42,8 @@ class ControllerState:
 
     @property
     def phase(self) -> str:
+        if self.complete:
+            return "COMPLETE"
         if self.after is not None:
             return "AFTER"
         if self.writes:
@@ -55,7 +57,10 @@ class ControllerState:
     @property
     def complete(self) -> bool:
         return (
-            self.after is not None
+            self.before is not None
+            and self.target is not None
+            and not required_moves(self)
+            and self.after is not None
             and self.after.get("midpoint") == TARGET_MIDPOINT
         )
 
@@ -196,7 +201,10 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
 
 
 def record_after(state: ControllerState, relationship: Dict[str, Any]) -> None:
-    """Record the independent AFTER verification."""
+    """Record the independent AFTER verification after all required writes."""
+    if required_moves(state):
+        raise ValueError("Cannot establish AFTER state while authorized writes remain outstanding.")
+
     if not state.writes:
         raise ValueError("Cannot establish AFTER state before a successful write.")
 
