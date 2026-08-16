@@ -66,6 +66,10 @@ Evidence plan
  ↓
 Evidence ledger
  ↓
+Target-state evaluation
+ ↓
+Conditional action decision
+ ↓
 Authorized action plan
  ↓
 Python-controlled execution
@@ -75,7 +79,7 @@ Independent verification
 Completion
 ```
 
-Qwen can reason, but it does not get to decide that an action happened. Python owns execution state, authorization, mandatory ordering, verification, and completion.
+Qwen can reason, but it does not get to decide that an action happened. Python owns execution state, authorization, mandatory ordering, target-state evaluation, verification, and completion.
 
 ---
 
@@ -99,26 +103,13 @@ Atlas has already proven:
 - generic ordered evidence plans
 - evidence-to-action orchestration
 - structured Qwen planning without automatic write execution
+- strict model-generated tool-argument validation
+- generic target-state invariant evaluation
+- live conditional no-op and write paths
 
 The current test asset is `goalpost_test.blend`.
 
 ## Verified goalpost controller result
-
-The original live controller measured:
-
-```text
-BEFORE
-Goal_Left_post  = [0.0, 5.302, 0.0]
-Goal_Right_Post = [0.0, -5.164, 0.0]
-Midpoint        = [0.0, 0.069, 0.0]
-```
-
-Target:
-
-```text
-Goal_Left_post  = [0.0, 5.233, 0.0]
-Goal_Right_Post = [0.0, -5.233, 0.0]
-```
 
 Final independently verified state:
 
@@ -134,43 +125,34 @@ The final state came from a separate Blender relationship inspection rather than
 
 ---
 
-# Qwen Structured Planning Bridge — PASS
+# Conditional execution
 
-`live_qwen_planning_loop.py` proves the first live boundary between Qwen task planning and generic Python planning primitives:
-
-```text
-Qwen structured plan
- ↓
-Python plan validation
- ↓
-Read-only Blender evidence
- ↓
-Planning orchestrator
- ↓
-Structured action plan
- ↓
-WRITE EXECUTION NOT PERFORMED
-```
-
-The successful live run produced:
-
-- 1 structured evidence request
-- 2 structured actions
-- validated plan
-- authoritative read-only evidence
-- completed evidence plan
-- structured action plan with the next action exposed
-- zero write execution
-
-Result:
+Atlas now has a generic target-state evaluation boundary. Required target properties are represented as named deterministic invariants over authoritative evidence. All invariants must pass before Atlas may decide that the target state already exists.
 
 ```text
-QWEN PLAN ACCEPTED
-EVIDENCE VERIFIED READ-ONLY
-ACTION PLAN STRUCTURED
-WRITE EXECUTION NOT PERFORMED
-ATLAS QWEN PLANNING BRIDGE TEST: PASS
+Authoritative evidence
+        ↓
+TargetStateEvaluator
+        ↓
+All invariants pass?
+   ↙              ↘
+ YES              NO
+  ↓                ↓
+Skip write      Authorized action plan
+  ↓                ↓
+Finalize       Execute in Python
+                 ↓
+        Independent verification
 ```
+
+Evaluation failures fail closed. The generic `ConditionalPlanningOrchestrator` now owns the deterministic phase boundary between evidence, target-state evaluation, and conditional action execution.
+
+The live conditional workflow has passed both required cases:
+
+- already-correct → no write
+- incorrect → authorized write + independent verification
+
+The goalpost scenario is a proving case; the target-state/evidence/action architecture is intended to be reusable across future Atlas production tasks.
 
 ---
 
@@ -184,9 +166,13 @@ Provides a generic ordered action state machine. Python exposes the next action,
 
 Tracks ordered evidence requests, completion, reuse, and blocking failures.
 
-### `planning_orchestrator.py`
+### `planning/target_state.py`
 
-Connects evidence and action plans. Actions remain blocked until required evidence is complete.
+Provides `StateInvariant`, `TargetStateEvaluator`, and `TargetStateResult`. Evaluation is fail-closed and reports named invariants and failed invariants.
+
+### `planning/planning_orchestrator.py`
+
+Provides both the original evidence-to-action orchestrator and the generic `ConditionalPlanningOrchestrator`. Conditional execution cannot begin until evidence is complete and target-state evaluation has succeeded.
 
 ### Authorization boundary
 
@@ -198,19 +184,7 @@ After a failed write, Atlas requires fresh evidence and a new validated, explici
 
 ### Audit trail
 
-The live action workflow records:
-
-```text
-Qwen proposal
- ↓
-Evidence
- ↓
-Authorization
- ↓
-Execution
- ↓
-Verification
-```
+The live action workflow records the lifecycle from proposal through evidence, authorization, execution, and independent verification.
 
 ---
 
@@ -224,50 +198,15 @@ Future agents can reason over captured sports footage to identify players, objec
 
 ## Blender agents
 
-Blender is the current proven environment for:
-
-- digital-twin construction
-- procedural geometry
-- scene inspection
-- spatial reasoning
-- environment manipulation
-- evidence collection
-- controlled scene writes
-
-Atlas should remain environment-agnostic at the orchestration level so Blender-specific behavior does not become the generic architecture.
+Blender is the current proven environment for digital-twin construction, procedural geometry, scene inspection, spatial reasoning, environment manipulation, evidence collection, and controlled scene writes.
 
 ## Unreal Engine agents
 
-Unreal Engine is a planned production environment for the next phase of Atlas. Future Unreal agents are expected to cover capabilities such as:
-
-- asset and scene organization
-- materials and look development
-- lighting and Lumen workflows
-- Nanite-enabled assets
-- CineCamera and cinematic setup
-- Sequencer and shot construction
-- Movie Render Queue workflows
-- real-time virtual-production operations
-
-The Unreal layer will plug into the same broader control philosophy: AI proposes and reasons; Atlas validates and authorizes; the production environment executes; independent checks verify the resulting state.
+Unreal Engine is a planned production environment for the next phase of Atlas. Future Unreal agents are expected to cover asset/scene organization, materials and look development, lighting and Lumen workflows, Nanite-enabled assets, CineCamera and cinematic setup, Sequencer and shot construction, Movie Render Queue workflows, and real-time virtual-production operations.
 
 ## Cinematic sports production
 
-Atlas is intended to support visual treatments around real athletes without requiring the final experience to be a conventional game or conventional VFX pipeline.
-
-The wider repertoire includes:
-
-- impact frames
-- smear frames
-- cinematic bleed
-- match-cut transformations
-- environment-driven visual effects
-- temporary liquid, smoke, glass, metallic, or other fluid-like environmental behavior
-- spatial overlays and field intelligence
-- digital-twin compositing
-- cinematic environmental interactions
-
-The exact effects are production modules, not the definition of Atlas itself.
+The wider repertoire includes impact frames, smear frames, cinematic bleed, match-cut transformations, environment-driven visual effects, temporary liquid/smoke/glass/metallic or other fluid-like environmental behavior, spatial overlays, digital-twin compositing, and cinematic environmental interactions.
 
 ---
 
@@ -291,73 +230,49 @@ The exact effects are production modules, not the definition of Atlas itself.
 
 ## Stage 5 — General Evidence Planner
 
-**IN PROGRESS**
+**V1 PROVEN / CONTINUING**
 
 ## Stage 6 — Reliable Modification Control
 
-**COMPLETE FOR CURRENT CONTROLLER PATTERN**
+**PROVEN FOR CURRENT CONTROLLER PATTERN**
 
 ## Stage 7 — General Action Planning
 
-**IN PROGRESS**
+**V1 PROVEN / CONTINUING**
 
 The generic action-plan primitive, evidence-plan primitive, planning orchestrator, controlled recovery boundary, audit trail, and Qwen structured planning bridge are proven.
 
 ## Stage 8 — Conditional Action Planning
 
-**NEXT**
+**LIVE CASES PASSED / GENERAL ORCHESTRATION ACTIVE**
 
-Atlas must determine from authoritative evidence whether the requested state is already satisfied before executing a proposed write.
-
-Desired behavior:
-
-```text
-Task
- ↓
-Evidence
- ↓
-Target already satisfied?
-   ↙          ↘
- YES           NO
-  ↓             ↓
-skip write    authorized action plan
-                ↓
-          controlled execution
-                ↓
-        independent verification
-```
-
-The first test should use an already-correct state and prove that Atlas does not write unnecessarily. A second test should use a genuinely incorrect state and prove that the necessary write path remains available.
+The already-correct and incorrect goalpost cases both passed on the self-hosted runner. Target-state evaluation and conditional execution are now represented as reusable Python architecture rather than only as a goalpost-specific boolean.
 
 ## Stage 9 — Broader Autonomous Task Control
 
-**NOT STARTED**
+**NEXT**
 
-This comes after the generic planner and conditional execution boundary are stable.
+The next objective is to move from one conditional action sequence to broader task-level conditional planning while preserving strict argument validation, explicit authorization, evidence gates, and independent verification.
 
 ## Future — Unreal Production Agents
 
 **PLANNED**
 
-Unreal Engine agents will extend Atlas into a broader real-time virtual-production environment.
-
 ## Future — Sports Production Orchestration
 
 **PLANNED**
-
-The long-term system should be able to coordinate capture analysis, digital twins, Blender/Unreal production operations, cinematic treatments, and final verification as one production workflow.
 
 ---
 
 # Offline tests
 
-Latest local regression result:
+Latest previously documented local regression result:
 
 ```text
 98 passed
 ```
 
-The suite covers controller state transitions, required write ordering, post-write verification, final-answer validation, deterministic finalization, generic ordered action plans, generic ordered evidence plans, evidence-to-action orchestration, authorization boundaries, recovery behavior, and audit-trail ordering.
+The new conditional orchestration regression suite adds coverage for evidence-before-action ordering, target evaluation before action, satisfied-target no-op behavior, unsatisfied-target action execution, evaluation failure blocking, and duplicate target evaluation rejection. A new full-suite run is required before the next merge.
 
 ---
 
@@ -387,6 +302,7 @@ http://localhost:11434/api/chat
 - Do not add tools without proving a real capability gap.
 - Do not let a successful production state depend on a perfect Qwen final answer.
 - Do not allow an action plan to execute without explicit authorization.
+- Do not allow malformed tool arguments to cross the executor boundary.
 - Keep production-environment-specific logic behind appropriate agent/tool boundaries.
 - Preserve working components and improve incrementally.
 - Keep `README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` synchronized with verified milestones and test results.
