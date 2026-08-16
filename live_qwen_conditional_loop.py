@@ -3,8 +3,9 @@
 The model proposes a structured evidence/action plan. Python validates exact
 argument schemas, acquires read-only evidence through the generic planning
 orchestrator, evaluates target state through named invariants, and then either
-skips all writes or executes the already-authorized action sequence. Final state
-is independently verified.
+skips all writes or executes the already-authorized action sequence. If actions
+execute, the generic verification plan requires fresh independent evidence before
+completion can be declared.
 """
 
 import argparse
@@ -19,6 +20,7 @@ from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator
 from planning.target_state import StateInvariant, TargetStateEvaluator
+from planning.verification_plan import VerificationPlan
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
 from task_planner import TaskPlanProposal, TaskPlanValidationError
@@ -125,10 +127,6 @@ def target_state_evaluator() -> TargetStateEvaluator:
     )
 
 
-def target_is_satisfied(relationship: Dict[str, Any]) -> bool:
-    return target_state_evaluator().evaluate(relationship).satisfied
-
-
 def build_conditional_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
     evidence = EvidencePlan([
         EvidenceRequest(request.tool, dict(request.arguments), request.name)
@@ -138,10 +136,12 @@ def build_conditional_orchestrator(proposal: TaskPlanProposal) -> ConditionalPla
         ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
         for action in proposal.actions
     ]
+    evaluator = target_state_evaluator()
     return ConditionalPlanningOrchestrator(
         evidence_plan=evidence,
         conditional_plan=ConditionalActionPlan(actions),
-        target_evaluator=target_state_evaluator(),
+        target_evaluator=evaluator,
+        verification_plan=VerificationPlan(evaluator),
     )
 
 
@@ -236,10 +236,12 @@ def main() -> None:
             raise RuntimeError(f"Conditional action phase did not complete: {orchestrator.snapshot()}")
 
         final = inspect_object_relationship(file_name, "Goal_Left_post", "Goal_Right_Post")
-        final_state = target_state_evaluator().evaluate(final)
+        final_state = orchestrator.verify_post_action(final)
         audit.record_verification(final, final_state.satisfied)
         if not final_state.satisfied:
             raise RuntimeError(f"Independent final verification failed: {final_state.failed}")
+        if orchestrator.next_phase() != "COMPLETE":
+            raise RuntimeError(f"Verification succeeded but orchestration did not complete: {orchestrator.snapshot()}")
 
         print("FINAL STATE INDEPENDENTLY VERIFIED")
         print("ATLAS CONDITIONAL INCORRECT-STATE TEST: PASS")
