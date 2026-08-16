@@ -65,7 +65,7 @@ def build_correction_prompt(file_name: str) -> str:
     return f"""Return ONLY corrected Atlas JSON for {file_name}.
 Evidence: inspect_object_relationship(file_name=\"{file_name}\", object1_name=\"Goal_Left_post\", object2_name=\"Goal_Right_Post\")
 Action 1: move_object(file_name=\"{file_name}\", object_name=\"Goal_Left_post\", location=[0.0,5.233,0.0])
-Action 2: move_object(file_name=\"{file_name}\", object_name=\"Goal_Right_Post\", location=[0.0,-5.233,0.0])
+Action 2: move_object(file_name=\"{file_name}\", object_name=\"Goal_Right_post\", location=[0.0,-5.233,0.0])
 Use only tool, arguments, name. Both evidence and actions must be arrays."""
 
 
@@ -89,7 +89,7 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
     for attempt in range(1, MAX_PLAN_ATTEMPTS + 1):
         raw = ask_qwen(messages)
         print(f"--- QWEN PLAN ATTEMPT {attempt} ---")
-        print(raw)
+        print(raw, flush=True)
         try:
             proposal = parse_qwen_plan(raw, allowed_tools=ALLOWED_TOOLS)
         except (TaskPlanValidationError, TypeError, ValueError) as exc:
@@ -100,12 +100,13 @@ def get_validated_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
             audit.record_qwen_proposal(raw, attempt, True)
             return proposal
 
-        audit.record_qwen_proposal(
-            raw,
-            attempt,
-            False,
-            str(last_error) if last_error else "schema validation failed",
-        )
+        if last_error is None:
+            last_error = TaskPlanValidationError(
+                "Qwen output could not be decoded as an Atlas plan envelope or "
+                "the supported three-item conditional flat-plan form."
+            )
+
+        audit.record_qwen_proposal(raw, attempt, False, str(last_error))
         if attempt < MAX_PLAN_ATTEMPTS:
             messages.extend([
                 {"role": "assistant", "content": raw},
