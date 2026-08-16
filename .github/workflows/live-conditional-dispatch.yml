@@ -32,6 +32,16 @@ jobs:
           echo Workspace: %GITHUB_WORKSPACE%
           cd
 
+      - name: Provision local Blender fixture
+        shell: powershell
+        run: |
+          $source = "C:\Users\Gavin's PC\Desktop\Atlas\goalpost_test.blend"
+          if (-not (Test-Path -LiteralPath $source)) {
+            throw "Runner-local Atlas fixture not found: $source"
+          }
+          Copy-Item -LiteralPath $source -Destination ".\goalpost_test.blend" -Force
+          Write-Host "Provisioned goalpost_test.blend from the runner's local Atlas fixture."
+
       - name: Run live conditional Blender harness
         shell: cmd
         run: |
