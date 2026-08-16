@@ -1,13 +1,13 @@
 """Live conditional harness for the reusable centered-goal geometry scenario.
 
-This intentionally reuses the proven Qwen plan validation, read-only evidence
-execution, authorization gate, action execution, and independent verification
-from live_qwen_conditional_loop.py. The only changed decision rule is the
-application-owned centered_goal_condition predicate.
+This reuses the proven Qwen plan validation, read-only evidence execution,
+authorization gate, action execution, and independent verification. The
+centered-goal scenario changes the application-owned target predicate.
 """
 
 import argparse
 import json
+from pathlib import Path
 from typing import Any, Dict
 
 from action_plan import ActionPlan
@@ -15,7 +15,6 @@ from audit_trail import AuditTrail
 from live_qwen_conditional_loop import (
     EXPECTED_LEFT_OBJECT,
     EXPECTED_RIGHT_OBJECT,
-    WORKING_CORRECT_FILE,
     action_payload,
     get_validated_plan,
     prepare_case,
@@ -25,7 +24,7 @@ from qwen_planning_executor import execute_read_only_plan
 from scenarios.goal_geometry import centered_goal_condition, goal_center_alignment
 from task_plan_authorization import authorize_task_plan
 from task_planner import TaskPlanProposal
-from tools.blender import inspect_object_relationship
+from tools.blender import inspect_object_relationship, move_object
 
 
 def main() -> None:
@@ -34,7 +33,7 @@ def main() -> None:
     args = parser.parse_args()
 
     fixture_path = prepare_case(args.case)
-    file_name = WORKING_CORRECT_FILE.name if args.case == "already-correct" else fixture_path.rsplit("\\", 1)[-1]
+    file_name = Path(fixture_path).name
     audit = AuditTrail()
     proposal = get_validated_plan(file_name, audit)
 
@@ -94,7 +93,7 @@ def main() -> None:
             if action is None:
                 raise RuntimeError("Centered-goal conditional plan has no executable action")
             index = conditional.action_plan.current_index
-            result = __import__("tools.blender", fromlist=["move_object"]).move_object(**action.arguments)
+            result = move_object(**action.arguments)
             success = result.get("status") == "moved"
             audit.record_action(index, action_payload(action), result, success)
             conditional.action_plan.record_result(result, success)
@@ -111,7 +110,3 @@ def main() -> None:
 
     print("--- AUDIT TRAIL ---")
     print(json.dumps(audit.snapshot(), indent=2))
-
-
-if __name__ == "__main__":
-    main()
