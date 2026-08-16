@@ -1,6 +1,6 @@
 """Live Stage 8 harness: conditionally execute an authorized Blender plan.
 
-The model proposes a structured evidence/action plan. Python validates the exact
+The model proposes a structured evidence/action plan. Python validates exact
 argument schemas, executes read-only evidence, evaluates the target state from
 authoritative evidence, and then either skips all writes or executes the
 already-authorized action sequence. Final state is independently verified.
@@ -9,13 +9,12 @@ Usage:
     python live_qwen_conditional_loop.py --case already-correct
     python live_qwen_conditional_loop.py --case incorrect
 
-The incorrect case uses the existing clean BEFORE backup as a disposable
-working copy so the original test files are not used as the write target.
+The two cases use deterministic fixture files provisioned in the Atlas project
+folder. The original goalpost_test.blend is never used as a write target.
 """
 
 import argparse
 import json
-import shutil
 from typing import Any, Dict, List
 
 import requests
@@ -30,9 +29,8 @@ from tools.blender import inspect_object_relationship, move_object
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
-CORRECT_FILE = "goalpost_test.blend"
-BEFORE_BACKUP = "goalpost_test_BEFORE_ATLAS_TEST.blend"
-WORKING_INCORRECT_FILE = "goalpost_test_CONDITIONAL_INCORRECT.blend"
+CORRECT_FILE = "goalpost_test_CONDITIONAL_CORRECT.blend"
+INCORRECT_FILE = "goalpost_test_CONDITIONAL_INCORRECT.blend"
 MAX_PLAN_ATTEMPTS = 3
 
 ALLOWED_TOOLS = {"inspect_object_relationship", "move_object"}
@@ -142,8 +140,7 @@ def action_payload(action: Any) -> Dict[str, Any]:
 def prepare_case(case: str) -> str:
     if case == "already-correct":
         return CORRECT_FILE
-    shutil.copy2(BEFORE_BACKUP, WORKING_INCORRECT_FILE)
-    return WORKING_INCORRECT_FILE
+    return INCORRECT_FILE
 
 
 def main() -> None:
