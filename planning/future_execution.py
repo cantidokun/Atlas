@@ -1,17 +1,23 @@
 """Deterministic execution gate for Atlas future plans.
 
 The future generator describes a legal path. This module makes that path
-executable without allowing callers to skip, reorder, or invent steps.
+executable without allowing callers to skip, reorder, invent, or mutate steps.
 Python owns the cursor; external/model code can only supply results for the
 currently permitted checkpoint.
 """
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from typing import Any, Callable, Dict, List, Optional
 
 from planning.future_generator import FutureStep
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+
+
+def _canonical_steps(steps: List[FutureStep]) -> str:
+    return json.dumps([step.snapshot() for step in steps], sort_keys=True, separators=(",", ":"), default=str)
 
 
 @dataclass
@@ -22,6 +28,7 @@ class FutureExecutionController:
     current_index: int = 0
     history: List[Dict[str, Any]] = field(default_factory=list)
     failed: Optional[Dict[str, Any]] = None
+    _plan_digest: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.steps, list) or not self.steps:
@@ -34,6 +41,30 @@ class FutureExecutionController:
         ids = [step.step_id for step in self.steps]
         if len(ids) != len(set(ids)):
             raise ValueError("Future step IDs must be unique.")
+        self._plan_digest = self._compute_plan_digest()
+
+    def _compute_plan_digest(self) -> str:
+        return hashlib.sha256(_canonical_steps(self.steps).encode("utf-8")).hexdigest()
+
+    def _ensure_integrity(self) -> None:
+        if self._compute_plan_digest() == self._plan_digest:
+            return
+        if self.failed is None:
+            step = self.steps[self.current_index] if 0 <= self.current_index < len(self.steps) else None
+            self.failed = {
+                "sequence": step.sequence if step else self.current_index,
+                "step_id": step.step_id if step else None,
+                "phase": step.phase if step else "UNKNOWN",
+                "error": "Future plan integrity check failed; the authorized future was mutated.",
+                "exception_type": "FuturePlanIntegrityError",
+            }
+            if step is not None:
+                self._record(step, "failed", self.failed)
+        raise RuntimeError("Future plan integrity check failed; the authorized future was mutated.")
+
+    @property
+    def plan_digest(self) -> str:
+        return self._plan_digest
 
     @property
     def complete(self) -> bool:
@@ -69,6 +100,7 @@ class FutureExecutionController:
 
     def acknowledge(self, result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Advance a non-action checkpoint only after an explicit acknowledgement."""
+        self._ensure_integrity()
         step = self.current_step
         if step is None:
             raise RuntimeError("Future execution is already resolved.")
@@ -84,6 +116,7 @@ class FutureExecutionController:
 
     def execute_current(self, execute: ToolExecutor) -> Dict[str, Any]:
         """Execute exactly the currently authorized action and advance on success."""
+        self._ensure_integrity()
         step = self.current_step
         if step is None:
             raise RuntimeError("Future execution is already resolved.")
@@ -117,6 +150,7 @@ class FutureExecutionController:
 
     def verify(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Resolve the verification checkpoint; only a positive result can continue."""
+        self._ensure_integrity()
         step = self.current_step
         if step is None:
             raise RuntimeError("Future execution is already resolved.")
@@ -138,16 +172,17 @@ class FutureExecutionController:
 
     def finalize(self) -> Dict[str, Any]:
         """Consume the terminal COMPLETE checkpoint after successful verification."""
+        self._ensure_integrity()
         step = self.current_step
         if step is None:
             if self.complete:
-                return {"complete": True, "history": list(self.history)}
+                return {"complete": True, "history": list(self.history), "plan_digest": self._plan_digest}
             raise RuntimeError("Future execution is blocked.")
         if step.phase != "COMPLETE":
             raise RuntimeError("Future cannot be finalized before reaching COMPLETE.")
         self._record(step, "completed")
         self.current_index += 1
-        return {"complete": True, "history": list(self.history)}
+        return {"complete": True, "history": list(self.history), "plan_digest": self._plan_digest}
 
     def snapshot(self) -> Dict[str, Any]:
         step = self.current_step
@@ -160,4 +195,5 @@ class FutureExecutionController:
             "next_action": self.next_action,
             "failure": self.failed,
             "history": list(self.history),
+            "plan_digest": self._plan_digest,
         }
