@@ -190,3 +190,45 @@ The production-agent architecture remains environment-agnostic at the orchestrat
 ### User test protocol
 
 When a new local test is ready, immediately provide the exact command/prompt. Do not ask the user to run a test before the harness exists on `main`.
+
+## August 16, 2026 — Generic Conditional Orchestration
+
+### Live conditional validation
+
+The current `main` live conditional workflow passed both required cases after target-state evaluation was generalized:
+
+- `already-correct` — PASS; no write executed.
+- `incorrect` — PASS; authorized write executed and independent verification passed.
+
+### Generic conditional orchestration
+
+Added `ConditionalPlanningOrchestrator` to `planning/planning_orchestrator.py`.
+
+The deterministic control boundary is now:
+
+```text
+Evidence
+ ↓
+Target-state evaluation
+ ↓
+Already satisfied → skip action
+OR
+Not satisfied → expose authorized action plan
+ ↓
+Independent verification
+```
+
+The orchestrator blocks action execution until evidence is complete and target-state evaluation succeeds. Target-state evaluation failures fail closed.
+
+### Regression coverage
+
+Added `test_conditional_planning_orchestrator.py` covering:
+
+- evidence-before-action ordering
+- target evaluation before action
+- satisfied-target no-op behavior
+- unsatisfied-target action execution
+- target-evaluation failure blocking
+- duplicate target evaluation rejection
+
+The next validation is the offline regression suite plus a live conditional run against this new orchestration boundary.
