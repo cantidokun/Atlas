@@ -19,7 +19,7 @@ from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
 from task_planner import TaskPlanProposal, TaskPlanValidationError
-from tools.blender import create_collection, inspect_scene
+from tools.blender import create_collection, inspect_scene, inspect_scene_settings
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
@@ -130,7 +130,13 @@ def orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
 def evidence(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     if tool != "inspect_scene":
         raise RuntimeError(f"Unexpected evidence tool: {tool}")
-    return inspect_scene(**arguments)
+    scene = inspect_scene(**arguments)
+    # inspect_scene intentionally reports object-level evidence; collection
+    # existence is authoritative scene-setting evidence, so enrich the same
+    # evidence record rather than changing the model-facing tool contract.
+    settings = inspect_scene_settings(**arguments)
+    scene["collections"] = settings.get("collections", [])
+    return scene
 
 
 def action(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -189,7 +195,7 @@ def main() -> None:
         if not success:
             raise RuntimeError(f"Authorized collection action failed: {result}")
 
-    final = inspect_scene(file_name)
+    final = evidence("inspect_scene", {"file_name": file_name})
     final_state = orch.verify_post_action(final)
     audit.record_verification(final, final_state.satisfied)
     if not final_state.satisfied:
