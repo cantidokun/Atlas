@@ -3,8 +3,8 @@ from math import isfinite
 from typing import Any, Dict, Iterable
 
 
-# This registry intentionally covers only tools currently admitted by the
-# structured planning bridge. Adding a tool requires adding its schema here.
+# This registry covers tools currently admitted by the structured planning
+# bridge. Tool-specific safety restrictions remain in the executor layer.
 TOOL_SCHEMAS = {
     "inspect_scene": {
         "required": {"file_name"},
@@ -22,16 +22,21 @@ TOOL_SCHEMAS = {
         "required": {"file_name", "object_name", "location"},
         "properties": {
             "file_name": "string",
-            "object_name": "goalpost_name",
+            "object_name": "string",
             "location": "location3",
+        },
+    },
+    "create_collection": {
+        "required": {"file_name", "collection_name"},
+        "properties": {
+            "file_name": "string",
+            "collection_name": "string",
         },
     },
 }
 
 
 def _error(message: str):
-    # Imported lazily so this schema module can be used by task_planner without
-    # creating a module-import cycle.
     from task_planner import TaskPlanValidationError
     return TaskPlanValidationError(message)
 
@@ -49,11 +54,6 @@ def _validate_location(value: Any, field: str) -> None:
             raise _error(f"{field} must contain only numbers.")
         if not isfinite(float(number)):
             raise _error(f"{field} must contain only finite numbers.")
-
-
-def _validate_goalpost_name(value: Any, field: str) -> None:
-    if value not in {"Goal_Left_post", "Goal_Right_Post"}:
-        raise _error(f"{field} must be Goal_Left_post or Goal_Right_Post.")
 
 
 def validate_tool_arguments(tool: str, arguments: Dict[str, Any]) -> None:
@@ -80,8 +80,6 @@ def validate_tool_arguments(tool: str, arguments: Dict[str, Any]) -> None:
         value = arguments[field]
         if kind == "string":
             _validate_string(value, field)
-        elif kind == "goalpost_name":
-            _validate_goalpost_name(value, field)
         elif kind == "location3":
             _validate_location(value, field)
         else:
