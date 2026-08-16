@@ -31,6 +31,17 @@ def test_action_failure_requires_fresh_evidence_before_recovery():
         gate.authorize_retry()
 
 
+def test_action_failure_transitions_to_replan_only_after_fresh_evidence():
+    gate = FutureRecoveryGate(_failed_action_controller())
+    gate.classify_failure()
+    with pytest.raises(RuntimeError):
+        gate.advance_after_fresh_evidence()
+    gate.record_fresh_evidence({"ready": False, "fresh": True})
+    decision = gate.advance_after_fresh_evidence()
+    assert decision.disposition is RecoveryDisposition.REPLAN_REQUIRED
+    assert gate.authorize_replan()["fresh"] is True
+
+
 def test_replan_cannot_be_authorized_without_fresh_evidence():
     actions = [ActionSpec("write", {}, "write")]
     steps = DeterministicFutureGenerator(_evaluator()).generate(False, actions)
@@ -67,3 +78,5 @@ def test_non_action_failure_defaults_to_abort():
     controller.failed = {"phase": "EVIDENCE", "error": "bad evidence"}
     gate = FutureRecoveryGate(controller)
     assert gate.classify_failure().disposition is RecoveryDisposition.ABORT
+    with pytest.raises(RuntimeError):
+        gate.record_fresh_evidence({"fresh": True})
