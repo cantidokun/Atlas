@@ -27,7 +27,6 @@ jobs:
         case:
           - already-correct
           - incorrect
-
     steps:
       - name: Check out current Atlas main
         uses: actions/checkout@v4
@@ -58,7 +57,6 @@ jobs:
         case:
           - already-correct
           - incorrect
-
     steps:
       - name: Check out current Atlas main
         uses: actions/checkout@v4
@@ -78,3 +76,33 @@ jobs:
         shell: cmd
         run: |
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_collection_task.py --case '${{ matrix.case }}'"
+
+  live-parent-relationship:
+    name: live parent relationship (${{ matrix.case }})
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - already-correct
+          - incorrect
+    steps:
+      - name: Check out current Atlas main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+      - name: Provision deterministic parent relationship fixtures
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_parent_task_fixtures.py"
+      - name: Run live Qwen parent relationship task
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_parent_task.py --case '${{ matrix.case }}'"
