@@ -7,14 +7,14 @@ from typing import Tuple
 
 
 def _validate_identity(name: str, value: str) -> str:
-    """Validate identity input without rewriting its canonical value."""
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be a non-empty string")
+    """Require a canonical, non-empty identity without surrounding whitespace."""
+    if not isinstance(value, str) or not value or value.strip() != value:
+        raise ValueError(f"{name} must be a non-empty canonical string")
     return value
 
 
 def _canonical_material(values: Tuple[str, str, str]) -> bytes:
-    """Encode each identity with its byte length to prevent boundary ambiguity."""
+    """Encode identities with byte lengths so concatenation is unambiguous."""
     encoded = []
     for value in values:
         raw = value.encode("utf-8")
@@ -48,7 +48,7 @@ class RecoveryReceipt:
         plan_digest: str,
         authorization_digest: str,
     ) -> bool:
-        """Return true only for an exact, independently valid identity triple."""
+        """Return true only for an exact match of three canonical identities."""
         try:
             values = (
                 _validate_identity("evidence_digest", evidence_digest),
