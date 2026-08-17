@@ -1,4 +1,4 @@
-"""Live generic-task proof: ensure a Blender collection exists."""
+"""Live generic-task proof: ensure a Blender collection exists through the verified boundary."""
 
 import argparse
 import json
@@ -12,6 +12,7 @@ from action_plan import ActionSpec
 from audit_trail import AuditTrail
 from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan, EvidenceRequest
+from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator
 from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.verification_plan import VerificationPlan
@@ -131,18 +132,30 @@ def evidence(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     if tool != "inspect_scene":
         raise RuntimeError(f"Unexpected evidence tool: {tool}")
     scene = inspect_scene(**arguments)
-    # inspect_scene intentionally reports object-level evidence; collection
-    # existence is authoritative scene-setting evidence, so enrich the same
-    # evidence record rather than changing the model-facing tool contract.
+    # Collection membership is authoritative scene-settings evidence. Keep it
+    # outside the model-facing plan while evaluating the target state.
     settings = inspect_scene_settings(**arguments)
     scene["collections"] = settings.get("collections", [])
     return scene
 
 
-def action(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+def raw_action(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     if tool != "create_collection":
         raise RuntimeError(f"Unexpected action tool: {tool}")
     return create_collection(**arguments)
+
+
+def verified_action_boundary() -> BlenderExecutionBoundary:
+    def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        raw = raw_action(tool, arguments)
+        status = raw.get("status")
+        return {
+            "ok": status in {"created", "already_exists"},
+            "state": str(status or "unknown"),
+            "details": dict(raw),
+        }
+
+    return BlenderExecutionBoundary(execute)
 
 
 def main() -> None:
@@ -180,8 +193,12 @@ def main() -> None:
             allow_writes=True,
         )
         audit.record_authorization(True, action_count=1)
-        result = orch.execute_next_action(action)
-        success = result.get("status") in {"created", "already_exists"}
+        boundary = verified_action_boundary()
+        result, receipt = boundary.execute_with_receipt(
+            proposal.actions[0].tool,
+            dict(proposal.actions[0].arguments),
+        )
+        success = result.ok is True
         audit.record_action(
             0,
             {
@@ -189,11 +206,17 @@ def main() -> None:
                 "arguments": proposal.actions[0].arguments,
                 "name": proposal.actions[0].name,
             },
-            result,
+            {"ok": result.ok, "state": result.state, "details": result.details, "receipt": {
+                "tool": receipt.tool,
+                "arguments_digest": receipt.arguments_digest,
+                "result_digest": receipt.result_digest,
+            }},
             success,
         )
         if not success:
             raise RuntimeError(f"Authorized collection action failed: {result}")
+        if not receipt.matches(proposal.actions[0].tool, proposal.actions[0].arguments, result):
+            raise RuntimeError("Blender execution receipt did not match the verified action result")
 
     final = evidence("inspect_scene", {"file_name": file_name})
     final_state = orch.verify_post_action(final)
@@ -205,7 +228,7 @@ def main() -> None:
         raise RuntimeError(f"Task did not complete: {orch.snapshot()}")
 
     print("ATLAS GENERIC COLLECTION TASK: PASS")
-    print("TARGET ALREADY SATISFIED" if state.satisfied else "TARGET CREATED AND INDEPENDENTLY VERIFIED")
+    print("TARGET ALREADY SATISFIED" if state.satisfied else "TARGET CREATED, RECEIPT-BOUND, AND INDEPENDENTLY VERIFIED")
     print(json.dumps(audit.snapshot(), indent=2))
 
 
