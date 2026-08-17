@@ -1,4 +1,4 @@
-"""Fail-closed recovery orchestration with receipt-bound resume."""
+"""Fail-closed recovery orchestration with authoritative receipt state."""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -24,7 +24,7 @@ class RecoveryDecision:
 
 
 class RecoveryOrchestrator:
-    """Require fresh evidence, replan, authorization, and receipt-bound resume."""
+    """Run recovery gates and make the resulting receipt the resume authority."""
 
     def __init__(self, evidence: Callable[[], bool], replan: Callable[[], bool], authorize: Callable[[], bool]):
         self._evidence = evidence
@@ -33,36 +33,50 @@ class RecoveryOrchestrator:
         self.state = RecoveryState.PAUSED
         self._receipt: Optional[RecoveryReceipt] = None
 
+    @property
+    def receipt(self) -> Optional[RecoveryReceipt]:
+        """The current immutable receipt, if recovery reached authorization."""
+        return self._receipt
+
     def recover(self, evidence_digest=None, plan_digest=None, authorization_digest=None) -> RecoveryDecision:
+        # Never carry an old receipt across a new recovery attempt.
+        self._receipt = None
         self.state = RecoveryState.EVIDENCE_REQUIRED
         if not self._evidence():
-            self.state = RecoveryState.BLOCKED
-            return RecoveryDecision(self.state, "fresh recovery evidence unavailable")
+            return self._block("fresh recovery evidence unavailable")
+
         self.state = RecoveryState.REPLAN_REQUIRED
         if not self._replan():
-            self.state = RecoveryState.BLOCKED
-            return RecoveryDecision(self.state, "recovery replan rejected")
+            return self._block("recovery replan rejected")
+
         self.state = RecoveryState.AUTHORIZATION_REQUIRED
         if not self._authorize():
-            self.state = RecoveryState.BLOCKED
-            return RecoveryDecision(self.state, "replacement plan not authorized")
-        if None in (evidence_digest, plan_digest, authorization_digest):
-            self.state = RecoveryState.BLOCKED
-            return RecoveryDecision(self.state, "recovery identities required")
+            return self._block("replacement plan not authorized")
+
+        if not all(isinstance(value, str) and value for value in (
+            evidence_digest, plan_digest, authorization_digest
+        )):
+            return self._block("recovery identities required")
+
         try:
-            self._receipt = RecoveryReceipt(evidence_digest, plan_digest, authorization_digest)
+            receipt = RecoveryReceipt(evidence_digest, plan_digest, authorization_digest)
         except (TypeError, ValueError):
-            self.state = RecoveryState.BLOCKED
-            return RecoveryDecision(self.state, "recovery identities are invalid")
+            return self._block("recovery identities are invalid")
+
+        self._receipt = receipt
         self.state = RecoveryState.READY_TO_RESUME
         return RecoveryDecision(self.state, "replacement plan authorized and receipt-bound")
 
     def resume(self, evidence_digest: str, plan_digest: str, authorization_digest: str) -> RecoveryDecision:
-        if self.state != RecoveryState.READY_TO_RESUME or self._receipt is None:
-            self.state = RecoveryState.BLOCKED
-            return RecoveryDecision(self.state, "resume requires a freshly authorized recovery receipt")
-        if not self._receipt.matches(evidence_digest, plan_digest, authorization_digest):
-            self.state = RecoveryState.BLOCKED
-            return RecoveryDecision(self.state, "recovery receipt identity mismatch")
+        receipt = self._receipt
+        if self.state != RecoveryState.READY_TO_RESUME or receipt is None:
+            return self._block("resume requires a freshly authorized recovery receipt")
+        if not receipt.matches(evidence_digest, plan_digest, authorization_digest):
+            return self._block("recovery receipt identity mismatch")
         self.state = RecoveryState.RESUMED
         return RecoveryDecision(self.state, "recovery resumed with matching receipt")
+
+    def _block(self, reason: str) -> RecoveryDecision:
+        self.state = RecoveryState.BLOCKED
+        self._receipt = None
+        return RecoveryDecision(self.state, reason)
