@@ -62,6 +62,8 @@ def main():
         allowed_action_tools={"parent_object"},
         allow_writes=True,
     )
+    # Bind the orchestrator's execution gate to this exact action sequence.
+    orchestrator.authorize_execution("adversarial-verification")
 
     # Deliberately simulate a dishonest adapter: it reports success but performs
     # no Blender write. Fresh authoritative evidence must still fail the task.
