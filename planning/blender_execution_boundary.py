@@ -3,6 +3,7 @@ from typing import Any, Dict, Protocol
 
 from planning.blender_result_contract import BlenderExecutionResult, normalize_blender_result
 from planning.blender_tool_schema import validate_blender_tool_call
+from planning.blender_verification import verify_blender_execution
 
 
 class BlenderExecutor(Protocol):
@@ -24,7 +25,8 @@ class BlenderExecutionBoundary:
         return result
 
     def execute_verified(self, tool: str, arguments: Dict[str, Any]) -> BlenderExecutionResult:
-        """Execute through the same boundary and return a normalized verified result."""
+        """Execute and require a successful result for the requested Blender tool."""
         validated = validate_blender_tool_call(tool, arguments)
         result = self._executor(tool, validated)
-        return normalize_blender_result(tool, result)
+        normalized = normalize_blender_result(tool, result)
+        return verify_blender_execution(normalized, tool)
