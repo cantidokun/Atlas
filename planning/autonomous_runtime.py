@@ -68,28 +68,38 @@ class AutonomousFutureRuntime:
     def snapshot(self) -> Dict[str, Any]:
         return self.controller.snapshot()
 
-    def resume(self) -> "AutonomousFutureRuntime":
-        envelope = self.state_store.load()
+    @classmethod
+    def resume_from_store(
+        cls,
+        steps: List[FutureStep],
+        state_store: FutureRuntimeStateStore,
+        runtime_context: RuntimeContext,
+    ) -> "AutonomousFutureRuntime":
+        """Resume only after validating the persisted continuation receipt."""
+        envelope = state_store.load()
         raw_integrity = envelope.get("runtime_integrity")
         if raw_integrity is None:
             raise RuntimeError("runtime continuation integrity receipt is missing")
         integrity = RuntimeIntegrity.from_dict(raw_integrity)
         controller = FutureExecutionController.resume_from_snapshot(
-            self.steps, envelope["snapshot"]
+            steps, envelope["snapshot"]
         )
         require_continuation_integrity(
             integrity,
-            self.runtime_context,
+            runtime_context,
             plan_digest=controller.plan_digest,
-            state_digest=self._state_digest(controller.snapshot()),
+            state_digest=cls._state_digest(controller.snapshot()),
         )
-        return AutonomousFutureRuntime(
-            self.steps,
-            self.state_store,
-            self.runtime_context,
+        return cls(
+            steps,
+            state_store,
+            runtime_context,
             controller=controller,
             integrity=integrity,
         )
+
+    def resume(self) -> "AutonomousFutureRuntime":
+        return self.resume_from_store(self.steps, self.state_store, self.runtime_context)
 
     def run_until_pause(
         self,
@@ -142,5 +152,5 @@ class AutonomousFutureRuntime:
         acknowledgements: Optional[Dict[str, Dict[str, Any]]] = None,
         verifications: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        runtime = cls(steps, state_store, runtime_context).resume()
+        runtime = cls.resume_from_store(steps, state_store, runtime_context)
         return runtime.run_until_pause(execute, acknowledgements, verifications)
