@@ -27,3 +27,20 @@ def test_receipt_rejects_changed_authorization():
 def test_receipt_requires_all_digests():
     with pytest.raises(ValueError):
         RecoveryReceipt("", "p1", "a1")
+
+
+def test_receipt_rejects_whitespace_only_identity():
+    with pytest.raises(ValueError):
+        RecoveryReceipt("e1", " ", "a1")
+
+
+def test_receipt_digest_is_unambiguous_for_delimiter_characters():
+    first = RecoveryReceipt("a|b", "c", "d")
+    second = RecoveryReceipt("a", "b|c", "d")
+    assert first.receipt_digest != second.receipt_digest
+
+
+def test_receipt_is_immutable():
+    receipt = RecoveryReceipt("e1", "p1", "a1")
+    with pytest.raises(AttributeError):
+        receipt.plan_digest = "p2"
