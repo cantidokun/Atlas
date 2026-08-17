@@ -180,7 +180,10 @@ def main() -> None:
 
         def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             normalized, receipt = boundary.execute_with_receipt(tool, dict(arguments))
+            if not receipt.matches(tool, arguments, normalized):
+                raise RuntimeError("Collection execution receipt mismatch")
             receipt_holder["receipt"] = receipt
+            receipt_holder["result"] = normalized
             return {
                 "ok": normalized.ok,
                 "state": normalized.state,
@@ -192,17 +195,10 @@ def main() -> None:
             raise RuntimeError(f"Authorized collection action failed: {result}")
 
         receipt = receipt_holder.get("receipt")
-        if receipt is None:
-            raise RuntimeError("Successful collection action produced no execution receipt")
-        if not receipt.matches(
-            proposal.actions[0].tool,
-            proposal.actions[0].arguments,
-            boundary.execute_verified.__self__ if False else boundary.execute_verified.__annotations__.get("return")
-        ):
-            # Receipt matching is performed in the execution closure against the exact
-            # normalized result; this branch is unreachable and exists only to make the
-            # single-execution requirement explicit.
-            raise RuntimeError("Collection execution receipt mismatch")
+        normalized = receipt_holder.get("result")
+        if receipt is None or normalized is None:
+            raise RuntimeError("Successful collection action did not produce a verified receipt")
+
         audit.record_action(
             0,
             {
@@ -211,9 +207,9 @@ def main() -> None:
                 "name": proposal.actions[0].name,
             },
             {
-                "ok": result["ok"],
-                "state": result["state"],
-                "details": result["details"],
+                "ok": normalized.ok,
+                "state": normalized.state,
+                "details": dict(normalized.details),
                 "receipt": {
                     "tool": receipt.tool,
                     "arguments_digest": receipt.arguments_digest,
