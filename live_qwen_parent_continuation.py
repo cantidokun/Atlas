@@ -59,6 +59,14 @@ def fresh_evidence(file_name: str) -> Dict[str, Any]:
     return inspect_object_parent(file_name=file_name, object_name=MARKER_OBJECT)
 
 
+def verification_result(evidence: Dict[str, Any]) -> Dict[str, Any]:
+    satisfied = (
+        evidence.get("object_name") == MARKER_OBJECT
+        and evidence.get("parent_name") == PARENT_OBJECT
+    )
+    return {"satisfied": satisfied, "evidence": dict(evidence)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect", "tampered-context"), required=True)
@@ -71,8 +79,6 @@ def main() -> None:
     target = target_evaluator.evaluate(evidence)
     authorized_action = action(file_name)
 
-    # The future is generated from the already-resolved target state and the
-    # exact authorized action. No model reasoning occurs during continuation.
     future = DeterministicFutureGenerator(target_evaluator).generate(
         target.satisfied,
         [authorized_action],
@@ -101,14 +107,13 @@ def main() -> None:
             raise RuntimeError(f"Expected persisted pause at verification: {paused}")
 
         resumed = AutonomousFutureRuntime.resume_from_store(future, store, current_context)
-        verification = fresh_evidence(file_name)
-        final = resumed.run_until_pause(execute_parent, verifications={"verification.pending": verification})
-
-        if final.get("current_step", {}).get("phase") != "COMPLETE":
-            raise RuntimeError(f"Continuation did not reach completion boundary: {final}")
-        completed = resumed.run_until_pause(execute_parent, verifications={"verification.pending": verification})
-        if completed.get("status") != "COMPLETE":
-            raise RuntimeError(f"Continuation did not finalize: {completed}")
+        verification = verification_result(fresh_evidence(file_name))
+        final = resumed.run_until_pause(
+            execute_parent,
+            verifications={"verification.pending": verification},
+        )
+        if final.get("complete") is not True:
+            raise RuntimeError(f"Continuation did not complete after resumed verification: {final}")
 
         if not target.satisfied and args.case == "incorrect":
             post = fresh_evidence(file_name)
