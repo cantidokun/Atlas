@@ -1,5 +1,4 @@
 """Deterministic validation of Blender tool calls before execution."""
-
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping
 
@@ -16,6 +15,11 @@ BLENDER_TOOL_SCHEMAS = {
     "inspect_scene": BlenderToolSchema({"file_name": str}),
     "inspect_scene_settings": BlenderToolSchema({"file_name": str}),
     "create_collection": BlenderToolSchema({"file_name": str, "collection_name": str}),
+    "create_empty_marker": BlenderToolSchema({
+        "file_name": str,
+        "collection_name": str,
+        "object_name": str,
+    }),
 }
 
 
@@ -46,8 +50,6 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
             raise ValueError("location must contain exactly three numeric coordinates")
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location):
             raise ValueError("location must contain exactly three numeric coordinates")
-        # Copy the only mutable nested value defined by the current Blender
-        # schema while preserving list-vs-tuple API compatibility.
         snapshot["location"] = list(location) if isinstance(location, list) else tuple(location)
 
     return snapshot
