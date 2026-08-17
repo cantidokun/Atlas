@@ -13,6 +13,9 @@ BLENDER_TOOL_SCHEMAS = {
     "move_object": BlenderToolSchema({"object_name": str, "location": (list, tuple)}),
     "inspect_object": BlenderToolSchema({"object_name": str}),
     "inspect_object_relationship": BlenderToolSchema({"object_a": str, "object_b": str}),
+    "inspect_scene": BlenderToolSchema({"file_name": str}),
+    "inspect_scene_settings": BlenderToolSchema({"file_name": str}),
+    "create_collection": BlenderToolSchema({"file_name": str, "collection_name": str}),
 }
 
 
@@ -32,6 +35,8 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
             raise ValueError(f"missing required argument: {name}")
         if not isinstance(arguments[name], expected):
             raise TypeError(f"argument {name} has invalid type")
+        if isinstance(arguments[name], str) and not arguments[name].strip():
+            raise ValueError(f"argument {name} must not be empty")
 
     snapshot = dict(arguments)
 
