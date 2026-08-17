@@ -6,17 +6,13 @@
 **Base:** `main`
 **Current work:** PR #10 — `feat: first Unreal Engine validation harness`
 
-## 1. Scope decision
+## Current position
 
-For the current development phase, Atlas work is intentionally limited to the **Unreal Agent and its relative architecture**.
+The Unreal Agent architecture is now at the **first real-Unreal validation gate**. PR #10 remains Draft and must not be merged until the Unreal Editor automation test passes.
 
-Do not broaden the active implementation into Blender-agent features, photogrammetry implementation, sports-analysis features, or production VFX modules unless a later Unreal milestone requires an explicit architectural boundary for them.
+Atlas owns the canonical Digital Twin. Unreal is a production representation/execution tool around that canonical state, not the source of truth.
 
-Atlas still owns the canonical Digital Twin. Unreal is a production tool/representation around that canonical model, not the source of truth.
-
-## 2. Architecture established before Unreal Engine testing
-
-The Unreal side has been designed around this control boundary:
+## Architecture
 
 ```text
 Atlas production intent
@@ -38,46 +34,54 @@ Independent Unreal evidence
 Atlas verification
 ```
 
-The Unreal Agent proposes structured operations; it does not directly authorize or execute them.
+The Unreal Agent proposes/decomposes operations. It does not authorize or directly execute them.
 
-The existing Atlas execution architecture remains authoritative for ordering, authorization, execution state, verification, recovery, and continuation integrity.
+## Implemented Unreal-side architecture
 
-## 3. Unreal Agent primitives already implemented
+- `planning/unreal_agent.py`
+  - `UnrealCapability`
+  - `UnrealOperationKind`
+  - `UnrealOperation`
+  - `UnrealTaskIntent`
+  - `UnrealAgent`
+- `planning/unreal_capability_registry.py`
+  - capability permissions;
+  - required evidence declarations;
+  - exact operation argument validation.
+- `planning/unreal_operation_contract.py`
+  - strict AI-facing parsing;
+  - exact top-level operation schema;
+  - no fuzzy coercion.
+- `planning/unreal_task_planner.py`
+  - deterministic inspection flow;
+  - material-variant planning flow.
+- engine-neutral Unreal adapter v0.1 boundary/design.
 
-### `planning/unreal_agent.py`
+## PR #10 — disposable Unreal Engine harness
 
-Defines the engine-neutral Unreal Agent boundary, including:
+Branch:
 
-- `UnrealCapability`
-- `UnrealOperationKind`
-- `UnrealOperation`
-- `UnrealTaskIntent`
-- `UnrealAgent`
+`feat/unreal-engine-harness`
 
-The Agent requires explicit Atlas entity targets and initially proposes inspection rather than silently inventing writes.
+Project:
 
-### `planning/unreal_capability_registry.py`
+`unreal/AtlasUnrealHarness/`
 
-Defines the declarative Unreal capability taxonomy:
+Target:
 
-- world inspection
-- Actor inspection/modification
-- asset inspection/modification
-- materials
-- Niagara
-- Blueprint
-- Sequencer
-- rendering
+**Unreal Engine 5.6**
 
-Each capability declares permitted operation kinds and required evidence. Capability validation is not authorization; Atlas authorization remains the authority.
+Automation test:
 
-The registry also validates operation argument schemas and requires the payload entity IDs to match the operation's explicit `entity_ids`.
+`Atlas.UnrealAgent.OperationBoundary`
 
-### `planning/unreal_operation_contract.py`
+The harness is Editor-only and disposable. It is not the production adapter.
 
-This is the AI-facing structured-operation boundary.
+## Current smoke-test contract
 
-`parse_unreal_operation()` accepts only the exact top-level operation schema:
+The C++ harness now mirrors the strict structure of the Atlas-side operation contract for the limited smoke-test capability.
+
+A valid operation requires exactly these top-level keys:
 
 ```text
 capability
@@ -87,127 +91,40 @@ arguments
 entity_ids
 ```
 
-It rejects malformed, unknown, ambiguous, or unsupported values without fuzzy coercion.
-
-### `planning/unreal_task_planner.py`
-
-Provides deterministic Unreal-domain task decomposition. Current supported planning patterns include:
-
-- inspection
-- material-variant flow
-
-The material-variant sequence is explicitly:
+For the current smoke-test `modify_actor/write` operation, `arguments` must contain exactly:
 
 ```text
-inspect Actor
-→ inspect material state
-→ apply material variant
-→ verify material variant
+entity_ids
 ```
 
-The planner proposes operations only. It does not execute them.
-
-### Unreal adapter boundary
-
-An engine-neutral Unreal adapter v0.1 boundary has already been designed so Unreal-specific APIs remain behind the adapter rather than leaking into Atlas Core.
-
-The adapter is responsible for translating authorized Atlas operations into Unreal operations and returning authoritative tool evidence.
-
-## 4. First real-Unreal milestone
-
-PR #10 introduces a **disposable Unreal Engine validation harness**.
-
-PR:
-
-`#10 — feat: first Unreal Engine validation harness`
-
-Branch:
-
-`feat/unreal-engine-harness`
-
-The PR is intentionally **Draft** and must **not** be merged yet.
-
-Files are under:
-
-```text
-unreal/AtlasUnrealHarness/
-```
-
-The harness is an Editor-only Unreal project and is intentionally not a production Unreal adapter.
-
-## 5. Current Unreal Engine smoke test
-
-Automation test name:
-
-```text
-Atlas.UnrealAgent.OperationBoundary
-```
-
-The test now exercises strict Unreal-side contract checks before touching the Editor world.
-
-It verifies:
-
-```text
-structured Atlas operation
-        ↓
-exact top-level schema
-        ↓
-canonical capability/kind
-        ↓
-arguments.entity_ids
-        ↓
-operation.entity_ids
-        ↓
-entity-ID equality
-        ↓
-Unreal Editor world
-        ↓
-test Actor created
-        ↓
-Actor mapped to Atlas entity
-        ↓
-smoke-test write
-        ↓
-Unreal Actor state read back
-        ↓
-verification
-```
-
-The test explicitly rejects:
+The harness now fails closed on:
 
 - unsupported operation kinds;
-- unknown top-level fields;
-- mismatched top-level vs argument entity IDs.
+- unknown top-level keys;
+- unknown argument keys;
+- invalid/missing entity arrays;
+- non-string or empty entity IDs;
+- mismatched `arguments.entity_ids` and top-level `entity_ids`.
 
-The fixture uses Atlas entity ID:
+It then creates a temporary Unreal Actor, attaches:
 
-`FIELD_SURFACE`
+`atlas_entity:FIELD_SURFACE`
 
-and verifies an Actor location of:
+and verifies the controlled smoke-test write reaches:
 
 `X=100, Y=200, Z=300`
 
-The temporary Actor is destroyed at the end of the test.
+The Actor is destroyed at the end of the test.
 
-**Important:** the current harness write is a controlled smoke-test write. It is not proof of the full Atlas authorization/transport boundary. That remains a later integration milestone.
+## Important scope clarification
 
-## 6. What has NOT been proven yet
+The current Actor write is a **controlled engine smoke-test write**. It does not yet prove that a real Atlas authorization receipt crosses a production transport into Unreal.
 
-The following are intentionally still unproven:
+That is intentionally the next architecture after this gate.
 
-- actual Unreal Editor compilation/execution on the user's machine;
-- live Atlas → Unreal transport;
-- production Unreal adapter implementation;
-- real Atlas authorization receipt crossing the adapter boundary;
-- Materials/Niagara/Blueprint/Sequencer/rendering against a real production project;
-- canonical Digital Twin synchronization with a real Unreal project;
-- Unreal-side independent evidence returned through the production adapter.
+## Exact resume action
 
-Do not claim the Unreal Engine Boundary Smoke Test is PASS until the actual Automation Test has passed in Unreal Engine.
-
-## 7. Exact next action when resuming
-
-Do **not** merge PR #10.
+Do not merge PR #10.
 
 On the development PC:
 
@@ -220,21 +137,19 @@ cd .\unreal\AtlasUnrealHarness
 Start-Process ".\AtlasUnrealHarness.uproject"
 ```
 
-Open the project in **Unreal Engine 5.6**.
-
-In Unreal Editor, open the Automation Tests window and run:
+Open in Unreal Engine 5.6, then run:
 
 ```text
 Atlas.UnrealAgent.OperationBoundary
 ```
 
-The expected result is a fully passing test containing the assertions listed above.
+No manual Actor/Blueprint/Niagara/material/level setup is required.
 
-If Unreal Engine is not installed at the required version, stop before changing the repository or installing dependencies and report the available Unreal version.
+If it fails, preserve the test and diagnose the actual Unreal-side failure. Do not weaken or bypass the assertion.
 
-## 8. Command-line test shape
+If it passes, record the result and proceed to production Unreal adapter transport design. Keep the harness as a disposable regression fixture.
 
-For a Windows command-line Editor run, the README contains this pattern:
+## Command-line alternative
 
 ```powershell
 & "<UE_INSTALL>\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
@@ -243,49 +158,39 @@ For a Windows command-line Editor run, the README contains this pattern:
   -ExecCmds="Automation RunTests Atlas.UnrealAgent.OperationBoundary; Quit"
 ```
 
-Use the locally installed Unreal executable path. Atlas must not hard-code a machine-specific Unreal installation path.
+Use the locally installed Unreal executable path; never hard-code a machine-specific installation path.
 
-## 9. Current milestone boundary
+## Milestone status
 
-### Milestone: Unreal Engine Boundary Smoke Test
+**Unreal Engine Boundary Smoke Test — READY FOR HUMAN ENGINE TEST / NOT YET PASSED.**
 
-**Status: READY FOR HUMAN ENGINE TEST — NOT YET PASSED**
+The Python-side operation contracts have already been tested through Atlas CI. The Unreal C++ harness has now been tightened to match the same fail-closed schema expectations more closely.
 
-The Python-side Unreal operation contracts have already passed the standard Atlas CI regression matrix. The Unreal C++ harness has now been hardened to match the same strict operation boundary more closely.
+The milestone is not complete until the actual Unreal Editor test passes.
 
-The next milestone is complete only when the real Unreal Editor test passes.
+## After the smoke test
 
-## 10. What happens after the Unreal smoke test
-
-If the smoke test passes:
+If the test passes:
 
 1. record the real-engine result;
-2. diagnose/repair any remaining harness limitations;
-3. keep the harness as a disposable integration fixture;
-4. implement the production Unreal adapter transport against the proven boundary;
-5. connect real Atlas authorization/evidence to that adapter;
-6. begin the first production Unreal capability;
-7. continue incrementally through Materials, Niagara, Blueprint, Sequencer, rendering, and Digital Twin synchronization as justified by real capability gaps.
+2. preserve the disposable harness;
+3. design production Unreal transport;
+4. connect actual Atlas authorization and evidence;
+5. prove the first production Unreal capability;
+6. expand capabilities incrementally.
 
-If the smoke test fails:
+If the test fails:
 
-- do not work around the failure by weakening the test;
-- diagnose the actual Unreal-side failure;
-- fix the harness/contract;
-- rerun the same test;
-- do not advance the milestone until it passes.
+1. capture the actual Unreal error;
+2. diagnose the engine-side issue;
+3. fix the harness/contract;
+4. rerun the same test;
+5. do not advance the milestone until it passes.
 
-## 11. Repository / Git rule
-
-PR #10 is the current Unreal integration branch. Do not merge it merely because Python CI is green. The first real Unreal Engine result is the gate.
-
-After the Unreal boundary is proven, create the next controlled development stage from the resulting baseline rather than piling unrelated production functionality into the harness PR.
-
-## 12. Architectural invariant to preserve
+## Architectural invariant
 
 ```text
 Atlas owns the Twin.
-
 Unreal Agent reasons/plans.
 Atlas authorizes.
 Unreal adapter executes.
