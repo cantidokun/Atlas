@@ -3,6 +3,7 @@ import tempfile
 from planning.autonomous_runtime import AutonomousFutureRuntime
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import FutureStep
+from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
 
 
@@ -15,10 +16,14 @@ def _steps():
     ]
 
 
+def _context():
+    return RuntimeContext("stable Atlas runtime instructions", {"environment": "test"})
+
+
 def test_runtime_checkpoints_and_resumes_without_reexecuting_completed_action():
     with tempfile.TemporaryDirectory() as tmp:
         store = FutureRuntimeStateStore(f"{tmp}/future.json")
-        runtime = AutonomousFutureRuntime(_steps(), store)
+        runtime = AutonomousFutureRuntime(_steps(), store, _context())
         calls = []
 
         runtime.run_until_pause(lambda tool, args: calls.append((tool, args)) or {"ok": True}, {"evidence.authoritative": {}}, {})
@@ -36,7 +41,7 @@ def test_runtime_checkpoints_and_resumes_without_reexecuting_completed_action():
 def test_runtime_never_advances_past_failed_action():
     with tempfile.TemporaryDirectory() as tmp:
         store = FutureRuntimeStateStore(f"{tmp}/future.json")
-        runtime = AutonomousFutureRuntime(_steps(), store)
+        runtime = AutonomousFutureRuntime(_steps(), store, _context())
         runtime.run_until_pause(lambda _tool, _args: {"error": "denied"}, {"evidence.authoritative": {}}, {})
         controller = FutureExecutionController.resume_from_snapshot(_steps(), store.load()["snapshot"])
         assert controller.blocked is True

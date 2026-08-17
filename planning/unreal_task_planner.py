@@ -39,6 +39,13 @@ class UnrealAgentPlanBuilder:
     def __init__(self, capabilities: UnrealCapabilityRegistry):
         self.capabilities = capabilities
 
+    @staticmethod
+    def _require_targets(intent: UnrealTaskIntent) -> Tuple[str, ...]:
+        targets = tuple(intent.target_entity_ids)
+        if not targets:
+            raise ValueError("Unreal task intents require explicit target entity IDs.")
+        return targets
+
     def _operation(self, capability, kind, name, entity_ids):
         self.capabilities.validate(capability, kind)
         return UnrealOperation(
@@ -50,45 +57,47 @@ class UnrealAgentPlanBuilder:
         )
 
     def for_inspection(self, intent):
+        entity_ids = self._require_targets(intent)
         return (
             self._operation(
                 UnrealCapability.INSPECT_ACTOR,
                 UnrealOperationKind.READ,
                 "inspect_target_actors",
-                intent.target_entity_ids,
+                entity_ids,
             ),
             self._operation(
                 UnrealCapability.INSPECT_ACTOR,
                 UnrealOperationKind.VERIFY,
                 "verify_target_actor_mapping",
-                intent.target_entity_ids,
+                entity_ids,
             ),
         )
 
     def for_material_variant(self, intent):
+        entity_ids = self._require_targets(intent)
         return (
             self._operation(
                 UnrealCapability.INSPECT_ACTOR,
                 UnrealOperationKind.READ,
                 "inspect_target_actors",
-                intent.target_entity_ids,
+                entity_ids,
             ),
             self._operation(
                 UnrealCapability.MATERIAL,
                 UnrealOperationKind.READ,
                 "inspect_material_state",
-                intent.target_entity_ids,
+                entity_ids,
             ),
             self._operation(
                 UnrealCapability.MATERIAL,
                 UnrealOperationKind.WRITE,
                 "apply_material_variant",
-                intent.target_entity_ids,
+                entity_ids,
             ),
             self._operation(
                 UnrealCapability.MATERIAL,
                 UnrealOperationKind.VERIFY,
                 "verify_material_variant",
-                intent.target_entity_ids,
+                entity_ids,
             ),
         )
