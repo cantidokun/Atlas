@@ -4,6 +4,7 @@ import pytest
 
 from action_plan import ActionPlan, ActionSpec
 from evidence_plan import EvidencePlan, EvidenceRequest
+from planning.action_authorization import ActionAuthorization
 from planning_orchestrator import PlanningOrchestrator
 
 
@@ -14,6 +15,7 @@ def _orchestrator():
     actions = ActionPlan(
         actions=[ActionSpec("move_object", {"object_name": "A", "location": [1, 0, 0]}, "move")]
     )
+    actions.authorize(ActionAuthorization.issue(actions.actions, "planning-orchestrator-test"))
     return PlanningOrchestrator(evidence, actions)
 
 
@@ -25,7 +27,7 @@ def test_starts_in_evidence_phase():
 def test_action_is_blocked_until_evidence_is_complete():
     orchestrator = _orchestrator()
     with pytest.raises(RuntimeError, match="evidence"):
-        orchestrator.execute_next_action(lambda tool, args: {})
+        orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
 
 
 def test_reused_evidence_unlocks_action_phase():
