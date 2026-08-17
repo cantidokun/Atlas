@@ -130,3 +130,34 @@ jobs:
         shell: cmd
         run: |
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_verification_failure.py --case 'executor-lies'"
+
+  live-continuation:
+    name: live Blender continuation (${{ matrix.case }})
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - already-correct
+          - incorrect
+          - tampered-context
+    steps:
+      - name: Check out current Atlas main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+      - name: Provision deterministic parent relationship fixtures
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_parent_task_fixtures.py"
+      - name: Run live Blender continuation proof
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_parent_continuation.py --case '${{ matrix.case }}'"
