@@ -2,8 +2,7 @@
 
 import argparse
 import json
-import os
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import requests
 
@@ -18,7 +17,7 @@ from planning.verification_plan import VerificationPlan
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
-from task_planner import TaskPlanProposal, TaskPlanValidationError
+from task_planner import TaskPlanProposal
 from tools.blender_relationship import inspect_object_parent, parent_object
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -44,8 +43,8 @@ def ask(content: str) -> str:
         json={
             "model": MODEL,
             "messages":[
-                {"role":"system", "content": content},
-                {"role":"user", "content":"Create the structured Atlas task plan."},
+                {"role": "system", "content": content},
+                {"role": "user", "content": "Create the structured Atlas task plan."},
             ],
             "stream": False,
             "format": TASK_PLAN_JSON_SCHEMA,
@@ -105,7 +104,20 @@ def main() -> None:
     )
 
     initial = orchestrator.acquire_next_evidence(evidence)
+    audit.record_evidence(
+        {"tool": proposal.evidence[0].tool, "arguments": dict(proposal.evidence[0].arguments), "name": proposal.evidence[0].name},
+        initial,
+    )
     state = orchestrator.evaluate_target_state(initial)
+    audit.record(
+        "conditional_decision",
+        "skip" if state.satisfied else "execute",
+        target_satisfied=state.satisfied,
+        invariants=state.invariants,
+        failed_invariants=state.failed,
+        case=args.case,
+    )
+
     if not state.satisfied:
         authorize_task_plan(
             proposal,
@@ -113,17 +125,35 @@ def main() -> None:
             allowed_action_tools={"parent_object"},
             allow_writes=True,
         )
-        result, receipt = boundary().execute_with_receipt(
-            proposal.actions[0].tool,
-            dict(proposal.actions[0].arguments),
+        execution_authorization = orchestrator.authorize_execution(f"live:{args.case}")
+        audit.record_authorization(
+            True,
+            action_count=len(proposal.actions),
+            authorization_id=execution_authorization.authorization_id,
         )
-        if result.ok is not True:
-            raise RuntimeError(f"Relationship write failed: {result}")
-        if not receipt.matches(proposal.actions[0].tool, proposal.actions[0].arguments, result):
-            raise RuntimeError("Relationship receipt mismatch")
+
+        action = orchestrator.conditional_plan.next_action
+        if action is None:
+            raise RuntimeError("Conditional orchestrator exposed no parent action")
+        index = orchestrator.conditional_plan.action_plan.current_index
+        payload = {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}
+
+        try:
+            result = orchestrator.execute_next_action(boundary().execute)
+        except Exception as exc:
+            failure = {"error": str(exc), "exception_type": type(exc).__name__}
+            audit.record_action(index, payload, failure, False)
+            raise
+
+        audit.record_action(index, payload, result, result.get("ok") is True)
+        if result.get("ok") is not True:
+            raise RuntimeError(f"Authorized parent action failed: {result}")
+        if not orchestrator.action_complete:
+            raise RuntimeError(f"Parent action phase did not complete: {orchestrator.snapshot()}")
 
     final = evidence("inspect_object_parent", {"file_name": file_name, "object_name": MARKER_OBJECT})
     final_state = orchestrator.verify_post_action(final)
+    audit.record_verification(final, final_state.satisfied)
     if not final_state.satisfied:
         raise RuntimeError(f"Independent relationship verification failed: {final_state.failed}")
     orchestrator.finalize_future()
