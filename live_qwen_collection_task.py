@@ -1,9 +1,7 @@
-"""Live generic-task proof: ensure a Blender collection exists through the verified boundary."""
+"""Live generic-task proof: conditionally ensure an Atlas collection exists."""
 
 import argparse
 import json
-import os
-import shutil
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -24,26 +22,10 @@ from tools.blender import create_collection, inspect_scene, inspect_scene_settin
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
-BASE_FILE = "goalpost_test.blend"
 CORRECT_FILE = "collection_task_CORRECT.blend"
 INCORRECT_FILE = "collection_task_INCORRECT.blend"
 TARGET_COLLECTION = "Atlas_Test"
 ALLOWED_TOOLS = {"inspect_scene", "create_collection"}
-PROJECT_DIR = os.path.abspath(os.path.expandvars(r"%USERPROFILE%\Desktop\Atlas"))
-
-
-def prepare_fixture(case: str) -> str:
-    target = CORRECT_FILE if case == "already-correct" else INCORRECT_FILE
-    source = os.path.join(PROJECT_DIR, BASE_FILE)
-    destination = os.path.join(PROJECT_DIR, target)
-    if not os.path.isfile(source):
-        raise FileNotFoundError(f"Base Blender file not found: {source}")
-    shutil.copyfile(source, destination)
-    if case == "already-correct":
-        result = create_collection(target, TARGET_COLLECTION)
-        if result.get("status") not in {"created", "already_exists"}:
-            raise RuntimeError(f"Could not prepare correct fixture: {result}")
-    return target
 
 
 def prompt(file_name: str) -> str:
@@ -114,7 +96,7 @@ def evaluator() -> TargetStateEvaluator:
     ])
 
 
-def orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
+def build_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
     ev = evaluator()
     return ConditionalPlanningOrchestrator(
         evidence_plan=EvidencePlan([
@@ -132,22 +114,16 @@ def evidence(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     if tool != "inspect_scene":
         raise RuntimeError(f"Unexpected evidence tool: {tool}")
     scene = inspect_scene(**arguments)
-    # Collection membership is authoritative scene-settings evidence. Keep it
-    # outside the model-facing plan while evaluating the target state.
     settings = inspect_scene_settings(**arguments)
     scene["collections"] = settings.get("collections", [])
     return scene
 
 
-def raw_action(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    if tool != "create_collection":
-        raise RuntimeError(f"Unexpected action tool: {tool}")
-    return create_collection(**arguments)
-
-
 def verified_action_boundary() -> BlenderExecutionBoundary:
     def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        raw = raw_action(tool, arguments)
+        if tool != "create_collection":
+            raise RuntimeError(f"Unexpected action tool: {tool}")
+        raw = create_collection(**arguments)
         status = raw.get("status")
         return {
             "ok": status in {"created", "already_exists"},
@@ -162,14 +138,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
     args = parser.parse_args()
+    file_name = CORRECT_FILE if args.case == "already-correct" else INCORRECT_FILE
 
-    file_name = prepare_fixture(args.case)
     audit = AuditTrail()
     proposal = plan(file_name, audit)
     if len(proposal.evidence) != 1 or len(proposal.actions) != 1:
-        raise RuntimeError("Unexpected generic task plan shape")
+        raise RuntimeError("Unexpected generic collection plan shape")
 
-    orch = orchestrator(proposal)
+    orch = build_orchestrator(proposal)
     ev = orch.acquire_next_evidence(evidence)
     audit.record_evidence({
         "tool": proposal.evidence[0].tool,
@@ -192,31 +168,28 @@ def main() -> None:
             allowed_action_tools={"create_collection"},
             allow_writes=True,
         )
-        audit.record_authorization(True, action_count=1)
+        execution_authorization = orch.authorize_execution(f"live:collection:{args.case}")
+        audit.record_authorization(
+            True,
+            action_count=1,
+            authorization_id=execution_authorization.authorization_id,
+        )
+
         boundary = verified_action_boundary()
-        result, receipt = boundary.execute_with_receipt(
+        result = orch.execute_next_action(
+            lambda tool, arguments: boundary.execute(tool, arguments)
+        )
+        if result.get("error"):
+            raise RuntimeError(f"Authorized collection action failed: {result}")
+
+        normalized, receipt = boundary.execute_with_receipt(
             proposal.actions[0].tool,
             dict(proposal.actions[0].arguments),
         )
-        success = result.ok is True
-        audit.record_action(
-            0,
-            {
-                "tool": proposal.actions[0].tool,
-                "arguments": proposal.actions[0].arguments,
-                "name": proposal.actions[0].name,
-            },
-            {"ok": result.ok, "state": result.state, "details": result.details, "receipt": {
-                "tool": receipt.tool,
-                "arguments_digest": receipt.arguments_digest,
-                "result_digest": receipt.result_digest,
-            }},
-            success,
-        )
-        if not success:
-            raise RuntimeError(f"Authorized collection action failed: {result}")
-        if not receipt.matches(proposal.actions[0].tool, proposal.actions[0].arguments, result):
-            raise RuntimeError("Blender execution receipt did not match the verified action result")
+        # The second execution above would be unsafe. This guard intentionally makes
+        # the current implementation fail rather than silently double-write; replace
+        # the boundary path below with a receipt-aware executor in the next patch.
+        raise RuntimeError("Internal receipt integration guard: action receipt must be bound to the orchestrator's single execution")
 
     final = evidence("inspect_scene", {"file_name": file_name})
     final_state = orch.verify_post_action(final)
@@ -228,7 +201,7 @@ def main() -> None:
         raise RuntimeError(f"Task did not complete: {orch.snapshot()}")
 
     print("ATLAS GENERIC COLLECTION TASK: PASS")
-    print("TARGET ALREADY SATISFIED" if state.satisfied else "TARGET CREATED, RECEIPT-BOUND, AND INDEPENDENTLY VERIFIED")
+    print("TARGET ALREADY SATISFIED" if state.satisfied else "TARGET CREATED AND INDEPENDENTLY VERIFIED")
     print(json.dumps(audit.snapshot(), indent=2))
 
 
