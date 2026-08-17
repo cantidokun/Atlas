@@ -19,10 +19,23 @@ def _context():
     return RuntimeContext("Ensure Atlas_Marker is parented to Goal_Left_post in the supplied Blender fixture.", {"environment": "local-blender", "file": "fixture.blend"})
 
 
+def _acknowledgements(satisfied=False):
+    values = {
+        "evidence.authoritative": {"source": "fresh_blender_evidence"},
+        "target.evaluated": {"satisfied": satisfied},
+    }
+    if satisfied:
+        values["writes.skipped"] = {"reason": "target_already_satisfied"}
+    return values
+
+
 def test_incorrect_future_pauses_at_verification_and_resumes_to_completion(tmp_path):
     store = FutureRuntimeStateStore(tmp_path / "runtime.json")
     runtime = AutonomousFutureRuntime(_steps(False), store, _context())
-    paused = runtime.run_until_pause(lambda tool, arguments: {"ok": True})
+    paused = runtime.run_until_pause(
+        lambda tool, arguments: {"ok": True},
+        acknowledgements=_acknowledgements(False),
+    )
     assert paused["current_step"]["phase"] == "VERIFICATION"
 
     resumed = AutonomousFutureRuntime.resume_from_store(_steps(False), store, _context())
@@ -36,7 +49,8 @@ def test_incorrect_future_pauses_at_verification_and_resumes_to_completion(tmp_p
 def test_tampered_runtime_context_is_rejected_after_checkpoint(tmp_path):
     store = FutureRuntimeStateStore(tmp_path / "runtime.json")
     AutonomousFutureRuntime(_steps(False), store, _context()).run_until_pause(
-        lambda tool, arguments: {"ok": True}
+        lambda tool, arguments: {"ok": True},
+        acknowledgements=_acknowledgements(False),
     )
     tampered = RuntimeContext("TAMPERED", {"environment": "local-blender", "file": "fixture.blend"})
     with pytest.raises(RuntimeError, match="integrity"):
@@ -47,7 +61,8 @@ def test_tampered_persisted_snapshot_is_rejected(tmp_path):
     path = tmp_path / "runtime.json"
     store = FutureRuntimeStateStore(path)
     AutonomousFutureRuntime(_steps(False), store, _context()).run_until_pause(
-        lambda tool, arguments: {"ok": True}
+        lambda tool, arguments: {"ok": True},
+        acknowledgements=_acknowledgements(False),
     )
     envelope = store.load()
     envelope["snapshot"]["current_index"] = 0
@@ -61,5 +76,8 @@ def test_already_correct_future_contains_no_write(tmp_path):
     assert all(step.phase != "ACTION" for step in steps)
     store = FutureRuntimeStateStore(tmp_path / "runtime.json")
     runtime = AutonomousFutureRuntime(steps, store, _context())
-    paused = runtime.run_until_pause(lambda tool, arguments: {"ok": False})
+    paused = runtime.run_until_pause(
+        lambda tool, arguments: {"ok": False},
+        acknowledgements=_acknowledgements(True),
+    )
     assert paused["current_step"]["phase"] == "VERIFICATION"
