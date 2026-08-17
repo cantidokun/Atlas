@@ -28,10 +28,10 @@ jobs:
           - incorrect
           - tampered-context
     steps:
-      - name: Check out current Atlas main
+      - name: Check out triggering Atlas revision
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
       - name: Show runner environment
         shell: cmd
         run: |
