@@ -55,7 +55,30 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
 - `planning/unreal_task_planner.py`
   - deterministic inspection flow;
   - material-variant planning flow.
+- `planning/unreal_evidence_contract.py`
+  - engine-neutral post-execution evidence shape;
+  - operation/entity binding validation.
 - engine-neutral Unreal adapter v0.1 boundary/design.
+
+## Evidence boundary milestone
+
+The engine-neutral evidence contract is now defined and regression-tested.
+
+`UnrealEvidence` requires:
+
+```text
+operation_name
+entity_ids
+observed_state
+source
+verified
+```
+
+Evidence is explicitly **not** an authorization receipt. Evidence cannot authorize itself. Atlas verification remains independent.
+
+Evidence must identify the exact operation and exact Atlas entity targets that produced it.
+
+This gives the production adapter a stable evidence target without coupling Atlas Core to Unreal APIs.
 
 ## PR #10 — disposable Unreal Engine harness
 
@@ -79,7 +102,7 @@ The harness is Editor-only and disposable. It is not the production adapter.
 
 ## Current smoke-test contract
 
-The C++ harness now mirrors the strict structure of the Atlas-side operation contract for the limited smoke-test capability.
+The C++ harness mirrors the strict structure of the Atlas-side operation contract for the limited smoke-test capability.
 
 A valid operation requires exactly these top-level keys:
 
@@ -97,7 +120,7 @@ For the current smoke-test `modify_actor/write` operation, `arguments` must cont
 entity_ids
 ```
 
-The harness now fails closed on:
+The harness fails closed on:
 
 - unsupported operation kinds;
 - unknown top-level keys;
@@ -162,11 +185,13 @@ Use the locally installed Unreal executable path; never hard-code a machine-spec
 
 ## Milestone status
 
+**Unreal Evidence Contract — DESIGN COMPLETE.**
+
 **Unreal Engine Boundary Smoke Test — READY FOR HUMAN ENGINE TEST / NOT YET PASSED.**
 
-The Python-side operation contracts have already been tested through Atlas CI. The Unreal C++ harness has now been tightened to match the same fail-closed schema expectations more closely.
+The Python-side operation contracts have already been tested through Atlas CI. The Unreal C++ harness has been tightened to match the same fail-closed schema expectations more closely.
 
-The milestone is not complete until the actual Unreal Editor test passes.
+The engine milestone is not complete until the actual Unreal Editor test passes.
 
 ## After the smoke test
 
