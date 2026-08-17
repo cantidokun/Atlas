@@ -34,6 +34,19 @@ def test_receipt_rejects_whitespace_only_identity():
         RecoveryReceipt("e1", " ", "a1")
 
 
+def test_receipt_rejects_padded_identity():
+    with pytest.raises(ValueError):
+        RecoveryReceipt(" e1", "p1", "a1")
+    with pytest.raises(ValueError):
+        RecoveryReceipt("e1", "p1 ", "a1")
+
+
+def test_matches_rejects_noncanonical_runtime_identity():
+    receipt = RecoveryReceipt("e1", "p1", "a1")
+    assert not receipt.matches(" e1", "p1", "a1")
+    assert not receipt.matches("e1", "p1", "a1 ")
+
+
 def test_receipt_digest_is_unambiguous_for_delimiter_characters():
     first = RecoveryReceipt("a|b", "c", "d")
     second = RecoveryReceipt("a", "b|c", "d")
