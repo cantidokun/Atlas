@@ -10,12 +10,21 @@ class BlenderExecutor(Protocol):
 
 
 class BlenderExecutionBoundary:
-    """Validate calls and normalize adapter results before Atlas consumes them."""
+    """Validate every proposed Blender call before handing it to Blender."""
 
     def __init__(self, executor: BlenderExecutor):
         self._executor = executor
 
-    def execute(self, tool: str, arguments: Dict[str, Any]) -> BlenderExecutionResult:
+    def execute(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Backward-compatible execution API returning the raw adapter object."""
+        validated = validate_blender_tool_call(tool, arguments)
+        result = self._executor(tool, validated)
+        if not isinstance(result, dict):
+            raise TypeError("Blender executor must return an object")
+        return result
+
+    def execute_verified(self, tool: str, arguments: Dict[str, Any]) -> BlenderExecutionResult:
+        """Execute through the same boundary and return a normalized verified result."""
         validated = validate_blender_tool_call(tool, arguments)
         result = self._executor(tool, validated)
         return normalize_blender_result(tool, result)
