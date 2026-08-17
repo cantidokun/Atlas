@@ -18,6 +18,13 @@ TOOL_SCHEMAS = {
             "object2_name": "string",
         },
     },
+    "inspect_object_parent": {
+        "required": {"file_name", "object_name"},
+        "properties": {
+            "file_name": "string",
+            "object_name": "string",
+        },
+    },
     "move_object": {
         "required": {"file_name", "object_name", "location"},
         "properties": {
@@ -31,6 +38,14 @@ TOOL_SCHEMAS = {
         "properties": {
             "file_name": "string",
             "collection_name": "string",
+        },
+    },
+    "parent_object": {
+        "required": {"file_name", "child_name", "parent_name"},
+        "properties": {
+            "file_name": "string",
+            "child_name": "string",
+            "parent_name": "string",
         },
     },
 }
