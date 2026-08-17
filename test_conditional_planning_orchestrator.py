@@ -26,7 +26,7 @@ def make_orchestrator():
     return ConditionalPlanningOrchestrator(evidence, conditional, evaluator)
 
 
-def test_action_is_blocked_until_evidence_and_target_evaluation():
+def test_action_is_blocked_until_evidence_target_evaluation_and_authorization():
     orchestrator = make_orchestrator()
     with pytest.raises(RuntimeError, match="evidence"):
         orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
@@ -34,6 +34,32 @@ def test_action_is_blocked_until_evidence_and_target_evaluation():
     assert orchestrator.next_phase() == "TARGET_EVALUATION"
     with pytest.raises(RuntimeError, match="target state"):
         orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
+    orchestrator.evaluate_target_state({"ready": False})
+    assert orchestrator.next_phase() == "AUTHORIZATION"
+    with pytest.raises(RuntimeError, match="explicit execution authorization"):
+        orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
+
+
+def test_execution_authorization_binds_exact_action_sequence():
+    orchestrator = make_orchestrator()
+    orchestrator.acquire_next_evidence(lambda tool, args: {"ready": False})
+    orchestrator.evaluate_target_state({"ready": False})
+
+    receipt = orchestrator.authorize_execution("test-execution-1")
+
+    assert orchestrator.execution_authorized is True
+    assert receipt.authorization_id == "test-execution-1"
+    assert orchestrator.snapshot()["execution_authorization"]["authorization_id"] == "test-execution-1"
+    assert orchestrator.next_phase() == "ACTION"
+
+
+def test_execution_authorization_rejects_blank_id():
+    orchestrator = make_orchestrator()
+    orchestrator.acquire_next_evidence(lambda tool, args: {"ready": False})
+    orchestrator.evaluate_target_state({"ready": False})
+
+    with pytest.raises(ValueError, match="authorization_id"):
+        orchestrator.authorize_execution(" ")
 
 
 def test_satisfied_target_requires_fresh_verification_before_completion():
@@ -55,6 +81,8 @@ def test_unsatisfied_target_exposes_action_and_requires_verification_after_execu
     orchestrator.acquire_next_evidence(lambda tool, args: {"ready": False})
     result = orchestrator.evaluate_target_state({"ready": False})
     assert result.satisfied is False
+    assert orchestrator.next_phase() == "AUTHORIZATION"
+    orchestrator.authorize_execution("test-execution-2")
     assert orchestrator.next_phase() == "ACTION"
 
     def execute(tool, args):
