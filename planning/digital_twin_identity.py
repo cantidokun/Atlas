@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 import hashlib
 import json
-from typing import Iterable, Tuple
+from typing import Dict, Iterable, Tuple
 
 
 class IdentityMatchStatus(str, Enum):
@@ -34,6 +34,10 @@ class IdentityAnchor:
             self.value.strip(),
             self.required,
         )
+
+    def identity_key(self) -> Tuple[str, str]:
+        canonical = self.canonical()
+        return canonical[0], canonical[1]
 
 
 @dataclass(frozen=True)
@@ -71,21 +75,21 @@ def evaluate_identity(
     A conflicting shared anchor is an explicit NO_MATCH.
     """
 
-    observed = {anchor.canonical()[:3]: anchor for anchor in observed_anchors}
+    observed: Dict[Tuple[str, str], IdentityAnchor] = {}
+    for anchor in observed_anchors:
+        observed[anchor.identity_key()] = anchor
+
     matched = []
     missing = []
     conflicts = []
 
     for expected in identity.anchors:
-        key = expected.canonical()[:2]
-        candidates = [anchor for anchor_key, anchor in observed.items() if anchor_key == key]
-
-        if not candidates:
+        actual = observed.get(expected.identity_key())
+        if actual is None:
             if expected.required:
                 missing.append(expected)
             continue
 
-        actual = candidates[0]
         if actual.value.strip() != expected.value.strip():
             conflicts.append(expected)
         else:
