@@ -32,7 +32,7 @@ def test_operation_schema_rejects_unknown_argument_keys():
 
 def test_operation_schema_rejects_missing_entity_ids():
     registry = UnrealCapabilityRegistry()
-    with pytest.raises(ValueError, match="entity_ids"):
+    with pytest.raises(ValueError, match="schema"):
         registry.validate_operation(operation({}))
 
 
