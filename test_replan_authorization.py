@@ -25,6 +25,7 @@ def _failed_orchestrator():
     orchestrator = _orchestrator()
     orchestrator.acquire_next_evidence(lambda _tool, _args: {"ready": False})
     orchestrator.evaluate_target_state({"ready": False})
+    orchestrator.authorize_execution("replan-runtime-test")
     with pytest.raises(RuntimeError, match="write failed"):
         orchestrator.execute_next_action(
             lambda _tool, _args: (_ for _ in ()).throw(RuntimeError("write failed"))
@@ -43,6 +44,8 @@ def test_recovery_replan_requires_explicit_authorization_receipt():
 
     result = orchestrator.install_authorized_replan(receipt, actions)
     assert result.satisfied is False
+    assert orchestrator.next_phase() == "AUTHORIZATION"
+    orchestrator.authorize_execution("replacement-execution")
     assert orchestrator.next_phase() == "ACTION"
 
 
