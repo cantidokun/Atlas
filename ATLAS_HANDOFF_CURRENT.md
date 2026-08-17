@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 17, 2026 05:45 UTC
+**Updated:** August 17, 2026 08:44 UTC
 **Current branch:** `main`
-**Current HEAD:** `3419c36536e0ffc82ba180504313d18b0d5d64ce` — `docs: refresh current Atlas handoff`
+**Current HEAD:** `d882750b670f6baf5a0371d2e02e407af4d7f8f5` — `docs: refresh current Atlas handoff with latest CI state`
 **Current verified Blender code milestone:** `09d165944b32dd5ee03100cff10a0d4b33481df3` — `test: bind Blender execution receipts to request and result`
 
 ## 1. Scope and authority model
@@ -49,6 +49,8 @@ The conditional execution architecture explicitly separates:
 6. fresh post-action verification;
 7. fail-closed completion/blocking.
 
+`VerificationPlan` is a first-class generic primitive. A successful write is not verification; fresh authoritative evidence must be evaluated against the explicit postcondition.
+
 ## 3. Blender-specific files and tools
 
 - `planning/blender_tool_schema.py` — validates supported Blender tools, required arguments, types, and 3D coordinates; snapshots mutable supported arguments.
@@ -56,6 +58,7 @@ The conditional execution architecture explicitly separates:
 - `planning/blender_result_contract.py` — immutable `BlenderExecutionResult`; validates tool, boolean success, execution state, and details.
 - `planning/blender_verification.py` — independently validates requested-tool identity and successful execution; fails closed on mismatches/failure.
 - `planning/blender_execution_receipt.py` — deterministically binds validated tool + arguments + verified result; detects later mutation.
+- `planning/verification_plan.py` — generic post-action verification state; exposes `required`, `pending`, `complete`, `blocked`, `verify()`, and `snapshot()`.
 - `execute_with_receipt()` — validation -> Blender execution -> result normalization -> independent verification -> immutable receipt.
 - `live_qwen_conditional_loop.py` — live Qwen/Ollama/Blender conditional harness.
 - `goalpost_test_CONDITIONAL_CORRECT.blend` — deterministic already-correct fixture.
@@ -82,12 +85,12 @@ The latest `main` HEAD is documentation-only, so `09d1659` remains the verified 
 
 ### Offline / CI
 
-- **Atlas Tests #384 — PASS**
+- **Atlas Tests #385 — PASS**
 - Python **3.11 — PASS**
 - Python **3.9 — PASS**
-- Run commit: `3419c36536e0ffc82ba180504313d18b0d5d64ce`
+- Run commit: `d882750b670f6baf5a0371d2e02e407af4d7f8f5`
 
-Previous green baseline: Atlas Tests #383 also passed on both Python versions.
+Previous green baseline: Atlas Tests #384 also passed on both Python versions.
 
 ### Live Blender regression
 
