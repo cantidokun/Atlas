@@ -68,6 +68,16 @@ def verification_result(evidence: Dict[str, Any]) -> Dict[str, Any]:
     return {"satisfied": satisfied, "evidence": dict(evidence)}
 
 
+def acknowledgements(target_satisfied: bool) -> Dict[str, Dict[str, Any]]:
+    values = {
+        "evidence.authoritative": {"source": "fresh_blender_evidence"},
+        "target.evaluated": {"satisfied": target_satisfied},
+    }
+    if target_satisfied:
+        values["writes.skipped"] = {"reason": "target_already_satisfied"}
+    return values
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect", "tampered-context"), required=True)
@@ -91,9 +101,12 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="atlas-continuation-") as directory:
         store = FutureRuntimeStateStore(os.path.join(directory, "runtime.json"))
         runtime = AutonomousFutureRuntime(future, store, current_context)
+        ack = acknowledgements(target.satisfied)
 
         if args.case == "tampered-context":
-            runtime.run_until_pause(execute_parent)
+            paused = runtime.run_until_pause(execute_parent, acknowledgements=ack)
+            if paused.get("current_step", {}).get("phase") != "VERIFICATION":
+                raise RuntimeError(f"Expected persisted pause at verification: {paused}")
             try:
                 AutonomousFutureRuntime.resume_from_store(
                     future,
@@ -106,7 +119,7 @@ def main() -> None:
                 return
             raise RuntimeError("Tampered continuation was accepted")
 
-        paused = runtime.run_until_pause(execute_parent)
+        paused = runtime.run_until_pause(execute_parent, acknowledgements=ack)
         if paused.get("current_step", {}).get("phase") != "VERIFICATION":
             raise RuntimeError(f"Expected persisted pause at verification: {paused}")
 
