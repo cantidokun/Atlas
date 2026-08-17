@@ -1,5 +1,6 @@
 """Deterministic validation of Blender tool calls before execution."""
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping
 
@@ -17,8 +18,8 @@ BLENDER_TOOL_SCHEMAS = {
 
 
 def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate a Blender call and return a detached payload without changing its API shape."""
-    if not isinstance(tool, str) or not tool:
+    """Validate a Blender call and return an immutable-in-practice snapshot of its payload."""
+    if not isinstance(tool, str) or not tool.strip():
         raise ValueError("tool must be a non-empty string")
     if not isinstance(arguments, dict):
         raise TypeError("arguments must be an object")
@@ -40,7 +41,7 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location):
             raise ValueError("location must contain exactly three numeric coordinates")
 
-    # Preserve the established list/tuple representation while returning a
-    # detached payload so the caller cannot mutate the validated mapping.
-    detached = dict(arguments)
-    return detached
+    # Preserve the established list/tuple representation, but snapshot nested
+    # values as well. A caller cannot mutate the validated command after the
+    # admission check and thereby alter what reaches Blender.
+    return deepcopy(arguments)
