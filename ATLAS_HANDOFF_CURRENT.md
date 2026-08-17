@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 17, 2026 14:43 UTC
+**Updated:** August 17, 2026 18:44 UTC
 **Current branch:** `main`
-**Current HEAD:** `0ae2ad371ce0e1f2a0ce601ddb97915f19b3a8d0` — `docs: refresh Atlas handoff for second Blender task`
-**Last verified Blender implementation milestone:** `09d165944b32dd5ee03100cff10a0d4b33481df3` — receipt binding remains the last fully live-verified Blender implementation milestone.
+**Current HEAD:** `dc22780dbf2cf501f7ae598f42718a57666c36e5` — `fix: bind collection receipt to single execution`
+**Last fully live-verified Blender implementation milestone:** `09d165944b32dd5ee03100cff10a0d4b33481df3` — receipt binding. The newer collection/conditional work is offline-verified but its live regression is still queued.
 
 ## 1. Scope and authority model
 
@@ -57,8 +57,8 @@ The conditional execution architecture explicitly separates:
 
 Core Blender boundary:
 
-- `planning/blender_tool_schema.py` — validates supported Blender tools, required arguments, types, and 3D coordinates; snapshots mutable supported arguments. It now supports `create_empty_marker` with exact arguments `file_name`, `collection_name`, and `object_name`.
-- `planning/blender_execution_boundary.py` — validates calls before Blender execution; provides `execute_verified()` and receipt-bound execution.
+- `planning/blender_tool_schema.py` — validates supported Blender tools, required arguments, types, and 3D coordinates; snapshots mutable supported arguments. Supports `create_empty_marker` with exact arguments `file_name`, `collection_name`, and `object_name`.
+- `planning/blender_execution_boundary.py` — validates calls before Blender execution; provides `execute_verified()` and receipt-bound execution. The receipt-bound path now captures the normalized verified result from the same single executor call.
 - `planning/blender_result_contract.py` — immutable `BlenderExecutionResult`; validates tool, boolean success, execution state, and details.
 - `planning/blender_verification.py` — independently validates requested-tool identity and successful execution; fails closed on mismatches/failure.
 - `planning/blender_execution_receipt.py` — deterministically binds validated tool + arguments + verified result; detects later mutation.
@@ -72,10 +72,11 @@ Existing live goalpost harness:
 - `goalpost_test_CONDITIONAL_CORRECT.blend`
 - `goalpost_test_CONDITIONAL_INCORRECT.blend`
 
-New second-task definition:
+Second-task/collection work:
 
 - `planning/marker_task.py` — task-specific marker target invariant and `create_empty_marker` action definition. It deliberately contains task data/invariants only; it does not implement a second orchestration architecture.
 - `tests/test_marker_conditional_task.py` — focused regression coverage for the second task.
+- Live workflow jobs currently include `live generic collection (incorrect)`, `live generic collection (already-correct)`, `live conditional (incorrect)`, and `live conditional (already-correct)`.
 
 The second task is **conditional creation of `Atlas_Marker` inside the `Atlas_Test` collection**, requiring the object to exist and be an `EMPTY`. Its action shape is intentionally different from goalpost movement: it has no `location` argument and performs object creation rather than transform mutation.
 
@@ -87,7 +88,7 @@ Live Qwen/Ollama/Blender runtime:
 - Model: `qwen3:8b`
 - Qwen output is constrained by `qwen/structured_plan.py` / `TASK_PLAN_JSON_SCHEMA` and parsed by `qwen_planning_runtime.py`.
 - Goalpost live tools currently exercised: `inspect_object_relationship`, `move_object`.
-- The marker task is not yet integrated into the live Qwen/Blender harness.
+- Marker/collection live workflow integration has been added to the regression workflow, but it is not yet a fully live-proven production capability.
 
 ## 5. Verified milestones and test history
 
@@ -108,7 +109,7 @@ already-correct -> target satisfied -> zero writes -> fresh verification -> comp
 incorrect -> target unsatisfied -> authorized writes -> fresh verification -> complete
 ```
 
-### Marker-task development
+### Marker/collection development
 
 Commit `265045211ff111d3ae4fc0f2a5b8bef1e1a172a2` introduced the marker schema, marker task, and initial tests.
 
@@ -120,19 +121,32 @@ The tests were corrected in:
 
 - `d7d6f3b4577ed2176c4d1c4b5a8a67828b91d0ac` — `fix: align marker task tests with authorization and verification phases`
 
-That correction is now validated:
+That correction was validated:
 
 - **Atlas Tests #393 — PASS**.
-- The run completed successfully for the marker test correction. citehttps://github.com/cantidokun/Atlas/actions/runs/32039885675
+- **Atlas Tests #394 — PASS** on the subsequent documentation state.
 
-The latest documentation commit then triggered:
+Receipt execution was then tightened in:
 
-- **Atlas Tests #394 — PASS** on the current documentation state. citehttps://github.com/cantidokun/Atlas/actions/runs/32039910015
+- `dc22780dbf2cf501f7ae598f42718a57666c36e5` — `fix: bind collection receipt to single execution`
 
-### Live regression state
+The change ensures the receipt is bound to the exact single executor result rather than creating a second execution path while validating the receipt.
 
-- **Live Conditional Atlas Regression #149 — WAITING** for self-hosted/local runner capacity. All four jobs are currently waiting; none has executed yet. The jobs are `live generic collection (incorrect)`, `live conditional (incorrect)`, `live generic collection (already-correct)`, and `live conditional (already-correct)`. citehttps://api.github.com/repos/cantidokun/Atlas/actions/runs/32039885682/jobs
-- Therefore **do not claim a new live marker-task proof yet**.
+Validation for that commit:
+
+- **Atlas Tests #401 — PASS** on Python 3.11.
+- **Atlas Tests #401 — PASS** on Python 3.9.
+
+### Current live regression
+
+- **Live Conditional Atlas Regression #155 — QUEUED**.
+- Run: `32053379722`.
+- All four jobs are waiting for the self-hosted/local runner:
+  - `live generic collection (incorrect)`
+  - `live generic collection (already-correct)`
+  - `live conditional (incorrect)`
+  - `live conditional (already-correct)`
+- None of these jobs has executed yet, so **do not claim a new live collection/marker proof**.
 
 ## 6. Runtime integrity / continuation
 
@@ -145,9 +159,9 @@ What is **not yet live-proven** is a broader production-facing continuation/resu
 ## 7. Current known issues / boundaries
 
 - Goalpost execution remains the only materially different Blender task with a complete live proof.
-- The marker task is now offline/CI-proven but has not yet been live-proven.
-- The existing live workflow still targets the established generic/goalpost conditional harness; a dedicated marker `.blend` fixture and marker-specific live Qwen/Blender harness integration are still required.
-- The self-hosted local runner is currently the gating point for Live Conditional Atlas Regression #149.
+- The marker/collection architecture is offline/CI-proven but has not yet received a completed live proof.
+- The live workflow has been extended for collection/conditional cases, but the self-hosted local runner is currently the gating point for **#155**.
+- A successful executor response still cannot be treated as authoritative state; independent fresh scene evidence is mandatory.
 - Broader continuation/resume behavior needs a production-facing live proof.
 - Full unattended autonomous local production operation has not been declared complete.
 - Do not add goalpost-specific branches to generic planning layers.
@@ -155,37 +169,33 @@ What is **not yet live-proven** is a broader production-facing continuation/resu
 
 ## 8. Exact next development stage
 
-1. Allow **Live Conditional Atlas Regression #149** to run when the self-hosted runner becomes available and inspect its actual logs/results.
-2. In parallel, build deterministic marker `.blend` fixtures for:
-   - marker already present and correct;
-   - marker absent;
-   - optional deliberate post-write verification-failure state.
-3. Extend the live Qwen/Blender harness to support the marker task without changing generic orchestration semantics.
-4. Add marker-specific live cases for zero-write, authorized creation, fresh verification, and fail-closed `BLOCKED` behavior.
-5. Only after live marker proof is green, select the next materially different Blender production capability.
+1. Let **Live Conditional Atlas Regression #155** execute when the self-hosted runner becomes available.
+2. Inspect all four live job logs/results rather than inferring success from queue completion.
+3. If a live case fails, diagnose the actual runner/Blender/Qwen behavior and implement the smallest architecture-consistent fix; then rerun the affected regression.
+4. If all four cases pass, record the first completed live proof for the second task.
+5. Confirm the three important semantics explicitly:
+   - already-correct -> zero writes;
+   - incorrect -> explicit authorization -> exactly one creation/write -> fresh verification;
+   - executor reports success but authoritative post-state is wrong -> verification fails -> `BLOCKED`.
+6. Only after that live proof is green, select the next materially different Blender production capability.
+7. Preserve the generic architecture and avoid task-specific branches in `PlanningOrchestrator`, `ConditionalPlanningOrchestrator`, authorization, deterministic future, or verification primitives.
 
-Required marker path:
+Required second-task path:
 
 ```text
 structured Qwen proposal
  -> exact Blender tool/argument validation
  -> authoritative scene evidence
- -> marker target-state evaluation
+ -> target-state evaluation
  -> conditional skip/create decision
  -> explicit ActionAuthorization
  -> deterministic future
- -> create_empty_marker execution
+ -> create_empty_marker / collection execution
  -> structured result
  -> fresh independent verification
  -> Blender execution receipt
- -> completion
+ -> completion or BLOCKED
 ```
-
-Required marker live cases:
-
-1. marker already present and correct -> zero writes -> fresh verification -> complete;
-2. marker absent -> explicit authorization -> create marker -> fresh verification -> complete;
-3. marker creation reports success but marker is absent afterward -> verification fails -> `BLOCKED`.
 
 ## 9. Required regression coverage to preserve
 
@@ -203,7 +213,8 @@ Continue proving:
 - wrong result tool -> rejected;
 - invalid resume/continuation identity -> rejected;
 - authorized replan from fresh evidence -> accepted;
-- unauthorized replan -> rejected.
+- unauthorized replan -> rejected;
+- receipt is bound to one execution and cannot cause a duplicate write.
 
 ## 10. Resume instructions
 
@@ -212,13 +223,10 @@ On the next development session:
 1. read this handoff;
 2. inspect current `main` and the latest GitHub Actions state;
 3. inspect actual logs before changing code if a test fails;
-4. keep generic planning layers task-agnostic;
-5. use the green **Atlas Tests #393/#394** baseline as the offline starting point;
-6. resolve the self-hosted-runner gate for **Live Conditional Atlas Regression #149** before treating the current live workflow as a new proof;
-7. build the deterministic marker fixtures;
-8. extend the live harness for marker creation;
-9. run and inspect the marker live cases;
-10. update this handoff with the verified marker implementation milestone and live result;
-11. then proceed to the next materially different Blender production capability.
+4. use **Atlas Tests #401 PASS / Python 3.9 + 3.11** as the current offline baseline;
+5. resolve and inspect **Live Conditional Atlas Regression #155**;
+6. do not mark the second task live-proven until its jobs actually execute and pass;
+7. update this handoff with the actual live result;
+8. then proceed to the next materially different Blender production capability.
 
-**Immediate continuation point:** offline marker architecture is green; the remaining work is deterministic marker fixture + live harness integration, with Live Conditional Atlas Regression #149 currently waiting for the self-hosted runner.
+**Immediate continuation point:** the receipt single-execution fix is green offline in CI; the remaining gating item is live regression **#155**, currently queued for the self-hosted runner.
