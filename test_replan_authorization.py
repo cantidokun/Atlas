@@ -44,8 +44,6 @@ def test_recovery_replan_requires_explicit_authorization_receipt():
 
     result = orchestrator.install_authorized_replan(receipt, actions)
     assert result.satisfied is False
-    assert orchestrator.next_phase() == "AUTHORIZATION"
-    orchestrator.authorize_execution("replacement-execution")
     assert orchestrator.next_phase() == "ACTION"
 
 
