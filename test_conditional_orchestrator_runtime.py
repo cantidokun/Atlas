@@ -65,6 +65,9 @@ def test_conditional_action_executor_exception_blocks_orchestrator():
     orchestrator.acquire_next_evidence(lambda _tool, _arguments: {"ready": False})
     result = orchestrator.evaluate_target_state({"ready": False})
     assert result.satisfied is False
+    assert orchestrator.next_phase() == "AUTHORIZATION"
+    orchestrator.authorize_execution("conditional-runtime-test")
+    assert orchestrator.next_phase() == "ACTION"
 
     def fail(_tool, _arguments):
         raise RuntimeError("conditional write unavailable")
