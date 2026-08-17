@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from action_plan import ActionPlan, ActionSpec
+from planning.action_authorization import ActionAuthorization
 
 
 @dataclass
@@ -11,7 +12,9 @@ class ConditionalActionPlan:
 
     Evidence evaluation is external to this class. Python records the decision;
     the class then either marks the plan skipped or exposes its deterministic
-    action sequence for execution.
+    action sequence for execution. The underlying ActionPlan always carries an
+    immutable integrity receipt so conditional execution cannot bypass the
+    generic action-plan boundary.
     """
 
     actions: List[ActionSpec]
@@ -21,6 +24,11 @@ class ConditionalActionPlan:
 
     def __post_init__(self) -> None:
         self.action_plan = ActionPlan(self.actions)
+        # This receipt is an internal integrity binding, not external write
+        # authorization. External callers still gate writes separately.
+        self.action_plan.authorize(
+            ActionAuthorization.issue(self.actions, "conditional-action-plan")
+        )
 
     def evaluate(self, target_satisfied: bool) -> None:
         if self.evaluated:
