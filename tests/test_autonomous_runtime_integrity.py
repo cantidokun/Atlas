@@ -36,7 +36,7 @@ def test_resume_requires_matching_stable_context(tmp_path):
     AutonomousFutureRuntime(steps(), store, context())
 
     with pytest.raises(RuntimeError, match="integrity"):
-        AutonomousFutureRuntime(steps(), store, context("changed stable instructions")).resume()
+        AutonomousFutureRuntime.resume_from_store(steps(), store, context("changed stable instructions"))
 
 
 def test_resume_rejects_tampered_integrity_receipt(tmp_path):
@@ -49,7 +49,7 @@ def test_resume_rejects_tampered_integrity_receipt(tmp_path):
     path.write_text(json.dumps(envelope), encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="integrity"):
-        AutonomousFutureRuntime(steps(), store, context()).resume()
+        AutonomousFutureRuntime.resume_from_store(steps(), store, context())
 
 
 def test_resume_rejects_missing_integrity_receipt(tmp_path):
@@ -62,14 +62,17 @@ def test_resume_rejects_missing_integrity_receipt(tmp_path):
     path.write_text(json.dumps(envelope), encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="integrity"):
-        AutonomousFutureRuntime(steps(), store, context()).resume()
+        AutonomousFutureRuntime.resume_from_store(steps(), store, context())
 
 
 def test_resume_with_matching_integrity_continues_exact_checkpoint(tmp_path):
     store = FutureRuntimeStateStore(tmp_path / "runtime.json")
     runtime = AutonomousFutureRuntime(steps(), store, context())
-    runtime.run_until_pause(lambda tool, arguments: {"ok": True}, acknowledgements={"evidence.authoritative": {"source": "test"}})
+    runtime.run_until_pause(
+        lambda tool, arguments: {"ok": True},
+        acknowledgements={"evidence.authoritative": {"source": "test"}},
+    )
 
-    resumed = AutonomousFutureRuntime(steps(), store, context()).resume()
+    resumed = AutonomousFutureRuntime.resume_from_store(steps(), store, context())
     assert resumed.snapshot()["current_index"] == 1
     assert resumed.snapshot()["history"][0]["step_id"] == "evidence.authoritative"
