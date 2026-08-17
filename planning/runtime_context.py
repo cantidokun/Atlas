@@ -1,6 +1,7 @@
 """Stable/dynamic runtime context separation for Atlas model calls."""
 
 from dataclasses import dataclass
+import hashlib
 from typing import Any, Dict, Optional
 
 
@@ -20,6 +21,16 @@ class RuntimeContext:
     def cacheable_prefix(self) -> str:
         return self.stable_instructions
 
+    def stable_fingerprint(self) -> str:
+        """Return a deterministic identity for the cacheable instruction prefix."""
+        return hashlib.sha256(self.stable_instructions.encode("utf-8")).hexdigest()
+
+    def matches_stable_fingerprint(self, fingerprint: str) -> bool:
+        """Return whether a previously cached prefix is still the current prefix."""
+        if not isinstance(fingerprint, str) or not fingerprint:
+            return False
+        return self.stable_fingerprint() == fingerprint
+
     def dynamic_payload(self) -> Dict[str, Any]:
         return dict(self.dynamic_state)
 
@@ -27,6 +38,7 @@ class RuntimeContext:
         """Return a request shape that preserves the stable-prefix boundary."""
         return {
             "stable_instructions": self.cacheable_prefix(),
+            "stable_fingerprint": self.stable_fingerprint(),
             "dynamic_state": self.dynamic_payload(),
         }
 
