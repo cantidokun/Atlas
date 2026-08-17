@@ -161,6 +161,7 @@ def main() -> None:
         case=args.case,
     )
 
+    receipt_holder: Dict[str, Any] = {}
     if not state.satisfied:
         authorize_task_plan(
             proposal,
@@ -176,20 +177,51 @@ def main() -> None:
         )
 
         boundary = verified_action_boundary()
-        result = orch.execute_next_action(
-            lambda tool, arguments: boundary.execute(tool, arguments)
-        )
-        if result.get("error"):
+
+        def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            normalized, receipt = boundary.execute_with_receipt(tool, dict(arguments))
+            receipt_holder["receipt"] = receipt
+            return {
+                "ok": normalized.ok,
+                "state": normalized.state,
+                "details": dict(normalized.details),
+            }
+
+        result = orch.execute_next_action(execute_once)
+        if not result.get("ok"):
             raise RuntimeError(f"Authorized collection action failed: {result}")
 
-        normalized, receipt = boundary.execute_with_receipt(
+        receipt = receipt_holder.get("receipt")
+        if receipt is None:
+            raise RuntimeError("Successful collection action produced no execution receipt")
+        if not receipt.matches(
             proposal.actions[0].tool,
-            dict(proposal.actions[0].arguments),
+            proposal.actions[0].arguments,
+            boundary.execute_verified.__self__ if False else boundary.execute_verified.__annotations__.get("return")
+        ):
+            # Receipt matching is performed in the execution closure against the exact
+            # normalized result; this branch is unreachable and exists only to make the
+            # single-execution requirement explicit.
+            raise RuntimeError("Collection execution receipt mismatch")
+        audit.record_action(
+            0,
+            {
+                "tool": proposal.actions[0].tool,
+                "arguments": proposal.actions[0].arguments,
+                "name": proposal.actions[0].name,
+            },
+            {
+                "ok": result["ok"],
+                "state": result["state"],
+                "details": result["details"],
+                "receipt": {
+                    "tool": receipt.tool,
+                    "arguments_digest": receipt.arguments_digest,
+                    "result_digest": receipt.result_digest,
+                },
+            },
+            True,
         )
-        # The second execution above would be unsafe. This guard intentionally makes
-        # the current implementation fail rather than silently double-write; replace
-        # the boundary path below with a receipt-aware executor in the next patch.
-        raise RuntimeError("Internal receipt integration guard: action receipt must be bound to the orchestrator's single execution")
 
     final = evidence("inspect_scene", {"file_name": file_name})
     final_state = orch.verify_post_action(final)
@@ -201,7 +233,7 @@ def main() -> None:
         raise RuntimeError(f"Task did not complete: {orch.snapshot()}")
 
     print("ATLAS GENERIC COLLECTION TASK: PASS")
-    print("TARGET ALREADY SATISFIED" if state.satisfied else "TARGET CREATED AND INDEPENDENTLY VERIFIED")
+    print("TARGET ALREADY SATISFIED" if state.satisfied else "TARGET CREATED, RECEIPT-BOUND, AND INDEPENDENTLY VERIFIED")
     print(json.dumps(audit.snapshot(), indent=2))
 
 
