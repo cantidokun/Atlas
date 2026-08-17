@@ -1,193 +1,98 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 17, 2026 02:39 UTC
+**Updated:** August 17, 2026 04:48 UTC
 **Current branch:** `main`
-**Current HEAD:** `4661dc4301a1902b40073d4d22b8175bfa0923fd`
-**HEAD message:** `test: enforce autonomous runtime integrity boundary`
+**Current HEAD:** `09d165944b32dd5ee03100cff10a0d4b33481df3`
+**HEAD message:** `test: bind Blender execution receipts to request and result`
 
-## 1. Project and architectural direction
+## 1. Session scope
 
-Atlas is an AI-assisted sports virtual production and digital-twin platform. Blender is the first proven execution environment; Unreal Engine is a planned complementary production environment.
+This development track is currently **Blender Agent only**. Do not continue Unreal Agent work in this track.
 
-The intended production pipeline is:
+The immediate objective is to turn the Blender Agent into a reliable autonomous production executor while preserving the Atlas authority model:
 
-`captured sports footage / real-world environment -> dedicated photogrammetry software -> initial 3D reconstruction -> Blender Agent -> analysis / cleanup / correction / optimization -> prepared digital twin -> Unreal Agent -> real-time production / VFX -> independent Atlas verification`
+```text
+Qwen / AI
+  -> reason and propose
 
-Photogrammetry is an upstream reconstruction capability. It is not a responsibility of the Blender Agent. The photogrammetry-to-Blender boundary is a future intake/output contract and is not yet implemented.
+Python / Atlas
+  -> validate -> authorize -> execute -> track -> verify -> recover
 
-The control principle is:
+Blender
+  -> execute production operations
 
-`Qwen / AI -> reason and propose`
+Independent Atlas verification
+  -> confirm resulting state
+```
 
-`Python / Atlas -> validate, authorize, execute, track state, verify, recover`
+Qwen is never the execution authority.
 
-`Production tools -> execute`
+## 2. Current verified milestone
 
-`Independent verification -> confirm actual resulting state`
+The latest Blender execution-integrity stage is green.
 
-The orchestration layer must remain production-tool-agnostic. The goalpost task is a proof fixture, not the generic architecture.
+### Latest implementation
 
-## 2. Verified runtime
+The Blender Agent now has these layers:
 
-### Local runtime
+1. **Tool schema validation** — `planning/blender_tool_schema.py`
+   - validates supported Blender tools and required arguments;
+   - rejects unknown tools, missing arguments, invalid types, and invalid 3D coordinates;
+   - snapshots mutable supported arguments before execution.
 
-- Python `3.9.6`
-- Ollama `0.32.13`
-- Model `qwen3:8b`
-- Blender `4.4`
-- Blender executable: `C:\Program Files\Blender Foundation\Blender 4.4\blender.exe`
-- Ollama endpoint: `http://localhost:11434/api/chat`
+2. **Execution boundary** — `planning/blender_execution_boundary.py`
+   - validates every call before Blender receives it;
+   - preserves the existing raw `execute()` API for compatibility;
+   - provides `execute_verified()` for normalized verification-aware execution;
+   - rejects malformed executor responses.
 
-### CI runtime
+3. **Structured result contract** — `planning/blender_result_contract.py`
+   - converts valid adapter responses into immutable `BlenderExecutionResult` values;
+   - requires boolean success, non-empty state, and object-shaped details.
 
-GitHub Actions regression matrix:
+4. **Independent verification gate** — `planning/blender_verification.py`
+   - requires the returned result to belong to the requested tool;
+   - requires `ok=True` before the verified path can succeed;
+   - fails closed on unsuccessful or mismatched results.
 
-- Python `3.11`
-- Python `3.9`
+5. **Execution receipt** — `planning/blender_execution_receipt.py`
+   - binds the exact Blender tool, validated arguments, and verified execution result;
+   - uses deterministic digests to detect mutation;
+   - prevents a successful execution from being detached from the request/result that produced it;
+   - failed execution cannot create a receipt.
 
-Latest CI run checked:
+6. **Receipt-bound execution** — `execute_with_receipt()`
+   - validates the request;
+   - executes Blender;
+   - normalizes and independently verifies the result;
+   - creates an immutable receipt only after successful verification.
 
-- Atlas Tests run `#266`
-- HEAD `4661dc4301a1902b40073d4d22b8175bfa0923fd`
-- Python 3.11: **201 passed**
-- Python 3.9: **PASS**
+## 3. Latest commits
 
-The 3.11 job log explicitly reports `201 passed in 0.42s`.
+The receipt milestone was implemented and tested through these commits:
 
-A separate live workflow is currently present:
+- `788d311` — add immutable Blender execution receipt
+- `909b0c4` — expose receipt-bound Blender execution
+- `09d1659` — add receipt regression coverage
 
-- `Live Conditional Atlas Regression`
-- run `#86`
-- HEAD `4661dc4301a1902b40073d4d22b8175bfa0923fd`
-- status at this handoff update: **waiting**
+Earlier verified compatibility work restored the established `execute()` contract while adding the new verification path.
 
-That live workflow result is not yet a pass/fail and must not be treated as proven until it completes.
+## 4. Latest test status
 
-## 3. Core planning and execution architecture
+The user confirmed that the latest local and live tests passed.
 
-### Existing controller layer
+The GitHub Actions state checked during this milestone was:
 
-- `controller_state.py` — controller-owned BEFORE/TARGET/WRITE/AFTER/COMPLETE state and target calculations.
-- `controller_runtime.py` — one mandatory controller action at a time; ordering is not delegated to Qwen.
-- `controller_bridge.py` — bridges controller state and the existing agent.
-- `controller_execution_adapter.py` — mirrors controller-owned results into normal tool history/evidence.
-- `controller_integration.py` — integration boundary between agent and controller.
-- `run_agent_with_controller.py` — live compatibility entrypoint.
-- `controller_finalization.py` — deterministic final report generation from verified evidence.
+- **Atlas Tests #377** — passed
+- **Live Conditional Atlas Regression #142** — passed after `local-testing` deployment approval
 
-### Generic planning primitives
+The live workflow uses the self-hosted Windows runner and the existing conditional Blender harness.
 
-- `action_plan.py`
-  - `ActionSpec` represents one ordered action.
-  - `ActionPlan` exposes the next action, records results, advances only after success, blocks on required failure, and snapshots state.
+The deployment approval is expected because `.github/workflows/live-conditional-regression.yml` uses the `local-testing` environment. When that gate appears, the user should approve `local-testing`; no other manual intervention should be required unless a workflow explicitly fails.
 
-- `evidence_plan.py`
-  - ordered evidence requests, completion, reuse, and blocking failures.
+## 5. Existing live Blender proof
 
-- `planning/target_state.py`
-  - `StateInvariant` and `TargetStateEvaluator`.
-  - explicit satisfied/failed invariants and snapshots.
-
-- `planning/verification_plan.py`
-  - generic post-action verification.
-  - write success is never proof of final state.
-  - fresh evidence must be evaluated against explicit postconditions.
-  - failed verification fails closed.
-
-- `planning/planning_orchestrator.py`
-  - `PlanningOrchestrator` for generic evidence -> action flow.
-  - `ConditionalPlanningOrchestrator` for evidence -> target evaluation -> conditional execution -> independent verification -> completion.
-  - explicit phases include `EVIDENCE`, `TARGET_EVALUATION`, `AUTHORIZATION`, `ACTION`, `VERIFICATION`, `COMPLETE`, `BLOCKED`, and `RECOVERY_REPLAN`.
-  - integrates deterministic futures, action authorization, recovery, and replanning.
-
-### Authorization and tool-boundary controls
-
-- `planning/action_authorization.py`
-  - immutable `ActionAuthorization` receipt.
-  - binds the exact authorized action list to a digest and authorization ID.
-
-- `planning/replan_authorization.py`
-  - immutable `ReplanAuthorization` receipt.
-  - binds fresh evidence and the exact replacement action list by digest.
-
-- `task_plan_authorization.py`
-  - explicit authorization boundary for model-proposed plans and write tools.
-
-- `planning/tool_schema.py`
-  - strict schemas for admitted tools including `inspect_scene`, `inspect_object_relationship`, `move_object`, and `create_collection`.
-  - rejects unknown and missing arguments and validates types/finite 3D locations.
-
-- `qwen/structured_plan.py`
-  - shared Ollama JSON-schema constraint for task-plan proposals.
-  - requires exactly the `evidence` and `actions` arrays and exact item shape.
-
-- `qwen_planning_runtime.py`
-  - parses and validates Qwen structured plans.
-
-### Deterministic future and recovery architecture
-
-- `planning/future_generator.py`
-  - `DeterministicFutureGenerator` derives the only legal future implied by an already-authorized action list and resolved target state.
-  - no model reasoning and no tool execution occur here.
-  - target satisfied -> `SKIP_WRITES` -> `VERIFICATION` -> `COMPLETE`.
-  - target unsatisfied -> ordered authorized actions -> `VERIFICATION` -> `COMPLETE`.
-
-- `planning/future_execution.py`
-  - `FutureExecutionController` owns the execution cursor.
-  - prevents skipping, reordering, or inventing steps.
-  - computes a plan digest and detects future mutation.
-  - supports validated resume from a serialized snapshot.
-  - only successful actions advance the cursor.
-  - verification must be positive before completion can be finalized.
-
-- `planning/future_recovery.py`
-  - `FutureRecoveryGate` classifies deterministic-future failures.
-  - no automatic retry.
-  - action failure -> fresh authoritative evidence first.
-  - verification failure -> fresh evidence and a new authorized plan.
-  - terminal/ambiguous failure -> abort/fail closed.
-
-### Runtime identity / continuation integrity
-
-- `planning/runtime_context.py`
-  - separates cacheable/stable instructions from authoritative dynamic state.
-  - stable instructions receive a deterministic SHA-256 fingerprint.
-  - live observation, plan digest, current step, and runtime state remain dynamic.
-
-- `planning/model_request.py`
-  - assembles model requests while preserving the stable/dynamic boundary.
-
-- `planning/runtime_integrity.py`
-  - `RuntimeIntegrity` binds continuation to three identities:
-    1. stable instruction fingerprint
-    2. authorized plan digest
-    3. authoritative persisted-state digest
-  - `require_continuation_integrity()` fails closed if any identity changes.
-  - missing authoritative digests cannot be authorized.
-
-The latest HEAD specifically adds regression coverage for this runtime integrity boundary.
-
-### Audit/runtime bridge
-
-- `audit_trail.py` — records proposal, evidence, authorization, execution, and verification order.
-- `live_qwen_planning_loop.py` — live Qwen -> Python structured planning bridge.
-- `live_qwen_conditional_loop.py` — live conditional Blender harness using the generic orchestrator and generic `VerificationPlan`.
-
-## 4. Live conditional Blender proof
-
-The live conditional harness is `live_qwen_conditional_loop.py`.
-
-Runtime/model:
-
-- Ollama: `http://localhost:11434/api/chat`
-- model: `qwen3:8b`
-- response constrained with `TASK_PLAN_JSON_SCHEMA`
-- maximum plan attempts: `3`
-
-Allowed tools in the harness:
-
-- `inspect_object_relationship`
-- `move_object`
+The live conditional harness remains `live_qwen_conditional_loop.py`.
 
 Fixtures:
 
@@ -202,181 +107,125 @@ Target state:
 - distance `10.466`
 - symmetric about origin
 
-The incorrect fixture was made deterministic so it cannot accidentally inherit an already-correct base state.
+The proven conditional behavior is:
+
+```text
+already correct
+  -> target satisfied
+  -> skip writes
+  -> fresh verification
+  -> complete
+
+incorrect
+  -> target unsatisfied
+  -> authorized writes
+  -> fresh verification
+  -> complete
+```
+
+The final state is established through independent Blender evidence rather than trusting a write response.
+
+## 6. Generic Atlas architecture already established
+
+The Blender Agent sits on generic Atlas planning primitives including:
+
+- `ActionPlan`
+- `EvidencePlan`
+- `TargetStateEvaluator`
+- `VerificationPlan`
+- `PlanningOrchestrator`
+- `ConditionalPlanningOrchestrator`
+- action authorization
+- replan authorization
+- deterministic future generation
+- deterministic future execution
+- recovery/replan gates
+- runtime context fingerprinting
+- runtime integrity checks
+- audit trail
+
+Important architectural rule: do not turn the goalpost fixture into the generic architecture. Blender-specific behavior must remain behind Blender adapter/tool boundaries.
+
+## 7. Runtime integrity / continuation
+
+Atlas already has a runtime identity boundary that binds continuation to stable instructions, authorized plan identity, and authoritative persisted state.
+
+The next Blender-specific progression should **use these primitives at a real continuation boundary**, not merely add isolated tests.
+
+Continuation must fail closed if authoritative state, authorized future, or stable execution context changes.
+
+## 8. Next development stage
+
+The next stage is **broader verified Blender task composition**, not another isolated validation primitive.
+
+Build a second live Blender task that is materially different from the goalpost fixture and reuses the generic architecture.
+
+Required path:
+
+```text
+structured Qwen proposal
+  -> exact Blender tool/argument validation
+  -> authoritative Blender evidence
+  -> explicit target-state evaluation
+  -> conditional decision
+  -> explicit authorization
+  -> deterministic future
+  -> Blender execution
+  -> structured result
+  -> independent verification
+  -> execution receipt
+  -> completion
+```
+
+The second task should exercise different object relationships and a different action shape. Do not add goalpost-specific branches.
+
+## 9. Required regression cases for the next stage
+
+Continue expanding Blender-specific regression coverage for:
+
+- already-satisfied state -> zero writes;
+- unsatisfied state -> exact authorized action order;
+- successful write -> verification still mandatory;
+- failed verification -> `BLOCKED`;
+- failed action -> recovery gate;
+- mutated arguments -> receipt mismatch;
+- mutated execution result -> receipt mismatch;
+- malformed executor response -> rejected;
+- wrong result tool -> rejected;
+- invalid resume/continuation identity -> rejected;
+- authorized replan based on fresh evidence -> accepted;
+- unauthorized replan -> rejected.
+
+## 10. Development/test operating rule
+
+For each new Blender stage:
+
+1. inspect current `main` before changing architecture;
+2. implement the smallest coherent production-facing increment;
+3. add focused offline regression coverage;
+4. wait for the local test gate;
+5. inspect the newest GitHub Actions workflow state;
+6. if live testing requests `local-testing`, tell the user to approve it;
+7. diagnose failures from actual logs before changing code;
+8. reimplement the correction and retest;
+9. after the stage is green, update this handoff with the verified commit and test state;
+10. continue to the next coherent Blender stage without waiting for a separate "keep going" instruction unless user input is genuinely required.
 
-Historical live proof after those fixes:
+For the next five test failures, proactively diagnose and implement corrections rather than waiting for the user to ask for each fix. Check the most recently submitted workflows intermittently while development proceeds.
 
-- Run `#29` — `already-correct`: **PASS**
-- Run `#30` — `incorrect`: **PASS**
+## 11. Known boundaries
 
-Those tests proved:
+- Qwen remains proposal/reasoning only.
+- Blender is an execution adapter, not Atlas's canonical source of truth.
+- Photogrammetry is upstream of Blender and is not a Blender responsibility.
+- Unreal Agent work is out of scope for this development track.
+- The current live proof is still limited in breadth; a second non-goalpost live task is the next major proof milestone.
+- Full unattended autonomous local production operation has not yet been declared complete.
 
-1. already-correct -> target state satisfied -> writes skipped;
-2. incorrect -> target state unsatisfied -> authorized writes execute -> final state independently verified.
+## 12. Resume rule
 
-The live harness has since been upgraded so the final inspection is passed through the generic `VerificationPlan` rather than a goalpost-specific final-verification shortcut.
+On the next session, start by reading this file and inspecting the current `main` HEAD and latest workflow state. Do not rely on older conversational commit numbers if they differ from the repository.
 
-## 5. Generic verification proof
+The immediate continuation point is:
 
-`tests/test_verification_plan.py` currently covers:
-
-- successful action enters `VERIFICATION` rather than `COMPLETE`;
-- successful write does not count as verification;
-- failed post-action verification blocks the orchestrator;
-- already-correct state skips writes but still requires fresh verification before completion;
-- standalone verification failure fails closed.
-
-A previous test initially expected verification failure to raise immediately. That expectation was corrected to match the intended state-machine contract: verification returns an unsatisfied result and the orchestrator becomes `BLOCKED`.
-
-The generic verification architecture is now integrated into `live_qwen_conditional_loop.py`.
-
-## 6. Tool/schema validation proof
-
-`planning/tool_schema.py` and `tests/test_tool_schema.py` cover:
-
-- generic `create_collection` arguments;
-- `move_object` with arbitrary object names, proving the schema is not goalpost-specific;
-- rejection of unknown arguments;
-- rejection of missing arguments.
-
-This boundary exists because earlier live experimentation exposed malformed Qwen tool-argument structures reaching the executor boundary. The architectural response was to make tool argument validation explicit before execution.
-
-## 7. Runtime context and integrity proof
-
-Current tests include:
-
-- `tests/test_runtime_context.py`
-- `tests/test_runtime_context_fingerprint.py`
-- `tests/test_model_request.py`
-- `tests/test_runtime_integrity.py`
-
-`tests/test_runtime_integrity.py` verifies:
-
-- matching stable context + plan digest + state digest permits continuation;
-- changed stable instructions fail closed;
-- changed plan digest fails closed;
-- changed persisted-state digest fails closed;
-- missing authoritative digests cannot be authorized.
-
-The latest HEAD commit is:
-
-`4661dc4301a1902b40073d4d22b8175bfa0923fd`
-
-`test: enforce autonomous runtime integrity boundary`
-
-It adds `tests/test_runtime_integrity.py`.
-
-## 8. Resume / mutation integrity proof
-
-`tests/test_future_execution_resume.py` covers:
-
-- exact plan digest required for resume;
-- changed action plan rejected;
-- tampered history rejected;
-- valid resume continues from the exact authorized checkpoint without reordering or reauthorizing the existing future.
-
-This complements `FutureExecutionController`'s internal plan digest check.
-
-## 9. Audit and recovery model
-
-The intended execution lifecycle is:
-
-`Qwen proposal -> schema validation -> authoritative evidence -> target-state evaluation -> authorization -> deterministic future -> execution -> independent verification -> completion`
-
-Failure lifecycle:
-
-`action/verification failure -> BLOCKED -> fresh authoritative evidence -> explicit recovery decision -> new plan -> independent re-authorization -> new deterministic future`
-
-Automatic retry is prohibited. A failure cannot silently alter the existing authorized future.
-
-## 10. Current regression status
-
-Latest completed CI run inspected:
-
-- workflow: `Atlas Tests`
-- run `#266`
-- commit: `4661dc4301a1902b40073d4d22b8175bfa0923fd`
-- Python 3.11: **201 passed in 0.42s**
-- Python 3.9: **PASS**
-
-The latest live conditional regression workflow is separate:
-
-- workflow: `Live Conditional Atlas Regression`
-- run `#86`
-- same HEAD commit
-- status when this handoff was generated: **waiting**
-
-Do not treat the waiting live workflow as a pass. Its completion must be checked before the current live-integrity milestone is declared fully green.
-
-## 11. Current known issues / boundaries
-
-1. Qwen is still a proposal source, never an execution authority.
-2. The structured-plan schema validates plan shape and the tool schema validates tool arguments, but semantic correctness of a proposed task still depends on the target-state and authorization layers.
-3. The goalpost task is the primary live end-to-end proof. The generic primitives are broader, but arbitrary production tasks have not yet been proven live.
-4. Recovery/replanning primitives are implemented and regression-tested, but broad live end-to-end recovery across arbitrary Blender failures still needs dedicated integration coverage.
-5. CI is offline Python regression testing. It does not replace the local Ollama + Qwen + Blender live environment.
-6. Full unattended local autonomous operation is not yet the declared milestone. Human-triggered/local harness execution remains part of the current proof protocol.
-7. Dedicated photogrammetry integration is not implemented. The intake/output contract and downstream Blender cleanup/optimization workflow still need design.
-8. Unreal Engine execution is planned, not implemented.
-9. The latest live regression run `#86` is waiting and therefore the newest runtime-integrity change still needs live confirmation.
-
-## 12. Exact next steps to resume development
-
-### Step 1 — finish the newest live integrity regression
-
-Wait for `Live Conditional Atlas Regression #86` to complete against HEAD `4661dc4301a1902b40073d4d22b8175bfa0923fd`.
-
-If it fails, diagnose and fix the runtime-integrity boundary before proceeding.
-
-If it passes, record the live result as the next verified milestone.
-
-### Step 2 — generalize beyond the goalpost
-
-Build a second live Blender task with different invariants and a different action shape. Reuse the existing generic primitives rather than adding another goalpost-specific branch.
-
-Required flow:
-
-`structured proposal -> exact tool/argument validation -> authoritative evidence -> target evaluation -> conditional decision -> authorization -> deterministic future -> execution -> fresh verification -> completion`
-
-### Step 3 — expand generic conditional regression coverage
-
-Ensure regression coverage includes:
-
-- already satisfied -> zero writes;
-- unsatisfied -> all authorized actions in exact order;
-- successful action -> verification still required;
-- verification failure -> BLOCKED;
-- action failure -> recovery gate;
-- mutated future -> integrity failure;
-- invalid resume snapshot -> rejected;
-- unauthorized replan -> rejected;
-- authorized replan matching fresh evidence -> accepted;
-- stable-context/plan/state identity change -> continuation rejected.
-
-### Step 4 — make the runtime integrity boundary part of actual continuation
-
-The new `RuntimeContext` / `RuntimeIntegrity` primitives currently have direct regression coverage. The next architectural step is to ensure the same identity check is invoked at every real autonomous continuation/resume boundary, not merely tested as an isolated primitive.
-
-### Step 5 — then begin broader autonomous task control
-
-Once a second non-goalpost live task passes, the next milestone should be reusable autonomous task composition across production operations. Qwen should continue to decide and propose; Python should continue to own validation, authorization, deterministic continuation, execution, verification, and recovery.
-
-## 13. Photogrammetry future boundary
-
-Do not implement photogrammetry integration yet merely to reserve the architecture.
-
-When production requirements are ready, define:
-
-- photogrammetry output contract;
-- file/scene interchange contract into Blender;
-- reconstruction metadata and provenance;
-- Blender intake evidence requirements;
-- Blender cleanup/correction/optimization responsibilities;
-- validation criteria for downstream readiness;
-- handoff contract to the Unreal Agent.
-
-Photogrammetry remains upstream of the Blender Agent.
-
-## 14. Resume rule
-
-When continuing Atlas development, start from the repository's current `main` HEAD rather than relying on an older conversational milestone. Treat `ATLAS_HANDOFF_CONTEXT.txt` as historical context and this file as the current concise handoff. Verify current GitHub Actions state before claiming a milestone is green.
+**Expand the verified Blender Agent from the goalpost proof into a second generic live production task, reusing the existing validation -> authorization -> deterministic future -> execution -> verification -> receipt architecture.**
