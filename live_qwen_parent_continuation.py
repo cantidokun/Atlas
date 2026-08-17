@@ -13,6 +13,7 @@ import tempfile
 from typing import Any, Dict
 
 from action_plan import ActionSpec
+from planning.action_authorization import ActionAuthorization
 from planning.autonomous_runtime import AutonomousFutureRuntime
 from planning.future_generator import DeterministicFutureGenerator
 from planning.parent_marker_task import MARKER_OBJECT, PARENT_OBJECT, parent_target_evaluator
@@ -78,6 +79,9 @@ def main() -> None:
     evidence = fresh_evidence(file_name)
     target = target_evaluator.evaluate(evidence)
     authorized_action = action(file_name)
+    authorization = ActionAuthorization.issue([authorized_action], f"live-continuation:{args.case}")
+    if not authorization.matches([authorized_action]):
+        raise RuntimeError("Continuation authorization did not match the authorized action")
 
     future = DeterministicFutureGenerator(target_evaluator).generate(
         target.satisfied,
@@ -122,7 +126,7 @@ def main() -> None:
 
     print("ATLAS BLENDER CONTINUATION TASK: PASS")
     print("TARGET ALREADY SATISFIED -> FUTURE SKIPPED WRITE" if target.satisfied else "AUTHORIZED BLENDER WRITE -> PERSISTED PAUSE -> RESUME -> FRESH VERIFICATION -> COMPLETE")
-    print(json.dumps({"case": args.case, "initial_target_satisfied": target.satisfied}, indent=2))
+    print(json.dumps({"case": args.case, "initial_target_satisfied": target.satisfied, "authorization_id": authorization.authorization_id}, indent=2))
 
 
 if __name__ == "__main__":
