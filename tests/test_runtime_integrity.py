@@ -21,6 +21,13 @@ def test_changed_stable_context_fails_closed():
         require_continuation_integrity(auth, changed, plan_digest="plan-1", state_digest="state-1")
 
 
+def test_changed_dynamic_context_fails_closed():
+    _, auth = _authorization()
+    changed = RuntimeContext("ATLAS RULES", {"current_index": 3})
+    with pytest.raises(RuntimeError):
+        require_continuation_integrity(auth, changed, plan_digest="plan-1", state_digest="state-1")
+
+
 def test_changed_plan_fails_closed():
     context, auth = _authorization()
     with pytest.raises(RuntimeError):
