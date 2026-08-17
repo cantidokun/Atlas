@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from action_plan import ActionPlan, ActionSpec
+from action_authorization import ActionAuthorization
 from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.tool_schema import validate_tool_arguments
 
@@ -57,4 +58,21 @@ def build_task_plan(proposal: Dict[str, Any], allowed_tools: Optional[set] = Non
     return TaskPlanProposal(evidence=evidence, actions=actions)
 
 def instantiate_plans(proposal: TaskPlanProposal) -> tuple[EvidencePlan, ActionPlan]:
+    """Instantiate plans without granting execution authorization."""
     return EvidencePlan(proposal.evidence), ActionPlan(proposal.actions)
+
+def instantiate_authorized_plans(
+    proposal: TaskPlanProposal,
+    *,
+    authorization_id: str,
+) -> tuple[EvidencePlan, ActionPlan]:
+    """Instantiate a task plan and bind its exact actions to one receipt.
+
+    Authorization is deliberately explicit and occurs after proposal validation.
+    Callers that only need inspection can continue using ``instantiate_plans``;
+    execution-capable callers must opt into this boundary.
+    """
+    evidence_plan, action_plan = instantiate_plans(proposal)
+    authorization = ActionAuthorization.issue(proposal.actions, authorization_id)
+    action_plan.authorize(authorization)
+    return evidence_plan, action_plan
