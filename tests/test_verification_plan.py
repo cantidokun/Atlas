@@ -33,6 +33,8 @@ def test_verification_is_a_distinct_phase_after_action():
     orchestrator = make_orchestrator()
     orchestrator.acquire_next_evidence(lambda tool, args: {"ready": False})
     orchestrator.evaluate_target_state({"ready": False})
+    assert orchestrator.next_phase() == "AUTHORIZATION"
+    orchestrator.authorize_execution("verification-phase-test")
     assert orchestrator.next_phase() == "ACTION"
 
     orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
@@ -48,6 +50,7 @@ def test_successful_write_does_not_count_as_verification():
     orchestrator = make_orchestrator()
     orchestrator.acquire_next_evidence(lambda tool, args: {"ready": False})
     orchestrator.evaluate_target_state({"ready": False})
+    orchestrator.authorize_execution("verification-success-test")
     orchestrator.execute_next_action(lambda tool, args: {"status": "moved"})
 
     assert orchestrator.action_complete
