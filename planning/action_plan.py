@@ -35,6 +35,11 @@ class ActionPlan:
         return self.authorization is not None and self.authorization.matches(self.actions)
 
     @property
+    def authorization_id(self) -> Optional[str]:
+        """Return the human/audit identifier bound to the current receipt."""
+        return getattr(self.authorization, "authorization_id", None)
+
+    @property
     def next_action(self) -> Optional[ActionSpec]:
         if self.complete or self.blocked:
             return None
@@ -47,6 +52,14 @@ class ActionPlan:
         if not authorization.matches(self.actions):
             raise RuntimeError("Authorization does not match the exact action plan.")
         self.authorization = authorization
+
+    def authorize_with_id(self, authorization_id: str) -> Any:
+        """Issue and install a receipt for this exact plan in one explicit operation."""
+        from planning.action_authorization import ActionAuthorization
+
+        authorization = ActionAuthorization.issue(self.actions, authorization_id)
+        self.authorize(authorization)
+        return authorization
 
     def record_result(self, result: Dict[str, Any], success: bool) -> None:
         """Record one action result and advance only after success."""
