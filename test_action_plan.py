@@ -3,16 +3,19 @@
 import pytest
 
 from action_plan import ActionPlan, ActionSpec
+from planning.action_authorization import ActionAuthorization
 
 
 def _plan():
-    return ActionPlan(
+    plan = ActionPlan(
         actions=[
             ActionSpec("move_object", {"object_name": "A", "location": [1, 0, 0]}, "move A"),
             ActionSpec("move_object", {"object_name": "B", "location": [-1, 0, 0]}, "move B"),
             ActionSpec("inspect_object_relationship", {"object1_name": "A", "object2_name": "B"}, "verify"),
         ]
     )
+    plan.authorize(ActionAuthorization.issue(plan.actions, "test-action-plan"))
+    return plan
 
 
 def test_plan_starts_with_first_action():
