@@ -1,6 +1,7 @@
 from action_plan import ActionSpec, ActionPlan
 from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan, EvidenceRequest
+from planning.action_authorization import ActionAuthorization
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator, PlanningOrchestrator
 from planning.target_state import StateInvariant, TargetStateEvaluator
 
@@ -34,10 +35,12 @@ def test_evidence_executor_exception_blocks_generic_orchestrator():
 
 
 def test_action_executor_exception_blocks_generic_orchestrator():
+    actions = [ActionSpec("write", {}, "write")]
     orchestrator = PlanningOrchestrator(
         evidence_plan=EvidencePlan([]),
-        action_plan=ActionPlan([ActionSpec("write", {}, "write")]),
+        action_plan=ActionPlan(actions),
     )
+    orchestrator.action_plan.authorize(ActionAuthorization.issue(actions, "runtime-test"))
 
     def fail(_tool, _arguments):
         raise RuntimeError("write unavailable")
