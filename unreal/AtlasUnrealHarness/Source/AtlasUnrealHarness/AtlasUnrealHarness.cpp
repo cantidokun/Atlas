@@ -19,13 +19,67 @@ void FAtlasUnrealHarnessModule::ShutdownModule()
 
 namespace AtlasUnrealHarness
 {
-    static bool ParseAndValidateOperation(const FString& Payload, FString& OutEntityId, FString& OutError)
+    static bool HasExactOperationKeys(const TSharedPtr<FJsonObject>& Root)
+    {
+        static const TSet<FString> RequiredKeys = {
+            TEXT("capability"),
+            TEXT("kind"),
+            TEXT("name"),
+            TEXT("arguments"),
+            TEXT("entity_ids")
+        };
+
+        if (!Root.IsValid() || Root->Values.Num() != RequiredKeys.Num())
+        {
+            return false;
+        }
+
+        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Root->Values)
+        {
+            if (!RequiredKeys.Contains(Pair.Key))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool ReadSingleEntityIdArray(
+        const TArray<TSharedPtr<FJsonValue>>* Values,
+        FString& OutEntityId)
+    {
+        if (!Values || Values->Num() != 1 || !(*Values)[0].IsValid())
+        {
+            return false;
+        }
+
+        FString EntityId;
+        if (!(*Values)[0]->TryGetString(EntityId) || EntityId.IsEmpty())
+        {
+            return false;
+        }
+
+        OutEntityId = MoveTemp(EntityId);
+        return true;
+    }
+
+    static bool ParseAndValidateOperation(
+        const FString& Payload,
+        FString& OutEntityId,
+        FString& OutError)
     {
         TSharedPtr<FJsonObject> Root;
         const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Payload);
         if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
         {
             OutError = TEXT("operation payload is not valid JSON");
+            return false;
+        }
+
+        if (!HasExactOperationKeys(Root))
+        {
+            OutError = TEXT("operation must contain exactly the Atlas operation contract keys");
             return false;
         }
 
@@ -53,19 +107,41 @@ namespace AtlasUnrealHarness
             return false;
         }
 
-        const TArray<TSharedPtr<FJsonValue>>* EntityValues = nullptr;
-        if (!(*Arguments)->TryGetArrayField(TEXT("entity_ids"), EntityValues) || !EntityValues || EntityValues->Num() != 1)
+        const TArray<TSharedPtr<FJsonValue>>* ArgumentEntityValues = nullptr;
+        if (!(*Arguments)->TryGetArrayField(TEXT("entity_ids"), ArgumentEntityValues))
         {
-            OutError = TEXT("smoke-test operation requires exactly one entity_id");
+            OutError = TEXT("operation arguments must contain entity_ids");
             return false;
         }
 
-        if (!(*EntityValues)[0].IsValid() || !(*EntityValues)[0]->TryGetString(OutEntityId) || OutEntityId.IsEmpty())
+        FString ArgumentEntityId;
+        if (!ReadSingleEntityIdArray(ArgumentEntityValues, ArgumentEntityId))
         {
-            OutError = TEXT("entity_ids must contain a non-empty string");
+            OutError = TEXT("arguments.entity_ids must contain exactly one non-empty string");
             return false;
         }
 
+        const TArray<TSharedPtr<FJsonValue>>* OperationEntityValues = nullptr;
+        if (!Root->TryGetArrayField(TEXT("entity_ids"), OperationEntityValues))
+        {
+            OutError = TEXT("operation must contain entity_ids");
+            return false;
+        }
+
+        FString OperationEntityId;
+        if (!ReadSingleEntityIdArray(OperationEntityValues, OperationEntityId))
+        {
+            OutError = TEXT("entity_ids must contain exactly one non-empty string");
+            return false;
+        }
+
+        if (ArgumentEntityId != OperationEntityId)
+        {
+            OutError = TEXT("operation entity_ids must match arguments.entity_ids");
+            return false;
+        }
+
+        OutEntityId = MoveTemp(OperationEntityId);
         return true;
     }
 }
@@ -79,11 +155,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FAtlasUnrealOperationSmokeTest::RunTest(const FString& Parameters)
 {
     const FString ValidPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
-    const FString InvalidPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"execute","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
+    const FString InvalidKindPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"execute","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
+    const FString InvalidExtraKeyPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"],"authorization":"approved"})JSON");
+    const FString InvalidMismatchPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["OTHER_TARGET"]},"entity_ids":["FIELD_SURFACE"]})JSON");
 
     FString EntityId;
     FString Error;
-    TestTrue(TEXT("valid Atlas Unreal operation parses and validates"), AtlasUnrealHarness::ParseAndValidateOperation(ValidPayload, EntityId, Error));
+    TestTrue(
+        TEXT("valid Atlas Unreal operation parses and validates"),
+        AtlasUnrealHarness::ParseAndValidateOperation(ValidPayload, EntityId, Error));
     if (!Error.IsEmpty())
     {
         AddError(Error);
@@ -92,7 +172,21 @@ bool FAtlasUnrealOperationSmokeTest::RunTest(const FString& Parameters)
 
     EntityId.Empty();
     Error.Empty();
-    TestFalse(TEXT("unsupported operation kind fails closed"), AtlasUnrealHarness::ParseAndValidateOperation(InvalidPayload, EntityId, Error));
+    TestFalse(
+        TEXT("unsupported operation kind fails closed"),
+        AtlasUnrealHarness::ParseAndValidateOperation(InvalidKindPayload, EntityId, Error));
+
+    EntityId.Empty();
+    Error.Empty();
+    TestFalse(
+        TEXT("unknown top-level operation keys fail closed"),
+        AtlasUnrealHarness::ParseAndValidateOperation(InvalidExtraKeyPayload, EntityId, Error));
+
+    EntityId.Empty();
+    Error.Empty();
+    TestFalse(
+        TEXT("operation target mismatch fails closed"),
+        AtlasUnrealHarness::ParseAndValidateOperation(InvalidMismatchPayload, EntityId, Error));
 
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     TestNotNull(TEXT("Unreal editor world is available"), World);
@@ -114,8 +208,12 @@ bool FAtlasUnrealOperationSmokeTest::RunTest(const FString& Parameters)
     const FVector TargetLocation(100.0, 200.0, 300.0);
     Actor->SetActorLocation(TargetLocation);
 
-    TestTrue(TEXT("Atlas entity mapping exists on Unreal Actor"), Actor->Tags.Contains(FName(TEXT("atlas_entity:FIELD_SURFACE"))));
-    TestEqual(TEXT("authorized write reaches Unreal Actor state"), Actor->GetActorLocation(), TargetLocation);
+    TestTrue(
+        TEXT("Atlas entity mapping exists on Unreal Actor"),
+        Actor->Tags.Contains(FName(TEXT("atlas_entity:FIELD_SURFACE"))));
+    TestTrue(
+        TEXT("authorized write reaches Unreal Actor state"),
+        Actor->GetActorLocation().Equals(TargetLocation, KINDA_SMALL_NUMBER));
 
     Actor->Destroy();
     return true;
