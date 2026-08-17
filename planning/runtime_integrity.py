@@ -1,6 +1,8 @@
 """Fail-closed integrity checks for autonomous runtime continuation."""
 
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any, Dict
 
 from .runtime_context import RuntimeContext
@@ -11,6 +13,7 @@ class RuntimeIntegrity:
     """Identity of the state that was authorized for continuation."""
 
     stable_fingerprint: str
+    context_digest: str
     plan_digest: str
     state_digest: str
 
@@ -24,6 +27,7 @@ class RuntimeIntegrity:
         """Return True only when every authoritative identity still matches."""
         return (
             context.matches_stable_fingerprint(self.stable_fingerprint)
+            and _context_digest(context) == self.context_digest
             and plan_digest == self.plan_digest
             and state_digest == self.state_digest
         )
@@ -32,6 +36,7 @@ class RuntimeIntegrity:
         """Return a persistence-safe representation of the authorization."""
         return {
             "stable_fingerprint": self.stable_fingerprint,
+            "context_digest": self.context_digest,
             "plan_digest": self.plan_digest,
             "state_digest": self.state_digest,
         }
@@ -41,10 +46,20 @@ class RuntimeIntegrity:
         """Restore an integrity receipt and reject malformed persisted data."""
         if not isinstance(value, dict):
             raise RuntimeError("runtime integrity receipt must be an object")
-        fields = ("stable_fingerprint", "plan_digest", "state_digest")
+        fields = ("stable_fingerprint", "context_digest", "plan_digest", "state_digest")
         if any(not isinstance(value.get(field), str) or not value[field] for field in fields):
             raise RuntimeError("runtime integrity receipt is incomplete")
         return cls(*(value[field] for field in fields))
+
+
+def _context_digest(context: RuntimeContext) -> str:
+    """Hash the complete runtime context, including authoritative dynamic state."""
+    payload = json.dumps(
+        context.render(),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def authorize_continuation(
@@ -58,6 +73,7 @@ def authorize_continuation(
         raise ValueError("plan_digest and state_digest are required.")
     return RuntimeIntegrity(
         stable_fingerprint=context.stable_fingerprint(),
+        context_digest=_context_digest(context),
         plan_digest=plan_digest,
         state_digest=state_digest,
     )
