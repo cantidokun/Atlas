@@ -125,7 +125,7 @@ Branch:
 
 `feat/unreal-engine-harness`
 
-The PR is intentionally **Draft** and must **not be merged yet**.
+The PR is intentionally **Draft** and must **not** be merged yet.
 
 Files are under:
 
@@ -143,31 +143,43 @@ Automation test name:
 Atlas.UnrealAgent.OperationBoundary
 ```
 
-The test is designed to prove the smallest real-engine loop:
+The test now exercises strict Unreal-side contract checks before touching the Editor world.
+
+It verifies:
 
 ```text
 structured Atlas operation
         ↓
-Unreal-side validation
+exact top-level schema
         ↓
-unsupported operation rejected fail-closed
+canonical capability/kind
         ↓
-Atlas Entity ID preserved
+arguments.entity_ids
         ↓
-Unreal Editor world available
+operation.entity_ids
+        ↓
+entity-ID equality
+        ↓
+Unreal Editor world
         ↓
 test Actor created
         ↓
 Actor mapped to Atlas entity
         ↓
-authorized Actor write
+smoke-test write
         ↓
 Unreal Actor state read back
         ↓
 verification
 ```
 
-The fixture uses the Atlas entity ID:
+The test explicitly rejects:
+
+- unsupported operation kinds;
+- unknown top-level fields;
+- mismatched top-level vs argument entity IDs.
+
+The fixture uses Atlas entity ID:
 
 `FIELD_SURFACE`
 
@@ -177,6 +189,8 @@ and verifies an Actor location of:
 
 The temporary Actor is destroyed at the end of the test.
 
+**Important:** the current harness write is a controlled smoke-test write. It is not proof of the full Atlas authorization/transport boundary. That remains a later integration milestone.
+
 ## 6. What has NOT been proven yet
 
 The following are intentionally still unproven:
@@ -184,6 +198,7 @@ The following are intentionally still unproven:
 - actual Unreal Editor compilation/execution on the user's machine;
 - live Atlas → Unreal transport;
 - production Unreal adapter implementation;
+- real Atlas authorization receipt crossing the adapter boundary;
 - Materials/Niagara/Blueprint/Sequencer/rendering against a real production project;
 - canonical Digital Twin synchronization with a real Unreal project;
 - Unreal-side independent evidence returned through the production adapter.
@@ -236,7 +251,7 @@ Use the locally installed Unreal executable path. Atlas must not hard-code a mac
 
 **Status: READY FOR HUMAN ENGINE TEST — NOT YET PASSED**
 
-The Python-side Unreal operation contracts have already passed the standard Atlas CI regression matrix on the current `main` before the harness branch was created.
+The Python-side Unreal operation contracts have already passed the standard Atlas CI regression matrix. The Unreal C++ harness has now been hardened to match the same strict operation boundary more closely.
 
 The next milestone is complete only when the real Unreal Editor test passes.
 
@@ -247,8 +262,8 @@ If the smoke test passes:
 1. record the real-engine result;
 2. diagnose/repair any remaining harness limitations;
 3. keep the harness as a disposable integration fixture;
-4. design the real Unreal adapter transport against the proven boundary;
-5. connect Atlas authorization/evidence to that adapter;
+4. implement the production Unreal adapter transport against the proven boundary;
+5. connect real Atlas authorization/evidence to that adapter;
 6. begin the first production Unreal capability;
 7. continue incrementally through Materials, Niagara, Blueprint, Sequencer, rendering, and Digital Twin synchronization as justified by real capability gaps.
 
@@ -260,9 +275,9 @@ If the smoke test fails:
 - rerun the same test;
 - do not advance the milestone until it passes.
 
-## 11. Repository / Git rule for tomorrow
+## 11. Repository / Git rule
 
-PR #10 is the current Unreal integration branch. Do not merge it merely because the Python CI is green. The first real Unreal Engine result is the gate.
+PR #10 is the current Unreal integration branch. Do not merge it merely because Python CI is green. The first real Unreal Engine result is the gate.
 
 After the Unreal boundary is proven, create the next controlled development stage from the resulting baseline rather than piling unrelated production functionality into the harness PR.
 
