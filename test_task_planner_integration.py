@@ -2,6 +2,7 @@ import pytest
 
 from action_plan import ActionPlan
 from evidence_plan import EvidencePlan
+from planning.action_authorization import ActionAuthorization
 from planning_orchestrator import PlanningOrchestrator
 from task_planner import TaskPlanValidationError, build_task_plan, instantiate_plans
 
@@ -30,6 +31,11 @@ def _proposal():
             }
         ],
     }
+
+
+def _authorized_action_plan(actions: ActionPlan) -> ActionPlan:
+    actions.authorize(ActionAuthorization.issue(actions.actions, "task-planner-integration"))
+    return actions
 
 
 def test_valid_proposal_instantiates_inert_plans():
@@ -62,6 +68,7 @@ def test_planner_cannot_execute_unverified_plan_directly():
 def test_evidence_unlocks_action_but_does_not_authorize_extra_tools():
     proposal = build_task_plan(_proposal(), allowed_tools=ALLOWED_TOOLS)
     evidence, actions = instantiate_plans(proposal)
+    _authorized_action_plan(actions)
     orchestrator = PlanningOrchestrator(evidence, actions)
 
     calls = []
