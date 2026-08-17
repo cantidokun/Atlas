@@ -46,9 +46,7 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
             raise ValueError("location must contain exactly three numeric coordinates")
         if not all(isinstance(value, Real) and not isinstance(value, bool) for value in location):
             raise ValueError("location must contain exactly three numeric coordinates")
-        # Normalize mutable sequences so callers cannot mutate the validated payload
-        # after validation and before execution.
-        arguments = dict(arguments)
-        arguments["location"] = tuple(location)
 
+    # Preserve the caller's supported sequence representation for compatibility,
+    # while returning a new mapping so top-level mutations cannot affect execution.
     return dict(arguments)
