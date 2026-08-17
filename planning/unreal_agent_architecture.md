@@ -13,12 +13,14 @@ Atlas canonical Digital Twin
         |
         | current revision + representation
         v
-Unreal Adapter / Agent Boundary
+Unreal Agent
         |
-        +-- inspect
-        +-- validate action
-        +-- execute one authorized action
-        +-- synchronize evidence
+        | structured Unreal operations
+        v
+Atlas validation / authorization
+        |
+        v
+Unreal Adapter
         |
         v
 Unreal Engine
@@ -39,7 +41,7 @@ The Unreal Agent may:
 - inspect Unreal representations and return authoritative evidence;
 - map Atlas entity IDs to Unreal Actors/assets/components;
 - propose structured Unreal actions for Atlas validation/authorization;
-- execute one action only after Atlas authorization;
+- execute one action only after Atlas authorization through the adapter boundary;
 - report action results and evidence identifiers;
 - synchronize Unreal state back into Atlas evidence;
 - create or modify production variants and shot state without silently modifying
@@ -106,6 +108,7 @@ Qwen/agent proposal
     -> Atlas schema validation
     -> Atlas target-state evaluation
     -> Atlas authorization
+    -> deterministic future / ordered action plan
     -> Unreal adapter executes ONE authorized action
     -> Unreal evidence
     -> independent Atlas verification
