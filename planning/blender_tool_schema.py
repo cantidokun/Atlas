@@ -1,6 +1,5 @@
 """Deterministic validation of Blender tool calls before execution."""
 
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping
 
@@ -18,7 +17,7 @@ BLENDER_TOOL_SCHEMAS = {
 
 
 def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate a Blender call and return an immutable-in-practice snapshot of its payload."""
+    """Validate a Blender call and create a safe snapshot of supported arguments."""
     if not isinstance(tool, str) or not tool.strip():
         raise ValueError("tool must be a non-empty string")
     if not isinstance(arguments, dict):
@@ -34,14 +33,16 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
         if not isinstance(arguments[name], expected):
             raise TypeError(f"argument {name} has invalid type")
 
+    snapshot = dict(arguments)
+
     if tool == "move_object":
         location = arguments["location"]
         if len(location) != 3:
             raise ValueError("location must contain exactly three numeric coordinates")
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location):
             raise ValueError("location must contain exactly three numeric coordinates")
+        # Copy the only mutable nested value defined by the current Blender
+        # schema while preserving list-vs-tuple API compatibility.
+        snapshot["location"] = list(location) if isinstance(location, list) else tuple(location)
 
-    # Preserve the established list/tuple representation, but snapshot nested
-    # values as well. A caller cannot mutate the validated command after the
-    # admission check and thereby alter what reaches Blender.
-    return deepcopy(arguments)
+    return snapshot
