@@ -194,7 +194,12 @@ def main() -> None:
             allowed_action_tools={"move_object"},
             allow_writes=True,
         )
-        audit.record_authorization(True, action_count=len(proposal.actions))
+        execution_authorization = orchestrator.authorize_execution(f"live:{args.case}")
+        audit.record_authorization(
+            True,
+            action_count=len(proposal.actions),
+            authorization_id=execution_authorization.authorization_id,
+        )
         while orchestrator.next_phase() == "ACTION":
             action = orchestrator.conditional_plan.next_action
             if action is None:
