@@ -30,26 +30,32 @@ def scene(with_marker=False):
     return {"objects": objects}
 
 
-def test_marker_already_correct_skips_action_and_verification():
+def test_marker_already_correct_skips_action_but_still_requires_fresh_verification():
     orchestrator = make_orchestrator()
     orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=True))
     result = orchestrator.evaluate_target_state(scene(with_marker=True))
 
     assert result.satisfied
     assert orchestrator.skipped
+    assert orchestrator.next_phase() == "VERIFICATION"
+
+    verified = orchestrator.verify_post_action(scene(with_marker=True))
+    assert verified.satisfied
     assert orchestrator.next_phase() == "COMPLETE"
+
     with pytest.raises(RuntimeError, match="already satisfied"):
         orchestrator.execute_next_action(lambda tool, args: {"status": "created"})
-    with pytest.raises(RuntimeError, match="already satisfied"):
-        orchestrator.verify_post_action(scene(with_marker=True))
 
 
-def test_marker_missing_requires_action_and_fresh_verification():
+def test_marker_missing_requires_explicit_authorization_then_action_and_fresh_verification():
     orchestrator = make_orchestrator()
     orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=False))
     result = orchestrator.evaluate_target_state(scene(with_marker=False))
 
     assert not result.satisfied
+    assert orchestrator.next_phase() == "AUTHORIZATION"
+
+    orchestrator.authorize_execution("marker-create-001")
     assert orchestrator.next_phase() == "ACTION"
 
     result = orchestrator.execute_next_action(lambda tool, args: {
@@ -70,6 +76,7 @@ def test_marker_failed_verification_blocks_completion():
     orchestrator = make_orchestrator()
     orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=False))
     orchestrator.evaluate_target_state(scene(with_marker=False))
+    orchestrator.authorize_execution("marker-create-002")
     orchestrator.execute_next_action(lambda tool, args: {"status": "created"})
 
     result = orchestrator.verify_post_action(scene(with_marker=False))
