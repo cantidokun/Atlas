@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from action_plan import ActionPlan, ActionSpec
-from action_authorization import ActionAuthorization
+from planning.action_authorization import ActionAuthorization
 from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.tool_schema import validate_tool_arguments
 
