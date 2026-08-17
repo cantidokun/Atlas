@@ -1,5 +1,6 @@
 #include "AtlasUnrealHarness.h"
 
+#include "Components/SceneComponent.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -217,16 +218,28 @@ bool FAtlasUnrealOperationSmokeTest::RunTest(const FString& Parameters)
         return false;
     }
 
+    USceneComponent* RootComponent = NewObject<USceneComponent>(Actor, TEXT("AtlasUnrealHarnessRoot"));
+    TestNotNull(TEXT("Unreal test actor has a transform root component"), RootComponent);
+    if (!RootComponent)
+    {
+        Actor->Destroy();
+        return false;
+    }
+
+    Actor->SetRootComponent(RootComponent);
+    RootComponent->RegisterComponent();
+    TestTrue(TEXT("Unreal test actor root component is registered"), Actor->HasValidRootComponent());
+
     Actor->Tags.Add(FName(TEXT("atlas_entity:FIELD_SURFACE")));
     const FVector TargetLocation(100.0, 200.0, 300.0);
-    Actor->SetActorLocation(TargetLocation);
+    const bool bLocationWriteSucceeded = Actor->SetActorLocation(TargetLocation);
 
     TestTrue(
         TEXT("Atlas entity mapping exists on Unreal Actor"),
         Actor->Tags.Contains(FName(TEXT("atlas_entity:FIELD_SURFACE"))));
     TestTrue(
         TEXT("authorized write reaches Unreal Actor state"),
-        Actor->GetActorLocation().Equals(TargetLocation, KINDA_SMALL_NUMBER));
+        bLocationWriteSucceeded && Actor->GetActorLocation().Equals(TargetLocation, KINDA_SMALL_NUMBER));
 
     Actor->Destroy();
     return true;
