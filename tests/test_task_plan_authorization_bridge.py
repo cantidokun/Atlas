@@ -1,8 +1,6 @@
 import pytest
 
-from action_plan import ActionSpec
 from task_planner import (
-    TaskPlanValidationError,
     build_task_plan,
     instantiate_authorized_plans,
 )
@@ -12,7 +10,14 @@ def _proposal():
     return {
         "evidence": [],
         "actions": [
-            {"tool": "move_object", "arguments": {"name": "Cube", "location": [1, 2, 3]}}
+            {
+                "tool": "move_object",
+                "arguments": {
+                    "file_name": "scene.blend",
+                    "object_name": "Cube",
+                    "location": [1, 2, 3],
+                },
+            }
         ],
     }
 
