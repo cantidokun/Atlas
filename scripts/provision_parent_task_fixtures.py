@@ -1,5 +1,15 @@
+"""Provision deterministic Blender fixtures for the parent-relationship task."""
+from pathlib import Path
 import os
 import shutil
+import sys
+
+# Running ``python scripts/<file>.py`` places ``scripts/`` on sys.path, not
+# the repository root. Make the repo-root import boundary explicit so live
+# self-hosted execution behaves the same way as the offline test environment.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from tools.blender import create_collection, create_empty_marker
 from tools.blender_relationship import parent_object
