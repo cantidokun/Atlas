@@ -19,22 +19,14 @@ void FAtlasUnrealHarnessModule::ShutdownModule()
 
 namespace AtlasUnrealHarness
 {
-    static bool HasExactOperationKeys(const TSharedPtr<FJsonObject>& Root)
+    static bool HasExactKeys(const TSharedPtr<FJsonObject>& Object, const TSet<FString>& RequiredKeys)
     {
-        static const TSet<FString> RequiredKeys = {
-            TEXT("capability"),
-            TEXT("kind"),
-            TEXT("name"),
-            TEXT("arguments"),
-            TEXT("entity_ids")
-        };
-
-        if (!Root.IsValid() || Root->Values.Num() != RequiredKeys.Num())
+        if (!Object.IsValid() || Object->Values.Num() != RequiredKeys.Num())
         {
             return false;
         }
 
-        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Root->Values)
+        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->Values)
         {
             if (!RequiredKeys.Contains(Pair.Key))
             {
@@ -77,7 +69,14 @@ namespace AtlasUnrealHarness
             return false;
         }
 
-        if (!HasExactOperationKeys(Root))
+        const TSet<FString> RequiredOperationKeys = {
+            TEXT("capability"),
+            TEXT("kind"),
+            TEXT("name"),
+            TEXT("arguments"),
+            TEXT("entity_ids")
+        };
+        if (!HasExactKeys(Root, RequiredOperationKeys))
         {
             OutError = TEXT("operation must contain exactly the Atlas operation contract keys");
             return false;
@@ -104,6 +103,13 @@ namespace AtlasUnrealHarness
         if (!Root->TryGetObjectField(TEXT("arguments"), Arguments) || !Arguments || !Arguments->IsValid())
         {
             OutError = TEXT("operation arguments must be an object");
+            return false;
+        }
+
+        const TSet<FString> RequiredArgumentKeys = {TEXT("entity_ids")};
+        if (!HasExactKeys(*Arguments, RequiredArgumentKeys))
+        {
+            OutError = TEXT("operation arguments do not match the Atlas argument schema");
             return false;
         }
 
@@ -157,6 +163,7 @@ bool FAtlasUnrealOperationSmokeTest::RunTest(const FString& Parameters)
     const FString ValidPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
     const FString InvalidKindPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"execute","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
     const FString InvalidExtraKeyPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"],"authorization":"approved"})JSON");
+    const FString InvalidExtraArgumentPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"],"location":[100,200,300]},"entity_ids":["FIELD_SURFACE"]})JSON");
     const FString InvalidMismatchPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["OTHER_TARGET"]},"entity_ids":["FIELD_SURFACE"]})JSON");
 
     FString EntityId;
@@ -181,6 +188,12 @@ bool FAtlasUnrealOperationSmokeTest::RunTest(const FString& Parameters)
     TestFalse(
         TEXT("unknown top-level operation keys fail closed"),
         AtlasUnrealHarness::ParseAndValidateOperation(InvalidExtraKeyPayload, EntityId, Error));
+
+    EntityId.Empty();
+    Error.Empty();
+    TestFalse(
+        TEXT("unknown operation argument keys fail closed"),
+        AtlasUnrealHarness::ParseAndValidateOperation(InvalidExtraArgumentPayload, EntityId, Error));
 
     EntityId.Empty();
     Error.Empty();
