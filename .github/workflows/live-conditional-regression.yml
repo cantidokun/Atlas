@@ -70,6 +70,10 @@ jobs:
           echo Runner name: %RUNNER_NAME%
           echo Workspace: %GITHUB_WORKSPACE%
           cd
+      - name: Provision deterministic collection task fixtures
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_collection_task_fixtures.py"
       - name: Run live generic collection task
         shell: cmd
         run: |
