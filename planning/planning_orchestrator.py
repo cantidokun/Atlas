@@ -243,6 +243,7 @@ class ConditionalPlanningOrchestrator:
             self.recovery_gate = FutureRecoveryGate(self.future_controller)
             self.recovery_gate.classify_failure()
             self.replan_authorization = None
+            self.execution_authorization = None
 
     def execute_next_action(self, execute: ToolExecutor) -> Dict[str, Any]:
         if not self.evidence_complete:
@@ -343,6 +344,13 @@ class ConditionalPlanningOrchestrator:
             self.future_controller.acknowledge({"writes_skipped": True})
         self.recovery_gate = None
         self.replan_authorization = None
+        self.execution_authorization = None
+        if not result.satisfied:
+            execution_authorization = ActionAuthorization.issue(
+                list(self.conditional_plan.action_plan.actions), authorization.authorization_id
+            )
+            self.conditional_plan.action_plan.authorize(execution_authorization)
+            self.execution_authorization = execution_authorization
         return result
 
     def finalize_future(self) -> Dict[str, Any]:
