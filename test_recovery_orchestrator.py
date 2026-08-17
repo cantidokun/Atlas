@@ -20,6 +20,7 @@ def test_action_failure_enters_recovery_and_replan_requires_fresh_evidence():
     orchestrator = _orchestrator()
     orchestrator.acquire_next_evidence(lambda _tool, _args: {"ready": False})
     orchestrator.evaluate_target_state({"ready": False})
+    orchestrator.authorize_execution("recovery-runtime-test")
     with pytest.raises(RuntimeError, match="write failed"):
         orchestrator.execute_next_action(lambda _tool, _args: (_ for _ in ()).throw(RuntimeError("write failed")))
 
@@ -40,6 +41,7 @@ def test_authorized_replan_replaces_failed_future():
     orchestrator = _orchestrator()
     orchestrator.acquire_next_evidence(lambda _tool, _args: {"ready": False})
     orchestrator.evaluate_target_state({"ready": False})
+    orchestrator.authorize_execution("recovery-runtime-test")
     with pytest.raises(RuntimeError):
         orchestrator.execute_next_action(lambda _tool, _args: (_ for _ in ()).throw(RuntimeError("boom")))
     orchestrator.record_recovery_evidence({"ready": False, "fresh": True})
@@ -48,7 +50,9 @@ def test_authorized_replan_replaces_failed_future():
     authorization = orchestrator.authorize_replan("recovery-test", actions)
     orchestrator.install_authorized_replan(authorization, actions)
 
-    assert orchestrator.next_phase() == "ACTION"
+    assert orchestrator.next_phase() == "AUTHORIZATION"
     assert orchestrator.conditional_plan.next_action.name == "write-replanned"
+    orchestrator.authorize_execution("replanned-execution")
+    assert orchestrator.next_phase() == "ACTION"
     result = orchestrator.execute_next_action(lambda _tool, _args: {"ok": True})
     assert result["ok"] is True
