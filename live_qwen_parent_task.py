@@ -80,6 +80,17 @@ def boundary() -> BlenderExecutionBoundary:
     return BlenderExecutionBoundary(execute)
 
 
+def execute_authorized(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    result, receipt = boundary().execute_with_receipt(tool, dict(arguments))
+    if not receipt.matches(tool, arguments, result):
+        raise RuntimeError("Relationship execution receipt mismatch")
+    return {
+        "ok": result.ok,
+        "state": result.state,
+        "details": dict(result.details),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
@@ -139,7 +150,7 @@ def main() -> None:
         payload = {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}
 
         try:
-            result = orchestrator.execute_next_action(boundary().execute)
+            result = orchestrator.execute_next_action(execute_authorized)
         except Exception as exc:
             failure = {"error": str(exc), "exception_type": type(exc).__name__}
             audit.record_action(index, payload, failure, False)
