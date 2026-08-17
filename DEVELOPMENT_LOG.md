@@ -28,8 +28,6 @@ Symmetric       = true
 
 ### General Action Planning V1
 
-The goalpost controller proved that Python should own execution state once a multi-step modification is authorized.
-
 Added:
 
 `action_plan.py`
@@ -190,3 +188,35 @@ The production-agent architecture remains environment-agnostic at the orchestrat
 ### User test protocol
 
 When a new local test is ready, immediately provide the exact command/prompt. Do not ask the user to run a test before the harness exists on `main`.
+
+## August 17, 2026 — Runtime Continuation Integrity Milestone
+
+The runtime-integrity boundary has now been promoted from an isolated regression primitive into the actual autonomous continuation/resume path.
+
+Implemented and merged in PR #9:
+
+- `RuntimeIntegrity` receipts are serializable and persisted with future runtime checkpoints.
+- `AutonomousFutureRuntime` now binds continuation to:
+  1. stable instruction fingerprint
+  2. authorized future/plan digest
+  3. exact persisted checkpoint-state digest
+- validated resume now fails closed when the receipt is missing, tampered, the stable instructions change, or the authorized future changes.
+- a dedicated `resume_from_store()` entry point makes the validated resume boundary explicit.
+- regression coverage was added for matching, changed-context, tampered-receipt, missing-receipt, and exact-checkpoint continuation.
+- an existing Unreal planner regression was also corrected so empty target sets fail closed rather than producing an executable plan.
+
+Validation:
+
+```text
+Atlas Tests PR run #348
+Python 3.9: PASS
+Python 3.11: PASS
+```
+
+The change is merged to `main` at:
+
+`15c31321960c05aa4f8694bfc4891c2c206d8d50`
+
+The self-hosted live regression was automatically triggered against this new `main` HEAD as run #118. At the time of this log entry its jobs remain waiting, so the live portion is **not yet declared passed**. This is an execution-runner availability gate, not an offline regression failure.
+
+The next major development target is now the broader live autonomous-task proof: use a second non-goalpost production task to demonstrate that the same generic conditional planning, authorization, deterministic future, verification, recovery, and continuation-integrity machinery works outside the original goalpost fixture.
