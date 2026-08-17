@@ -1,7 +1,7 @@
 """Fail-closed integrity checks for autonomous runtime continuation."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict
 
 from .runtime_context import RuntimeContext
 
@@ -27,6 +27,24 @@ class RuntimeIntegrity:
             and plan_digest == self.plan_digest
             and state_digest == self.state_digest
         )
+
+    def to_dict(self) -> Dict[str, str]:
+        """Return a persistence-safe representation of the authorization."""
+        return {
+            "stable_fingerprint": self.stable_fingerprint,
+            "plan_digest": self.plan_digest,
+            "state_digest": self.state_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Dict[str, Any]) -> "RuntimeIntegrity":
+        """Restore an integrity receipt and reject malformed persisted data."""
+        if not isinstance(value, dict):
+            raise RuntimeError("runtime integrity receipt must be an object")
+        fields = ("stable_fingerprint", "plan_digest", "state_digest")
+        if any(not isinstance(value.get(field), str) or not value[field] for field in fields):
+            raise RuntimeError("runtime integrity receipt is incomplete")
+        return cls(*(value[field] for field in fields))
 
 
 def authorize_continuation(
