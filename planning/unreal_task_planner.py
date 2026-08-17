@@ -48,13 +48,14 @@ class UnrealAgentPlanBuilder:
 
     def _operation(self, capability, kind, name, entity_ids):
         self.capabilities.validate(capability, kind)
-        return UnrealOperation(
+        operation = UnrealOperation(
             capability=capability,
             kind=kind,
             name=name,
             arguments={"entity_ids": entity_ids},
             entity_ids=entity_ids,
         )
+        return self.capabilities.validate_operation(operation)
 
     def for_inspection(self, intent):
         entity_ids = self._require_targets(intent)
