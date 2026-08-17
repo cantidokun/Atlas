@@ -20,6 +20,31 @@ For sports, this can support workflows such as field and stadium reconstruction,
 The architecture is intentionally broader than any one DCC or game engine:
 
 ```text
+Real-world environment / captured sports footage
+                 ↓
+       Dedicated photogrammetry
+                 ↓
+        Initial 3D reconstruction
+                 ↓
+            Blender Agent
+       analyze / clean / correct
+              / optimize
+                 ↓
+          Prepared digital twin
+                 ↓
+            Unreal Agent
+       real-time production / VFX
+                 ↓
+        Finished production state
+                 ↓
+      Independent Atlas verification
+```
+
+**Photogrammetry is an upstream reconstruction capability, not a Blender responsibility.** Dedicated photogrammetry software is expected to create the initial 3D reconstruction. The Blender Agent then analyzes that reconstruction, cleans it up, corrects problems, optimizes it, and prepares it for downstream production. This is an architectural direction; the photogrammetry integration is not yet implemented.
+
+Atlas task orchestration sits above these specialized tools:
+
+```text
 Captured sports footage / production task
                  ↓
         Atlas task understanding
@@ -49,7 +74,7 @@ Python / Atlas control layer
     → validate, authorize, execute, track state
 
 Production tools
-    → Blender, Unreal Engine, and future specialized tools
+    → photogrammetry, Blender, Unreal Engine, and future specialized tools
 
 Verification
     → independently confirm what actually happened
@@ -218,6 +243,26 @@ Verification
 
 Atlas is being designed as a suite of cooperating production agents rather than one monolithic model.
 
+## Photogrammetry intake
+
+Dedicated photogrammetry software is intended to create the **initial 3D reconstruction** from real-world captures. Atlas does not currently treat photogrammetry reconstruction itself as a Blender responsibility.
+
+The intended boundary is:
+
+```text
+Photogrammetry software
+        ↓
+Initial reconstruction
+        ↓
+Blender Agent
+        ↓
+Analysis / cleanup / correction / optimization
+        ↓
+Prepared digital twin
+```
+
+The photogrammetry stage is an upstream capability that will eventually need a defined intake/output contract so Blender can reliably inspect and process the resulting reconstruction. This integration is planned, not implemented.
+
 ## Sports capture and understanding
 
 Future agents can reason over captured sports footage to identify players, objects, field geometry, events, spatial relationships, and production opportunities. The resulting understanding can feed digital-twin and virtual-production workflows.
@@ -226,11 +271,15 @@ Future agents can reason over captured sports footage to identify players, objec
 
 Blender is the current proven environment for:
 
+- receiving initial 3D reconstructions from upstream photogrammetry
 - digital-twin construction
+- analyzing reconstructed geometry and scene structure
 - procedural geometry
 - scene inspection
 - spatial reasoning
 - environment manipulation
+- cleanup and correction
+- optimization for downstream production
 - evidence collection
 - controlled scene writes
 
@@ -341,11 +390,17 @@ This comes after the generic planner and conditional execution boundary are stab
 
 Unreal Engine agents will extend Atlas into a broader real-time virtual-production environment.
 
+## Future — Photogrammetry Intake and Reconstruction Contract
+
+**PLANNED**
+
+Define how dedicated photogrammetry software hands an initial reconstruction to the Blender Agent, including the expected assets, scene metadata, validation requirements, and cleanup/optimization boundary. This should be designed before implementation rather than making Blender responsible for reconstruction itself.
+
 ## Future — Sports Production Orchestration
 
 **PLANNED**
 
-The long-term system should be able to coordinate capture analysis, digital twins, Blender/Unreal production operations, cinematic treatments, and final verification as one production workflow.
+The long-term system should be able to coordinate capture analysis, photogrammetry reconstruction, digital twins, Blender/Unreal production operations, cinematic treatments, and final verification as one production workflow.
 
 ---
 
@@ -388,6 +443,7 @@ http://localhost:11434/api/chat
 - Do not let a successful production state depend on a perfect Qwen final answer.
 - Do not allow an action plan to execute without explicit authorization.
 - Keep production-environment-specific logic behind appropriate agent/tool boundaries.
+- Treat photogrammetry as an upstream reconstruction capability rather than making Blender responsible for initial reconstruction.
 - Preserve working components and improve incrementally.
 - Keep `README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` synchronized with verified milestones and test results.
 
