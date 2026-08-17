@@ -1,9 +1,9 @@
 #include "AtlasUnrealHarness.h"
 
+#include "Editor.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Misc/AutomationTest.h"
-#include "Misc/Guid.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -78,16 +78,21 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FAtlasUnrealOperationSmokeTest::RunTest(const FString& Parameters)
 {
-    const FString Payload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
+    const FString ValidPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"write","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
+    const FString InvalidPayload = TEXT(R"JSON({"capability":"modify_actor","kind":"execute","name":"move_target_actor","arguments":{"entity_ids":["FIELD_SURFACE"]},"entity_ids":["FIELD_SURFACE"]})JSON");
 
     FString EntityId;
     FString Error;
-    TestTrue(TEXT("Atlas Unreal operation parses and validates"), AtlasUnrealHarness::ParseAndValidateOperation(Payload, EntityId, Error));
+    TestTrue(TEXT("valid Atlas Unreal operation parses and validates"), AtlasUnrealHarness::ParseAndValidateOperation(ValidPayload, EntityId, Error));
     if (!Error.IsEmpty())
     {
         AddError(Error);
     }
     TestEqual(TEXT("Atlas entity ID survives the Unreal boundary"), EntityId, FString(TEXT("FIELD_SURFACE")));
+
+    EntityId.Empty();
+    Error.Empty();
+    TestFalse(TEXT("unsupported operation kind fails closed"), AtlasUnrealHarness::ParseAndValidateOperation(InvalidPayload, EntityId, Error));
 
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     TestNotNull(TEXT("Unreal editor world is available"), World);
