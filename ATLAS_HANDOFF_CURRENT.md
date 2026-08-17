@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 17, 2026 08:44 UTC
+**Updated:** August 17, 2026 14:41 UTC
 **Current branch:** `main`
-**Current HEAD:** `d882750b670f6baf5a0371d2e02e407af4d7f8f5` — `docs: refresh current Atlas handoff with latest CI state`
-**Current verified Blender code milestone:** `09d165944b32dd5ee03100cff10a0d4b33481df3` — `test: bind Blender execution receipts to request and result`
+**Current HEAD:** `d7d6f3b4577ed2176c4d1c4b5a8a67828b91d0ac` — `fix: align marker task tests with authorization and verification phases`
+**Last verified Blender implementation milestone:** `09d165944b32dd5ee03100cff10a0d4b33481df3` — receipt binding remains the last fully live-verified Blender implementation milestone.
 
 ## 1. Scope and authority model
 
@@ -32,12 +32,14 @@ Core planning/execution primitives currently present:
 - `VerificationPlan`
 - `PlanningOrchestrator`
 - `ConditionalPlanningOrchestrator`
-- action authorization
-- replan authorization
-- deterministic future generation/execution
-- recovery/replan gates
+- `ActionAuthorization`
+- `ReplanAuthorization`
+- `DeterministicFutureGenerator`
+- `FutureExecutionController`
+- `FutureRecoveryGate`
 - runtime context fingerprinting and integrity checks
 - audit trail
+- immutable Blender execution receipts
 
 The conditional execution architecture explicitly separates:
 
@@ -53,59 +55,81 @@ The conditional execution architecture explicitly separates:
 
 ## 3. Blender-specific files and tools
 
-- `planning/blender_tool_schema.py` — validates supported Blender tools, required arguments, types, and 3D coordinates; snapshots mutable supported arguments.
-- `planning/blender_execution_boundary.py` — validates calls before Blender execution; preserves raw `execute()`; provides `execute_verified()` and receipt-bound execution; rejects malformed responses.
+Core Blender boundary:
+
+- `planning/blender_tool_schema.py` — validates supported Blender tools, required arguments, types, and 3D coordinates; snapshots mutable supported arguments. It now also supports `create_empty_marker` with exact arguments `file_name`, `collection_name`, and `object_name`.
+- `planning/blender_execution_boundary.py` — validates calls before Blender execution; provides `execute_verified()` and receipt-bound execution.
 - `planning/blender_result_contract.py` — immutable `BlenderExecutionResult`; validates tool, boolean success, execution state, and details.
 - `planning/blender_verification.py` — independently validates requested-tool identity and successful execution; fails closed on mismatches/failure.
 - `planning/blender_execution_receipt.py` — deterministically binds validated tool + arguments + verified result; detects later mutation.
 - `planning/verification_plan.py` — generic post-action verification state; exposes `required`, `pending`, `complete`, `blocked`, `verify()`, and `snapshot()`.
-- `execute_with_receipt()` — validation -> Blender execution -> result normalization -> independent verification -> immutable receipt.
-- `live_qwen_conditional_loop.py` — live Qwen/Ollama/Blender conditional harness.
-- `goalpost_test_CONDITIONAL_CORRECT.blend` — deterministic already-correct fixture.
-- `goalpost_test_CONDITIONAL_INCORRECT.blend` — deterministic incorrect fixture.
+- `tools/blender.py` — Blender adapter containing scene inspection, relationship inspection, soccer-component candidate inspection, collection creation, marker creation, and goalpost movement.
+- `tools/__init__.py` — tool registry including `create_empty_marker` and `move_object`.
 
-Live harness runtime:
+Existing live goalpost harness:
+
+- `live_qwen_conditional_loop.py`
+- `goalpost_test_CONDITIONAL_CORRECT.blend`
+- `goalpost_test_CONDITIONAL_INCORRECT.blend`
+
+New second-task definition:
+
+- `planning/marker_task.py` — task-specific marker target invariant and `create_empty_marker` action definition. This file deliberately contains task data/invariants only; it does not implement a second orchestration architecture.
+- `tests/test_marker_conditional_task.py` — focused regression coverage for the second task.
+
+The second task is **conditional creation of `Atlas_Marker` inside the `Atlas_Test` collection**, requiring the object to exist and be an `EMPTY`. Its action shape is intentionally different from goalpost movement: it has no `location` argument and performs object creation rather than transform mutation.
+
+## 4. Current model/runtime setup
+
+Live Qwen/Ollama/Blender runtime:
 
 - Ollama: `http://localhost:11434/api/chat`
 - Model: `qwen3:8b`
 - Qwen output is constrained by `qwen/structured_plan.py` / `TASK_PLAN_JSON_SCHEMA` and parsed by `qwen_planning_runtime.py`.
-- Current live tools: `inspect_object_relationship`, `move_object`.
+- Goalpost live tools currently exercised: `inspect_object_relationship`, `move_object`.
+- The second-task live path still needs a dedicated harness/fixture integration before it can be considered live-proven.
 
-## 4. Verified milestones
+## 5. Verified milestones and test history
 
-Recent Blender code milestones:
+Blender receipt milestones:
 
 - `788d311` — add immutable Blender execution receipt
 - `909b0c4` — expose receipt-bound Blender execution
 - `09d1659` — receipt regression coverage and binding of the Blender execution receipt to request/result
 
-The latest `main` HEAD is documentation-only, so `09d1659` remains the verified Blender implementation milestone.
+Previously verified CI/live baseline:
 
-## 5. Test status
-
-### Offline / CI
-
-- **Atlas Tests #385 — PASS**
-- Python **3.11 — PASS**
-- Python **3.9 — PASS**
-- Run commit: `d882750b670f6baf5a0371d2e02e407af4d7f8f5`
-
-Previous green baseline: Atlas Tests #384 also passed on both Python versions.
-
-### Live Blender regression
-
-- **Live Conditional Atlas Regression #142 — PASS**
-- Tested Blender code milestone: `09d165944b32dd5ee03100cff10a0d4b33481df3`
-- Required `local-testing` environment approval was completed.
-
-Proven live behavior:
+- **Atlas Tests #385 — PASS** on Python 3.11 and 3.9.
+- **Live Conditional Atlas Regression #142 — PASS**.
+- Proven live behavior for goalposts:
 
 ```text
 already-correct -> target satisfied -> zero writes -> fresh verification -> complete
 incorrect -> target unsatisfied -> authorized writes -> fresh verification -> complete
 ```
 
-The incorrect fixture is deterministic and does not inherit an accidental correct base state.
+### Latest second-task CI attempt
+
+Commit `265045211ff111d3ae4fc0f2a5b8bef1e1a172a2` introduced the marker schema, marker task, and initial tests.
+
+- **Atlas Tests #392 — FAILED** on both Python 3.11 and 3.9.
+- Result: **377 passed, 3 failed**.
+- Failure cause was entirely in the newly written test expectations, not a discovered regression in the generic orchestrator:
+  - the test expected `COMPLETE` immediately after a satisfied conditional evaluation, but the architecture intentionally requires the `VERIFICATION` phase even when the write is skipped;
+  - the test expected `ACTION` immediately after an unsatisfied evaluation, but the architecture intentionally requires `AUTHORIZATION` first;
+  - the test attempted execution without issuing `ActionAuthorization`.
+- The actual `ConditionalPlanningOrchestrator` behavior was confirmed from `planning/planning_orchestrator.py`: satisfied targets enter `VERIFICATION`; unsatisfied targets enter `AUTHORIZATION`; `execute_next_action()` rejects execution until exact action authorization exists.
+
+The test contract was corrected in:
+
+- `d7d6f3b4577ed2176c4d1c4b5a8a67828b91d0ac` — `fix: align marker task tests with authorization and verification phases`
+
+Current CI for that fix:
+
+- **Atlas Tests #393 — QUEUED** on Python 3.11 and 3.9.
+- **Live Conditional Atlas Regression #149 — QUEUED**.
+
+Do not treat #392 as an implementation failure; it was a test-design mismatch with already-established Atlas state-machine semantics.
 
 ## 6. Runtime integrity / continuation
 
@@ -117,41 +141,48 @@ What is **not yet live-proven** is a broader production-facing continuation/resu
 
 ## 7. Current known issues / boundaries
 
-- Live production breadth is still concentrated on the goalpost task.
-- A second materially different Blender production task has not yet been live-proven.
+- Goalpost execution remains the only materially different Blender task with a complete live proof.
+- The marker task is implemented at the generic planning/task-definition layer but has not yet been live-proven.
+- A dedicated deterministic marker `.blend` fixture and live Qwen/Blender marker harness still need to be built.
 - Broader continuation/resume behavior needs a production-facing live proof.
 - Full unattended autonomous local production operation has not been declared complete.
-- Do not contaminate generic planning layers with goalpost-specific branches.
+- Do not add goalpost-specific branches to generic planning layers.
+- Do not bypass explicit authorization or the mandatory verification phase in second-task tests or live execution.
 
 ## 8. Exact next development stage
 
-Build and live-prove a **second materially different Blender production task** using the existing generic architecture.
+First, let **Atlas Tests #393** finish and inspect both Python versions. If green, build the deterministic marker fixtures and integrate the marker task into the live harness.
 
-Required path:
+Required second-task path:
 
 ```text
 structured Qwen proposal
  -> exact Blender tool/argument validation
- -> authoritative Blender evidence
- -> explicit target-state evaluation
- -> conditional decision
- -> explicit authorization
+ -> authoritative scene evidence
+ -> marker target-state evaluation
+ -> conditional skip/create decision
+ -> explicit ActionAuthorization
  -> deterministic future
- -> Blender execution
+ -> create_empty_marker execution
  -> structured result
- -> independent verification
- -> execution receipt
+ -> fresh independent verification
+ -> Blender execution receipt
  -> completion
 ```
 
-The second task must exercise different object relationships and a different action shape. Reuse the generic planning/verification/receipt layers rather than adding task-specific orchestration logic.
+Required live cases:
 
-## 9. Required regression coverage for the next stage
+1. marker already present and correct -> zero writes -> fresh verification -> complete;
+2. marker absent -> explicit authorization -> create marker -> fresh verification -> complete;
+3. marker creation reports success but marker is absent afterward -> verification fails -> `BLOCKED`.
+
+## 9. Required regression coverage to preserve
 
 Continue proving:
 
 - already-satisfied state -> zero writes;
 - unsatisfied state -> exact authorized action order;
+- authorization is mandatory before writes;
 - successful write -> verification remains mandatory;
 - failed verification -> `BLOCKED`;
 - failed action -> recovery gate;
@@ -168,14 +199,15 @@ Continue proving:
 On the next development session:
 
 1. read this handoff;
-2. inspect current `main` and latest GitHub Actions state;
-3. do not rely on older conversational commit numbers if repository state differs;
-4. implement the smallest coherent second-task increment;
-5. add focused offline tests;
-6. wait for CI;
-7. inspect actual logs before changing code if anything fails;
-8. run the live regression once the implementation is stable;
-9. update this handoff with the new verified code milestone and live result;
-10. continue to the next coherent Blender stage without waiting for a separate "keep going" instruction unless user input is genuinely required.
+2. inspect current `main` and the latest GitHub Actions state;
+3. inspect the actual logs before changing code if a test fails;
+4. do not reinterpret a test-contract failure as a generic architecture failure without tracing the orchestrator state machine;
+5. finish CI validation for commit `d7d6f3b4577ed2176c4d1c4b5a8a67828b91d0ac`;
+6. build the deterministic marker `.blend` fixtures;
+7. extend the live harness without contaminating generic planning layers;
+8. run the live marker regression only after offline CI is green;
+9. inspect live logs and verify both zero-write and authorized-write behavior;
+10. update this handoff with the verified marker code milestone and live test result;
+11. then proceed to the next materially different Blender production capability.
 
-**Immediate continuation point:** expand the verified Blender Agent from the goalpost proof into a second generic live production task using the existing validation -> authorization -> deterministic future -> execution -> verification -> receipt architecture.
+**Immediate continuation point:** validate commit `d7d6f3b4577ed2176c4d1c4b5a8a67828b91d0ac` with Atlas Tests #393, then complete the deterministic marker fixture/live-harness integration.
