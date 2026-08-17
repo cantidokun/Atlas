@@ -14,6 +14,30 @@ in which specialized AI agents can understand captured sports footage, reason
 about environments and assets, plan production changes, execute operations,
 and independently verify the resulting state.
 
+A planned upstream stage is dedicated photogrammetry software. Photogrammetry
+software is expected to create the initial 3D reconstruction from real-world
+captures. Blender is then responsible for analyzing, cleaning, correcting,
+and optimizing that reconstruction before it is handed to the Unreal Agent.
+This is an architectural direction only; photogrammetry integration is not yet
+implemented.
+
+Intended production pipeline:
+
+Real-world environment / captured sports footage
+    -> dedicated photogrammetry software
+    -> initial 3D reconstruction
+    -> Blender Agent
+    -> analysis / cleanup / correction / optimization
+    -> prepared digital twin
+    -> Unreal Agent
+    -> real-time production / VFX
+    -> independent Atlas verification
+
+Photogrammetry is therefore an upstream reconstruction capability, not a
+responsibility that should be absorbed into the Blender Agent. The eventual
+photogrammetry-to-Blender boundary should be defined as an explicit intake /
+output contract rather than built as an implicit dependency.
+
 Core control principle:
 
 Qwen / AI agents
@@ -23,7 +47,7 @@ Python / Atlas control layer
     -> validate schemas, authorize, execute, track state, verify, recover
 
 Production tools
-    -> Blender now; Unreal and other specialized tools later
+    -> photogrammetry upstream; Blender now; Unreal and other specialized tools later
 
 Independent verification
     -> confirm what actually happened before completion
@@ -374,6 +398,11 @@ higher because the new architecture has added regression coverage.
    invoked explicitly. The architecture is moving toward autonomous execution,
    but full unattended local execution is not yet the milestone to declare.
 
+7. Dedicated photogrammetry software is an architectural upstream dependency,
+   not an implemented Atlas integration yet. The initial reconstruction,
+   interchange format, metadata contract, validation boundary, and handoff into
+   the Blender Agent still need to be designed before implementation.
+
 ============================================================
 12. EXACT CURRENT DEVELOPMENT STATE
 ============================================================
@@ -397,10 +426,18 @@ Proven:
 - generic verification integrated into conditional live flow
 - full CI regression matrix on Python 3.9 and 3.11
 
+Architecturally defined but not implemented:
+- dedicated photogrammetry software as the upstream initial-reconstruction stage
+- photogrammetry -> Blender Agent intake boundary
+- Blender Agent cleanup/correction/optimization of photogrammetry output as a
+  generalized production workflow
+- Unreal Engine production-agent execution
+
 Not yet proven as a general platform capability:
 - arbitrary production task planning across many tools
 - fully unattended autonomous production execution
 - broad live recovery/replanning across arbitrary failure modes
+- photogrammetry-to-Blender production integration
 - Unreal Engine production-agent execution
 
 ============================================================
@@ -460,6 +497,20 @@ Stage 9 should focus on safely composing evidence, target-state, action,
 verification, and recovery primitives into a reusable task runtime rather than
 letting Qwen directly control tools.
 
+FUTURE ARCHITECTURE DESIGN — Photogrammetry Intake
+
+Before implementation, define the boundary between dedicated photogrammetry
+software and the Blender Agent. The design should establish:
+- what the photogrammetry system is expected to output
+- how Blender receives the reconstruction
+- what evidence Blender collects when first inspecting it
+- what cleanup/correction/optimization responsibilities belong to Blender
+- what validation proves the reconstruction is ready for Unreal
+- how the prepared digital twin is handed downstream
+
+Do not implement this integration merely to reserve the architecture. It is a
+future design item until the production requirements are sufficiently defined.
+
 ============================================================
 14. USER TEST PROTOCOL
 ============================================================
@@ -487,6 +538,8 @@ Do not allow an action plan to execute without explicit authorization.
 Do not allow Qwen to bypass Python-owned execution state.
 Do not allow automatic retry after failed writes.
 Keep Blender/Unreal-specific behavior behind appropriate adapter/tool boundaries.
+Treat photogrammetry as an upstream reconstruction capability rather than making
+Blender responsible for the initial reconstruction.
 Preserve working components and improve incrementally.
 Keep README.md, ATLAS_HANDOFF_CONTEXT.txt, and DEVELOPMENT_LOG.md synchronized
 with verified milestones and test results.
@@ -500,8 +553,9 @@ not merely a Blender agent.
 
 Planned/long-term production capabilities include:
 - sports capture and analysis
+- dedicated photogrammetry reconstruction as an upstream input stage
 - digital-twin construction and spatial reasoning
-- Blender production agents
+- Blender production agents that analyze and optimize reconstructed environments
 - Unreal Engine production agents
 - impact frames
 - smear frames
@@ -512,6 +566,15 @@ Planned/long-term production capabilities include:
 - spatial overlays and field intelligence
 - digital-twin compositing
 - cinematic interactions between real athletes and reconstructed environments
+
+The intended production chain is:
+
+Photogrammetry
+    -> initial reconstruction
+    -> Blender analysis / cleanup / correction / optimization
+    -> prepared digital twin
+    -> Unreal production
+    -> final Atlas verification
 
 These are production modules within Atlas, not the definition of its core
 orchestration architecture.
@@ -529,6 +592,17 @@ Atlas can accept a structured Qwen proposal, validate it, acquire authoritative
 evidence, determine whether the requested state is already satisfied, skip an
 unnecessary write, or execute an explicitly authorized deterministic action
 sequence, and independently verify the resulting state before completion.
+
+The broader production architecture is now also explicitly defined around an
+upstream photogrammetry stage: dedicated photogrammetry software creates the
+initial 3D reconstruction; the Blender Agent analyzes, cleans, corrects, and
+optimizes that reconstruction; the Unreal Agent is the planned downstream
+real-time production environment.
+
+This photogrammetry architecture is a design decision, not an implemented
+integration. No photogrammetry software, import contract, or Unreal production
+agent should be treated as proven until it has its own iterative implementation
+and verification path.
 
 The next architectural challenge is generalization: prove that this control
 loop is reusable across different production tasks without embedding task-
