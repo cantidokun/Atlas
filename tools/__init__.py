@@ -13,6 +13,10 @@ from .blender_relationship import (
     inspect_object_parent,
     parent_object
 )
+from .blender_collection import (
+    inspect_object_collections,
+    move_object_to_collection,
+)
 
 
 TOOLS = {
@@ -27,4 +31,6 @@ TOOLS = {
     "move_object": move_object,
     "inspect_object_parent": inspect_object_parent,
     "parent_object": parent_object,
+    "inspect_object_collections": inspect_object_collections,
+    "move_object_to_collection": move_object_to_collection,
 }
