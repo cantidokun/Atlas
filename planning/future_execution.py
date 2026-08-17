@@ -41,6 +41,8 @@ class FutureExecutionController:
         ids = [step.step_id for step in self.steps]
         if len(ids) != len(set(ids)):
             raise ValueError("Future step IDs must be unique.")
+        if not 0 <= self.current_index <= len(self.steps):
+            raise ValueError("current_index must point within the future path.")
         self._plan_digest = self._compute_plan_digest()
 
     def _compute_plan_digest(self) -> str:
@@ -61,6 +63,41 @@ class FutureExecutionController:
             if step is not None:
                 self._record(step, "failed", self.failed)
         raise RuntimeError("Future plan integrity check failed; the authorized future was mutated.")
+
+    def _validate_resume_state(self, snapshot: Dict[str, Any]) -> None:
+        if not isinstance(snapshot, dict):
+            raise TypeError("snapshot must be a dictionary.")
+        if snapshot.get("plan_digest") != self._plan_digest:
+            raise RuntimeError("Future snapshot does not match the supplied authorized plan.")
+        snapshot_index = snapshot.get("current_index")
+        if not isinstance(snapshot_index, int) or not 0 <= snapshot_index <= len(self.steps):
+            raise RuntimeError("Future snapshot has an invalid current_index.")
+        snapshot_history = snapshot.get("history", [])
+        if not isinstance(snapshot_history, list):
+            raise RuntimeError("Future snapshot history must be a list.")
+        if len(snapshot_history) > snapshot_index:
+            raise RuntimeError("Future snapshot history is inconsistent with current_index.")
+        for expected_sequence, entry in enumerate(snapshot_history):
+            if not isinstance(entry, dict) or entry.get("sequence") != expected_sequence:
+                raise RuntimeError("Future snapshot history is not a contiguous execution prefix.")
+            if entry.get("step_id") != self.steps[expected_sequence].step_id:
+                raise RuntimeError("Future snapshot history does not match the authorized future.")
+
+        snapshot_step = snapshot.get("current_step")
+        expected_step = self.steps[snapshot_index].snapshot() if snapshot_index < len(self.steps) else None
+        if snapshot_step != expected_step:
+            raise RuntimeError("Future snapshot current step does not match the authorized future.")
+
+    @classmethod
+    def resume_from_snapshot(cls, steps: List[FutureStep], snapshot: Dict[str, Any]) -> "FutureExecutionController":
+        """Resume only from a snapshot that matches the exact authorized future."""
+        controller = cls(steps)
+        controller._validate_resume_state(snapshot)
+        controller.current_index = snapshot["current_index"]
+        controller.history = list(snapshot.get("history", []))
+        controller.failed = snapshot.get("failure")
+        controller._ensure_integrity()
+        return controller
 
     @property
     def plan_digest(self) -> str:
