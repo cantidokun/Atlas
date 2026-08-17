@@ -1,12 +1,4 @@
-"""Generic deterministic action-plan primitives for Atlas.
-
-This module is intentionally independent from the current goalpost controller.
-It provides a small state machine for tasks that require several authorized
-actions in a known order, while leaving task interpretation to the agent.
-
-Qwen can propose or explain a plan. Python owns execution state once the plan
-has been accepted for execution.
-"""
+"""Generic deterministic action-plan primitives for Atlas."""
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -23,11 +15,12 @@ class ActionSpec:
 
 @dataclass
 class ActionPlan:
-    """Track deterministic progress through an ordered action sequence."""
+    """Track deterministic progress through an ordered, authorized action sequence."""
     actions: List[ActionSpec]
     current_index: int = 0
     completed: List[Dict[str, Any]] = field(default_factory=list)
     failed: Optional[Dict[str, Any]] = None
+    authorization: Optional[Any] = None
 
     @property
     def complete(self) -> bool:
@@ -38,10 +31,22 @@ class ActionPlan:
         return self.failed is not None
 
     @property
+    def authorized(self) -> bool:
+        return self.authorization is not None and self.authorization.matches(self.actions)
+
+    @property
     def next_action(self) -> Optional[ActionSpec]:
         if self.complete or self.blocked:
             return None
         return self.actions[self.current_index]
+
+    def authorize(self, authorization: Any) -> None:
+        """Install an immutable authorization receipt for this exact action list."""
+        if self.current_index != 0 or self.completed or self.failed is not None:
+            raise RuntimeError("Action plan can only be authorized before execution begins.")
+        if not authorization.matches(self.actions):
+            raise RuntimeError("Authorization does not match the exact action plan.")
+        self.authorization = authorization
 
     def record_result(self, result: Dict[str, Any], success: bool) -> None:
         """Record one action result and advance only after success."""
@@ -49,6 +54,8 @@ class ActionPlan:
             raise RuntimeError("Action plan is already complete.")
         if self.blocked:
             raise RuntimeError("Action plan is blocked by a previous failure.")
+        if not self.authorized:
+            raise RuntimeError("Action plan execution requires valid authorization.")
         action = self.actions[self.current_index]
         entry = {"index": self.current_index, "name": action.name or action.tool, "tool": action.tool, "arguments": action.arguments, "result": result, "success": bool(success)}
         self.completed.append(entry)
@@ -65,6 +72,8 @@ class ActionPlan:
             "total_actions": len(self.actions),
             "complete": self.complete,
             "blocked": self.blocked,
+            "authorized": self.authorized,
+            "authorization": self.authorization.snapshot() if self.authorization is not None else None,
             "next_action": ({"name": next_action.name or next_action.tool, "tool": next_action.tool, "arguments": next_action.arguments} if next_action is not None else None),
             "completed": list(self.completed),
             "failure": self.failed,
