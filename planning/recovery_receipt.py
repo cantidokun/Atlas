@@ -7,12 +7,14 @@ from typing import Tuple
 
 
 def _validate_identity(name: str, value: str) -> str:
-    if not isinstance(value, str) or not value or value.strip() != value:
-        raise ValueError(f"{name} must be a non-empty, unpadded string")
+    """Validate identity input without rewriting its canonical value."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
     return value
 
 
 def _canonical_material(values: Tuple[str, str, str]) -> bytes:
+    """Encode each identity with its byte length to prevent boundary ambiguity."""
     encoded = []
     for value in values:
         raw = value.encode("utf-8")
@@ -40,7 +42,12 @@ class RecoveryReceipt:
             )
         ).hexdigest()
 
-    def matches(self, evidence_digest: str, plan_digest: str, authorization_digest: str) -> bool:
+    def matches(
+        self,
+        evidence_digest: str,
+        plan_digest: str,
+        authorization_digest: str,
+    ) -> bool:
         """Return true only for an exact, independently valid identity triple."""
         try:
             values = (
@@ -54,6 +61,7 @@ class RecoveryReceipt:
         return all(
             hmac.compare_digest(expected, actual)
             for expected, actual in zip(
-                (self.evidence_digest, self.plan_digest, self.authorization_digest), values
+                (self.evidence_digest, self.plan_digest, self.authorization_digest),
+                values,
             )
         )
