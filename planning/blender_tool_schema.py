@@ -20,6 +20,11 @@ BLENDER_TOOL_SCHEMAS = {
         "collection_name": str,
         "object_name": str,
     }),
+    "parent_object": BlenderToolSchema({
+        "file_name": str,
+        "child_name": str,
+        "parent_name": str,
+    }),
 }
 
 
