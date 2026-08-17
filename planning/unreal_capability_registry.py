@@ -1,13 +1,13 @@
-"""Declarative capability registry for the Atlas Unreal Agent.
+"""Declarative capability and argument-schema registry for the Atlas Unreal Agent.
 
 Capabilities describe what the Unreal domain can propose. They do not grant
 execution authority; Atlas authorization and the adapter remain authoritative.
 """
 
 from dataclasses import dataclass
-from typing import FrozenSet, Tuple
+from typing import FrozenSet, Mapping, Tuple
 
-from planning.unreal_agent import UnrealCapability, UnrealOperationKind
+from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class UnrealCapabilitySpec:
     allowed_kinds: FrozenSet[UnrealOperationKind]
     required_evidence: Tuple[str, ...]
     description: str
+    argument_keys: FrozenSet[str] = frozenset({"entity_ids"})
 
 
 DEFAULT_UNREAL_CAPABILITIES = (
@@ -99,6 +100,27 @@ class UnrealCapabilityRegistry:
                 "operation kind is not permitted for capability " + capability.value
             )
         return spec
+
+    def validate_operation(self, operation: UnrealOperation) -> UnrealOperation:
+        """Fail closed unless a proposed operation matches its argument schema."""
+        spec = self.validate(operation.capability, operation.kind)
+        arguments = operation.arguments
+        if not isinstance(arguments, Mapping):
+            raise ValueError("Unreal operation arguments must be a mapping")
+        if frozenset(arguments.keys()) != spec.argument_keys:
+            raise ValueError(
+                "Unreal operation arguments do not match the capability schema"
+            )
+
+        argument_entity_ids = arguments.get("entity_ids")
+        if not isinstance(argument_entity_ids, (tuple, list)) or not argument_entity_ids:
+            raise ValueError("Unreal operation requires non-empty entity_ids arguments")
+        normalized = tuple(argument_entity_ids)
+        if any(not isinstance(entity_id, str) or not entity_id.strip() for entity_id in normalized):
+            raise ValueError("Unreal operation entity_ids must contain non-empty strings")
+        if normalized != tuple(operation.entity_ids):
+            raise ValueError("Unreal operation entity_ids must match its argument payload")
+        return operation
 
     def all(self):
         return tuple(self._specs.values())
