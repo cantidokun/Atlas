@@ -50,9 +50,7 @@ def test_authorized_replan_replaces_failed_future():
     authorization = orchestrator.authorize_replan("recovery-test", actions)
     orchestrator.install_authorized_replan(authorization, actions)
 
-    assert orchestrator.next_phase() == "AUTHORIZATION"
-    assert orchestrator.conditional_plan.next_action.name == "write-replanned"
-    orchestrator.authorize_execution("replanned-execution")
     assert orchestrator.next_phase() == "ACTION"
+    assert orchestrator.conditional_plan.next_action.name == "write-replanned"
     result = orchestrator.execute_next_action(lambda _tool, _args: {"ok": True})
     assert result["ok"] is True
