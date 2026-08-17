@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 17, 2026 18:44 UTC
-**Current branch:** `main`
-**Current HEAD:** `dc22780dbf2cf501f7ae598f42718a57666c36e5` — `fix: bind collection receipt to single execution`
+**Updated:** August 17, 2026 19:42 UTC  
+**Current branch:** `main`  
+**Current HEAD:** `dc22780dbf2cf501f7ae598f42718a57666c36e5` — `fix: bind collection receipt to single execution`  
 **Last fully live-verified Blender implementation milestone:** `09d165944b32dd5ee03100cff10a0d4b33481df3` — receipt binding. The newer collection/conditional work is offline-verified but its live regression is still queued.
 
 ## 1. Scope and authority model
@@ -58,7 +58,7 @@ The conditional execution architecture explicitly separates:
 Core Blender boundary:
 
 - `planning/blender_tool_schema.py` — validates supported Blender tools, required arguments, types, and 3D coordinates; snapshots mutable supported arguments. Supports `create_empty_marker` with exact arguments `file_name`, `collection_name`, and `object_name`.
-- `planning/blender_execution_boundary.py` — validates calls before Blender execution; provides `execute_verified()` and receipt-bound execution. The receipt-bound path now captures the normalized verified result from the same single executor call.
+- `planning/blender_execution_boundary.py` — validates calls before Blender execution; provides `execute_verified()` and receipt-bound execution. The receipt-bound path captures the normalized verified result from the same single executor call.
 - `planning/blender_result_contract.py` — immutable `BlenderExecutionResult`; validates tool, boolean success, execution state, and details.
 - `planning/blender_verification.py` — independently validates requested-tool identity and successful execution; fails closed on mismatches/failure.
 - `planning/blender_execution_receipt.py` — deterministically binds validated tool + arguments + verified result; detects later mutation.
@@ -139,9 +139,9 @@ Validation for that commit:
 
 ### Current live regression
 
-- **Live Conditional Atlas Regression #155 — QUEUED**.
+- **Live Conditional Atlas Regression #155 — QUEUED** as of the latest check at 19:42 UTC.
 - Run: `32053379722`.
-- All four jobs are waiting for the self-hosted/local runner:
+- All four jobs are still waiting for the self-hosted/local runner:
   - `live generic collection (incorrect)`
   - `live generic collection (already-correct)`
   - `live conditional (incorrect)`
