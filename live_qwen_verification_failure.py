@@ -1,7 +1,6 @@
 """Live fail-closed proof: an executor may claim success, but stale Blender state must block completion."""
 
 import argparse
-import os
 
 from action_plan import ActionSpec
 from audit_trail import AuditTrail
@@ -12,9 +11,8 @@ from planning.parent_marker_task import MARKER_OBJECT, PARENT_OBJECT, parent_tar
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator
 from planning.verification_plan import VerificationPlan
 from task_plan_authorization import authorize_task_plan
-from task_planner import TaskPlanProposal, TaskPlanAction, TaskPlanEvidence
+from task_planner import TaskPlanProposal
 from tools.blender_relationship import inspect_object_parent
-
 
 FILE_NAME = "parent_task_INCORRECT.blend"
 
@@ -32,18 +30,23 @@ def main():
 
     audit = AuditTrail()
     proposal = TaskPlanProposal(
-        evidence=[TaskPlanEvidence("inspect_object_parent", {"file_name": FILE_NAME, "object_name": MARKER_OBJECT}, "inspect_parent")],
-        actions=[TaskPlanAction("parent_object", {"file_name": FILE_NAME, "child_name": MARKER_OBJECT, "parent_name": PARENT_OBJECT}, "parent_marker", True)],
+        evidence=[EvidenceRequest(
+            "inspect_object_parent",
+            {"file_name": FILE_NAME, "object_name": MARKER_OBJECT},
+            "inspect_parent",
+        )],
+        actions=[ActionSpec(
+            "parent_object",
+            {"file_name": FILE_NAME, "child_name": MARKER_OBJECT, "parent_name": PARENT_OBJECT},
+            "parent_marker",
+            True,
+        )],
     )
 
     evaluator = parent_target_evaluator()
     orchestrator = ConditionalPlanningOrchestrator(
-        evidence_plan=EvidencePlan([
-            EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence
-        ]),
-        conditional_plan=ConditionalActionPlan([
-            ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions
-        ]),
+        evidence_plan=EvidencePlan(proposal.evidence),
+        conditional_plan=ConditionalActionPlan(proposal.actions),
         target_evaluator=evaluator,
         verification_plan=VerificationPlan(evaluator),
     )
@@ -61,16 +64,12 @@ def main():
     )
 
     # Deliberately simulate a dishonest adapter: it reports success but performs
-    # no Blender write. The postcondition must still fail on fresh evidence.
+    # no Blender write. Fresh authoritative evidence must still fail the task.
     def dishonest_executor(tool, arguments):
         return {
             "ok": True,
             "state": "parented",
-            "details": {
-                "simulated": True,
-                "tool": tool,
-                "arguments": dict(arguments),
-            },
+            "details": {"simulated": True, "tool": tool, "arguments": dict(arguments)},
         }
 
     boundary = BlenderExecutionBoundary(dishonest_executor)
@@ -87,7 +86,6 @@ def main():
 
     if verified.satisfied:
         raise RuntimeError("FAIL-CLOSED VERIFICATION BROKEN: stale state was accepted")
-
     if orchestrator.next_phase() != "BLOCKED":
         raise RuntimeError(f"Expected BLOCKED after failed postcondition, got {orchestrator.next_phase()}")
 
