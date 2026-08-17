@@ -1,15 +1,16 @@
 """Controlled bridge between Atlas action plans and production-tool adapters.
 
-The bridge intentionally does not create authorization. It consumes an already
--authorized ActionPlan and executes exactly its next action through the supplied
+The bridge intentionally does not create authorization. It consumes an already-
+authorized ActionPlan and executes exactly its next action through the supplied
 engine adapter. This keeps the existing Atlas control architecture authoritative.
 """
 
-from typing import Any, Mapping
-
 from planning.action_plan import ActionPlan
-from planning.digital_twin_adapter_contract import DigitalTwinToolAdapter, ToolActionResult
-from planning.digital_twin_adapter_contract import require_current_representation
+from planning.digital_twin_adapter_contract import (
+    DigitalTwinToolAdapter,
+    ToolActionResult,
+    require_current_representation,
+)
 from planning.digital_twin_representation import TwinRepresentation
 
 
