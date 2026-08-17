@@ -53,12 +53,7 @@ No other fields or tools.'''
 def ask(messages: List[Dict[str, str]]) -> str:
     response = requests.post(
         OLLAMA_URL,
-        json={
-            "model": MODEL,
-            "messages": messages,
-            "stream": False,
-            "format": TASK_PLAN_JSON_SCHEMA,
-        },
+        json={"model": MODEL, "messages": messages, "stream": False, "format": TASK_PLAN_JSON_SCHEMA},
         timeout=120,
     )
     response.raise_for_status()
@@ -83,10 +78,7 @@ def plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         audit.record_qwen_proposal(raw, attempt, proposal is not None, None if proposal is not None else str(last))
         if proposal is not None:
             return proposal
-        messages += [
-            {"role": "assistant", "content": raw},
-            {"role": "user", "content": correction(file_name)},
-        ]
+        messages += [{"role": "assistant", "content": raw}, {"role": "user", "content": correction(file_name)}]
     raise RuntimeError(f"Qwen plan rejected: {last}")
 
 
@@ -99,12 +91,8 @@ def evaluator() -> TargetStateEvaluator:
 def build_orchestrator(proposal: TaskPlanProposal) -> ConditionalPlanningOrchestrator:
     ev = evaluator()
     return ConditionalPlanningOrchestrator(
-        evidence_plan=EvidencePlan([
-            EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence
-        ]),
-        conditional_plan=ConditionalActionPlan([
-            ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions
-        ]),
+        evidence_plan=EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence]),
+        conditional_plan=ConditionalActionPlan([ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions]),
         target_evaluator=ev,
         verification_plan=VerificationPlan(ev),
     )
@@ -125,12 +113,7 @@ def verified_action_boundary() -> BlenderExecutionBoundary:
             raise RuntimeError(f"Unexpected action tool: {tool}")
         raw = create_collection(**arguments)
         status = raw.get("status")
-        return {
-            "ok": status in {"created", "already_exists"},
-            "state": str(status or "unknown"),
-            "details": dict(raw),
-        }
-
+        return {"ok": status in {"created", "already_exists"}, "state": str(status or "unknown"), "details": dict(raw)}
     return BlenderExecutionBoundary(execute)
 
 
@@ -147,75 +130,39 @@ def main() -> None:
 
     orch = build_orchestrator(proposal)
     ev = orch.acquire_next_evidence(evidence)
-    audit.record_evidence({
-        "tool": proposal.evidence[0].tool,
-        "arguments": proposal.evidence[0].arguments,
-        "name": proposal.evidence[0].name,
-    }, ev)
+    audit.record_evidence({"tool": proposal.evidence[0].tool, "arguments": proposal.evidence[0].arguments, "name": proposal.evidence[0].name}, ev)
     state = orch.evaluate_target_state(ev)
-    audit.record(
-        "conditional_decision",
-        "skip" if state.satisfied else "execute",
-        target_satisfied=state.satisfied,
-        failed_invariants=state.failed,
-        case=args.case,
-    )
+    audit.record("conditional_decision", "skip" if state.satisfied else "execute", target_satisfied=state.satisfied, failed_invariants=state.failed, case=args.case)
 
-    receipt_holder: Dict[str, Any] = {}
     if not state.satisfied:
-        authorize_task_plan(
-            proposal,
-            evidence_complete=True,
-            allowed_action_tools={"create_collection"},
-            allow_writes=True,
-        )
+        authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools={"create_collection"}, allow_writes=True)
         execution_authorization = orch.authorize_execution(f"live:collection:{args.case}")
-        audit.record_authorization(
-            True,
-            action_count=1,
-            authorization_id=execution_authorization.authorization_id,
-        )
+        audit.record_authorization(True, action_count=1, authorization_id=execution_authorization.authorization_id)
 
         boundary = verified_action_boundary()
+        execution_capture: Dict[str, Any] = {}
 
         def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             normalized, receipt = boundary.execute_with_receipt(tool, dict(arguments))
-            if not receipt.matches(tool, arguments, normalized):
-                raise RuntimeError("Collection execution receipt mismatch")
-            receipt_holder["receipt"] = receipt
-            receipt_holder["result"] = normalized
-            return {
-                "ok": normalized.ok,
-                "state": normalized.state,
-                "details": dict(normalized.details),
-            }
+            execution_capture["normalized"] = normalized
+            execution_capture["receipt"] = receipt
+            return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
 
         result = orch.execute_next_action(execute_once)
         if not result.get("ok"):
             raise RuntimeError(f"Authorized collection action failed: {result}")
 
-        receipt = receipt_holder.get("receipt")
-        normalized = receipt_holder.get("result")
-        if receipt is None or normalized is None:
-            raise RuntimeError("Successful collection action did not produce a verified receipt")
+        normalized = execution_capture.get("normalized")
+        receipt = execution_capture.get("receipt")
+        if normalized is None or receipt is None:
+            raise RuntimeError("Successful collection action produced no verified receipt")
+        if not receipt.matches(proposal.actions[0].tool, proposal.actions[0].arguments, normalized):
+            raise RuntimeError("Collection execution receipt did not match the single verified execution")
 
         audit.record_action(
             0,
-            {
-                "tool": proposal.actions[0].tool,
-                "arguments": proposal.actions[0].arguments,
-                "name": proposal.actions[0].name,
-            },
-            {
-                "ok": normalized.ok,
-                "state": normalized.state,
-                "details": dict(normalized.details),
-                "receipt": {
-                    "tool": receipt.tool,
-                    "arguments_digest": receipt.arguments_digest,
-                    "result_digest": receipt.result_digest,
-                },
-            },
+            {"tool": proposal.actions[0].tool, "arguments": proposal.actions[0].arguments, "name": proposal.actions[0].name},
+            {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details), "receipt": {"tool": receipt.tool, "arguments_digest": receipt.arguments_digest, "result_digest": receipt.result_digest}},
             True,
         )
 
