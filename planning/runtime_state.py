@@ -1,8 +1,9 @@
 """Durable runtime state for resumable Atlas futures.
 
-This layer persists only controller state plus the immutable plan digest. It does
-not persist executable callables or allow a persisted snapshot to define a new
-future. The caller must supply the original FutureStep list when resuming.
+This layer persists only controller state, the immutable plan digest, and the
+runtime-continuation integrity receipt. It does not persist executable
+callables or allow a persisted snapshot to define a new future. The caller
+must supply the original FutureStep list when resuming.
 """
 
 from __future__ import annotations
@@ -11,10 +12,11 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import FutureStep
+from planning.runtime_integrity import RuntimeIntegrity
 
 
 class FutureRuntimeStateStore:
@@ -25,14 +27,22 @@ class FutureRuntimeStateStore:
     def __init__(self, path: str | os.PathLike[str]):
         self.path = Path(path)
 
-    def save(self, controller: FutureExecutionController) -> Dict[str, Any]:
-        """Persist a controller snapshot atomically and return the envelope."""
+    def save(
+        self,
+        controller: FutureExecutionController,
+        integrity: Optional[RuntimeIntegrity] = None,
+    ) -> Dict[str, Any]:
+        """Persist a controller snapshot and optional continuation receipt."""
         snapshot = controller.snapshot()
         envelope = {
             "version": self.VERSION,
             "plan_digest": controller.plan_digest,
             "snapshot": snapshot,
         }
+        if integrity is not None:
+            if integrity.plan_digest != controller.plan_digest:
+                raise ValueError("runtime integrity plan digest does not match controller")
+            envelope["runtime_integrity"] = integrity.to_dict()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(prefix=f".{self.path.name}.", dir=str(self.path.parent))
         try:
@@ -58,6 +68,8 @@ class FutureRuntimeStateStore:
             raise RuntimeError("Future runtime state is missing its snapshot.")
         if envelope.get("plan_digest") != snapshot.get("plan_digest"):
             raise RuntimeError("Future runtime state digest is inconsistent.")
+        if "runtime_integrity" in envelope:
+            RuntimeIntegrity.from_dict(envelope["runtime_integrity"])
         return envelope
 
     def resume(self, steps: List[FutureStep]) -> FutureExecutionController:
