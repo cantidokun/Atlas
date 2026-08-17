@@ -4,20 +4,7 @@
 
 Atlas is an **AI-assisted sports virtual production and digital-twin platform** designed to turn captured sports footage and real-world environments into richer, more controllable production experiences.
 
-It is not intended to be only a Blender agent. Blender is the first proven execution environment; Unreal Engine is a planned complementary production environment. The long-term goal is a production suite in which specialized AI agents can understand sports footage, reason about environments and assets, plan changes, execute production operations, and verify the resulting state.
-
-Atlas sits at the intersection of:
-
-- sports capture and analysis
-- digital twins and spatial understanding
-- AI-assisted virtual production
-- procedural scene construction and manipulation
-- cinematic rendering and compositing
-- production automation and orchestration
-
-For sports, this can support workflows such as field and stadium reconstruction, player/environment interaction, spatial visualization, cinematic effects, environmental transformations, impact and smear treatments, match-cut transformations, and other production-level visualizations around real athletes.
-
-The architecture is intentionally broader than any one DCC or game engine:
+Blender is the first proven execution environment. Unreal Engine is a planned complementary production environment. Atlas is intentionally broader than any one DCC or game engine.
 
 ```text
 Real-world environment / captured sports footage
@@ -40,27 +27,7 @@ Real-world environment / captured sports footage
       Independent Atlas verification
 ```
 
-**Photogrammetry is an upstream reconstruction capability, not a Blender responsibility.** Dedicated photogrammetry software is expected to create the initial 3D reconstruction. The Blender Agent then analyzes that reconstruction, cleans it up, corrects problems, optimizes it, and prepares it for downstream production. This is an architectural direction; the photogrammetry integration is not yet implemented.
-
-Atlas task orchestration sits above these specialized tools:
-
-```text
-Captured sports footage / production task
-                 ↓
-        Atlas task understanding
-                 ↓
-       Evidence and scene reasoning
-                 ↓
-       Specialized production agents
-          ↙                 ↘
-      Blender              Unreal Engine
-          ↘                 ↙
-          Production state
-                 ↓
-      Independent verification
-                 ↓
-        Finished production result
-```
+**Photogrammetry is an upstream reconstruction capability, not a Blender responsibility.** The Blender Agent receives and processes the initial reconstruction; photogrammetry intake is a future contract.
 
 ## Core operating principle
 
@@ -74,398 +41,259 @@ Python / Atlas control layer
     → validate, authorize, execute, track state
 
 Production tools
-    → photogrammetry, Blender, Unreal Engine, and future specialized tools
+    → Blender now; future specialized tools
 
-Verification
-    → independently confirm what actually happened
-```
-
-The target control loop is:
-
-```text
-Task
- ↓
-Task understanding
- ↓
-Evidence plan
- ↓
-Evidence ledger
- ↓
-Authorized action plan
- ↓
-Python-controlled execution
- ↓
 Independent verification
- ↓
-Completion
+    → confirm what actually happened
 ```
 
-Qwen can reason, but it does not get to decide that an action happened. Python owns execution state, authorization, mandatory ordering, verification, and completion.
+Qwen never gets direct execution authority. Python owns execution state, authorization, mandatory ordering, verification, completion, and recovery.
 
 ---
 
-# Current status
+# Current development status — Blender Agent
 
-The current implementation is concentrated on the Blender side because Blender provides a controlled environment in which the agent architecture can be proven incrementally.
+**Current verified milestone: Blender execution verification + immutable execution receipts.**
 
-Atlas has already proven:
-
-- local Qwen/Ollama integration
-- Blender scene inspection
-- read-only evidence acquisition
-- evidence tracking and reuse
-- authorized Blender writes
-- ordered multi-step action execution
-- independent post-write verification
-- deterministic finalization from verified evidence
-- controlled write-failure recovery
-- audit-trail ordering
-- generic ordered action plans
-- generic ordered evidence plans
-- evidence-to-action orchestration
-- structured Qwen planning without automatic write execution
-- conditional no-write and write branches
-- generic post-action verification
-- deterministic future generation and execution gating
-- fail-closed recovery and replan authorization
-- runtime-context fingerprinting and cache invalidation boundaries
-- an explicit authoritative model-request boundary
-
-The current test asset is `goalpost_test.blend`.
-
-## Verified goalpost controller result
-
-The original live controller measured:
+The Blender Agent now has a coherent execution-integrity boundary:
 
 ```text
-BEFORE
-Goal_Left_post  = [0.0, 5.302, 0.0]
-Goal_Right_Post = [0.0, -5.164, 0.0]
-Midpoint        = [0.0, 0.069, 0.0]
+Qwen proposal
+    ↓
+Blender tool/schema validation
+    ↓
+validated argument snapshot
+    ↓
+Blender execution
+    ↓
+structured result normalization
+    ↓
+independent result verification
+    ↓
+immutable execution receipt
+    ↓
+Atlas completion / continuation
 ```
 
-Target:
+### Current verified components
 
-```text
-Goal_Left_post  = [0.0, 5.233, 0.0]
-Goal_Right_Post = [0.0, -5.233, 0.0]
-```
+- `planning/blender_tool_schema.py`
+  - validates admitted Blender tools and required arguments;
+  - rejects unknown tools, missing arguments, invalid types, and invalid coordinates;
+  - snapshots mutable supported arguments before execution.
 
-Final independently verified state:
+- `planning/blender_execution_boundary.py`
+  - validates every call before Blender receives it;
+  - preserves the backward-compatible raw `execute()` API;
+  - provides `execute_verified()` for normalized verification-aware execution;
+  - provides receipt-bound execution after successful verification;
+  - rejects malformed executor responses.
+
+- `planning/blender_result_contract.py`
+  - immutable `BlenderExecutionResult`;
+  - requires a valid tool, boolean success state, non-empty execution state, and object-shaped details.
+
+- `planning/blender_verification.py`
+  - requires the result to belong to the requested tool;
+  - requires `ok=True` before the verified path succeeds;
+  - fails closed on unsuccessful or mismatched results.
+
+- `planning/blender_execution_receipt.py`
+  - binds the exact tool, validated arguments, and verified execution result;
+  - uses deterministic digests to detect request/result mutation;
+  - cannot be produced from a failed execution.
+
+### Latest verified commits
+
+- `788d311` — immutable Blender execution receipt
+- `909b0c4` — receipt-bound Blender execution
+- `09d1659` — receipt regression coverage
+- `c13367d` — current Blender Agent handoff documentation
+
+### Latest test state
+
+The latest receipt milestone passed its local and live testing gates.
+
+- **Atlas Tests #377 — PASS**
+- **Live Conditional Atlas Regression #142 — PASS**
+- The live workflow required approval of the `local-testing` deployment environment and then completed successfully.
+
+The repository's current development handoff is `ATLAS_HANDOFF_CURRENT.md`; it is the authoritative resume point for the next development session.
+
+---
+
+# Verified live Blender proof
+
+The current live conditional harness is `live_qwen_conditional_loop.py`.
+
+Fixtures:
+
+- `goalpost_test_CONDITIONAL_CORRECT.blend`
+- `goalpost_test_CONDITIONAL_INCORRECT.blend`
+
+Target state:
 
 ```text
 Goal_Left_post  = [0.0, 5.233, 0.0]
 Goal_Right_Post = [0.0, -5.233, 0.0]
 Midpoint        = [0.0, 0.0, 0.0]
-Distance        = 10.466 units
+Distance        = 10.466
 Symmetric       = true
 ```
 
-The final state came from a separate Blender relationship inspection rather than trusting the write result alone.
-
----
-
-# Qwen Structured Planning Bridge — PASS
-
-`live_qwen_planning_loop.py` proves the first live boundary between Qwen task planning and generic Python planning primitives:
+The proven conditional behavior is:
 
 ```text
-Qwen structured plan
- ↓
-Python plan validation
- ↓
-Read-only Blender evidence
- ↓
-Planning orchestrator
- ↓
-Structured action plan
- ↓
-WRITE EXECUTION NOT PERFORMED
+already correct
+  → target satisfied
+  → skip writes
+  → fresh independent verification
+  → complete
+
+incorrect
+  → target unsatisfied
+  → authorized writes
+  → fresh independent verification
+  → complete
 ```
 
-The successful live run produced:
+The final state is established through independent Blender evidence rather than trusting a write response alone.
 
-- 1 structured evidence request
-- 2 structured actions
-- validated plan
-- authoritative read-only evidence
-- completed evidence plan
-- structured action plan with the next action exposed
-- zero write execution
-
-Result:
-
-```text
-QWEN PLAN ACCEPTED
-EVIDENCE VERIFIED READ-ONLY
-ACTION PLAN STRUCTURED
-WRITE EXECUTION NOT PERFORMED
-ATLAS QWEN PLANNING BRIDGE TEST: PASS
-```
+The goalpost fixture is a proof fixture, **not the generic architecture**.
 
 ---
 
 # General planning architecture
 
-### `action_plan.py`
+Atlas already contains generic primitives for:
 
-Provides a generic ordered action state machine. Python exposes the next action, records successful results, blocks on required failures, and reports completion.
+- ordered action plans;
+- ordered evidence plans;
+- target-state evaluation;
+- generic post-action verification;
+- planning/orchestration state machines;
+- action authorization;
+- replan authorization;
+- deterministic future generation;
+- deterministic future execution and resume;
+- fail-closed recovery and replanning;
+- runtime-context fingerprinting;
+- runtime integrity / continuation identity;
+- audit-trail ordering.
 
-### `evidence_plan.py`
-
-Tracks ordered evidence requests, completion, reuse, and blocking failures.
-
-### `planning/planning_orchestrator.py`
-
-Connects evidence and action plans. Actions remain blocked until required evidence is complete.
-
-### Authorization boundary
-
-A proposed action does not automatically become an executable action. The Python authorization layer must explicitly permit writes and restrict the available action tools.
-
-### Recovery boundary
-
-After a failed write, Atlas requires fresh evidence and a new validated, explicitly authorized plan. Automatic retry is refused because execution state may have changed.
-
-### Audit trail
-
-The live action workflow records:
+The intended lifecycle is:
 
 ```text
-Qwen proposal
+structured proposal
  ↓
-Evidence
+authoritative evidence
  ↓
-Authorization
+target-state evaluation
  ↓
-Execution
+authorization
  ↓
-Verification
+deterministic future
+ ↓
+execution
+ ↓
+independent verification
+ ↓
+receipt / completion
 ```
 
-### Runtime context boundary
+Failure lifecycle:
 
-Stable instructions and dynamic runtime state are treated as different classes of information. Atlas fingerprints the stable instruction context so stale cached context can be detected when the stable instructions change, while dynamic observations and execution cursor state do not alter that stable fingerprint.
+```text
+action or verification failure
+ ↓
+BLOCKED
+ ↓
+fresh authoritative evidence
+ ↓
+explicit recovery decision
+ ↓
+new authorized plan
+ ↓
+new deterministic future
+```
 
-The model-request boundary is explicit: authoritative runtime requests must be formed from the current validated Atlas context rather than allowing stale or unvalidated context to become an execution authority.
+Automatic retry is prohibited. A failure cannot silently mutate an already-authorized future.
+
+---
+
+# Runtime integrity
+
+Atlas separates stable instructions from authoritative dynamic state. Runtime continuation is bound to identities including stable instruction fingerprint, authorized plan identity, and authoritative persisted-state identity.
+
+A continuation must fail closed if any required identity changes or is missing.
+
+The next Blender-specific milestone is to make this integrity boundary part of an actual production continuation/resume path rather than leaving it as an isolated primitive.
 
 ---
 
 # Digital Twin architecture
 
-## Canonical ownership
+Atlas owns the canonical Digital Twin. Blender, Unreal, photogrammetry software, and future production tools are adapters/executors around that canonical model.
 
-Atlas owns the **canonical Digital Twin**.
-
-Blender, Unreal Engine, photogrammetry software, and future production tools are adapters/executors around that canonical model. None of those environments is the ultimate source of truth for Atlas identity or canonical state.
-
-The intended ownership model is:
-
-```text
-Real-world environment / captured sports footage
-                 ↓
-       Dedicated photogrammetry
-                 ↓
-        Initial reconstruction
-                 ↓
-          Atlas intake layer
-                 ↓
-       Canonical Digital Twin
-                 ↙          ↘
-            Blender       Unreal
-          adapter/tool    adapter/tool
-                 ↘          ↙
-              production variants
-                 ↓
-          Atlas verification
-```
-
-A `.blend` file, Unreal project, render, or shot-specific modification is therefore a **representation or production state**, not the canonical identity of the environment.
-
-## Canonical state vs. production variants
+A `.blend` file, Unreal project, render, or shot-specific modification is a representation or production state, not the canonical identity of the environment.
 
 Atlas must distinguish between:
 
-- canonical Digital Twin state
-- cleaned/corrected canonical revisions
-- downstream tool representations
-- production variants
-- shot-specific overrides
-- temporary cinematic effects
-- deliberately altered VFX states
+- canonical Digital Twin state;
+- cleaned/corrected canonical revisions;
+- downstream tool representations;
+- production variants;
+- shot-specific overrides;
+- temporary cinematic effects;
+- deliberately altered VFX states.
 
-A cinematic modification must not silently overwrite the canonical environment. Production changes should be represented as explicit variants, overrides, or derived states so Atlas can always recover the canonical twin.
+Identity must not be inferred from filenames, Blender object names, Unreal asset names, or timestamps. Stable physical/site identity anchors and provenance are the intended safety boundary. Ambiguous identity becomes an evidence problem rather than a Qwen guess.
 
-## Digital Twin identity
-
-Atlas must be able to recognize that two captures may represent the **same real-world environment at different times**.
-
-For example:
-
-```text
-2026 capture
-    ↓
-photogrammetry
-    ↓
-reconstruction A
-    ↓
-Blender cleanup
-    ↓
-Atlas Twin FIELD_001
-
-2027 capture
-    ↓
-photogrammetry
-    ↓
-reconstruction B
-    ↓
-Blender cleanup
-    ↓
-Atlas identity evaluation
-    ↓
-FIELD_001 new capture/version
-```
-
-Identity is not based on a file name, Blender object name, Unreal asset name, or capture timestamp.
-
-Atlas uses explicit **stable identity anchors** as the safety boundary. Examples can include an external site identifier, geographic reference, survey/control reference, or another durable physical identifier. Capture-specific metadata such as capture date is deliberately not part of canonical identity.
-
-The identity decision is conservative:
-
-```text
-Observed identity evidence
-          ↓
-     Compare stable anchors
-          ↓
-   ┌──────┼───────────────┐
-   ↓      ↓               ↓
- MATCH  NO MATCH   INSUFFICIENT EVIDENCE
-   ↓      ↓               ↓
- reuse   separate       do not merge
- identity candidate    automatically
-```
-
-Atlas must **not silently merge** a new capture into an existing Digital Twin when required identity evidence is missing. Ambiguous identity becomes an evidence problem requiring additional authoritative information, not a guess by Qwen.
-
-The first implementation primitive is `planning/digital_twin_identity.py`. It provides deterministic identity anchors, a stable identity fingerprint, and conservative match states: `MATCH`, `NO_MATCH`, and `INSUFFICIENT_EVIDENCE`.
-
-## Identity is separate from geometry
-
-Geometry is important evidence for identity, but geometry alone should not become an implicit identity key. Real environments change, reconstructions contain noise, and production modifications can intentionally alter geometry.
-
-Atlas should therefore treat identity as a separate semantic layer that can use geometry as supporting evidence while retaining explicit stable anchors and provenance.
-
-## Provenance
-
-The eventual Digital Twin model should distinguish at minimum:
-
-- captured information
-- reconstructed information
-- inferred information
-- Atlas-corrected information
-- production-authored information
-- shot-specific temporary state
-
-This provenance is necessary so Atlas can reason about what is known, what was inferred, what was deliberately changed, and what should survive into future revisions.
-
-## Validation ownership
-
-Validation remains an Atlas responsibility. Blender and Unreal can report authoritative evidence from their respective environments, but completion is not established merely because a production tool reports success.
-
-The same principle used by the current conditional architecture therefore extends to the Digital Twin:
-
-```text
-Tool operation
-    ↓
-independent evidence
-    ↓
-Atlas invariant evaluation
-    ↓
-canonical/variant state update
-```
+The first identity primitive is `planning/digital_twin_identity.py`.
 
 ---
 
 # Production-suite direction
 
-Atlas is being designed as a suite of cooperating production agents rather than one monolithic model.
-
-## Photogrammetry intake
-
-Dedicated photogrammetry software is intended to create the **initial 3D reconstruction** from real-world captures. Atlas does not currently treat photogrammetry reconstruction itself as a Blender responsibility.
-
-The intended boundary is:
-
-```text
-Photogrammetry software
-        ↓
-Initial reconstruction
-        ↓
-Atlas intake / validation
-        ↓
-Blender Agent
-        ↓
-Analysis / cleanup / correction / optimization
-        ↓
-Prepared canonical Digital Twin revision
-```
-
-The photogrammetry stage is an upstream capability that will eventually need a defined intake/output contract so Blender can reliably inspect and process the resulting reconstruction. This integration is planned, not implemented.
-
-## Sports capture and understanding
-
-Future agents can reason over captured sports footage to identify players, objects, field geometry, events, spatial relationships, and production opportunities. The resulting understanding can feed digital-twin and virtual-production workflows.
-
-## Blender agents
+## Blender Agent — current focus
 
 Blender is the current proven environment for:
 
-- receiving initial 3D reconstructions from upstream photogrammetry
-- digital-twin construction
-- analyzing reconstructed geometry and scene structure
-- procedural geometry
-- scene inspection
-- spatial reasoning
-- environment manipulation
-- cleanup and correction
-- optimization for downstream production
-- evidence collection
-- controlled scene writes
+- digital-twin construction;
+- scene inspection and spatial reasoning;
+- procedural geometry;
+- environment manipulation;
+- cleanup and correction;
+- optimization;
+- evidence collection;
+- controlled scene writes;
+- independent verification.
 
-Atlas should remain environment-agnostic at the orchestration level so Blender-specific behavior does not become the generic architecture.
+The Blender Agent should remain behind an appropriate adapter/tool boundary so Blender-specific behavior does not become the generic Atlas architecture.
 
-## Unreal Engine agents
+## Photogrammetry intake — planned
 
-Unreal Engine is a planned production environment for the next phase of Atlas. Future Unreal agents are expected to cover capabilities such as:
+Dedicated photogrammetry software will create the initial 3D reconstruction. Atlas will eventually define an intake/output contract covering assets, metadata, identity evidence, provenance, validation, cleanup/optimization, canonical revision creation, and downstream handoff.
 
-- asset and scene organization
-- materials and look development
-- lighting and Lumen workflows
-- Nanite-enabled assets
-- CineCamera and cinematic setup
-- Sequencer and shot construction
-- Movie Render Queue workflows
-- real-time virtual-production operations
+## Unreal Agent — planned
 
-The Unreal layer will plug into the same broader control philosophy: AI proposes and reasons; Atlas validates and authorizes; the production environment executes; independent checks verify the resulting state.
+Unreal Engine is a planned production environment for real-time virtual production, materials, lighting, Nanite, CineCamera, Sequencer, Movie Render Queue, and related workflows.
 
 ## Cinematic sports production
 
-Atlas is intended to support visual treatments around real athletes without requiring the final experience to be a conventional game or conventional VFX pipeline.
+The wider Atlas repertoire can include:
 
-The wider repertoire includes:
+- impact frames;
+- smear frames;
+- cinematic bleed;
+- match-cut transformations;
+- environment-driven effects;
+- temporary liquid, smoke, glass, metallic, or other fluid-like environmental behavior;
+- spatial overlays and field intelligence;
+- digital-twin compositing;
+- cinematic environmental interactions.
 
-- impact frames
-- smear frames
-- cinematic bleed
-- match-cut transformations
-- environment-driven visual effects
-- temporary liquid, smoke, glass, metallic, or other fluid-like environmental behavior
-- spatial overlays and field intelligence
-- digital-twin compositing
-- cinematic environmental interactions
-
-The exact effects are production modules, not the definition of Atlas itself.
+These are production modules, not the definition of Atlas.
 
 ---
 
@@ -503,20 +331,16 @@ The exact effects are production modules, not the definition of Atlas itself.
 
 **COMPLETE FOR CURRENT LIVE GOALPOST HARNESS**
 
-The conditional architecture now proves both no-write and write-required paths, with independent verification and fail-closed recovery boundaries.
+The conditional architecture proves both no-write and write-required paths with independent verification and fail-closed recovery boundaries.
 
-## Stage 9 — Broader Autonomous Task Control
+## Stage 9 — Broader Autonomous Blender Task Control
 
 **IN PROGRESS**
 
-The current work is strengthening the autonomous runtime boundary rather than allowing Qwen direct authority. Runtime context fingerprinting, cache invalidation, authoritative model-request formation, and related execution-safety boundaries are being proven incrementally.
-
-The next production-facing objective is to generalize the verified control loop across a second non-goalpost production task while preserving:
+The immediate objective is to generalize the verified control loop to a **second non-goalpost live Blender task** while preserving:
 
 ```text
-Task
- ↓
-structured evidence requirements
+structured proposal
  ↓
 authoritative evidence
  ↓
@@ -524,51 +348,68 @@ explicit target-state evaluation
  ↓
 conditional decision
  ↓
+authorization
+ ↓
 deterministic future
  ↓
-authorized action sequence if needed
+Blender execution
  ↓
 independent verification
  ↓
+execution receipt
+ ↓
 completion / conservative recovery
 ```
+
+The second task must use different invariants and a different action shape while reusing the generic architecture.
 
 ## Future — Digital Twin Identity and Revision Model
 
 **FOUNDATION IMPLEMENTED / BROADER MODEL PLANNED**
 
-The first conservative identity primitive is now implemented. The broader Digital Twin model still needs explicit versioning, provenance, canonical-vs-variant state management, identity evidence aggregation, and intake contracts.
+## Future — Photogrammetry Intake and Reconstruction Contract
+
+**PLANNED**
 
 ## Future — Unreal Production Agents
 
 **PLANNED**
 
-Unreal Engine agents will extend Atlas into a broader real-time virtual-production environment.
-
-## Future — Photogrammetry Intake and Reconstruction Contract
-
-**PLANNED**
-
-Define how dedicated photogrammetry software hands an initial reconstruction to the Atlas intake layer and Blender Agent, including the expected assets, scene metadata, identity evidence, validation requirements, cleanup/optimization boundary, canonical revision creation, and downstream handoff.
-
 ## Future — Sports Production Orchestration
 
 **PLANNED**
 
-The long-term system should be able to coordinate capture analysis, photogrammetry reconstruction, Digital Twins, Blender/Unreal production operations, cinematic treatments, and final verification as one production workflow.
-
 ---
 
-# Regression status
+# Required Blender regression coverage
 
-The latest previously verified GitHub Actions regression matrix passed on both supported CI Python versions:
+The Blender test suite should continue to cover:
 
-```text
-Run #172: 133 tests passed on Python 3.11 and Python 3.9
-Run #173: 133 tests passed on Python 3.11 and Python 3.9
-```
+- already-satisfied state → zero writes;
+- unsatisfied state → exact authorized action order;
+- successful write → verification remains mandatory;
+- verification failure → blocked;
+- action failure → recovery gate;
+- mutated arguments → receipt mismatch;
+- mutated execution result → receipt mismatch;
+- malformed executor result → rejected;
+- wrong result tool → rejected;
+- invalid continuation identity → rejected;
+- authorized replan based on fresh evidence → accepted;
+- unauthorized replan → rejected.
 
-Subsequent runtime-context work has added further regression coverage. The Digital Twin identity changes on the current development branch add dedicated tests for conservative matching, missing evidence, conflicting anchors, and identity fingerprint stability; the branch CI run is the validation gate for these changes.
+For each new stage, the development process is:
+
+1. inspect current `main`;
+2. implement the smallest coherent Blender increment;
+3. add focused offline tests;
+4. run the local test gate;
+5. inspect the newest GitHub Actions workflows;
+6. approve `local-testing` only when GitHub explicitly requests that deployment review;
+7. diagnose failures from actual logs;
+8. fix and retest without requiring a separate user instruction for routine failures;
+9. update the README and handoff after verified milestones;
+10. continue to the next coherent Blender stage.
 
 ---
 
@@ -592,21 +433,25 @@ http://localhost:11434/api/chat
 # Development rules
 
 - Do not rewrite the entire agent.
-- Do not remove the evidence ledger.
-- Do not remove independent post-write verification.
+- Preserve the evidence ledger.
+- Preserve independent post-write verification.
 - Do not make goalpost behavior the generic architecture.
 - Do not add tools without proving a real capability gap.
-- Do not let a successful production state depend on a perfect Qwen final answer.
-- Do not allow an action plan to execute without explicit authorization.
+- Do not let a successful production-tool response alone establish completion.
+- Do not allow action plans to execute without explicit authorization.
 - Do not allow Qwen to bypass Python-owned execution state.
 - Do not allow automatic retry after failed writes.
-- Keep Blender/Unreal-specific behavior behind appropriate adapter/tool boundaries.
-- Treat photogrammetry as an upstream reconstruction capability rather than making Blender responsible for the initial reconstruction.
-- Atlas owns canonical Digital Twin identity and state; production tools do not become the source of truth.
+- Keep Blender/Unreal-specific behavior behind adapter/tool boundaries.
+- Treat photogrammetry as an upstream reconstruction capability.
+- Atlas owns canonical Digital Twin identity and state.
 - Do not merge Digital Twin captures on weak or missing identity evidence.
-- Keep canonical state separate from shot-specific or cinematic production variants.
-- Preserve provenance for captured, inferred, corrected, and production-authored state.
-- Preserve working components and improve incrementally.
-- Keep `README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` synchronized with verified milestones and test results.
+- Keep canonical state separate from shot-specific/cinematic variants.
+- Preserve provenance.
+- Improve incrementally and preserve working components.
+- Keep `README.md`, `ATLAS_HANDOFF_CURRENT.md`, and `DEVELOPMENT_LOG.md` synchronized with verified milestones.
 
-For the detailed technical record, see `ATLAS_HANDOFF_CONTEXT.txt` and `DEVELOPMENT_LOG.md`.
+## Resume point
+
+For the next development session, read `ATLAS_HANDOFF_CURRENT.md`, inspect the current `main` HEAD, and check the latest workflow state before changing code.
+
+**Immediate next stage:** build and test a second generic live Blender production task using the existing validation → authorization → deterministic future → execution → verification → receipt architecture.
