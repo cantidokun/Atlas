@@ -28,16 +28,19 @@ def test_conditional_orchestrator_snapshot_supports_unsatisfied_target():
 
     assert result.satisfied is False
     assert orchestrator.blocked is False
-    assert orchestrator.next_phase() == "ACTION"
+    assert orchestrator.next_phase() == "AUTHORIZATION"
     snapshot = orchestrator.snapshot()
     assert snapshot["blocked"] is False
     assert snapshot["conditional_actions"]["ready_to_execute"] is True
+    orchestrator.authorize_execution("conditional-planning-test")
+    assert orchestrator.next_phase() == "ACTION"
 
 
 def test_conditional_orchestrator_blocks_after_action_failure():
     orchestrator = make_orchestrator()
     evidence = orchestrator.acquire_next_evidence(lambda tool, args: {"ready": False})
     orchestrator.evaluate_target_state(evidence)
+    orchestrator.authorize_execution("conditional-failure-test")
 
     with pytest.raises(RuntimeError, match="failure"):
         orchestrator.execute_next_action(lambda tool, args: (_ for _ in ()).throw(RuntimeError("failure")))
