@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from action_plan import ActionPlan, ActionSpec
 from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan
+from planning.action_authorization import ActionAuthorization
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import DeterministicFutureGenerator
 from planning.future_recovery import FutureRecoveryGate, RecoveryDisposition
@@ -86,7 +87,7 @@ class PlanningOrchestrator:
 
 @dataclass
 class ConditionalPlanningOrchestrator:
-    """Run evidence, target-state evaluation, conditional actions, and recovery deterministically."""
+    """Run evidence, target state, conditional actions, and recovery deterministically."""
 
     evidence_plan: EvidencePlan
     conditional_plan: ConditionalActionPlan
@@ -97,6 +98,7 @@ class ConditionalPlanningOrchestrator:
     future_controller: Optional[FutureExecutionController] = None
     recovery_gate: Optional[FutureRecoveryGate] = None
     replan_authorization: Optional[ReplanAuthorization] = None
+    execution_authorization: Optional[ActionAuthorization] = None
 
     def __post_init__(self) -> None:
         if self.verification_plan is None:
@@ -121,6 +123,14 @@ class ConditionalPlanningOrchestrator:
     @property
     def verification_complete(self) -> bool:
         return bool(self.verification_plan and self.verification_plan.complete)
+
+    @property
+    def execution_authorized(self) -> bool:
+        if self.skipped:
+            return False
+        if self.execution_authorization is None:
+            return False
+        return self.execution_authorization.matches(self.conditional_plan.action_plan.actions)
 
     @property
     def recovery_replan_ready(self) -> bool:
@@ -156,6 +166,8 @@ class ConditionalPlanningOrchestrator:
             if not self.verification_complete:
                 return "VERIFICATION"
             return "COMPLETE"
+        if not self.execution_authorized:
+            return "AUTHORIZATION"
         if not self.action_complete:
             return "ACTION"
         if not self.verification_complete:
@@ -207,6 +219,25 @@ class ConditionalPlanningOrchestrator:
             self.future_controller.acknowledge({"writes_skipped": True})
         return result
 
+    def authorize_execution(self, authorization_id: str) -> ActionAuthorization:
+        """Explicitly authorize the exact conditional action sequence for writes."""
+        if not self.evidence_complete:
+            raise RuntimeError("Execution authorization is blocked until evidence is complete.")
+        if not self.evaluated:
+            raise RuntimeError("Execution authorization is blocked until target state is evaluated.")
+        if self.evaluation_error is not None:
+            raise RuntimeError("Execution authorization is blocked by target-state evaluation failure.")
+        if self.skipped:
+            raise RuntimeError("Execution authorization is unnecessary because the target is already satisfied.")
+        if self.action_complete:
+            raise RuntimeError("Execution authorization is unavailable after action completion.")
+        authorization = ActionAuthorization.issue(
+            list(self.conditional_plan.action_plan.actions), authorization_id
+        )
+        self.conditional_plan.action_plan.authorize(authorization)
+        self.execution_authorization = authorization
+        return authorization
+
     def _record_future_failure(self) -> None:
         if self.future_controller is not None:
             self.recovery_gate = FutureRecoveryGate(self.future_controller)
@@ -222,6 +253,8 @@ class ConditionalPlanningOrchestrator:
             raise RuntimeError("Action execution is blocked by target-state evaluation failure.")
         if self.skipped:
             raise RuntimeError("Action execution is skipped because the target state is already satisfied.")
+        if not self.execution_authorized:
+            raise RuntimeError("Action execution requires explicit execution authorization.")
         if self.conditional_plan.blocked:
             raise RuntimeError("Action execution is blocked by a previous failure.")
         if self.future_controller is None or self.future_controller.current_step is None:
@@ -329,6 +362,7 @@ class ConditionalPlanningOrchestrator:
             "target_state": self.target_state.snapshot() if self.target_state else None,
             "evaluation_error": self.evaluation_error,
             "conditional_actions": self.conditional_plan.snapshot(),
+            "execution_authorization": self.execution_authorization.snapshot() if self.execution_authorization else None,
             "verification": self.verification_plan.snapshot() if self.verification_plan else None,
             "future": self.future_controller.snapshot() if self.future_controller else None,
             "recovery": self.recovery_gate.snapshot() if self.recovery_gate else None,
