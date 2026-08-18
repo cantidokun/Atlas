@@ -21,6 +21,8 @@ BLENDER_TOOL_SCHEMAS = {
     "move_object_to_collection": BlenderToolSchema({"file_name": str, "object_name": str, "collection_name": str}),
     "rename_object": BlenderToolSchema({"file_name": str, "object_name": str, "new_name": str}),
     "delete_object": BlenderToolSchema({"file_name": str, "object_name": str}),
+    "inspect_object_transform": BlenderToolSchema({"file_name": str, "object_name": str}),
+    "set_object_rotation": BlenderToolSchema({"file_name": str, "object_name": str, "rotation_degrees": (list, tuple)}),
 }
 
 
@@ -42,10 +44,17 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
             raise ValueError(f"argument {name} must not be empty")
     snapshot = dict(arguments)
     if tool == "move_object":
-        location = arguments["location"]
-        if len(location) != 3:
+        values = arguments["location"]
+        if len(values) != 3:
             raise ValueError("location must contain exactly three numeric coordinates")
-        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location):
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
             raise ValueError("location must contain exactly three numeric coordinates")
-        snapshot["location"] = list(location) if isinstance(location, list) else tuple(location)
+        snapshot["location"] = list(values) if isinstance(values, list) else tuple(values)
+    if tool == "set_object_rotation":
+        values = arguments["rotation_degrees"]
+        if len(values) != 3:
+            raise ValueError("rotation_degrees must contain exactly three numeric values")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
+            raise ValueError("rotation_degrees must contain exactly three numeric values")
+        snapshot["rotation_degrees"] = list(values) if isinstance(values, list) else tuple(values)
     return snapshot
