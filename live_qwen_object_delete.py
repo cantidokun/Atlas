@@ -121,10 +121,28 @@ def main() -> None:
         authorization = orchestrator.authorize_execution(f"live:object-delete:{args.case}")
         audit.record_authorization(True, action_count=1, authorization_id=authorization.authorization_id)
         action = proposal.actions[0]
-        normalized, receipt = boundary().execute_with_receipt(action.tool, dict(action.arguments))
+
+        # The orchestrator must own the single physical write. The previous implementation
+        # executed the delete once to obtain a receipt and then invoked the orchestrator,
+        # causing a second physical delete against the already-mutated fixture.
+        execution = boundary()
+        capture: Dict[str, Any] = {}
+
+        def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            normalized, receipt = execution.execute_with_receipt(tool, arguments)
+            capture["normalized"] = normalized
+            capture["receipt"] = receipt
+            return {
+                "ok": normalized.ok,
+                "state": normalized.state,
+                "details": dict(normalized.details),
+            }
+
+        result = orchestrator.execute_next_action(execute_once)
+        normalized = capture["normalized"]
+        receipt = capture["receipt"]
         if not receipt.matches(action.tool, action.arguments, normalized):
             raise RuntimeError("Object delete execution receipt mismatch")
-        result = orchestrator.execute_next_action(lambda tool, arguments: {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)})
         if not result.get("ok"):
             raise RuntimeError(f"Authorized object delete action failed: {result}")
         audit.record_action(0, {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}, result, True)
