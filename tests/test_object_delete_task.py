@@ -35,3 +35,20 @@ def test_delete_boundary_requires_object_name():
 
     with pytest.raises(ValueError, match="missing required argument: object_name"):
         validate_blender_tool_call("delete_object", {"file_name": "cleanup.blend"})
+
+
+def test_delete_adapter_uses_standard_success_status(monkeypatch):
+    import tools.blender_delete as blender_delete
+
+    captured = {}
+
+    def fake_run_blender(blend_path, script, start_marker, end_marker):
+        captured["script"] = script
+        return {"status": "ok", "object_name": TARGET_OBJECT}
+
+    monkeypatch.setattr(blender_delete, "run_blender", fake_run_blender)
+    result = blender_delete.delete_object("cleanup.blend", TARGET_OBJECT)
+
+    assert result["status"] == "ok"
+    assert '"status": "ok"' in captured["script"]
+    assert '"status": "deleted"' not in captured["script"]
