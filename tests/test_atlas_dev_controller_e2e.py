@@ -11,6 +11,10 @@ Coverage targets:
 - Approved test command execution.
 - Success detection and log production.
 - Fail-closed when fake Aider creates an out-of-scope file.
+- read_only_files passed to Aider via --read.
+- --no-gitignore present, --no-git absent (Git stays available).
+- Overlap between read_only_files and allowed_files is rejected.
+- read_only_files is optional for backward compatibility.
 """
 
 import json
@@ -22,7 +26,8 @@ from pathlib import Path
 
 import pytest
 
-from atlas_dev_controller.runner import run_task
+from atlas_dev_controller.runner import build_aider_command, run_task
+from atlas_dev_controller.task_schema import AtlasTask, TaskValidationError
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -289,3 +294,248 @@ class TestE2ETestCommandFailure:
             # Log records the failure
             log_content = Path(result.log_path).read_text(encoding="utf-8")
             assert "FAIL" in log_content
+
+
+# ── Regression: read_only_files and command flags ────────────────────────
+
+class TestReadOnlyFilesInCommand:
+    """Prove read_only_files are passed via --read and editable files via --file."""
+
+    def test_read_only_files_appear_as_read_flag(self):
+        task = AtlasTask(
+            task_id="ro-cmd",
+            message="do something",
+            allowed_files=["planning/target_module.py"],
+            allowed_test_commands=["python -m pytest tests/"],
+            read_only_files=["planning/reference.py", "docs/spec.md"],
+        )
+        cmd = build_aider_command(task)
+
+        # --read flags for read-only files
+        for ro in task.read_only_files:
+            idx = cmd.index("--read")
+            assert cmd[cmd.index("--read", idx) + 1] == ro or ro in cmd
+
+        # --file flags only for editable files
+        file_args = [cmd[i + 1] for i, v in enumerate(cmd) if v == "--file"]
+        assert file_args == ["planning/target_module.py"]
+
+        # read-only files must NOT appear after --file
+        read_args = [cmd[i + 1] for i, v in enumerate(cmd) if v == "--read"]
+        assert set(read_args) == {"planning/reference.py", "docs/spec.md"}
+
+    def test_no_read_flags_when_read_only_empty(self):
+        task = AtlasTask(
+            task_id="ro-empty",
+            message="do something",
+            allowed_files=["planning/target_module.py"],
+            allowed_test_commands=["python -m pytest tests/"],
+            read_only_files=[],
+        )
+        cmd = build_aider_command(task)
+        assert "--read" not in cmd
+
+    def test_backward_compat_no_read_only_field(self):
+        """read_only_files defaults to empty list when omitted."""
+        task = AtlasTask(
+            task_id="ro-compat",
+            message="do something",
+            allowed_files=["planning/target_module.py"],
+            allowed_test_commands=["python -m pytest tests/"],
+        )
+        assert task.read_only_files == []
+        cmd = build_aider_command(task)
+        assert "--read" not in cmd
+
+
+class TestNoGitignoreFlag:
+    """Prove --no-gitignore is present and --no-git is absent."""
+
+    def test_no_gitignore_present(self):
+        task = AtlasTask(
+            task_id="flag-check",
+            message="do something",
+            allowed_files=["planning/target_module.py"],
+            allowed_test_commands=["python -m pytest tests/"],
+        )
+        cmd = build_aider_command(task)
+        assert "--no-gitignore" in cmd
+
+    def test_no_git_absent(self):
+        """Git must remain available for repo awareness."""
+        task = AtlasTask(
+            task_id="flag-check2",
+            message="do something",
+            allowed_files=["planning/target_module.py"],
+            allowed_test_commands=["python -m pytest tests/"],
+        )
+        cmd = build_aider_command(task)
+        assert "--no-git" not in cmd
+
+    def test_no_auto_commits_present(self):
+        task = AtlasTask(
+            task_id="flag-check3",
+            message="do something",
+            allowed_files=["planning/target_module.py"],
+            allowed_test_commands=["python -m pytest tests/"],
+        )
+        cmd = build_aider_command(task)
+        assert "--no-auto-commits" in cmd
+
+
+class TestReadOnlyAllowedOverlapRejected:
+    """Prove that overlapping read_only_files and allowed_files is rejected."""
+
+    def test_overlap_raises(self):
+        with pytest.raises(TaskValidationError, match="must not overlap"):
+            AtlasTask(
+                task_id="overlap",
+                message="do something",
+                allowed_files=["planning/target_module.py"],
+                allowed_test_commands=["python -m pytest tests/"],
+                read_only_files=["planning/target_module.py"],
+            )
+
+    def test_partial_overlap_raises(self):
+        with pytest.raises(TaskValidationError, match="must not overlap"):
+            AtlasTask(
+                task_id="overlap2",
+                message="do something",
+                allowed_files=["a.py", "b.py"],
+                allowed_test_commands=["python -m pytest tests/"],
+                read_only_files=["b.py", "c.py"],
+            )
+
+    def test_no_overlap_ok(self):
+        task = AtlasTask(
+            task_id="no-overlap",
+            message="do something",
+            allowed_files=["a.py"],
+            allowed_test_commands=["python -m pytest tests/"],
+            read_only_files=["b.py"],
+        )
+        assert task.read_only_files == ["b.py"]
+
+
+class TestReadOnlyFilesValidation:
+    """Prove read_only_files validation edge cases."""
+
+    def test_empty_string_rejected(self):
+        with pytest.raises(TaskValidationError, match="read_only_files"):
+            AtlasTask(
+                task_id="ro-bad",
+                message="do something",
+                allowed_files=["a.py"],
+                allowed_test_commands=["python -m pytest tests/"],
+                read_only_files=[""],
+            )
+
+    def test_non_list_rejected(self):
+        with pytest.raises(TaskValidationError, match="read_only_files must be a list"):
+            AtlasTask(
+                task_id="ro-bad2",
+                message="do something",
+                allowed_files=["a.py"],
+                allowed_test_commands=["python -m pytest tests/"],
+                read_only_files="not_a_list",
+            )
+
+
+class TestLoadTaskReadOnlyFiles:
+    """Prove load_task handles read_only_files from JSON."""
+
+    def test_load_with_read_only(self, tmp_path):
+        from atlas_dev_controller.task_schema import load_task
+
+        task_data = {
+            "task_id": "load-ro",
+            "message": "do something",
+            "allowed_files": ["a.py"],
+            "allowed_test_commands": ["python -m pytest"],
+            "read_only_files": ["b.py", "c.py"],
+        }
+        p = tmp_path / "task.json"
+        p.write_text(json.dumps(task_data), encoding="utf-8")
+        task = load_task(str(p))
+        assert task.read_only_files == ["b.py", "c.py"]
+
+    def test_load_without_read_only(self, tmp_path):
+        from atlas_dev_controller.task_schema import load_task
+
+        task_data = {
+            "task_id": "load-no-ro",
+            "message": "do something",
+            "allowed_files": ["a.py"],
+            "allowed_test_commands": ["python -m pytest"],
+        }
+        p = tmp_path / "task.json"
+        p.write_text(json.dumps(task_data), encoding="utf-8")
+        task = load_task(str(p))
+        assert task.read_only_files == []
+
+
+class TestE2EWithReadOnlyFiles:
+    """End-to-end: read_only_files are passed to Aider but not editable."""
+
+    def test_read_only_in_full_lifecycle(self):
+        with tempfile.TemporaryDirectory() as repo:
+            _init_git_repo(repo)
+
+            # Create a read-only reference file
+            ref = Path(repo) / "planning" / "reference.py"
+            ref.write_text("# reference\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "add reference"],
+                cwd=repo, capture_output=True, check=True,
+            )
+
+            task_data = {
+                "task_id": "e2e-readonly",
+                "message": "modify planning/target_module.py",
+                "allowed_files": ["planning/target_module.py"],
+                "read_only_files": ["planning/reference.py"],
+                "allowed_test_commands": [
+                    f"{sys.executable} tests/check_target.py"
+                ],
+            }
+            task_path = _write_task(repo, task_data)
+
+            fake_script = _fake_aider_script(
+                repo, "planning/target_module.py"
+            )
+
+            # Capture the command to verify --read was included
+            captured_cmds = []
+            real_executor = _make_executor(repo, fake_script)
+
+            def capturing_executor(cmd):
+                captured_cmds.append(cmd)
+                return real_executor(cmd)
+
+            import atlas_dev_controller.scope_guard as guard_mod
+            original_detect = guard_mod.detect_changed_files
+
+            def patched_detect(repo_dir=None):
+                return original_detect(repo)
+
+            guard_mod.detect_changed_files = patched_detect
+            try:
+                result = run_task(task_path, execute_command=capturing_executor)
+            finally:
+                guard_mod.detect_changed_files = original_detect
+
+            assert result.success is True, f"expected success, got error: {result.error}"
+
+            # The Aider command (first captured) must contain --read
+            aider_cmd = captured_cmds[0]
+            assert "--read" in aider_cmd
+            read_idx = aider_cmd.index("--read")
+            assert aider_cmd[read_idx + 1] == "planning/reference.py"
+
+            # --no-gitignore present, --no-git absent
+            assert "--no-gitignore" in aider_cmd
+            assert "--no-git" not in aider_cmd
+
+            # Reference file was NOT modified
+            assert ref.read_text(encoding="utf-8") == "# reference\n"

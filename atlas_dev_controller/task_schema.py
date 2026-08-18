@@ -11,7 +11,7 @@ The controller refuses to operate without a valid task file.
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 
 class TaskValidationError(ValueError):
@@ -26,6 +26,7 @@ class AtlasTask:
     message: str
     allowed_files: List[str]
     allowed_test_commands: List[str]
+    read_only_files: List[str] = field(default_factory=list)
     model: str = "gpt-4o"
 
     def __post_init__(self) -> None:
@@ -43,6 +44,18 @@ class AtlasTask:
         for cmd in self.allowed_test_commands:
             if not isinstance(cmd, str) or not cmd.strip():
                 raise TaskValidationError("allowed_test_commands must contain only non-empty strings")
+        # Validate read_only_files
+        if not isinstance(self.read_only_files, list):
+            raise TaskValidationError("read_only_files must be a list")
+        for f in self.read_only_files:
+            if not isinstance(f, str) or not f.strip():
+                raise TaskValidationError("read_only_files must contain only non-empty strings")
+        # Fail closed: no overlap between editable and read-only files
+        overlap = set(self.allowed_files) & set(self.read_only_files)
+        if overlap:
+            raise TaskValidationError(
+                f"read_only_files must not overlap with allowed_files: {sorted(overlap)}"
+            )
         # Fail closed: no push/commit commands allowed
         for cmd in self.allowed_test_commands:
             lower = cmd.lower()
@@ -84,5 +97,6 @@ def load_task(path: str) -> AtlasTask:
         message=data["message"],
         allowed_files=data["allowed_files"],
         allowed_test_commands=data["allowed_test_commands"],
+        read_only_files=data.get("read_only_files", []),
         model=data.get("model", "gpt-4o"),
     )
