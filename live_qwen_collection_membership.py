@@ -11,11 +11,7 @@ from audit_trail import AuditTrail
 from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
-from planning.collection_membership_task import (
-    TARGET_COLLECTION,
-    TARGET_OBJECT,
-    collection_membership_target_evaluator,
-)
+from planning.collection_membership_task import TARGET_COLLECTION, TARGET_OBJECT, collection_membership_target_evaluator
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator
 from planning.verification_plan import VerificationPlan
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
@@ -93,11 +89,7 @@ def boundary() -> BlenderExecutionBoundary:
             raise RuntimeError(f"Unexpected collection membership action: {tool}")
         raw = move_object_to_collection(**arguments)
         status = raw.get("status")
-        return {
-            "ok": status in {"moved", "already_member"},
-            "state": str(status or "unknown"),
-            "details": dict(raw),
-        }
+        return {"ok": status in {"moved", "already_member"}, "state": str(status or "unknown"), "details": dict(raw)}
     return BlenderExecutionBoundary(execute)
 
 
@@ -136,16 +128,17 @@ def main() -> None:
         audit.record_authorization(True, action_count=1, authorization_id=authorization.authorization_id)
 
         action = proposal.actions[0]
-        normalized, receipt = boundary().execute_with_receipt(action.tool, dict(action.arguments))
-        if not receipt.matches(action.tool, action.arguments, normalized):
-            raise RuntimeError("Collection membership execution receipt mismatch")
+        capture: Dict[str, Any] = {}
 
-        result = {
-            "ok": normalized.ok,
-            "state": normalized.state,
-            "details": dict(normalized.details),
-        }
-        result = orchestrator.execute_next_action(lambda tool, arguments: result)
+        def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            normalized, receipt = boundary().execute_with_receipt(tool, dict(arguments))
+            if not receipt.matches(tool, arguments, normalized):
+                raise RuntimeError("Collection membership execution receipt mismatch")
+            capture["normalized"] = normalized
+            capture["receipt"] = receipt
+            return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
+
+        result = orchestrator.execute_next_action(execute_once)
         if not result.get("ok"):
             raise RuntimeError(f"Authorized collection membership action failed: {result}")
         audit.record_action(0, {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}, result, True)
