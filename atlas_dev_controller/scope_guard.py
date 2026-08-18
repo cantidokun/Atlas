@@ -5,11 +5,61 @@ before any operation proceeds. It fails closed on any violation.
 
 Post-Aider enforcement detects actual Git working-tree changes (modified,
 added, deleted, renamed) and rejects any path outside the approved scope.
+
+Aider's own runtime artifacts (``.aider.chat.history.md``,
+``.aider.input.history``, ``.aider.tags.cache.v4/``) are excluded from
+scope-violation checks so they never cause false-positive failures during
+autonomous runs.  Arbitrary other files still fail closed.
 """
 
 import os
 import subprocess
-from typing import List, Optional
+from typing import FrozenSet, List, Optional
+
+
+# ---------------------------------------------------------------------------
+# Aider runtime artifact patterns (fail-open only for these exact names)
+# ---------------------------------------------------------------------------
+
+AIDER_RUNTIME_ARTIFACTS: FrozenSet[str] = frozenset(
+    {
+        ".aider.chat.history.md",
+        ".aider.input.history",
+    }
+)
+
+AIDER_RUNTIME_DIRECTORY_PREFIXES: FrozenSet[str] = frozenset(
+    {
+        ".aider.tags.cache.v4/",
+        ".aider.tags.cache.v4\\",
+    }
+)
+
+
+def is_aider_runtime_artifact(path: str) -> bool:
+    """Return True when *path* is a known Aider runtime artifact.
+
+    Only the exact file names and the ``.aider.tags.cache.v4/`` directory
+    tree are recognised.  Everything else is treated as production content
+    and must pass normal scope validation.
+    """
+    norm = path.replace("\\", "/").strip("/")
+    basename = norm.rsplit("/", 1)[-1] if "/" in norm else norm
+
+    # Exact file-name match (may appear at repo root or nested)
+    if basename in AIDER_RUNTIME_ARTIFACTS:
+        return True
+
+    # Directory prefix match for the tags-cache tree
+    for prefix in (".aider.tags.cache.v4/",):
+        if norm == prefix.rstrip("/") or norm.startswith(prefix) or ("/" + prefix) in ("/" + norm):
+            # Check if any path component matches
+            parts = norm.split("/")
+            for i, part in enumerate(parts):
+                if part == ".aider.tags.cache.v4":
+                    return True
+
+    return False
 
 
 class ScopeViolationError(RuntimeError):
@@ -105,20 +155,34 @@ def validate_post_aider_scope(
 ) -> List[str]:
     """Detect working-tree changes and fail closed if any are outside scope.
 
-    Returns the list of changed files for logging.
-    Raises ``ScopeViolationError`` on the first out-of-scope path.
+    Aider runtime artifacts are silently excluded — they are expected side
+    effects of every Aider invocation and must never trigger a scope
+    violation.
+
+    Returns the list of *production* changed files (artifacts excluded) for
+    logging.  Raises ``ScopeViolationError`` on the first out-of-scope
+    production path.
     """
-    changed = detect_changed_files(repo_dir)
-    if not changed:
-        return changed
+    raw_changed = detect_changed_files(repo_dir)
+    if not raw_changed:
+        return raw_changed
+
+    # Partition into artifacts vs. production changes
+    production_changed: List[str] = []
+    for f in raw_changed:
+        if not is_aider_runtime_artifact(f):
+            production_changed.append(f)
+
+    if not production_changed:
+        return production_changed
 
     allowed_normalized = {normalize_path(f) for f in allowed_files}
-    for f in changed:
+    for f in production_changed:
         if normalize_path(f) not in allowed_normalized:
             raise ScopeViolationError(
                 f"Aider modified a file outside the approved scope: {f}"
             )
-    return changed
+    return production_changed
 
 
 def validate_command_scope(command: str, allowed_commands: List[str]) -> None:
