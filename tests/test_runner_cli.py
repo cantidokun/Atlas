@@ -5,6 +5,7 @@ import os
 import subprocess
 import textwrap
 from pathlib import Path
+from typing import Optional
 from unittest import mock
 
 import pytest
@@ -16,7 +17,7 @@ from atlas_dev_controller.runner import RunResult, main, run_task
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _write_task(tmp_path: Path, overrides: dict | None = None) -> str:
+def _write_task(tmp_path: Path, overrides: Optional[dict] = None) -> str:
     """Write a minimal valid task JSON and return its path."""
     task = {
         "task_id": "cli-test-001",
