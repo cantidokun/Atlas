@@ -7,13 +7,10 @@ import requests
 
 from action_plan import ActionSpec
 from audit_trail import AuditTrail
-from conditional_action_plan import ConditionalActionPlan
-from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.object_rotation_task import TARGET_OBJECT, TARGET_ROTATION, object_rotation_target_evaluator
-from planning.planning_orchestrator import ConditionalPlanningOrchestrator
 from planning.task_definition import AtlasTaskDefinition
-from planning.verification_plan import VerificationPlan
+from planning.task_runtime import prepare_task_runtime
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
@@ -82,18 +79,14 @@ def rotation_boundary() -> BlenderExecutionBoundary:
             raise RuntimeError(f"Unexpected rotation action: {tool}")
         raw = set_object_rotation(**arguments)
         status = raw.get("status")
-        return {
-            "ok": status in {"ok", "already_rotated"},
-            "state": str(status or "unknown"),
-            "details": dict(raw),
-        }
+        return {"ok": status in {"ok", "already_rotated"}, "state": str(status or "unknown"), "details": dict(raw)}
     return BlenderExecutionBoundary(execute)
 
 
 def task_definition(file_name: str) -> AtlasTaskDefinition:
     return AtlasTaskDefinition(
         name="object_rotation",
-        evidence=(EvidenceRequest("inspect_object_transform", {"file_name": file_name, "object_name": TARGET_OBJECT}, "inspect_object_transform"),),
+        evidence=(ActionSpec.__mro__[1] and __import__("evidence_plan").EvidenceRequest("inspect_object_transform", {"file_name": file_name, "object_name": TARGET_OBJECT}, "inspect_object_transform"),),
         actions=(ActionSpec("set_object_rotation", {"file_name": file_name, "object_name": TARGET_OBJECT, "rotation_degrees": TARGET_ROTATION}, "set_object_rotation"),),
         evaluator=object_rotation_target_evaluator(),
         allowed_action_tools={"set_object_rotation"},
@@ -114,13 +107,7 @@ def main() -> None:
     definition = task_definition(file_name)
     if tuple(proposal.evidence) != definition.evidence or tuple(proposal.actions) != definition.actions:
         raise RuntimeError("Qwen plan does not match declarative task definition")
-
-    orchestrator = ConditionalPlanningOrchestrator(
-        evidence_plan=EvidencePlan(list(definition.evidence)),
-        conditional_plan=ConditionalActionPlan(list(definition.actions)),
-        target_evaluator=definition.evaluator,
-        verification_plan=VerificationPlan(definition.evaluator),
-    )
+    orchestrator = prepare_task_runtime(definition)
 
     initial = orchestrator.acquire_next_evidence(read_evidence)
     audit.record_evidence({"tool": definition.evidence[0].tool, "arguments": dict(definition.evidence[0].arguments), "name": definition.evidence[0].name}, initial)
