@@ -164,7 +164,7 @@ def detect_changed_files(repo_dir: Optional[str] = None) -> List[str]:
 
 def validate_post_aider_scope(
     allowed_files: List[str],
-    baseline_changes: FrozenSet[str],
+    baseline_changes: Optional[FrozenSet[str]] = None,
     repo_dir: Optional[str] = None,
 ) -> List[str]:
     """Detect working-tree changes and fail closed if any NEW changes are outside scope.
@@ -181,8 +181,9 @@ def validate_post_aider_scope(
     ----------
     allowed_files : List[str]
         Files that Aider is authorized to modify
-    baseline_changes : FrozenSet[str]
-        Normalized paths of files that were already changed before Aider ran
+    baseline_changes : Optional[FrozenSet[str]]
+        Normalized paths of files that were already changed before Aider ran.
+        If None, defaults to empty set (all changes are considered new).
     repo_dir : Optional[str]
         Repository directory for git commands
 
@@ -208,6 +209,10 @@ def validate_post_aider_scope(
 
     if not production_changed:
         return production_changed
+
+    # Use empty baseline if none provided (backward compatibility)
+    if baseline_changes is None:
+        baseline_changes = frozenset()
 
     # Only validate NEW changes (not in baseline) against allowed_files
     allowed_normalized = {normalize_path(f) for f in allowed_files}

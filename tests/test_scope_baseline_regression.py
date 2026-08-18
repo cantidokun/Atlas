@@ -187,6 +187,36 @@ class TestScopeBaselineRegression(unittest.TestCase):
             result = validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
             self.assertEqual(len(result), 2)  # Both files returned for logging
 
+    def test_backward_compatibility_no_baseline_parameter(self):
+        """Test backward compatibility: omitted baseline_changes should work like empty baseline."""
+        allowed_files = ["allowed_file.py"]
+        
+        # Mock git to return unauthorized change
+        with patch('atlas_dev_controller.scope_guard.detect_changed_files') as mock_detect:
+            mock_detect.return_value = ["unauthorized_file.py"]
+            
+            # Call without baseline_changes parameter (backward compatibility)
+            with self.assertRaises(ScopeViolationError) as cm:
+                validate_post_aider_scope(allowed_files, repo_dir=self.test_dir)
+            
+            self.assertIn("unauthorized_file.py", str(cm.exception))
+            self.assertIn("outside the approved scope", str(cm.exception))
+
+    def test_backward_compatibility_none_baseline_parameter(self):
+        """Test backward compatibility: explicit None baseline_changes should work like empty baseline."""
+        allowed_files = ["allowed_file.py"]
+        
+        # Mock git to return authorized change
+        with patch('atlas_dev_controller.scope_guard.detect_changed_files') as mock_detect:
+            mock_detect.return_value = ["allowed_file.py"]
+            
+            # Call with explicit None baseline_changes (backward compatibility)
+            try:
+                result = validate_post_aider_scope(allowed_files, None, self.test_dir)
+                self.assertEqual(result, ["allowed_file.py"])
+            except ScopeViolationError:
+                self.fail("Authorized change with None baseline incorrectly failed validation")
+
 
 if __name__ == '__main__':
     unittest.main()
