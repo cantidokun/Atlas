@@ -42,7 +42,7 @@ class InMemoryTransport:
         self._call_count = 0
         self._fail_at_index = fail_at_index
         self._error_message = error_message
-        self.requests: list[UnrealTransportRequest] = []
+        self.requests: List[UnrealTransportRequest] = []
 
     def send(self, request: UnrealTransportRequest) -> UnrealTransportResponse:
         index = self._call_count
@@ -65,7 +65,7 @@ class InMemoryTransport:
             operation_name=request.operation_name,
             entity_ids=request.entity_ids,
             success=True,
-            error=None,
+            error="",
             observed_state={
                 "echo_capability": request.capability,
                 "echo_kind": request.kind,
