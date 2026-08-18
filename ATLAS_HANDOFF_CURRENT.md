@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 18, 2026 14:39 UTC  
+**Updated:** August 18, 2026 17:40 UTC  
 **Current branch:** `main`  
 **Current HEAD:** `d164ab34cfabe4e9ee16699148851184bb7fd924` — `fix: bind rotation execution to single orchestrated write`  
 **Latest completed live regression:** `Live Conditional Atlas Regression #155` — all four jobs passed.
@@ -153,7 +153,7 @@ Important boundary: the two `live conditional` jobs in #155 are the goalpost con
 
 `live_qwen_object_rotation.py` constrains Qwen through `TASK_PLAN_JSON_SCHEMA`, allows only `inspect_object_transform` and `set_object_rotation`, requires exactly one evidence request and one action, authorizes the mutation explicitly, binds the single execution receipt, and performs fresh independent verification.
 
-A fresh workflow-run lookup for `d164ab34cfabe4e9ee16699148851184bb7fd924` currently returns no workflow runs, so no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
+A fresh GitHub workflow lookup for `d164ab34cfabe4e9ee16699148851184bb7fd924` was performed on August 18, 2026 and returns **no workflow runs**. Therefore no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
 
 ## 6. Runtime integrity / continuation
 
@@ -168,7 +168,7 @@ A broader production-facing continuation/resume scenario using these integrity p
 - Goalpost and generic collection creation are live-proven.
 - Marker creation (`planning/marker_task.py`, `create_empty_marker`) is offline/CI-proven but not live-proven.
 - Object rotation is implemented with receipt-bound single execution but is not yet live-proven on the current HEAD.
-- Current HEAD `d164ab34` has no fresh workflow-run result in the available GitHub status surface.
+- Current HEAD `d164ab34` has no fresh workflow-run result in the available GitHub status surface as of August 18, 2026.
 - Generic collection proof is a focused harness; it does not prove arbitrary task generation or arbitrary Blender production planning.
 - Executor success is never authoritative state; fresh scene evidence remains mandatory.
 - Broader continuation/resume needs a production-facing live proof.
@@ -246,4 +246,4 @@ On the next development session:
 9. Update this handoff with actual results before moving to another capability.
 10. Do not declare broader autonomous production operation complete until continuation/resume has a real live proof.
 
-**Immediate continuation point:** `d164ab34` has advanced Atlas to a third materially different task, object rotation, with receipt-bound single execution implemented but not yet live-proven. The current repository check confirms no newer workflow run is attached to that commit. The next required action is to obtain fresh CI validation for the current HEAD and then run both deterministic rotation cases. The collection live proof from #155 remains the baseline, and marker/continuation proofs remain outstanding.
+**Immediate continuation point:** `d164ab34` has advanced Atlas to a third materially different task, object rotation, with receipt-bound single execution implemented but not yet live-proven. The August 18, 2026 repository check confirms no newer workflow run is attached to that commit. The next required action is to obtain fresh CI validation for the current HEAD and then run both deterministic rotation cases. The collection live proof from #155 remains the baseline, and marker/continuation proofs remain outstanding.
