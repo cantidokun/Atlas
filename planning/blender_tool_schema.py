@@ -15,25 +15,11 @@ BLENDER_TOOL_SCHEMAS = {
     "inspect_scene": BlenderToolSchema({"file_name": str}),
     "inspect_scene_settings": BlenderToolSchema({"file_name": str}),
     "create_collection": BlenderToolSchema({"file_name": str, "collection_name": str}),
-    "create_empty_marker": BlenderToolSchema({
-        "file_name": str,
-        "collection_name": str,
-        "object_name": str,
-    }),
-    "parent_object": BlenderToolSchema({
-        "file_name": str,
-        "child_name": str,
-        "parent_name": str,
-    }),
-    "inspect_object_collections": BlenderToolSchema({
-        "file_name": str,
-        "object_name": str,
-    }),
-    "move_object_to_collection": BlenderToolSchema({
-        "file_name": str,
-        "object_name": str,
-        "collection_name": str,
-    }),
+    "create_empty_marker": BlenderToolSchema({"file_name": str, "collection_name": str, "object_name": str}),
+    "parent_object": BlenderToolSchema({"file_name": str, "child_name": str, "parent_name": str}),
+    "inspect_object_collections": BlenderToolSchema({"file_name": str, "object_name": str}),
+    "move_object_to_collection": BlenderToolSchema({"file_name": str, "object_name": str, "collection_name": str}),
+    "rename_object": BlenderToolSchema({"file_name": str, "object_name": str, "new_name": str}),
 }
 
 
@@ -43,11 +29,9 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
         raise ValueError("tool must be a non-empty string")
     if not isinstance(arguments, dict):
         raise TypeError("arguments must be an object")
-
     schema = BLENDER_TOOL_SCHEMAS.get(tool)
     if schema is None:
         raise ValueError(f"unsupported Blender tool: {tool}")
-
     for name, expected in schema.required.items():
         if name not in arguments:
             raise ValueError(f"missing required argument: {name}")
@@ -55,9 +39,7 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
             raise TypeError(f"argument {name} has invalid type")
         if isinstance(arguments[name], str) and not arguments[name].strip():
             raise ValueError(f"argument {name} must not be empty")
-
     snapshot = dict(arguments)
-
     if tool == "move_object":
         location = arguments["location"]
         if len(location) != 3:
@@ -65,5 +47,4 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location):
             raise ValueError("location must contain exactly three numeric coordinates")
         snapshot["location"] = list(location) if isinstance(location, list) else tuple(location)
-
     return snapshot
