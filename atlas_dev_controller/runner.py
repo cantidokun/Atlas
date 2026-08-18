@@ -138,12 +138,12 @@ def build_aider_command(task: AtlasTask) -> List[str]:
     Invariants enforced:
     - Uses the installed ``aider`` CLI executable (never ``python -m``).
     - ``--no-auto-commits`` — Aider never commits.
+    - ``--no-git`` — Aider never runs git commands (no commits, no push).
     - ``--no-gitignore`` — Aider does not skip files based on .gitignore.
     - ``--yes`` — non-interactive, no user prompts.
     - ``--message`` — the task prompt, not stdin.
     - Only approved files are passed as editable (``--file``).
     - Read-only context files are passed via ``--read``.
-    - Git remains available for repo awareness (no ``--no-git``).
 
     Raises
     ------
@@ -154,6 +154,7 @@ def build_aider_command(task: AtlasTask) -> List[str]:
     cmd = [
         aider_exe,
         "--no-auto-commits",
+        "--no-git",
         "--no-gitignore",
         "--yes",
         "--model", task.model,

@@ -349,7 +349,7 @@ class TestReadOnlyFilesInCommand:
 
 
 class TestNoGitignoreFlag:
-    """Prove --no-gitignore is present and --no-git is absent."""
+    """Prove --no-gitignore and --no-git are both present."""
 
     def test_no_gitignore_present(self):
         task = AtlasTask(
@@ -361,8 +361,8 @@ class TestNoGitignoreFlag:
         cmd = build_aider_command(task)
         assert "--no-gitignore" in cmd
 
-    def test_no_git_absent(self):
-        """Git must remain available for repo awareness."""
+    def test_no_git_present(self):
+        """Aider must never run git commands — --no-git is a safety invariant."""
         task = AtlasTask(
             task_id="flag-check2",
             message="do something",
@@ -370,7 +370,7 @@ class TestNoGitignoreFlag:
             allowed_test_commands=["python -m pytest tests/"],
         )
         cmd = build_aider_command(task)
-        assert "--no-git" not in cmd
+        assert "--no-git" in cmd
 
     def test_no_auto_commits_present(self):
         task = AtlasTask(
@@ -533,9 +533,9 @@ class TestE2EWithReadOnlyFiles:
             read_idx = aider_cmd.index("--read")
             assert aider_cmd[read_idx + 1] == "planning/reference.py"
 
-            # --no-gitignore present, --no-git absent
+            # --no-gitignore and --no-git both present
             assert "--no-gitignore" in aider_cmd
-            assert "--no-git" not in aider_cmd
+            assert "--no-git" in aider_cmd
 
             # Reference file was NOT modified
             assert ref.read_text(encoding="utf-8") == "# reference\n"
