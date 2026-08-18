@@ -4,7 +4,7 @@ Uses an in-memory transport so no real Unreal process is needed.
 """
 
 import pytest
-from typing import Any, Dict, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from planning.unreal_agent import (
     UnrealCapability,
