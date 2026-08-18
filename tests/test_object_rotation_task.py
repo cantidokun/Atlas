@@ -37,7 +37,7 @@ def test_rotation_boundary_rejects_wrong_vector_shape():
 
 
 def test_rotation_boundary_rejects_non_finite_values():
-    with pytest.raises(ValueError, match="exactly three numeric values"):
+    with pytest.raises(ValueError, match="only finite numeric values"):
         validate_blender_tool_call(
             "set_object_rotation",
             {"file_name": "rotation.blend", "object_name": TARGET_OBJECT, "rotation_degrees": [0, float("nan"), 90]},
