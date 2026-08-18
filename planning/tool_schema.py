@@ -21,23 +21,27 @@ TOOL_SCHEMAS = {
     },
     "create_collection": {
         "required": {"file_name", "collection_name"},
-        "properties": {"file_name": "string", "collection_name": "string"},
+        "properties": {"file_name", "collection_name"},
     },
     "parent_object": {
         "required": {"file_name", "child_name", "parent_name"},
-        "properties": {"file_name": "string", "child_name": "string", "parent_name": "string"},
+        "properties": {"file_name", "child_name", "parent_name"},
     },
     "inspect_object_collections": {
         "required": {"file_name", "object_name"},
-        "properties": {"file_name": "string", "object_name": "string"},
+        "properties": {"file_name", "object_name"},
     },
     "move_object_to_collection": {
         "required": {"file_name", "object_name", "collection_name"},
-        "properties": {"file_name": "string", "object_name": "string", "collection_name": "string"},
+        "properties": {"file_name", "object_name", "collection_name"},
     },
     "rename_object": {
         "required": {"file_name", "object_name", "new_name"},
-        "properties": {"file_name": "string", "object_name": "string", "new_name": "string"},
+        "properties": {"file_name", "object_name", "new_name"},
+    },
+    "delete_object": {
+        "required": {"file_name", "object_name"},
+        "properties": {"file_name", "object_name"},
     },
 }
 
