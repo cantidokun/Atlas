@@ -48,6 +48,21 @@ TOOL_SCHEMAS = {
             "parent_name": "string",
         },
     },
+    "inspect_object_collections": {
+        "required": {"file_name", "object_name"},
+        "properties": {
+            "file_name": "string",
+            "object_name": "string",
+        },
+    },
+    "move_object_to_collection": {
+        "required": {"file_name", "object_name", "collection_name"},
+        "properties": {
+            "file_name": "string",
+            "object_name": "string",
+            "collection_name": "string",
+        },
+    },
 }
 
 
