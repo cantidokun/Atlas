@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 18, 2026 08:45 UTC  
+**Updated:** August 18, 2026 11:43 UTC  
 **Current branch:** `main`  
 **Current HEAD:** `d164ab34cfabe4e9ee16699148851184bb7fd924` — `fix: bind rotation execution to single orchestrated write`  
 **Latest completed live regression:** `Live Conditional Atlas Regression #155` — all four jobs passed.
@@ -79,7 +79,7 @@ The collection task is conditional creation of `Atlas_Test` using `inspect_scene
 
 The marker task is a separate creation task and is offline/CI-proven but not yet live-proven.
 
-The object-rotation task is now the next materially different transform capability. Its live harness constrains Qwen to `inspect_object_transform` and `set_object_rotation`, uses `ConditionalPlanningOrchestrator`, `VerificationPlan`, `ActionAuthorization`, and `BlenderExecutionBoundary.execute_with_receipt()`, and requires one evidence request and one action.
+The object-rotation task is the current next materially different transform capability. Its harness constrains Qwen to `inspect_object_transform` and `set_object_rotation`, uses `ConditionalPlanningOrchestrator`, `VerificationPlan`, `ActionAuthorization`, and `BlenderExecutionBoundary.execute_with_receipt()`, and requires exactly one evidence request and one action.
 
 ## 4. Current model/runtime setup
 
@@ -149,7 +149,7 @@ Important boundary: the two `live conditional` jobs in #155 are the goalpost con
 
 `d164ab34cfabe4e9ee16699148851184bb7fd924` changed `live_qwen_object_rotation.py` so the rotation action is executed exactly once through `BlenderExecutionBoundary`, with the receipt captured from that same execution and matched against the authorized action/result. It also validates the plan shape as exactly one evidence request and one action.
 
-A fresh GitHub combined-status check for `d164ab34cfabe4e9ee16699148851184bb7fd924` currently returns no status entries, so no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
+A fresh workflow-run lookup for `d164ab34cfabe4e9ee16699148851184bb7fd924` currently returns no workflow runs, so no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
 
 ## 6. Runtime integrity / continuation
 
@@ -164,7 +164,7 @@ A broader production-facing continuation/resume scenario using these integrity p
 - Goalpost and generic collection creation are live-proven.
 - Marker creation (`planning/marker_task.py`, `create_empty_marker`) is offline/CI-proven but not live-proven.
 - Object rotation is implemented with receipt-bound single execution but is not yet live-proven on the current HEAD.
-- Current HEAD `d164ab34` has not yet acquired a fresh CI result in the available GitHub status surface.
+- Current HEAD `d164ab34` has no fresh workflow-run result in the available GitHub status surface.
 - Generic collection proof is a focused harness; it does not prove arbitrary task generation or arbitrary Blender production planning.
 - Executor success is never authoritative state; fresh scene evidence remains mandatory.
 - Broader continuation/resume needs a production-facing live proof.
@@ -174,7 +174,7 @@ A broader production-facing continuation/resume scenario using these integrity p
 
 ## 8. Exact next development stage
 
-1. Run/inspect CI for current HEAD `d164ab34` and correct any regression before adding more architecture.
+1. Obtain fresh CI validation for current HEAD `d164ab34`; if the normal workflow is not automatically triggered, trigger it through the repository's established workflow path rather than assuming the old #401 result covers this commit.
 2. Live-test `live_qwen_object_rotation.py` on `object_rotation_CORRECT.blend` and `object_rotation_INCORRECT.blend`.
 3. Require both rotation cases to prove zero-write behavior, explicit authorization for mutation, exactly one `set_object_rotation` call, receipt binding, and fresh independent verification.
 4. Add the collection false-success live case: executor reports success while authoritative post-state remains wrong; require `VerificationPlan` -> `BLOCKED`.
@@ -233,7 +233,7 @@ On the next development session:
 
 1. Read this handoff.
 2. Inspect `main` and latest GitHub Actions state.
-3. Use **Atlas Tests #401 PASS / Python 3.9 + 3.11** as the last completed offline baseline, but do not assume it validates `d164ab34`; inspect/run CI for the current HEAD first.
+3. Use **Atlas Tests #401 PASS / Python 3.9 + 3.11** as the last completed offline baseline, but do not assume it validates `d164ab34`; obtain fresh CI first.
 4. Use **Live Conditional Atlas Regression #155 PASS** as the current live collection/goalpost baseline.
 5. Inspect actual logs before changing code if current rotation CI/live tests fail.
 6. Prove object rotation live on both deterministic fixtures.
@@ -242,4 +242,4 @@ On the next development session:
 9. Update this handoff with actual results before moving to another capability.
 10. Do not declare broader autonomous production operation complete until continuation/resume has a real live proof.
 
-**Immediate continuation point:** `d164ab34` has advanced Atlas to a third materially different task, object rotation, with receipt-bound single execution implemented but not yet live-proven. The latest repository check confirms no newer commit is present on `main`, and no combined CI status is currently attached to `d164ab34`. The next required action is to obtain a fresh CI result for that HEAD and then run both deterministic rotation cases. The collection live proof from #155 remains the baseline, and marker/continuation proofs remain outstanding.
+**Immediate continuation point:** `d164ab34` has advanced Atlas to a third materially different task, object rotation, with receipt-bound single execution implemented but not yet live-proven. The current repository check confirms no newer workflow run is attached to that commit. The next required action is to obtain fresh CI validation for the current HEAD and then run both deterministic rotation cases. The collection live proof from #155 remains the baseline, and marker/continuation proofs remain outstanding.
