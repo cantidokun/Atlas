@@ -26,7 +26,7 @@ elif len(obj.children) > 0:
 else:
     bpy.data.objects.remove(obj, do_unlink=True)
     bpy.ops.wm.save_as_mainfile(filepath={blend_path!r})
-    result = {{"status": "deleted", "object_name": object_name}}
+    result = {{"status": "ok", "object_name": object_name}}
 
 print("ATLAS_DELETE_START")
 print(json.dumps(result))
