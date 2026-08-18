@@ -75,6 +75,20 @@ def read_evidence(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     return inspect_object_transform(**arguments)
 
 
+def rotation_boundary() -> BlenderExecutionBoundary:
+    def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        if tool != "set_object_rotation":
+            raise RuntimeError(f"Unexpected rotation action: {tool}")
+        raw = set_object_rotation(**arguments)
+        status = raw.get("status")
+        return {
+            "ok": status in {"ok", "already_rotated"},
+            "state": str(status or "unknown"),
+            "details": dict(raw),
+        }
+    return BlenderExecutionBoundary(execute)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
@@ -83,6 +97,9 @@ def main() -> None:
 
     audit = AuditTrail()
     proposal = build_plan(file_name, audit)
+    if len(proposal.evidence) != 1 or len(proposal.actions) != 1:
+        raise RuntimeError("Unexpected object rotation plan shape")
+
     evaluator = object_rotation_target_evaluator()
     orchestrator = ConditionalPlanningOrchestrator(
         evidence_plan=EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence]),
@@ -100,20 +117,24 @@ def main() -> None:
         authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools={"set_object_rotation"}, allow_writes=True)
         authorization = orchestrator.authorize_execution(f"live:object-rotation:{args.case}")
         audit.record_authorization(True, action_count=1, authorization_id=authorization.authorization_id)
-        receipt_holder: Dict[str, Any] = {}
-
-        def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-            if tool != "set_object_rotation":
-                raise RuntimeError(f"Unexpected rotation action: {tool}")
-            raw = set_object_rotation(**arguments)
-            receipt_holder["normalized"], receipt_holder["receipt"] = BlenderExecutionBoundary(lambda _tool, _args: raw).execute_with_receipt(tool, arguments)
-            normalized = receipt_holder["normalized"]
-            return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
-
-        result = orchestrator.execute_next_action(execute)
-        receipt = receipt_holder.get("receipt")
         action = proposal.actions[0]
-        if receipt is None or not receipt.matches(action.tool, action.arguments, receipt_holder["normalized"]):
+        execution = rotation_boundary()
+        capture: Dict[str, Any] = {}
+
+        def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            normalized, receipt = execution.execute_with_receipt(tool, arguments)
+            capture["normalized"] = normalized
+            capture["receipt"] = receipt
+            return {
+                "ok": normalized.ok,
+                "state": normalized.state,
+                "details": dict(normalized.details),
+            }
+
+        result = orchestrator.execute_next_action(execute_once)
+        normalized = capture["normalized"]
+        receipt = capture["receipt"]
+        if not receipt.matches(action.tool, action.arguments, normalized):
             raise RuntimeError("Rotation execution receipt mismatch")
         if not result.get("ok"):
             raise RuntimeError(f"Authorized rotation action failed: {result}")
