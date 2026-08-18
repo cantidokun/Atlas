@@ -88,7 +88,7 @@ def boundary() -> BlenderExecutionBoundary:
             raise RuntimeError(f"Unexpected object delete action: {tool}")
         raw = delete_object(**arguments)
         status = raw.get("status")
-        return {"ok": status in {"deleted", "already_absent"}, "state": str(status or "unknown"), "details": dict(raw)}
+        return {"ok": status in {"ok", "already_absent"}, "state": str(status or "unknown"), "details": dict(raw)}
     return BlenderExecutionBoundary(execute)
 
 
