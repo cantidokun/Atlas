@@ -20,6 +20,7 @@ BLENDER_TOOL_SCHEMAS = {
     "inspect_object_collections": BlenderToolSchema({"file_name": str, "object_name": str}),
     "move_object_to_collection": BlenderToolSchema({"file_name": str, "object_name": str, "collection_name": str}),
     "rename_object": BlenderToolSchema({"file_name": str, "object_name": str, "new_name": str}),
+    "delete_object": BlenderToolSchema({"file_name": str, "object_name": str}),
 }
 
 
