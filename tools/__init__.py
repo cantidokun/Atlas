@@ -18,6 +18,7 @@ from .blender_collection import (
     move_object_to_collection,
 )
 from .blender_object import rename_object
+from .blender_delete import delete_object
 
 
 TOOLS = {
@@ -35,4 +36,5 @@ TOOLS = {
     "inspect_object_collections": inspect_object_collections,
     "move_object_to_collection": move_object_to_collection,
     "rename_object": rename_object,
+    "delete_object": delete_object,
 }
