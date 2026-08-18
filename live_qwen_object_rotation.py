@@ -12,6 +12,7 @@ from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.object_rotation_task import TARGET_OBJECT, TARGET_ROTATION, object_rotation_target_evaluator
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator
+from planning.task_definition import AtlasTaskDefinition
 from planning.verification_plan import VerificationPlan
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
@@ -89,6 +90,19 @@ def rotation_boundary() -> BlenderExecutionBoundary:
     return BlenderExecutionBoundary(execute)
 
 
+def task_definition(file_name: str) -> AtlasTaskDefinition:
+    return AtlasTaskDefinition(
+        name="object_rotation",
+        evidence=(EvidenceRequest("inspect_object_transform", {"file_name": file_name, "object_name": TARGET_OBJECT}, "inspect_object_transform"),),
+        actions=(ActionSpec("set_object_rotation", {"file_name": file_name, "object_name": TARGET_OBJECT, "rotation_degrees": TARGET_ROTATION}, "set_object_rotation"),),
+        evaluator=object_rotation_target_evaluator(),
+        allowed_action_tools={"set_object_rotation"},
+        allow_writes=True,
+        verify_after_action=True,
+        metadata={"domain": "blender", "operation": "rotation"},
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
@@ -97,27 +111,27 @@ def main() -> None:
 
     audit = AuditTrail()
     proposal = build_plan(file_name, audit)
-    if len(proposal.evidence) != 1 or len(proposal.actions) != 1:
-        raise RuntimeError("Unexpected object rotation plan shape")
+    definition = task_definition(file_name)
+    if tuple(proposal.evidence) != definition.evidence or tuple(proposal.actions) != definition.actions:
+        raise RuntimeError("Qwen plan does not match declarative task definition")
 
-    evaluator = object_rotation_target_evaluator()
     orchestrator = ConditionalPlanningOrchestrator(
-        evidence_plan=EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence]),
-        conditional_plan=ConditionalActionPlan([ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions]),
-        target_evaluator=evaluator,
-        verification_plan=VerificationPlan(evaluator),
+        evidence_plan=EvidencePlan(list(definition.evidence)),
+        conditional_plan=ConditionalActionPlan(list(definition.actions)),
+        target_evaluator=definition.evaluator,
+        verification_plan=VerificationPlan(definition.evaluator),
     )
 
     initial = orchestrator.acquire_next_evidence(read_evidence)
-    audit.record_evidence({"tool": proposal.evidence[0].tool, "arguments": dict(proposal.evidence[0].arguments), "name": proposal.evidence[0].name}, initial)
+    audit.record_evidence({"tool": definition.evidence[0].tool, "arguments": dict(definition.evidence[0].arguments), "name": definition.evidence[0].name}, initial)
     state = orchestrator.evaluate_target_state(initial)
     audit.record("conditional_decision", "skip" if state.satisfied else "execute", target_satisfied=state.satisfied, failed_invariants=state.failed, case=args.case)
 
     if not state.satisfied:
-        authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools={"set_object_rotation"}, allow_writes=True)
+        authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools=definition.allowed_action_tools, allow_writes=definition.allow_writes)
         authorization = orchestrator.authorize_execution(f"live:object-rotation:{args.case}")
-        audit.record_authorization(True, action_count=1, authorization_id=authorization.authorization_id)
-        action = proposal.actions[0]
+        audit.record_authorization(True, action_count=len(definition.actions), authorization_id=authorization.authorization_id)
+        action = definition.actions[0]
         execution = rotation_boundary()
         capture: Dict[str, Any] = {}
 
@@ -125,11 +139,7 @@ def main() -> None:
             normalized, receipt = execution.execute_with_receipt(tool, arguments)
             capture["normalized"] = normalized
             capture["receipt"] = receipt
-            return {
-                "ok": normalized.ok,
-                "state": normalized.state,
-                "details": dict(normalized.details),
-            }
+            return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
 
         result = orchestrator.execute_next_action(execute_once)
         normalized = capture["normalized"]
@@ -143,7 +153,7 @@ def main() -> None:
     final = read_evidence("inspect_object_transform", {"file_name": file_name, "object_name": TARGET_OBJECT})
     final_state = orchestrator.verify_post_action(final)
     audit.record_verification(final, final_state.satisfied)
-    if not final_state.satisfied:
+    if definition.verify_after_action and not final_state.satisfied:
         raise RuntimeError(f"Independent rotation verification failed: {final_state.failed}")
     orchestrator.finalize_future()
     if orchestrator.next_phase() != "COMPLETE":
