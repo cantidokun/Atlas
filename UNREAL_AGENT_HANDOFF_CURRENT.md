@@ -3,12 +3,13 @@
 **Updated:** August 17, 2026
 **Current focus:** Unreal Agent and its supporting architecture only
 **Current branch:** `feat/unreal-engine-harness`
+**Aider workspace:** `agent/unreal-aider-ready`
 **Base:** `main`
 **Current work:** PR #10 — `feat: first Unreal Engine validation harness`
 
 ## Current position
 
-The Unreal Agent architecture is now at the **first real-Unreal validation gate**. PR #10 remains Draft and must not be merged until the Unreal Editor automation test passes.
+The Unreal Agent has now passed its first real-Unreal validation gate. PR #10 remains Draft and unmerged; the disposable harness is preserved as a regression fixture while development moves to the production Unreal transport boundary.
 
 Atlas owns the canonical Digital Twin. Unreal is a production representation/execution tool around that canonical state, not the source of truth.
 
@@ -62,7 +63,7 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
 
 ## Evidence boundary milestone
 
-The engine-neutral evidence contract is now defined and regression-tested.
+The engine-neutral evidence contract is defined and regression-tested.
 
 `UnrealEvidence` requires:
 
@@ -99,6 +100,20 @@ Automation test:
 `Atlas.UnrealAgent.OperationBoundary`
 
 The harness is Editor-only and disposable. It is not the production adapter.
+
+## Smoke-test result — PASSED
+
+On August 17, 2026, the harness was compiled and executed in Unreal Engine 5.6.1.
+
+The first execution correctly exposed a harness defect: the temporary `AActor` had no registered transform root, so the controlled transform write could not reach valid Actor state. The assertion was not weakened. The harness was fixed by creating and registering a `USceneComponent` root, then the project was rebuilt successfully.
+
+The exact same automation test was rerun in the real Unreal Editor and **PASSED**.
+
+Fix commit:
+
+`95966089ec3c9e3471ad72f9abf75b4c4195bf98`
+
+The fix is now on `feat/unreal-engine-harness` and is present in the dedicated `agent/unreal-aider-ready` workspace history.
 
 ## Current smoke-test contract
 
@@ -143,74 +158,45 @@ The Actor is destroyed at the end of the test.
 
 The current Actor write is a **controlled engine smoke-test write**. It does not yet prove that a real Atlas authorization receipt crosses a production transport into Unreal.
 
-That is intentionally the next architecture after this gate.
+That is the next architecture.
 
-## Exact resume action
+## Git/workspace separation
 
-Do not merge PR #10.
+The Unreal development workspace is isolated from the Blender development workspace. The dedicated local checkout is:
 
-On the development PC:
+`C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider`
 
-```powershell
-cd <ATLAS_REPO>
-git fetch origin
-git checkout feat/unreal-engine-harness
-git pull
-cd .\unreal\AtlasUnrealHarness
-Start-Process ".\AtlasUnrealHarness.uproject"
-```
+Its intended branch is:
 
-Open in Unreal Engine 5.6, then run:
+`agent/unreal-aider-ready`
 
-```text
-Atlas.UnrealAgent.OperationBoundary
-```
+Do not point Aider at the Blender checkout.
 
-No manual Actor/Blueprint/Niagara/material/level setup is required.
+The dedicated branch contains the passed Unreal harness plus the Unreal Aider scope/handoff documentation. The PR branch `feat/unreal-engine-harness` contains the same Unreal harness fix and remains Draft/unmerged.
 
-If it fails, preserve the test and diagnose the actual Unreal-side failure. Do not weaken or bypass the assertion.
+## Next development phase
 
-If it passes, record the result and proceed to production Unreal adapter transport design. Keep the harness as a disposable regression fixture.
+1. preserve the disposable harness as a regression gate;
+2. design the production Unreal transport boundary;
+3. connect actual Atlas authorization and evidence to that adapter;
+4. prove the first production Unreal capability;
+5. expand capabilities incrementally based on real requirements;
+6. keep the smoke test passing throughout.
 
-## Command-line alternative
+Do not treat the disposable harness as production transport.
 
-```powershell
-& "<UE_INSTALL>\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
-  "<ATLAS_REPO>\unreal\AtlasUnrealHarness\AtlasUnrealHarness.uproject" `
-  -unattended -nop4 -nosplash -nullrhi -NoSound `
-  -ExecCmds="Automation RunTests Atlas.UnrealAgent.OperationBoundary; Quit"
-```
+## Aider handoff
 
-Use the locally installed Unreal executable path; never hard-code a machine-specific installation path.
+Before the first Aider session:
 
-## Milestone status
+- confirm the dedicated Unreal checkout is clean;
+- fast-forward/pull it to the intended `agent/unreal-aider-ready` branch state;
+- install Aider separately from the Atlas Python environment;
+- configure the chosen LLM API key without committing secrets;
+- start Aider from the Unreal workspace with `UNREAL_AIDER_SCOPE.md` available;
+- use Aider for local edit/test/commit loops while GitHub Actions remains the remote regression authority.
 
-**Unreal Evidence Contract — DESIGN COMPLETE.**
-
-**Unreal Engine Boundary Smoke Test — READY FOR HUMAN ENGINE TEST / NOT YET PASSED.**
-
-The Python-side operation contracts have already been tested through Atlas CI. The Unreal C++ harness has been tightened to match the same fail-closed schema expectations more closely.
-
-The engine milestone is not complete until the actual Unreal Editor test passes.
-
-## After the smoke test
-
-If the test passes:
-
-1. record the real-engine result;
-2. preserve the disposable harness;
-3. design production Unreal transport;
-4. connect actual Atlas authorization and evidence;
-5. prove the first production Unreal capability;
-6. expand capabilities incrementally.
-
-If the test fails:
-
-1. capture the actual Unreal error;
-2. diagnose the engine-side issue;
-3. fix the harness/contract;
-4. rerun the same test;
-5. do not advance the milestone until it passes.
+Aider is an implementation tool, not a replacement for the Atlas architecture, Git history, or CI gates.
 
 ## Architectural invariant
 
