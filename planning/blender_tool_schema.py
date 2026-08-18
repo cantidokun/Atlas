@@ -1,5 +1,6 @@
 """Deterministic validation of Blender tool calls before execution."""
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, Dict, Mapping
 
 
@@ -49,6 +50,8 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
             raise ValueError("location must contain exactly three numeric coordinates")
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
             raise ValueError("location must contain exactly three numeric coordinates")
+        if any(not isfinite(float(value)) for value in values):
+            raise ValueError("location must contain only finite numeric coordinates")
         snapshot["location"] = list(values) if isinstance(values, list) else tuple(values)
     if tool == "set_object_rotation":
         values = arguments["rotation_degrees"]
@@ -56,5 +59,7 @@ def validate_blender_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str
             raise ValueError("rotation_degrees must contain exactly three numeric values")
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
             raise ValueError("rotation_degrees must contain exactly three numeric values")
+        if any(not isfinite(float(value)) for value in values):
+            raise ValueError("rotation_degrees must contain only finite numeric values")
         snapshot["rotation_degrees"] = list(values) if isinstance(values, list) else tuple(values)
     return snapshot
