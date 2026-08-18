@@ -38,7 +38,7 @@ class InMemoryTransport:
     indices.
     """
 
-    def __init__(self, *, fail_at_index: int | None = None, error_message: str = "boom"):
+    def __init__(self, *, fail_at_index: Optional[int] = None, error_message: str = "boom"):
         self._call_count = 0
         self._fail_at_index = fail_at_index
         self._error_message = error_message
