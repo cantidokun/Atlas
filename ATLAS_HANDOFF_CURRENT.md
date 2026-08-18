@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 18, 2026 17:40 UTC  
+**Updated:** August 18, 2026 20:43 UTC  
 **Current branch:** `main`  
-**Current HEAD:** `d164ab34cfabe4e9ee16699148851184bb7fd924` — `fix: bind rotation execution to single orchestrated write`  
+**Current HEAD:** `6723ee56cec73e24a6a0c06831317e17768bdd36` — `test: validate generic task definition boundary`  
 **Latest completed live regression:** `Live Conditional Atlas Regression #155` — all four jobs passed.
 
 ## 1. Scope and authority model
@@ -40,10 +40,13 @@ Core planning/execution primitives present:
 - runtime context fingerprinting and integrity checks
 - audit trail
 - immutable Blender execution receipts
+- `AtlasTaskDefinition` — declarative task boundary for evidence, actions, target evaluation, authorized tools, write policy, and verification policy
 
 Conditional execution explicitly separates evidence acquisition, target-state evaluation, skip/execute decision, explicit authorization, deterministic action execution, fresh post-action verification, and fail-closed completion/blocking.
 
 `VerificationPlan` is first-class. A successful write is not verification; fresh authoritative evidence must be evaluated against the explicit postcondition.
+
+`AtlasTaskDefinition` is intentionally task-specific data only. It does not contain orchestration logic and must not become a goalpost/collection/rotation-specific control path.
 
 ## 3. Blender-specific files and tools
 
@@ -55,6 +58,7 @@ Core Blender boundary:
 - `planning/blender_verification.py` — validates requested-tool identity and successful execution; fails closed on mismatches/failure.
 - `planning/blender_execution_receipt.py` — deterministically binds validated tool + arguments + verified result and detects mutation.
 - `planning/verification_plan.py` — generic post-action verification state with `required`, `pending`, `complete`, `blocked`, `verify()`, and `snapshot()`.
+- `planning/task_definition.py` — new declarative `AtlasTaskDefinition` boundary; validates non-empty task structure, action-tool authorization, and requires verification for write-capable tasks.
 - `tools/blender.py` — scene inspection, relationship inspection, soccer-component inspection, collection creation, marker creation, and goalpost movement.
 - `tools/blender_transform.py` — object transform inspection and rotation mutation.
 - `tools/__init__.py` — Blender tool registry.
@@ -64,6 +68,7 @@ Task definitions / harnesses:
 - `planning/marker_task.py` — `Atlas_Marker` / `EMPTY` target and `create_empty_marker` action definition.
 - `planning/object_rotation_task.py` — `Atlas_Rotation_Candidate` target and required rotation `[0.0, 0.0, 90.0]`.
 - `tests/test_marker_conditional_task.py` — marker conditional regression coverage.
+- `tests/test_task_definition.py` — new generic task-definition boundary coverage.
 - `live_qwen_conditional_loop.py` — live conditional goalpost harness.
 - `live_qwen_collection_task.py` — live generic collection task harness.
 - `live_qwen_object_rotation.py` — live Qwen object-rotation harness.
@@ -153,7 +158,24 @@ Important boundary: the two `live conditional` jobs in #155 are the goalpost con
 
 `live_qwen_object_rotation.py` constrains Qwen through `TASK_PLAN_JSON_SCHEMA`, allows only `inspect_object_transform` and `set_object_rotation`, requires exactly one evidence request and one action, authorizes the mutation explicitly, binds the single execution receipt, and performs fresh independent verification.
 
-A fresh GitHub workflow lookup for `d164ab34cfabe4e9ee16699148851184bb7fd924` was performed on August 18, 2026 and returns **no workflow runs**. Therefore no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
+A fresh GitHub workflow lookup for `d164ab34cfabe4e9ee16699148851184bb7fd924` was performed on August 18, 2026 and returned **no workflow runs**. Therefore no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
+
+### New task-definition layer
+
+`planning/task_definition.py` introduces `AtlasTaskDefinition`, a declarative boundary containing:
+
+- task name
+- evidence requests
+- action specifications
+- target-state evaluator
+- allowed action tools
+- explicit write policy
+- mandatory post-action verification for write-capable tasks
+- serializable task metadata/snapshot
+
+`tests/test_task_definition.py` covers malformed task structure, unauthorized tools, the write-without-verification prohibition, and deterministic task snapshots. This layer is intended to reduce per-task orchestration duplication before additional Blender capabilities are added.
+
+**Important verification note:** the two commits `e6652ad0c23c62026c78d4be81fb6f93caaf66bd` and `6723ee56cec73e24a6a0c06831317e17768bdd36` were added after the last completed CI run recorded above. No new CI result is claimed for them yet.
 
 ## 6. Runtime integrity / continuation
 
@@ -168,7 +190,8 @@ A broader production-facing continuation/resume scenario using these integrity p
 - Goalpost and generic collection creation are live-proven.
 - Marker creation (`planning/marker_task.py`, `create_empty_marker`) is offline/CI-proven but not live-proven.
 - Object rotation is implemented with receipt-bound single execution but is not yet live-proven on the current HEAD.
-- Current HEAD `d164ab34` has no fresh workflow-run result in the available GitHub status surface as of August 18, 2026.
+- `AtlasTaskDefinition` is newly introduced and has not yet received a fresh CI result.
+- Current HEAD `6723ee56cec73e24a6a0c06831317e17768bdd36` is newer than the last completed CI baseline; do not treat #401 as validation of this HEAD.
 - Generic collection proof is a focused harness; it does not prove arbitrary task generation or arbitrary Blender production planning.
 - Executor success is never authoritative state; fresh scene evidence remains mandatory.
 - Broader continuation/resume needs a production-facing live proof.
@@ -178,14 +201,16 @@ A broader production-facing continuation/resume scenario using these integrity p
 
 ## 8. Exact next development stage
 
-1. Obtain fresh CI validation for current HEAD `d164ab34`; if the normal workflow is not automatically triggered, trigger it through the repository's established workflow path rather than assuming the old #401 result covers this commit.
-2. Live-test `live_qwen_object_rotation.py` on `object_rotation_CORRECT.blend` and `object_rotation_INCORRECT.blend`.
-3. Require both rotation cases to prove zero-write behavior, explicit authorization for mutation, exactly one `set_object_rotation` call, receipt binding, and fresh independent verification.
-4. Add the collection false-success live case: executor reports success while authoritative post-state remains wrong; require `VerificationPlan` -> `BLOCKED`.
-5. Add the collection already-correct live case with an explicit audit assertion that no creation call occurred if that assertion is not already captured by the harness.
-6. Then live-prove `create_empty_marker` using `planning/marker_task.py` and `create_empty_marker`.
-7. After multiple distinct mutation/creation capabilities are live-proven, build a broader production-facing continuation/resume scenario using runtime fingerprinting, deterministic future, recovery gate, and receipt integrity.
-8. Only then select the next materially different Blender production capability.
+1. Obtain fresh CI validation for current `main`, including `planning/task_definition.py` and `tests/test_task_definition.py`.
+2. If CI exposes contract/import issues, fix those before live work.
+3. Once CI is green, integrate `AtlasTaskDefinition` into one existing task adapter without moving orchestration logic into the task definition layer; use the smallest suitable candidate first.
+4. Live-test `live_qwen_object_rotation.py` on `object_rotation_CORRECT.blend` and `object_rotation_INCORRECT.blend`.
+5. Require both rotation cases to prove zero-write behavior, explicit authorization for mutation, exactly one `set_object_rotation` call, receipt binding, and fresh independent verification.
+6. Add the collection false-success live case: executor reports success while authoritative post-state remains wrong; require `VerificationPlan` -> `BLOCKED`.
+7. Add the collection already-correct live case with an explicit audit assertion that no creation call occurred if that assertion is not already captured by the harness.
+8. Then live-prove `create_empty_marker` using `planning/marker_task.py` and `create_empty_marker`.
+9. After multiple distinct mutation/creation capabilities are live-proven, build a broader production-facing continuation/resume scenario using runtime fingerprinting, deterministic future, recovery gate, and receipt integrity.
+10. Only then select the next materially different Blender production capability.
 
 Required current rotation path:
 
@@ -237,13 +262,14 @@ On the next development session:
 
 1. Read this handoff.
 2. Inspect `main` and latest GitHub Actions state.
-3. Use **Atlas Tests #401 PASS / Python 3.9 + 3.11** as the last completed offline baseline, but do not assume it validates `d164ab34`; obtain fresh CI first.
+3. Use **Atlas Tests #401 PASS / Python 3.9 + 3.11** as the last completed offline baseline, but do not assume it validates the newer task-definition or rotation commits; obtain fresh CI first.
 4. Use **Live Conditional Atlas Regression #155 PASS** as the current live collection/goalpost baseline.
-5. Inspect actual logs before changing code if current rotation CI/live tests fail.
-6. Prove object rotation live on both deterministic fixtures.
-7. Then prove collection false-success -> `BLOCKED` and explicit zero-write behavior.
-8. Then live-prove `create_empty_marker`.
-9. Update this handoff with actual results before moving to another capability.
-10. Do not declare broader autonomous production operation complete until continuation/resume has a real live proof.
+5. Inspect actual logs before changing code if current task-definition or rotation CI/live tests fail.
+6. Prove the task-definition layer offline/CI first, then integrate it into one existing adapter without duplicating orchestration.
+7. Prove object rotation live on both deterministic fixtures.
+8. Then prove collection false-success -> `BLOCKED` and explicit zero-write behavior.
+9. Then live-prove `create_empty_marker`.
+10. Update this handoff with actual results before moving to another capability.
+11. Do not declare broader autonomous production operation complete until continuation/resume has a real live proof.
 
-**Immediate continuation point:** `d164ab34` has advanced Atlas to a third materially different task, object rotation, with receipt-bound single execution implemented but not yet live-proven. The August 18, 2026 repository check confirms no newer workflow run is attached to that commit. The next required action is to obtain fresh CI validation for the current HEAD and then run both deterministic rotation cases. The collection live proof from #155 remains the baseline, and marker/continuation proofs remain outstanding.
+**Immediate continuation point:** `6723ee56cec73e24a6a0c06831317e17768bdd36` adds the declarative `AtlasTaskDefinition` boundary and its focused tests after the last completed CI run. The latest verified baseline remains **Atlas Tests #401 PASS** and **Live Conditional Atlas Regression #155 PASS**, but neither result validates the new task-definition commit. The next required action is fresh CI validation of current `main`, followed by the smallest safe integration of the task-definition layer and then live object-rotation proof.
