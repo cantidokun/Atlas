@@ -1,6 +1,15 @@
 {
     "task_id": "unreal-production-roundtrip",
     "message": "Implement planning/unreal_plan_executor.py: a deterministic bridge that takes a UnrealTaskPlan + UnrealAdapterProduction + authorization_id, executes each operation in order via the correct adapter endpoint (inspect for READ, apply_authorized for WRITE, verify for VERIFY), collects UnrealEvidence, validates each via validate_evidence_for_operation, and returns the complete evidence ledger. Then implement tests/test_unreal_production_roundtrip.py: prove the full round-trip from UnrealTaskIntent through UnrealTaskPlanner, ActionPlan authorization, UnrealPlanExecutor, and evidence validation using an in-memory transport. Cover inspection plans, material-variant plans, transport failure fail-closed, evidence correlation, and verified=False invariant.",
+    "read_only_files": [
+        "planning/unreal_task_planner.py",
+        "planning/unreal_agent.py",
+        "planning/unreal_adapter_production.py",
+        "planning/unreal_evidence_contract.py",
+        "planning/unreal_operation_contract.py",
+        "planning/action_plan.py",
+        "planning/action_authorization.py"
+    ],
     "allowed_files": [
         "planning/unreal_plan_executor.py",
         "tests/test_unreal_production_roundtrip.py"
