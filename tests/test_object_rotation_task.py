@@ -36,6 +36,14 @@ def test_rotation_boundary_rejects_wrong_vector_shape():
         )
 
 
+def test_rotation_boundary_rejects_non_finite_values():
+    with pytest.raises(ValueError, match="exactly three numeric values"):
+        validate_blender_tool_call(
+            "set_object_rotation",
+            {"file_name": "rotation.blend", "object_name": TARGET_OBJECT, "rotation_degrees": [0, float("nan"), 90]},
+        )
+
+
 def test_rotation_qwen_schema_rejects_unknown_arguments():
     with pytest.raises(Exception, match="Unknown argument"):
         validate_tool_arguments(
