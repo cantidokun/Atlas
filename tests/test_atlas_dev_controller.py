@@ -14,6 +14,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -318,7 +319,8 @@ class TestRunner:
     def test_successful_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_task_file(tmp, _valid_task_data())
-            result = run_task(path, execute_command=_mock_executor(0, "ok"))
+            with patch("atlas_dev_controller.runner.validate_post_aider_scope", return_value=[]):
+                result = run_task(path, execute_command=_mock_executor(0, "ok"))
             assert result.success is True
             assert result.task_id == "test-001"
             assert result.aider_exit_code == 0
@@ -329,6 +331,7 @@ class TestRunner:
     def test_aider_failure_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_task_file(tmp, _valid_task_data())
+            # Aider fails before post-scope check, no patch needed
             result = run_task(path, execute_command=_mock_executor(1, "", "error"))
             assert result.success is False
             assert result.aider_exit_code == 1
@@ -348,7 +351,8 @@ class TestRunner:
 
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_task_file(tmp, _valid_task_data())
-            result = run_task(path, execute_command=alternating_executor)
+            with patch("atlas_dev_controller.runner.validate_post_aider_scope", return_value=[]):
+                result = run_task(path, execute_command=alternating_executor)
             assert result.success is False
             assert result.aider_exit_code == 0
             assert len(result.test_results) == 1
@@ -363,7 +367,8 @@ class TestRunner:
     def test_log_file_created(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_task_file(tmp, _valid_task_data())
-            result = run_task(path, execute_command=_mock_executor(0))
+            with patch("atlas_dev_controller.runner.validate_post_aider_scope", return_value=[]):
+                result = run_task(path, execute_command=_mock_executor(0))
             assert result.log_path is not None
             assert Path(result.log_path).is_file()
             content = Path(result.log_path).read_text(encoding="utf-8")
@@ -379,7 +384,8 @@ class TestRunner:
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_task_file(tmp, data)
-            result = run_task(path, execute_command=_mock_executor(0))
+            with patch("atlas_dev_controller.runner.validate_post_aider_scope", return_value=[]):
+                result = run_task(path, execute_command=_mock_executor(0))
             assert result.success is True
             assert len(result.test_results) == 2
 
@@ -403,7 +409,8 @@ class TestRunner:
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_task_file(tmp, data)
-            result = run_task(path, execute_command=sequential_executor)
+            with patch("atlas_dev_controller.runner.validate_post_aider_scope", return_value=[]):
+                result = run_task(path, execute_command=sequential_executor)
             assert result.success is False
             # Should have stopped after second test failure
             assert len(result.test_results) == 2

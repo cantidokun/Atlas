@@ -221,6 +221,9 @@ class TestRunnerPostAiderScope:
                 "allowed_test_commands": ["python -m pytest tests/ -v"],
             }
             task_path = _write_task_file(repo, task_data)
+            # Commit the task file so it is not detected as an untracked change
+            subprocess.run(["git", "add", "task.json"], cwd=repo, capture_output=True, check=True)
+            subprocess.run(["git", "commit", "-m", "add task"], cwd=repo, capture_output=True, check=True)
 
             call_count = [0]
 
