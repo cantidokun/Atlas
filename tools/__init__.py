@@ -19,6 +19,7 @@ from .blender_collection import (
 )
 from .blender_object import rename_object
 from .blender_delete import delete_object
+from .blender_transform import inspect_object_transform, set_object_rotation
 
 
 TOOLS = {
@@ -37,4 +38,6 @@ TOOLS = {
     "move_object_to_collection": move_object_to_collection,
     "rename_object": rename_object,
     "delete_object": delete_object,
+    "inspect_object_transform": inspect_object_transform,
+    "set_object_rotation": set_object_rotation,
 }
