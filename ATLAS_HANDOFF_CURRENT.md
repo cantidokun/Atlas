@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 18, 2026 05:30 UTC  
+**Updated:** August 18, 2026 08:45 UTC  
 **Current branch:** `main`  
 **Current HEAD:** `d164ab34cfabe4e9ee16699148851184bb7fd924` — `fix: bind rotation execution to single orchestrated write`  
 **Latest completed live regression:** `Live Conditional Atlas Regression #155` — all four jobs passed.
@@ -149,7 +149,7 @@ Important boundary: the two `live conditional` jobs in #155 are the goalpost con
 
 `d164ab34cfabe4e9ee16699148851184bb7fd924` changed `live_qwen_object_rotation.py` so the rotation action is executed exactly once through `BlenderExecutionBoundary`, with the receipt captured from that same execution and matched against the authorized action/result. It also validates the plan shape as exactly one evidence request and one action.
 
-No completed CI/live result for `d164ab34` is being claimed in this handoff yet; the repository HEAD has moved beyond the last documented regression baseline.
+A fresh GitHub combined-status check for `d164ab34cfabe4e9ee16699148851184bb7fd924` currently returns no status entries, so no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
 
 ## 6. Runtime integrity / continuation
 
@@ -164,6 +164,7 @@ A broader production-facing continuation/resume scenario using these integrity p
 - Goalpost and generic collection creation are live-proven.
 - Marker creation (`planning/marker_task.py`, `create_empty_marker`) is offline/CI-proven but not live-proven.
 - Object rotation is implemented with receipt-bound single execution but is not yet live-proven on the current HEAD.
+- Current HEAD `d164ab34` has not yet acquired a fresh CI result in the available GitHub status surface.
 - Generic collection proof is a focused harness; it does not prove arbitrary task generation or arbitrary Blender production planning.
 - Executor success is never authoritative state; fresh scene evidence remains mandatory.
 - Broader continuation/resume needs a production-facing live proof.
@@ -232,7 +233,7 @@ On the next development session:
 
 1. Read this handoff.
 2. Inspect `main` and latest GitHub Actions state.
-3. Use **Atlas Tests #401 PASS / Python 3.9 + 3.11** as the last completed offline baseline, but re-run/inspect CI because HEAD is now `d164ab34`.
+3. Use **Atlas Tests #401 PASS / Python 3.9 + 3.11** as the last completed offline baseline, but do not assume it validates `d164ab34`; inspect/run CI for the current HEAD first.
 4. Use **Live Conditional Atlas Regression #155 PASS** as the current live collection/goalpost baseline.
 5. Inspect actual logs before changing code if current rotation CI/live tests fail.
 6. Prove object rotation live on both deterministic fixtures.
@@ -241,4 +242,4 @@ On the next development session:
 9. Update this handoff with actual results before moving to another capability.
 10. Do not declare broader autonomous production operation complete until continuation/resume has a real live proof.
 
-**Immediate continuation point:** `d164ab34` has advanced Atlas to a third materially different task, object rotation, with receipt-bound single execution implemented but not yet live-proven. The next required action is to validate that change through CI and then run both deterministic rotation cases. The collection live proof from #155 remains the baseline, and marker/continuation proofs remain outstanding.
+**Immediate continuation point:** `d164ab34` has advanced Atlas to a third materially different task, object rotation, with receipt-bound single execution implemented but not yet live-proven. The latest repository check confirms no newer commit is present on `main`, and no combined CI status is currently attached to `d164ab34`. The next required action is to obtain a fresh CI result for that HEAD and then run both deterministic rotation cases. The collection live proof from #155 remains the baseline, and marker/continuation proofs remain outstanding.
