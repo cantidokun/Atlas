@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 18, 2026 11:43 UTC  
+**Updated:** August 18, 2026 14:39 UTC  
 **Current branch:** `main`  
 **Current HEAD:** `d164ab34cfabe4e9ee16699148851184bb7fd924` — `fix: bind rotation execution to single orchestrated write`  
 **Latest completed live regression:** `Live Conditional Atlas Regression #155` — all four jobs passed.
@@ -148,6 +148,10 @@ Important boundary: the two `live conditional` jobs in #155 are the goalpost con
 ### Current rotation stage
 
 `d164ab34cfabe4e9ee16699148851184bb7fd924` changed `live_qwen_object_rotation.py` so the rotation action is executed exactly once through `BlenderExecutionBoundary`, with the receipt captured from that same execution and matched against the authorized action/result. It also validates the plan shape as exactly one evidence request and one action.
+
+`planning/object_rotation_task.py` defines `Atlas_Rotation_Candidate` with required rotation `[0.0, 0.0, 90.0]`. `tools/blender_transform.py` validates finite three-axis rotation input, inspects authoritative transform state, and mutates/saves the Blender file only when the target rotation is not already present.
+
+`live_qwen_object_rotation.py` constrains Qwen through `TASK_PLAN_JSON_SCHEMA`, allows only `inspect_object_transform` and `set_object_rotation`, requires exactly one evidence request and one action, authorizes the mutation explicitly, binds the single execution receipt, and performs fresh independent verification.
 
 A fresh workflow-run lookup for `d164ab34cfabe4e9ee16699148851184bb7fd924` currently returns no workflow runs, so no newer CI/live result is being claimed for that HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS**; #401 predates the rotation commit.
 
