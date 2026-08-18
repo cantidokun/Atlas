@@ -31,3 +31,6 @@ Thumbs.db
 # Blender temporary/autosave files
 *.blend1
 *.blend2
+
+# Unreal disposable harness local/editor-generated configuration
+unreal/AtlasUnrealHarness/Config/
