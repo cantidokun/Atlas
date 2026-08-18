@@ -8,5 +8,6 @@
     "allowed_test_commands": [
         "python -m pytest tests/test_unreal_production_roundtrip.py -v"
     ],
-    "model": "gpt-4o"
+    "model": "openrouter/anthropic/claude-opus-4.6"
 }
+
