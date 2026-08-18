@@ -88,6 +88,19 @@ def validate_file_scope(files: List[str], allowed_files: List[str]) -> None:
 # Post-Aider working-tree change detection
 # ---------------------------------------------------------------------------
 
+def capture_baseline_changes(repo_dir: Optional[str] = None) -> FrozenSet[str]:
+    """Capture the current set of changed files as a baseline.
+    
+    Returns a frozen set of normalized file paths that are already changed
+    before Aider runs. This baseline is used to distinguish pre-existing
+    changes from new changes introduced by Aider.
+    
+    Raises ``ScopeViolationError`` if git commands fail (fail-closed).
+    """
+    changed_files = detect_changed_files(repo_dir)
+    return frozenset(normalize_path(f) for f in changed_files)
+
+
 def detect_changed_files(repo_dir: Optional[str] = None) -> List[str]:
     """Return every file path changed in the Git working tree.
 
@@ -151,17 +164,37 @@ def detect_changed_files(repo_dir: Optional[str] = None) -> List[str]:
 
 def validate_post_aider_scope(
     allowed_files: List[str],
+    baseline_changes: FrozenSet[str],
     repo_dir: Optional[str] = None,
 ) -> List[str]:
-    """Detect working-tree changes and fail closed if any are outside scope.
+    """Detect working-tree changes and fail closed if any NEW changes are outside scope.
+
+    Only changes introduced since the baseline are validated against allowed_files.
+    Pre-existing changes (in baseline_changes) are ignored to avoid false positives
+    for files that were already modified before Aider ran.
 
     Aider runtime artifacts are silently excluded — they are expected side
     effects of every Aider invocation and must never trigger a scope
     violation.
 
-    Returns the list of *production* changed files (artifacts excluded) for
-    logging.  Raises ``ScopeViolationError`` on the first out-of-scope
-    production path.
+    Parameters
+    ----------
+    allowed_files : List[str]
+        Files that Aider is authorized to modify
+    baseline_changes : FrozenSet[str]
+        Normalized paths of files that were already changed before Aider ran
+    repo_dir : Optional[str]
+        Repository directory for git commands
+
+    Returns
+    -------
+    List[str]
+        The list of *production* changed files (artifacts excluded) for logging.
+        
+    Raises
+    ------
+    ScopeViolationError
+        On the first out-of-scope production path that is NEW (not in baseline).
     """
     raw_changed = detect_changed_files(repo_dir)
     if not raw_changed:
@@ -176,12 +209,20 @@ def validate_post_aider_scope(
     if not production_changed:
         return production_changed
 
+    # Only validate NEW changes (not in baseline) against allowed_files
     allowed_normalized = {normalize_path(f) for f in allowed_files}
+    new_changes: List[str] = []
+    
     for f in production_changed:
-        if normalize_path(f) not in allowed_normalized:
-            raise ScopeViolationError(
-                f"Aider modified a file outside the approved scope: {f}"
-            )
+        f_normalized = normalize_path(f)
+        if f_normalized not in baseline_changes:
+            # This is a NEW change introduced by Aider
+            new_changes.append(f)
+            if f_normalized not in allowed_normalized:
+                raise ScopeViolationError(
+                    f"Aider modified a file outside the approved scope: {f}"
+                )
+    
     return production_changed
 
 

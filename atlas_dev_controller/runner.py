@@ -23,6 +23,7 @@ from typing import Callable, Dict, List, Optional
 
 from atlas_dev_controller.scope_guard import (
     ScopeViolationError,
+    capture_baseline_changes,
     validate_command_scope,
     validate_file_scope,
     validate_post_aider_scope,
@@ -237,6 +238,18 @@ def run_task(
         log_path = _write_log(task.task_id, log_lines)
         return RunResult(task_id=task.task_id, success=False, error=str(exc), log_path=log_path)
 
+    # 2b. Capture pre-Aider baseline of changed files
+    try:
+        baseline_changes = capture_baseline_changes()
+        if baseline_changes:
+            log_lines.append(f"pre_aider_baseline_changes: {sorted(baseline_changes)}")
+        else:
+            log_lines.append("pre_aider_baseline_changes: none detected")
+    except ScopeViolationError as exc:
+        log_lines.append(f"FAIL: baseline capture: {exc}")
+        log_path = _write_log(task.task_id, log_lines)
+        return RunResult(task_id=task.task_id, success=False, error=str(exc), log_path=log_path)
+
     # 3. Build and execute Aider
     aider_cmd = build_aider_command(task)
     log_lines.append(f"aider_command: {aider_cmd}")
@@ -266,7 +279,7 @@ def run_task(
 
     # 3b. Validate post-Aider file scope against actual working-tree changes
     try:
-        changed_files = validate_post_aider_scope(task.allowed_files)
+        changed_files = validate_post_aider_scope(task.allowed_files, baseline_changes)
         if changed_files:
             log_lines.append(f"post_aider_changed_files: {changed_files}")
         else:
