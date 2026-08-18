@@ -7,6 +7,7 @@ import requests
 
 from action_plan import ActionSpec
 from audit_trail import AuditTrail
+from evidence_plan import EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.object_rotation_task import TARGET_OBJECT, TARGET_ROTATION, object_rotation_target_evaluator
 from planning.task_definition import AtlasTaskDefinition
@@ -86,7 +87,7 @@ def rotation_boundary() -> BlenderExecutionBoundary:
 def task_definition(file_name: str) -> AtlasTaskDefinition:
     return AtlasTaskDefinition(
         name="object_rotation",
-        evidence=(ActionSpec.__mro__[1] and __import__("evidence_plan").EvidenceRequest("inspect_object_transform", {"file_name": file_name, "object_name": TARGET_OBJECT}, "inspect_object_transform"),),
+        evidence=(EvidenceRequest("inspect_object_transform", {"file_name": file_name, "object_name": TARGET_OBJECT}, "inspect_object_transform"),),
         actions=(ActionSpec("set_object_rotation", {"file_name": file_name, "object_name": TARGET_OBJECT, "rotation_degrees": TARGET_ROTATION}, "set_object_rotation"),),
         evaluator=object_rotation_target_evaluator(),
         allowed_action_tools={"set_object_rotation"},
