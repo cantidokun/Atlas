@@ -24,6 +24,7 @@ from atlas_dev_controller.scope_guard import (
     ScopeViolationError,
     validate_command_scope,
     validate_file_scope,
+    validate_post_aider_scope,
 )
 from atlas_dev_controller.task_schema import AtlasTask, TaskValidationError, load_task
 
@@ -165,6 +166,23 @@ def run_task(
             task_id=task.task_id, success=False,
             aider_exit_code=aider_exit,
             error=f"aider exited with code {aider_exit}",
+            log_path=log_path,
+        )
+
+    # 3b. Validate post-Aider file scope against actual working-tree changes
+    try:
+        changed_files = validate_post_aider_scope(task.allowed_files)
+        if changed_files:
+            log_lines.append(f"post_aider_changed_files: {changed_files}")
+        else:
+            log_lines.append("post_aider_changed_files: none detected")
+    except ScopeViolationError as exc:
+        log_lines.append(f"FAIL: post-aider scope violation: {exc}")
+        log_path = _write_log(task.task_id, log_lines)
+        return RunResult(
+            task_id=task.task_id, success=False,
+            aider_exit_code=aider_exit,
+            error=str(exc),
             log_path=log_path,
         )
 
