@@ -33,6 +33,51 @@ class ControllerError(RuntimeError):
     """Raised when the controller cannot complete a run."""
 
 
+# ---------------------------------------------------------------------------
+# CLI entry-point
+# ---------------------------------------------------------------------------
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry-point for ``python -m atlas_dev_controller.runner TASK_FILE``.
+
+    Returns
+    -------
+    int
+        0 on success, 1 on task failure, 2 on usage error.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="atlas_dev_controller.runner",
+        description="Run a single Atlas development task through the controller.",
+    )
+    parser.add_argument("task_file", help="Path to the JSON task file.")
+    args = parser.parse_args(argv)
+
+    task_file: str = args.task_file
+    if not os.path.isfile(task_file):
+        print(f"ERROR: task file not found: {task_file}", file=sys.stderr)
+        return 1
+
+    result = run_task(task_file)
+
+    # Summary on stdout
+    print(f"task_id: {result.task_id}")
+    print(f"success: {result.success}")
+    if result.aider_exit_code is not None:
+        print(f"aider_exit_code: {result.aider_exit_code}")
+    if result.test_results:
+        for tr in result.test_results:
+            status = "PASS" if tr.get("success") else "FAIL"
+            print(f"  test {status}: {tr.get('command')}")
+    if result.error:
+        print(f"error: {result.error}", file=sys.stderr)
+    if result.log_path:
+        print(f"log: {result.log_path}")
+
+    return 0 if result.success else 1
+
+
 @dataclass
 class RunResult:
     """Immutable record of one controller run."""
@@ -250,3 +295,7 @@ def run_task(
         log_path=log_path,
         error=None if success else "one or more test commands failed",
     )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
