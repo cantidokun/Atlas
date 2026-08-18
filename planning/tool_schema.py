@@ -7,42 +7,17 @@ from typing import Any, Dict, Iterable
 # bridge. Tool-specific safety restrictions remain in the executor layer.
 TOOL_SCHEMAS = {
     "inspect_scene": {"required": {"file_name"}, "properties": {"file_name": "string"}},
-    "inspect_object_relationship": {
-        "required": {"file_name", "object1_name", "object2_name"},
-        "properties": {"file_name": "string", "object1_name": "string", "object2_name": "string"},
-    },
-    "inspect_object_parent": {
-        "required": {"file_name", "object_name"},
-        "properties": {"file_name": "string", "object_name": "string"},
-    },
-    "move_object": {
-        "required": {"file_name", "object_name", "location"},
-        "properties": {"file_name": "string", "object_name": "string", "location": "location3"},
-    },
-    "create_collection": {
-        "required": {"file_name", "collection_name"},
-        "properties": {"file_name": "string", "collection_name": "string"},
-    },
-    "parent_object": {
-        "required": {"file_name", "child_name", "parent_name"},
-        "properties": {"file_name": "string", "child_name": "string", "parent_name": "string"},
-    },
-    "inspect_object_collections": {
-        "required": {"file_name", "object_name"},
-        "properties": {"file_name": "string", "object_name": "string"},
-    },
-    "move_object_to_collection": {
-        "required": {"file_name", "object_name", "collection_name"},
-        "properties": {"file_name": "string", "object_name": "string", "collection_name": "string"},
-    },
-    "rename_object": {
-        "required": {"file_name", "object_name", "new_name"},
-        "properties": {"file_name": "string", "object_name": "string", "new_name": "string"},
-    },
-    "delete_object": {
-        "required": {"file_name", "object_name"},
-        "properties": {"file_name": "string", "object_name": "string"},
-    },
+    "inspect_object_relationship": {"required": {"file_name", "object1_name", "object2_name"}, "properties": {"file_name": "string", "object1_name": "string", "object2_name": "string"}},
+    "inspect_object_parent": {"required": {"file_name", "object_name"}, "properties": {"file_name": "string", "object_name": "string"}},
+    "move_object": {"required": {"file_name", "object_name", "location"}, "properties": {"file_name": "string", "object_name": "string", "location": "location3"}},
+    "create_collection": {"required": {"file_name", "collection_name"}, "properties": {"file_name": "string", "collection_name": "string"}},
+    "parent_object": {"required": {"file_name", "child_name", "parent_name"}, "properties": {"file_name": "string", "child_name": "string", "parent_name": "string"}},
+    "inspect_object_collections": {"required": {"file_name", "object_name"}, "properties": {"file_name": "string", "object_name": "string"}},
+    "move_object_to_collection": {"required": {"file_name", "object_name", "collection_name"}, "properties": {"file_name": "string", "object_name": "string", "collection_name": "string"}},
+    "rename_object": {"required": {"file_name", "object_name", "new_name"}, "properties": {"file_name": "string", "object_name": "string", "new_name": "string"}},
+    "delete_object": {"required": {"file_name", "object_name"}, "properties": {"file_name": "string", "object_name": "string"}},
+    "inspect_object_transform": {"required": {"file_name", "object_name"}, "properties": {"file_name": "string", "object_name": "string"}},
+    "set_object_rotation": {"required": {"file_name", "object_name", "rotation_degrees"}, "properties": {"file_name": "string", "object_name": "string", "rotation_degrees": "location3"}},
 }
 
 
