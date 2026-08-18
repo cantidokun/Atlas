@@ -14,6 +14,7 @@ The controller NEVER commits or pushes.
 
 import datetime
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -91,6 +92,43 @@ class RunResult:
 
 
 # ---------------------------------------------------------------------------
+# Executable resolution
+# ---------------------------------------------------------------------------
+
+def resolve_aider_executable() -> str:
+    """Return the absolute path to the installed ``aider`` CLI executable.
+
+    Resolution order:
+    1. ``shutil.which("aider")`` — finds the executable on ``PATH``.
+    2. Fall back to ``<sys.prefix>/Scripts/aider.exe`` (Windows venv) or
+       ``<sys.prefix>/bin/aider`` (Unix venv).
+
+    Raises
+    ------
+    ControllerError
+        If the executable cannot be located.  The controller fails closed.
+    """
+    found = shutil.which("aider")
+    if found is not None:
+        return os.path.abspath(found)
+
+    # Deterministic venv fallback
+    if sys.platform == "win32":
+        candidate = os.path.join(sys.prefix, "Scripts", "aider.exe")
+    else:
+        candidate = os.path.join(sys.prefix, "bin", "aider")
+
+    if os.path.isfile(candidate):
+        return os.path.abspath(candidate)
+
+    raise ControllerError(
+        f"Cannot locate the 'aider' executable on PATH or in the active "
+        f"environment ({sys.prefix}).  Install aider-chat and ensure the "
+        f"'aider' entry-point is available."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Command builder
 # ---------------------------------------------------------------------------
 
@@ -98,14 +136,21 @@ def build_aider_command(task: AtlasTask) -> List[str]:
     """Build the Aider CLI invocation for a validated task.
 
     Invariants enforced:
+    - Uses the installed ``aider`` CLI executable (never ``python -m``).
     - ``--no-auto-commits`` — Aider never commits.
     - ``--no-git`` — Aider does not interact with git.
     - ``--yes`` — non-interactive, no user prompts.
     - ``--message`` — the task prompt, not stdin.
     - Only approved files are passed.
+
+    Raises
+    ------
+    ControllerError
+        If the ``aider`` executable cannot be resolved.
     """
+    aider_exe = resolve_aider_executable()
     cmd = [
-        sys.executable, "-m", "aider",
+        aider_exe,
         "--no-auto-commits",
         "--no-git",
         "--yes",
