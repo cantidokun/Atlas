@@ -52,3 +52,22 @@ def test_delete_adapter_uses_standard_success_status(monkeypatch):
     assert result["status"] == "ok"
     assert '"status": "ok"' in captured["script"]
     assert '"status": "deleted"' not in captured["script"]
+
+
+def test_delete_object_is_admitted_by_qwen_planning_schema():
+    from planning.tool_schema import validate_tool_arguments
+
+    validate_tool_arguments(
+        "delete_object",
+        {"file_name": "cleanup.blend", "object_name": TARGET_OBJECT},
+    )
+
+
+def test_delete_object_planning_schema_rejects_unknown_arguments():
+    from planning.tool_schema import validate_tool_arguments
+
+    with pytest.raises(ValueError, match="Unknown argument\(s\) for delete_object: force"):
+        validate_tool_arguments(
+            "delete_object",
+            {"file_name": "cleanup.blend", "object_name": TARGET_OBJECT, "force": True},
+        )
