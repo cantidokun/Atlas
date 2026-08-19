@@ -1,18 +1,14 @@
-"""Live generic Blender relationship task: conditionally rename a Blender object."""
+"""Live Qwen Blender task: conditionally rename an explicit object."""
 import argparse
 import json
 from typing import Any, Dict, List, Optional
 
 import requests
 
-from action_plan import ActionSpec
 from audit_trail import AuditTrail
-from conditional_action_plan import ConditionalActionPlan
-from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
-from planning.object_rename_task import TARGET_NAME, TARGET_OBJECT, object_rename_target_evaluator
-from planning.planning_orchestrator import ConditionalPlanningOrchestrator
-from planning.verification_plan import VerificationPlan
+from planning.object_rename_task import TARGET_NAME, TARGET_OBJECT, object_rename_task_definition
+from planning.task_runtime import prepare_task_runtime
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
@@ -73,7 +69,10 @@ def build_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         audit.record_qwen_proposal(raw, attempt, proposal is not None, None if proposal is not None else str(last))
         if proposal is not None:
             return proposal
-        messages += [{"role": "assistant", "content": raw}, {"role": "user", "content": correction(file_name)}]
+        messages += [
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": correction(file_name)},
+        ]
     raise RuntimeError(f"Qwen plan rejected: {last}")
 
 
@@ -107,31 +106,52 @@ def main() -> None:
 
     audit = AuditTrail()
     proposal = build_plan(file_name, audit)
-    if len(proposal.evidence) != 1 or len(proposal.actions) != 1:
-        raise RuntimeError("Unexpected object rename plan shape")
+    definition = object_rename_task_definition(file_name)
 
-    evaluator = object_rename_target_evaluator()
-    orchestrator = ConditionalPlanningOrchestrator(
-        evidence_plan=EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence]),
-        conditional_plan=ConditionalActionPlan([ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions]),
-        target_evaluator=evaluator,
-        verification_plan=VerificationPlan(evaluator),
+    if tuple(proposal.evidence) != definition.evidence:
+        raise RuntimeError("Qwen evidence plan does not match object rename task definition")
+    if tuple(proposal.actions) != definition.actions:
+        raise RuntimeError("Qwen action plan does not match object rename task definition")
+
+    orchestrator = prepare_task_runtime(definition)
+    initial = orchestrator.acquire_next_evidence(evidence)
+    audit.record_evidence(
+        {"tool": definition.evidence[0].tool, "arguments": dict(definition.evidence[0].arguments), "name": definition.evidence[0].name},
+        initial,
+    )
+    state = orchestrator.evaluate_target_state(initial)
+    audit.record(
+        "conditional_decision",
+        "skip" if state.satisfied else "execute",
+        target_satisfied=state.satisfied,
+        failed_invariants=state.failed,
+        case=args.case,
     )
 
-    initial = orchestrator.acquire_next_evidence(evidence)
-    audit.record_evidence({"tool": proposal.evidence[0].tool, "arguments": dict(proposal.evidence[0].arguments), "name": proposal.evidence[0].name}, initial)
-    state = orchestrator.evaluate_target_state(initial)
-    audit.record("conditional_decision", "skip" if state.satisfied else "execute", target_satisfied=state.satisfied, failed_invariants=state.failed, case=args.case)
-
     if not state.satisfied:
-        authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools={"rename_object"}, allow_writes=True)
+        authorize_task_plan(
+            proposal,
+            evidence_complete=True,
+            allowed_action_tools=definition.allowed_action_tools,
+            allow_writes=definition.allow_writes,
+        )
         authorization = orchestrator.authorize_execution(f"live:object-rename:{args.case}")
-        audit.record_authorization(True, action_count=1, authorization_id=authorization.authorization_id)
-        action = proposal.actions[0]
-        normalized, receipt = boundary().execute_with_receipt(action.tool, dict(action.arguments))
+        audit.record_authorization(True, action_count=len(definition.actions), authorization_id=authorization.authorization_id)
+        action = definition.actions[0]
+        execution = boundary()
+        capture: Dict[str, Any] = {}
+
+        def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            normalized, receipt = execution.execute_with_receipt(tool, arguments)
+            capture["normalized"] = normalized
+            capture["receipt"] = receipt
+            return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
+
+        result = orchestrator.execute_next_action(execute_once)
+        normalized = capture["normalized"]
+        receipt = capture["receipt"]
         if not receipt.matches(action.tool, action.arguments, normalized):
             raise RuntimeError("Object rename execution receipt mismatch")
-        result = orchestrator.execute_next_action(lambda tool, arguments: {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)})
         if not result.get("ok"):
             raise RuntimeError(f"Authorized object rename action failed: {result}")
         audit.record_action(0, {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}, result, True)
@@ -139,7 +159,7 @@ def main() -> None:
     final = evidence("inspect_scene", {"file_name": file_name})
     final_state = orchestrator.verify_post_action(final)
     audit.record_verification(final, final_state.satisfied)
-    if not final_state.satisfied:
+    if definition.verify_after_action and not final_state.satisfied:
         raise RuntimeError(f"Independent object rename verification failed: {final_state.failed}")
     orchestrator.finalize_future()
     if orchestrator.next_phase() != "COMPLETE":
