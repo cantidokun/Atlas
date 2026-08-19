@@ -1,0 +1,28 @@
+{
+  "task_id": "unreal-autonomous-execution-loop",
+  "message": "Build the first bounded autonomous Unreal execution loop by composing the existing deterministic components: UnrealTaskPlanner, ActionAuthorization/ActionPlan, UnrealAuthorizedExecutionGate, UnrealPlanExecutor, UnrealExecutionEvaluator, and UnrealRecoveryPlanner. The loop must accept one validated UnrealTaskIntent and an explicit authorization-id provider, then progress deterministically through planning, authorization, execution, evidence evaluation, and bounded recovery/replanning. It must not invent operations, bypass authorization, fabricate evidence, or execute without a valid authorization receipt. It must terminate immediately on SATISFIED, terminate on unrecoverable failure, and stop at explicit maximum iteration/recovery bounds. Verification-required and recoverable-failure outcomes must produce the deterministic next-step decision supplied by UnrealRecoveryPlanner and must preserve the original intent/entity context. Every state transition must be recorded in an immutable/auditable history containing the relevant plan/evaluation/recovery information. The loop must be side-effect controlled: all external execution remains behind the existing authorized execution gate; the loop itself must not directly call Unreal transport. Identical inputs and deterministic adapter behavior must produce equivalent histories. Malformed inputs, missing authorization, invalid evaluation results, and exhausted bounds must fail closed. Do not replace or weaken existing authorization, scope, evidence, or executor contracts. Do not add arbitrary autonomous goal generation yet; this component operates on one supplied intent. Preserve Python 3.9 compatibility. Add focused tests covering: successful one-pass completion; verification-required progression; recoverable failure and bounded recovery; maximum-iteration termination; authorization enforcement; transport failure propagation; malformed input rejection; deterministic history; preserved intent/entity context; and no execution after terminal state.",
+  "read_only_files": [
+    "planning/unreal_agent.py",
+    "planning/unreal_task_planner.py",
+    "planning/action_plan.py",
+    "planning/action_authorization.py",
+    "planning/unreal_authorized_execution_gate.py",
+    "planning/unreal_plan_executor.py",
+    "planning/unreal_execution_evaluator.py",
+    "planning/unreal_recovery_planner.py",
+    "planning/unreal_evidence_contract.py",
+    "tests/test_unreal_authorized_execution_gate.py",
+    "tests/test_unreal_production_roundtrip.py",
+    "tests/test_unreal_task_planner_determinism.py",
+    "tests/test_unreal_execution_evaluator.py",
+    "tests/test_unreal_recovery_planner.py"
+  ],
+  "allowed_files": [
+    "planning/unreal_autonomous_execution_loop.py",
+    "tests/test_unreal_autonomous_execution_loop.py"
+  ],
+  "allowed_test_commands": [
+    "python -m pytest tests/test_unreal_autonomous_execution_loop.py -v"
+  ],
+  "model": "openrouter/anthropic/claude-opus-4.6"
+}
