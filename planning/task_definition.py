@@ -1,9 +1,9 @@
 """Declarative task definition shared by Atlas production-task adapters."""
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from action_plan import ActionSpec
-from planning.evidence_plan import EvidenceRequest
+from evidence_plan import EvidenceRequest
 from planning.target_state import TargetStateEvaluator
 
 
