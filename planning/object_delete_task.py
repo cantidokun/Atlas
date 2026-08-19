@@ -22,7 +22,7 @@ def object_delete_action(file_name: str) -> ActionSpec:
     return ActionSpec(
         tool="delete_object",
         arguments={"file_name": file_name, "object_name": TARGET_OBJECT},
-        name=f"delete {TARGET_OBJECT}",
+        name="delete_object",
     )
 
 
