@@ -30,6 +30,28 @@ private:
     FThreadSafeBool bStopRequested;
     void* PipeHandle;
 
+    struct FTransportRequest
+    {
+        FString RequestId;
+        FString OperationName;
+        FString Capability;
+        FString Kind;
+        TSharedPtr<FJsonObject> Arguments;
+        TArray<FString> EntityIds;
+        FString AuthorizationId;
+    };
+
+    struct FTransportResponse
+    {
+        FString RequestId;
+        FString OperationName;
+        TArray<FString> EntityIds;
+        bool bSuccess;
+        TSharedPtr<FJsonObject> ObservedState;
+        FString Error;
+        FString Source;
+    };
+
     // Shared state for game thread execution
     struct FGameThreadExecutionState
     {
@@ -57,28 +79,6 @@ private:
         }
     };
 
-    struct FTransportRequest
-    {
-        FString RequestId;
-        FString OperationName;
-        FString Capability;
-        FString Kind;
-        TSharedPtr<FJsonObject> Arguments;
-        TArray<FString> EntityIds;
-        FString AuthorizationId;
-    };
-
-    struct FTransportResponse
-    {
-        FString RequestId;
-        FString OperationName;
-        TArray<FString> EntityIds;
-        bool bSuccess;
-        TSharedPtr<FJsonObject> ObservedState;
-        FString Error;
-        FString Source;
-    };
-
     bool CreateNamedPipe();
     void CloseNamedPipe();
     bool WaitForClient();
@@ -91,7 +91,7 @@ private:
     bool ValidateRequest(const FTransportRequest& Request, FString& OutError);
     bool ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse);
     
-    void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
-    bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
-    AActor* FindActorByEntityId(const FString& EntityId);
+    static void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
+    static bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
+    static AActor* FindActorByEntityId(const FString& EntityId);
 };

@@ -456,9 +456,9 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
         SharedState->Response.Source = TEXT("unreal-editor-atlas-transport");
         
         // Queue execution on game thread with shared state
-        AsyncTask(ENamedThreads::GameThread, [this, SharedState]()
+        AsyncTask(ENamedThreads::GameThread, [SharedState]()
         {
-            ExecuteOnGameThread(SharedState);
+            FAtlasTransportServer::ExecuteOnGameThread(SharedState);
         });
         
         // Wait for completion with timeout
