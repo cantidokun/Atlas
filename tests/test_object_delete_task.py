@@ -42,10 +42,14 @@ def test_delete_adapter_uses_standard_success_status(monkeypatch):
 
     captured = {}
 
+    def fake_validate_blend_file(file_name):
+        return file_name
+
     def fake_run_blender(blend_path, script, start_marker, end_marker):
         captured["script"] = script
         return {"status": "ok", "object_name": TARGET_OBJECT}
 
+    monkeypatch.setattr(blender_delete, "validate_blend_file", fake_validate_blend_file)
     monkeypatch.setattr(blender_delete, "run_blender", fake_run_blender)
     result = blender_delete.delete_object("cleanup.blend", TARGET_OBJECT)
 
