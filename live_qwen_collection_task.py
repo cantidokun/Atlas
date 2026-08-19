@@ -12,8 +12,8 @@ from conditional_action_plan import ConditionalActionPlan
 from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.planning_orchestrator import ConditionalPlanningOrchestrator
-from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.verification_plan import VerificationPlan
+from planning.target_state import StateInvariant, TargetStateEvaluator
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
@@ -26,6 +26,7 @@ CORRECT_FILE = "collection_task_CORRECT.blend"
 INCORRECT_FILE = "collection_task_INCORRECT.blend"
 TARGET_COLLECTION = "Atlas_Test"
 ALLOWED_TOOLS = {"inspect_scene", "create_collection"}
+MAX_PLAN_ATTEMPTS = 3
 
 
 def prompt(file_name: str) -> str:
@@ -66,8 +67,19 @@ def plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         {"role": "user", "content": "Create the structured Atlas task plan."},
     ]
     last: Optional[Exception] = None
-    for attempt in range(1, 4):
-        raw = ask(messages)
+    for attempt in range(1, MAX_PLAN_ATTEMPTS + 1):
+        try:
+            raw = ask(messages)
+        except requests.exceptions.ReadTimeout as exc:
+            last = exc
+            audit.record_qwen_proposal("", attempt, False, f"Ollama read timeout on plan attempt {attempt}: {exc}")
+            if attempt < MAX_PLAN_ATTEMPTS:
+                messages += [
+                    {"role": "user", "content": "Retry the exact same structured Atlas task plan request. Return only the required JSON object."}
+                ]
+                continue
+            raise RuntimeError(f"Ollama structured planning timed out after {MAX_PLAN_ATTEMPTS} attempts: {exc}") from exc
+
         print(f"--- QWEN PLAN ATTEMPT {attempt} ---")
         print(raw)
         try:
@@ -79,7 +91,7 @@ def plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         if proposal is not None:
             return proposal
         messages += [{"role": "assistant", "content": raw}, {"role": "user", "content": correction(file_name)}]
-    raise RuntimeError(f"Qwen plan rejected: {last}")
+    raise RuntimeError(f"Qwen plan rejected after {MAX_PLAN_ATTEMPTS} attempts: {last}")
 
 
 def evaluator() -> TargetStateEvaluator:
