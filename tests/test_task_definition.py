@@ -1,7 +1,7 @@
 import pytest
 
 from action_plan import ActionSpec
-from evidence_plan import EvidenceRequest
+from planning.evidence_plan import EvidenceRequest
 from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.task_definition import AtlasTaskDefinition
 
@@ -14,12 +14,12 @@ def test_task_definition_requires_evidence_actions_and_authorized_tools():
     with pytest.raises(ValueError):
         AtlasTaskDefinition("", (), (), evaluator(), {"move_object"})
     with pytest.raises(ValueError):
-        AtlasTaskDefinition("x", (EvidenceRequest("inspect_scene", {}, "scene"),), (), evaluator(), {"move_object"})
+        AtlasTaskDefinition("x", (EvidenceRequest("inspect_scene", {}, "inspect_scene"),), (), evaluator(), {"move_object"})
     with pytest.raises(ValueError):
         AtlasTaskDefinition(
             "x",
-            (EvidenceRequest("inspect_scene", {}, "scene"),),
-            (ActionSpec("create_collection", {}, "create"),),
+            (EvidenceRequest("inspect_scene", {}, "inspect_scene"),),
+            (ActionSpec("create_collection", {}, "create_collection"),),
             evaluator(),
             {"move_object"},
         )
@@ -29,8 +29,8 @@ def test_write_task_requires_verification():
     with pytest.raises(ValueError):
         AtlasTaskDefinition(
             "write",
-            (EvidenceRequest("inspect_scene", {}, "scene"),),
-            (ActionSpec("move_object", {}, "move"),),
+            (EvidenceRequest("inspect_scene", {}, "inspect_scene"),),
+            (ActionSpec("move_object", {}, "move_object"),),
             evaluator(),
             {"move_object"},
             allow_writes=True,
@@ -41,8 +41,8 @@ def test_write_task_requires_verification():
 def test_task_definition_snapshot_is_serializable_and_task_specific():
     task = AtlasTaskDefinition(
         "marker",
-        (EvidenceRequest("inspect_scene", {"file_name": "x.blend"}, "scene"),),
-        (ActionSpec("create_empty_marker", {"file_name": "x.blend"}, "marker"),),
+        (EvidenceRequest("inspect_scene", {"file_name": "x.blend"}, "inspect_scene"),),
+        (ActionSpec("create_empty_marker", {"file_name": "x.blend"}, "create_empty_marker"),),
         evaluator(),
         {"create_empty_marker"},
         allow_writes=True,
@@ -52,5 +52,7 @@ def test_task_definition_snapshot_is_serializable_and_task_specific():
     assert snap["name"] == "marker"
     assert snap["allow_writes"] is True
     assert snap["verify_after_action"] is True
+    assert snap["evidence"][0]["name"] == "inspect_scene"
     assert snap["actions"][0]["tool"] == "create_empty_marker"
+    assert snap["actions"][0]["name"] == "create_empty_marker"
     assert snap["metadata"]["domain"] == "blender"
