@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 19, 2026 08:43 UTC  
+**Updated:** August 19, 2026 11:44 UTC  
 **Branch:** `main`  
 **Current HEAD:** `a852f410e209dd1478f721ef06f38c55036d73a4` — `test: harden task definition immutability`
 
@@ -155,7 +155,7 @@ A fresh lookup for `d164ab34` returned **no workflow runs**, so object rotation 
 
 Latest offline hardening adds `tests/test_task_definition_immutability.py`, covering frozen top-level task identity and protection of task state from mutation through returned snapshots.
 
-**Important verification boundary:** current HEAD is newer than the last completed CI baseline. Do not claim #401 validates current HEAD until a fresh CI run completes.
+**Important verification boundary:** current HEAD is newer than the last completed CI baseline. A combined-status lookup for `a852f410e209dd1478f721ef06f38c55036d73a4` currently returns **no status entries**. Do not claim #401 validates current HEAD until a fresh CI run completes.
 
 ## 6. Runtime integrity / continuation
 
