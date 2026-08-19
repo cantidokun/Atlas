@@ -1,10 +1,11 @@
 from action_plan import ActionSpec
-from evidence_plan import EvidenceRequest
-from live_qwen_object_rotation import CORRECT_FILE, TARGET_OBJECT, TARGET_ROTATION, task_definition
+from planning.evidence_plan import EvidenceRequest
+from live_qwen_object_rotation import CORRECT_FILE, TARGET_OBJECT, TARGET_ROTATION
+from planning.object_rotation_task import object_rotation_task_definition
 
 
 def test_live_rotation_task_definition_uses_typed_evidence_request():
-    definition = task_definition(CORRECT_FILE)
+    definition = object_rotation_task_definition(CORRECT_FILE)
 
     assert len(definition.evidence) == 1
     assert isinstance(definition.evidence[0], EvidenceRequest)
@@ -16,7 +17,7 @@ def test_live_rotation_task_definition_uses_typed_evidence_request():
 
 
 def test_live_rotation_task_definition_remains_typed_and_deterministic():
-    definition = task_definition(CORRECT_FILE)
+    definition = object_rotation_task_definition(CORRECT_FILE)
 
     assert definition.actions == (
         ActionSpec(
