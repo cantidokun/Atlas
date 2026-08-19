@@ -23,6 +23,7 @@ def test_delete_action_shape_is_exact():
         "file_name": "cleanup.blend",
         "object_name": TARGET_OBJECT,
     }
+    assert action.name == "delete_object"
 
 
 def test_delete_action_has_no_implicit_force_or_collection_arguments():
