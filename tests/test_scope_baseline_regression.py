@@ -50,7 +50,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
             
             # This should NOT raise ScopeViolationError because the file was in baseline
             try:
-                result = validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
+                result = validate_post_aider_scope(allowed_files, baseline_changes=baseline_changes, repo_dir=self.test_dir)
                 # Should return the changed file for logging but not fail
                 self.assertEqual(result, ["tasks/unreal_production_roundtrip.json"])
             except ScopeViolationError:
@@ -69,7 +69,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
             
             # This SHOULD raise ScopeViolationError because it's a new change outside scope
             with self.assertRaises(ScopeViolationError) as cm:
-                validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
+                validate_post_aider_scope(allowed_files, baseline_changes=baseline_changes, repo_dir=self.test_dir)
             
             self.assertIn("unauthorized_file.py", str(cm.exception))
             self.assertIn("outside the approved scope", str(cm.exception))
@@ -87,7 +87,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
             
             # This should NOT raise ScopeViolationError
             try:
-                result = validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
+                result = validate_post_aider_scope(allowed_files, baseline_changes=baseline_changes, repo_dir=self.test_dir)
                 self.assertEqual(result, ["allowed_file.py"])
             except ScopeViolationError:
                 self.fail("Authorized new change incorrectly failed validation")
@@ -111,7 +111,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
             
             # Should fail on the new unauthorized change, ignoring the baseline change
             with self.assertRaises(ScopeViolationError) as cm:
-                validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
+                validate_post_aider_scope(allowed_files, baseline_changes=baseline_changes, repo_dir=self.test_dir)
             
             self.assertIn("unauthorized_new.py", str(cm.exception))
             # Should NOT mention the baseline file
@@ -150,7 +150,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
             
             # Should fail only on unauthorized_file.py, ignoring Aider artifacts
             with self.assertRaises(ScopeViolationError) as cm:
-                validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
+                validate_post_aider_scope(allowed_files, baseline_changes=baseline_changes, repo_dir=self.test_dir)
             
             self.assertIn("unauthorized_file.py", str(cm.exception))
             self.assertNotIn(".aider", str(cm.exception))
@@ -163,7 +163,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
         with patch('atlas_dev_controller.scope_guard.detect_changed_files') as mock_detect:
             mock_detect.return_value = []
             
-            result = validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
+            result = validate_post_aider_scope(allowed_files, baseline_changes=baseline_changes, repo_dir=self.test_dir)
             self.assertEqual(result, [])
 
     def test_all_changes_in_baseline(self):
@@ -184,7 +184,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
             ]
             
             # Should not raise any errors since no NEW changes
-            result = validate_post_aider_scope(allowed_files, baseline_changes, self.test_dir)
+            result = validate_post_aider_scope(allowed_files, baseline_changes=baseline_changes, repo_dir=self.test_dir)
             self.assertEqual(len(result), 2)  # Both files returned for logging
 
     def test_backward_compatibility_no_baseline_parameter(self):
@@ -212,7 +212,7 @@ class TestScopeBaselineRegression(unittest.TestCase):
             
             # Call with explicit None baseline_changes (backward compatibility)
             try:
-                result = validate_post_aider_scope(allowed_files, None, self.test_dir)
+                result = validate_post_aider_scope(allowed_files, baseline_changes=None, repo_dir=self.test_dir)
                 self.assertEqual(result, ["allowed_file.py"])
             except ScopeViolationError:
                 self.fail("Authorized change with None baseline incorrectly failed validation")

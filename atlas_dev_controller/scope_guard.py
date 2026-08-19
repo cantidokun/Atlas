@@ -197,6 +197,11 @@ def validate_post_aider_scope(
     ScopeViolationError
         On the first out-of-scope production path that is NEW (not in baseline).
     """
+    # Backward compatibility: historically the second positional argument
+    # was repo_dir. Baseline-aware callers pass a baseline collection there.
+    if repo_dir is None and isinstance(baseline_changes, str):
+        repo_dir = baseline_changes
+        baseline_changes = None
     raw_changed = detect_changed_files(repo_dir)
     if not raw_changed:
         return raw_changed

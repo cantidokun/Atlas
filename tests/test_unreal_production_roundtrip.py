@@ -4,7 +4,7 @@ Uses an in-memory transport so no real Unreal process is needed.
 """
 
 import pytest
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from planning.unreal_agent import (
     UnrealCapability,
@@ -274,6 +274,98 @@ class TestVerifiedFalseInvariant:
 
         for evidence in result.evidence_ledger:
             assert evidence.verified is False
+
+
+# ---------------------------------------------------------------------------
+# ActionPlan authorization round-trip
+# ---------------------------------------------------------------------------
+
+class TestActionPlanAuthorizationRoundTrip:
+    """Prove the full chain: intent → planner → ActionPlan → authorize → executor → evidence."""
+
+    def _action_specs_from_plan(self, task_plan):
+        """Convert UnrealTaskPlan operations into ActionSpec list for ActionPlan."""
+        from planning.action_plan import ActionSpec
+        return [
+            ActionSpec(
+                tool=op.capability.value,
+                arguments=dict(op.arguments),
+                name=op.name,
+                requires_success=True,
+            )
+            for op in task_plan.operations
+        ]
+
+    def test_inspection_with_action_plan_authorization(self):
+        from planning.action_plan import ActionPlan
+
+        transport = InMemoryTransport()
+        executor = _build_executor(transport)
+        planner = UnrealTaskPlanner()
+
+        intent = _make_intent()
+        task_plan = planner.plan_inspection(intent)
+
+        action_plan = ActionPlan(actions=self._action_specs_from_plan(task_plan))
+        auth = action_plan.authorize_with_id("auth-100")
+
+        assert action_plan.authorized is True
+        assert action_plan.authorization_id == "auth-100"
+
+        result = executor.execute(task_plan, authorization_id=auth.authorization_id)
+
+        assert result.success is True
+        assert len(result.evidence_ledger) == len(task_plan.operations)
+
+    def test_material_variant_with_action_plan_authorization(self):
+        from planning.action_plan import ActionPlan
+
+        transport = InMemoryTransport()
+        executor = _build_executor(transport)
+        planner = UnrealTaskPlanner()
+
+        intent = _make_intent()
+        task_plan = planner.plan_material_variant(intent)
+
+        action_plan = ActionPlan(actions=self._action_specs_from_plan(task_plan))
+        auth = action_plan.authorize_with_id("auth-101")
+
+        assert action_plan.authorized is True
+
+        result = executor.execute(task_plan, authorization_id=auth.authorization_id)
+
+        assert result.success is True
+        assert len(result.evidence_ledger) == 4
+        for evidence in result.evidence_ledger:
+            assert evidence.verified is False
+
+    def test_authorization_digest_is_deterministic(self):
+        from planning.action_plan import ActionPlan
+
+        planner = UnrealTaskPlanner()
+        task_plan = planner.plan_material_variant(_make_intent())
+
+        specs = self._action_specs_from_plan(task_plan)
+        auth_a = ActionPlan(actions=list(specs)).authorize_with_id("auth-102")
+        auth_b = ActionPlan(actions=list(specs)).authorize_with_id("auth-102")
+
+        assert auth_a.plan_digest == auth_b.plan_digest
+
+    def test_authorization_id_propagated_through_transport(self):
+        from planning.action_plan import ActionPlan
+
+        transport = InMemoryTransport()
+        executor = _build_executor(transport)
+        planner = UnrealTaskPlanner()
+
+        task_plan = planner.plan_inspection(_make_intent())
+        action_plan = ActionPlan(actions=self._action_specs_from_plan(task_plan))
+        auth = action_plan.authorize_with_id("auth-103")
+
+        executor.execute(task_plan, authorization_id=auth.authorization_id)
+
+        for req in transport.requests:
+            assert req.authorization_id == "auth-103"
 
 
 # ---------------------------------------------------------------------------
