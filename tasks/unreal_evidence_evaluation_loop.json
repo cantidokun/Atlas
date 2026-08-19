@@ -1,0 +1,22 @@
+{
+  "task_id": "unreal-evidence-evaluation-loop",
+  "message": "Build the next layer of the Unreal autonomous execution architecture: deterministic evaluation of an UnrealPlanExecutionResult and selection of the next action. First inspect the existing UnrealEvidence contract, UnrealPlanExecutor, UnrealAuthorizedExecutionGate, UnrealTaskPlanner, and existing tests. Add a small deterministic evaluation component that consumes completed execution evidence and produces an explicit evaluation outcome describing whether the intent is satisfied, whether execution failed, whether verification is required, and what deterministic next action category should be taken. The evaluator must be pure: no Unreal transport calls, no filesystem mutation, no authorization issuance, and no hidden side effects. It must never invent evidence or treat an unverified result as verified. Preserve the existing fail-closed semantics. If execution failed, the evaluator must surface failure rather than pretending the goal was achieved. If evidence is incomplete or insufficient to establish the intended result, the evaluator must explicitly return an unresolved/verification-required outcome rather than success. Add focused tests for successful completion, failed execution, incomplete evidence, verification-required outcomes, deterministic identical inputs producing identical evaluations, and rejection of malformed execution results. Do not modify UnrealPlanExecutor or UnrealAuthorizedExecutionGate unless a minimal read-only interface issue makes it unavoidable. Do not implement autonomous replanning or task generation yet; this task establishes the deterministic evaluation contract that those later layers will consume. Preserve Python 3.9 compatibility.",
+  "read_only_files": [
+    "planning/unreal_evidence_contract.py",
+    "planning/unreal_plan_executor.py",
+    "planning/unreal_authorized_execution_gate.py",
+    "planning/unreal_task_planner.py",
+    "planning/unreal_agent.py",
+    "tests/test_unreal_authorized_execution_gate.py",
+    "tests/test_unreal_production_roundtrip.py",
+    "tests/test_unreal_task_planner_determinism.py"
+  ],
+  "allowed_files": [
+    "planning/unreal_execution_evaluator.py",
+    "tests/test_unreal_execution_evaluator.py"
+  ],
+  "allowed_test_commands": [
+    "python -m pytest tests/test_unreal_execution_evaluator.py -v"
+  ],
+  "model": "openrouter/anthropic/claude-opus-4.6"
+}
