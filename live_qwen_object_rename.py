@@ -27,8 +27,8 @@ def prompt(file_name: str) -> str:
     return f'''You are the Atlas Blender planning assistant.
 Ensure Blender object {TARGET_OBJECT} is named {TARGET_NAME} in {file_name}.
 Return exactly one JSON OBJECT with exactly two top-level fields: evidence and actions.
-Evidence: exactly one inspect_scene request with file_name="{file_name}".
-Actions: exactly one rename_object action with file_name="{file_name}", object_name="{TARGET_OBJECT}", new_name="{TARGET_NAME}".
+Evidence: exactly one item with tool="inspect_scene", arguments containing file_name="{file_name}", and name="inspect_scene".
+Actions: exactly one item with tool="rename_object", arguments containing file_name="{file_name}", object_name="{TARGET_OBJECT}", new_name="{TARGET_NAME}", and name="rename_object".
 Every item must contain exactly tool, arguments, and name.
 Do not execute tools. Do not add fields, tools, markdown, or explanations.'''
 
