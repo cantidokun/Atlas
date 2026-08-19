@@ -1,0 +1,25 @@
+{
+  "task_id": "unreal-deterministic-recovery-replanning",
+  "message": "Build a deterministic recovery/replanning decision component for the existing Unreal autonomous execution architecture. First inspect UnrealExecutionEvaluator, UnrealEvidence, UnrealPlanExecutionResult, UnrealTaskPlanner, UnrealTaskPlan, UnrealOperation, and the existing authorization/execution contracts. Add a pure recovery/replanning component that consumes an explicit evaluation outcome and the originating intent/plan context and returns a bounded, deterministic next-step decision. Supported outcomes must distinguish at minimum: SATISFIED (no next action), VERIFY_REQUIRED (request a verification-oriented next step), FAILED (request bounded recovery), and UNRESOLVED (request bounded verification/review). The component must never execute operations, issue authorization, mutate files, call Unreal transport, fabricate evidence, or silently turn failure into success. Recovery decisions must be deterministic for identical inputs and must preserve the original intent/entity context. Prevent unbounded retry behavior by making retry/recovery limits explicit in the decision contract. Do not implement the autonomous controller or execution loop yet; establish the deterministic recovery decision contract that a later controller can consume. Preserve Python 3.9 compatibility. Add focused tests for every evaluation outcome, deterministic identical inputs, preservation of intent/entity context, retry-limit behavior, malformed input rejection, and the guarantee that the recovery component has no execution side effects.",
+  "read_only_files": [
+    "planning/unreal_execution_evaluator.py",
+    "planning/unreal_evidence_contract.py",
+    "planning/unreal_plan_executor.py",
+    "planning/unreal_authorized_execution_gate.py",
+    "planning/unreal_task_planner.py",
+    "planning/unreal_agent.py",
+    "planning/action_plan.py",
+    "planning/action_authorization.py",
+    "tests/test_unreal_execution_evaluator.py",
+    "tests/test_unreal_authorized_execution_gate.py",
+    "tests/test_unreal_task_planner_determinism.py"
+  ],
+  "allowed_files": [
+    "planning/unreal_recovery_planner.py",
+    "tests/test_unreal_recovery_planner.py"
+  ],
+  "allowed_test_commands": [
+    "python -m pytest tests/test_unreal_recovery_planner.py -v"
+  ],
+  "model": "openrouter/anthropic/claude-opus-4.6"
+}
