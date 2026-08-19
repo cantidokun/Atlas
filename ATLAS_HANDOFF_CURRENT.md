@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 19, 2026 14:40 UTC  
+**Updated:** August 19, 2026 17:44 UTC  
 **Branch:** `main`  
-**Current HEAD:** `a852f410e209dd1478f721ef06f38c55036d73a4` — `test: harden task definition immutability`
+**Current HEAD:** `3d4c78f909bca3d08213d13e988feccd88d1a616` — `docs: define generic Atlas architecture contract`
 
 ## 1. Scope and authority
 
@@ -40,6 +40,7 @@ Implemented generic primitives include:
 - audit trail
 - immutable Blender execution receipts
 - `AtlasTaskDefinition` — declarative task boundary for evidence, actions, target evaluation, allowed tools, write policy, and verification policy
+- `docs/ATLAS_ARCHITECTURE_CONTRACT.md` — explicit promotion/authority contract for production-task adapters
 
 Conditional execution remains explicitly separated into evidence acquisition, target evaluation, skip/execute decision, authorization, deterministic execution, fresh verification, and fail-closed completion/blocking.
 
@@ -153,9 +154,11 @@ A fresh lookup for `d164ab34` returned **no workflow runs**, so object rotation 
 
 `tests/test_task_definition.py` covers malformed structure, unauthorized tools, write-without-verification, and snapshot behavior.
 
-Latest offline hardening adds `tests/test_task_definition_immutability.py`, covering frozen top-level task identity and protection of task state from mutation through returned snapshots.
+`tests/test_task_definition_immutability.py` covers frozen top-level task identity and protection of task state from mutation through returned snapshots.
 
-**Current verification boundary:** a fresh combined-status lookup for `a852f410e209dd1478f721ef06f38c55036d73a4` on August 19, 2026 returned **no status entries**. Do not claim #401 validates current HEAD until a fresh CI run completes.
+`docs/ATLAS_ARCHITECTURE_CONTRACT.md` now defines the generic task promotion contract, authority boundaries, zero-write rule, receipt rule, fail-closed rule, and current proof levels.
+
+**Current verification boundary:** a fresh combined-status lookup for `a852f410e209dd1478f721ef06f38c55036d73a4` on August 19, 2026 returned **no status entries**. The newer `3d4c78f...` documentation commit has not been treated as CI-proven. Do not claim #401 validates current HEAD until a fresh CI run completes.
 
 ## 6. Runtime integrity / continuation
 
@@ -168,7 +171,8 @@ A broader production-facing continuation/resume scenario using these integrity p
 - Goalpost and generic collection creation are live-proven.
 - Marker creation (`planning/marker_task.py`, `create_empty_marker`) is offline/CI-proven but not live-proven.
 - Object rotation is implemented but not live-proven.
-- `AtlasTaskDefinition` and its newest immutability tests are newer than the last completed CI baseline.
+- `AtlasTaskDefinition` and its immutability tests are newer than the last completed CI baseline.
+- The architecture contract is documentation-only and is not a substitute for CI/live proof.
 - Current HEAD must receive fresh CI before its code is treated as verified.
 - Generic collection proof does not prove arbitrary task generation or arbitrary Blender production planning.
 - Executor success is never authoritative state; fresh evidence remains mandatory.
@@ -212,4 +216,4 @@ Preserve proofs for:
 
 Read this file first. Inspect `main` and current GitHub Actions state. Use **Atlas Tests #401 PASS (Python 3.9 + 3.11)** only as the last completed offline baseline and **Live Conditional Atlas Regression #155 PASS** as the live collection/goalpost baseline. Do not treat either as validation of the newer task-definition/rotation commits.
 
-Immediate continuation point: **`a852f410e209dd1478f721ef06f38c55036d73a4`** adds task-definition immutability coverage. Fresh CI is required next; after that, perform the smallest safe task-definition integration and then live object-rotation proof.
+Immediate continuation point: **`3d4c78f909bca3d08213d13e988feccd88d1a616`** adds the generic architecture contract documentation. Fresh CI is required next; after that, perform the smallest safe task-definition integration and then live object-rotation proof.
