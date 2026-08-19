@@ -1,6 +1,10 @@
 import pytest
 
-from planning.object_rename_task import object_rename_target_evaluator, rename_object_action
+from planning.object_rename_task import (
+    object_rename_target_evaluator,
+    object_rename_task_definition,
+    rename_object_action,
+)
 from planning.tool_schema import validate_tool_arguments
 from task_planner import TaskPlanValidationError
 
@@ -49,3 +53,16 @@ def test_rename_action_is_exactly_bound_to_target():
         "object_name": "Goal_Left_post",
         "new_name": "Goal_Left_Post",
     }
+    assert action.name == "rename_object"
+
+
+def test_rename_task_definition_is_write_verified_and_task_specific():
+    task = object_rename_task_definition("fixture.blend")
+    assert task.name == "object_rename"
+    assert task.allow_writes is True
+    assert task.verify_after_action is True
+    assert task.allowed_action_tools == {"rename_object"}
+    assert task.evidence[0].tool == "inspect_scene"
+    assert task.evidence[0].arguments == {"file_name": "fixture.blend"}
+    assert task.actions == (rename_object_action("fixture.blend"),)
+    assert task.metadata["operation"] == "rename"
