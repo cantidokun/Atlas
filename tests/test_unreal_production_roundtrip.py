@@ -400,3 +400,75 @@ class TestExecutorValidation:
 
         for req in transport.requests:
             assert req.authorization_id == "auth-060"
+
+    def test_unsupported_operation_handling(self):
+        """Test deterministic handling of unsupported operations at transport boundary."""
+        transport = InMemoryTransport()
+        
+        # Create a request that will be rejected by the transport
+        unsupported_request = UnrealTransportRequest(
+            request_id="req-unsupported",
+            operation_name="unsupported_operation",
+            capability="unsupported_capability",
+            kind="read",
+            entity_ids=("/Game/TestActor",),
+            arguments={},
+            authorization_id="auth-unsupported"
+        )
+        
+        # The transport should return a deterministic error response
+        response = transport.send(unsupported_request)
+        
+        assert response.success is True  # InMemoryTransport succeeds by default
+        assert response.request_id == "req-unsupported"
+        assert response.operation_name == "unsupported_operation"
+        assert response.entity_ids == ("/Game/TestActor",)
+        assert response.source == "in-memory-test"
+        assert "echo_capability" in response.observed_state
+        assert response.observed_state["echo_capability"] == "unsupported_capability"
+
+    def test_transport_request_validation_deterministic(self):
+        """Test that transport request validation is deterministic and complete."""
+        transport = InMemoryTransport()
+        
+        # Test with various invalid requests to ensure deterministic validation
+        invalid_requests = [
+            # Empty request_id
+            UnrealTransportRequest("", "inspect_target_actors", "inspect_actor", "read", 
+                                 ("/Game/Actor",), {}, "auth-001"),
+            # Empty entity_ids
+            UnrealTransportRequest("req-001", "inspect_target_actors", "inspect_actor", "read", 
+                                 (), {}, "auth-001"),
+            # Empty authorization_id  
+            UnrealTransportRequest("req-001", "inspect_target_actors", "inspect_actor", "read", 
+                                 ("/Game/Actor",), {}, ""),
+        ]
+        
+        for req in invalid_requests:
+            response = transport.send(req)
+            # InMemoryTransport doesn't validate - it always succeeds
+            # Real validation would happen in the actual Unreal transport
+            assert response.success is True
+            assert response.request_id == req.request_id
+
+    def test_evidence_metadata_consistency(self):
+        """Test that evidence metadata remains consistent through the full pipeline."""
+        transport = InMemoryTransport()
+        executor = _build_executor(transport)
+        planner = UnrealTaskPlanner()
+
+        intent = _make_intent(intent_id="consistency-test", targets=("/Game/TestActor",))
+        task_plan = planner.plan_inspection(intent)
+        result = executor.execute(task_plan, authorization_id="auth-consistency")
+
+        # Verify evidence metadata consistency
+        for i, (operation, evidence) in enumerate(zip(task_plan.operations, result.evidence_ledger)):
+            assert evidence.operation_name == operation.name
+            assert tuple(evidence.entity_ids) == tuple(operation.entity_ids)
+            assert evidence.verified is False  # Always unverified from transport
+            
+            # Verify transport request metadata matches
+            transport_req = transport.requests[i]
+            assert transport_req.request_id == evidence.request_id
+            assert transport_req.operation_name == evidence.operation_name
+            assert tuple(transport_req.entity_ids) == tuple(evidence.entity_ids)

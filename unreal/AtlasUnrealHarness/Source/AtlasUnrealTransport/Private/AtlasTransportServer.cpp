@@ -104,6 +104,12 @@ uint32 FAtlasTransportServer::Run()
         FString JsonRequest;
         if (ReadRequest(JsonRequest))
         {
+            if (bStopRequested)
+            {
+                CloseNamedPipe();
+                break;
+            }
+            
             FTransportRequest Request;
             if (ParseRequest(JsonRequest, Request))
             {
@@ -241,6 +247,11 @@ bool FAtlasTransportServer::ReadRequest(FString& OutJsonRequest)
     if (!bSuccess)
     {
         DWORD dwError = GetLastError();
+        if (dwError == ERROR_MORE_DATA)
+        {
+            UE_LOG(LogAtlasTransport, Error, TEXT("Message exceeds maximum size of %d bytes"), MaxMessageSize);
+            return false;
+        }
         UE_LOG(LogAtlasTransport, Error, TEXT("ReadFile failed with error: %d"), dwError);
         return false;
     }
@@ -251,9 +262,12 @@ bool FAtlasTransportServer::ReadRequest(FString& OutJsonRequest)
         return false;
     }
     
+    // Ensure null termination for UTF-8 conversion
+    Buffer.SetNum(BytesRead + 1);
+    Buffer[BytesRead] = 0;
+    
     // Convert to string
-    FString JsonString = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer.GetData())));
-    OutJsonRequest = JsonString.Left(BytesRead);
+    OutJsonRequest = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer.GetData())));
     
     return true;
 #else
@@ -438,22 +452,42 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
         
         // Execute on game thread synchronously
         bool bCompleted = false;
-        AsyncTask(ENamedThreads::GameThread, [this, &Request, &ObservedState, &Error, &bCompleted]()
+        bool bTaskSuccess = false;
+        AsyncTask(ENamedThreads::GameThread, [this, &Request, &ObservedState, &Error, &bCompleted, &bTaskSuccess]()
         {
-            InspectTargetActors(Request.EntityIds, ObservedState, Error);
+            // Check if engine is still valid before accessing world
+            if (GEngine && !IsEngineExitRequested())
+            {
+                bTaskSuccess = InspectTargetActors(Request.EntityIds, ObservedState, Error);
+            }
+            else
+            {
+                Error = TEXT("Engine shutting down");
+                bTaskSuccess = false;
+            }
             bCompleted = true;
         });
         
-        // Wait for completion
-        while (!bCompleted && !bStopRequested)
+        // Wait for completion with timeout
+        int32 TimeoutCounter = 0;
+        const int32 MaxTimeout = 5000; // 5 seconds
+        while (!bCompleted && !bStopRequested && TimeoutCounter < MaxTimeout)
         {
             FPlatformProcess::Sleep(0.001f);
+            TimeoutCounter++;
         }
         
-        if (bStopRequested)
+        if (bStopRequested || TimeoutCounter >= MaxTimeout)
         {
             OutResponse.bSuccess = false;
-            OutResponse.Error = TEXT("Operation cancelled during shutdown");
+            OutResponse.Error = bStopRequested ? TEXT("Operation cancelled during shutdown") : TEXT("Operation timed out");
+            return false;
+        }
+        
+        if (!bTaskSuccess)
+        {
+            OutResponse.bSuccess = false;
+            OutResponse.Error = Error.IsEmpty() ? TEXT("Unknown error during inspection") : Error;
             return false;
         }
         
@@ -484,13 +518,19 @@ bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds
         return false;
     }
     
+    if (!GEngine || IsEngineExitRequested())
+    {
+        OutError = TEXT("Engine not available or shutting down");
+        return false;
+    }
+    
     UWorld* World = nullptr;
-    if (GEngine && GEngine->GetWorldContexts().Num() > 0)
+    if (GEngine->GetWorldContexts().Num() > 0)
     {
         World = GEngine->GetWorldContexts()[0].World();
     }
     
-    if (!World)
+    if (!World || !IsValid(World))
     {
         OutError = TEXT("No valid world found");
         return false;
@@ -501,7 +541,7 @@ bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds
     for (const FString& EntityId : EntityIds)
     {
         AActor* Actor = FindActorByEntityId(EntityId);
-        if (!Actor)
+        if (!Actor || !IsValid(Actor))
         {
             OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *EntityId);
             return false;
@@ -544,13 +584,18 @@ AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
         return nullptr;
     }
     
+    if (!GEngine || IsEngineExitRequested())
+    {
+        return nullptr;
+    }
+    
     UWorld* World = nullptr;
-    if (GEngine && GEngine->GetWorldContexts().Num() > 0)
+    if (GEngine->GetWorldContexts().Num() > 0)
     {
         World = GEngine->GetWorldContexts()[0].World();
     }
     
-    if (!World)
+    if (!World || !IsValid(World))
     {
         return nullptr;
     }
@@ -560,7 +605,7 @@ AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
     for (TActorIterator<AActor> ActorItr(World); ActorItr; ++ActorItr)
     {
         AActor* Actor = *ActorItr;
-        if (Actor && Actor->Tags.Contains(FName(*TagToFind)))
+        if (Actor && IsValid(Actor) && Actor->Tags.Contains(FName(*TagToFind)))
         {
             return Actor;
         }

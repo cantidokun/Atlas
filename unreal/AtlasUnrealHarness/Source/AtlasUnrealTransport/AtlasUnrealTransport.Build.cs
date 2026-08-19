@@ -20,7 +20,13 @@ public class AtlasUnrealTransport : ModuleRules
             "Slate",
             "SlateCore",
             "Json",
-            "JsonObjectConverter"
+            "JsonObjectConverter",
+            "ApplicationCore"
         });
+
+        if (Target.Platform == UnrealTargetPlatform.Win64)
+        {
+            PublicSystemLibraries.Add("kernel32.lib");
+        }
     }
 }

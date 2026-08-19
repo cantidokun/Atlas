@@ -65,6 +65,4 @@ private:
     
     bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     AActor* FindActorByEntityId(const FString& EntityId);
-    
-    void ProcessRequestOnGameThread(const FTransportRequest& Request, FTransportResponse& Response, bool& bCompleted);
 };
