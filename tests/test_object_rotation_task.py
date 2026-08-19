@@ -7,6 +7,7 @@ from planning.object_rotation_task import (
     TARGET_ROTATION,
     object_rotation_action,
     object_rotation_target_evaluator,
+    object_rotation_task_definition,
 )
 from planning.tool_schema import validate_tool_arguments
 
@@ -26,6 +27,7 @@ def test_rotation_action_shape_is_exact():
         "object_name": TARGET_OBJECT,
         "rotation_degrees": TARGET_ROTATION,
     }
+    assert action.name == "set_object_rotation"
 
 
 def test_rotation_boundary_rejects_wrong_vector_shape():
@@ -55,3 +57,18 @@ def test_rotation_qwen_schema_rejects_unknown_arguments():
                 "force": True,
             },
         )
+
+
+def test_rotation_task_definition_is_write_verified_and_task_specific():
+    task = object_rotation_task_definition("rotation.blend")
+    assert task.name == "object_rotation"
+    assert task.allow_writes is True
+    assert task.verify_after_action is True
+    assert task.allowed_action_tools == {"set_object_rotation"}
+    assert task.evidence[0].tool == "inspect_object_transform"
+    assert task.evidence[0].arguments == {
+        "file_name": "rotation.blend",
+        "object_name": TARGET_OBJECT,
+    }
+    assert task.actions == (object_rotation_action("rotation.blend"),)
+    assert task.metadata["operation"] == "rotation"
