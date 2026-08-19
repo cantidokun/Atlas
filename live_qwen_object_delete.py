@@ -27,8 +27,8 @@ def prompt(file_name: str) -> str:
     return f"""You are the Atlas Blender planning assistant.
 Ensure cleanup candidate {TARGET_OBJECT} is absent from {file_name}.
 Return exactly one JSON OBJECT with exactly two top-level fields: evidence and actions.
-Evidence: exactly one inspect_scene request with file_name="{file_name}".
-Actions: exactly one delete_object action with file_name="{file_name}", object_name="{TARGET_OBJECT}".
+Evidence: exactly one item with tool="inspect_scene", arguments containing file_name="{file_name}", and name="inspect_scene".
+Actions: exactly one item with tool="delete_object", arguments containing file_name="{file_name}" and object_name="{TARGET_OBJECT}", and name="delete_object".
 Every item must contain exactly tool, arguments, and name.
 Do not execute tools. Do not add fields, tools, markdown, or explanations."""
 
