@@ -4,6 +4,7 @@
 #include "HAL/Runnable.h"
 #include "HAL/RunnableThread.h"
 #include "HAL/ThreadSafeBool.h"
+#include "HAL/Event.h"
 #include "Dom/JsonObject.h"
 
 class FAtlasTransportServer : public FRunnable
@@ -28,6 +29,33 @@ private:
     FRunnableThread* Thread;
     FThreadSafeBool bStopRequested;
     void* PipeHandle;
+
+    // Shared state for game thread execution
+    struct FGameThreadExecutionState
+    {
+        FTransportRequest Request;
+        FTransportResponse Response;
+        FString Error;
+        TSharedPtr<FJsonObject> ObservedState;
+        FThreadSafeBool bCompleted;
+        FThreadSafeBool bSuccess;
+        FEvent* CompletionEvent;
+
+        FGameThreadExecutionState()
+            : bCompleted(false)
+            , bSuccess(false)
+            , CompletionEvent(FPlatformProcess::GetSynchEventFromPool(false))
+        {
+        }
+
+        ~FGameThreadExecutionState()
+        {
+            if (CompletionEvent)
+            {
+                FPlatformProcess::ReturnSynchEventToPool(CompletionEvent);
+            }
+        }
+    };
 
     struct FTransportRequest
     {
@@ -63,6 +91,7 @@ private:
     bool ValidateRequest(const FTransportRequest& Request, FString& OutError);
     bool ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse);
     
+    void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
     bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     AActor* FindActorByEntityId(const FString& EntityId);
 };

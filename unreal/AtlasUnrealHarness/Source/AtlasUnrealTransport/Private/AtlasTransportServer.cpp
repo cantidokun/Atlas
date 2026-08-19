@@ -447,67 +447,91 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
     
     if (Request.OperationName == TEXT("inspect_target_actors"))
     {
-        TSharedPtr<FJsonObject> ObservedState;
-        FString Error;
+        // Create shared state that will outlive this function call
+        TSharedPtr<FGameThreadExecutionState> SharedState = MakeShareable(new FGameThreadExecutionState());
+        SharedState->Request = Request;
+        SharedState->Response.RequestId = Request.RequestId;
+        SharedState->Response.OperationName = Request.OperationName;
+        SharedState->Response.EntityIds = Request.EntityIds;
+        SharedState->Response.Source = TEXT("unreal-editor-atlas-transport");
         
-        // Execute on game thread synchronously
-        bool bCompleted = false;
-        bool bTaskSuccess = false;
-        AsyncTask(ENamedThreads::GameThread, [this, &Request, &ObservedState, &Error, &bCompleted, &bTaskSuccess]()
+        // Queue execution on game thread with shared state
+        AsyncTask(ENamedThreads::GameThread, [this, SharedState]()
         {
-            // Check if engine is still valid before accessing world
-            if (GEngine && !IsEngineExitRequested())
-            {
-                bTaskSuccess = InspectTargetActors(Request.EntityIds, ObservedState, Error);
-            }
-            else
-            {
-                Error = TEXT("Engine shutting down");
-                bTaskSuccess = false;
-            }
-            bCompleted = true;
+            ExecuteOnGameThread(SharedState);
         });
         
         // Wait for completion with timeout
-        int32 TimeoutCounter = 0;
-        const int32 MaxTimeout = 5000; // 5 seconds
-        while (!bCompleted && !bStopRequested && TimeoutCounter < MaxTimeout)
-        {
-            FPlatformProcess::Sleep(0.001f);
-            TimeoutCounter++;
-        }
+        const uint32 TimeoutMs = 5000; // 5 seconds
+        bool bEventTriggered = SharedState->CompletionEvent->Wait(TimeoutMs);
         
-        if (bStopRequested || TimeoutCounter >= MaxTimeout)
+        if (bStopRequested)
         {
             OutResponse.bSuccess = false;
-            OutResponse.Error = bStopRequested ? TEXT("Operation cancelled during shutdown") : TEXT("Operation timed out");
+            OutResponse.Error = TEXT("Operation cancelled during shutdown");
             return false;
         }
         
-        if (!bTaskSuccess)
+        if (!bEventTriggered)
         {
             OutResponse.bSuccess = false;
-            OutResponse.Error = Error.IsEmpty() ? TEXT("Unknown error during inspection") : Error;
+            OutResponse.Error = TEXT("Operation timed out");
             return false;
         }
         
-        if (Error.IsEmpty())
-        {
-            OutResponse.bSuccess = true;
-            OutResponse.ObservedState = ObservedState;
-        }
-        else
-        {
-            OutResponse.bSuccess = false;
-            OutResponse.Error = Error;
-        }
-        
-        return true;
+        // Copy results from shared state
+        OutResponse = SharedState->Response;
+        return SharedState->bSuccess;
     }
     
     OutResponse.bSuccess = false;
     OutResponse.Error = FString::Printf(TEXT("Unsupported operation: %s"), *Request.OperationName);
     return false;
+}
+
+void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState)
+{
+    // Ensure we're on the game thread
+    if (!IsInGameThread())
+    {
+        SharedState->Response.bSuccess = false;
+        SharedState->Response.Error = TEXT("ExecuteOnGameThread must be called on game thread");
+        SharedState->bSuccess = false;
+        SharedState->bCompleted = true;
+        SharedState->CompletionEvent->Trigger();
+        return;
+    }
+    
+    // Check if engine is still valid before accessing world
+    if (!GEngine || IsEngineExitRequested())
+    {
+        SharedState->Response.bSuccess = false;
+        SharedState->Response.Error = TEXT("Engine shutting down");
+        SharedState->bSuccess = false;
+        SharedState->bCompleted = true;
+        SharedState->CompletionEvent->Trigger();
+        return;
+    }
+    
+    // Execute the inspection
+    bool bTaskSuccess = InspectTargetActors(SharedState->Request.EntityIds, SharedState->ObservedState, SharedState->Error);
+    
+    if (bTaskSuccess && SharedState->Error.IsEmpty())
+    {
+        SharedState->Response.bSuccess = true;
+        SharedState->Response.ObservedState = SharedState->ObservedState;
+        SharedState->bSuccess = true;
+    }
+    else
+    {
+        SharedState->Response.bSuccess = false;
+        SharedState->Response.Error = SharedState->Error.IsEmpty() ? TEXT("Unknown error during inspection") : SharedState->Error;
+        SharedState->bSuccess = false;
+    }
+    
+    // Signal completion
+    SharedState->bCompleted = true;
+    SharedState->CompletionEvent->Trigger();
 }
 
 bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
