@@ -1,16 +1,17 @@
-"""Live Qwen Blender task: conditionally rotate an explicit cleanup candidate."""
+"""Live Qwen Blender task: conditionally rotate an explicit object."""
 import argparse
 import json
 from typing import Any, Dict, List, Optional
 
 import requests
 
-from action_plan import ActionSpec
 from audit_trail import AuditTrail
-from evidence_plan import EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
-from planning.object_rotation_task import TARGET_OBJECT, TARGET_ROTATION, object_rotation_target_evaluator
-from planning.task_definition import AtlasTaskDefinition
+from planning.object_rotation_task import (
+    TARGET_OBJECT,
+    TARGET_ROTATION,
+    object_rotation_task_definition,
+)
 from planning.task_runtime import prepare_task_runtime
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
@@ -84,19 +85,6 @@ def rotation_boundary() -> BlenderExecutionBoundary:
     return BlenderExecutionBoundary(execute)
 
 
-def task_definition(file_name: str) -> AtlasTaskDefinition:
-    return AtlasTaskDefinition(
-        name="object_rotation",
-        evidence=(EvidenceRequest("inspect_object_transform", {"file_name": file_name, "object_name": TARGET_OBJECT}, "inspect_object_transform"),),
-        actions=(ActionSpec("set_object_rotation", {"file_name": file_name, "object_name": TARGET_OBJECT, "rotation_degrees": TARGET_ROTATION}, "set_object_rotation"),),
-        evaluator=object_rotation_target_evaluator(),
-        allowed_action_tools={"set_object_rotation"},
-        allow_writes=True,
-        verify_after_action=True,
-        metadata={"domain": "blender", "operation": "rotation"},
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
@@ -105,9 +93,11 @@ def main() -> None:
 
     audit = AuditTrail()
     proposal = build_plan(file_name, audit)
-    definition = task_definition(file_name)
-    if tuple(proposal.evidence) != definition.evidence or tuple(proposal.actions) != definition.actions:
-        raise RuntimeError("Qwen plan does not match declarative task definition")
+    definition = object_rotation_task_definition(file_name)
+    if tuple(proposal.evidence) != definition.evidence:
+        raise RuntimeError("Qwen evidence plan does not match object rotation task definition")
+    if tuple(proposal.actions) != definition.actions:
+        raise RuntimeError("Qwen action plan does not match object rotation task definition")
     orchestrator = prepare_task_runtime(definition)
 
     initial = orchestrator.acquire_next_evidence(read_evidence)
