@@ -1,7 +1,7 @@
 import pytest
 
 from action_plan import ActionSpec
-from evidence_plan import EvidenceRequest
+from planning.evidence_plan import EvidenceRequest
 from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.task_definition import AtlasTaskDefinition
 
