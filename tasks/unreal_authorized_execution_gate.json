@@ -1,0 +1,25 @@
+{
+  "task_id": "unreal-authorized-execution-gate",
+  "message": "Implement the production authorization gate that connects the existing generic ActionPlan/ActionAuthorization mechanism to the existing UnrealTaskPlan and UnrealPlanExecutor. The gate must deterministically convert every UnrealTaskPlan operation into the existing ActionSpec representation, construct an ActionPlan for the exact operation sequence, require a valid ActionAuthorization matching that exact ActionPlan before execution, and invoke the existing UnrealPlanExecutor only after authorization is valid. Preserve UnrealPlanExecutor unless a concrete integration issue requires a change. The gate must reject missing authorization, empty authorization IDs, authorization receipts that do not match the exact Unreal operation list, and any mutation of the operation list after authorization. It must preserve the existing in-memory transport and return the existing UnrealPlanExecutionResult/evidence ledger. Implement tests proving the complete flow from UnrealTaskIntent through UnrealTaskPlanner, deterministic ActionSpec conversion, ActionPlan authorization, authorization mismatch rejection, post-authorization plan mutation rejection, successful authorized execution through UnrealPlanExecutor, and transport/evidence failure behavior. Use Python 3.9-compatible annotations. If required context or an existing interface is missing, do not invent a replacement and do not modify files outside allowed_files; stop and report the missing dependency instead.",
+  "read_only_files": [
+    "planning/unreal_task_planner.py",
+    "planning/unreal_agent.py",
+    "planning/unreal_adapter_production.py",
+    "planning/unreal_plan_executor.py",
+    "planning/unreal_evidence_contract.py",
+    "planning/unreal_operation_contract.py",
+    "planning/action_plan.py",
+    "planning/action_authorization.py",
+    "planning/unreal_transport_contract.py",
+    "planning/unreal_capability_registry.py",
+    "tests/test_unreal_production_roundtrip.py"
+  ],
+  "allowed_files": [
+    "planning/unreal_authorized_execution_gate.py",
+    "tests/test_unreal_authorized_execution_gate.py"
+  ],
+  "allowed_test_commands": [
+    "python -m pytest tests/test_unreal_authorized_execution_gate.py -v"
+  ],
+  "model": "openrouter/anthropic/claude-opus-4.6"
+}
