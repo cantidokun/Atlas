@@ -5,6 +5,7 @@ from planning.object_delete_task import (
     TARGET_OBJECT,
     object_delete_action,
     object_delete_target_evaluator,
+    object_delete_task_definition,
 )
 
 
@@ -75,3 +76,15 @@ def test_delete_object_planning_schema_rejects_unknown_arguments():
             "delete_object",
             {"file_name": "cleanup.blend", "object_name": TARGET_OBJECT, "force": True},
         )
+
+
+def test_delete_task_definition_is_write_verified_and_task_specific():
+    task = object_delete_task_definition("cleanup.blend")
+    assert task.name == "object_delete"
+    assert task.allow_writes is True
+    assert task.verify_after_action is True
+    assert task.allowed_action_tools == {"delete_object"}
+    assert task.evidence[0].tool == "inspect_scene"
+    assert task.evidence[0].arguments == {"file_name": "cleanup.blend"}
+    assert task.actions == (object_delete_action("cleanup.blend"),)
+    assert task.metadata["operation"] == "delete"
