@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Set, Tuple
 
 from action_plan import ActionSpec
-from evidence_plan import EvidenceRequest
+from planning.evidence_plan import EvidenceRequest
 from planning.target_state import TargetStateEvaluator
 
 
