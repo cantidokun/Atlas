@@ -429,27 +429,21 @@ class TestExecutorValidation:
 
     def test_transport_request_validation_deterministic(self):
         """Test that transport request validation is deterministic and complete."""
-        transport = InMemoryTransport()
+        from planning.unreal_transport_contract import UnrealTransportRequest
         
-        # Test with various invalid requests to ensure deterministic validation
-        invalid_requests = [
+        # Test validation through the dataclass contract - these should fail deterministically
+        invalid_cases = [
             # Empty request_id
-            UnrealTransportRequest("", "inspect_target_actors", "inspect_actor", "read", 
-                                 ("/Game/Actor",), {}, "auth-001"),
-            # Empty entity_ids
-            UnrealTransportRequest("req-001", "inspect_target_actors", "inspect_actor", "read", 
-                                 (), {}, "auth-001"),
-            # Empty authorization_id  
-            UnrealTransportRequest("req-001", "inspect_target_actors", "inspect_actor", "read", 
-                                 ("/Game/Actor",), {}, ""),
+            ("", "inspect_target_actors", "inspect_actor", "read", ("/Game/Actor",), {}, "auth-001"),
+            # Empty entity_ids tuple
+            ("req-001", "inspect_target_actors", "inspect_actor", "read", (), {}, "auth-001"),
+            # Empty authorization_id
+            ("req-001", "inspect_target_actors", "inspect_actor", "read", ("/Game/Actor",), {}, ""),
         ]
         
-        for req in invalid_requests:
-            response = transport.send(req)
-            # InMemoryTransport doesn't validate - it always succeeds
-            # Real validation would happen in the actual Unreal transport
-            assert response.success is True
-            assert response.request_id == req.request_id
+        for case in invalid_cases:
+            with pytest.raises(ValueError):
+                UnrealTransportRequest(*case)
 
     def test_evidence_metadata_consistency(self):
         """Test that evidence metadata remains consistent through the full pipeline."""
@@ -467,8 +461,8 @@ class TestExecutorValidation:
             assert tuple(evidence.entity_ids) == tuple(operation.entity_ids)
             assert evidence.verified is False  # Always unverified from transport
             
-            # Verify transport request metadata matches
+            # Verify transport request metadata matches evidence through existing fields
             transport_req = transport.requests[i]
-            assert transport_req.request_id == evidence.request_id
             assert transport_req.operation_name == evidence.operation_name
             assert tuple(transport_req.entity_ids) == tuple(evidence.entity_ids)
+            assert transport_req.authorization_id == "auth-consistency"
