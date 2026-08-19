@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 19, 2026 17:44 UTC  
+**Updated:** August 19, 2026 20:40 UTC  
 **Branch:** `main`  
 **Current HEAD:** `3d4c78f909bca3d08213d13e988feccd88d1a616` — `docs: define generic Atlas architecture contract`
 
@@ -21,7 +21,15 @@ Qwen is never the execution authority. Blender is not the canonical source of tr
 
 Photogrammetry is upstream: dedicated photogrammetry software creates the initial reconstruction; Blender receives it for analysis, cleanup, correction, and preparation.
 
-## 2. Generic architecture
+## 2. Current development constraint
+
+**Do not run, trigger, rerun, or approve any workflow/action-runner tests until the user explicitly authorizes them.** The local action runner cannot currently be set up.
+
+Until authorization is given, development must remain isolated from the action runner and must not introduce changes whose validation depends on the runner. Prefer architecture, schemas, task contracts, deterministic utilities, receipt/verification logic, validation/error handling, documentation, and other offline-safe tooling. Treat all such newer work as **unverified** unless an already-completed test result explicitly covers it.
+
+This constraint supersedes the normal next-step instruction to obtain fresh CI. The next resume point after the user authorizes workflow testing is to validate the accumulated offline-safe changes first.
+
+## 3. Generic architecture
 
 Implemented generic primitives include:
 
@@ -48,7 +56,7 @@ Conditional execution remains explicitly separated into evidence acquisition, ta
 
 `AtlasTaskDefinition` contains task data only; orchestration logic must remain generic.
 
-## 3. Blender files/tools
+## 4. Blender files/tools
 
 Core boundary:
 
@@ -83,15 +91,15 @@ Task/harness files:
 
 Live Blender tools currently include `inspect_object_relationship`, `move_object`, `inspect_scene`, `create_collection`, `inspect_object_transform`, and `set_object_rotation`. Schema support also includes `create_empty_marker`.
 
-## 4. Model/runtime
+## 5. Model/runtime
 
 - Ollama: `http://localhost:11434/api/chat`
 - Model: `qwen3:8b`
 - Blender: **4.4.3**
-- Local GitHub Actions runner: `atlas-local`
+- Local GitHub Actions runner: `atlas-local` (currently unavailable for approved testing)
 - Qwen structured planning uses `qwen/structured_plan.py`, `TASK_PLAN_JSON_SCHEMA`, and `qwen_planning_runtime.py`.
 
-## 5. Verified milestones
+## 6. Verified milestones
 
 Blender receipt milestones:
 
@@ -158,31 +166,49 @@ A fresh lookup for `d164ab34` returned **no workflow runs**, so object rotation 
 
 `docs/ATLAS_ARCHITECTURE_CONTRACT.md` now defines the generic task promotion contract, authority boundaries, zero-write rule, receipt rule, fail-closed rule, and current proof levels.
 
-**Current verification boundary:** a fresh combined-status lookup for `a852f410e209dd1478f721ef06f38c55036d73a4` on August 19, 2026 returned **no status entries**. The newer `3d4c78f...` documentation commit has not been treated as CI-proven. Do not claim #401 validates current HEAD until a fresh CI run completes.
+**Verification boundary:** `Atlas Tests #401` is the last completed offline baseline, and `Live Conditional Atlas Regression #155` is the last completed live baseline. The newer task-definition/architecture-contract/rotation work has not been validated by a fresh workflow run. No workflow tests are to be run until explicit user authorization.
 
-## 6. Runtime integrity / continuation
+## 7. Runtime integrity / continuation
 
 Atlas has runtime identity checks binding continuation to stable instructions, authorized plan identity, and authoritative persisted-state identity. Invalid continuation must fail closed. Blender receipts additionally bind the exact validated request to the verified result from one execution and detect later mutation.
 
 A broader production-facing continuation/resume scenario using these integrity primitives across a real autonomous task boundary is still not live-proven.
 
-## 7. Known issues / boundaries
+## 8. Known issues / boundaries
 
 - Goalpost and generic collection creation are live-proven.
 - Marker creation (`planning/marker_task.py`, `create_empty_marker`) is offline/CI-proven but not live-proven.
 - Object rotation is implemented but not live-proven.
 - `AtlasTaskDefinition` and its immutability tests are newer than the last completed CI baseline.
 - The architecture contract is documentation-only and is not a substitute for CI/live proof.
-- Current HEAD must receive fresh CI before its code is treated as verified.
+- Current newer code must receive fresh CI after workflow testing is authorized before it is treated as verified.
 - Generic collection proof does not prove arbitrary task generation or arbitrary Blender production planning.
 - Executor success is never authoritative state; fresh evidence remains mandatory.
 - Broader continuation/resume remains unproven live.
 - Full unattended autonomous local production operation is not declared complete.
 - Do not add task-specific branches to generic planners or bypass authorization/verification.
 
-## 8. Exact next steps
+## 9. Offline-safe development allowed while runner is unavailable
 
-1. Obtain fresh CI validation for current `main`, including `planning/task_definition.py`, `tests/test_task_definition.py`, and `tests/test_task_definition_immutability.py`.
+Continue work that does not require workflow execution, including:
+
+- strengthen `AtlasTaskDefinition` and its validation/immutability contract
+- improve Blender tool schemas and normalized result contracts
+- harden receipt binding and mutation detection
+- expand pure unit/regression coverage locally in ways that do not trigger workflow runs
+- improve authorization/replan validation
+- strengthen runtime-context fingerprinting and continuation guards
+- improve deterministic future/recovery abstractions
+- add static architecture checks preventing task-specific logic from leaking into generic planners
+- improve audit/event structures and diagnostics
+- maintain deterministic fixture generation without running the action runner
+- update documentation and handoff material
+
+Avoid changes to workflow definitions, runner orchestration, or live harness behavior unless there is a concrete architectural need; those changes should remain reviewable and explicitly unverified until workflow testing is authorized.
+
+## 10. Exact next steps after workflow testing is authorized
+
+1. Run fresh CI validation for the accumulated current `main` changes, including `planning/task_definition.py`, `tests/test_task_definition.py`, `tests/test_task_definition_immutability.py`, and any intervening offline-safe changes.
 2. Fix any CI/import/contract issues before live work.
 3. Integrate `AtlasTaskDefinition` into one existing adapter using the smallest safe candidate; keep orchestration generic.
 4. Live-test `live_qwen_object_rotation.py` on `object_rotation_CORRECT.blend` and `object_rotation_INCORRECT.blend`.
@@ -193,7 +219,7 @@ A broader production-facing continuation/resume scenario using these integrity p
 9. After multiple distinct capabilities are live-proven, build a production-facing continuation/resume scenario using runtime fingerprinting, deterministic future, recovery gate, and receipt integrity.
 10. Only then select the next materially different Blender production capability.
 
-## 9. Required regression coverage
+## 11. Required regression coverage
 
 Preserve proofs for:
 
@@ -212,8 +238,8 @@ Preserve proofs for:
 - unauthorized replan -> rejected
 - one receipt-bound execution cannot cause duplicate writes
 
-## 10. Resume instructions
+## 12. Resume instructions
 
-Read this file first. Inspect `main` and current GitHub Actions state. Use **Atlas Tests #401 PASS (Python 3.9 + 3.11)** only as the last completed offline baseline and **Live Conditional Atlas Regression #155 PASS** as the live collection/goalpost baseline. Do not treat either as validation of the newer task-definition/rotation commits.
+Read this file first. Inspect `main` and current repository state. Use **Atlas Tests #401 PASS (Python 3.9 + 3.11)** only as the last completed offline baseline and **Live Conditional Atlas Regression #155 PASS** as the live collection/goalpost baseline. Do not treat either as validation of the newer task-definition/rotation/architecture-contract work.
 
-Immediate continuation point: **`3d4c78f909bca3d08213d13e988feccd88d1a616`** adds the generic architecture contract documentation. Fresh CI is required next; after that, perform the smallest safe task-definition integration and then live object-rotation proof.
+**Do not run workflow/action-runner tests until the user explicitly authorizes them.** While that constraint remains active, continue only with isolated offline-safe development. Once authorized, the immediate continuation point is fresh CI validation of the accumulated changes, followed by the smallest safe task-definition integration and live object-rotation proof.
