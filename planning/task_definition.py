@@ -1,4 +1,5 @@
 """Declarative task definition shared by Atlas production-task adapters."""
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Set, Tuple
 
@@ -40,15 +41,23 @@ class AtlasTaskDefinition:
         return {
             "name": self.name,
             "evidence": [
-                {"tool": item.tool, "arguments": dict(item.arguments), "name": item.name}
+                {
+                    "tool": item.tool,
+                    "arguments": deepcopy(item.arguments),
+                    "name": item.name,
+                }
                 for item in self.evidence
             ],
             "actions": [
-                {"tool": item.tool, "arguments": dict(item.arguments), "name": item.name}
+                {
+                    "tool": item.tool,
+                    "arguments": deepcopy(item.arguments),
+                    "name": item.name,
+                }
                 for item in self.actions
             ],
             "allowed_action_tools": sorted(self.allowed_action_tools),
             "allow_writes": self.allow_writes,
             "verify_after_action": self.verify_after_action,
-            "metadata": dict(self.metadata or {}),
+            "metadata": deepcopy(self.metadata or {}),
         }
