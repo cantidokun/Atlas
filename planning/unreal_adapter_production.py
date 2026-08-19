@@ -114,6 +114,22 @@ class UnrealAdapterProduction:
             )
         return self._to_evidence(response)
 
+
+def create_production_adapter(source_tag: str = "atlas-adapter-production") -> UnrealAdapterProduction:
+    """Create a production adapter with Windows named pipe transport.
+    
+    Raises:
+        RuntimeError: If named pipe transport is not available on this platform.
+    """
+    if not NAMED_PIPE_AVAILABLE:
+        raise RuntimeError(
+            "Named pipe transport not available. "
+            "This requires Windows and the pywin32 package."
+        )
+    
+    transport = create_named_pipe_transport()
+    return UnrealAdapterProduction(transport, source_tag)
+
     # -- public API --------------------------------------------------------
 
     def inspect(

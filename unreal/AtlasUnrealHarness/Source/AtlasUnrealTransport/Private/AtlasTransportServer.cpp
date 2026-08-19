@@ -1,0 +1,570 @@
+#include "AtlasTransportServer.h"
+#include "AtlasUnrealTransport.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "Components/ActorComponent.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
+#include "HAL/PlatformFilemanager.h"
+#include "Async/Async.h"
+#include "Engine/GameViewportClient.h"
+
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <windows.h>
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
+const FString FAtlasTransportServer::PipeName = TEXT("\\\\.\\pipe\\AtlasUnrealTransport");
+const int32 FAtlasTransportServer::MaxMessageSize = 1024 * 1024; // 1MB
+
+FAtlasTransportServer::FAtlasTransportServer()
+    : Thread(nullptr)
+    , bStopRequested(false)
+    , PipeHandle(nullptr)
+{
+}
+
+FAtlasTransportServer::~FAtlasTransportServer()
+{
+    StopServer();
+}
+
+bool FAtlasTransportServer::StartServer()
+{
+    if (Thread)
+    {
+        UE_LOG(LogAtlasTransport, Warning, TEXT("Transport server already running"));
+        return false;
+    }
+
+    bStopRequested = false;
+    Thread = FRunnableThread::Create(this, TEXT("AtlasTransportServer"), 0, TPri_Normal);
+    
+    return Thread != nullptr;
+}
+
+void FAtlasTransportServer::StopServer()
+{
+    if (Thread)
+    {
+        bStopRequested = true;
+        
+        // Force close pipe to unblock any waiting operations
+        CloseNamedPipe();
+        
+        Thread->WaitForCompletion();
+        delete Thread;
+        Thread = nullptr;
+    }
+}
+
+bool FAtlasTransportServer::Init()
+{
+    UE_LOG(LogAtlasTransport, Log, TEXT("Initializing transport server thread"));
+    return true;
+}
+
+uint32 FAtlasTransportServer::Run()
+{
+    UE_LOG(LogAtlasTransport, Log, TEXT("Transport server thread started"));
+    
+    while (!bStopRequested)
+    {
+        if (!CreateNamedPipe())
+        {
+            UE_LOG(LogAtlasTransport, Error, TEXT("Failed to create named pipe"));
+            FPlatformProcess::Sleep(1.0f);
+            continue;
+        }
+        
+        UE_LOG(LogAtlasTransport, Log, TEXT("Waiting for client connection..."));
+        
+        if (!WaitForClient())
+        {
+            CloseNamedPipe();
+            if (!bStopRequested)
+            {
+                UE_LOG(LogAtlasTransport, Warning, TEXT("Client connection failed"));
+                FPlatformProcess::Sleep(0.1f);
+            }
+            continue;
+        }
+        
+        if (bStopRequested)
+        {
+            CloseNamedPipe();
+            break;
+        }
+        
+        UE_LOG(LogAtlasTransport, Log, TEXT("Client connected"));
+        
+        FString JsonRequest;
+        if (ReadRequest(JsonRequest))
+        {
+            FTransportRequest Request;
+            if (ParseRequest(JsonRequest, Request))
+            {
+                FString ValidationError;
+                if (ValidateRequest(Request, ValidationError))
+                {
+                    FTransportResponse Response;
+                    ExecuteRequest(Request, Response);
+                    
+                    FString JsonResponse = SerializeResponse(Response);
+                    WriteResponse(JsonResponse);
+                }
+                else
+                {
+                    // Send error response
+                    FTransportResponse ErrorResponse;
+                    ErrorResponse.RequestId = Request.RequestId;
+                    ErrorResponse.OperationName = Request.OperationName;
+                    ErrorResponse.EntityIds = Request.EntityIds;
+                    ErrorResponse.bSuccess = false;
+                    ErrorResponse.Error = ValidationError;
+                    ErrorResponse.Source = TEXT("unreal-editor-atlas-transport");
+                    
+                    FString JsonResponse = SerializeResponse(ErrorResponse);
+                    WriteResponse(JsonResponse);
+                }
+            }
+            else
+            {
+                UE_LOG(LogAtlasTransport, Error, TEXT("Failed to parse request JSON"));
+            }
+        }
+        else
+        {
+            UE_LOG(LogAtlasTransport, Warning, TEXT("Failed to read request"));
+        }
+        
+        CloseNamedPipe();
+    }
+    
+    UE_LOG(LogAtlasTransport, Log, TEXT("Transport server thread exiting"));
+    return 0;
+}
+
+void FAtlasTransportServer::Stop()
+{
+    bStopRequested = true;
+}
+
+void FAtlasTransportServer::Exit()
+{
+    CloseNamedPipe();
+}
+
+bool FAtlasTransportServer::CreateNamedPipe()
+{
+#if PLATFORM_WINDOWS
+    HANDLE hPipe = CreateNamedPipeA(
+        TCHAR_TO_ANSI(*PipeName),
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+        1, // Max instances
+        MaxMessageSize,
+        MaxMessageSize,
+        0, // Default timeout
+        nullptr
+    );
+    
+    if (hPipe == INVALID_HANDLE_VALUE)
+    {
+        UE_LOG(LogAtlasTransport, Error, TEXT("CreateNamedPipe failed with error: %d"), GetLastError());
+        return false;
+    }
+    
+    PipeHandle = hPipe;
+    return true;
+#else
+    UE_LOG(LogAtlasTransport, Error, TEXT("Named pipes not supported on this platform"));
+    return false;
+#endif
+}
+
+void FAtlasTransportServer::CloseNamedPipe()
+{
+#if PLATFORM_WINDOWS
+    if (PipeHandle && PipeHandle != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle((HANDLE)PipeHandle);
+        PipeHandle = nullptr;
+    }
+#endif
+}
+
+bool FAtlasTransportServer::WaitForClient()
+{
+#if PLATFORM_WINDOWS
+    if (!PipeHandle || PipeHandle == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    
+    BOOL bConnected = ConnectNamedPipe((HANDLE)PipeHandle, nullptr);
+    if (!bConnected)
+    {
+        DWORD dwError = GetLastError();
+        if (dwError == ERROR_PIPE_CONNECTED)
+        {
+            return true; // Client already connected
+        }
+        
+        UE_LOG(LogAtlasTransport, Error, TEXT("ConnectNamedPipe failed with error: %d"), dwError);
+        return false;
+    }
+    
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool FAtlasTransportServer::ReadRequest(FString& OutJsonRequest)
+{
+#if PLATFORM_WINDOWS
+    if (!PipeHandle || PipeHandle == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    
+    TArray<uint8> Buffer;
+    Buffer.SetNum(MaxMessageSize);
+    
+    DWORD BytesRead = 0;
+    BOOL bSuccess = ReadFile((HANDLE)PipeHandle, Buffer.GetData(), MaxMessageSize, &BytesRead, nullptr);
+    
+    if (!bSuccess)
+    {
+        DWORD dwError = GetLastError();
+        UE_LOG(LogAtlasTransport, Error, TEXT("ReadFile failed with error: %d"), dwError);
+        return false;
+    }
+    
+    if (BytesRead == 0)
+    {
+        UE_LOG(LogAtlasTransport, Warning, TEXT("No data read from pipe"));
+        return false;
+    }
+    
+    // Convert to string
+    FString JsonString = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer.GetData())));
+    OutJsonRequest = JsonString.Left(BytesRead);
+    
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool FAtlasTransportServer::WriteResponse(const FString& JsonResponse)
+{
+#if PLATFORM_WINDOWS
+    if (!PipeHandle || PipeHandle == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    
+    FTCHARToUTF8 UTF8String(*JsonResponse);
+    DWORD BytesToWrite = UTF8String.Length();
+    DWORD BytesWritten = 0;
+    
+    BOOL bSuccess = WriteFile((HANDLE)PipeHandle, UTF8String.Get(), BytesToWrite, &BytesWritten, nullptr);
+    
+    if (!bSuccess || BytesWritten != BytesToWrite)
+    {
+        DWORD dwError = GetLastError();
+        UE_LOG(LogAtlasTransport, Error, TEXT("WriteFile failed with error: %d"), dwError);
+        return false;
+    }
+    
+    FlushFileBuffers((HANDLE)PipeHandle);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRequest& OutRequest)
+{
+    TSharedPtr<FJsonObject> JsonObject;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+    
+    if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
+    {
+        UE_LOG(LogAtlasTransport, Error, TEXT("Failed to parse JSON request"));
+        return false;
+    }
+    
+    // Extract required fields
+    if (!JsonObject->TryGetStringField(TEXT("request_id"), OutRequest.RequestId) ||
+        !JsonObject->TryGetStringField(TEXT("operation_name"), OutRequest.OperationName) ||
+        !JsonObject->TryGetStringField(TEXT("capability"), OutRequest.Capability) ||
+        !JsonObject->TryGetStringField(TEXT("kind"), OutRequest.Kind) ||
+        !JsonObject->TryGetStringField(TEXT("authorization_id"), OutRequest.AuthorizationId))
+    {
+        UE_LOG(LogAtlasTransport, Error, TEXT("Missing required fields in request"));
+        return false;
+    }
+    
+    // Extract entity_ids array
+    const TArray<TSharedPtr<FJsonValue>>* EntityIdsArray;
+    if (!JsonObject->TryGetArrayField(TEXT("entity_ids"), EntityIdsArray))
+    {
+        UE_LOG(LogAtlasTransport, Error, TEXT("Missing or invalid entity_ids field"));
+        return false;
+    }
+    
+    for (const auto& Value : *EntityIdsArray)
+    {
+        FString EntityId;
+        if (Value->TryGetString(EntityId))
+        {
+            OutRequest.EntityIds.Add(EntityId);
+        }
+    }
+    
+    // Extract arguments object
+    const TSharedPtr<FJsonObject>* ArgumentsObject;
+    if (JsonObject->TryGetObjectField(TEXT("arguments"), ArgumentsObject))
+    {
+        OutRequest.Arguments = *ArgumentsObject;
+    }
+    
+    return true;
+}
+
+FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Response)
+{
+    TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
+    
+    JsonObject->SetStringField(TEXT("request_id"), Response.RequestId);
+    JsonObject->SetStringField(TEXT("operation_name"), Response.OperationName);
+    JsonObject->SetBoolField(TEXT("success"), Response.bSuccess);
+    JsonObject->SetStringField(TEXT("error"), Response.Error);
+    JsonObject->SetStringField(TEXT("source"), Response.Source);
+    
+    // Entity IDs array
+    TArray<TSharedPtr<FJsonValue>> EntityIdsArray;
+    for (const FString& EntityId : Response.EntityIds)
+    {
+        EntityIdsArray.Add(MakeShareable(new FJsonValueString(EntityId)));
+    }
+    JsonObject->SetArrayField(TEXT("entity_ids"), EntityIdsArray);
+    
+    // Observed state
+    if (Response.ObservedState.IsValid())
+    {
+        JsonObject->SetObjectField(TEXT("observed_state"), Response.ObservedState);
+    }
+    else
+    {
+        JsonObject->SetObjectField(TEXT("observed_state"), MakeShareable(new FJsonObject));
+    }
+    
+    FString OutputString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+    FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+    
+    return OutputString;
+}
+
+bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FString& OutError)
+{
+    if (Request.RequestId.IsEmpty())
+    {
+        OutError = TEXT("request_id cannot be empty");
+        return false;
+    }
+    
+    if (Request.OperationName != TEXT("inspect_target_actors"))
+    {
+        OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName);
+        return false;
+    }
+    
+    if (Request.Capability != TEXT("inspect_actor"))
+    {
+        OutError = FString::Printf(TEXT("Unsupported capability: %s"), *Request.Capability);
+        return false;
+    }
+    
+    if (Request.Kind != TEXT("read"))
+    {
+        OutError = FString::Printf(TEXT("Unsupported kind: %s"), *Request.Kind);
+        return false;
+    }
+    
+    if (Request.AuthorizationId.IsEmpty() || Request.AuthorizationId.TrimStartAndEnd().IsEmpty())
+    {
+        OutError = TEXT("authorization_id cannot be empty");
+        return false;
+    }
+    
+    if (Request.EntityIds.Num() == 0)
+    {
+        OutError = TEXT("entity_ids cannot be empty");
+        return false;
+    }
+    
+    for (const FString& EntityId : Request.EntityIds)
+    {
+        if (EntityId.IsEmpty())
+        {
+            OutError = TEXT("entity_ids cannot contain empty strings");
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
+{
+    // Initialize response
+    OutResponse.RequestId = Request.RequestId;
+    OutResponse.OperationName = Request.OperationName;
+    OutResponse.EntityIds = Request.EntityIds;
+    OutResponse.Source = TEXT("unreal-editor-atlas-transport");
+    
+    if (Request.OperationName == TEXT("inspect_target_actors"))
+    {
+        TSharedPtr<FJsonObject> ObservedState;
+        FString Error;
+        
+        // Execute on game thread synchronously
+        bool bCompleted = false;
+        AsyncTask(ENamedThreads::GameThread, [this, &Request, &ObservedState, &Error, &bCompleted]()
+        {
+            InspectTargetActors(Request.EntityIds, ObservedState, Error);
+            bCompleted = true;
+        });
+        
+        // Wait for completion
+        while (!bCompleted && !bStopRequested)
+        {
+            FPlatformProcess::Sleep(0.001f);
+        }
+        
+        if (bStopRequested)
+        {
+            OutResponse.bSuccess = false;
+            OutResponse.Error = TEXT("Operation cancelled during shutdown");
+            return false;
+        }
+        
+        if (Error.IsEmpty())
+        {
+            OutResponse.bSuccess = true;
+            OutResponse.ObservedState = ObservedState;
+        }
+        else
+        {
+            OutResponse.bSuccess = false;
+            OutResponse.Error = Error;
+        }
+        
+        return true;
+    }
+    
+    OutResponse.bSuccess = false;
+    OutResponse.Error = FString::Printf(TEXT("Unsupported operation: %s"), *Request.OperationName);
+    return false;
+}
+
+bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+{
+    if (!IsInGameThread())
+    {
+        OutError = TEXT("InspectTargetActors must be called on game thread");
+        return false;
+    }
+    
+    UWorld* World = nullptr;
+    if (GEngine && GEngine->GetWorldContexts().Num() > 0)
+    {
+        World = GEngine->GetWorldContexts()[0].World();
+    }
+    
+    if (!World)
+    {
+        OutError = TEXT("No valid world found");
+        return false;
+    }
+    
+    TSharedPtr<FJsonObject> ObservedState = MakeShareable(new FJsonObject);
+    
+    for (const FString& EntityId : EntityIds)
+    {
+        AActor* Actor = FindActorByEntityId(EntityId);
+        if (!Actor)
+        {
+            OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *EntityId);
+            return false;
+        }
+        
+        // Create actor observation
+        TSharedPtr<FJsonObject> ActorData = MakeShareable(new FJsonObject);
+        
+        ActorData->SetStringField(TEXT("entity_id"), EntityId);
+        ActorData->SetStringField(TEXT("actor_name"), Actor->GetName());
+        ActorData->SetStringField(TEXT("actor_class"), Actor->GetClass()->GetName());
+        
+        // Location
+        FVector Location = Actor->GetActorLocation();
+        TSharedPtr<FJsonObject> LocationObj = MakeShareable(new FJsonObject);
+        LocationObj->SetNumberField(TEXT("x"), Location.X);
+        LocationObj->SetNumberField(TEXT("y"), Location.Y);
+        LocationObj->SetNumberField(TEXT("z"), Location.Z);
+        ActorData->SetObjectField(TEXT("location"), LocationObj);
+        
+        // Rotation
+        FRotator Rotation = Actor->GetActorRotation();
+        TSharedPtr<FJsonObject> RotationObj = MakeShareable(new FJsonObject);
+        RotationObj->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+        RotationObj->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+        RotationObj->SetNumberField(TEXT("roll"), Rotation.Roll);
+        ActorData->SetObjectField(TEXT("rotation"), RotationObj);
+        
+        ObservedState->SetObjectField(EntityId, ActorData);
+    }
+    
+    OutObservedState = ObservedState;
+    return true;
+}
+
+AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
+{
+    if (!IsInGameThread())
+    {
+        return nullptr;
+    }
+    
+    UWorld* World = nullptr;
+    if (GEngine && GEngine->GetWorldContexts().Num() > 0)
+    {
+        World = GEngine->GetWorldContexts()[0].World();
+    }
+    
+    if (!World)
+    {
+        return nullptr;
+    }
+    
+    FString TagToFind = FString::Printf(TEXT("atlas_entity:%s"), *EntityId);
+    
+    for (TActorIterator<AActor> ActorItr(World); ActorItr; ++ActorItr)
+    {
+        AActor* Actor = *ActorItr;
+        if (Actor && Actor->Tags.Contains(FName(*TagToFind)))
+        {
+            return Actor;
+        }
+    }
+    
+    return nullptr;
+}

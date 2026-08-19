@@ -8,6 +8,11 @@
       "Name": "AtlasUnrealHarness",
       "Type": "Editor",
       "LoadingPhase": "Default"
+    },
+    {
+      "Name": "AtlasUnrealTransport",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
     }
   ]
 }
