@@ -434,11 +434,11 @@ class TestExecutorValidation:
         # Test validation through the dataclass contract - these should fail deterministically
         invalid_cases = [
             # Empty request_id
-            ("", "inspect_target_actors", "inspect_actor", "read", ("/Game/Actor",), {}, "auth-001"),
+            ("", "inspect_target_actors", "inspect_actor", "read", {}, ("/Game/Actor",), "auth-001"),
             # Empty entity_ids tuple
-            ("req-001", "inspect_target_actors", "inspect_actor", "read", (), {}, "auth-001"),
+            ("req-001", "inspect_target_actors", "inspect_actor", "read", {}, (), "auth-001"),
             # Empty authorization_id
-            ("req-001", "inspect_target_actors", "inspect_actor", "read", ("/Game/Actor",), {}, ""),
+            ("req-001", "inspect_target_actors", "inspect_actor", "read", {}, ("/Game/Actor",), ""),
         ]
         
         for case in invalid_cases:
