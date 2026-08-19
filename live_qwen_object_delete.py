@@ -28,7 +28,7 @@ def prompt(file_name: str) -> str:
 Ensure cleanup candidate {TARGET_OBJECT} is absent from {file_name}.
 Return exactly one JSON OBJECT with exactly two top-level fields: evidence and actions.
 Evidence: exactly one inspect_scene request with file_name="{file_name}".
-Actions: exactly one delete_object action with file_name="{file_name}", object_name="{TARGET_OBJECT}".
+Actions: exactly one delete_object action with file_name="{file_name}", object_name="{TARGET_OBJECT}", name="delete {TARGET_OBJECT}".
 Every item must contain exactly tool, arguments, and name.
 Do not execute tools. Do not add fields, tools, markdown, or explanations."""
 
@@ -37,7 +37,7 @@ def correction(file_name: str) -> str:
     return f"""Return ONLY this JSON OBJECT and nothing else:
 {{
   "evidence": [{{"tool":"inspect_scene","arguments":{{"file_name":"{file_name}"}},"name":"inspect_scene"}}],
-  "actions": [{{"tool":"delete_object","arguments":{{"file_name":"{file_name}","object_name":"{TARGET_OBJECT}"}},"name":"delete_object"}}]
+  "actions": [{{"tool":"delete_object","arguments":{{"file_name":"{file_name}","object_name":"{TARGET_OBJECT}"}},"name":"delete {TARGET_OBJECT}"}}]
 }}"""
 
 
