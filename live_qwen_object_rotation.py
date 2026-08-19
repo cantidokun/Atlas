@@ -30,8 +30,8 @@ def prompt(file_name: str) -> str:
     return f'''You are the Atlas Blender planning assistant.
 Ensure {TARGET_OBJECT} in {file_name} has rotation degrees {TARGET_ROTATION}.
 Return exactly one JSON object with exactly two top-level fields: evidence and actions.
-Evidence: exactly one inspect_object_transform request with file_name="{file_name}" and object_name="{TARGET_OBJECT}".
-Actions: exactly one set_object_rotation action with file_name="{file_name}", object_name="{TARGET_OBJECT}", rotation_degrees={TARGET_ROTATION}.
+Evidence: exactly one item with tool="inspect_object_transform", arguments containing file_name="{file_name}" and object_name="{TARGET_OBJECT}", and name="inspect_object_transform".
+Actions: exactly one item with tool="set_object_rotation", arguments containing file_name="{file_name}", object_name="{TARGET_OBJECT}", rotation_degrees={TARGET_ROTATION}, and name="set_object_rotation".
 Every item must contain exactly tool, arguments, and name.
 Do not execute tools. Do not add fields, tools, markdown, or explanations.'''
 
