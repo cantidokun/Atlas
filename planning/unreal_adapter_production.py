@@ -25,6 +25,13 @@ from planning.unreal_transport_contract import (
     validate_response_correlation,
 )
 
+# Import the production named pipe transport
+try:
+    from planning.unreal_transport_named_pipe import create_named_pipe_transport
+    NAMED_PIPE_AVAILABLE = True
+except ImportError:
+    NAMED_PIPE_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # Transport protocol — pluggable boundary
@@ -115,21 +122,6 @@ class UnrealAdapterProduction:
         return self._to_evidence(response)
 
 
-def create_production_adapter(source_tag: str = "atlas-adapter-production") -> UnrealAdapterProduction:
-    """Create a production adapter with Windows named pipe transport.
-    
-    Raises:
-        RuntimeError: If named pipe transport is not available on this platform.
-    """
-    if not NAMED_PIPE_AVAILABLE:
-        raise RuntimeError(
-            "Named pipe transport not available. "
-            "This requires Windows and the pywin32 package."
-        )
-    
-    transport = create_named_pipe_transport()
-    return UnrealAdapterProduction(transport, source_tag)
-
     # -- public API --------------------------------------------------------
 
     def inspect(
@@ -161,3 +153,19 @@ def create_production_adapter(source_tag: str = "atlas-adapter-production") -> U
         if operation.kind is not UnrealOperationKind.VERIFY:
             raise UnrealAdapterError("verify accepts VERIFY operations only")
         return self._execute(operation, authorization_id)
+
+
+def create_production_adapter(source_tag: str = "atlas-adapter-production") -> UnrealAdapterProduction:
+    """Create a production adapter with Windows named pipe transport.
+    
+    Raises:
+        RuntimeError: If named pipe transport is not available on this platform.
+    """
+    if not NAMED_PIPE_AVAILABLE:
+        raise RuntimeError(
+            "Named pipe transport not available. "
+            "This requires Windows and the pywin32 package."
+        )
+    
+    transport = create_named_pipe_transport()
+    return UnrealAdapterProduction(transport, source_tag)
