@@ -5,14 +5,10 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from action_plan import ActionSpec
 from audit_trail import AuditTrail
-from conditional_action_plan import ConditionalActionPlan
-from evidence_plan import EvidencePlan, EvidenceRequest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
-from planning.object_delete_task import TARGET_OBJECT, object_delete_target_evaluator
-from planning.planning_orchestrator import ConditionalPlanningOrchestrator
-from planning.verification_plan import VerificationPlan
+from planning.object_delete_task import TARGET_OBJECT, object_delete_task_definition
+from planning.task_runtime import prepare_task_runtime
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
@@ -28,21 +24,21 @@ ALLOWED_TOOLS = {"inspect_scene", "delete_object"}
 
 
 def prompt(file_name: str) -> str:
-    return f'''You are the Atlas Blender planning assistant.
+    return f"""You are the Atlas Blender planning assistant.
 Ensure cleanup candidate {TARGET_OBJECT} is absent from {file_name}.
 Return exactly one JSON OBJECT with exactly two top-level fields: evidence and actions.
 Evidence: exactly one inspect_scene request with file_name="{file_name}".
 Actions: exactly one delete_object action with file_name="{file_name}", object_name="{TARGET_OBJECT}".
 Every item must contain exactly tool, arguments, and name.
-Do not execute tools. Do not add fields, tools, markdown, or explanations.'''
+Do not execute tools. Do not add fields, tools, markdown, or explanations."""
 
 
 def correction(file_name: str) -> str:
-    return f'''Return ONLY this JSON OBJECT and nothing else:
+    return f"""Return ONLY this JSON OBJECT and nothing else:
 {{
   "evidence": [{{"tool":"inspect_scene","arguments":{{"file_name":"{file_name}"}},"name":"inspect_scene"}}],
   "actions": [{{"tool":"delete_object","arguments":{{"file_name":"{file_name}","object_name":"{TARGET_OBJECT}"}},"name":"delete_object"}}]
-}}'''
+}}"""
 
 
 def ask(messages: List[Dict[str, str]]) -> str:
@@ -56,7 +52,10 @@ def ask(messages: List[Dict[str, str]]) -> str:
 
 
 def build_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
-    messages = [{"role": "system", "content": prompt(file_name)}, {"role": "user", "content": "Create the structured Atlas task plan."}]
+    messages = [
+        {"role": "system", "content": prompt(file_name)},
+        {"role": "user", "content": "Create the structured Atlas task plan."},
+    ]
     last: Optional[Exception] = None
     for attempt in range(1, 4):
         raw = ask(messages)
@@ -70,7 +69,10 @@ def build_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
         audit.record_qwen_proposal(raw, attempt, proposal is not None, None if proposal is not None else str(last))
         if proposal is not None:
             return proposal
-        messages += [{"role": "assistant", "content": raw}, {"role": "user", "content": correction(file_name)}]
+        messages += [
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": correction(file_name)},
+        ]
     raise RuntimeError(f"Qwen plan rejected: {last}")
 
 
@@ -100,31 +102,30 @@ def main() -> None:
 
     audit = AuditTrail()
     proposal = build_plan(file_name, audit)
-    if len(proposal.evidence) != 1 or len(proposal.actions) != 1:
-        raise RuntimeError("Unexpected object delete plan shape")
+    definition = object_delete_task_definition(file_name)
 
-    evaluator = object_delete_target_evaluator()
-    orchestrator = ConditionalPlanningOrchestrator(
-        evidence_plan=EvidencePlan([EvidenceRequest(r.tool, dict(r.arguments), r.name) for r in proposal.evidence]),
-        conditional_plan=ConditionalActionPlan([ActionSpec(a.tool, dict(a.arguments), a.name, a.requires_success) for a in proposal.actions]),
-        target_evaluator=evaluator,
-        verification_plan=VerificationPlan(evaluator),
-    )
+    if tuple(proposal.evidence) != definition.evidence:
+        raise RuntimeError("Qwen evidence plan does not match object delete task definition")
+    if tuple(proposal.actions) != definition.actions:
+        raise RuntimeError("Qwen action plan does not match object delete task definition")
 
+    orchestrator = prepare_task_runtime(definition)
     initial = orchestrator.acquire_next_evidence(evidence)
-    audit.record_evidence({"tool": proposal.evidence[0].tool, "arguments": dict(proposal.evidence[0].arguments), "name": proposal.evidence[0].name}, initial)
+    audit.record_evidence({"tool": definition.evidence[0].tool, "arguments": dict(definition.evidence[0].arguments), "name": definition.evidence[0].name}, initial)
     state = orchestrator.evaluate_target_state(initial)
     audit.record("conditional_decision", "skip" if state.satisfied else "execute", target_satisfied=state.satisfied, failed_invariants=state.failed, case=args.case)
 
     if not state.satisfied:
-        authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools={"delete_object"}, allow_writes=True)
+        authorize_task_plan(
+            proposal,
+            evidence_complete=True,
+            allowed_action_tools=definition.allowed_action_tools,
+            allow_writes=definition.allow_writes,
+        )
         authorization = orchestrator.authorize_execution(f"live:object-delete:{args.case}")
-        audit.record_authorization(True, action_count=1, authorization_id=authorization.authorization_id)
-        action = proposal.actions[0]
+        audit.record_authorization(True, action_count=len(definition.actions), authorization_id=authorization.authorization_id)
+        action = definition.actions[0]
 
-        # The orchestrator must own the single physical write. The previous implementation
-        # executed the delete once to obtain a receipt and then invoked the orchestrator,
-        # causing a second physical delete against the already-mutated fixture.
         execution = boundary()
         capture: Dict[str, Any] = {}
 
@@ -132,11 +133,7 @@ def main() -> None:
             normalized, receipt = execution.execute_with_receipt(tool, arguments)
             capture["normalized"] = normalized
             capture["receipt"] = receipt
-            return {
-                "ok": normalized.ok,
-                "state": normalized.state,
-                "details": dict(normalized.details),
-            }
+            return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
 
         result = orchestrator.execute_next_action(execute_once)
         normalized = capture["normalized"]
@@ -150,7 +147,7 @@ def main() -> None:
     final = evidence("inspect_scene", {"file_name": file_name})
     final_state = orchestrator.verify_post_action(final)
     audit.record_verification(final, final_state.satisfied)
-    if not final_state.satisfied:
+    if definition.verify_after_action and not final_state.satisfied:
         raise RuntimeError(f"Independent object delete verification failed: {final_state.failed}")
     orchestrator.finalize_future()
     if orchestrator.next_phase() != "COMPLETE":
