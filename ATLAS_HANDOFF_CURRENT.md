@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 18, 2026 23:41 UTC  
+**Updated:** August 19, 2026 02:43 UTC  
 **Current branch:** `main`  
 **Current HEAD:** `6723ee56cec73e24a6a0c06831317e17768bdd36` — `test: validate generic task definition boundary`  
 **Latest completed live regression:** `Live Conditional Atlas Regression #155` — all four jobs passed.
@@ -58,7 +58,7 @@ Core Blender boundary:
 - `planning/blender_verification.py` — validates requested-tool identity and successful execution; fails closed on mismatches/failure.
 - `planning/blender_execution_receipt.py` — deterministically binds validated tool + arguments + verified result and detects mutation.
 - `planning/verification_plan.py` — generic post-action verification state with `required`, `pending`, `complete`, `blocked`, `verify()`, and `snapshot()`.
-- `planning/task_definition.py` — new declarative `AtlasTaskDefinition` boundary; validates non-empty task structure, action-tool authorization, and requires verification for write-capable tasks.
+- `planning/task_definition.py` — declarative `AtlasTaskDefinition` boundary; validates non-empty task structure, action-tool authorization, and requires verification for write-capable tasks.
 - `tools/blender.py` — scene inspection, relationship inspection, soccer-component inspection, collection creation, marker creation, and goalpost movement.
 - `tools/blender_transform.py` — object transform inspection and rotation mutation.
 - `tools/__init__.py` — Blender tool registry.
@@ -175,7 +175,7 @@ A fresh GitHub workflow lookup for `d164ab34cfabe4e9ee16699148851184bb7fd924` wa
 
 `tests/test_task_definition.py` covers malformed task structure, unauthorized tools, the write-without-verification prohibition, and deterministic task snapshots. This layer is intended to reduce per-task orchestration duplication before additional Blender capabilities are added.
 
-**Important verification note:** the two commits `e6652ad0c23c62026c78d4be81fb6f93caaf66bd` and `6723ee56cec73e24a6a0c06831317e17768bdd36` were added after the last completed CI run recorded above. A fresh combined-status lookup for current HEAD `6723ee56cec73e24a6a0c06831317e17768bdd36` currently returns **no status entries**, so no CI result is claimed for current HEAD.
+**Current verification note:** current HEAD `6723ee56cec73e24a6a0c06831317e17768bdd36` has been checked with GitHub's combined-status endpoint and currently returns **no status entries**. Therefore no CI result is claimed for current HEAD. The last completed offline baseline remains **Atlas Tests #401 — PASS** on Python 3.9 and 3.11.
 
 ## 6. Runtime integrity / continuation
 
@@ -272,4 +272,4 @@ On the next development session:
 10. Update this handoff with actual results before moving to another capability.
 11. Do not declare broader autonomous production operation complete until continuation/resume has a real live proof.
 
-**Immediate continuation point:** `6723ee56cec73e24a6a0c06831317e17768bdd36` adds the declarative `AtlasTaskDefinition` boundary and its focused tests after the last completed CI run. The latest verified baseline remains **Atlas Tests #401 PASS** and **Live Conditional Atlas Regression #155 PASS**, but neither result validates the new task-definition commit. The latest current-HEAD status lookup returned no status entries. The next required action is fresh CI validation of current `main`, followed by the smallest safe integration of the task-definition layer and then live object-rotation proof.
+**Immediate continuation point:** `6723ee56cec73e24a6a0c06831317e17768bdd36` adds the declarative `AtlasTaskDefinition` boundary and its focused tests after the last completed CI run. The latest verified baseline remains **Atlas Tests #401 PASS** and **Live Conditional Atlas Regression #155 PASS**, but neither result validates the new task-definition commit. The latest combined-status lookup returned no status entries. The next required action is fresh CI validation of current `main`, followed by the smallest safe integration of the task-definition layer and then live object-rotation proof.
