@@ -1,0 +1,23 @@
+{
+  "task_id": "unreal-deterministic-intent-plan-boundary",
+  "message": "Strengthen the Intent-to-Plan boundary for the existing Unreal planning system. Inspect the existing UnrealTaskIntent, UnrealTaskPlanner, UnrealTaskPlan, UnrealOperation, and related contracts before changing anything. Make planning deterministic, side-effect free, and explicitly validated. Equivalent valid intents must produce equivalent plans with stable operation ordering, operation kinds, names, and entity IDs. Invalid or ambiguous intents must be rejected rather than silently normalized into executable work. The resulting UnrealTaskPlan must contain enough exact information for the existing ActionSpec conversion and authorization gate to bind authorization to the intended operation sequence. Do not execute Unreal operations during planning. Do not modify UnrealPlanExecutor or UnrealAuthorizedExecutionGate unless an existing interface makes a minimal compatibility change demonstrably necessary. Add focused tests covering deterministic equivalent planning, stable ordering, operation/entity correctness, invalid/ambiguous intent rejection, absence of execution side effects during planning, and compatibility with the existing authorization conversion. Preserve Python 3.9 compatibility. If an existing contract is insufficient, stop and report the missing dependency instead of inventing a parallel contract.",
+  "read_only_files": [
+    "planning/unreal_agent.py",
+    "planning/unreal_operation_contract.py",
+    "planning/unreal_evidence_contract.py",
+    "planning/unreal_authorized_execution_gate.py",
+    "planning/action_plan.py",
+    "planning/action_authorization.py",
+    "planning/unreal_plan_executor.py",
+    "tests/test_unreal_authorized_execution_gate.py",
+    "tests/test_unreal_production_roundtrip.py"
+  ],
+  "allowed_files": [
+    "planning/unreal_task_planner.py",
+    "tests/test_unreal_task_planner_determinism.py"
+  ],
+  "allowed_test_commands": [
+    "python -m pytest tests/test_unreal_task_planner_determinism.py -v"
+  ],
+  "model": "openrouter/anthropic/claude-opus-4.6"
+}
