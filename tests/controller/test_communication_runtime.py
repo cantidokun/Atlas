@@ -14,7 +14,7 @@ TASK = (
 )
 
 
-def make_runtime(calls):
+def make_tool_executor(calls):
     def execute(tool, arguments):
         calls.append((tool, arguments))
         if tool == "inspect_object_relationship":
@@ -29,7 +29,11 @@ def make_runtime(calls):
             return {"midpoint": [0.0, 0.0, 0.0]}
         return {"status": "ok"}
 
-    return ControllerCommunicationRuntime(execute)
+    return execute
+
+
+def make_runtime(calls):
+    return ControllerCommunicationRuntime(make_tool_executor(calls))
 
 
 def open_gateway(runtime):
@@ -129,10 +133,10 @@ def test_stdio_transport_can_complete_a_controller_command_round_trip():
 
 
 def test_model_run_completes_a_bounded_local_turn_and_returns_output():
-    calls = []
+    model_calls = []
 
     def model_executor(message, timeout_seconds):
-        calls.append((message, timeout_seconds))
+        model_calls.append((message, timeout_seconds))
         return {
             "returncode": 0,
             "stdout": "Aider completed the requested inspection.",
@@ -140,7 +144,10 @@ def test_model_run_completes_a_bounded_local_turn_and_returns_output():
             "timed_out": False,
         }
 
-    runtime = ControllerCommunicationRuntime(make_runtime(calls)._execute_tool, model_executor=model_executor)
+    runtime = ControllerCommunicationRuntime(
+        make_tool_executor([]),
+        model_executor=model_executor,
+    )
     start_session(runtime)
 
     result = runtime.handle_command(
@@ -159,14 +166,50 @@ def test_model_run_completes_a_bounded_local_turn_and_returns_output():
     assert result["status"] == "completed"
     assert result["model_turn"]["state"] == "completed"
     assert result["result"]["stdout"] == "Aider completed the requested inspection."
-    assert calls == [("Inspect the controller boundary.", 30.0)]
+    assert model_calls == [("Inspect the controller boundary.", 30.0)]
+
+
+def test_model_run_can_continue_with_a_new_turn_after_completion():
+    model_calls = []
+
+    def model_executor(message, timeout_seconds):
+        model_calls.append((message, timeout_seconds))
+        return {"returncode": 0, "stdout": message, "stderr": "", "timed_out": False}
+
+    runtime = ControllerCommunicationRuntime(
+        make_tool_executor([]),
+        model_executor=model_executor,
+    )
+    start_session(runtime)
+
+    first = runtime.handle_command(
+        "session-1",
+        "model-run-1",
+        {
+            "command": "model_run",
+            "arguments": {"turn_id": "turn-1", "message": "First", "timeout_seconds": 10},
+        },
+    )
+    second = runtime.handle_command(
+        "session-1",
+        "model-run-2",
+        {
+            "command": "model_run",
+            "arguments": {"turn_id": "turn-2", "message": "Second", "timeout_seconds": 10},
+        },
+    )
+
+    assert first["status"] == "completed"
+    assert second["status"] == "completed"
+    assert second["model_turn"]["turn_id"] == "turn-2"
+    assert model_calls == [("First", 10.0), ("Second", 10.0)]
 
 
 def test_model_run_maps_provider_timeout_to_timed_out_without_retry():
-    calls = []
+    model_calls = []
 
     def model_executor(message, timeout_seconds):
-        calls.append((message, timeout_seconds))
+        model_calls.append((message, timeout_seconds))
         return {
             "returncode": -15,
             "stdout": "partial",
@@ -174,7 +217,10 @@ def test_model_run_maps_provider_timeout_to_timed_out_without_retry():
             "timed_out": True,
         }
 
-    runtime = ControllerCommunicationRuntime(make_runtime(calls)._execute_tool, model_executor=model_executor)
+    runtime = ControllerCommunicationRuntime(
+        make_tool_executor([]),
+        model_executor=model_executor,
+    )
     start_session(runtime)
 
     result = runtime.handle_command(
@@ -192,7 +238,7 @@ def test_model_run_maps_provider_timeout_to_timed_out_without_retry():
 
     assert result["status"] == "timed_out"
     assert result["model_turn"]["expired"] is True
-    assert calls == [("Continue the task.", 5.0)]
+    assert model_calls == [("Continue the task.", 5.0)]
 
 
 def test_model_run_maps_nonzero_provider_exit_to_failed_without_retry():
@@ -204,7 +250,10 @@ def test_model_run_maps_nonzero_provider_exit_to_failed_without_retry():
             "timed_out": False,
         }
 
-    runtime = ControllerCommunicationRuntime(make_runtime([])._execute_tool, model_executor=model_executor)
+    runtime = ControllerCommunicationRuntime(
+        make_tool_executor([]),
+        model_executor=model_executor,
+    )
     start_session(runtime)
 
     result = runtime.handle_command(
@@ -228,7 +277,10 @@ def test_model_run_provider_exception_fails_closed():
     def model_executor(message, timeout_seconds):
         raise RuntimeError("provider unavailable")
 
-    runtime = ControllerCommunicationRuntime(make_runtime([])._execute_tool, model_executor=model_executor)
+    runtime = ControllerCommunicationRuntime(
+        make_tool_executor([]),
+        model_executor=model_executor,
+    )
     start_session(runtime)
 
     result = runtime.handle_command(
