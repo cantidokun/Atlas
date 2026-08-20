@@ -74,3 +74,26 @@ def test_request_id_reuse_with_different_content_stays_a_protocol_error():
         gateway.handle_message(_command(argument="second"))
 
     assert len(calls) == 1
+
+
+def test_session_close_notifies_runtime_and_allows_reuse():
+    closed = []
+    gateway = ControllerCommunicationGateway(
+        lambda session_id, request_id, payload: {"status": "ok"},
+        on_session_close=closed.append,
+    )
+
+    gateway.open_session("session-1")
+    response = gateway.handle_message({
+        "protocol_version": "1",
+        "type": "close",
+        "id": "close-1",
+        "session_id": "session-1",
+    })
+
+    assert response["status"] == "ok"
+    assert response["payload"]["event"] == "session_closed"
+    assert closed == ["session-1"]
+
+    reopened = gateway.open_session("session-1")
+    assert reopened["session_id"] == "session-1"
