@@ -13,12 +13,14 @@ the controller to execute that action through the locally supplied executor.
 Model turns are supervised separately from controller execution.  A remote
 reasoning model may take time to think, but the communication bridge owns an
 explicit deadline and can detect timeout without blocking the controller.
+A host may either drive the model lifecycle explicitly or supply a bounded
+model executor for a complete local turn.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Mapping
 
 from controller.communication_gateway import CommunicationProtocolError
 from controller.communication_turn import ModelTurnSupervisor
@@ -26,6 +28,7 @@ from controller.controller_integration import AgentControllerIntegration
 
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+ModelTurnExecutor = Callable[[str, float], Any]
 
 
 @dataclass
@@ -43,8 +46,15 @@ class _ControllerSession:
 class ControllerCommunicationRuntime:
     """Expose the existing controller through a narrow remote command API."""
 
-    def __init__(self, execute_tool: ToolExecutor, *, clock=None):
+    def __init__(
+        self,
+        execute_tool: ToolExecutor,
+        *,
+        model_executor: ModelTurnExecutor | None = None,
+        clock=None,
+    ):
         self._execute_tool = execute_tool
+        self._model_executor = model_executor
         self._clock = clock
         self._sessions: Dict[str, _ControllerSession] = {}
 
@@ -64,6 +74,7 @@ class ControllerCommunicationRuntime:
                 "command": command,
                 "runtime": "controller_communication",
                 "status": "ready",
+                "model_executor_configured": self._model_executor is not None,
             }
 
         if command == "start_task":
@@ -77,6 +88,9 @@ class ControllerCommunicationRuntime:
 
         if command == "execute_next":
             return self._execute_next(session_id)
+
+        if command == "model_run":
+            return self._model_run(session_id, arguments)
 
         if command == "model_begin":
             return self._model_begin(session_id, arguments)
@@ -208,6 +222,81 @@ class ControllerCommunicationRuntime:
             "controller_complete": session.integration.complete,
             "result": result,
             "model_turn": self._turn_payload(session.model_turn.poll()),
+        }
+
+    def _model_run(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Run one bounded local model turn and close its lifecycle deterministically."""
+        session = self._require_session(session_id)
+        if self._model_executor is None:
+            raise CommunicationProtocolError("model executor is not configured")
+
+        turn_id = arguments.get("turn_id")
+        message = arguments.get("message")
+        timeout_seconds = arguments.get("timeout_seconds")
+
+        if not isinstance(message, str) or not message.strip():
+            raise CommunicationProtocolError("model_run.message must be a non-empty string")
+
+        snapshot = session.model_turn.begin(turn_id, timeout_seconds)
+        del snapshot
+
+        try:
+            raw_result = self._model_executor(message, float(timeout_seconds))
+        except Exception as exc:
+            snapshot = session.model_turn.fail(turn_id, f"model executor failed: {exc}")
+            return {
+                "command": "model_run",
+                "status": snapshot.state.value,
+                "model_turn": self._turn_payload(snapshot),
+                "result": {"error": str(exc)},
+            }
+
+        result = self._normalize_model_result(raw_result)
+        if result["timed_out"]:
+            snapshot = session.model_turn.timeout(turn_id, "model executor timed out")
+            return {
+                "command": "model_run",
+                "status": snapshot.state.value,
+                "model_turn": self._turn_payload(snapshot),
+                "result": result,
+            }
+
+        returncode = result["returncode"]
+        if returncode != 0:
+            error = result["stderr"] or f"model executor exited with code {returncode}"
+            snapshot = session.model_turn.fail(turn_id, error)
+            return {
+                "command": "model_run",
+                "status": snapshot.state.value,
+                "model_turn": self._turn_payload(snapshot),
+                "result": result,
+            }
+
+        snapshot = session.model_turn.complete(turn_id)
+        return {
+            "command": "model_run",
+            "status": snapshot.state.value,
+            "model_turn": self._turn_payload(snapshot),
+            "result": result,
+        }
+
+    @staticmethod
+    def _normalize_model_result(raw_result: Any) -> Dict[str, Any]:
+        if isinstance(raw_result, Mapping):
+            result = dict(raw_result)
+        else:
+            result = {
+                "returncode": getattr(raw_result, "returncode", None),
+                "stdout": getattr(raw_result, "stdout", ""),
+                "stderr": getattr(raw_result, "stderr", ""),
+                "timed_out": getattr(raw_result, "timed_out", False),
+            }
+
+        return {
+            "returncode": result.get("returncode"),
+            "stdout": result.get("stdout") or "",
+            "stderr": result.get("stderr") or "",
+            "timed_out": bool(result.get("timed_out", False)),
         }
 
     def _model_begin(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
