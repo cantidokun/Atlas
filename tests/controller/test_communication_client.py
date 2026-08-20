@@ -86,3 +86,49 @@ def test_client_fails_on_mismatched_response_id():
 
     with pytest.raises(ControllerCommunicationError, match="response id"):
         client.open_session("session-1")
+
+
+def test_client_rejects_unsupported_response_protocol_version():
+    process = FakeProcess(
+        [
+            '{"protocol_version":"999","status":"ok","id":"client-1","session_id":"session-1","event":"session_opened"}',
+        ]
+    )
+    client = ControllerStdioClient(process)
+
+    with pytest.raises(ControllerCommunicationError, match="unsupported protocol version"):
+        client.open_session("session-1")
+
+
+def test_client_rejects_mismatched_response_session_id():
+    process = FakeProcess(
+        [
+            '{"protocol_version":"1","status":"ok","id":"client-1","session_id":"session-1","event":"session_opened"}',
+            '{"protocol_version":"1","status":"ok","id":"client-2","session_id":"session-other","payload":{"status":"ready"}}',
+        ]
+    )
+    client = ControllerStdioClient(process)
+    client.open_session("session-1")
+
+    with pytest.raises(ControllerCommunicationError, match="session_id did not match"):
+        client.command("health")
+
+
+def test_client_preserves_structured_controller_error_for_autonomous_recovery():
+    process = FakeProcess(
+        [
+            '{"protocol_version":"1","status":"ok","id":"client-1","session_id":"session-1","event":"session_opened"}',
+            '{"protocol_version":"1","status":"error","id":"client-2","session_id":"session-1","payload":{"error":{"code":"internal_error","message":"Aider stalled","retryable":false}}}',
+        ]
+    )
+    client = ControllerStdioClient(process)
+    client.open_session("session-1")
+
+    with pytest.raises(ControllerCommunicationError) as caught:
+        client.command("model_run", {"turn_id": "turn-1", "message": "Continue"})
+
+    error = caught.value
+    assert error.code == "internal_error"
+    assert error.retryable is False
+    assert error.response["id"] == "client-2"
+    assert str(error) == "Aider stalled"
