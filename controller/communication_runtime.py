@@ -9,6 +9,10 @@ Only controller-owned operations are exposed.  The remote caller cannot ask
 this service to execute an arbitrary tool; it can create a controller task,
 inspect controller state, request the next controller-owned action, and ask
 the controller to execute that action through the locally supplied executor.
+
+Model turns are supervised separately from controller execution.  A remote
+reasoning model may take time to think, but the communication bridge owns an
+explicit deadline and can detect timeout without blocking the controller.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 
 from controller.communication_gateway import CommunicationProtocolError
+from controller.communication_turn import ModelTurnSupervisor
 from controller.controller_integration import AgentControllerIntegration
 
 
@@ -32,13 +37,15 @@ class _ControllerSession:
     evidence_ledger: List[dict]
     tool_execution_history: List[dict]
     integration: AgentControllerIntegration
+    model_turn: ModelTurnSupervisor
 
 
 class ControllerCommunicationRuntime:
     """Expose the existing controller through a narrow remote command API."""
 
-    def __init__(self, execute_tool: ToolExecutor):
+    def __init__(self, execute_tool: ToolExecutor, *, clock=None):
         self._execute_tool = execute_tool
+        self._clock = clock
         self._sessions: Dict[str, _ControllerSession] = {}
 
     def handle_command(
@@ -48,6 +55,7 @@ class ControllerCommunicationRuntime:
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Handle one validated gateway command."""
+        del request_id
         command = payload["command"]
         arguments = payload["arguments"]
 
@@ -69,6 +77,24 @@ class ControllerCommunicationRuntime:
 
         if command == "execute_next":
             return self._execute_next(session_id)
+
+        if command == "model_begin":
+            return self._model_begin(session_id, arguments)
+
+        if command == "model_heartbeat":
+            return self._model_heartbeat(session_id, arguments)
+
+        if command == "model_complete":
+            return self._model_complete(session_id, arguments)
+
+        if command == "model_fail":
+            return self._model_fail(session_id, arguments)
+
+        if command == "model_cancel":
+            return self._model_cancel(session_id, arguments)
+
+        if command == "model_status":
+            return self._model_status(session_id)
 
         raise CommunicationProtocolError("unsupported controller command")
 
@@ -97,12 +123,18 @@ class ControllerCommunicationRuntime:
             evidence_ledger=ledger,
             tool_execution_history=history,
         )
+        model_turn = (
+            ModelTurnSupervisor()
+            if self._clock is None
+            else ModelTurnSupervisor(clock=self._clock)
+        )
         session = _ControllerSession(
             file_name=file_name,
             task_text=task_text,
             evidence_ledger=ledger,
             tool_execution_history=history,
             integration=integration,
+            model_turn=model_turn,
         )
         self._sessions[session_id] = session
 
@@ -112,6 +144,7 @@ class ControllerCommunicationRuntime:
             "controller_active": integration.active,
             "controller_complete": integration.complete,
             "next_action": integration.before_model_tool_execution(),
+            "model_turn": self._turn_payload(model_turn.snapshot()),
         }
 
     def _require_session(self, session_id: str) -> _ControllerSession:
@@ -131,6 +164,7 @@ class ControllerCommunicationRuntime:
             "next_action": next_action,
             "evidence_count": len(session.evidence_ledger),
             "tool_execution_count": len(session.tool_execution_history),
+            "model_turn": self._turn_payload(session.model_turn.poll()),
         }
 
     def _next_action(self, session_id: str) -> Dict[str, Any]:
@@ -141,11 +175,13 @@ class ControllerCommunicationRuntime:
                 "command": "next_action",
                 "status": "model_may_reason",
                 "controller_active": session.integration.active,
+                "model_turn": self._turn_payload(session.model_turn.poll()),
             }
         return {
             "command": "next_action",
             "status": "controller_action",
             "action": action,
+            "model_turn": self._turn_payload(session.model_turn.poll()),
         }
 
     def _execute_next(self, session_id: str) -> Dict[str, Any]:
@@ -171,4 +207,72 @@ class ControllerCommunicationRuntime:
             "controller_active": session.integration.active,
             "controller_complete": session.integration.complete,
             "result": result,
+            "model_turn": self._turn_payload(session.model_turn.poll()),
+        }
+
+    def _model_begin(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        session = self._require_session(session_id)
+        turn_id = arguments.get("turn_id")
+        timeout_seconds = arguments.get("timeout_seconds")
+        snapshot = session.model_turn.begin(turn_id, timeout_seconds)
+        return {
+            "command": "model_begin",
+            "status": "running",
+            "model_turn": self._turn_payload(snapshot),
+        }
+
+    def _model_heartbeat(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        session = self._require_session(session_id)
+        snapshot = session.model_turn.heartbeat(arguments.get("turn_id"))
+        return {
+            "command": "model_heartbeat",
+            "status": snapshot.state.value,
+            "model_turn": self._turn_payload(snapshot),
+        }
+
+    def _model_complete(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        session = self._require_session(session_id)
+        snapshot = session.model_turn.complete(arguments.get("turn_id"))
+        return {
+            "command": "model_complete",
+            "status": snapshot.state.value,
+            "model_turn": self._turn_payload(snapshot),
+        }
+
+    def _model_fail(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        session = self._require_session(session_id)
+        snapshot = session.model_turn.fail(arguments.get("turn_id"), arguments.get("error"))
+        return {
+            "command": "model_fail",
+            "status": snapshot.state.value,
+            "model_turn": self._turn_payload(snapshot),
+        }
+
+    def _model_cancel(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        session = self._require_session(session_id)
+        snapshot = session.model_turn.cancel(arguments.get("turn_id"))
+        return {
+            "command": "model_cancel",
+            "status": snapshot.state.value,
+            "model_turn": self._turn_payload(snapshot),
+        }
+
+    def _model_status(self, session_id: str) -> Dict[str, Any]:
+        session = self._require_session(session_id)
+        snapshot = session.model_turn.poll()
+        return {
+            "command": "model_status",
+            "status": snapshot.state.value,
+            "model_turn": self._turn_payload(snapshot),
+        }
+
+    @staticmethod
+    def _turn_payload(snapshot) -> Dict[str, Any]:
+        return {
+            "turn_id": snapshot.turn_id,
+            "state": snapshot.state.value,
+            "deadline": snapshot.deadline,
+            "last_heartbeat": snapshot.last_heartbeat,
+            "expired": snapshot.expired,
+            "error": snapshot.error,
         }
