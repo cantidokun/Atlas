@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 from time import monotonic
 from typing import Optional
 
@@ -67,7 +68,7 @@ class ModelTurnSupervisor:
         self._error: Optional[str] = None
 
     def begin(self, turn_id: str, timeout_seconds: float) -> TurnSnapshot:
-        """Start the next turn with an explicit positive deadline.
+        """Start the next turn with an explicit finite positive deadline.
 
         A controller session may contain many sequential model turns.  A
         completed, failed, cancelled, or timed-out turn therefore becomes the
@@ -79,10 +80,15 @@ class ModelTurnSupervisor:
             raise CommunicationProtocolError("a model turn is already running")
         if not isinstance(turn_id, str) or not turn_id:
             raise CommunicationProtocolError("turn_id must be a non-empty string")
-        if not isinstance(timeout_seconds, (int, float)) or isinstance(timeout_seconds, bool):
-            raise CommunicationProtocolError("timeout_seconds must be numeric")
-        if timeout_seconds <= 0:
-            raise CommunicationProtocolError("timeout_seconds must be greater than zero")
+        if (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or not math.isfinite(float(timeout_seconds))
+            or timeout_seconds <= 0
+        ):
+            raise CommunicationProtocolError(
+                "timeout_seconds must be a finite positive number"
+            )
         if self._turn_id == turn_id:
             raise CommunicationProtocolError("turn_id has already been used")
 
