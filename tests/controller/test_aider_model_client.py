@@ -37,7 +37,7 @@ class FakeProcess:
         self.returncode = -9
 
 
-def test_aider_turn_uses_explicit_working_directory_and_no_shell():
+def test_aider_turn_uses_explicit_working_directory_no_shell_and_no_auto_commits():
     calls = []
     process = FakeProcess()
 
@@ -46,7 +46,7 @@ def test_aider_turn_uses_explicit_working_directory_and_no_shell():
         return process
 
     client = AiderModelClient(
-        working_directory="C:/Atlas/unreal",
+        working_directory="C:/Atlas/controller",
         extra_args=("--yes-always",),
         process_factory=factory,
     )
@@ -59,19 +59,60 @@ def test_aider_turn_uses_explicit_working_directory_and_no_shell():
     assert calls[0][0] == [
         "aider",
         "--yes-always",
+        "--no-auto-commits",
+        "--no-dirty-commits",
         "--message",
         "Inspect the controller boundary.",
     ]
-    assert calls[0][1]["cwd"] == "C:/Atlas/unreal"
+    assert calls[0][1]["cwd"] == "C:/Atlas/controller"
     assert calls[0][1]["shell"] is False
     assert calls[0][1]["stdin"] is subprocess.DEVNULL
+
+
+def test_aider_turn_can_explicitly_allow_auto_commits():
+    calls = []
+    process = FakeProcess()
+
+    def factory(command, **kwargs):
+        calls.append(command)
+        return process
+
+    client = AiderModelClient(
+        working_directory="C:/Atlas/controller",
+        extra_args=("--auto-commits",),
+        allow_auto_commits=True,
+        process_factory=factory,
+    )
+
+    client.run_turn("Commit only if explicitly requested.", timeout_seconds=30)
+
+    assert calls[0] == [
+        "aider",
+        "--auto-commits",
+        "--message",
+        "Commit only if explicitly requested.",
+    ]
+
+
+def test_aider_turn_rejects_auto_commit_flags_under_controller_default():
+    with pytest.raises(ValueError, match="automatic commits"):
+        AiderModelClient(
+            working_directory="C:/Atlas/controller",
+            extra_args=("--auto-commits",),
+        )
+
+    with pytest.raises(ValueError, match="automatic commits"):
+        AiderModelClient(
+            working_directory="C:/Atlas/controller",
+            extra_args=("--dirty-commits",),
+        )
 
 
 def test_aider_turn_terminates_and_reports_stall():
     process = FakeProcess(timeout=True)
 
     client = AiderModelClient(
-        working_directory="C:/Atlas/unreal",
+        working_directory="C:/Atlas/controller",
         process_factory=lambda command, **kwargs: process,
     )
 
@@ -92,7 +133,7 @@ def test_aider_turn_rejects_non_finite_timeout_before_starting_process():
         return FakeProcess()
 
     client = AiderModelClient(
-        working_directory="C:/Atlas/unreal",
+        working_directory="C:/Atlas/controller",
         process_factory=factory,
     )
 
