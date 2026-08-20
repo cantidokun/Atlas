@@ -18,6 +18,7 @@ TOOL_SCHEMAS = {
     "delete_object": {"required": {"file_name", "object_name"}, "properties": {"file_name": "string", "object_name": "string"}},
     "inspect_object_transform": {"required": {"file_name", "object_name"}, "properties": {"file_name": "string", "object_name": "string"}},
     "set_object_rotation": {"required": {"file_name", "object_name", "rotation_degrees"}, "properties": {"file_name": "string", "object_name": "string", "rotation_degrees": "location3"}},
+    "create_empty_marker": {"required": {"file_name", "collection_name", "object_name"}, "properties": {"file_name": "string", "collection_name": "string", "object_name": "string"}},
 }
 
 
