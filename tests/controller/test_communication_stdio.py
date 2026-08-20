@@ -109,3 +109,57 @@ def test_run_controller_stdio_can_route_a_bounded_model_turn():
     assert responses[2]["payload"]["status"] == "completed"
     assert responses[2]["payload"]["result"]["stdout"] == "Aider response"
     assert model_calls == [("Inspect the controller boundary.", 30.0)]
+
+
+def test_run_controller_stdio_isolates_unexpected_handler_failure():
+    calls = []
+
+    def execute(tool, arguments):
+        calls.append((tool, arguments))
+        raise RuntimeError("local executor unavailable")
+
+    stdin = io.StringIO("\n".join([
+        json.dumps({
+            "protocol_version": "1",
+            "type": "open",
+            "id": "open-1",
+            "payload": {"session_id": "session-1"},
+        }),
+        json.dumps({
+            "protocol_version": "1",
+            "type": "command",
+            "id": "start-1",
+            "session_id": "session-1",
+            "payload": {
+                "command": "start_task",
+                "arguments": {"file_name": "fixture.blend", "task_text": TASK},
+            },
+        }),
+        json.dumps({
+            "protocol_version": "1",
+            "type": "command",
+            "id": "execute-1",
+            "session_id": "session-1",
+            "payload": {"command": "execute_next", "arguments": {}},
+        }),
+        json.dumps({
+            "protocol_version": "1",
+            "type": "command",
+            "id": "status-1",
+            "session_id": "session-1",
+            "payload": {"command": "status", "arguments": {}},
+        }),
+    ]) + "\n")
+    stdout = io.StringIO()
+
+    run_controller_stdio(execute, stdin, stdout)
+    responses = [json.loads(line) for line in stdout.getvalue().splitlines()]
+
+    assert responses[2]["status"] == "error"
+    assert responses[2]["id"] == "execute-1"
+    assert responses[2]["session_id"] == "session-1"
+    assert responses[2]["error"]["code"] == "internal_error"
+    assert "local executor unavailable" in responses[2]["error"]["message"]
+    assert responses[3]["status"] == "ok"
+    assert responses[3]["id"] == "status-1"
+    assert calls
