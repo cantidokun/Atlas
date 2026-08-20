@@ -45,10 +45,8 @@ def test_parser_keeps_local_execution_configuration_explicit():
             "host_tools:execute",
             "--aider-executable",
             "C:/Tools/aider.exe",
-            "--aider-arg",
-            "--yes-always",
-            "--aider-arg",
-            "--no-auto-commits",
+            "--aider-arg=--yes-always",
+            "--aider-arg=--no-auto-commits",
         ]
     )
 
@@ -79,8 +77,7 @@ def test_main_loads_executor_and_composes_aider_host(monkeypatch):
             "host_tools:execute",
             "--aider-executable",
             "aider.exe",
-            "--aider-arg",
-            "--yes-always",
+            "--aider-arg=--yes-always",
         ]
     )
 
