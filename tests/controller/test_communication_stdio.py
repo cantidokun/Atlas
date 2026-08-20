@@ -163,3 +163,55 @@ def test_run_controller_stdio_isolates_unexpected_handler_failure():
     assert responses[3]["status"] == "ok"
     assert responses[3]["id"] == "status-1"
     assert calls
+
+
+def test_run_controller_stdio_releases_runtime_state_when_session_closes():
+    stdin = io.StringIO("\n".join([
+        json.dumps({
+            "protocol_version": "1",
+            "type": "open",
+            "id": "open-1",
+            "payload": {"session_id": "session-1"},
+        }),
+        json.dumps({
+            "protocol_version": "1",
+            "type": "command",
+            "id": "start-1",
+            "session_id": "session-1",
+            "payload": {
+                "command": "start_task",
+                "arguments": {"file_name": "fixture.blend", "task_text": "inspect"},
+            },
+        }),
+        json.dumps({
+            "protocol_version": "1",
+            "type": "close",
+            "id": "close-1",
+            "session_id": "session-1",
+        }),
+        json.dumps({
+            "protocol_version": "1",
+            "type": "open",
+            "id": "open-2",
+            "payload": {"session_id": "session-1"},
+        }),
+        json.dumps({
+            "protocol_version": "1",
+            "type": "command",
+            "id": "start-2",
+            "session_id": "session-1",
+            "payload": {
+                "command": "start_task",
+                "arguments": {"file_name": "fixture-2.blend", "task_text": "inspect again"},
+            },
+        }),
+    ]) + "\n")
+    stdout = io.StringIO()
+
+    run_controller_stdio(lambda tool, arguments: {"status": "ok"}, stdin, stdout)
+    responses = [json.loads(line) for line in stdout.getvalue().splitlines()]
+
+    assert responses[2]["status"] == "ok"
+    assert responses[2]["payload"]["event"] == "session_closed"
+    assert responses[3]["event"] == "session_opened"
+    assert responses[4]["payload"]["status"] == "started"
