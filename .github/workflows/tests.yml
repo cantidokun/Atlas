@@ -2,7 +2,9 @@ name: Atlas Tests
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "controller/**"
   pull_request:
     branches: [main]
 
