@@ -96,8 +96,12 @@ class AutonomousController:
             try:
                 model_turn = ask_model(messages)
             except Exception as exc:
+                detail = str(exc).strip()
+                reason = "model_call_failed: " + type(exc).__name__
+                if detail:
+                    reason += ":" + detail
                 return self._blocked(
-                    "model_call_failed: " + type(exc).__name__,
+                    reason,
                     turn_number,
                     messages,
                     tool_history,
@@ -164,8 +168,12 @@ class AutonomousController:
             try:
                 result = execute_tool(call.name, dict(call.arguments))
             except Exception as exc:
+                detail = str(exc).strip()
+                reason = "tool_execution_failed: " + type(exc).__name__
+                if detail:
+                    reason += ":" + detail
                 return self._blocked(
-                    "tool_execution_failed: " + type(exc).__name__,
+                    reason,
                     turn_number,
                     messages,
                     tool_history,
