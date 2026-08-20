@@ -127,6 +127,10 @@ class ControllerCommunicationRuntime:
 
         raise CommunicationProtocolError("unsupported controller command")
 
+    def close_session(self, session_id: str) -> None:
+        """Release controller-owned state when the transport closes a session."""
+        self._sessions.pop(session_id, None)
+
     def _start_task(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if session_id in self._sessions:
             raise CommunicationProtocolError("controller task is already active")
