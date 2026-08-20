@@ -1,4 +1,5 @@
 from controller.session_runtime import SessionControllerRuntime
+from controller.communication_gateway import CommunicationProtocolError
 
 
 def test_session_runtime_open_command_close_and_replay():
@@ -20,3 +21,10 @@ def test_session_runtime_open_command_close_and_replay():
 
     closed = runtime.close("session-1", "close-1")
     assert closed["payload"]["event"] == "session_closed"
+
+    try:
+        runtime.command("session-1", "request-2", "inspect", {})
+    except CommunicationProtocolError as exc:
+        assert "closed" in str(exc)
+    else:
+        raise AssertionError("closed session must reject commands")
