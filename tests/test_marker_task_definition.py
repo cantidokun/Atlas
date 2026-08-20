@@ -1,6 +1,11 @@
 import pytest
 
+from action_plan import ActionSpec
+from planning.evidence_plan import EvidenceRequest
 from planning.marker_task import MARKER_COLLECTION, MARKER_OBJECT, marker_task_definition
+from planning.target_state import StateInvariant, TargetStateEvaluator
+from planning.task_definition import AtlasTaskDefinition
+from planning.task_runtime import prepare_task_runtime
 
 
 def test_marker_task_definition_is_declarative_and_write_verified():
@@ -26,20 +31,34 @@ def test_marker_task_definition_carries_only_task_specific_data():
     assert task.metadata == {"domain": "blender", "operation": "marker_creation"}
 
 
-def test_marker_task_definition_runtime_rejects_no_verification():
-    from planning.task_definition import AtlasTaskDefinition
-    from planning.evidence_plan import EvidenceRequest
-    from planning.task_runtime import prepare_task_runtime
-    from planning.target_state import TargetStateEvaluator
-    from action_plan import ActionSpec
-
+def test_marker_task_definition_runtime_rejects_write_without_verification():
     malformed = AtlasTaskDefinition(
         name="bad",
-        evidence=(EvidenceRequest("inspect_scene", {"file_name": "x.blend"}, "inspect_scene"),),
-        actions=(ActionSpec("create_empty_marker", {"file_name": "x.blend", "collection_name": "Atlas_Test", "object_name": "Atlas_Marker"}, "create Atlas_Marker"),),
-        evaluator=TargetStateEvaluator([]),
+        evidence=(
+            EvidenceRequest(
+                "inspect_scene",
+                {"file_name": "x.blend"},
+                "inspect_scene",
+            ),
+        ),
+        actions=(
+            ActionSpec(
+                "create_empty_marker",
+                {
+                    "file_name": "x.blend",
+                    "collection_name": MARKER_COLLECTION,
+                    "object_name": MARKER_OBJECT,
+                },
+                "create Atlas_Marker",
+            ),
+        ),
+        evaluator=TargetStateEvaluator([
+            StateInvariant("marker_exists", lambda evidence: True),
+        ]),
         allowed_action_tools={"create_empty_marker"},
-        allow_writes=False,
-        verify_after_action=True,
+        allow_writes=True,
+        verify_after_action=False,
     )
-    assert prepare_task_runtime(malformed).next_phase() == "EVIDENCE"
+
+    with pytest.raises(ValueError, match="requires verification"):
+        prepare_task_runtime(malformed)
