@@ -77,11 +77,11 @@ def test_rotation_qwen_planning_retries_transient_timeout(monkeypatch):
     assert not responses
 
     snapshot = audit.snapshot()
-    proposal_events = [event for event in snapshot["events"] if event["event"] == "qwen_proposal"]
+    proposal_events = [event for event in snapshot["events"] if event["stage"] == "qwen_proposal"]
     assert len(proposal_events) == 2
-    assert proposal_events[0]["success"] is False
-    assert "ReadTimeout" in proposal_events[0]["error"]
-    assert proposal_events[1]["success"] is True
+    assert proposal_events[0]["status"] == "rejected"
+    assert "ReadTimeout" in proposal_events[0]["reason"]
+    assert proposal_events[1]["status"] == "accepted"
 
 
 def test_rotation_qwen_planning_fails_closed_after_three_timeouts(monkeypatch):
