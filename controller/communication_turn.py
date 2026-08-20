@@ -56,7 +56,7 @@ class TurnSnapshot:
 
 
 class ModelTurnSupervisor:
-    """Supervise exactly one bounded model turn without blocking the host."""
+    """Supervise sequential bounded model turns without blocking the host."""
 
     def __init__(self, *, clock=monotonic):
         self._clock = clock
@@ -67,7 +67,14 @@ class ModelTurnSupervisor:
         self._error: Optional[str] = None
 
     def begin(self, turn_id: str, timeout_seconds: float) -> TurnSnapshot:
-        """Start a new turn with an explicit positive deadline."""
+        """Start the next turn with an explicit positive deadline.
+
+        A controller session may contain many sequential model turns.  A
+        completed, failed, cancelled, or timed-out turn therefore becomes the
+        terminal record for that turn only; it does not permanently disable
+        the supervisor.  Turn IDs remain unique within the supervisor so a
+        stale retry cannot be mistaken for a new turn.
+        """
         if self._state == TurnState.RUNNING:
             raise CommunicationProtocolError("a model turn is already running")
         if not isinstance(turn_id, str) or not turn_id:
@@ -76,6 +83,8 @@ class ModelTurnSupervisor:
             raise CommunicationProtocolError("timeout_seconds must be numeric")
         if timeout_seconds <= 0:
             raise CommunicationProtocolError("timeout_seconds must be greater than zero")
+        if self._turn_id == turn_id:
+            raise CommunicationProtocolError("turn_id has already been used")
 
         now = self._clock()
         self._turn_id = turn_id
@@ -95,7 +104,7 @@ class ModelTurnSupervisor:
         return self.snapshot()
 
     def complete(self, turn_id: str) -> TurnSnapshot:
-        """Mark the turn complete if it has not already timed out."""
+        """Mark the active turn complete if it has not already timed out."""
         self._require_running(turn_id)
         self._expire_if_needed()
         if self._state == TurnState.TIMED_OUT:
@@ -104,7 +113,7 @@ class ModelTurnSupervisor:
         return self.snapshot()
 
     def fail(self, turn_id: str, error: str) -> TurnSnapshot:
-        """Terminate the turn with an explicit non-retryable failure reason."""
+        """Terminate the active turn with an explicit failure reason."""
         self._require_running(turn_id)
         if not isinstance(error, str) or not error:
             raise CommunicationProtocolError("error must be a non-empty string")
@@ -113,7 +122,7 @@ class ModelTurnSupervisor:
         return self.snapshot()
 
     def cancel(self, turn_id: str) -> TurnSnapshot:
-        """Cancel the turn without retrying or mutating its deadline."""
+        """Cancel the active turn without retrying or extending its deadline."""
         self._require_running(turn_id)
         self._state = TurnState.CANCELLED
         return self.snapshot()
