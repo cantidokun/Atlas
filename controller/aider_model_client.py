@@ -10,6 +10,7 @@ boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -59,8 +60,13 @@ class AiderModelClient:
         """
         if not isinstance(message, str) or not message.strip():
             raise ValueError("message must be a non-empty string")
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
+        if (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or not math.isfinite(float(timeout_seconds))
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("timeout_seconds must be a finite positive number")
 
         command = [self._executable, *self._extra_args, "--message", message]
         process = self._process_factory(
