@@ -119,10 +119,35 @@ class ControllerCommunicationGateway:
         if not isinstance(arguments, dict):
             raise CommunicationProtocolError("payload.arguments must be an object")
 
-        result = self._handle_command(session_id, request_id, {
-            "command": command,
-            "arguments": arguments,
-        })
+        try:
+            result = self._handle_command(
+                session_id,
+                request_id,
+                {"command": command, "arguments": arguments},
+            )
+        except CommunicationProtocolError:
+            raise
+        except Exception as exc:
+            # A handler may have performed a side effect before failing. Cache
+            # this request's terminal error so an automatic transport retry
+            # cannot execute the same command a second time. A caller that
+            # wants to retry must intentionally issue a new request id.
+            response = self._response(
+                session_id,
+                request_id,
+                "error",
+                {
+                    "error": {
+                        "code": "internal_error",
+                        "message": f"{type(exc).__name__}: {exc}",
+                        "retryable": False,
+                    }
+                },
+            )
+            session.request_fingerprints[request_id] = fingerprint
+            session.responses[request_id] = response
+            return response
+
         if not isinstance(result, dict):
             raise CommunicationProtocolError("command handler must return an object")
 
