@@ -111,6 +111,7 @@ def run_aider_controller_stdio(
     executable: str = "aider",
     extra_args=(),
     environment=None,
+    allow_aider_commits: bool = False,
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
     clock=None,
@@ -118,15 +119,17 @@ def run_aider_controller_stdio(
 ) -> None:
     """Run the controller gateway with Aider as its bounded model executor.
 
-    This is the first provider-specific host composition.  Aider remains a
-    local model-process adapter; protocol, controller authorization, session
-    state, and timeout/recovery semantics remain in the generic layers.
+    Aider remains a local model-process adapter; protocol, controller
+    authorization, session state, timeout/recovery semantics, and the default
+    Git commit policy remain in the Atlas controller layer.  Automatic Aider
+    commits therefore require explicit local host configuration.
     """
     aider = AiderModelClient(
         executable=executable,
         working_directory=working_directory,
         extra_args=extra_args,
         environment=environment,
+        allow_auto_commits=allow_aider_commits,
     )
     run_controller_stdio(
         execute_tool,
