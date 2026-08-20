@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 20, 2026 00:01 EDT  
+**Updated:** August 20, 2026 02:43 EDT  
 **Branch:** `main`  
-**Current verified HEAD:** `934a615f3a1be5a22b75c3251ad005df7f7f79a2` — `fix: retry transient Ollama planning timeout in collection task`
+**Current code HEAD:** `934a615f3a1be5a22b75c3251ad005df7f7f79a2` — `fix: retry transient Ollama planning timeout in collection task`
 
 ## 1. Scope and authority
 
@@ -23,11 +23,13 @@ Photogrammetry is upstream: dedicated photogrammetry software creates the initia
 
 ## 2. Current runtime/test posture
 
-Workflow and action-runner testing is now explicitly **authorized by the user** and has resumed.
+**Workflow and action-runner testing is paused by explicit user instruction. Do not trigger, rerun, approve, or otherwise initiate workflow/action-runner tests until the user explicitly authorizes them again.**
 
-The local GitHub Actions runner `atlas-local` is operational and is used for Windows/Blender live regressions. Ollama is treated as **dedicated Atlas infrastructure** for this development track; no workflow-level compensation for unrelated Qwen workloads is required.
+The local Windows GitHub Actions runner `atlas-local` is part of the intended live-test environment, but its operational state should not be assumed to authorize new runs while this pause is active.
 
-The GitHub-hosted offline CI workflow remains separate from the local Blender live workflows.
+Offline-safe development may continue only when it does not require the action runner and does not create system conflicts. Do not change workflow configuration or runner-dependent architecture merely to work around the pause.
+
+Ollama is treated as dedicated Atlas infrastructure for this development track.
 
 ## 3. Generic architecture
 
@@ -78,7 +80,7 @@ Task/harness files include the conditional, collection, membership, parent, rota
 - Ollama: `http://localhost:11434/api/chat`
 - Model: `qwen3:8b`
 - Blender: **4.4.3**
-- Local GitHub Actions runner: `atlas-local` — operational
+- Local GitHub Actions runner: `atlas-local` — intended live-test environment; no new workflow runs while testing is paused
 - Qwen structured planning uses `qwen/structured_plan.py`, `TASK_PLAN_JSON_SCHEMA`, and `qwen_planning_runtime.py`.
 
 ## 6. Verified milestones
@@ -89,9 +91,11 @@ Task/harness files include the conditional, collection, membership, parent, rota
 - The stale object-rotation regression import was corrected in `tests/test_live_qwen_object_rotation.py`.
 - `AtlasTaskDefinition.snapshot()` was hardened with deep copies for nested action/evidence arguments and metadata in `dd28f55`.
 
-### Live Blender regressions
+These are historical verified results. They do not authorize or imply new workflow runs while the current pause is active.
 
-The following live capabilities have now passed using the local Windows runner and dedicated Ollama:
+### Live Blender regressions previously verified
+
+The following live capabilities have previously passed using the local Windows runner and dedicated Ollama:
 
 - **Object rotation — PASS**
   - already-correct path passes with no write
@@ -123,31 +127,44 @@ The first rotation and rename live failures, and the initial generic-collection 
 
 The generic collection harness was additionally hardened in `934a615` to retry transient Ollama planning timeouts within the existing three-attempt planning budget and record timeout events in the audit trail. The subsequent full Live Conditional Atlas Regression passed.
 
-Ollama is now treated as dedicated Atlas infrastructure; workflow orchestration does not need to account for unrelated projects using it.
-
 ## 7. Runtime integrity / continuation
 
 Atlas has runtime identity checks binding continuation to stable instructions, authorized plan identity, and authoritative persisted-state identity. Invalid continuation fails closed. Blender receipts bind the exact validated request to the verified result from one execution and detect later mutation.
 
-The live continuation regression has now proven pause/resume behavior and tampered-context rejection for the tested parent-relationship task.
+The live continuation regression has previously proven pause/resume behavior and tampered-context rejection for the tested parent-relationship task.
 
 ## 8. Current known boundaries
 
-- `create_empty_marker` remains the next materially distinct Blender capability to live-prove if required by the promotion sequence.
+- `create_empty_marker` remains the next materially distinct Blender capability to live-prove when workflow testing is explicitly resumed.
 - Broader production-facing autonomous continuation across multiple materially different capabilities is not yet declared complete.
 - Generic live proofs establish the architecture for the tested capabilities; they do not prove arbitrary Blender production planning.
 - Executor success is never authoritative state; fresh verification remains mandatory.
 - Do not add task-specific branches to generic planners or bypass authorization/verification.
+- Current HEAD and the newer task-definition/architecture work must not be represented as freshly workflow-tested unless an explicitly authorized run has actually completed.
 
-## 9. Immediate next steps
+## 9. Offline-safe development while workflow testing is paused
 
-1. Preserve the fresh passing regression baseline and keep current verified behavior stable.
-2. Live-prove `create_empty_marker` with `planning/marker_task.py` and its deterministic fixture/harness.
-3. Add or retain explicit audit assertions for zero-write already-correct paths and single-write incorrect paths.
-4. Use the existing runtime fingerprinting, deterministic future, recovery gate, and receipt integrity primitives to expand production-facing continuation/resume across multiple materially different task capabilities.
-5. After that broader continuation proof, select the next materially different Blender production capability.
+Development may continue without touching the action runner. Safe priorities include:
 
-## 10. Required regression coverage
+1. Harden task contracts, schemas, and deterministic validation.
+2. Strengthen receipt immutability, mutation detection, malformed-result rejection, and audit serialization.
+3. Improve authorization/replan boundaries and fail-closed recovery logic.
+4. Add static architecture checks that do not invoke workflows or Blender.
+5. Improve diagnostics and deterministic fixture tooling without changing runner configuration.
+6. Keep documentation and handoff state synchronized with actual verified results.
+
+Do not trigger workflow runs, modify runner setup, or introduce runner-dependent changes merely to obtain test coverage during this pause.
+
+## 10. Next steps after explicit workflow-test authorization
+
+1. Preserve the current offline and historical live baseline.
+2. Obtain fresh CI/live validation of any newer code that requires it.
+3. Live-prove `create_empty_marker` with `planning/marker_task.py` and its deterministic fixture/harness.
+4. Add or retain explicit audit assertions for zero-write already-correct paths and single-write incorrect paths.
+5. Use the existing runtime fingerprinting, deterministic future, recovery gate, and receipt integrity primitives to expand production-facing continuation/resume across multiple materially different task capabilities.
+6. After that broader continuation proof, select the next materially different Blender production capability.
+
+## 11. Required regression coverage
 
 Preserve proofs for:
 
@@ -166,8 +183,8 @@ Preserve proofs for:
 - unauthorized replan -> rejected
 - one receipt-bound execution cannot cause duplicate writes
 
-## 11. Resume instructions
+## 12. Resume instructions
 
-Read this file first. Current workflow testing is authorized. Treat **Atlas Tests #536 PASS** as the fresh offline baseline and the live regression results above as the current live proof boundary.
+Read this file first. **Workflow/action-runner testing is currently paused and must not be initiated until the user explicitly authorizes it.** Treat **Atlas Tests #536 PASS** and the previously recorded live regressions above as historical verified baselines, not as proof of newer untested changes.
 
-The immediate next capability is `create_empty_marker`, followed by a broader production-facing continuation/resume proof using the already-implemented runtime integrity primitives.
+When testing is authorized again, begin with fresh validation of the current code state, then proceed to `create_empty_marker` and the broader production-facing continuation/resume proof.
