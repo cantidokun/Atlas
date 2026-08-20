@@ -4,6 +4,7 @@ from action_plan import ActionSpec
 from planning.evidence_plan import EvidenceRequest
 from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.task_definition import AtlasTaskDefinition
+from planning.task_runtime import prepare_task_runtime
 
 
 def evaluator():
@@ -25,17 +26,19 @@ def test_task_definition_requires_evidence_actions_and_authorized_tools():
         )
 
 
-def test_write_task_requires_verification():
-    with pytest.raises(ValueError):
-        AtlasTaskDefinition(
-            "write",
-            (EvidenceRequest("inspect_scene", {}, "inspect_scene"),),
-            (ActionSpec("move_object", {}, "move_object"),),
-            evaluator(),
-            {"move_object"},
-            allow_writes=True,
-            verify_after_action=False,
-        )
+def test_write_task_requires_verification_at_runtime():
+    task = AtlasTaskDefinition(
+        "write",
+        (EvidenceRequest("inspect_scene", {}, "inspect_scene"),),
+        (ActionSpec("move_object", {}, "move_object"),),
+        evaluator(),
+        {"move_object"},
+        allow_writes=True,
+        verify_after_action=False,
+    )
+
+    with pytest.raises(ValueError, match="requires verification"):
+        prepare_task_runtime(task)
 
 
 def test_task_definition_snapshot_is_serializable_and_task_specific():
