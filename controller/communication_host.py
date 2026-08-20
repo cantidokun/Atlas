@@ -22,6 +22,9 @@ local host configuration, and Aider is launched without shell interpretation.
 The host also enforces a maximum model-turn duration so a remote request
 cannot silently remove the stall protection demonstrated by the controller's
 model supervision layer.
+
+Aider automatic commits are disabled by default.  Repository history remains
+a controller/developer concern, not a side effect of a remote model turn.
 """
 
 from __future__ import annotations
@@ -80,6 +83,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Additional Aider argument. Repeat for multiple arguments.",
     )
     parser.add_argument(
+        "--allow-aider-commits",
+        action="store_true",
+        help=(
+            "Explicitly allow Aider to create automatic Git commits. "
+            "Disabled by default so the controller retains commit ownership."
+        ),
+    )
+    parser.add_argument(
         "--max-model-turn-seconds",
         type=float,
         default=DEFAULT_MAX_MODEL_TURN_SECONDS,
@@ -101,6 +112,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.working_directory,
         executable=args.aider_executable,
         extra_args=tuple(args.aider_arg),
+        allow_aider_commits=args.allow_aider_commits,
         max_model_turn_seconds=args.max_model_turn_seconds,
     )
     return 0
