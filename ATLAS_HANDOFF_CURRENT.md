@@ -1,8 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 20, 2026 02:43 EDT  
+**Updated:** August 20, 2026 03:39 EDT  
 **Branch:** `main`  
-**Current code HEAD:** `934a615f3a1be5a22b75c3251ad005df7f7f79a2` — `fix: retry transient Ollama planning timeout in collection task`
+**Documentation HEAD:** `635affff4b4af866fec8e3b51661ca0fd5be7c28` — `docs: restore current runner pause in handoff`  
+**Code baseline:** `934a615f3a1be5a22b75c3251ad005df7f7f79a2` — `fix: retry transient Ollama planning timeout in collection task`
 
 ## 1. Scope and authority
 
@@ -21,15 +22,15 @@ Qwen is never the execution authority. Blender is not the canonical source of tr
 
 Photogrammetry is upstream: dedicated photogrammetry software creates the initial reconstruction; Blender receives it for analysis, cleanup, correction, and preparation.
 
-## 2. Current runtime/test posture
+## 2. Current runtime/test posture — PAUSED
 
-**Workflow and action-runner testing is paused by explicit user instruction. Do not trigger, rerun, approve, or otherwise initiate workflow/action-runner tests until the user explicitly authorizes them again.**
+**The user has now explicitly paused further development/testing for the night. Do not initiate new development work, workflow runs, action-runner jobs, approvals, or test runs until the user explicitly resumes work.**
 
-The local Windows GitHub Actions runner `atlas-local` is part of the intended live-test environment, but its operational state should not be assumed to authorize new runs while this pause is active.
+The local Windows GitHub Actions runner `atlas-local` remains the intended live-test environment, but its operational state does not authorize new activity during this pause.
 
-Offline-safe development may continue only when it does not require the action runner and does not create system conflicts. Do not change workflow configuration or runner-dependent architecture merely to work around the pause.
+A workflow was already in progress when the pause was issued: **Atlas Tests #629**. It was at the setup/checkout stage when last inspected. Do not start another run or approve any new environment request while paused. Treat that run as an existing in-flight operation, not as permission to continue development.
 
-Ollama is treated as dedicated Atlas infrastructure for this development track.
+Ollama is dedicated Atlas infrastructure and should be treated as available for Atlas when work resumes.
 
 ## 3. Generic architecture
 
@@ -50,13 +51,14 @@ Implemented generic primitives include:
 - audit trail
 - immutable Blender execution receipts
 - `AtlasTaskDefinition` — declarative task boundary for evidence, actions, target evaluation, allowed tools, write policy, and verification policy
+- `planning/task_runtime.py` — runtime enforcement boundary for task execution policy
 - `docs/ATLAS_ARCHITECTURE_CONTRACT.md` — explicit promotion/authority contract for production-task adapters
 
 Conditional execution remains explicitly separated into evidence acquisition, target evaluation, skip/execute decision, authorization, deterministic execution, fresh verification, and fail-closed completion/blocking.
 
 `VerificationPlan` is first-class: successful execution is never treated as proof of resulting state.
 
-`AtlasTaskDefinition` contains task data only; orchestration logic remains generic.
+`AtlasTaskDefinition` contains task data only; orchestration and execution-policy enforcement remain generic runtime concerns.
 
 ## 4. Blender files/tools
 
@@ -69,6 +71,7 @@ Core boundary:
 - `planning/blender_execution_receipt.py` — deterministic request/result receipt and mutation detection.
 - `planning/verification_plan.py` — required/pending/complete/blocked verification state.
 - `planning/task_definition.py` — `AtlasTaskDefinition` declarative task boundary.
+- `planning/task_runtime.py` — runtime preparation and enforcement of task write/verification policy.
 - `tools/blender.py` — scene/relationship inspection, collection creation, marker creation, goalpost movement.
 - `tools/blender_transform.py` — transform inspection and rotation mutation.
 - `tools/__init__.py` — Blender tool registry.
@@ -80,91 +83,142 @@ Task/harness files include the conditional, collection, membership, parent, rota
 - Ollama: `http://localhost:11434/api/chat`
 - Model: `qwen3:8b`
 - Blender: **4.4.3**
-- Local GitHub Actions runner: `atlas-local` — intended live-test environment; no new workflow runs while testing is paused
+- Local GitHub Actions runner: `atlas-local` — intended live-test environment; no new runs while paused
 - Qwen structured planning uses `qwen/structured_plan.py`, `TASK_PLAN_JSON_SCHEMA`, and `qwen_planning_runtime.py`.
 
-## 6. Verified milestones
+## 6. Recent development progress
 
-### Offline CI
+### Task-definition/runtime boundary
 
-- **Atlas Tests #536 — PASS** after fixing two newer regressions.
-- The stale object-rotation regression import was corrected in `tests/test_live_qwen_object_rotation.py`.
-- `AtlasTaskDefinition.snapshot()` was hardened with deep copies for nested action/evidence arguments and metadata in `dd28f55`.
+A significant architectural refinement was completed immediately before the current pause:
 
-These are historical verified results. They do not authorize or imply new workflow runs while the current pause is active.
+- `AtlasTaskDefinition` remains a declarative task description.
+- Runtime policy is enforced by `prepare_task_runtime()` rather than by making task construction itself the execution-policy boundary.
+- Write-capable tasks must require post-action verification before runtime preparation can authorize execution.
+- Snapshot immutability protects nested metadata, action arguments, and evidence arguments from mutation through returned snapshots.
 
-### Live Blender regressions previously verified
+This preserves the separation between **describing a task** and **preparing a task for execution**.
 
-The following live capabilities have previously passed using the local Windows runner and dedicated Ollama:
+### Broader Blender capability coverage
 
-- **Object rotation — PASS**
-  - already-correct path passes with no write
-  - incorrect path passes with authorized `set_object_rotation`, receipt binding, and fresh verification
-- **Object rename — PASS**
-- **Object delete — PASS**
-- **Blender continuation — PASS**
-  - already-correct
-  - incorrect
-  - tampered-context rejection
-- **Conditional goalpost — PASS**
-  - already-correct
-  - incorrect
-- **Collection membership — PASS**
-  - already-correct
-  - incorrect
-- **Parent relationship — PASS**
-  - already-correct
-  - incorrect
-- **Adversarial verification — PASS**
-  - executor claims success while fresh authoritative state disagrees -> `BLOCKED`
-- **Generic collection — PASS**
-  - already-correct
-  - incorrect
+The generic control architecture has already been live-proven across materially different Blender behaviors, including:
 
-### Runtime observation / hardening
+- object rotation;
+- object rename;
+- object delete;
+- collection creation;
+- collection membership;
+- parent relationships;
+- conditional goalpost correction;
+- continuation/pause-resume;
+- tampered continuation rejection;
+- adversarial verification failure -> `BLOCKED`.
 
-The first rotation and rename live failures, and the initial generic-collection failure, were caused by Ollama structured-planning read timeouts while multiple Atlas Qwen-backed workflows were active against the same local Ollama service. After Ollama was dedicated to Atlas and workflows were rerun individually, rotation and rename passed.
+The important milestone is no longer proving that Atlas can perform one Blender edit. It is demonstrating that the same validation → evidence → target evaluation → authorization → deterministic execution → independent verification → receipt architecture can govern many different Blender operations.
 
-The generic collection harness was additionally hardened in `934a615` to retry transient Ollama planning timeouts within the existing three-attempt planning budget and record timeout events in the audit trail. The subsequent full Live Conditional Atlas Regression passed.
+### Ollama reliability
 
-## 7. Runtime integrity / continuation
+Earlier live failures exposed structured-planning read timeouts against the local Ollama endpoint. Ollama is now treated as **dedicated Atlas infrastructure**, so no architecture is being designed around unrelated Qwen workloads. The generic collection planning path also gained bounded transient-timeout retry behavior within its existing planning budget and records timeout events in the audit trail.
 
-Atlas has runtime identity checks binding continuation to stable instructions, authorized plan identity, and authoritative persisted-state identity. Invalid continuation fails closed. Blender receipts bind the exact validated request to the verified result from one execution and detect later mutation.
+## 7. Current verification boundary
 
-The live continuation regression has previously proven pause/resume behavior and tampered-context rejection for the tested parent-relationship task.
+The newest task-runtime changes have been exercised through the development/test workflow, but **do not declare a new green baseline until the actual run for the current code state has completed successfully**.
 
-## 8. Current known boundaries
+The last established historical offline baseline before the latest task-runtime correction was:
 
-- `create_empty_marker` remains the next materially distinct Blender capability to live-prove when workflow testing is explicitly resumed.
-- Broader production-facing autonomous continuation across multiple materially different capabilities is not yet declared complete.
-- Generic live proofs establish the architecture for the tested capabilities; they do not prove arbitrary Blender production planning.
-- Executor success is never authoritative state; fresh verification remains mandatory.
-- Do not add task-specific branches to generic planners or bypass authorization/verification.
-- Current HEAD and the newer task-definition/architecture work must not be represented as freshly workflow-tested unless an explicitly authorized run has actually completed.
+```text
+444 passed, 1 failed
+```
 
-## 9. Offline-safe development while workflow testing is paused
+The failure was the old test expecting construction-time rejection. The implementation intentionally moved that policy to runtime preparation, and the regression test was corrected accordingly.
 
-Development may continue without touching the action runner. Safe priorities include:
+An already-running workflow at pause time was **Atlas Tests #629**. Its final result should be checked first when work resumes, rather than assuming success or failure.
 
-1. Harden task contracts, schemas, and deterministic validation.
-2. Strengthen receipt immutability, mutation detection, malformed-result rejection, and audit serialization.
-3. Improve authorization/replan boundaries and fail-closed recovery logic.
-4. Add static architecture checks that do not invoke workflows or Blender.
-5. Improve diagnostics and deterministic fixture tooling without changing runner configuration.
-6. Keep documentation and handoff state synchronized with actual verified results.
+Historical live regressions remain valid as historical proofs for the capabilities listed above; they do not automatically validate newer untested code.
 
-Do not trigger workflow runs, modify runner setup, or introduce runner-dependent changes merely to obtain test coverage during this pause.
+## 8. Current roadmap position
 
-## 10. Next steps after explicit workflow-test authorization
+### Stages 1–8
 
-1. Preserve the current offline and historical live baseline.
-2. Obtain fresh CI/live validation of any newer code that requires it.
-3. Live-prove `create_empty_marker` with `planning/marker_task.py` and its deterministic fixture/harness.
-4. Add or retain explicit audit assertions for zero-write already-correct paths and single-write incorrect paths.
-5. Use the existing runtime fingerprinting, deterministic future, recovery gate, and receipt integrity primitives to expand production-facing continuation/resume across multiple materially different task capabilities.
-6. After that broader continuation proof, select the next materially different Blender production capability.
+Complete for their currently defined scope:
 
-## 11. Required regression coverage
+- Stage 1 — Basic Blender Agent
+- Stage 2 — Reliable Evidence
+- Stage 3 — Mandatory Evidence Acquisition
+- Stage 4 — Evidence Validation and Recommendation Restraint
+- Stage 5 — General Evidence Planner
+- Stage 6 — Reliable Modification Control
+- Stage 7 — General Action Planning
+- Stage 8 — Conditional Action Planning for the live goalpost proof
+
+### Stage 9 — Broader Autonomous Blender Task Control
+
+**IN PROGRESS — SUBSTANTIALLY ADVANCED**
+
+The architecture now has the major control primitives required for a production-facing autonomous Blender loop. The remaining work is integration/hardening and broader proof, not rebuilding the architecture.
+
+The target loop is:
+
+```text
+Qwen proposal
+ ↓
+validated task/evidence/action structure
+ ↓
+authoritative Blender evidence
+ ↓
+target-state evaluation
+ ↓
+conditional decision
+ ↓
+authorization
+ ↓
+deterministic future
+ ↓
+Blender execution
+ ↓
+fresh independent verification
+ ↓
+immutable receipt
+ ↓
+completion / conservative recovery
+```
+
+### Next materially distinct capability
+
+`create_empty_marker` remains the next clean capability to live-prove after testing is explicitly resumed. It is useful because it exercises the task/runtime boundary with a simple write whose resulting state can be independently inspected.
+
+## 9. Remaining path to the major Blender milestone
+
+The major near-term milestone is the **first robust production-facing autonomous Blender closed loop** in which Atlas can accept a real task, use Qwen for planning, obtain authoritative evidence, decide whether work is necessary, authorize only valid actions, execute through the Blender boundary, independently verify the resulting Blender state, create a receipt, and safely continue or recover.
+
+Most of the control machinery required for this now exists. What remains is fresh validation of the current integrated runtime plus broader continuation/resume proof across multiple materially different task types.
+
+## 10. Offline-safe priorities after the pause is lifted, if runner testing remains unavailable
+
+If development resumes while workflow testing remains unavailable, safe work can focus on:
+
+1. deterministic task-contract validation;
+2. receipt immutability and mutation detection;
+3. malformed-result rejection;
+4. authorization/replan boundaries;
+5. fail-closed recovery logic;
+6. static architecture checks;
+7. diagnostics and deterministic fixture tooling;
+8. documentation synchronization.
+
+Do not modify runner configuration merely to work around test availability.
+
+## 11. Next steps when the user resumes
+
+1. Check the final result of existing **Atlas Tests #629** before doing anything else.
+2. Inspect current `main` and the newest workflow state.
+3. Obtain a fresh fully green baseline for the current code if required.
+4. Live-prove `create_empty_marker` through the generic task/runtime architecture.
+5. Preserve explicit zero-write, single-write, verification-failure, receipt-integrity, and authorization regressions.
+6. Expand production-facing continuation/resume across multiple materially different Blender task types.
+7. Promote the resulting closed loop as the next major Blender milestone only after the evidence supports it.
+
+## 12. Required regression coverage
 
 Preserve proofs for:
 
@@ -182,9 +236,11 @@ Preserve proofs for:
 - authorized replan from fresh evidence -> accepted
 - unauthorized replan -> rejected
 - one receipt-bound execution cannot cause duplicate writes
+- write-capable task runtime requires post-action verification
+- task snapshots cannot mutate live task definitions
 
-## 12. Resume instructions
+## 13. Resume instructions
 
-Read this file first. **Workflow/action-runner testing is currently paused and must not be initiated until the user explicitly authorizes it.** Treat **Atlas Tests #536 PASS** and the previously recorded live regressions above as historical verified baselines, not as proof of newer untested changes.
+**Do not resume automatically.** The user explicitly ended the development session for the night.
 
-When testing is authorized again, begin with fresh validation of the current code state, then proceed to `create_empty_marker` and the broader production-facing continuation/resume proof.
+When the user returns and explicitly asks to continue, read this handoff first, inspect the final status of Atlas Tests #629, then resume from the current code state without repeating already-completed work.
