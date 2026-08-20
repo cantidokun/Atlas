@@ -1,34 +1,38 @@
 """Local communication bridge for the Atlas controller.
 
 The bridge is the boundary between an external model/client and the
-transport-neutral controller session.  It deliberately does not know about
+transport-neutral controller session. It deliberately does not know about
 Blender, Unreal, HTTP, sockets, or any model provider.
 
-A host supplies the tool executor.  The bridge owns request identity and
-serializes controller progress into protocol responses, removing the need for
-a human to relay each controller action between the model and the local
-machine.
+A host supplies the tool executor. The bridge owns request identity and runs
+the deterministic controller workflow to completion, removing the need for a
+human to relay each controller action between the model and the local machine.
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
 from controller_runtime import ControllerRuntime
 from controller_session import ControllerSession, ProtocolError
 
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+DEFAULT_MAX_STEPS = 16
 
 
 class ControllerBridge:
     """Connect protocol messages to one deterministic controller runtime."""
 
-    def __init__(self, execute: ToolExecutor):
+    def __init__(self, execute: ToolExecutor, max_steps: int = DEFAULT_MAX_STEPS):
+        if not isinstance(max_steps, int) or max_steps < 1:
+            raise ValueError("max_steps must be a positive integer.")
+
         self.session = ControllerSession()
         self.execute = execute
+        self.max_steps = max_steps
         self._runtimes: Dict[str, ControllerRuntime] = {}
 
     def receive(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Accept one protocol message and return its next protocol response."""
+        """Accept one protocol message and return its terminal response."""
         message_type = message.get("type")
 
         if message_type == "instruction":
@@ -39,11 +43,14 @@ class ControllerBridge:
                 return self.session.respond(
                     request.request_id,
                     "error",
-                    error={"code": "invalid_payload", "message": "Instruction requires file_name."},
+                    error={
+                        "code": "invalid_payload",
+                        "message": "Instruction requires file_name.",
+                    },
                 )
 
             self._runtimes[request.request_id] = ControllerRuntime(file_name)
-            return self._advance(request.request_id)
+            return self._run_to_terminal(request.request_id)
 
         if message_type == "close":
             self.session.close()
@@ -56,31 +63,37 @@ class ControllerBridge:
 
         raise ProtocolError(f"Unsupported incoming message type: {message_type!r}.")
 
-    def _advance(self, request_id: str) -> Dict[str, Any]:
+    def _run_to_terminal(self, request_id: str) -> Dict[str, Any]:
+        """Drive the deterministic runtime without another model decision."""
         runtime = self._runtimes[request_id]
-        result = runtime.step(self.execute)
 
-        if result["status"] == "error":
-            return self.session.respond(
-                request_id,
-                "error",
-                phase=result.get("phase"),
-                error=result.get("error", {"code": "controller_error"}),
-            )
+        for _ in range(self.max_steps):
+            result = runtime.step(self.execute)
 
-        if result["status"] == "complete":
-            return self.session.respond(
-                request_id,
-                "complete",
-                phase=result.get("phase"),
-                result=result,
-            )
+            if result["status"] == "error":
+                return self.session.respond(
+                    request_id,
+                    "error",
+                    phase=result.get("phase"),
+                    error=result.get("error", {"code": "controller_error"}),
+                )
+
+            if result["status"] == "complete":
+                return self.session.respond(
+                    request_id,
+                    "complete",
+                    phase=result.get("phase"),
+                    result=result,
+                )
 
         return self.session.respond(
             request_id,
-            "progress",
-            phase=result.get("phase"),
-            result=result,
+            "error",
+            phase=runtime.state.phase,
+            error={
+                "code": "step_limit_exceeded",
+                "message": f"Controller exceeded the {self.max_steps}-step safety limit.",
+            },
         )
 
 
