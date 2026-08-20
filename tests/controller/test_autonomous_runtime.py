@@ -125,7 +125,7 @@ def test_model_failure_blocks_without_executing_a_tool():
     )
 
     assert result.status == "blocked"
-    assert result.reason == "model_call_failed: TimeoutError"
+    assert result.reason == "model_call_failed: TimeoutError:stuck thinking"
 
 
 def test_tool_failure_blocks_and_preserves_history():
@@ -140,5 +140,5 @@ def test_tool_failure_blocks_and_preserves_history():
     )
 
     assert result.status == "blocked"
-    assert result.reason == "tool_execution_failed: RuntimeError"
+    assert result.reason == "tool_execution_failed: RuntimeError:executor down"
     assert result.tool_history == []
