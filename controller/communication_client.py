@@ -25,6 +25,19 @@ ProcessFactory = Callable[..., subprocess.Popen]
 class ControllerCommunicationError(RuntimeError):
     """Raised when the controller process cannot complete a protocol request."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        retryable: bool | None = None,
+        response: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+        self.response = None if response is None else dict(response)
+
 
 class ControllerStdioClient:
     """Drive one long-lived controller communication process over stdio."""
@@ -169,11 +182,32 @@ class ControllerStdioClient:
 
         if not isinstance(response, dict):
             raise ControllerCommunicationError("controller response must be an object")
+        if response.get("protocol_version") != PROTOCOL_VERSION:
+            raise ControllerCommunicationError("controller response used an unsupported protocol version")
         if response.get("id") != request_id:
             raise ControllerCommunicationError("controller response id did not match request")
+        if session_id is not None and response.get("session_id") != session_id:
+            raise ControllerCommunicationError("controller response session_id did not match request")
+
         if response.get("status") == "error":
-            error = response.get("error") or response.get("payload", {}).get("error")
-            raise ControllerCommunicationError(str(error or "controller request failed"))
+            error = response.get("error")
+            if error is None:
+                payload_error = response.get("payload", {}).get("error")
+                error = payload_error
+            if isinstance(error, Mapping):
+                code = error.get("code")
+                message = error.get("message") or "controller request failed"
+                retryable = error.get("retryable")
+                raise ControllerCommunicationError(
+                    str(message),
+                    code=code if isinstance(code, str) else None,
+                    retryable=retryable if isinstance(retryable, bool) else None,
+                    response=response,
+                )
+            raise ControllerCommunicationError(
+                str(error or "controller request failed"),
+                response=response,
+            )
         if response.get("status") != "ok":
             raise ControllerCommunicationError("controller returned an unexpected status")
         return response
