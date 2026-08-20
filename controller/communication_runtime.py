@@ -12,14 +12,16 @@ the controller to execute that action through the locally supplied executor.
 
 Model turns are supervised separately from controller execution.  A remote
 reasoning model may take time to think, but the communication bridge owns an
-explicit deadline and can detect timeout without blocking the controller.
-A host may either drive the model lifecycle explicitly or supply a bounded
-model executor for a complete local turn.
+explicit deadline and a host-level maximum turn duration so a stalled or
+malicious request cannot hold the local process indefinitely.  A host may
+either drive the model lifecycle explicitly or supply a bounded model
+executor for a complete local turn.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Callable, Dict, List, Mapping
 
 from controller.communication_gateway import CommunicationProtocolError
@@ -29,6 +31,8 @@ from controller.controller_integration import AgentControllerIntegration
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 ModelTurnExecutor = Callable[[str, float], Any]
+
+DEFAULT_MAX_MODEL_TURN_SECONDS = 300.0
 
 
 @dataclass
@@ -52,10 +56,20 @@ class ControllerCommunicationRuntime:
         *,
         model_executor: ModelTurnExecutor | None = None,
         clock=None,
+        max_model_turn_seconds: float = DEFAULT_MAX_MODEL_TURN_SECONDS,
     ):
+        if (
+            not isinstance(max_model_turn_seconds, (int, float))
+            or isinstance(max_model_turn_seconds, bool)
+            or not math.isfinite(float(max_model_turn_seconds))
+            or max_model_turn_seconds <= 0
+        ):
+            raise ValueError("max_model_turn_seconds must be a finite positive number")
+
         self._execute_tool = execute_tool
         self._model_executor = model_executor
         self._clock = clock
+        self._max_model_turn_seconds = float(max_model_turn_seconds)
         self._sessions: Dict[str, _ControllerSession] = {}
 
     def handle_command(
@@ -75,6 +89,7 @@ class ControllerCommunicationRuntime:
                 "runtime": "controller_communication",
                 "status": "ready",
                 "model_executor_configured": self._model_executor is not None,
+                "max_model_turn_seconds": self._max_model_turn_seconds,
             }
 
         if command == "start_task":
@@ -232,7 +247,7 @@ class ControllerCommunicationRuntime:
 
         turn_id = arguments.get("turn_id")
         message = arguments.get("message")
-        timeout_seconds = arguments.get("timeout_seconds")
+        timeout_seconds = self._validated_timeout(arguments.get("timeout_seconds"))
 
         if not isinstance(message, str) or not message.strip():
             raise CommunicationProtocolError("model_run.message must be a non-empty string")
@@ -241,7 +256,7 @@ class ControllerCommunicationRuntime:
         del snapshot
 
         try:
-            raw_result = self._model_executor(message, float(timeout_seconds))
+            raw_result = self._model_executor(message, timeout_seconds)
         except Exception as exc:
             snapshot = session.model_turn.fail(turn_id, f"model executor failed: {exc}")
             return {
@@ -302,13 +317,30 @@ class ControllerCommunicationRuntime:
     def _model_begin(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         session = self._require_session(session_id)
         turn_id = arguments.get("turn_id")
-        timeout_seconds = arguments.get("timeout_seconds")
+        timeout_seconds = self._validated_timeout(arguments.get("timeout_seconds"))
         snapshot = session.model_turn.begin(turn_id, timeout_seconds)
         return {
             "command": "model_begin",
             "status": "running",
             "model_turn": self._turn_payload(snapshot),
         }
+
+    def _validated_timeout(self, value: Any) -> float:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or value <= 0
+        ):
+            raise CommunicationProtocolError(
+                "timeout_seconds must be a finite positive number"
+            )
+        timeout_seconds = float(value)
+        if timeout_seconds > self._max_model_turn_seconds:
+            raise CommunicationProtocolError(
+                "timeout_seconds exceeds the host model-turn limit"
+            )
+        return timeout_seconds
 
     def _model_heartbeat(self, session_id: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         session = self._require_session(session_id)
