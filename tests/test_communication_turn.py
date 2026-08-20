@@ -95,6 +95,33 @@ def test_terminal_turn_rejects_late_heartbeat():
         supervisor.heartbeat("turn-1")
 
 
+def test_completed_turn_can_be_followed_by_a_new_unique_turn():
+    clock = FakeClock()
+    supervisor = ModelTurnSupervisor(clock=clock)
+
+    first = supervisor.begin("turn-1", 5)
+    clock.advance(2)
+    completed = supervisor.complete("turn-1")
+
+    clock.advance(3)
+    second = supervisor.begin("turn-2", 10)
+
+    assert first.turn_id == "turn-1"
+    assert completed.state is TurnState.COMPLETED
+    assert second.turn_id == "turn-2"
+    assert second.state is TurnState.RUNNING
+    assert second.deadline == 115.0
+
+
+def test_turn_id_cannot_be_reused_after_a_terminal_turn():
+    supervisor = ModelTurnSupervisor(clock=FakeClock())
+    supervisor.begin("turn-1", 5)
+    supervisor.cancel("turn-1")
+
+    with pytest.raises(CommunicationProtocolError, match="already been used"):
+        supervisor.begin("turn-1", 5)
+
+
 def test_runtime_exposes_model_turn_lifecycle_through_existing_gateway_contract():
     clock = FakeClock()
     runtime = ControllerCommunicationRuntime(lambda tool, arguments: {"status": "ok"}, clock=clock)
@@ -128,6 +155,47 @@ def test_runtime_exposes_model_turn_lifecycle_through_existing_gateway_contract(
     )
     assert status["model_turn"]["state"] == "timed_out"
     assert status["model_turn"]["expired"] is True
+
+
+def test_runtime_can_start_a_new_model_turn_after_timeout():
+    clock = FakeClock()
+    runtime = ControllerCommunicationRuntime(lambda tool, arguments: {"status": "ok"}, clock=clock)
+    runtime.handle_command(
+        "session-1",
+        "start-task",
+        {
+            "command": "start_task",
+            "arguments": {"file_name": "fixture.blend", "task_text": "inspect"},
+        },
+    )
+    runtime.handle_command(
+        "session-1",
+        "turn-begin",
+        {
+            "command": "model_begin",
+            "arguments": {"turn_id": "turn-1", "timeout_seconds": 5},
+        },
+    )
+
+    clock.advance(5)
+    timed_out = runtime.handle_command(
+        "session-1",
+        "turn-status",
+        {"command": "model_status", "arguments": {}},
+    )
+    assert timed_out["model_turn"]["state"] == "timed_out"
+
+    next_turn = runtime.handle_command(
+        "session-1",
+        "turn-begin-2",
+        {
+            "command": "model_begin",
+            "arguments": {"turn_id": "turn-2", "timeout_seconds": 10},
+        },
+    )
+    assert next_turn["model_turn"]["state"] == "running"
+    assert next_turn["model_turn"]["turn_id"] == "turn-2"
+    assert next_turn["model_turn"]["deadline"] == 115.0
 
 
 def test_runtime_model_failure_is_explicit_and_not_an_implicit_retry():
