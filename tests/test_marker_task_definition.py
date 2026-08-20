@@ -1,0 +1,33 @@
+import pytest
+
+from planning.marker_task import MARKER_COLLECTION, MARKER_OBJECT, marker_task_definition
+
+
+def test_marker_task_definition_is_declarative_and_write_verified():
+    task = marker_task_definition("marker.blend")
+    assert task.name == "marker_creation"
+    assert len(task.evidence) == 1
+    assert len(task.actions) == 1
+    assert task.allowed_action_tools == {"create_empty_marker"}
+    assert task.allow_writes is True
+    assert task.verify_after_action is True
+    assert task.actions[0].tool == "create_empty_marker"
+    assert task.actions[0].arguments == {
+        "file_name": "marker.blend",
+        "collection_name": MARKER_COLLECTION,
+        "object_name": MARKER_OBJECT,
+    }
+
+
+def test_marker_task_definition_carries_only_task_specific_data():
+    task = marker_task_definition("marker.blend")
+    assert task.evidence[0].tool == "inspect_scene"
+    assert task.evidence[0].arguments == {"file_name": "marker.blend"}
+    assert task.metadata == {"domain": "blender", "operation": "marker_creation"}
+
+
+def test_marker_task_definition_runtime_rejects_no_verification():
+    from planning.target_state import TargetStateEvaluator
+
+    with pytest.raises(ValueError, match="At least one target-state invariant is required"):
+        TargetStateEvaluator([])
