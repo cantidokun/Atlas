@@ -97,7 +97,10 @@ def run_controller_stdio(
         clock=clock,
         max_model_turn_seconds=max_model_turn_seconds,
     )
-    gateway = ControllerCommunicationGateway(runtime.handle_command)
+    gateway = ControllerCommunicationGateway(
+        runtime.handle_command,
+        on_session_close=runtime.close_session,
+    )
     process_lines(gateway, stdin, stdout)
 
 
