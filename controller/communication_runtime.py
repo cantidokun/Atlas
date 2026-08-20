@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 
-from controller.controller_integration import AgentControllerIntegration
 from controller.communication_gateway import CommunicationProtocolError
+from controller.controller_integration import AgentControllerIntegration
 
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
@@ -86,8 +86,10 @@ class ControllerCommunicationRuntime:
             raise CommunicationProtocolError("start_task.task_text must be a non-empty string")
         if not isinstance(evidence_ledger, list):
             raise CommunicationProtocolError("start_task.evidence_ledger must be a list")
+        if any(not isinstance(item, dict) for item in evidence_ledger):
+            raise CommunicationProtocolError("start_task.evidence_ledger items must be objects")
 
-        ledger = [dict(item) for item in evidence_ledger if isinstance(item, dict)]
+        ledger = [dict(item) for item in evidence_ledger]
         history: List[dict] = []
         integration = AgentControllerIntegration(
             file_name=file_name,
