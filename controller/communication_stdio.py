@@ -17,27 +17,18 @@ def process_lines(
     lines: Iterable[str],
     output: TextIO,
 ) -> None:
-    """Read JSON objects from lines and emit one JSON response per message.
-
-    A malformed message never reaches the command handler.  When a usable
-    request id can be recovered, the error response carries that id so the
-    remote caller can correlate the failure without human intervention.
-    """
+    """Read JSON objects from lines and emit one JSON response per message."""
     for line in lines:
         if not line.strip():
             continue
-
+        message = None
         try:
             message = json.loads(line)
             response = gateway.handle_message(message)
         except (json.JSONDecodeError, CommunicationProtocolError) as exc:
-            response = _error_response(message if "message" in locals() else None, str(exc))
-
+            response = _error_response(message, str(exc))
         output.write(json.dumps(response, sort_keys=True, separators=(",", ":")) + "\n")
         output.flush()
-
-        if "message" in locals():
-            del message
 
 
 def run_stdio(
@@ -45,7 +36,6 @@ def run_stdio(
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
 ) -> None:
-    """Run the gateway as a local process using newline-delimited JSON."""
     gateway = ControllerCommunicationGateway(handle_command)
     process_lines(gateway, stdin, stdout)
 
@@ -56,14 +46,11 @@ def _error_response(message: object, error: str) -> Dict[str, object]:
         "status": "error",
         "error": {"code": "protocol_error", "message": error},
     }
-
     if isinstance(message, dict):
         request_id = message.get("id")
         if isinstance(request_id, str) and request_id:
             response["id"] = request_id
-
         session_id = message.get("session_id")
         if isinstance(session_id, str) and session_id:
             response["session_id"] = session_id
-
     return response
