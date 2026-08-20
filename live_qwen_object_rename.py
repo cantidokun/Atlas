@@ -58,7 +58,14 @@ def build_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
     ]
     last: Optional[Exception] = None
     for attempt in range(1, 4):
-        raw = ask(messages)
+        try:
+            raw = ask(messages)
+        except requests.exceptions.ReadTimeout as exc:
+            last = exc
+            audit.record_qwen_proposal("", attempt, False, f"ReadTimeout: {exc}")
+            if attempt < 3:
+                continue
+            raise RuntimeError(f"Qwen plan timed out after {attempt} attempts: {last}") from exc
         print(f"--- QWEN PLAN ATTEMPT {attempt} ---")
         print(raw)
         try:
