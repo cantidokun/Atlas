@@ -2,6 +2,8 @@
 
 import subprocess
 
+import pytest
+
 from controller.aider_model_client import AiderModelClient
 
 
@@ -80,3 +82,21 @@ def test_aider_turn_terminates_and_reports_stall():
     assert process.killed is False
     assert result.stdout == "partial-outterminated-out"
     assert result.stderr == "partial-errterminated-err"
+
+
+def test_aider_turn_rejects_non_finite_timeout_before_starting_process():
+    calls = []
+
+    def factory(command, **kwargs):
+        calls.append((command, kwargs))
+        return FakeProcess()
+
+    client = AiderModelClient(
+        working_directory="C:/Atlas/unreal",
+        process_factory=factory,
+    )
+
+    with pytest.raises(ValueError, match="finite positive"):
+        client.run_turn("Continue the task.", timeout_seconds=float("inf"))
+
+    assert calls == []
