@@ -1,4 +1,9 @@
-"""Dependency-free stdin/stdout transport for ControllerCommunicationGateway."""
+"""Dependency-free stdin/stdout transport for the controller communication gateway.
+
+The transport remains deliberately unaware of Aider, Blender, Unreal, Ollama,
+or any other execution environment.  A host supplies the already-authorized
+local tool executor and this module composes it with the controller runtime.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,10 @@ from controller.communication_gateway import (
     CommunicationProtocolError,
     ControllerCommunicationGateway,
 )
+from controller.communication_runtime import ControllerCommunicationRuntime
+
+
+ToolExecutor = Callable[[str, Dict[str, object]], Dict[str, object]]
 
 
 def process_lines(
@@ -47,6 +56,26 @@ def run_stdio(
 ) -> None:
     """Run the gateway as a local process using newline-delimited JSON."""
     gateway = ControllerCommunicationGateway(handle_command)
+    process_lines(gateway, stdin, stdout)
+
+
+def run_controller_stdio(
+    execute_tool: ToolExecutor,
+    stdin: TextIO = sys.stdin,
+    stdout: TextIO = sys.stdout,
+    *,
+    clock=None,
+) -> None:
+    """Run the controller communication runtime over newline-delimited JSON.
+
+    This is the local-process composition point: the transport owns only
+    message framing, the gateway owns protocol/session semantics, and the
+    controller runtime owns task state and model-turn supervision.  The
+    caller still supplies the concrete local executor, preventing the
+    communication layer from gaining arbitrary process or tool authority.
+    """
+    runtime = ControllerCommunicationRuntime(execute_tool, clock=clock)
+    gateway = ControllerCommunicationGateway(runtime.handle_command)
     process_lines(gateway, stdin, stdout)
 
 
