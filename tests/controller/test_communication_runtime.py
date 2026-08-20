@@ -36,6 +36,17 @@ def open_gateway(runtime):
     return ControllerCommunicationGateway(runtime.handle_command)
 
 
+def start_session(runtime):
+    runtime.handle_command(
+        "session-1",
+        "start-1",
+        {
+            "command": "start_task",
+            "arguments": {"file_name": "fixture.blend", "task_text": TASK},
+        },
+    )
+
+
 def test_remote_command_reaches_existing_controller_without_arbitrary_tool_dispatch():
     calls = []
     gateway = open_gateway(make_runtime(calls))
@@ -115,3 +126,123 @@ def test_stdio_transport_can_complete_a_controller_command_round_trip():
     assert responses[0]["event"] == "session_opened"
     assert responses[1]["payload"]["status"] == "ready"
     assert calls == []
+
+
+def test_model_run_completes_a_bounded_local_turn_and_returns_output():
+    calls = []
+
+    def model_executor(message, timeout_seconds):
+        calls.append((message, timeout_seconds))
+        return {
+            "returncode": 0,
+            "stdout": "Aider completed the requested inspection.",
+            "stderr": "",
+            "timed_out": False,
+        }
+
+    runtime = ControllerCommunicationRuntime(make_runtime(calls)._execute_tool, model_executor=model_executor)
+    start_session(runtime)
+
+    result = runtime.handle_command(
+        "session-1",
+        "model-run-1",
+        {
+            "command": "model_run",
+            "arguments": {
+                "turn_id": "turn-1",
+                "message": "Inspect the controller boundary.",
+                "timeout_seconds": 30,
+            },
+        },
+    )
+
+    assert result["status"] == "completed"
+    assert result["model_turn"]["state"] == "completed"
+    assert result["result"]["stdout"] == "Aider completed the requested inspection."
+    assert calls == [("Inspect the controller boundary.", 30.0)]
+
+
+def test_model_run_maps_provider_timeout_to_timed_out_without_retry():
+    calls = []
+
+    def model_executor(message, timeout_seconds):
+        calls.append((message, timeout_seconds))
+        return {
+            "returncode": -15,
+            "stdout": "partial",
+            "stderr": "",
+            "timed_out": True,
+        }
+
+    runtime = ControllerCommunicationRuntime(make_runtime(calls)._execute_tool, model_executor=model_executor)
+    start_session(runtime)
+
+    result = runtime.handle_command(
+        "session-1",
+        "model-run-1",
+        {
+            "command": "model_run",
+            "arguments": {
+                "turn_id": "turn-1",
+                "message": "Continue the task.",
+                "timeout_seconds": 5,
+            },
+        },
+    )
+
+    assert result["status"] == "timed_out"
+    assert result["model_turn"]["expired"] is True
+    assert calls == [("Continue the task.", 5.0)]
+
+
+def test_model_run_maps_nonzero_provider_exit_to_failed_without_retry():
+    def model_executor(message, timeout_seconds):
+        return {
+            "returncode": 2,
+            "stdout": "",
+            "stderr": "aider failed",
+            "timed_out": False,
+        }
+
+    runtime = ControllerCommunicationRuntime(make_runtime([])._execute_tool, model_executor=model_executor)
+    start_session(runtime)
+
+    result = runtime.handle_command(
+        "session-1",
+        "model-run-1",
+        {
+            "command": "model_run",
+            "arguments": {
+                "turn_id": "turn-1",
+                "message": "Continue the task.",
+                "timeout_seconds": 5,
+            },
+        },
+    )
+
+    assert result["status"] == "failed"
+    assert result["model_turn"]["error"] == "aider failed"
+
+
+def test_model_run_provider_exception_fails_closed():
+    def model_executor(message, timeout_seconds):
+        raise RuntimeError("provider unavailable")
+
+    runtime = ControllerCommunicationRuntime(make_runtime([])._execute_tool, model_executor=model_executor)
+    start_session(runtime)
+
+    result = runtime.handle_command(
+        "session-1",
+        "model-run-1",
+        {
+            "command": "model_run",
+            "arguments": {
+                "turn_id": "turn-1",
+                "message": "Continue the task.",
+                "timeout_seconds": 5,
+            },
+        },
+    )
+
+    assert result["status"] == "failed"
+    assert "provider unavailable" in result["model_turn"]["error"]
