@@ -41,38 +41,41 @@ def test_parser_keeps_local_execution_configuration_explicit():
     args = communication_host.build_parser().parse_args(
         [
             "--working-directory",
-            "C:/Atlas/unreal",
+            "C:/Atlas/controller",
             "--tool-executor",
             "host_tools:execute",
             "--aider-executable",
             "C:/Tools/aider.exe",
             "--aider-arg=--yes-always",
             "--aider-arg=--no-auto-commits",
+            "--allow-aider-commits",
             "--max-model-turn-seconds=120",
         ]
     )
 
-    assert args.working_directory == "C:/Atlas/unreal"
+    assert args.working_directory == "C:/Atlas/controller"
     assert args.tool_executor == "host_tools:execute"
     assert args.aider_executable == "C:/Tools/aider.exe"
     assert args.aider_arg == ["--yes-always", "--no-auto-commits"]
+    assert args.allow_aider_commits is True
     assert args.max_model_turn_seconds == 120.0
 
 
-def test_parser_uses_safe_default_model_turn_limit():
+def test_parser_uses_safe_model_and_commit_defaults():
     args = communication_host.build_parser().parse_args(
         [
             "--working-directory",
-            "C:/Atlas/unreal",
+            "C:/Atlas/controller",
             "--tool-executor",
             "host_tools:execute",
         ]
     )
 
     assert args.max_model_turn_seconds == DEFAULT_MAX_MODEL_TURN_SECONDS
+    assert args.allow_aider_commits is False
 
 
-def test_main_loads_executor_and_composes_aider_host(monkeypatch):
+def test_main_loads_executor_and_composes_safe_aider_host(monkeypatch):
     executor = lambda tool, arguments: {"tool": tool, "arguments": arguments}
     captured = {}
 
@@ -88,7 +91,7 @@ def test_main_loads_executor_and_composes_aider_host(monkeypatch):
     result = communication_host.main(
         [
             "--working-directory",
-            "C:/Atlas/unreal",
+            "C:/Atlas/controller",
             "--tool-executor",
             "host_tools:execute",
             "--aider-executable",
@@ -100,9 +103,10 @@ def test_main_loads_executor_and_composes_aider_host(monkeypatch):
 
     assert result == 0
     assert captured["execute_tool"] is executor
-    assert captured["working_directory"] == "C:/Atlas/unreal"
+    assert captured["working_directory"] == "C:/Atlas/controller"
     assert captured["kwargs"] == {
         "executable": "aider.exe",
         "extra_args": ("--yes-always",),
+        "allow_aider_commits": False,
         "max_model_turn_seconds": 120.0,
     }
