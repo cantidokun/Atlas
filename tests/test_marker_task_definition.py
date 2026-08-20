@@ -31,7 +31,7 @@ def test_marker_task_definition_carries_only_task_specific_data():
 
 
 def test_marker_task_definition_rejects_write_without_verification():
-    with pytest.raises(ValueError, match="requires verification"):
+    with pytest.raises(ValueError, match="must require post-action verification"):
         AtlasTaskDefinition(
             name="bad",
             evidence=(
