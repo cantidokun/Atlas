@@ -16,7 +16,11 @@ from controller.communication_gateway import (
     CommunicationProtocolError,
     ControllerCommunicationGateway,
 )
-from controller.communication_runtime import ControllerCommunicationRuntime, ModelTurnExecutor
+from controller.communication_runtime import (
+    ControllerCommunicationRuntime,
+    DEFAULT_MAX_MODEL_TURN_SECONDS,
+    ModelTurnExecutor,
+)
 
 
 ToolExecutor = Callable[[str, Dict[str, object]], Dict[str, object]]
@@ -67,6 +71,7 @@ def run_controller_stdio(
     *,
     model_executor: ModelTurnExecutor | None = None,
     clock=None,
+    max_model_turn_seconds: float = DEFAULT_MAX_MODEL_TURN_SECONDS,
 ) -> None:
     """Run the controller communication runtime over newline-delimited JSON.
 
@@ -74,12 +79,14 @@ def run_controller_stdio(
     only message framing, the gateway owns protocol/session semantics, and the
     controller runtime owns task state and model-turn supervision.  The caller
     supplies the concrete local executor and may optionally supply a bounded
-    model executor.
+    model executor.  The host-level model-turn limit prevents a remote caller
+    from requesting an unbounded model process lifetime.
     """
     runtime = ControllerCommunicationRuntime(
         execute_tool,
         model_executor=model_executor,
         clock=clock,
+        max_model_turn_seconds=max_model_turn_seconds,
     )
     gateway = ControllerCommunicationGateway(runtime.handle_command)
     process_lines(gateway, stdin, stdout)
@@ -95,6 +102,7 @@ def run_aider_controller_stdio(
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
     clock=None,
+    max_model_turn_seconds: float = DEFAULT_MAX_MODEL_TURN_SECONDS,
 ) -> None:
     """Run the controller gateway with Aider as its bounded model executor.
 
@@ -114,6 +122,7 @@ def run_aider_controller_stdio(
         stdout,
         model_executor=aider.run_turn,
         clock=clock,
+        max_model_turn_seconds=max_model_turn_seconds,
     )
 
 
