@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Optional
 PROTOCOL_VERSION = "1"
 
 CommandHandler = Callable[[str, str, Dict[str, Any]], Dict[str, Any]]
+SessionCloseHandler = Callable[[str], None]
 
 
 class CommunicationProtocolError(ValueError):
@@ -42,8 +43,14 @@ class ControllerCommunicationGateway:
     process boundary without changing protocol or controller semantics.
     """
 
-    def __init__(self, handle_command: CommandHandler):
+    def __init__(
+        self,
+        handle_command: CommandHandler,
+        *,
+        on_session_close: SessionCloseHandler | None = None,
+    ):
         self._handle_command = handle_command
+        self._on_session_close = on_session_close
         self._sessions: Dict[str, _Session] = {}
 
     def open_session(self, requested_session_id: Optional[str] = None) -> Dict[str, Any]:
@@ -93,6 +100,23 @@ class ControllerCommunicationGateway:
             if session.closed:
                 return self._response(session_id, request_id, "ok", {"event": "session_closed"})
             session.closed = True
+            if self._on_session_close is not None:
+                try:
+                    self._on_session_close(session_id)
+                except Exception as exc:
+                    return self._response(
+                        session_id,
+                        request_id,
+                        "error",
+                        {
+                            "error": {
+                                "code": "internal_error",
+                                "message": f"{type(exc).__name__}: {exc}",
+                                "retryable": False,
+                            },
+                            "event": "session_closed",
+                        },
+                    )
             return self._response(session_id, request_id, "ok", {"event": "session_closed"})
 
         if message_type != "command":
