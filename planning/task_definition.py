@@ -34,8 +34,6 @@ class AtlasTaskDefinition:
         unknown = action_tools - set(self.allowed_action_tools)
         if unknown:
             raise ValueError(f"actions use unauthorized tools: {sorted(unknown)}")
-        if self.allow_writes and not self.verify_after_action:
-            raise ValueError("write-capable tasks must require post-action verification")
 
     def snapshot(self) -> Dict[str, Any]:
         return {
