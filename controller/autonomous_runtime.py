@@ -39,11 +39,16 @@ class ModelTurn:
 class ControllerPolicy:
     """Hard execution limits owned by Python, not by the model."""
 
-    allowed_tools: Set[str]
+    read_only_tools: Set[str]
+    write_tools: Set[str]
     authorized_write_tools: Set[str] = field(default_factory=set)
     max_turns: int = 32
     max_tool_calls_per_turn: int = 1
     max_identical_tool_calls: int = 2
+
+    @property
+    def allowed_tools(self) -> Set[str]:
+        return self.read_only_tools | self.write_tools
 
     def validate(self) -> None:
         if self.max_turns < 1:
@@ -52,8 +57,10 @@ class ControllerPolicy:
             raise ValueError("Atlas currently permits exactly one tool call per turn")
         if self.max_identical_tool_calls < 1:
             raise ValueError("max_identical_tool_calls must be positive")
-        if not self.authorized_write_tools.issubset(self.allowed_tools):
-            raise ValueError("authorized write tools must be allowed tools")
+        if self.read_only_tools.intersection(self.write_tools):
+            raise ValueError("a tool cannot be both read-only and write-enabled")
+        if not self.authorized_write_tools.issubset(self.write_tools):
+            raise ValueError("authorized write tools must be declared write tools")
 
 
 @dataclass
@@ -89,30 +96,27 @@ class AutonomousController:
             try:
                 model_turn = ask_model(messages)
             except Exception as exc:
-                return ControllerResult(
-                    status="blocked",
-                    reason="model_call_failed: " + type(exc).__name__,
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    "model_call_failed: " + type(exc).__name__,
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             if not isinstance(model_turn, ModelTurn):
-                return ControllerResult(
-                    status="blocked",
-                    reason="malformed_model_turn",
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    "malformed_model_turn",
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             if len(model_turn.tool_calls) > self.policy.max_tool_calls_per_turn:
-                return ControllerResult(
-                    status="blocked",
-                    reason="multiple_tool_calls_not_permitted",
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    "multiple_tool_calls_not_permitted",
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             if not model_turn.tool_calls:
@@ -130,54 +134,49 @@ class AutonomousController:
                         final_content=model_turn.content,
                     )
 
-                return ControllerResult(
-                    status="blocked",
-                    reason="empty_model_turn",
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    "empty_model_turn",
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             call = model_turn.tool_calls[0]
             validation_error = self._validate_tool_call(call)
             if validation_error is not None:
-                return ControllerResult(
-                    status="blocked",
-                    reason=validation_error,
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    validation_error,
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             call_key = self._call_key(call)
             identical_calls[call_key] = identical_calls.get(call_key, 0) + 1
             if identical_calls[call_key] > self.policy.max_identical_tool_calls:
-                return ControllerResult(
-                    status="blocked",
-                    reason="repeated_identical_tool_call",
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    "repeated_identical_tool_call",
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             try:
                 result = execute_tool(call.name, dict(call.arguments))
             except Exception as exc:
-                return ControllerResult(
-                    status="blocked",
-                    reason="tool_execution_failed: " + type(exc).__name__,
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    "tool_execution_failed: " + type(exc).__name__,
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             if not isinstance(result, dict):
-                return ControllerResult(
-                    status="blocked",
-                    reason="malformed_tool_result",
-                    turns=turn_number,
-                    messages=messages,
-                    tool_history=tool_history,
+                return self._blocked(
+                    "malformed_tool_result",
+                    turn_number,
+                    messages,
+                    tool_history,
                 )
 
             tool_history.append({
@@ -203,12 +202,11 @@ class AutonomousController:
                 "tool_call_id": call.call_id,
             })
 
-        return ControllerResult(
-            status="blocked",
-            reason="turn_budget_exhausted",
-            turns=self.policy.max_turns,
-            messages=messages,
-            tool_history=tool_history,
+        return self._blocked(
+            "turn_budget_exhausted",
+            self.policy.max_turns,
+            messages,
+            tool_history,
         )
 
     def _validate_tool_call(self, call: ToolCall) -> Optional[str]:
@@ -218,8 +216,25 @@ class AutonomousController:
             return "tool_not_authorized"
         if not isinstance(call.arguments, dict):
             return "invalid_tool_arguments"
+        if call.name in self.policy.write_tools and call.name not in self.policy.authorized_write_tools:
+            return "write_not_authorized"
         return None
 
     @staticmethod
     def _call_key(call: ToolCall) -> str:
         return call.name + "|" + repr(sorted(call.arguments.items()))
+
+    @staticmethod
+    def _blocked(
+        reason: str,
+        turns: int,
+        messages: List[Dict[str, Any]],
+        tool_history: List[Dict[str, Any]],
+    ) -> ControllerResult:
+        return ControllerResult(
+            status="blocked",
+            reason=reason,
+            turns=turns,
+            messages=messages,
+            tool_history=tool_history,
+        )
