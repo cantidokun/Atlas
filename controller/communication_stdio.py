@@ -36,22 +36,31 @@ def process_lines(
     A malformed message never reaches the command handler.  When a usable
     request id can be recovered, the error response carries that id so the
     remote caller can correlate the failure without human intervention.
+
+    Unexpected command-handler failures are isolated to the current request.
+    The communication process must remain alive after a local executor or
+    integration defect so an autonomous caller can receive a structured error
+    and decide how to recover instead of losing the bridge entirely.
     """
     for line in lines:
         if not line.strip():
             continue
 
+        message = None
         try:
             message = json.loads(line)
             response = gateway.handle_message(message)
         except (json.JSONDecodeError, CommunicationProtocolError) as exc:
-            response = _error_response(message if "message" in locals() else None, str(exc))
+            response = _error_response(message, "protocol_error", str(exc))
+        except Exception as exc:  # pragma: no cover - exercised by integration tests
+            response = _error_response(
+                message,
+                "internal_error",
+                f"{type(exc).__name__}: {exc}",
+            )
 
         output.write(json.dumps(response, sort_keys=True, separators=(",", ":")) + "\n")
         output.flush()
-
-        if "message" in locals():
-            del message
 
 
 def run_stdio(
@@ -126,11 +135,11 @@ def run_aider_controller_stdio(
     )
 
 
-def _error_response(message: object, error: str) -> Dict[str, object]:
+def _error_response(message: object, code: str, error: str) -> Dict[str, object]:
     response: Dict[str, object] = {
         "protocol_version": "1",
         "status": "error",
-        "error": {"code": "protocol_error", "message": error},
+        "error": {"code": code, "message": error},
     }
 
     if isinstance(message, dict):
