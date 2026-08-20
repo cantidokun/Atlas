@@ -3,7 +3,9 @@
 import io
 import json
 
-from controller.communication_gateway import ControllerCommunicationGateway
+import pytest
+
+from controller.communication_gateway import ControllerCommunicationGateway, CommunicationProtocolError
 from controller.communication_runtime import ControllerCommunicationRuntime
 from controller.communication_stdio import process_lines
 
@@ -129,6 +131,7 @@ def test_stdio_transport_can_complete_a_controller_command_round_trip():
 
     assert responses[0]["event"] == "session_opened"
     assert responses[1]["payload"]["status"] == "ready"
+    assert responses[1]["payload"]["max_model_turn_seconds"] == 300.0
     assert calls == []
 
 
@@ -298,3 +301,55 @@ def test_model_run_provider_exception_fails_closed():
 
     assert result["status"] == "failed"
     assert "provider unavailable" in result["model_turn"]["error"]
+
+
+def test_model_run_rejects_timeout_above_host_limit_without_starting_model():
+    calls = []
+
+    def model_executor(message, timeout_seconds):
+        calls.append((message, timeout_seconds))
+        return {"returncode": 0, "stdout": "unexpected", "stderr": "", "timed_out": False}
+
+    runtime = ControllerCommunicationRuntime(
+        make_tool_executor([]),
+        model_executor=model_executor,
+        max_model_turn_seconds=30,
+    )
+    start_session(runtime)
+
+    with pytest.raises(CommunicationProtocolError, match="host model-turn limit"):
+        runtime.handle_command(
+            "session-1",
+            "model-run-1",
+            {
+                "command": "model_run",
+                "arguments": {
+                    "turn_id": "turn-1",
+                    "message": "Continue the task.",
+                    "timeout_seconds": 31,
+                },
+            },
+        )
+
+    assert calls == []
+
+
+def test_model_begin_rejects_non_finite_timeout():
+    runtime = ControllerCommunicationRuntime(
+        make_tool_executor([]),
+        max_model_turn_seconds=30,
+    )
+    start_session(runtime)
+
+    with pytest.raises(CommunicationProtocolError, match="finite positive"):
+        runtime.handle_command(
+            "session-1",
+            "model-begin-1",
+            {
+                "command": "model_begin",
+                "arguments": {
+                    "turn_id": "turn-1",
+                    "timeout_seconds": float("inf"),
+                },
+            },
+        )
