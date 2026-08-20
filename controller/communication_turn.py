@@ -121,6 +121,21 @@ class ModelTurnSupervisor:
         self._error = error
         return self.snapshot()
 
+    def timeout(self, turn_id: str, error: str = "model turn deadline exceeded") -> TurnSnapshot:
+        """Explicitly terminate the active turn as timed out.
+
+        Hosts use this when an underlying model process reports its own hard
+        timeout before the supervisor clock is observed again.  This keeps a
+        provider timeout represented as ``TIMED_OUT`` rather than incorrectly
+        classifying it as a generic failure.
+        """
+        self._require_running(turn_id)
+        if not isinstance(error, str) or not error:
+            raise CommunicationProtocolError("error must be a non-empty string")
+        self._state = TurnState.TIMED_OUT
+        self._error = error
+        return self.snapshot()
+
     def cancel(self, turn_id: str) -> TurnSnapshot:
         """Cancel the active turn without retrying or extending its deadline."""
         self._require_running(turn_id)
