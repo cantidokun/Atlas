@@ -19,6 +19,9 @@ A typical process topology is:
 
 The remote side never selects the executor module or executable.  Those are
 local host configuration, and Aider is launched without shell interpretation.
+The host also enforces a maximum model-turn duration so a remote request
+cannot silently remove the stall protection demonstrated by the controller's
+model supervision layer.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import argparse
 import importlib
 from typing import Any, Callable, Sequence
 
+from controller.communication_runtime import DEFAULT_MAX_MODEL_TURN_SECONDS
 from controller.communication_stdio import run_aider_controller_stdio
 
 
@@ -75,6 +79,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Additional Aider argument. Repeat for multiple arguments.",
     )
+    parser.add_argument(
+        "--max-model-turn-seconds",
+        type=float,
+        default=DEFAULT_MAX_MODEL_TURN_SECONDS,
+        help=(
+            "Hard upper bound for any remote model turn in seconds. "
+            f"Default: {DEFAULT_MAX_MODEL_TURN_SECONDS:g}."
+        ),
+    )
     return parser
 
 
@@ -88,6 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.working_directory,
         executable=args.aider_executable,
         extra_args=tuple(args.aider_arg),
+        max_model_turn_seconds=args.max_model_turn_seconds,
     )
     return 0
 
