@@ -5,13 +5,16 @@ starts one configured Aider executable with a supplied message, captures its
 output, and enforces a caller-provided deadline.  The controller remains the
 owner of task state and authorization; this client is only the model-process
 boundary.
+
+Aider is run with automatic commits disabled by default.  The controller must
+retain ownership of the repository's commit boundary rather than allowing a
+model turn to silently create or rewrite Git history.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-import os
 from pathlib import Path
 import subprocess
 from typing import Callable, Mapping, Sequence
@@ -40,15 +43,28 @@ class AiderModelClient:
         working_directory: str | Path,
         extra_args: Sequence[str] = (),
         environment: Mapping[str, str] | None = None,
+        allow_auto_commits: bool = False,
         process_factory: ProcessFactory = subprocess.Popen,
     ) -> None:
         if not executable:
             raise ValueError("executable must be non-empty")
+        if not isinstance(allow_auto_commits, bool):
+            raise ValueError("allow_auto_commits must be a boolean")
+
+        configured_args = tuple(extra_args)
+        if not allow_auto_commits and any(
+            arg in {"--auto-commits", "--dirty-commits"}
+            for arg in configured_args
+        ):
+            raise ValueError(
+                "Aider automatic commits are disabled by controller policy"
+            )
 
         self._executable = executable
         self._working_directory = str(Path(working_directory))
-        self._extra_args = tuple(extra_args)
+        self._extra_args = configured_args
         self._environment = None if environment is None else dict(environment)
+        self._allow_auto_commits = allow_auto_commits
         self._process_factory = process_factory
 
     def run_turn(self, message: str, timeout_seconds: float) -> AiderTurnResult:
@@ -68,7 +84,10 @@ class AiderModelClient:
         ):
             raise ValueError("timeout_seconds must be a finite positive number")
 
-        command = [self._executable, *self._extra_args, "--message", message]
+        command = [self._executable, *self._extra_args]
+        if not self._allow_auto_commits:
+            command.extend(("--no-auto-commits", "--no-dirty-commits"))
+        command.extend(("--message", message))
         process = self._process_factory(
             command,
             cwd=self._working_directory,
