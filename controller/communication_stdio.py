@@ -1,8 +1,8 @@
 """Dependency-free stdin/stdout transport for the controller communication gateway.
 
-The transport remains deliberately unaware of Aider, Blender, Unreal, Ollama,
-or any other execution environment.  A host supplies the already-authorized
-local tool executor and this module composes it with the controller runtime.
+The transport remains deliberately unaware of Blender, Unreal, Ollama, or
+another execution environment.  A host supplies the already-authorized local
+tool executor and, optionally, a bounded model executor.
 """
 
 from __future__ import annotations
@@ -11,11 +11,12 @@ import json
 import sys
 from typing import Callable, Dict, Iterable, TextIO
 
+from controller.aider_model_client import AiderModelClient
 from controller.communication_gateway import (
     CommunicationProtocolError,
     ControllerCommunicationGateway,
 )
-from controller.communication_runtime import ControllerCommunicationRuntime
+from controller.communication_runtime import ControllerCommunicationRuntime, ModelTurnExecutor
 
 
 ToolExecutor = Callable[[str, Dict[str, object]], Dict[str, object]]
@@ -64,19 +65,56 @@ def run_controller_stdio(
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
     *,
+    model_executor: ModelTurnExecutor | None = None,
     clock=None,
 ) -> None:
     """Run the controller communication runtime over newline-delimited JSON.
 
-    This is the local-process composition point: the transport owns only
-    message framing, the gateway owns protocol/session semantics, and the
-    controller runtime owns task state and model-turn supervision.  The
-    caller still supplies the concrete local executor, preventing the
-    communication layer from gaining arbitrary process or tool authority.
+    This is the transport-neutral local composition point: the transport owns
+    only message framing, the gateway owns protocol/session semantics, and the
+    controller runtime owns task state and model-turn supervision.  The caller
+    supplies the concrete local executor and may optionally supply a bounded
+    model executor.
     """
-    runtime = ControllerCommunicationRuntime(execute_tool, clock=clock)
+    runtime = ControllerCommunicationRuntime(
+        execute_tool,
+        model_executor=model_executor,
+        clock=clock,
+    )
     gateway = ControllerCommunicationGateway(runtime.handle_command)
     process_lines(gateway, stdin, stdout)
+
+
+def run_aider_controller_stdio(
+    execute_tool: ToolExecutor,
+    working_directory: str,
+    *,
+    executable: str = "aider",
+    extra_args=(),
+    environment=None,
+    stdin: TextIO = sys.stdin,
+    stdout: TextIO = sys.stdout,
+    clock=None,
+) -> None:
+    """Run the controller gateway with Aider as its bounded model executor.
+
+    This is the first provider-specific host composition.  Aider remains a
+    local model-process adapter; protocol, controller authorization, session
+    state, and timeout/recovery semantics remain in the generic layers.
+    """
+    aider = AiderModelClient(
+        executable=executable,
+        working_directory=working_directory,
+        extra_args=extra_args,
+        environment=environment,
+    )
+    run_controller_stdio(
+        execute_tool,
+        stdin,
+        stdout,
+        model_executor=aider.run_turn,
+        clock=clock,
+    )
 
 
 def _error_response(message: object, error: str) -> Dict[str, object]:
