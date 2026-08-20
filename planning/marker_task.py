@@ -1,12 +1,10 @@
-"""Second Blender task definition: conditionally create the Atlas marker.
-
-This module intentionally contains only task-specific data and invariants. It reuses
-Atlas's generic evidence, action, conditional, verification, and authorization layers.
-"""
+"""Declarative Blender task definition for conditionally creating the Atlas marker."""
 from typing import Any, Dict
 
 from action_plan import ActionSpec
+from planning.evidence_plan import EvidenceRequest
 from planning.target_state import StateInvariant, TargetStateEvaluator
+from planning.task_definition import AtlasTaskDefinition
 
 MARKER_COLLECTION = "Atlas_Test"
 MARKER_OBJECT = "Atlas_Marker"
@@ -40,6 +38,26 @@ def marker_create_action(file_name: str) -> ActionSpec:
             "object_name": MARKER_OBJECT,
         },
         name="create Atlas_Marker",
+    )
+
+
+def marker_task_definition(file_name: str) -> AtlasTaskDefinition:
+    """Return the declarative task contract for marker creation."""
+    return AtlasTaskDefinition(
+        name="marker_creation",
+        evidence=(
+            EvidenceRequest(
+                "inspect_scene",
+                {"file_name": file_name},
+                "inspect_scene",
+            ),
+        ),
+        actions=(marker_create_action(file_name),),
+        evaluator=marker_target_evaluator(),
+        allowed_action_tools={"create_empty_marker"},
+        allow_writes=True,
+        verify_after_action=True,
+        metadata={"domain": "blender", "operation": "marker_creation"},
     )
 
 
