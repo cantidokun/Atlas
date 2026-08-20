@@ -6,6 +6,7 @@ import types
 import pytest
 
 from controller import communication_host
+from controller.communication_runtime import DEFAULT_MAX_MODEL_TURN_SECONDS
 
 
 def test_load_tool_executor_imports_explicit_callable(monkeypatch):
@@ -47,6 +48,7 @@ def test_parser_keeps_local_execution_configuration_explicit():
             "C:/Tools/aider.exe",
             "--aider-arg=--yes-always",
             "--aider-arg=--no-auto-commits",
+            "--max-model-turn-seconds=120",
         ]
     )
 
@@ -54,6 +56,20 @@ def test_parser_keeps_local_execution_configuration_explicit():
     assert args.tool_executor == "host_tools:execute"
     assert args.aider_executable == "C:/Tools/aider.exe"
     assert args.aider_arg == ["--yes-always", "--no-auto-commits"]
+    assert args.max_model_turn_seconds == 120.0
+
+
+def test_parser_uses_safe_default_model_turn_limit():
+    args = communication_host.build_parser().parse_args(
+        [
+            "--working-directory",
+            "C:/Atlas/unreal",
+            "--tool-executor",
+            "host_tools:execute",
+        ]
+    )
+
+    assert args.max_model_turn_seconds == DEFAULT_MAX_MODEL_TURN_SECONDS
 
 
 def test_main_loads_executor_and_composes_aider_host(monkeypatch):
@@ -78,6 +94,7 @@ def test_main_loads_executor_and_composes_aider_host(monkeypatch):
             "--aider-executable",
             "aider.exe",
             "--aider-arg=--yes-always",
+            "--max-model-turn-seconds=120",
         ]
     )
 
@@ -87,4 +104,5 @@ def test_main_loads_executor_and_composes_aider_host(monkeypatch):
     assert captured["kwargs"] == {
         "executable": "aider.exe",
         "extra_args": ("--yes-always",),
+        "max_model_turn_seconds": 120.0,
     }
