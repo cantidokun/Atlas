@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from controller.communication_gateway import ControllerCommunicationGateway, CommunicationProtocolError
+from controller.communication_gateway import ControllerCommunicationGateway
 
 
 class SessionControllerRuntime:
@@ -14,6 +14,8 @@ class SessionControllerRuntime:
         self.gateway = ControllerCommunicationGateway(handle_command)
 
     def open(self, session_id: str) -> Dict[str, Any]:
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError("session_id must be a non-empty string")
         return self.gateway.handle_message({
             "protocol_version": "1",
             "id": f"open:{session_id}",
