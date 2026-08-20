@@ -158,8 +158,8 @@ def test_run_controller_stdio_isolates_unexpected_handler_failure():
     assert responses[2]["status"] == "error"
     assert responses[2]["id"] == "execute-1"
     assert responses[2]["session_id"] == "session-1"
-    assert responses[2]["error"]["code"] == "internal_error"
-    assert "local executor unavailable" in responses[2]["error"]["message"]
+    assert responses[2]["payload"]["error"]["code"] == "internal_error"
+    assert "local executor unavailable" in responses[2]["payload"]["error"]["message"]
     assert responses[3]["status"] == "ok"
     assert responses[3]["id"] == "status-1"
     assert calls
