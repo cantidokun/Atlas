@@ -78,8 +78,12 @@ def test_turn_rejects_wrong_identity_and_invalid_deadline():
 
     with pytest.raises(CommunicationProtocolError, match="turn_id"):
         supervisor.begin("", 5)
-    with pytest.raises(CommunicationProtocolError, match="greater than zero"):
-        supervisor.begin("turn-1", 0)
+    with pytest.raises(CommunicationProtocolError, match="finite positive number"):
+        supervisor.begin("turn-nan", float("nan"))
+    with pytest.raises(CommunicationProtocolError, match="finite positive number"):
+        supervisor.begin("turn-inf", float("inf"))
+    with pytest.raises(CommunicationProtocolError, match="finite positive number"):
+        supervisor.begin("turn-zero", 0)
 
     supervisor.begin("turn-1", 5)
     with pytest.raises(CommunicationProtocolError, match="does not match"):
