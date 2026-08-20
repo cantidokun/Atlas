@@ -221,6 +221,62 @@ Automatic retry is prohibited. A failure cannot silently mutate an already-autho
 
 ---
 
+# Controller communication bridge — human-bridge removal status
+
+The controller/communication layer has now passed its major autonomous-communication milestones on PR #12 (`controller/communication-runtime`):
+
+### Verified
+
+- programmatic client → controller host process boundary;
+- controller host → Aider subprocess boundary;
+- session creation, request correlation, and request deduplication;
+- controller-owned command routing with no arbitrary remote tool dispatch;
+- bounded model-turn lifecycle supervision;
+- hard model-turn timeout and Aider process termination;
+- recovery after a stalled Aider turn while retaining the controller process;
+- multiple sequential model turns in one controller session;
+- structured success, failure, timeout, and cancellation states;
+- controller-owned Aider Git commit policy (automatic commits disabled by default);
+- process-level end-to-end proof showing communication can continue without a human copying messages between processes.
+
+The latest complete process-boundary proof passed as **GitHub Actions Test #623**. The controller-side architecture therefore no longer requires a human to act as the message relay between the reasoning side and the local Aider process.
+
+### Current roadblock to completely removing the human bridge from this ChatGPT session
+
+The remaining limitation is **integration access from the ChatGPT session itself**, not the controller protocol.
+
+The local controller is now callable by a programmatic client, but this ChatGPT session does **not currently have a live tool/interface that can invoke that local controller on the user's machine**. The architecture is therefore proven, but this chat still lacks the final transport integration that would let ChatGPT directly issue a controller command without the user manually relaying it.
+
+The required final topology is:
+
+```text
+ChatGPT
+   ↓
+callable integration interface
+   ↓
+Atlas Controller
+   ↓
+Aider / local development machine
+   ↓
+result / evidence
+   ↓
+Atlas Controller
+   ↓
+ChatGPT
+```
+
+Until that callable integration is attached to this ChatGPT environment, the human bridge is **architecturally removable but operationally still present at the ChatGPT boundary**.
+
+The controller should therefore be treated as **communication-complete but ChatGPT-integration pending**. Do not confuse the successful controller tests with proof that this specific ChatGPT session already has direct access to the local machine.
+
+### Intended integration direction
+
+The preferred next integration is a tool interface that exposes the already-built controller rather than replacing it. An MCP-style callable integration is one viable direction; the controller remains the authority boundary, while the integration simply provides a secure callable path into it.
+
+This integration work is separate from Unreal/Blender execution work and should not weaken the controller's authorization, verification, timeout, recovery, or Git boundaries.
+
+---
+
 # Runtime integrity
 
 Atlas separates stable instructions from authoritative dynamic state. Runtime continuation is bound to identities including stable instruction fingerprint, authorized plan identity, and authoritative persisted-state identity.
@@ -363,6 +419,12 @@ completion / conservative recovery
 
 The second task must use different invariants and a different action shape while reusing the generic architecture.
 
+## Controller communication bridge
+
+**ARCHITECTURE COMPLETE / CHATGPT INTEGRATION PENDING**
+
+The controller itself has passed process-boundary, resilience, and multi-turn autonomous communication proofs. The remaining step is to attach a callable integration from this ChatGPT environment to the already-built local controller so the user no longer needs to relay messages manually.
+
 ## Future — Digital Twin Identity and Revision Model
 
 **FOUNDATION IMPLEMENTED / BROADER MODEL PLANNED**
@@ -449,9 +511,12 @@ http://localhost:11434/api/chat
 - Preserve provenance.
 - Improve incrementally and preserve working components.
 - Keep `README.md`, `ATLAS_HANDOFF_CURRENT.md`, and `DEVELOPMENT_LOG.md` synchronized with verified milestones.
+- Keep the controller authority boundary intact when adding any ChatGPT/local-machine integration.
 
 ## Resume point
 
 For the next development session, read `ATLAS_HANDOFF_CURRENT.md`, inspect the current `main` HEAD, and check the latest workflow state before changing code.
 
-**Immediate next stage:** build and test a second generic live Blender production task using the existing validation → authorization → deterministic future → execution → verification → receipt architecture.
+**Immediate controller resume point:** connect a callable integration from the ChatGPT environment to the already-verified local controller. Do not weaken controller authorization, timeout, recovery, request-deduplication, session, or Git ownership semantics to achieve connectivity.
+
+**Immediate Blender resume point:** build and test a second generic live Blender production task using the existing validation → authorization → deterministic future → execution → verification → receipt architecture.
