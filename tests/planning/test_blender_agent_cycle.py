@@ -15,7 +15,7 @@ def make_intent():
 
 
 def make_authorization(plan):
-    return ActionAuthorization.for_plan(plan, approver="test")
+    return ActionAuthorization.issue(plan.actions, "test-approval")
 
 
 def test_cycle_builds_authorizes_and_advances_one_verified_action():
@@ -54,9 +54,9 @@ def test_cycle_refuses_missing_authorization_provider():
 
 
 def test_cycle_rejects_authorization_for_different_plan():
-    cycle = BlenderAgentCycle(authorize=lambda _plan: ActionAuthorization.for_plan(
-        ActionPlan(actions=[ActionSpec("inspect_scene", {"file_name": "other.blend"})]),
-        approver="test",
+    cycle = BlenderAgentCycle(authorize=lambda _plan: ActionAuthorization.issue(
+        [ActionSpec("inspect_scene", {"file_name": "other.blend"})],
+        "mismatched-approval",
     ))
 
     with pytest.raises(BlenderAgentCycleError, match="does not match"):
