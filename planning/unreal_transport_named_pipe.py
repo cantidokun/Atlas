@@ -36,6 +36,12 @@ class WindowsNamedPipeTransport:
     
     This transport connects to the Unreal Editor's named pipe server to
     send requests and receive responses.
+    
+    Protocol:
+    - Messages are prefixed with 4-byte little-endian length
+    - Request/response payloads are UTF-8 encoded JSON
+    - Maximum request size: 1MB
+    - Maximum response size: 10MB
     """
     
     PIPE_NAME = r"\\.\pipe\AtlasUnrealTransport"
@@ -56,9 +62,18 @@ class WindowsNamedPipeTransport:
             raise TypeError("request must be UnrealTransportRequest")
         
         # Serialize request
-        json_request = serialize_request(request)
+        try:
+            json_request = serialize_request(request)
+        except Exception as e:
+            raise NamedPipeTransportError(f"Failed to serialize request: {e}")
+        
+        # Validate request size
+        request_bytes = json_request.encode('utf-8')
+        if len(request_bytes) > 1024 * 1024:  # 1MB limit
+            raise NamedPipeTransportError("Request too large (exceeds 1MB limit)")
         
         # Connect to pipe and send/receive
+        pipe_handle = None
         try:
             # Wait for pipe to become available
             win32pipe.WaitNamedPipe(self.pipe_name, self.CONNECT_TIMEOUT_MS)
@@ -74,29 +89,35 @@ class WindowsNamedPipeTransport:
                 None  # No template
             )
             
-            try:
-                # Set pipe mode
-                win32pipe.SetNamedPipeHandleState(
-                    pipe_handle,
-                    win32pipe.PIPE_READMODE_MESSAGE,
-                    None,
-                    None
-                )
-                
-                # Write request
-                win32file.WriteFile(pipe_handle, json_request.encode('utf-8'))
-                win32file.FlushFileBuffers(pipe_handle)
-                
-                # Read response
-                result, response_data = win32file.ReadFile(pipe_handle, 1024 * 1024)  # 1MB max
-                
-                if result != 0:
-                    raise NamedPipeTransportError(f"ReadFile failed with result: {result}")
-                
-                json_response = response_data.decode('utf-8')
-                
-            finally:
-                win32file.CloseHandle(pipe_handle)
+            # Set pipe mode
+            win32pipe.SetNamedPipeHandleState(
+                pipe_handle,
+                win32pipe.PIPE_READMODE_MESSAGE,
+                None,
+                None
+            )
+            
+            # Write request with length prefix
+            request_length = len(request_bytes)
+            length_bytes = request_length.to_bytes(4, byteorder='little')
+            win32file.WriteFile(pipe_handle, length_bytes + request_bytes)
+            win32file.FlushFileBuffers(pipe_handle)
+            
+            # Read response length first
+            result, length_data = win32file.ReadFile(pipe_handle, 4)
+            if result != 0:
+                raise NamedPipeTransportError(f"Failed to read response length: {result}")
+            
+            response_length = int.from_bytes(length_data, byteorder='little')
+            if response_length > 10 * 1024 * 1024:  # 10MB limit
+                raise NamedPipeTransportError("Response too large (exceeds 10MB limit)")
+            
+            # Read response data
+            result, response_data = win32file.ReadFile(pipe_handle, response_length)
+            if result != 0:
+                raise NamedPipeTransportError(f"Failed to read response data: {result}")
+            
+            json_response = response_data.decode('utf-8')
                 
         except pywintypes.error as e:
             error_code, error_name, error_desc = e.args
@@ -108,10 +129,22 @@ class WindowsNamedPipeTransport:
                 raise NamedPipeTransportError(
                     "Unreal transport server busy (pipe in use)"
                 )
+            elif error_code == 121:  # ERROR_SEM_TIMEOUT
+                raise NamedPipeTransportError(
+                    "Timeout waiting for Unreal transport server"
+                )
             else:
                 raise NamedPipeTransportError(
                     f"Named pipe error {error_code}: {error_desc}"
                 )
+        except UnicodeDecodeError as e:
+            raise NamedPipeTransportError(f"Invalid UTF-8 in response: {e}")
+        finally:
+            if pipe_handle is not None:
+                try:
+                    win32file.CloseHandle(pipe_handle)
+                except:
+                    pass  # Best effort cleanup
         
         # Deserialize response
         try:
@@ -123,5 +156,20 @@ class WindowsNamedPipeTransport:
 
 
 def create_named_pipe_transport(pipe_name: Optional[str] = None) -> WindowsNamedPipeTransport:
-    """Create a Windows named pipe transport instance."""
+    """Create a Windows named pipe transport instance.
+    
+    Args:
+        pipe_name: Custom pipe name, defaults to standard Atlas pipe
+        
+    Returns:
+        Configured transport instance
+        
+    Raises:
+        NamedPipeTransportError: If Windows named pipe support unavailable
+    """
     return WindowsNamedPipeTransport(pipe_name)
+
+
+def is_transport_available() -> bool:
+    """Check if Windows named pipe transport is available on this system."""
+    return WINDOWS_AVAILABLE
