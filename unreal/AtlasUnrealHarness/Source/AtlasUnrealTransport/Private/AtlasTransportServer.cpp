@@ -2,6 +2,7 @@
 #include "AtlasUnrealTransport.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Components/ActorComponent.h"
 #include "Dom/JsonObject.h"
@@ -15,6 +16,12 @@
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include <windows.h>
 #include "Windows/HideWindowsPlatformTypes.h"
+
+// Windows.h defines CreateNamedPipe as a macro for CreateNamedPipeW/A.
+// Keep the transport server's CreateNamedPipe member name unambiguous.
+#ifdef CreateNamedPipe
+#undef CreateNamedPipe
+#endif
 #endif
 
 const FString FAtlasTransportServer::PipeName = TEXT("\\\\.\\pipe\\AtlasUnrealTransport");
