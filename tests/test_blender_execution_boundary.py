@@ -3,24 +3,36 @@ import pytest
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 
 
+MOVE_ARGS = {
+    "file_name": "goalpost_test.blend",
+    "object_name": "Goal_Left_post",
+    "location": [0.0, 5.233, 0.0],
+}
+
+
 def test_valid_move_reaches_executor():
     calls = []
     boundary = BlenderExecutionBoundary(lambda tool, args: calls.append((tool, args)) or {"ok": True})
-    result = boundary.execute("move_object", {"object_name": "Goal_Left_post", "location": [0.0, 5.233, 0.0]})
+    result = boundary.execute("move_object", MOVE_ARGS)
     assert result == {"ok": True}
-    assert calls == [("move_object", {"object_name": "Goal_Left_post", "location": [0.0, 5.233, 0.0]})]
+    assert calls == [("move_object", MOVE_ARGS)]
 
 
 def test_valid_move_preserves_tuple_representation():
     calls = []
     boundary = BlenderExecutionBoundary(lambda tool, args: calls.append(args) or {"ok": True})
-    boundary.execute("move_object", {"object_name": "Goal_Left_post", "location": (0.0, 5.233, 0.0)})
+    boundary.execute("move_object", {
+        "file_name": "goalpost_test.blend",
+        "object_name": "Goal_Left_post",
+        "location": (0.0, 5.233, 0.0),
+    })
     assert calls[0]["location"] == (0.0, 5.233, 0.0)
     assert isinstance(calls[0]["location"], tuple)
 
 
 def test_validated_nested_location_is_detached():
-    original = {"object_name": "Goal_Left_post", "location": [0.0, 5.233, 0.0]}
+    original = dict(MOVE_ARGS)
+    original["location"] = list(MOVE_ARGS["location"])
     calls = []
     boundary = BlenderExecutionBoundary(lambda tool, args: calls.append(args) or {"ok": True})
     boundary.execute("move_object", original)
@@ -32,7 +44,22 @@ def test_malformed_move_never_reaches_executor():
     calls = []
     boundary = BlenderExecutionBoundary(lambda tool, args: calls.append((tool, args)) or {"ok": True})
     with pytest.raises(ValueError):
-        boundary.execute("move_object", {"object_name": "Goal_Left_post", "location": [0.0, 5.233]})
+        boundary.execute("move_object", {
+            "file_name": "goalpost_test.blend",
+            "object_name": "Goal_Left_post",
+            "location": [0.0, 5.233],
+        })
+    assert calls == []
+
+
+def test_move_without_file_name_never_reaches_executor():
+    calls = []
+    boundary = BlenderExecutionBoundary(lambda tool, args: calls.append((tool, args)) or {"ok": True})
+    with pytest.raises(ValueError):
+        boundary.execute("move_object", {
+            "object_name": "Goal_Left_post",
+            "location": [0.0, 5.233, 0.0],
+        })
     assert calls == []
 
 
