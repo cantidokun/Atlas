@@ -34,7 +34,7 @@ class UnrealPlanExecutor:
     """Execute every operation in a ``UnrealTaskPlan`` deterministically.
 
     Each operation is dispatched to the adapter endpoint that matches its
-    ``kind``.  Evidence returned by the adapter is validated against the
+    ``kind``. Evidence returned by the adapter is validated against the
     originating operation before being appended to the ledger.
 
     The executor does **not** issue or verify authorization — it only
@@ -45,10 +45,6 @@ class UnrealPlanExecutor:
         if not isinstance(adapter, UnrealAdapterProduction):
             raise TypeError("adapter must be an UnrealAdapterProduction instance")
         self._adapter = adapter
-
-    # ------------------------------------------------------------------
-    # Internal dispatch
-    # ------------------------------------------------------------------
 
     _DISPATCH = {
         UnrealOperationKind.READ: "inspect",
@@ -61,11 +57,13 @@ class UnrealPlanExecutor:
         operation: UnrealOperation,
         authorization_id: str,
     ) -> UnrealEvidence:
-        # Validate arguments before dispatching
-        arguments = {
-            "entity_ids": tuple(operation.entity_ids),
-            "authorization_id": authorization_id,
-        }
+        # Validate the complete operation payload before dispatching. The
+        # operation arguments are preserved so mutation-specific schemas (for
+        # example set_actor_location.location) cannot be bypassed by the
+        # executor.
+        arguments = dict(operation.arguments)
+        arguments["entity_ids"] = tuple(operation.entity_ids)
+        arguments["authorization_id"] = authorization_id
         validate_unreal_tool_call(operation.name, arguments)
 
         method_name = self._DISPATCH.get(operation.kind)
@@ -76,17 +74,12 @@ class UnrealPlanExecutor:
         method = getattr(self._adapter, method_name)
         evidence: UnrealEvidence = method(operation, authorization_id)
 
-        # Validate correlation before accepting into the ledger.
         validate_evidence_for_operation(
             evidence,
             operation.name,
             tuple(operation.entity_ids),
         )
         return evidence
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def execute(
         self,
@@ -123,7 +116,12 @@ class UnrealPlanExecutor:
                 ) from exc
             except ValueError as exc:
                 raise UnrealPlanExecutionError(
-                    f"Evidence validation failed for operation {index} "
+                    f"Evidence/tool validation failed for operation {index} "
+                    f"('{operation.name}'): {exc}"
+                ) from exc
+            except TypeError as exc:
+                raise UnrealPlanExecutionError(
+                    f"Tool argument validation failed for operation {index} "
                     f"('{operation.name}'): {exc}"
                 ) from exc
             ledger.append(evidence)
