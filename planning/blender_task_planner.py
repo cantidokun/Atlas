@@ -9,7 +9,7 @@ canonical tool schema.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List
+from typing import Any, Iterable, List
 
 from controller.blender_capabilities import BLENDER_CAPABILITIES
 from planning.action_plan import ActionPlan, ActionSpec
@@ -38,9 +38,9 @@ class BlenderTaskPlanner:
     def plan(self, intent: BlenderTaskIntent) -> ActionPlan:
         if not isinstance(intent, BlenderTaskIntent):
             raise BlenderPlanningError("intent must be a BlenderTaskIntent")
-        if not intent.task_id.strip():
+        if not isinstance(intent.task_id, str) or not intent.task_id.strip():
             raise BlenderPlanningError("task_id must be non-empty")
-        if not intent.objective.strip():
+        if not isinstance(intent.objective, str) or not intent.objective.strip():
             raise BlenderPlanningError("objective must be non-empty")
         if not intent.actions:
             raise BlenderPlanningError("task must contain at least one action")
