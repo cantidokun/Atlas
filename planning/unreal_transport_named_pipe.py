@@ -11,6 +11,7 @@ from typing import Optional
 try:
     import win32file
     import win32pipe
+    import win32event
     import pywintypes
     WINDOWS_AVAILABLE = True
 except ImportError:
@@ -87,11 +88,29 @@ class WindowsNamedPipeTransport:
                 win32file.WriteFile(pipe_handle, json_request.encode('utf-8'))
                 win32file.FlushFileBuffers(pipe_handle)
                 
-                # Read response
-                result, response_data = win32file.ReadFile(pipe_handle, 1024 * 1024)  # 1MB max
+                # Read response with timeout using overlapped I/O
+                overlapped = pywintypes.OVERLAPPED()
+                overlapped.hEvent = win32event.CreateEvent(None, True, False, None)
                 
-                if result != 0:
-                    raise NamedPipeTransportError(f"ReadFile failed with result: {result}")
+                try:
+                    result, response_data = win32file.ReadFile(pipe_handle, 1024 * 1024, overlapped)
+                    
+                    # Wait for completion with timeout
+                    wait_result = win32event.WaitForSingleObject(overlapped.hEvent, self.READ_TIMEOUT_MS)
+                    
+                    if wait_result == win32event.WAIT_TIMEOUT:
+                        win32file.CancelIo(pipe_handle)
+                        raise NamedPipeTransportError(f"Read operation timed out after {self.READ_TIMEOUT_MS}ms")
+                    elif wait_result != win32event.WAIT_OBJECT_0:
+                        raise NamedPipeTransportError(f"Wait failed with result: {wait_result}")
+                    
+                    # Get the actual result
+                    bytes_read = win32file.GetOverlappedResult(pipe_handle, overlapped, True)
+                    if bytes_read == 0:
+                        raise NamedPipeTransportError("No data read from pipe")
+                        
+                finally:
+                    win32file.CloseHandle(overlapped.hEvent)
                 
                 json_response = response_data.decode('utf-8')
                 
