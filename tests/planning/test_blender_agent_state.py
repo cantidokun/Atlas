@@ -17,7 +17,9 @@ def make_task():
 
 def make_step(*, verified=True, complete=False):
     return BlenderExecutionStep(
-        action=ActionSpec("inspect_scene", {"file_name": "scene.blend"}),
+        index=0,
+        tool="inspect_scene",
+        arguments={"file_name": "scene.blend"},
         result={"status": "ok"},
         verified=verified,
         complete=complete,
