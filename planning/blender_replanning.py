@@ -31,9 +31,15 @@ class BlenderReplanner:
     """Ask a reasoning adapter for a new intent using only verified state."""
 
     def __init__(self, reasoner: Reasoner):
+        if not callable(reasoner):
+            raise BlenderReplanningError("reasoner must be callable")
         self._reasoner = reasoner
 
     def decide(self, state: BlenderAgentState, observation: BlenderObservation) -> ReplanDecision:
+        if not isinstance(state, BlenderAgentState):
+            raise BlenderReplanningError("state must be BlenderAgentState")
+        if not isinstance(observation, BlenderObservation):
+            raise BlenderReplanningError("observation must be BlenderObservation")
         if not observation.verified:
             raise BlenderReplanningError("replanning requires verified observation")
 
@@ -47,5 +53,7 @@ class BlenderReplanner:
             return ReplanDecision(False, None, "reasoner could not determine a safe next action")
         if not isinstance(next_intent, BlenderTaskIntent):
             raise BlenderReplanningError("reasoner must return BlenderTaskIntent or None")
+        if next_intent.task_id == state.task.task_id:
+            raise BlenderReplanningError("replanner must issue a new task identity")
 
         return ReplanDecision(False, next_intent, "objective remains unresolved")
