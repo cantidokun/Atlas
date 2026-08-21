@@ -117,7 +117,9 @@ class UnrealAdapterProduction:
         validate_response_correlation(request, response)
         if not response.success:
             raise UnrealAdapterError(
-                f"Unreal operation '{operation.name}' failed: {response.error}"
+                f"Unreal operation '{operation.name}' (kind={operation.kind.value}, "
+                f"entity_ids={list(operation.entity_ids)}, auth_id={authorization_id}) "
+                f"failed: {response.error}"
             )
         return self._to_evidence(response)
 
