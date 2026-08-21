@@ -1,6 +1,6 @@
 """Explicit bridge from authorized Blender tool names to local adapters.
 
-This module is the first execution-side seam between Atlas's validated action
+This module is the execution-side seam between Atlas's validated action
 model and the concrete Blender adapter functions. It deliberately uses an
 explicit allow-list instead of dynamic attribute lookup so a model cannot turn
 an arbitrary string into executable Python.
@@ -92,8 +92,13 @@ class BlenderToolExecutor:
                 f"Blender tool '{tool}' returned a non-object result"
             )
 
+        # Blender adapters use either an explicit error field or a status of
+        # "error" to report a rejected operation. Do not turn those into an
+        # apparently successful execution merely because the Python call itself
+        # completed without raising an exception.
+        failed = bool(details.get("error")) or details.get("status") == "error"
         return {
-            "ok": True,
-            "state": "completed",
+            "ok": not failed,
+            "state": "failed" if failed else "completed",
             "details": details,
         }
