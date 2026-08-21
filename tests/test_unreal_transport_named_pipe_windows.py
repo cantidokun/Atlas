@@ -34,24 +34,6 @@ def _make_request():
     )
 
 
-def _response_payload(request):
-    import json
-
-    return json.dumps(
-        {
-            "request_id": request.request_id,
-            "operation_name": request.operation_name,
-            "entity_ids": list(request.entity_ids),
-            "success": True,
-            "observed_state": {"FIELD_SURFACE": {"actor_name": "TestActor"}},
-            "error": "",
-            "source": "unreal-editor-atlas-transport",
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-
 def _start_server(pipe_name, win32_modules, behavior):
     win32file, win32pipe, pywintypes = win32_modules
     ready = threading.Event()
@@ -84,7 +66,9 @@ def _start_server(pipe_name, win32_modules, behavior):
                     raise
 
             _, request_data = win32file.ReadFile(handle, 1024 * 1024)
-            request = __import__("json").loads(bytes(request_data).decode("utf-8"))
+            import json
+
+            request = json.loads(bytes(request_data).decode("utf-8"))
 
             if behavior == "delay":
                 time.sleep(0.5)
@@ -101,11 +85,16 @@ def _start_server(pipe_name, win32_modules, behavior):
                 "error": "",
                 "source": "unreal-editor-atlas-transport",
             }
-            response_data = __import__("json").dumps(
+            response_data = json.dumps(
                 response, sort_keys=True, separators=(",", ":")
             ).encode("utf-8")
-            win32file.WriteFile(handle, response_data)
-            win32file.FlushFileBuffers(handle)
+            try:
+                win32file.WriteFile(handle, response_data)
+                win32file.FlushFileBuffers(handle)
+            except pywintypes.error:
+                if behavior != "delay":
+                    raise
+                # The client is expected to close the pipe after the timeout.
         except Exception as exc:  # pragma: no cover - surfaced to test thread
             errors.append(exc)
         finally:
@@ -148,8 +137,10 @@ def test_named_pipe_pending_read_timeout_cancels_and_closes(win32_modules):
     transport = _transport(pipe_name)
     transport.READ_TIMEOUT_MS = 100
 
+    from planning.unreal_transport_named_pipe import NamedPipeTransportError
+
     started = time.monotonic()
-    with pytest.raises(Exception, match="Read operation timed out"):
+    with pytest.raises(NamedPipeTransportError, match="Read operation timed out"):
         transport.send(_make_request())
     elapsed = time.monotonic() - started
 
