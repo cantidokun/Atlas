@@ -68,6 +68,7 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
   - Windows named-pipe production transport;
   - 5-second connection timeout;
   - 30-second overlapped response-read timeout;
+  - true overlapped client handle for both request write and response read;
   - timeout cancellation and existing `NamedPipeTransportError` propagation.
 - `planning/unreal_plan_executor.py`
   - Unreal-specific READ/WRITE/VERIFY dispatch;
@@ -98,21 +99,24 @@ The production Named Pipe transport has been audited and hardened against an ind
 Confirmed transport behavior:
 
 - connection availability uses the existing 5-second `WaitNamedPipe` timeout;
+- the client pipe handle is opened with `FILE_FLAG_OVERLAPPED`, which is required for genuine overlapped pipe I/O;
+- request writes use overlapped I/O while preserving the existing request bytes and message framing;
 - response reads use a 1 MB allocated buffer;
 - response reads use Windows overlapped I/O;
 - `READ_TIMEOUT_MS = 30000` is applied to pending response reads;
-- `ERROR_IO_PENDING` is handled as the normal asynchronous-read path;
-- timeout cancels the pending I/O before the transport closes its handles;
-- non-pending Windows pipe errors continue through the existing `NamedPipeTransportError` boundary;
+- pywin32's `ReadFile` result code is handled directly: `0` means immediate completion and `ERROR_IO_PENDING` means asynchronous completion;
+- timeout cancels the pending read and waits for its completion before releasing the event/pipe handles;
+- `ERROR_MORE_DATA` and other non-pending read failures remain transport errors rather than being silently accepted;
 - the JSON Named Pipe wire protocol was not changed.
 
 Relevant commits:
 
 - `127c99e` introduced the initial overlapped response-read timeout implementation;
 - `6c6be09` corrected buffer handling using an allocated 1 MB read buffer;
-- `2621610` corrected `ERROR_IO_PENDING` exception handling.
+- `2621610` attempted to correct `ERROR_IO_PENDING` handling but incorrectly assumed pywin32 raises for that result;
+- `8ff3640` corrected the transport to use a genuinely overlapped pipe handle, proper pywin32 result-code handling, and overlapped request writes while preserving the existing wire protocol.
 
-These transport changes are intentionally isolated to the Python Named Pipe transport. The Unreal wire contract and `AtlasTransportServer.cpp` were not changed.
+The remaining validation requirement is a real Windows/Unreal transport exercise covering normal response completion, the 30-second pending-read timeout path, and server disconnect behavior.
 
 ## Important production-boundary finding
 
@@ -163,14 +167,14 @@ The harness previously passed in Unreal Engine 5.6.1 after exposing and fixing t
 
 ## Action-runner constraint
 
-Do not run workflow/action-runner tests unless explicitly authorized by the user. Local/offline development may continue when it is isolated from the runner and does not create system conflicts.
+The user has provided ongoing authorization to use the available test/action-runner infrastructure when it is required for development validation. Do not broaden runner usage unnecessarily; prefer focused local/offline validation when it can establish the same fact.
 
 ## Next development phase
 
-1. complete the source-level audit of the production transport and its surrounding failure semantics;
-2. validate the current transport implementation against the existing wire/response contract without changing that protocol;
-3. identify the smallest end-to-end production capability supported by the existing Unreal server;
-4. implement that capability only when its Atlas authorization → transport → Unreal execution → evidence → verification path is fully specified;
+1. perform the real Windows/Unreal validation of the corrected production Named Pipe transaction;
+2. verify timeout, cancellation, disconnect, and normal response behavior at the actual process boundary;
+3. audit the first planned production capability against the current C++ execution surface;
+4. implement the smallest end-to-end production capability only when its Atlas authorization → transport → Unreal execution → evidence → verification path is fully specified;
 5. preserve the disposable Unreal harness as a regression fixture;
 6. expand capabilities incrementally based on real production requirements.
 
