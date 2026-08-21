@@ -1,5 +1,6 @@
 import pytest
 
+from controller.command_registry import CommandCapability, ControllerCommandRegistry
 from controller.communication_gateway import CommunicationProtocolError
 from controller.session_runtime import SessionControllerRuntime
 
@@ -46,3 +47,22 @@ def test_session_runtime_rejects_invalid_session_ids_before_transport():
 
     with pytest.raises(ValueError, match="session_id must be a non-empty string"):
         runtime.open(None)
+
+
+def test_session_runtime_can_enforce_command_registry():
+    calls = []
+    registry = ControllerCommandRegistry([
+        CommandCapability("inspect_scene", "scene.read"),
+    ])
+
+    def handle_command(*args):
+        calls.append(args)
+        return {"accepted": True}
+
+    runtime = SessionControllerRuntime(handle_command, registry)
+    runtime.open("atlas-session")
+
+    with pytest.raises(CommunicationProtocolError, match="command is not registered"):
+        runtime.command("atlas-session", "req-1", "delete_everything", {})
+
+    assert calls == []
