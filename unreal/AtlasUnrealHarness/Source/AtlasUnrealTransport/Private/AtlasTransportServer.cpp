@@ -74,7 +74,7 @@ uint32 FAtlasTransportServer::Run()
     
     while (!bStopRequested)
     {
-        if (!CreateNamedPipe())
+        if (!CreatePipeHandle())
         {
             UE_LOG(LogAtlasTransport, Error, TEXT("Failed to create named pipe"));
             FPlatformProcess::Sleep(1.0f);
@@ -165,7 +165,7 @@ void FAtlasTransportServer::Exit()
     CloseNamedPipe();
 }
 
-bool FAtlasTransportServer::CreateNamedPipe()
+bool FAtlasTransportServer::CreatePipeHandle()
 {
 #if PLATFORM_WINDOWS
     HANDLE hPipe = CreateNamedPipeA(
