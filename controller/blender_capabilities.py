@@ -12,12 +12,12 @@ from controller.command_registry import CommandCapability, ControllerCommandRegi
 
 
 BLENDER_CAPABILITIES = (
-    # Read-only evidence acquisition.
+    # Read-only evidence acquisition. These correspond to the current public
+    # Blender tool surface in tools/__init__.py.
     CommandCapability("inspect_scene", "blender.scene.read"),
     CommandCapability("inspect_mesh", "blender.mesh.read"),
     CommandCapability("inspect_scene_health", "blender.scene.read"),
     CommandCapability("inspect_scene_settings", "blender.scene.read"),
-    CommandCapability("inspect_object", "blender.object.read"),
     CommandCapability("inspect_object_relationship", "blender.relationship.read"),
     CommandCapability("inspect_soccer_components", "blender.scene.read"),
     CommandCapability("inspect_object_parent", "blender.relationship.read"),
