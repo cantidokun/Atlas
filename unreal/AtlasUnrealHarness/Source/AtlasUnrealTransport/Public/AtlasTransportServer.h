@@ -84,14 +84,15 @@ private:
     bool WaitForClient();
     bool ReadRequest(FString& OutJsonRequest);
     bool WriteResponse(const FString& JsonResponse);
-    
+
     bool ParseRequest(const FString& JsonString, FTransportRequest& OutRequest);
     FString SerializeResponse(const FTransportResponse& Response);
-    
+
     bool ValidateRequest(const FTransportRequest& Request, FString& OutError);
     bool ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse);
-    
+
     static void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
     static bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
+    static bool SetActorLocation(const TArray<FString>& EntityIds, const FVector& Location, FString& OutError);
     static AActor* FindActorByEntityId(const FString& EntityId);
 };
