@@ -17,14 +17,18 @@ def main() -> int:
 
     result = boundary.execute_verified("inspect_scene", {"file_name": TARGET_FILE})
 
-    if not isinstance(result, dict):
-        raise AssertionError("Live Blender result must be an object")
-    if result.get("status") not in (None, "ok", "success"):
-        raise AssertionError(f"Unexpected Blender result status: {result}")
-    if "scene" not in result:
-        raise AssertionError(f"Live Blender result is missing scene identity: {result}")
-    if "total_objects" not in result:
-        raise AssertionError(f"Live Blender result is missing object count: {result}")
+    if not result.ok:
+        raise AssertionError(f"Live Blender execution was not successful: {result}")
+    if result.state != "completed":
+        raise AssertionError(f"Unexpected Blender execution state: {result}")
+    if "scene" not in result.details:
+        raise AssertionError(
+            f"Live Blender result is missing scene identity: {result.details}"
+        )
+    if "total_objects" not in result.details:
+        raise AssertionError(
+            f"Live Blender result is missing object count: {result.details}"
+        )
 
     print("ATLAS_LIVE_BLENDER_SMOKE_PASS")
     print(result)
