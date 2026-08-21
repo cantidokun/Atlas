@@ -70,6 +70,11 @@ else:
     result = {{
         "status": "ok",
         "object_name": object_name,
+        "location": [
+            float(obj.location.x),
+            float(obj.location.y),
+            float(obj.location.z),
+        ],
         "rotation_degrees": [math.degrees(angle) for angle in obj.rotation_euler],
     }}
 
