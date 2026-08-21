@@ -325,28 +325,19 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
         return false;
     }
     
-    // Extract entity_ids array
-    const TArray<TSharedPtr<FJsonValue>>* EntityIdsArray;
-    if (!JsonObject->TryGetArrayField(TEXT("entity_ids"), EntityIdsArray))
+    // Extract entity_ids as a strict array of strings. Do not silently drop invalid entries.
+    if (!JsonObject->TryGetStringArrayField(TEXT("entity_ids"), OutRequest.EntityIds))
     {
         UE_LOG(LogAtlasTransport, Error, TEXT("Missing or invalid entity_ids field"));
         return false;
     }
     
-    for (const auto& Value : *EntityIdsArray)
+    // The transport contract requires an arguments object. The current
+    // inspect capability further validates its schema below.
+    if (!JsonObject->TryGetObjectField(TEXT("arguments"), OutRequest.Arguments))
     {
-        FString EntityId;
-        if (Value->TryGetString(EntityId))
-        {
-            OutRequest.EntityIds.Add(EntityId);
-        }
-    }
-    
-    // Extract arguments object
-    const TSharedPtr<FJsonObject>* ArgumentsObject;
-    if (JsonObject->TryGetObjectField(TEXT("arguments"), ArgumentsObject))
-    {
-        OutRequest.Arguments = *ArgumentsObject;
+        UE_LOG(LogAtlasTransport, Error, TEXT("Missing or invalid arguments field"));
+        return false;
     }
     
     return true;
@@ -427,9 +418,37 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
     
     for (const FString& EntityId : Request.EntityIds)
     {
-        if (EntityId.IsEmpty())
+        if (EntityId.IsEmpty() || EntityId.TrimStartAndEnd().IsEmpty())
         {
             OutError = TEXT("entity_ids cannot contain empty strings");
+            return false;
+        }
+    }
+
+    if (!Request.Arguments.IsValid())
+    {
+        OutError = TEXT("arguments cannot be null");
+        return false;
+    }
+
+    TArray<FString> ArgumentEntityIds;
+    if (!Request.Arguments->TryGetStringArrayField(TEXT("entity_ids"), ArgumentEntityIds))
+    {
+        OutError = TEXT("arguments.entity_ids must be an array of strings");
+        return false;
+    }
+
+    if (ArgumentEntityIds.Num() != Request.EntityIds.Num())
+    {
+        OutError = TEXT("arguments.entity_ids must match entity_ids");
+        return false;
+    }
+
+    for (int32 Index = 0; Index < Request.EntityIds.Num(); ++Index)
+    {
+        if (ArgumentEntityIds[Index] != Request.EntityIds[Index])
+        {
+            OutError = TEXT("arguments.entity_ids must match entity_ids");
             return false;
         }
     }
