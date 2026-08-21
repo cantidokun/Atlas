@@ -5,7 +5,7 @@ ordered proposal. It does not authorize or execute the proposal.
 """
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Mapping, Tuple
 
 from planning.unreal_agent import (
     UnrealCapability,
@@ -57,6 +57,18 @@ class UnrealTaskPlanner:
         operations = UnrealAgentPlanBuilder(self.capabilities).for_material_variant(intent)
         return UnrealTaskPlan(intent.intent_id, operations)
 
+    def plan_actor_location_write(
+        self,
+        intent: UnrealTaskIntent,
+        location: Mapping[str, float],
+    ) -> UnrealTaskPlan:
+        """Plan an actor location change with independent post-write inspection."""
+        self._validate_intent(intent)
+        operations = UnrealAgentPlanBuilder(self.capabilities).for_actor_location_write(
+            intent, location
+        )
+        return UnrealTaskPlan(intent.intent_id, operations)
+
 
 class UnrealAgentPlanBuilder:
     def __init__(self, capabilities: UnrealCapabilityRegistry):
@@ -69,13 +81,16 @@ class UnrealAgentPlanBuilder:
             raise ValueError("Unreal task intents require explicit target entity IDs.")
         return targets
 
-    def _operation(self, capability, kind, name, entity_ids):
+    def _operation(self, capability, kind, name, entity_ids, arguments=None):
         self.capabilities.validate(capability, kind)
+        operation_arguments = {"entity_ids": entity_ids}
+        if arguments:
+            operation_arguments.update(arguments)
         operation = UnrealOperation(
             capability=capability,
             kind=kind,
             name=name,
-            arguments={"entity_ids": entity_ids},
+            arguments=operation_arguments,
             entity_ids=entity_ids,
         )
         return self.capabilities.validate_operation(operation)
@@ -122,6 +137,37 @@ class UnrealAgentPlanBuilder:
                 UnrealCapability.MATERIAL,
                 UnrealOperationKind.VERIFY,
                 "verify_material_variant",
+                entity_ids,
+            ),
+        )
+
+    def for_actor_location_write(self, intent, location: Mapping[str, float]):
+        entity_ids = self._require_targets(intent)
+        if not isinstance(location, Mapping):
+            raise TypeError("location must be a mapping")
+        if set(location.keys()) != {"x", "y", "z"}:
+            raise ValueError("location must contain exactly x, y, and z")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location.values()):
+            raise TypeError("location coordinates must be numeric")
+
+        return (
+            self._operation(
+                UnrealCapability.INSPECT_ACTOR,
+                UnrealOperationKind.READ,
+                "inspect_target_actors",
+                entity_ids,
+            ),
+            self._operation(
+                UnrealCapability.MODIFY_ACTOR,
+                UnrealOperationKind.WRITE,
+                "set_actor_location",
+                entity_ids,
+                {"location": dict(location)},
+            ),
+            self._operation(
+                UnrealCapability.INSPECT_ACTOR,
+                UnrealOperationKind.VERIFY,
+                "verify_target_actor_mapping",
                 entity_ids,
             ),
         )
