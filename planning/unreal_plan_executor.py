@@ -14,6 +14,7 @@ from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAd
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_task_planner import UnrealTaskPlan
+from planning.unreal_tool_schema import validate_unreal_tool_call
 
 
 class UnrealPlanExecutionError(RuntimeError):
@@ -60,6 +61,13 @@ class UnrealPlanExecutor:
         operation: UnrealOperation,
         authorization_id: str,
     ) -> UnrealEvidence:
+        # Validate arguments before dispatching
+        arguments = {
+            "entity_ids": tuple(operation.entity_ids),
+            "authorization_id": authorization_id,
+        }
+        validate_unreal_tool_call(operation.name, arguments)
+
         method_name = self._DISPATCH.get(operation.kind)
         if method_name is None:
             raise UnrealPlanExecutionError(
