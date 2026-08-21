@@ -79,7 +79,8 @@ private:
         }
     };
 
-    bool CreateNamedPipe();
+    // Avoid the Windows CreateNamedPipe macro/API name collision.
+    bool CreatePipeHandle();
     void CloseNamedPipe();
     bool WaitForClient();
     bool ReadRequest(FString& OutJsonRequest);
