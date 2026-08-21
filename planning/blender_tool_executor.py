@@ -38,8 +38,6 @@ class BlenderToolExecutorError(ValueError):
     """Raised when a tool cannot be dispatched through the approved surface."""
 
 
-# Keep this mapping explicit. Adding a tool here requires a corresponding
-# capability and canonical schema entry before it can become executable.
 BLENDER_TOOL_HANDLERS: Mapping[str, BlenderToolHandler] = {
     "inspect_scene": inspect_scene,
     "inspect_mesh": inspect_mesh,
@@ -62,7 +60,7 @@ BLENDER_TOOL_HANDLERS: Mapping[str, BlenderToolHandler] = {
 
 
 class BlenderToolExecutor:
-    """Dispatch only canonical, already-authorized Blender tool calls."""
+    """Dispatch canonical Blender tools and expose the verified result shape."""
 
     def __init__(self, handlers: Mapping[str, BlenderToolHandler] = BLENDER_TOOL_HANDLERS):
         self._handlers = dict(handlers)
@@ -83,14 +81,19 @@ class BlenderToolExecutor:
             )
 
         try:
-            result = handler(**dict(arguments))
+            details = handler(**dict(arguments))
         except TypeError as exc:
             raise BlenderToolExecutorError(
                 f"invalid invocation for Blender tool '{tool}': {exc}"
             ) from exc
 
-        if not isinstance(result, dict):
+        if not isinstance(details, dict):
             raise BlenderToolExecutorError(
                 f"Blender tool '{tool}' returned a non-object result"
             )
-        return result
+
+        return {
+            "ok": True,
+            "state": "completed",
+            "details": details,
+        }
