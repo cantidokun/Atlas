@@ -12,6 +12,13 @@ class VerificationDecision:
     evidence: Mapping[str, Any]
 
 
+def _result_fields(result: Any) -> tuple[bool, Any]:
+    """Read either BlenderExecutionResult objects or canonical result mappings."""
+    if isinstance(result, Mapping):
+        return result.get("ok") is True, result.get("details", {})
+    return getattr(result, "ok", False) is True, getattr(result, "details", {})
+
+
 def verify_object_location(
     result: Any,
     *,
@@ -20,10 +27,10 @@ def verify_object_location(
     tolerance: float = 1e-4,
 ) -> VerificationDecision:
     """Verify a fresh inspect_object_transform result against an expected location."""
-    if getattr(result, "ok", False) is not True:
+    ok, details = _result_fields(result)
+    if not ok:
         return VerificationDecision(False, "inspection failed", {"result": result})
 
-    details = getattr(result, "details", {})
     if not isinstance(details, Mapping):
         return VerificationDecision(False, "inspection details are not a mapping", {"details": details})
 
@@ -34,7 +41,11 @@ def verify_object_location(
     if not isinstance(actual, (list, tuple)) or len(actual) != 3:
         return VerificationDecision(False, "inspection result has no valid location", {"location": actual})
 
-    deltas = [abs(float(a) - float(e)) for a, e in zip(actual, expected_location)]
+    try:
+        deltas = [abs(float(a) - float(e)) for a, e in zip(actual, expected_location)]
+    except (TypeError, ValueError):
+        return VerificationDecision(False, "inspection result contains non-numeric location", {"location": actual})
+
     passed = all(delta <= tolerance for delta in deltas)
     return VerificationDecision(
         passed,
