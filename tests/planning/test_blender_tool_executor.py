@@ -27,7 +27,11 @@ def test_executor_dispatches_only_explicit_handlers():
 
     result = executor.execute("inspect_scene", {"file_name": "scene.blend"})
 
-    assert result == {"status": "ok"}
+    assert result == {
+        "ok": True,
+        "state": "completed",
+        "details": {"status": "ok"},
+    }
     assert fake.calls == [("inspect_scene", {"file_name": "scene.blend"})]
 
 
