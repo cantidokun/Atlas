@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Sequence
 
 from planning.action_plan import ActionSpec
 from planning.blender_task_planner import BlenderTaskIntent
@@ -59,7 +59,7 @@ def parse_qwen_reasoning(payload: Mapping[str, Any]) -> QwenReasoning:
             raise QwenReasoningError("action tool must be a non-empty string")
         if not isinstance(arguments, Mapping):
             raise QwenReasoningError("action arguments must be an object")
-        normalized_actions.append(ActionSpec(tool=tool, arguments=dict(arguments)))
+        normalized_actions.append(ActionSpec(tool=tool.strip(), arguments=dict(arguments)))
 
     if not all(isinstance(item, str) and item.strip() for item in success_evidence):
         raise QwenReasoningError("success_evidence entries must be non-empty strings")
