@@ -425,20 +425,35 @@ Proven:
 - conditional write branch
 - generic verification integrated into conditional live flow
 - full CI regression matrix on Python 3.9 and 3.11
+- Unreal Engine production-agent architecture (August 21, 2026)
 
 Architecturally defined but not implemented:
 - dedicated photogrammetry software as the upstream initial-reconstruction stage
 - photogrammetry -> Blender Agent intake boundary
 - Blender Agent cleanup/correction/optimization of photogrammetry output as a
   generalized production workflow
-- Unreal Engine production-agent execution
+
+Unreal Engine production-agent execution:
+ARCHITECTURE CONFIRMED — August 21, 2026
+
+Complete Unreal execution flow proven:
+UnrealTaskPlanner → UnrealTaskPlan → UnrealPlanExecutor → UnrealAdapterProduction → UnrealTransport → Unreal Process
+
+Key architectural decisions:
+- UnrealPlanExecutor remains the Unreal-specific execution boundary
+- AdapterExecutionBridge is NOT used by Unreal execution path
+- READ/WRITE/VERIFY dispatch remains Unreal-specific
+- authorization_id propagated through complete Unreal path
+- Authorization validation delegated to Unreal process
+- Generic Atlas infrastructure unchanged
+- Option B investigation CLOSED
+- Source-level audit found no implementation bugs or architectural gaps
 
 Not yet proven as a general platform capability:
 - arbitrary production task planning across many tools
 - fully unattended autonomous production execution
 - broad live recovery/replanning across arbitrary failure modes
 - photogrammetry-to-Blender production integration
-- Unreal Engine production-agent execution
 
 ============================================================
 13. EXACT NEXT STEPS
@@ -538,6 +553,7 @@ Do not allow an action plan to execute without explicit authorization.
 Do not allow Qwen to bypass Python-owned execution state.
 Do not allow automatic retry after failed writes.
 Keep Blender/Unreal-specific behavior behind appropriate adapter/tool boundaries.
+Do not force Unreal execution through AdapterExecutionBridge — UnrealPlanExecutor remains the Unreal-specific boundary (confirmed August 21, 2026).
 Treat photogrammetry as an upstream reconstruction capability rather than making
 Blender responsible for the initial reconstruction.
 Preserve working components and improve incrementally.

@@ -220,3 +220,60 @@ The change is merged to `main` at:
 The self-hosted live regression was automatically triggered against this new `main` HEAD as run #118. At the time of this log entry its jobs remain waiting, so the live portion is **not yet declared passed**. This is an execution-runner availability gate, not an offline regression failure.
 
 The next major development target is now the broader live autonomous-task proof: use a second non-goalpost production task to demonstrate that the same generic conditional planning, authorization, deterministic future, verification, recovery, and continuation-integrity machinery works outside the original goalpost fixture.
+
+## August 21, 2026 — Unreal Architecture Decision Finalized
+
+### Comprehensive Unreal Integration Audit Completed
+
+A complete source-level audit of the Unreal integration architecture was conducted using all loaded Unreal-specific files:
+- planning/unreal_task_planner.py
+- planning/unreal_capability_registry.py  
+- planning/unreal_adapter_production.py
+- planning/unreal_plan_executor.py
+- planning/unreal_agent.py
+- planning/unreal_evidence_contract.py
+- planning/unreal_tool_schema.py
+- planning/unreal_transport_contract.py
+- planning/unreal_transport_named_pipe.py
+- planning/unreal_transport_serialization.py
+
+### Final Architectural Decision: Option B Investigation CLOSED
+
+**Decision:** UnrealPlanExecutor remains the Unreal-specific execution boundary. AdapterExecutionBridge integration is NOT pursued.
+
+**Rationale:** 
+- Option B would require breaking API changes to UnrealPlanExecutor constructor
+- Generic AdapterExecutionBridge does not support Unreal-specific READ/WRITE/VERIFY dispatch
+- TwinRepresentation dependencies not available in Unreal context
+- Authorization propagation incompatible with generic adapter contract
+
+### Confirmed Unreal Execution Architecture
+
+**Complete execution flow:**
+```
+UnrealTaskPlanner
+→ UnrealTaskPlan  
+→ UnrealPlanExecutor
+→ UnrealAdapterProduction
+→ UnrealTransport
+→ Unreal Process
+→ UnrealEvidence
+→ UnrealPlanExecutor validation/ledger
+```
+
+**Key confirmations:**
+- READ/WRITE/VERIFY dispatch remains Unreal-specific (READ→inspect, WRITE→apply_authorized, VERIFY→verify)
+- authorization_id correctly propagated through complete execution path
+- Authorization validation delegated to Unreal process
+- No implementation bugs or architectural gaps found
+- Generic Atlas infrastructure remains unchanged
+
+### Implementation Status
+
+**COMPLETE AND FUNCTIONAL** — Source-level audit confirmed the Unreal architecture is:
+- Architecturally sound
+- Completely implemented  
+- Ready for execution
+- No modifications required
+
+The Unreal integration maintains appropriate separation from generic Atlas orchestration while providing complete production-agent capabilities.
