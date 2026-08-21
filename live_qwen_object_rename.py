@@ -135,6 +135,7 @@ def main() -> None:
         case=args.case,
     )
 
+    execution_count = 0
     if not state.satisfied:
         authorize_task_plan(
             proposal,
@@ -149,6 +150,8 @@ def main() -> None:
         capture: Dict[str, Any] = {}
 
         def execute_once(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            nonlocal execution_count
+            execution_count += 1
             normalized, receipt = execution.execute_with_receipt(tool, arguments)
             capture["normalized"] = normalized
             capture["receipt"] = receipt
@@ -162,6 +165,12 @@ def main() -> None:
         if not result.get("ok"):
             raise RuntimeError(f"Authorized object rename action failed: {result}")
         audit.record_action(0, {"tool": action.tool, "arguments": dict(action.arguments), "name": action.name}, result, True)
+
+    expected_execution_count = 0 if state.satisfied else 1
+    if execution_count != expected_execution_count:
+        raise RuntimeError(
+            f"Object rename execution count mismatch: expected {expected_execution_count}, got {execution_count}"
+        )
 
     final = evidence("inspect_scene", {"file_name": file_name})
     final_state = orchestrator.verify_post_action(final)
