@@ -17,6 +17,7 @@ from planning.runtime_integrity import (
 from planning.runtime_state import FutureRuntimeStateStore
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+VerificationResolver = Callable[[FutureStep, ToolExecutor], Dict[str, Any]]
 
 
 class AutonomousFutureRuntime:
@@ -106,8 +107,16 @@ class AutonomousFutureRuntime:
         execute: ToolExecutor,
         acknowledgements: Optional[Dict[str, Dict[str, Any]]] = None,
         verifications: Optional[Dict[str, Dict[str, Any]]] = None,
+        verification_resolver: Optional[VerificationResolver] = None,
     ) -> Dict[str, Any]:
-        """Advance automatically until completion, failure, or missing external input."""
+        """Advance until completion, failure, or missing external input.
+
+        ``verification_resolver`` is the autonomous bridge for live tools: it
+        may acquire fresh evidence through the same authorized executor and
+        must return the controller's explicit ``{"satisfied": bool, ...}``
+        verification contract. The legacy ``verifications`` mapping remains
+        supported for externally supplied verification receipts.
+        """
         acknowledgements = acknowledgements or {}
         verifications = verifications or {}
 
@@ -124,9 +133,13 @@ class AutonomousFutureRuntime:
                 continue
 
             if step.phase == "VERIFICATION":
-                if step.step_id not in verifications:
+                if verification_resolver is not None:
+                    verification = verification_resolver(step, execute)
+                    self.controller.verify(verification)
+                elif step.step_id in verifications:
+                    self.controller.verify(verifications[step.step_id])
+                else:
                     return self._checkpoint()["snapshot"]
-                self.controller.verify(verifications[step.step_id])
                 self._checkpoint()
                 if self.controller.blocked:
                     return self.controller.snapshot()
@@ -151,6 +164,12 @@ class AutonomousFutureRuntime:
         execute: ToolExecutor,
         acknowledgements: Optional[Dict[str, Dict[str, Any]]] = None,
         verifications: Optional[Dict[str, Dict[str, Any]]] = None,
+        verification_resolver: Optional[VerificationResolver] = None,
     ) -> Dict[str, Any]:
         runtime = cls.resume_from_store(steps, state_store, runtime_context)
-        return runtime.run_until_pause(execute, acknowledgements, verifications)
+        return runtime.run_until_pause(
+            execute,
+            acknowledgements,
+            verifications,
+            verification_resolver,
+        )
