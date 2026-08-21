@@ -93,5 +93,6 @@ private:
     
     static void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
     static bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
+    static bool SetActorLocation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static AActor* FindActorByEntityId(const FString& EntityId);
 };

@@ -37,6 +37,7 @@ DEFAULT_UNREAL_CAPABILITIES = (
         frozenset({UnrealOperationKind.WRITE}),
         ("actor_state",),
         "Modify an already-authorized Unreal Actor representation.",
+        argument_keys=frozenset({"entity_ids", "location"}),
     ),
     UnrealCapabilitySpec(
         UnrealCapability.INSPECT_ASSET,
