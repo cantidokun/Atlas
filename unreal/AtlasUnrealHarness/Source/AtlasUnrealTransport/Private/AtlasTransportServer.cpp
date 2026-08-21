@@ -2,6 +2,7 @@
 #include "AtlasUnrealTransport.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Components/ActorComponent.h"
 #include "Dom/JsonObject.h"
@@ -385,25 +386,7 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
         OutError = TEXT("request_id cannot be empty");
         return false;
     }
-    
-    if (Request.OperationName != TEXT("inspect_target_actors"))
-    {
-        OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName);
-        return false;
-    }
-    
-    if (Request.Capability != TEXT("inspect_actor"))
-    {
-        OutError = FString::Printf(TEXT("Unsupported capability: %s"), *Request.Capability);
-        return false;
-    }
-    
-    if (Request.Kind != TEXT("read"))
-    {
-        OutError = FString::Printf(TEXT("Unsupported kind: %s"), *Request.Kind);
-        return false;
-    }
-    
+
     if (Request.AuthorizationId.IsEmpty() || Request.AuthorizationId.TrimStartAndEnd().IsEmpty())
     {
         OutError = TEXT("authorization_id cannot be empty");
@@ -452,8 +435,63 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
             return false;
         }
     }
-    
-    return true;
+
+    if (Request.OperationName == TEXT("inspect_target_actors"))
+    {
+        if (Request.Capability != TEXT("inspect_actor"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported capability for inspect_target_actors: %s"), *Request.Capability);
+            return false;
+        }
+        if (Request.Kind != TEXT("read"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported kind for inspect_target_actors: %s"), *Request.Kind);
+            return false;
+        }
+        return true;
+    }
+
+    if (Request.OperationName == TEXT("set_actor_location"))
+    {
+        if (Request.Capability != TEXT("modify_actor"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported capability for set_actor_location: %s"), *Request.Capability);
+            return false;
+        }
+        if (Request.Kind != TEXT("write"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported kind for set_actor_location: %s"), *Request.Kind);
+            return false;
+        }
+        if (Request.EntityIds.Num() != 1)
+        {
+            OutError = TEXT("set_actor_location requires exactly one entity_id");
+            return false;
+        }
+
+        const TSharedPtr<FJsonObject>* LocationObject = nullptr;
+        if (!Request.Arguments->TryGetObjectField(TEXT("location"), LocationObject) ||
+            LocationObject == nullptr || !LocationObject->IsValid())
+        {
+            OutError = TEXT("arguments.location must be an object");
+            return false;
+        }
+
+        double X = 0.0;
+        double Y = 0.0;
+        double Z = 0.0;
+        if (!(*LocationObject)->TryGetNumberField(TEXT("x"), X) ||
+            !(*LocationObject)->TryGetNumberField(TEXT("y"), Y) ||
+            !(*LocationObject)->TryGetNumberField(TEXT("z"), Z))
+        {
+            OutError = TEXT("arguments.location must contain numeric x, y, and z");
+            return false;
+        }
+        return true;
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName);
+    return false;
 }
 
 bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
@@ -464,7 +502,8 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
     OutResponse.EntityIds = Request.EntityIds;
     OutResponse.Source = TEXT("unreal-editor-atlas-transport");
     
-    if (Request.OperationName == TEXT("inspect_target_actors"))
+    if (Request.OperationName == TEXT("inspect_target_actors") ||
+        Request.OperationName == TEXT("set_actor_location"))
     {
         // Create shared state that will outlive this function call
         TSharedPtr<FGameThreadExecutionState> SharedState = MakeShareable(new FGameThreadExecutionState());
@@ -532,8 +571,27 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
         return;
     }
     
-    // Execute the inspection
-    bool bTaskSuccess = InspectTargetActors(SharedState->Request.EntityIds, SharedState->ObservedState, SharedState->Error);
+    bool bTaskSuccess = false;
+    if (SharedState->Request.OperationName == TEXT("inspect_target_actors"))
+    {
+        bTaskSuccess = InspectTargetActors(
+            SharedState->Request.EntityIds,
+            SharedState->ObservedState,
+            SharedState->Error);
+    }
+    else if (SharedState->Request.OperationName == TEXT("set_actor_location"))
+    {
+        bTaskSuccess = SetActorLocation(
+            SharedState->Request,
+            SharedState->ObservedState,
+            SharedState->Error);
+    }
+    else
+    {
+        SharedState->Error = FString::Printf(
+            TEXT("Unsupported operation: %s"),
+            *SharedState->Request.OperationName);
+    }
     
     if (bTaskSuccess && SharedState->Error.IsEmpty())
     {
@@ -544,13 +602,67 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     else
     {
         SharedState->Response.bSuccess = false;
-        SharedState->Response.Error = SharedState->Error.IsEmpty() ? TEXT("Unknown error during inspection") : SharedState->Error;
+        SharedState->Response.Error = SharedState->Error.IsEmpty() ? TEXT("Unknown error during Unreal operation") : SharedState->Error;
         SharedState->bSuccess = false;
     }
     
     // Signal completion
     SharedState->bCompleted = true;
     SharedState->CompletionEvent->Trigger();
+}
+
+bool FAtlasTransportServer::SetActorLocation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+{
+    if (!IsInGameThread())
+    {
+        OutError = TEXT("SetActorLocation must be called on game thread");
+        return false;
+    }
+    
+    if (!GEngine || IsEngineExitRequested())
+    {
+        OutError = TEXT("Engine not available or shutting down");
+        return false;
+    }
+
+    if (Request.EntityIds.Num() != 1 || !Request.Arguments.IsValid())
+    {
+        OutError = TEXT("set_actor_location requires exactly one entity_id and valid arguments");
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* LocationObject = nullptr;
+    if (!Request.Arguments->TryGetObjectField(TEXT("location"), LocationObject) ||
+        LocationObject == nullptr || !LocationObject->IsValid())
+    {
+        OutError = TEXT("arguments.location must be an object");
+        return false;
+    }
+
+    double X = 0.0;
+    double Y = 0.0;
+    double Z = 0.0;
+    if (!(*LocationObject)->TryGetNumberField(TEXT("x"), X) ||
+        !(*LocationObject)->TryGetNumberField(TEXT("y"), Y) ||
+        !(*LocationObject)->TryGetNumberField(TEXT("z"), Z))
+    {
+        OutError = TEXT("arguments.location must contain numeric x, y, and z");
+        return false;
+    }
+
+    AActor* Actor = FindActorByEntityId(Request.EntityIds[0]);
+    if (!Actor || !IsValid(Actor))
+    {
+        OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *Request.EntityIds[0]);
+        return false;
+    }
+
+    const FVector NewLocation(static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z));
+    Actor->SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
+
+    // Return independent post-write observation so the caller receives
+    // evidence of the state that Unreal actually holds after mutation.
+    return InspectTargetActors(Request.EntityIds, OutObservedState, OutError);
 }
 
 bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
