@@ -8,11 +8,12 @@ Execution is fail-closed: any adapter or validation error aborts immediately.
 """
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
+from planning.unreal_state_verifier import verify_actor_location
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_tool_schema import validate_unreal_tool_call
 
@@ -56,6 +57,7 @@ class UnrealPlanExecutor:
         self,
         operation: UnrealOperation,
         authorization_id: str,
+        expected_location: Optional[dict] = None,
     ) -> UnrealEvidence:
         # Validate the complete operation payload before dispatching. The
         # operation arguments are preserved so mutation-specific schemas (for
@@ -79,6 +81,10 @@ class UnrealPlanExecutor:
             operation.name,
             tuple(operation.entity_ids),
         )
+
+        if operation.kind is UnrealOperationKind.VERIFY and expected_location is not None:
+            verify_actor_location(evidence, expected_location)
+
         return evidence
 
     def execute(
@@ -106,10 +112,18 @@ class UnrealPlanExecutor:
             raise UnrealPlanExecutionError("authorization_id must be a non-empty string")
 
         ledger: List[UnrealEvidence] = []
+        expected_location: Optional[dict] = None
 
         for index, operation in enumerate(plan.operations):
+            if operation.name == "set_actor_location":
+                expected_location = dict(operation.arguments["location"])
+
             try:
-                evidence = self._execute_one(operation, authorization_id)
+                evidence = self._execute_one(
+                    operation,
+                    authorization_id,
+                    expected_location if operation.kind is UnrealOperationKind.VERIFY else None,
+                )
             except UnrealAdapterError as exc:
                 raise UnrealPlanExecutionError(
                     f"Operation {index} ('{operation.name}') failed: {exc}"
