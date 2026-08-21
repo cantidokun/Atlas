@@ -12,6 +12,7 @@ try:
     import win32file
     import win32pipe
     import win32event
+    import winerror
     import pywintypes
     WINDOWS_AVAILABLE = True
 except ImportError:
@@ -58,20 +59,21 @@ class WindowsNamedPipeTransport:
         
         # Serialize request
         json_request = serialize_request(request)
+        request_data = json_request.encode('utf-8')
         
         # Connect to pipe and send/receive
         try:
             # Wait for pipe to become available
             win32pipe.WaitNamedPipe(self.pipe_name, self.CONNECT_TIMEOUT_MS)
             
-            # Open pipe
+            # Open pipe in overlapped mode so ReadFile/WriteFile can use OVERLAPPED.
             pipe_handle = win32file.CreateFile(
                 self.pipe_name,
                 win32file.GENERIC_READ | win32file.GENERIC_WRITE,
                 0,  # No sharing
                 None,  # Default security
                 win32file.OPEN_EXISTING,
-                0,  # Default attributes
+                win32file.FILE_FLAG_OVERLAPPED,
                 None  # No template
             )
             
@@ -84,8 +86,27 @@ class WindowsNamedPipeTransport:
                     None
                 )
                 
-                # Write request
-                win32file.WriteFile(pipe_handle, json_request.encode('utf-8'))
+                # Write request using overlapped I/O. The request buffer must
+                # remain alive until the operation has completed.
+                write_overlapped = pywintypes.OVERLAPPED()
+                write_overlapped.hEvent = win32event.CreateEvent(None, True, False, None)
+                try:
+                    write_result, _ = win32file.WriteFile(
+                        pipe_handle, request_data, write_overlapped
+                    )
+                    if write_result == winerror.ERROR_IO_PENDING:
+                        win32file.GetOverlappedResult(pipe_handle, write_overlapped, True)
+                    elif write_result != 0:
+                        raise NamedPipeTransportError(
+                            f"WriteFile failed with result: {write_result}"
+                        )
+                    else:
+                        # The operation completed immediately; still obtain the
+                        # final result through the OVERLAPPED API.
+                        win32file.GetOverlappedResult(pipe_handle, write_overlapped, True)
+                finally:
+                    win32file.CloseHandle(write_overlapped.hEvent)
+
                 win32file.FlushFileBuffers(pipe_handle)
                 
                 # Read response with timeout using overlapped I/O
@@ -94,32 +115,49 @@ class WindowsNamedPipeTransport:
                 buffer = win32file.AllocateReadBuffer(1024 * 1024)  # 1MB max
                 
                 try:
-                    try:
-                        result, _ = win32file.ReadFile(pipe_handle, buffer, overlapped)
-                        # Operation completed immediately
-                        nbytes = win32file.GetOverlappedResult(pipe_handle, overlapped, True)
-                    except pywintypes.error as e:
-                        if e.winerror == 997:  # ERROR_IO_PENDING
-                            # Wait for completion with timeout
-                            wait_result = win32event.WaitForSingleObject(overlapped.hEvent, self.READ_TIMEOUT_MS)
-                            
-                            if wait_result == win32event.WAIT_TIMEOUT:
-                                # Cancel the operation and wait for it to complete
-                                win32file.CancelIo(pipe_handle)
-                                # Still need to get the final result to clean up properly
-                                try:
-                                    win32file.GetOverlappedResult(pipe_handle, overlapped, True)
-                                except pywintypes.error:
-                                    pass  # Expected after cancellation
-                                raise NamedPipeTransportError(f"Read operation timed out after {self.READ_TIMEOUT_MS}ms")
-                            elif wait_result != win32event.WAIT_OBJECT_0:
-                                raise NamedPipeTransportError(f"Wait failed with result: {wait_result}")
-                            
-                            # Get the number of bytes read
-                            nbytes = win32file.GetOverlappedResult(pipe_handle, overlapped, True)
-                        else:
-                            # Re-raise other errors (ERROR_BROKEN_PIPE, ERROR_MORE_DATA, etc.)
-                            raise
+                    result, _ = win32file.ReadFile(pipe_handle, buffer, overlapped)
+
+                    if result == winerror.ERROR_IO_PENDING:
+                        # Wait for completion with timeout
+                        wait_result = win32event.WaitForSingleObject(
+                            overlapped.hEvent, self.READ_TIMEOUT_MS
+                        )
+
+                        if wait_result == win32event.WAIT_TIMEOUT:
+                            # Cancel the pending read and wait for cancellation
+                            # to complete before releasing the OVERLAPPED/event.
+                            win32file.CancelIo(pipe_handle)
+                            try:
+                                win32file.GetOverlappedResult(
+                                    pipe_handle, overlapped, True
+                                )
+                            except pywintypes.error as cancel_error:
+                                if cancel_error.winerror != winerror.ERROR_OPERATION_ABORTED:
+                                    raise
+                            raise NamedPipeTransportError(
+                                f"Read operation timed out after {self.READ_TIMEOUT_MS}ms"
+                            )
+                        elif wait_result != win32event.WAIT_OBJECT_0:
+                            raise NamedPipeTransportError(
+                                f"Wait failed with result: {wait_result}"
+                            )
+
+                        # The event is signaled, so the final result can be
+                        # retrieved without another indefinite wait.
+                        nbytes = win32file.GetOverlappedResult(
+                            pipe_handle, overlapped, True
+                        )
+                    elif result == 0:
+                        # Operation completed immediately.
+                        nbytes = win32file.GetOverlappedResult(
+                            pipe_handle, overlapped, True
+                        )
+                    else:
+                        # Preserve the existing transport behavior for pipe
+                        # errors such as ERROR_MORE_DATA.
+                        raise NamedPipeTransportError(
+                            f"ReadFile failed with result: {result}"
+                        )
                     
                     if nbytes == 0:
                         raise NamedPipeTransportError("No data read from pipe")
