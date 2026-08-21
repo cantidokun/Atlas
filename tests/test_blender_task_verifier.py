@@ -20,6 +20,19 @@ def test_location_verification_passes_within_tolerance():
     assert decision.ok is True
 
 
+def test_location_verification_accepts_canonical_mapping():
+    decision = verify_object_location(
+        {
+            "ok": True,
+            "state": "completed",
+            "details": {"object_name": "Goal_Left_post", "location": [0.25, 0.0, 0.0]},
+        },
+        object_name="Goal_Left_post",
+        expected_location=(0.25, 0.0, 0.0),
+    )
+    assert decision.ok is True
+
+
 def test_location_verification_rejects_wrong_object():
     decision = verify_object_location(
         result([0.25, 0.0, 0.0]),
