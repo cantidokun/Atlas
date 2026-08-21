@@ -1,15 +1,13 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 17, 2026
-**Current focus:** Unreal Agent and its supporting architecture only
-**Current branch:** `feat/unreal-engine-harness`
-**Aider workspace:** `agent/unreal-aider-ready`
+**Updated:** August 21, 2026
+**Current focus:** Production Unreal transport boundary and first production capability
+**Current branch:** `agent/unreal-aider-ready`
 **Base:** `main`
-**Current work:** PR #10 — `feat: first Unreal Engine validation harness`
 
 ## Current position
 
-The Unreal Agent has now passed its first real-Unreal validation gate. PR #10 remains Draft and unmerged; the disposable harness is preserved as a regression fixture while development moves to the production Unreal transport boundary.
+The Unreal Agent planning/evidence architecture and the disposable Unreal Engine 5.6 validation harness are established. Development has now moved through the production Unreal transport boundary and its first transport robustness milestone.
 
 Atlas owns the canonical Digital Twin. Unreal is a production representation/execution tool around that canonical state, not the source of truth.
 
@@ -28,6 +26,8 @@ Atlas authorization
         ↓
 Unreal adapter
         ↓
+Unreal transport
+        ↓
 Unreal Engine
         ↓
 Independent Unreal evidence
@@ -40,11 +40,8 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
 ## Implemented Unreal-side architecture
 
 - `planning/unreal_agent.py`
-  - `UnrealCapability`
-  - `UnrealOperationKind`
-  - `UnrealOperation`
-  - `UnrealTaskIntent`
-  - `UnrealAgent`
+  - structured Unreal capabilities, operation kinds, intents, and proposals;
+  - no direct execution authority.
 - `planning/unreal_capability_registry.py`
   - capability permissions;
   - required evidence declarations;
@@ -59,7 +56,22 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
 - `planning/unreal_evidence_contract.py`
   - engine-neutral post-execution evidence shape;
   - operation/entity binding validation.
-- engine-neutral Unreal adapter v0.1 boundary/design.
+- `planning/unreal_adapter_production.py`
+  - stateless production adapter boundary;
+  - authorization propagation;
+  - enriched operation failure context.
+- `planning/unreal_transport_contract.py`
+  - request/response transport contract and correlation validation.
+- `planning/unreal_transport_serialization.py`
+  - strict JSON serialization/deserialization boundary.
+- `planning/unreal_transport_named_pipe.py`
+  - Windows named-pipe production transport;
+  - 5-second connection timeout;
+  - 30-second overlapped response-read timeout;
+  - timeout cancellation and existing `NamedPipeTransportError` propagation.
+- `planning/unreal_plan_executor.py`
+  - Unreal-specific READ/WRITE/VERIFY dispatch;
+  - independent evidence validation and ledger handling.
 
 ## Evidence boundary milestone
 
@@ -79,13 +91,48 @@ Evidence is explicitly **not** an authorization receipt. Evidence cannot authori
 
 Evidence must identify the exact operation and exact Atlas entity targets that produced it.
 
-This gives the production adapter a stable evidence target without coupling Atlas Core to Unreal APIs.
+## Production transport milestone — August 21, 2026
 
-## PR #10 — disposable Unreal Engine harness
+The production Named Pipe transport has been audited and hardened against an indefinite response-read block.
 
-Branch:
+Confirmed transport behavior:
 
-`feat/unreal-engine-harness`
+- connection availability uses the existing 5-second `WaitNamedPipe` timeout;
+- response reads use a 1 MB allocated buffer;
+- response reads use Windows overlapped I/O;
+- `READ_TIMEOUT_MS = 30000` is applied to pending response reads;
+- `ERROR_IO_PENDING` is handled as the normal asynchronous-read path;
+- timeout cancels the pending I/O before the transport closes its handles;
+- non-pending Windows pipe errors continue through the existing `NamedPipeTransportError` boundary;
+- the JSON Named Pipe wire protocol was not changed.
+
+Relevant commits:
+
+- `127c99e` introduced the initial overlapped response-read timeout implementation;
+- `6c6be09` corrected buffer handling using an allocated 1 MB read buffer;
+- `2621610` corrected `ERROR_IO_PENDING` exception handling.
+
+These transport changes are intentionally isolated to the Python Named Pipe transport. The Unreal wire contract and `AtlasTransportServer.cpp` were not changed.
+
+## Important production-boundary finding
+
+The current Python planning/capability surface is broader than the currently implemented Unreal C++ transport server.
+
+Python currently defines/plans operations including:
+
+```text
+inspect_target_actors
+verify_target_actor_mapping
+inspect_material_state
+apply_material_variant
+verify_material_variant
+```
+
+The current C++ transport implementation presently executes `inspect_target_actors` and rejects unsupported operation/capability/kind combinations. This is a confirmed implementation boundary, not a reason to weaken the Python contracts or invent entity discovery.
+
+Therefore the next production capability must be selected deliberately and implemented end-to-end rather than assuming that every declared planner capability is already executable in Unreal.
+
+## Disposable Unreal Engine 5.6 harness
 
 Project:
 
@@ -101,102 +148,33 @@ Automation test:
 
 The harness is Editor-only and disposable. It is not the production adapter.
 
-## Smoke-test result — PASSED
+The harness previously passed in Unreal Engine 5.6.1 after exposing and fixing the missing transform-root defect in the controlled temporary Actor. The exact assertion was preserved rather than weakened.
 
-On August 17, 2026, the harness was compiled and executed in Unreal Engine 5.6.1.
+## Scope constraints
 
-The first execution correctly exposed a harness defect: the temporary `AActor` had no registered transform root, so the controlled transform write could not reach valid Actor state. The assertion was not weakened. The harness was fixed by creating and registering a `USceneComponent` root, then the project was rebuilt successfully.
+- Do not revisit AdapterExecutionBridge or Option B.
+- Do not change the existing Named Pipe wire protocol.
+- Do not introduce entity discovery or an Atlas-side entity cache.
+- Do not add metrics unless a source audit establishes a concrete need.
+- Preserve stateless Unreal adapter behavior.
+- Preserve independent evidence verification.
+- Keep generic Atlas orchestration unchanged unless a shared-interface requirement is demonstrated.
+- Do not weaken existing fail-closed validation.
 
-The exact same automation test was rerun in the real Unreal Editor and **PASSED**.
+## Action-runner constraint
 
-Fix commit:
-
-`95966089ec3c9e3471ad72f9abf75b4c4195bf98`
-
-The fix is now on `feat/unreal-engine-harness` and is present in the dedicated `agent/unreal-aider-ready` workspace history.
-
-## Current smoke-test contract
-
-The C++ harness mirrors the strict structure of the Atlas-side operation contract for the limited smoke-test capability.
-
-A valid operation requires exactly these top-level keys:
-
-```text
-capability
-kind
-name
-arguments
-entity_ids
-```
-
-For the current smoke-test `modify_actor/write` operation, `arguments` must contain exactly:
-
-```text
-entity_ids
-```
-
-The harness fails closed on:
-
-- unsupported operation kinds;
-- unknown top-level keys;
-- unknown argument keys;
-- invalid/missing entity arrays;
-- non-string or empty entity IDs;
-- mismatched `arguments.entity_ids` and top-level `entity_ids`.
-
-It then creates a temporary Unreal Actor, attaches:
-
-`atlas_entity:FIELD_SURFACE`
-
-and verifies the controlled smoke-test write reaches:
-
-`X=100, Y=200, Z=300`
-
-The Actor is destroyed at the end of the test.
-
-## Important scope clarification
-
-The current Actor write is a **controlled engine smoke-test write**. It does not yet prove that a real Atlas authorization receipt crosses a production transport into Unreal.
-
-That is the next architecture.
-
-## Git/workspace separation
-
-The Unreal development workspace is isolated from the Blender development workspace. The dedicated local checkout is:
-
-`C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider`
-
-Its intended branch is:
-
-`agent/unreal-aider-ready`
-
-Do not point Aider at the Blender checkout.
-
-The dedicated branch contains the passed Unreal harness plus the Unreal Aider scope/handoff documentation. The PR branch `feat/unreal-engine-harness` contains the same Unreal harness fix and remains Draft/unmerged.
+Do not run workflow/action-runner tests unless explicitly authorized by the user. Local/offline development may continue when it is isolated from the runner and does not create system conflicts.
 
 ## Next development phase
 
-1. preserve the disposable harness as a regression gate;
-2. design the production Unreal transport boundary;
-3. connect actual Atlas authorization and evidence to that adapter;
-4. prove the first production Unreal capability;
-5. expand capabilities incrementally based on real requirements;
-6. keep the smoke test passing throughout.
+1. complete the source-level audit of the production transport and its surrounding failure semantics;
+2. validate the current transport implementation against the existing wire/response contract without changing that protocol;
+3. identify the smallest end-to-end production capability supported by the existing Unreal server;
+4. implement that capability only when its Atlas authorization → transport → Unreal execution → evidence → verification path is fully specified;
+5. preserve the disposable Unreal harness as a regression fixture;
+6. expand capabilities incrementally based on real production requirements.
 
-Do not treat the disposable harness as production transport.
-
-## Aider handoff
-
-Before the first Aider session:
-
-- confirm the dedicated Unreal checkout is clean;
-- fast-forward/pull it to the intended `agent/unreal-aider-ready` branch state;
-- install Aider separately from the Atlas Python environment;
-- configure the chosen LLM API key without committing secrets;
-- start Aider from the Unreal workspace with `UNREAL_AIDER_SCOPE.md` available;
-- use Aider for local edit/test/commit loops while GitHub Actions remains the remote regression authority.
-
-Aider is an implementation tool, not a replacement for the Atlas architecture, Git history, or CI gates.
+The next implementation should not broaden the C++ operation surface merely because Python already declares future capabilities.
 
 ## Architectural invariant
 
