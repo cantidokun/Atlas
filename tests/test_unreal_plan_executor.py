@@ -4,7 +4,6 @@ import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
-from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_transport_contract import UnrealTransportResponse
@@ -43,6 +42,16 @@ def _location_operation(location):
     )
 
 
+def _verify_operation():
+    return UnrealOperation(
+        capability=UnrealCapability.INSPECT_ACTOR,
+        kind=UnrealOperationKind.VERIFY,
+        name="verify_target_actor_mapping",
+        arguments={"entity_ids": ("FIELD_SURFACE",)},
+        entity_ids=("FIELD_SURFACE",),
+    )
+
+
 def test_executor_preserves_actor_location_payload():
     transport = RecordingTransport({"FIELD_SURFACE": {"location": {"x": 1, "y": 2, "z": 3}}})
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
@@ -64,3 +73,38 @@ def test_executor_rejects_malformed_actor_location_before_transport():
         executor.execute(plan, "auth-location-002")
 
     assert transport.requests == []
+
+
+def test_executor_verifies_actor_location_after_write():
+    target = {"x": 10.0, "y": 20.0, "z": 30.0}
+    transport = RecordingTransport({"FIELD_SURFACE": {"location": target}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan(
+        "location-write-verify",
+        (_location_operation(target), _verify_operation()),
+    )
+
+    result = executor.execute(plan, "auth-location-003")
+
+    assert result.success is True
+    assert len(result.evidence_ledger) == 2
+    assert [request.operation_name for request in transport.requests] == [
+        "set_actor_location",
+        "verify_target_actor_mapping",
+    ]
+
+
+def test_executor_rejects_post_write_location_mismatch():
+    requested = {"x": 10.0, "y": 20.0, "z": 30.0}
+    observed = {"x": 10.0, "y": 20.5, "z": 30.0}
+    transport = RecordingTransport({"FIELD_SURFACE": {"location": observed}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan(
+        "location-write-mismatch",
+        (_location_operation(requested), _verify_operation()),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError, match="does not match expected"):
+        executor.execute(plan, "auth-location-004")
+
+    assert len(transport.requests) == 2
