@@ -11,7 +11,7 @@ def valid_payload():
         "observation": "The left goal post is rotated incorrectly",
         "confidence": 0.94,
         "actions": [
-            {"tool": "set_object_rotation", "arguments": {"object_name": "Goal_L", "rotation": [0, 0, 0]}}
+            {"tool": "set_object_rotation", "arguments": {"file_name": "scene.blend", "object_name": "Goal_L", "rotation_degrees": [0, 0, 0]}}
         ],
         "success_evidence": ["Goal_L rotation matches target"],
     }
