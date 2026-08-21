@@ -1,7 +1,7 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 21, 2026 — automation handoff refresh (10:41 EDT)  
-**Current repository HEAD before this handoff commit:** `a2f1ddd86e45c007ad5b5aeb2b4d4b4f9957c6f4` (`docs: refresh Atlas handoff with current repository state`)  
+**Updated:** August 21, 2026 — automation handoff refresh (13:42 EDT)  
+**Current repository HEAD before this handoff commit:** `7113eef01e26ab1e47fab54d6e1b8bd9d1745421` (`docs: refresh Atlas handoff with latest development milestone`)  
 **Latest development test milestone:** **694 passed** (current conversation/runtime report); the 694 result is not represented as a fresh GitHub Actions verification in this handoff.  
 **Previously recorded verified CI baseline:** 687 passed; Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas Blender-Agent development session.
@@ -12,7 +12,7 @@ Atlas remains actively under development. **Workflow/action-runner testing is cu
 
 The current development loop is progressing offline-safe work while the local action runner is available only when explicitly authorized for testing. No workflow/action-runner test was triggered by this handoff update.
 
-The repository `main` branch was at `a2f1ddd86e45c007ad5b5aeb2b4d4b4f9957c6f4` immediately before this documentation refresh. This handoff commit intentionally records the current development/test state without claiming a new workflow verification.
+The repository `main` branch was at `7113eef01e26ab1e47fab54d6e1b8bd9d1745421` immediately before this documentation refresh. This confirms that the prior handoff commit is the current repository tip; no newer implementation commit was identified in this refresh.
 
 ## 2. Scope
 
@@ -58,7 +58,7 @@ The generic architecture contract is documented in `docs/ATLAS_ARCHITECTURE_CONT
 
 ### `planning/task_definition.py`
 
-`AtlasTaskDefinition` is the task-specific declarative boundary. It carries evidence requests, action specifications, target-state evaluation, allowed action tools, write policy, verification policy, and task metadata. Construction rejects empty task identity, missing evidence/actions, missing tool allowlists, unauthorized action tools, and write-capable tasks that disable post-action verification.
+`AtlasTaskDefinition` is the task-specific declarative boundary. It carries evidence requests, action specifications, target-state evaluation, allowed action tools, write policy, verification policy, and task metadata. Construction rejects empty task identity, missing evidence/actions, missing tool allowlists, and unauthorized action tools. The runtime additionally rejects write-capable tasks that disable post-action verification.
 
 ### `planning/task_runtime.py`
 
