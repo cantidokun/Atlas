@@ -1,6 +1,7 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 21, 2026 — automation handoff refresh  
+**Updated:** August 21, 2026 — automation handoff refresh (07:41 EDT)  
+**Current repository HEAD:** `53e335550015805da7d67f4ba6b0d3b62e54e258` (`docs: refresh current Atlas handoff`)  
 **Latest recorded verified CI baseline:** 687 passed; Python 3.9 and 3.11 green  
 **Purpose:** canonical resume point for the next Atlas Blender-Agent development session.
 
@@ -9,6 +10,8 @@
 Atlas remains actively under development. **Workflow/action-runner testing is currently paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue. Do not treat the recorded 687-pass result as validation for code added after that baseline.
 
 This constraint is deliberate: the action runner is currently unavailable to the user, so development should continue only where it does not require or destabilize that runner.
+
+**Since the previous handoff refresh, no newer repository commit or verified test result was found.** The current HEAD remains the handoff-refresh commit above, so this document records a state refresh rather than claiming a new implementation or test milestone.
 
 ## 2. Scope
 
@@ -85,7 +88,13 @@ Structured Qwen output is constrained before it can become an executable intent.
 
 The latest correction aligned the Qwen reasoning test with the canonical Blender rotation schema using `rotation_degrees` and the required file/object fields.
 
-## 7. Latest test status
+## 7. Model/runtime setup
+
+The current handoff baseline uses **Qwen `qwen3:8b` through Ollama** as the local reasoning model, with Atlas enforcing the planning, authorization, execution, receipt, verification, and replanning boundaries around it. The Blender target runtime baseline is **Blender 4.4.3**. The local Atlas runtime is referred to as **`atlas-local`** in the established development context.
+
+Qwen remains a planner/reasoner, not an execution authority; it cannot turn the Blender adapter into an arbitrary Python execution channel.
+
+## 8. Latest test status
 
 **Recorded CI milestone: 687 passed.**
 
@@ -98,7 +107,9 @@ This is the latest recorded verified baseline available in the handoff context. 
 
 Previously established live proof includes goalpost conditional execution and generic collection creation. Other capabilities, including object rotation and marker creation, remain subject to fresh live proof where applicable.
 
-## 8. Current development stage
+No newer verified test result was identified during this handoff refresh.
+
+## 9. Current development stage
 
 ### Stage 10 — Blender Adapter / Real Execution Bridge
 
@@ -120,7 +131,23 @@ Required properties:
 
 Do not add a second bespoke execution architecture. Reuse the existing planning, authorization, receipt, verification, and state machinery.
 
-## 9. Offline-safe work permitted during runner pause
+## 10. Concrete files/tools currently relevant
+
+Core architecture and planning/runtime files currently documented as relevant include:
+
+- `planning/task_definition.py`
+- `planning/task_runtime.py`
+- `planning/blender_tool_schema.py`
+- `planning/blender_execution_boundary.py`
+- `planning/blender_execution_receipt.py`
+- `tools/blender.py`
+- `tools/blender_transform.py`
+- `docs/ATLAS_ARCHITECTURE_CONTRACT.md`
+- `ATLAS_HANDOFF_CURRENT.md`
+
+The established flow uses `BlenderTaskIntent`, `ActionPlan`, `ConditionalPlanningOrchestrator`, authorization/replan gates, execution receipts, independent verification, and Qwen structured reasoning. The Blender adapter must integrate with those existing contracts rather than creating a parallel path.
+
+## 11. Offline-safe work permitted during runner pause
 
 Continue development that does not require the action runner or real Blender connection, including:
 
@@ -137,7 +164,7 @@ Continue development that does not require the action runner or real Blender con
 
 Do not make changes that introduce a parallel execution path or weaken the existing authorization/verification boundary merely to avoid the runner.
 
-## 10. Blender integration gate
+## 12. Blender integration gate
 
 Do **not** connect to the user's real Blender environment yet merely because the architecture looks close.
 
@@ -157,7 +184,7 @@ independent verification
 
 Only after that should the loop be expanded toward autonomous multi-step Blender work.
 
-## 11. Regression requirements
+## 13. Regression requirements
 
 Preserve and extend coverage for:
 
@@ -179,7 +206,7 @@ Preserve and extend coverage for:
 - adapter normalizes executor results;
 - adapter fails closed on malformed/ambiguous responses.
 
-## 12. Exact resume procedure after runner authorization
+## 14. Exact resume procedure after runner authorization
 
 1. Read this handoff first.
 2. Inspect current `main`/HEAD and identify commits added since the 687-pass baseline.
@@ -191,7 +218,7 @@ Preserve and extend coverage for:
 8. Prove one small live operation with independent verification.
 9. Expand toward rotation/marker and then closed-loop autonomous Blender behavior only after their specific proof gates pass.
 
-## 13. Product architecture reminders
+## 15. Product architecture reminders
 
 - Atlas is a soccer/sports digital-twin production platform, not a generic gym-digital-twin system.
 - Photogrammetry is upstream of Blender.
@@ -199,7 +226,7 @@ Preserve and extend coverage for:
 - Unreal is a later complementary production environment.
 - Canonical Digital Twin identity/state must remain distinct from `.blend` representations and shot-specific variants.
 
-## 14. Do not regress
+## 16. Do not regress
 
 - Do not give Qwen direct Blender execution authority.
 - Do not allow automatic retry after failed writes.
