@@ -1,17 +1,18 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 21, 2026 — automation handoff refresh (07:41 EDT)  
-**Current repository HEAD:** `53e335550015805da7d67f4ba6b0d3b62e54e258` (`docs: refresh current Atlas handoff`)  
-**Latest recorded verified CI baseline:** 687 passed; Python 3.9 and 3.11 green  
+**Updated:** August 21, 2026 — automation handoff refresh (10:41 EDT)  
+**Current repository HEAD before this handoff commit:** `a2f1ddd86e45c007ad5b5aeb2b4d4b4f9957c6f4` (`docs: refresh Atlas handoff with current repository state`)  
+**Latest development test milestone:** **694 passed** (current conversation/runtime report); the 694 result is not represented as a fresh GitHub Actions verification in this handoff.  
+**Previously recorded verified CI baseline:** 687 passed; Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas Blender-Agent development session.
 
 ## 1. Current operating state
 
-Atlas remains actively under development. **Workflow/action-runner testing is currently paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue. Do not treat the recorded 687-pass result as validation for code added after that baseline.
+Atlas remains actively under development. **Workflow/action-runner testing is currently paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue. Do not treat the previously verified 687-pass CI result as validation for code added after that baseline, and do not treat the current 694-pass development report as GitHub Actions verification unless a fresh runner result is explicitly recorded.
 
-This constraint is deliberate: the action runner is currently unavailable to the user, so development should continue only where it does not require or destabilize that runner.
+The current development loop is progressing offline-safe work while the local action runner is available only when explicitly authorized for testing. No workflow/action-runner test was triggered by this handoff update.
 
-**Since the previous handoff refresh, no newer repository commit or verified test result was found.** The current HEAD remains the handoff-refresh commit above, so this document records a state refresh rather than claiming a new implementation or test milestone.
+The repository `main` branch was at `a2f1ddd86e45c007ad5b5aeb2b4d4b4f9957c6f4` immediately before this documentation refresh. This handoff commit intentionally records the current development/test state without claiming a new workflow verification.
 
 ## 2. Scope
 
@@ -96,18 +97,16 @@ Qwen remains a planner/reasoner, not an execution authority; it cannot turn the 
 
 ## 8. Latest test status
 
-**Recorded CI milestone: 687 passed.**
+**Current development milestone: 694 passed.** This result is preserved from the active Atlas development session and is the newest test outcome available in the current conversation context. It should be treated as a development-session result, not as a newly verified GitHub Actions result, because workflow/action-runner testing remains paused.
 
-The corresponding GitHub Actions run was green on both:
+**Previously verified CI milestone: 687 passed.** The corresponding GitHub Actions run was green on both:
 
 - Python 3.9
 - Python 3.11
 
-This is the latest recorded verified baseline available in the handoff context. **Do not trigger a new workflow run while the runner pause is active.** When testing is later authorized, inspect fresh CI rather than assuming 687 still applies.
+The 687-pass result remains the latest explicitly recorded GitHub Actions baseline in the repository handoff history. Any code added after that baseline requires fresh CI validation once workflow testing is authorized.
 
 Previously established live proof includes goalpost conditional execution and generic collection creation. Other capabilities, including object rotation and marker creation, remain subject to fresh live proof where applicable.
-
-No newer verified test result was identified during this handoff refresh.
 
 ## 9. Current development stage
 
@@ -209,14 +208,15 @@ Preserve and extend coverage for:
 ## 14. Exact resume procedure after runner authorization
 
 1. Read this handoff first.
-2. Inspect current `main`/HEAD and identify commits added since the 687-pass baseline.
+2. Inspect current `main`/HEAD and identify commits added since the 687-pass verified CI baseline.
 3. Inspect fresh GitHub Actions status only after workflow testing is explicitly authorized.
-4. Implement the smallest coherent Blender adapter increment.
-5. Add focused tests before considering the increment complete.
-6. Run the applicable regression gate once authorized and fix any failures.
-7. Only after the adapter tests are green, prepare the first controlled live Blender connection.
-8. Prove one small live operation with independent verification.
-9. Expand toward rotation/marker and then closed-loop autonomous Blender behavior only after their specific proof gates pass.
+4. Reconfirm the 694-pass development milestone against the current checkout before treating it as a promotion candidate.
+5. Implement the smallest coherent Blender adapter increment.
+6. Add focused tests before considering the increment complete.
+7. Run the applicable regression gate once authorized and fix any failures.
+8. Only after the adapter tests are green, prepare the first controlled live Blender connection.
+9. Prove one small live operation with independent verification.
+10. Expand toward rotation/marker and then closed-loop autonomous Blender behavior only after their specific proof gates pass.
 
 ## 15. Product architecture reminders
 
@@ -235,4 +235,5 @@ Preserve and extend coverage for:
 - Do not make goalpost-specific behavior the generic architecture.
 - Do not trigger workflow/action-runner tests during the current pause.
 - Do not represent 687 passed as validation of newer code.
+- Do not represent 694 passed as fresh GitHub Actions verification without an actual authorized runner result.
 - Do not connect live Blender until the adapter's focused tests and later authorized regression gates are green.
