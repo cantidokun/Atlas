@@ -162,8 +162,8 @@ class WindowsNamedPipeTransport:
                     if nbytes == 0:
                         raise NamedPipeTransportError("No data read from pipe")
                     
-                    # Extract the actual response data from the buffer
-                    response_data = buffer[:nbytes]
+                    # Convert the allocated memoryview to bytes before decoding.
+                    response_data = bytes(buffer[:nbytes])
                         
                 finally:
                     win32file.CloseHandle(overlapped.hEvent)
