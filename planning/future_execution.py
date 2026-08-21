@@ -154,7 +154,13 @@ class FutureExecutionController:
             self.failed = failure
             self._record(step, "failed", failure)
             raise
-        success = "error" not in result
+        if not isinstance(result, dict):
+            failure = {"sequence": step.sequence, "step_id": step.step_id, "phase": step.phase, "error": "Tool executor returned a non-object result.", "exception_type": "ToolResultTypeError"}
+            self.failed = failure
+            self._record(step, "failed", failure)
+            return failure
+
+        success = result.get("ok") is True
         self._record(step, "succeeded" if success else "failed", result)
         if not success:
             self.failed = {"sequence": step.sequence, "step_id": step.step_id, "phase": step.phase, "result": result}
