@@ -332,12 +332,12 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
         return false;
     }
     
-    // The transport contract requires an arguments object. The current
-    // inspect capability further validates its schema below.
-    if (!JsonObject->TryGetObjectField(TEXT("arguments"), OutRequest.Arguments))
+    // Arguments are optional at parse time so a malformed-but-correlatable
+    // request can still receive a structured validation error response.
+    const TSharedPtr<FJsonObject>* ArgumentsObject;
+    if (JsonObject->TryGetObjectField(TEXT("arguments"), ArgumentsObject))
     {
-        UE_LOG(LogAtlasTransport, Error, TEXT("Missing or invalid arguments field"));
-        return false;
+        OutRequest.Arguments = *ArgumentsObject;
     }
     
     return true;
