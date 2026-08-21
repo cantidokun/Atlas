@@ -15,7 +15,11 @@ def test_autonomous_executor_returns_verified_result_and_receipt():
         }
 
     executor = BlenderAutonomousExecutor(fake_blender)
-    result = executor("move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]})
+    result = executor("move_object", {
+        "file_name": "goalpost_test.blend",
+        "object_name": "Goal_Left_post",
+        "location": [1.0, 2.0, 3.0],
+    })
 
     assert result["ok"] is True
     assert result["state"] == "moved"
@@ -23,9 +27,21 @@ def test_autonomous_executor_returns_verified_result_and_receipt():
     assert executor.last_result is not None
     assert executor.last_receipt is not None
     assert executor.receipt_matches_last_execution(
-        "move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]}
+        "move_object",
+        {
+            "file_name": "goalpost_test.blend",
+            "object_name": "Goal_Left_post",
+            "location": [1.0, 2.0, 3.0],
+        },
     )
-    assert calls == [("move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]})]
+    assert calls == [(
+        "move_object",
+        {
+            "file_name": "goalpost_test.blend",
+            "object_name": "Goal_Left_post",
+            "location": [1.0, 2.0, 3.0],
+        },
+    )]
 
 
 def test_autonomous_executor_rejects_invalid_call_before_blender():
@@ -39,7 +55,11 @@ def test_autonomous_executor_rejects_invalid_call_before_blender():
     )
 
     with pytest.raises(ValueError):
-        executor("move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0]})
+        executor("move_object", {
+            "file_name": "goalpost_test.blend",
+            "object_name": "Goal_Left_post",
+            "location": [1.0, 2.0],
+        })
 
     assert calls == []
     assert executor.last_result is None
@@ -48,7 +68,11 @@ def test_autonomous_executor_rejects_invalid_call_before_blender():
 
 def test_autonomous_executor_rejects_unsuccessful_blender_result():
     executor = BlenderAutonomousExecutor(
-        lambda tool, arguments: {"ok": False, "state": "failed", "details": {"reason": "fixture"}}
+        lambda tool, arguments: {
+            "ok": False,
+            "state": "failed",
+            "details": {"reason": "fixture"},
+        }
     )
 
     with pytest.raises(RuntimeError, match="did not succeed"):
@@ -80,3 +104,38 @@ def test_autonomous_executor_receipt_detects_argument_tampering():
     arguments["new_name"] = "Tampered"
 
     assert not executor.receipt_matches_last_execution("rename_object", arguments)
+
+
+def test_autonomous_executor_rejects_adapter_error_details():
+    executor = BlenderAutonomousExecutor(
+        lambda tool, arguments: {
+            "error": "Object not found",
+            "object_name": arguments["object_name"],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="did not succeed"):
+        executor("move_object", {
+            "file_name": "goalpost_test.blend",
+            "object_name": "Goal_Left_post",
+            "location": [1.0, 2.0, 3.0],
+        })
+
+    assert executor.last_result is None
+    assert executor.last_receipt is None
+
+
+def test_autonomous_executor_rejects_adapter_error_status():
+    executor = BlenderAutonomousExecutor(
+        lambda tool, arguments: {
+            "status": "error",
+            "error": "Object not found",
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="did not succeed"):
+        executor("move_object", {
+            "file_name": "goalpost_test.blend",
+            "object_name": "Goal_Left_post",
+            "location": [1.0, 2.0, 3.0],
+        })
