@@ -1,6 +1,9 @@
 import pytest
 
-from planning.blender_verification_resolver import object_location_resolver
+from planning.blender_verification_resolver import (
+    object_location_resolver,
+    object_locations_resolver,
+)
 from planning.future_generator import FutureStep
 
 
@@ -65,3 +68,28 @@ def test_object_location_resolver_returns_failed_postcondition():
 
     assert result["satisfied"] is False
     assert result["reason"] == "object location differs from expected state"
+
+
+def test_object_locations_resolver_requires_every_object_to_pass():
+    def execute(tool, arguments):
+        location = {
+            "Goal_Left_post": [0.25, 5.0, 0.0],
+            "Goal_Right_Post": [-0.25, -5.0, 0.0],
+        }[arguments["object_name"]]
+        return {
+            "ok": True,
+            "state": "completed",
+            "details": {"object_name": arguments["object_name"], "location": location},
+        }
+
+    resolve = object_locations_resolver(
+        file_name="fixture.blend",
+        expected_locations={
+            "Goal_Left_post": (0.25, 5.0, 0.0),
+            "Goal_Right_Post": (-0.25, -5.0, 0.0),
+        },
+    )
+    result = resolve(FutureStep(0, "verification.pending", "VERIFICATION", "Verify."), execute)
+
+    assert result["satisfied"] is True
+    assert set(result["evidence"]) == {"Goal_Left_post", "Goal_Right_Post"}
