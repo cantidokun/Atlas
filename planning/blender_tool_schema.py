@@ -10,7 +10,7 @@ class BlenderToolSchema:
 
 
 BLENDER_TOOL_SCHEMAS = {
-    "move_object": BlenderToolSchema({"object_name": str, "location": (list, tuple)}),
+    "move_object": BlenderToolSchema({"file_name": str, "object_name": str, "location": (list, tuple)}),
     "inspect_object": BlenderToolSchema({"object_name": str}),
     "inspect_object_relationship": BlenderToolSchema({"object_a": str, "object_b": str}),
     "inspect_scene": BlenderToolSchema({"file_name": str}),
