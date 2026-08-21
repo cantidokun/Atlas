@@ -52,18 +52,22 @@ The Python Named Pipe transport has been hardened against an indefinite response
 Current transport behavior:
 
 - 5-second connection availability timeout;
+- client pipe handle opened with `FILE_FLAG_OVERLAPPED`;
+- request write performed through overlapped I/O with stable request-buffer lifetime;
 - 1 MB allocated response buffer;
 - Windows overlapped response I/O;
 - 30-second `READ_TIMEOUT_MS` for pending response reads;
-- explicit `ERROR_IO_PENDING` handling;
+- explicit pywin32 result-code handling for `ERROR_IO_PENDING`;
 - timeout cancellation before handle cleanup;
-- existing `NamedPipeTransportError` propagation.
+- existing `NamedPipeTransportError` propagation;
+- existing JSON request/response framing preserved exactly.
 
 Relevant commits:
 
 - `127c99e` — initial overlapped response-read timeout implementation;
 - `6c6be09` — corrected allocated-buffer handling;
-- `2621610` — corrected `ERROR_IO_PENDING` handling.
+- `2621610` — attempted to correct `ERROR_IO_PENDING` handling but used exception-based handling that does not match pywin32's `ReadFile` contract;
+- `8ff3640` — corrected the pipe handle mode, request write path, and `ReadFile` result-code handling.
 
 The transport contract and Unreal C++ server wire format remain unchanged.
 
@@ -87,13 +91,14 @@ The Unreal Aider workspace remains isolated from the Blender development workspa
 
 The production phase is now:
 
-1. preserve the disposable harness;
-2. keep the production transport fail-closed and protocol-compatible;
-3. identify the smallest production capability actually supported by the current Unreal server;
-4. connect actual Atlas authorization and independent evidence to that capability;
-5. prove the first production Unreal capability end-to-end;
-6. expand capabilities incrementally based on real requirements;
-7. keep the smoke test as a regression gate throughout.
+1. validate the corrected transport at the real Windows/Unreal process boundary;
+2. cover normal response completion, pending-read timeout, cancellation, and server disconnect;
+3. preserve the disposable harness;
+4. identify the smallest production capability actually supported by the current Unreal server;
+5. connect actual Atlas authorization and independent evidence to that capability;
+6. prove the first production Unreal capability end-to-end;
+7. expand capabilities incrementally based on real requirements;
+8. keep the smoke test as a regression gate throughout.
 
 ## Aider handoff
 
