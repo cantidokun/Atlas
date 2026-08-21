@@ -10,7 +10,7 @@ The real Unreal Engine 5.6 smoke test has **PASSED**:
 
 `Atlas.UnrealAgent.OperationBoundary`
 
-The disposable harness is now a confirmed real-engine regression fixture. The next phase is production Unreal transport and the first production capability; the harness remains in place as a regression gate.
+The disposable harness is a confirmed real-engine regression fixture. Development has now progressed to the production Unreal transport boundary and its response-read timeout hardening.
 
 ## Architectural invariants
 
@@ -21,6 +21,7 @@ The disposable harness is now a confirmed real-engine regression fixture. The ne
 - Unreal provides independent execution evidence.
 - Atlas verifies that evidence independently.
 - The disposable Unreal harness is a regression fixture, not the production adapter.
+- The Unreal adapter remains stateless.
 
 ## Aider operating rules
 
@@ -31,12 +32,46 @@ The disposable harness is now a confirmed real-engine regression fixture. The ne
 5. Prefer small, deterministic changes with regression coverage.
 6. Keep Unreal-specific code and tests clearly scoped.
 7. Treat `UNREAL_AGENT_HANDOFF_CURRENT.md` as the authoritative continuation context.
-8. For complex changes, plan before editing and verify the affected tests before committing.
+8. For complex changes, audit before editing and verify affected tests before committing when test execution is authorized.
 9. Do not introduce a second authorization authority inside Unreal.
+10. Do not revisit AdapterExecutionBridge or Option B.
+11. Do not change the existing Named Pipe wire protocol.
+12. Do not introduce entity discovery or an Atlas-side entity cache.
+13. Do not add metrics unless a source audit establishes a concrete need.
+14. Do not run workflow/action-runner tests unless the user explicitly authorizes them.
+15. Continue isolated source-level development when it cannot create system conflicts.
 
 ## Existing Unreal work
 
-The starting point already includes the Unreal Agent planning boundary, capability registry, strict operation contract, deterministic task planning, engine-neutral evidence contract, adapter v0.1 boundary, and the disposable Unreal Engine 5.6 validation harness.
+The starting point includes the Unreal Agent planning boundary, capability registry, strict operation contract, deterministic task planning, engine-neutral evidence contract, production adapter boundary, Named Pipe transport, and the disposable Unreal Engine 5.6 validation harness.
+
+## Production transport milestone — August 21, 2026
+
+The Python Named Pipe transport has been hardened against an indefinite response-read block without changing the wire protocol.
+
+Current transport behavior:
+
+- 5-second connection availability timeout;
+- 1 MB allocated response buffer;
+- Windows overlapped response I/O;
+- 30-second `READ_TIMEOUT_MS` for pending response reads;
+- explicit `ERROR_IO_PENDING` handling;
+- timeout cancellation before handle cleanup;
+- existing `NamedPipeTransportError` propagation.
+
+Relevant commits:
+
+- `127c99e` — initial overlapped response-read timeout implementation;
+- `6c6be09` — corrected allocated-buffer handling;
+- `2621610` — corrected `ERROR_IO_PENDING` handling.
+
+The transport contract and Unreal C++ server wire format remain unchanged.
+
+## Confirmed implementation boundary
+
+Python currently declares/plans multiple Unreal operations, including inspection, material, and verification operations. The current Unreal C++ transport server only implements the `inspect_target_actors` operation and rejects unsupported operation/capability/kind combinations.
+
+Treat this as an intentional implementation boundary until the next production capability is explicitly designed end-to-end. Do not infer that every planner capability is already executable.
 
 ## Verified engine milestone
 
@@ -46,28 +81,30 @@ The fix is commit `95966089ec3c9e3471ad72f9abf75b4c4195bf98` on `feat/unreal-eng
 
 ## Git/workspace separation
 
-The Unreal Aider workspace is intended to remain isolated from the Blender development workspace. Work on Unreal should occur from the dedicated `agent/unreal-aider-ready` checkout/branch. Do not point Aider at the Blender checkout.
+The Unreal Aider workspace remains isolated from the Blender development workspace. Work on Unreal should occur from the dedicated `agent/unreal-aider-ready` checkout/branch. Do not point Aider at the Blender checkout.
 
 ## After the smoke test
 
-The next development phase is:
+The production phase is now:
 
 1. preserve the disposable harness;
-2. design the production Unreal transport boundary;
-3. connect actual Atlas authorization and evidence to that adapter;
-4. prove the first production Unreal capability;
-5. expand capabilities incrementally based on real requirements;
-6. keep the smoke test as a regression gate throughout.
+2. keep the production transport fail-closed and protocol-compatible;
+3. identify the smallest production capability actually supported by the current Unreal server;
+4. connect actual Atlas authorization and independent evidence to that capability;
+5. prove the first production Unreal capability end-to-end;
+6. expand capabilities incrementally based on real requirements;
+7. keep the smoke test as a regression gate throughout.
 
 ## Aider handoff
 
-Before the first Aider session:
+Before local implementation work:
 
-- confirm the dedicated Unreal checkout is clean;
-- fast-forward it to the intended Unreal development branch state;
-- install Aider separately from the Atlas Python environment;
-- configure the chosen LLM API key without committing secrets;
-- start Aider from the Unreal workspace with the Unreal scope document available;
-- use Aider for local edit/test/commit loops while GitHub Actions remains the remote regression authority.
+- confirm the dedicated Unreal checkout state;
+- use the intended Unreal development branch;
+- keep Aider separate from the Atlas Python runtime where appropriate;
+- never commit secrets;
+- use `UNREAL_AGENT_HANDOFF_CURRENT.md` and this scope document as continuation context;
+- use local edit/test/commit loops only when the relevant tests are authorized;
+- keep GitHub Actions as the remote regression authority.
 
 Aider is an implementation tool, not a replacement for the Atlas architecture, Git history, or CI gates.
