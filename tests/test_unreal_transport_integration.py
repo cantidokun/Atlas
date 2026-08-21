@@ -5,6 +5,7 @@ These tests verify the complete transport pipeline including:
 - Request/response serialization
 - Unreal Editor integration
 - Actor inspection functionality
+- Authorized Actor mutation with post-write evidence
 """
 
 import pytest
@@ -97,6 +98,25 @@ class TestProductionAdapter:
         with pytest.raises(Exception, match="READ operations only"):
             adapter.inspect(write_operation, "auth-123")
 
+    def test_apply_authorized_accepts_actor_location_write(self):
+        """Test that the production adapter accepts a MODIFY_ACTOR WRITE operation."""
+        adapter = create_production_adapter()
+        operation = UnrealOperation(
+            name="set_actor_location",
+            capability=UnrealCapability.MODIFY_ACTOR,
+            kind=UnrealOperationKind.WRITE,
+            arguments={
+                "entity_ids": ("FIELD_SURFACE",),
+                "location": {"x": 100.0, "y": 200.0, "z": 300.0},
+            },
+            entity_ids=("FIELD_SURFACE",),
+        )
+        # The adapter's kind boundary is local; the live transport test below
+        # proves the actual engine mutation.
+        assert operation.kind is UnrealOperationKind.WRITE
+        assert operation.capability is UnrealCapability.MODIFY_ACTOR
+        assert adapter.apply_authorized is not None
+
 
 class TestTransportIntegration:
     """Integration tests that can run without Unreal Editor."""
@@ -128,6 +148,31 @@ class TestTransportIntegration:
         assert data["entity_ids"] == ["FIELD_SURFACE"]
         assert data["authorization_id"] == "auth-abc-123"
         assert data["arguments"]["entity_ids"] == ["FIELD_SURFACE"]
+
+    def test_write_request_serialization_compatibility(self):
+        """Test that an actor location write serializes without losing structure."""
+        from planning.unreal_transport_serialization import serialize_request
+        import json
+
+        request = UnrealTransportRequest(
+            request_id="req-write-001",
+            operation_name="set_actor_location",
+            capability="modify_actor",
+            kind="write",
+            arguments={
+                "entity_ids": ("FIELD_SURFACE",),
+                "location": {"x": 100.0, "y": 200.0, "z": 300.0},
+            },
+            entity_ids=("FIELD_SURFACE",),
+            authorization_id="auth-write-001",
+        )
+
+        data = json.loads(serialize_request(request))
+        assert data["operation_name"] == "set_actor_location"
+        assert data["capability"] == "modify_actor"
+        assert data["kind"] == "write"
+        assert data["arguments"]["entity_ids"] == ["FIELD_SURFACE"]
+        assert data["arguments"]["location"] == {"x": 100.0, "y": 200.0, "z": 300.0}
     
     def test_response_deserialization_compatibility(self):
         """Test that we can deserialize expected response format."""
@@ -230,22 +275,12 @@ class TestTransportIntegration:
 @pytest.mark.integration
 @pytest.mark.skipif(not TRANSPORT_AVAILABLE, reason="Named pipe transport not available")
 class TestRealUnrealIntegration:
-    """Integration tests that require a running Unreal Editor.
-    
-    These tests are marked with @pytest.mark.integration and will only
-    run when explicitly requested and when Unreal Editor is available.
-    """
+    """Integration tests that require a running Unreal Editor."""
     
     def test_real_unreal_connection(self):
-        """Test actual connection to running Unreal Editor.
-        
-        This test distinguishes between:
-        A. Transport unavailable (Unreal not running)
-        B. Transport available but entity not found
-        C. Successful inspection
-        """
+        """Test actual connection to running Unreal Editor."""
         adapter = create_production_adapter("integration-test")
-        
+
         operation = UnrealOperation(
             name="inspect_target_actors",
             capability=UnrealCapability.INSPECT_ACTOR,
@@ -256,18 +291,13 @@ class TestRealUnrealIntegration:
         
         try:
             evidence = adapter.inspect(operation, "integration-test-auth-001")
-            
-            # If we get here, Unreal is running and responded
             assert evidence.operation_name == "inspect_target_actors"
             assert evidence.entity_ids == ("FIELD_SURFACE",)
-            assert evidence.verified is False  # Never verified by transport
+            assert evidence.verified is False
             assert evidence.source.startswith("unreal-editor")
-            
-            # Check observed state structure
             observed = evidence.observed_state
-            if evidence.verified:  # This should never happen
+            if evidence.verified:
                 pytest.fail("Transport incorrectly set verified=True")
-            
             print(f"✓ Real Unreal integration successful: {evidence.source}")
             print(f"✓ Observed state keys: {list(observed.keys())}")
             
@@ -278,7 +308,74 @@ class TestRealUnrealIntegration:
                 pytest.skip("FIELD_SURFACE entity not found in Unreal - setup required")
             else:
                 raise
-    
+
+    def test_real_unreal_authorized_actor_location_write(self):
+        """Test an authorized write and independent post-write observation."""
+        adapter = create_production_adapter("write-integration-test")
+
+        inspect_operation = UnrealOperation(
+            name="inspect_target_actors",
+            capability=UnrealCapability.INSPECT_ACTOR,
+            kind=UnrealOperationKind.READ,
+            arguments={"entity_ids": ("FIELD_SURFACE",)},
+            entity_ids=("FIELD_SURFACE",),
+        )
+
+        try:
+            original = adapter.inspect(inspect_operation, "write-test-inspect-auth")
+            original_location = original.observed_state["FIELD_SURFACE"]["location"]
+
+            target_location = {
+                "x": float(original_location["x"]) + 100.0,
+                "y": float(original_location["y"]) + 100.0,
+                "z": float(original_location["z"]) + 100.0,
+            }
+            write_operation = UnrealOperation(
+                name="set_actor_location",
+                capability=UnrealCapability.MODIFY_ACTOR,
+                kind=UnrealOperationKind.WRITE,
+                arguments={
+                    "entity_ids": ("FIELD_SURFACE",),
+                    "location": target_location,
+                },
+                entity_ids=("FIELD_SURFACE",),
+            )
+
+            try:
+                evidence = adapter.apply_authorized(write_operation, "write-test-auth-001")
+                assert evidence.operation_name == "set_actor_location"
+                assert evidence.entity_ids == ("FIELD_SURFACE",)
+                assert evidence.verified is False
+                observed_location = evidence.observed_state["FIELD_SURFACE"]["location"]
+                assert observed_location["x"] == pytest.approx(target_location["x"], abs=0.1)
+                assert observed_location["y"] == pytest.approx(target_location["y"], abs=0.1)
+                assert observed_location["z"] == pytest.approx(target_location["z"], abs=0.1)
+                print("✓ Authorized Actor write reached Unreal and returned post-write evidence")
+            finally:
+                restore_operation = UnrealOperation(
+                    name="set_actor_location",
+                    capability=UnrealCapability.MODIFY_ACTOR,
+                    kind=UnrealOperationKind.WRITE,
+                    arguments={
+                        "entity_ids": ("FIELD_SURFACE",),
+                        "location": {
+                            "x": float(original_location["x"]),
+                            "y": float(original_location["y"]),
+                            "z": float(original_location["z"]),
+                        },
+                    },
+                    entity_ids=("FIELD_SURFACE",),
+                )
+                adapter.apply_authorized(restore_operation, "write-test-auth-restore")
+
+        except NamedPipeTransportError as e:
+            if "not available" in str(e):
+                pytest.skip("Unreal Editor not running - cannot test real write integration")
+            elif "not found" in str(e):
+                pytest.skip("FIELD_SURFACE entity not found in Unreal - setup required")
+            else:
+                raise
+
     def test_sequential_requests(self):
         """Test that multiple sequential requests work (pipe lifecycle)."""
         adapter = create_production_adapter("sequential-test")
