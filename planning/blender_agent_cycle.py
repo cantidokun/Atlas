@@ -49,7 +49,7 @@ class BlenderAgentCycle:
         authorization = self._authorize(plan)
         if not isinstance(authorization, ActionAuthorization):
             raise BlenderAgentCycleError("authorization provider must return ActionAuthorization")
-        if not authorization.is_valid_for(plan):
+        if not authorization.matches(plan.actions):
             raise BlenderAgentCycleError("authorization does not match the exact action plan")
         plan.authorization = authorization
         return plan
