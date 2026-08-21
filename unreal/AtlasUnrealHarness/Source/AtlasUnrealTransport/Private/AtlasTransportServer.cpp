@@ -49,7 +49,7 @@ bool FAtlasTransportServer::StartServer()
 
     bStopRequested = false;
     Thread = FRunnableThread::Create(this, TEXT("AtlasTransportServer"), 0, TPri_Normal);
-    
+
     return Thread != nullptr;
 }
 
@@ -58,10 +58,10 @@ void FAtlasTransportServer::StopServer()
     if (Thread)
     {
         bStopRequested = true;
-        
+
         // Force close pipe to unblock any waiting operations
         CloseNamedPipe();
-        
+
         Thread->WaitForCompletion();
         delete Thread;
         Thread = nullptr;
@@ -77,7 +77,7 @@ bool FAtlasTransportServer::Init()
 uint32 FAtlasTransportServer::Run()
 {
     UE_LOG(LogAtlasTransport, Log, TEXT("Transport server thread started"));
-    
+
     while (!bStopRequested)
     {
         if (!CreateNamedPipe())
@@ -86,9 +86,9 @@ uint32 FAtlasTransportServer::Run()
             FPlatformProcess::Sleep(1.0f);
             continue;
         }
-        
+
         UE_LOG(LogAtlasTransport, Log, TEXT("Waiting for client connection..."));
-        
+
         if (!WaitForClient())
         {
             CloseNamedPipe();
@@ -99,15 +99,15 @@ uint32 FAtlasTransportServer::Run()
             }
             continue;
         }
-        
+
         if (bStopRequested)
         {
             CloseNamedPipe();
             break;
         }
-        
+
         UE_LOG(LogAtlasTransport, Log, TEXT("Client connected"));
-        
+
         FString JsonRequest;
         if (ReadRequest(JsonRequest))
         {
@@ -116,7 +116,7 @@ uint32 FAtlasTransportServer::Run()
                 CloseNamedPipe();
                 break;
             }
-            
+
             FTransportRequest Request;
             if (ParseRequest(JsonRequest, Request))
             {
@@ -125,7 +125,7 @@ uint32 FAtlasTransportServer::Run()
                 {
                     FTransportResponse Response;
                     ExecuteRequest(Request, Response);
-                    
+
                     FString JsonResponse = SerializeResponse(Response);
                     WriteResponse(JsonResponse);
                 }
@@ -139,7 +139,7 @@ uint32 FAtlasTransportServer::Run()
                     ErrorResponse.bSuccess = false;
                     ErrorResponse.Error = ValidationError;
                     ErrorResponse.Source = TEXT("unreal-editor-atlas-transport");
-                    
+
                     FString JsonResponse = SerializeResponse(ErrorResponse);
                     WriteResponse(JsonResponse);
                 }
@@ -153,10 +153,10 @@ uint32 FAtlasTransportServer::Run()
         {
             UE_LOG(LogAtlasTransport, Warning, TEXT("Failed to read request"));
         }
-        
+
         CloseNamedPipe();
     }
-    
+
     UE_LOG(LogAtlasTransport, Log, TEXT("Transport server thread exiting"));
     return 0;
 }
@@ -184,13 +184,13 @@ bool FAtlasTransportServer::CreateNamedPipe()
         0, // Default timeout
         nullptr
     );
-    
+
     if (hPipe == INVALID_HANDLE_VALUE)
     {
         UE_LOG(LogAtlasTransport, Error, TEXT("CreateNamedPipe failed with error: %d"), GetLastError());
         return false;
     }
-    
+
     PipeHandle = hPipe;
     return true;
 #else
@@ -217,7 +217,7 @@ bool FAtlasTransportServer::WaitForClient()
     {
         return false;
     }
-    
+
     BOOL bConnected = ConnectNamedPipe((HANDLE)PipeHandle, nullptr);
     if (!bConnected)
     {
@@ -226,11 +226,11 @@ bool FAtlasTransportServer::WaitForClient()
         {
             return true; // Client already connected
         }
-        
+
         UE_LOG(LogAtlasTransport, Error, TEXT("ConnectNamedPipe failed with error: %d"), dwError);
         return false;
     }
-    
+
     return true;
 #else
     return false;
@@ -244,13 +244,13 @@ bool FAtlasTransportServer::ReadRequest(FString& OutJsonRequest)
     {
         return false;
     }
-    
+
     TArray<uint8> Buffer;
     Buffer.SetNum(MaxMessageSize);
-    
+
     DWORD BytesRead = 0;
     BOOL bSuccess = ReadFile((HANDLE)PipeHandle, Buffer.GetData(), MaxMessageSize, &BytesRead, nullptr);
-    
+
     if (!bSuccess)
     {
         DWORD dwError = GetLastError();
@@ -262,20 +262,20 @@ bool FAtlasTransportServer::ReadRequest(FString& OutJsonRequest)
         UE_LOG(LogAtlasTransport, Error, TEXT("ReadFile failed with error: %d"), dwError);
         return false;
     }
-    
+
     if (BytesRead == 0)
     {
         UE_LOG(LogAtlasTransport, Warning, TEXT("No data read from pipe"));
         return false;
     }
-    
+
     // Ensure null termination for UTF-8 conversion
     Buffer.SetNum(BytesRead + 1);
     Buffer[BytesRead] = 0;
-    
+
     // Convert to string
     OutJsonRequest = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer.GetData())));
-    
+
     return true;
 #else
     return false;
@@ -289,20 +289,20 @@ bool FAtlasTransportServer::WriteResponse(const FString& JsonResponse)
     {
         return false;
     }
-    
+
     FTCHARToUTF8 UTF8String(*JsonResponse);
     DWORD BytesToWrite = UTF8String.Length();
     DWORD BytesWritten = 0;
-    
+
     BOOL bSuccess = WriteFile((HANDLE)PipeHandle, UTF8String.Get(), BytesToWrite, &BytesWritten, nullptr);
-    
+
     if (!bSuccess || BytesWritten != BytesToWrite)
     {
         DWORD dwError = GetLastError();
         UE_LOG(LogAtlasTransport, Error, TEXT("WriteFile failed with error: %d"), dwError);
         return false;
     }
-    
+
     FlushFileBuffers((HANDLE)PipeHandle);
     return true;
 #else
@@ -314,13 +314,13 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
 {
     TSharedPtr<FJsonObject> JsonObject;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
-    
+
     if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
     {
         UE_LOG(LogAtlasTransport, Error, TEXT("Failed to parse JSON request"));
         return false;
     }
-    
+
     // Extract required fields
     if (!JsonObject->TryGetStringField(TEXT("request_id"), OutRequest.RequestId) ||
         !JsonObject->TryGetStringField(TEXT("operation_name"), OutRequest.OperationName) ||
@@ -331,14 +331,14 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
         UE_LOG(LogAtlasTransport, Error, TEXT("Missing required fields in request"));
         return false;
     }
-    
+
     // Extract entity_ids as a strict array of strings. Do not silently drop invalid entries.
     if (!JsonObject->TryGetStringArrayField(TEXT("entity_ids"), OutRequest.EntityIds))
     {
         UE_LOG(LogAtlasTransport, Error, TEXT("Missing or invalid entity_ids field"));
         return false;
     }
-    
+
     // Arguments are optional at parse time so a malformed-but-correlatable
     // request can still receive a structured validation error response.
     const TSharedPtr<FJsonObject>* ArgumentsObject;
@@ -346,20 +346,20 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
     {
         OutRequest.Arguments = *ArgumentsObject;
     }
-    
+
     return true;
 }
 
 FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Response)
 {
     TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
-    
+
     JsonObject->SetStringField(TEXT("request_id"), Response.RequestId);
     JsonObject->SetStringField(TEXT("operation_name"), Response.OperationName);
     JsonObject->SetBoolField(TEXT("success"), Response.bSuccess);
     JsonObject->SetStringField(TEXT("error"), Response.Error);
     JsonObject->SetStringField(TEXT("source"), Response.Source);
-    
+
     // Entity IDs array
     TArray<TSharedPtr<FJsonValue>> EntityIdsArray;
     for (const FString& EntityId : Response.EntityIds)
@@ -367,7 +367,7 @@ FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Respo
         EntityIdsArray.Add(MakeShareable(new FJsonValueString(EntityId)));
     }
     JsonObject->SetArrayField(TEXT("entity_ids"), EntityIdsArray);
-    
+
     // Observed state
     if (Response.ObservedState.IsValid())
     {
@@ -377,11 +377,11 @@ FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Respo
     {
         JsonObject->SetObjectField(TEXT("observed_state"), MakeShareable(new FJsonObject));
     }
-    
+
     FString OutputString;
     TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
     FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
-    
+
     return OutputString;
 }
 
@@ -392,37 +392,19 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
         OutError = TEXT("request_id cannot be empty");
         return false;
     }
-    
-    if (Request.OperationName != TEXT("inspect_target_actors"))
-    {
-        OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName);
-        return false;
-    }
-    
-    if (Request.Capability != TEXT("inspect_actor"))
-    {
-        OutError = FString::Printf(TEXT("Unsupported capability: %s"), *Request.Capability);
-        return false;
-    }
-    
-    if (Request.Kind != TEXT("read"))
-    {
-        OutError = FString::Printf(TEXT("Unsupported kind: %s"), *Request.Kind);
-        return false;
-    }
-    
+
     if (Request.AuthorizationId.IsEmpty() || Request.AuthorizationId.TrimStartAndEnd().IsEmpty())
     {
         OutError = TEXT("authorization_id cannot be empty");
         return false;
     }
-    
+
     if (Request.EntityIds.Num() == 0)
     {
         OutError = TEXT("entity_ids cannot be empty");
         return false;
     }
-    
+
     for (const FString& EntityId : Request.EntityIds)
     {
         if (EntityId.IsEmpty() || EntityId.TrimStartAndEnd().IsEmpty())
@@ -459,8 +441,68 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
             return false;
         }
     }
-    
-    return true;
+
+    if (Request.OperationName == TEXT("inspect_target_actors"))
+    {
+        if (Request.Capability != TEXT("inspect_actor"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported capability for inspect_target_actors: %s"), *Request.Capability);
+            return false;
+        }
+
+        if (Request.Kind != TEXT("read"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported kind for inspect_target_actors: %s"), *Request.Kind);
+            return false;
+        }
+
+        return true;
+    }
+
+    if (Request.OperationName == TEXT("set_actor_location"))
+    {
+        if (Request.Capability != TEXT("modify_actor"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported capability for set_actor_location: %s"), *Request.Capability);
+            return false;
+        }
+
+        if (Request.Kind != TEXT("write"))
+        {
+            OutError = FString::Printf(TEXT("Unsupported kind for set_actor_location: %s"), *Request.Kind);
+            return false;
+        }
+
+        const TSharedPtr<FJsonObject>* LocationObject = nullptr;
+        if (!Request.Arguments->TryGetObjectField(TEXT("location"), LocationObject) ||
+            !LocationObject || !LocationObject->IsValid())
+        {
+            OutError = TEXT("arguments.location must be an object");
+            return false;
+        }
+
+        double X = 0.0;
+        double Y = 0.0;
+        double Z = 0.0;
+        if (!(*LocationObject)->TryGetNumberField(TEXT("x"), X) ||
+            !(*LocationObject)->TryGetNumberField(TEXT("y"), Y) ||
+            !(*LocationObject)->TryGetNumberField(TEXT("z"), Z))
+        {
+            OutError = TEXT("arguments.location must contain numeric x, y, and z fields");
+            return false;
+        }
+
+        if (!FMath::IsFinite(X) || !FMath::IsFinite(Y) || !FMath::IsFinite(Z))
+        {
+            OutError = TEXT("arguments.location values must be finite");
+            return false;
+        }
+
+        return true;
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName);
+    return false;
 }
 
 bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
@@ -469,55 +511,56 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
     OutResponse.RequestId = Request.RequestId;
     OutResponse.OperationName = Request.OperationName;
     OutResponse.EntityIds = Request.EntityIds;
-    OutResponse.Source = TEXT("unreal-editor-atlas-transport");
-    
-    if (Request.OperationName == TEXT("inspect_target_actors"))
-    {
-        // Create shared state that will outlive this function call
-        TSharedPtr<FGameThreadExecutionState> SharedState = MakeShareable(new FGameThreadExecutionState());
-        SharedState->Request = Request;
-        SharedState->Response.RequestId = Request.RequestId;
-        SharedState->Response.OperationName = Request.OperationName;
-        SharedState->Response.EntityIds = Request.EntityIds;
-        SharedState->Response.Source = TEXT("unreal-editor-atlas-transport");
-        
-        // Queue execution on game thread with shared state
-        AsyncTask(ENamedThreads::GameThread, [SharedState]()
-        {
-            FAtlasTransportServer::ExecuteOnGameThread(SharedState);
-        });
-        
-        // Wait for completion with timeout
-        const uint32 TimeoutMs = 5000; // 5 seconds
-        bool bEventTriggered = SharedState->CompletionEvent->Wait(TimeoutMs);
-        
-        if (bStopRequested)
-        {
-            OutResponse.bSuccess = false;
-            OutResponse.Error = TEXT("Operation cancelled during shutdown");
-            return false;
-        }
-        
-        if (!bEventTriggered)
-        {
-            OutResponse.bSuccess = false;
-            OutResponse.Error = TEXT("Operation timed out");
-            return false;
-        }
-        
-        // Copy results from shared state
-        OutResponse = SharedState->Response;
-        return SharedState->bSuccess;
-    }
-    
     OutResponse.bSuccess = false;
-    OutResponse.Error = FString::Printf(TEXT("Unsupported operation: %s"), *Request.OperationName);
-    return false;
+    OutResponse.Source = TEXT("unreal-editor-atlas-transport");
+
+    if (Request.OperationName != TEXT("inspect_target_actors") &&
+        Request.OperationName != TEXT("set_actor_location"))
+    {
+        OutResponse.Error = FString::Printf(TEXT("Unsupported operation: %s"), *Request.OperationName);
+        return false;
+    }
+
+    // Create shared state that will outlive this function call.
+    TSharedPtr<FGameThreadExecutionState> SharedState = MakeShareable(new FGameThreadExecutionState());
+    SharedState->Request = Request;
+    SharedState->Response.RequestId = Request.RequestId;
+    SharedState->Response.OperationName = Request.OperationName;
+    SharedState->Response.EntityIds = Request.EntityIds;
+    SharedState->Response.Source = TEXT("unreal-editor-atlas-transport");
+
+    // Queue execution on game thread with shared state.
+    AsyncTask(ENamedThreads::GameThread, [SharedState]()
+    {
+        FAtlasTransportServer::ExecuteOnGameThread(SharedState);
+    });
+
+    // Wait for completion with timeout.
+    const uint32 TimeoutMs = 5000; // 5 seconds
+    bool bEventTriggered = SharedState->CompletionEvent->Wait(TimeoutMs);
+
+    if (bStopRequested)
+    {
+        OutResponse.bSuccess = false;
+        OutResponse.Error = TEXT("Operation cancelled during shutdown");
+        return false;
+    }
+
+    if (!bEventTriggered)
+    {
+        OutResponse.bSuccess = false;
+        OutResponse.Error = TEXT("Operation timed out");
+        return false;
+    }
+
+    // Copy results from shared state.
+    OutResponse = SharedState->Response;
+    return SharedState->bSuccess;
 }
 
 void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState)
 {
-    // Ensure we're on the game thread
+    // Ensure we're on the game thread.
     if (!IsInGameThread())
     {
         SharedState->Response.bSuccess = false;
@@ -527,8 +570,8 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
         SharedState->CompletionEvent->Trigger();
         return;
     }
-    
-    // Check if engine is still valid before accessing world
+
+    // Check if engine is still valid before accessing world.
     if (!GEngine || IsEngineExitRequested())
     {
         SharedState->Response.bSuccess = false;
@@ -538,10 +581,61 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
         SharedState->CompletionEvent->Trigger();
         return;
     }
-    
-    // Execute the inspection
-    bool bTaskSuccess = InspectTargetActors(SharedState->Request.EntityIds, SharedState->ObservedState, SharedState->Error);
-    
+
+    bool bTaskSuccess = false;
+
+    if (SharedState->Request.OperationName == TEXT("inspect_target_actors"))
+    {
+        bTaskSuccess = InspectTargetActors(
+            SharedState->Request.EntityIds,
+            SharedState->ObservedState,
+            SharedState->Error
+        );
+    }
+    else if (SharedState->Request.OperationName == TEXT("set_actor_location"))
+    {
+        const TSharedPtr<FJsonObject>* LocationObject = nullptr;
+        double X = 0.0;
+        double Y = 0.0;
+        double Z = 0.0;
+
+        if (!SharedState->Request.Arguments.IsValid() ||
+            !SharedState->Request.Arguments->TryGetObjectField(TEXT("location"), LocationObject) ||
+            !LocationObject || !LocationObject->IsValid() ||
+            !(*LocationObject)->TryGetNumberField(TEXT("x"), X) ||
+            !(*LocationObject)->TryGetNumberField(TEXT("y"), Y) ||
+            !(*LocationObject)->TryGetNumberField(TEXT("z"), Z))
+        {
+            SharedState->Error = TEXT("arguments.location must contain numeric x, y, and z fields");
+        }
+        else
+        {
+            bTaskSuccess = SetActorLocation(
+                SharedState->Request.EntityIds,
+                FVector(static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z)),
+                SharedState->Error
+            );
+
+            // Return independent post-write observation as evidence. Atlas keeps
+            // verification separate, so this response never marks the write verified.
+            if (bTaskSuccess)
+            {
+                bTaskSuccess = InspectTargetActors(
+                    SharedState->Request.EntityIds,
+                    SharedState->ObservedState,
+                    SharedState->Error
+                );
+            }
+        }
+    }
+    else
+    {
+        SharedState->Error = FString::Printf(
+            TEXT("Unsupported operation: %s"),
+            *SharedState->Request.OperationName
+        );
+    }
+
     if (bTaskSuccess && SharedState->Error.IsEmpty())
     {
         SharedState->Response.bSuccess = true;
@@ -551,43 +645,48 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     else
     {
         SharedState->Response.bSuccess = false;
-        SharedState->Response.Error = SharedState->Error.IsEmpty() ? TEXT("Unknown error during inspection") : SharedState->Error;
+        SharedState->Response.Error = SharedState->Error.IsEmpty()
+            ? TEXT("Unknown error during Unreal operation")
+            : SharedState->Error;
         SharedState->bSuccess = false;
     }
-    
-    // Signal completion
+
+    // Signal completion.
     SharedState->bCompleted = true;
     SharedState->CompletionEvent->Trigger();
 }
 
-bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+bool FAtlasTransportServer::InspectTargetActors(
+    const TArray<FString>& EntityIds,
+    TSharedPtr<FJsonObject>& OutObservedState,
+    FString& OutError)
 {
     if (!IsInGameThread())
     {
         OutError = TEXT("InspectTargetActors must be called on game thread");
         return false;
     }
-    
+
     if (!GEngine || IsEngineExitRequested())
     {
         OutError = TEXT("Engine not available or shutting down");
         return false;
     }
-    
+
     UWorld* World = nullptr;
     if (GEngine->GetWorldContexts().Num() > 0)
     {
         World = GEngine->GetWorldContexts()[0].World();
     }
-    
+
     if (!World || !IsValid(World))
     {
         OutError = TEXT("No valid world found");
         return false;
     }
-    
+
     TSharedPtr<FJsonObject> ObservedState = MakeShareable(new FJsonObject);
-    
+
     for (const FString& EntityId : EntityIds)
     {
         AActor* Actor = FindActorByEntityId(EntityId);
@@ -596,14 +695,14 @@ bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds
             OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *EntityId);
             return false;
         }
-        
-        // Create actor observation
+
+        // Create actor observation.
         TSharedPtr<FJsonObject> ActorData = MakeShareable(new FJsonObject);
-        
+
         ActorData->SetStringField(TEXT("entity_id"), EntityId);
         ActorData->SetStringField(TEXT("actor_name"), Actor->GetName());
         ActorData->SetStringField(TEXT("actor_class"), Actor->GetClass()->GetName());
-        
+
         // Location
         FVector Location = Actor->GetActorLocation();
         TSharedPtr<FJsonObject> LocationObj = MakeShareable(new FJsonObject);
@@ -611,7 +710,7 @@ bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds
         LocationObj->SetNumberField(TEXT("y"), Location.Y);
         LocationObj->SetNumberField(TEXT("z"), Location.Z);
         ActorData->SetObjectField(TEXT("location"), LocationObj);
-        
+
         // Rotation
         FRotator Rotation = Actor->GetActorRotation();
         TSharedPtr<FJsonObject> RotationObj = MakeShareable(new FJsonObject);
@@ -619,11 +718,74 @@ bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds
         RotationObj->SetNumberField(TEXT("yaw"), Rotation.Yaw);
         RotationObj->SetNumberField(TEXT("roll"), Rotation.Roll);
         ActorData->SetObjectField(TEXT("rotation"), RotationObj);
-        
+
         ObservedState->SetObjectField(EntityId, ActorData);
     }
-    
+
     OutObservedState = ObservedState;
+    return true;
+}
+
+bool FAtlasTransportServer::SetActorLocation(
+    const TArray<FString>& EntityIds,
+    const FVector& Location,
+    FString& OutError)
+{
+    if (!IsInGameThread())
+    {
+        OutError = TEXT("SetActorLocation must be called on game thread");
+        return false;
+    }
+
+    if (!GEngine || IsEngineExitRequested())
+    {
+        OutError = TEXT("Engine not available or shutting down");
+        return false;
+    }
+
+    UWorld* World = nullptr;
+    if (GEngine->GetWorldContexts().Num() > 0)
+    {
+        World = GEngine->GetWorldContexts()[0].World();
+    }
+
+    if (!World || !IsValid(World))
+    {
+        OutError = TEXT("No valid world found");
+        return false;
+    }
+
+    if (!FMath::IsFinite(Location.X) || !FMath::IsFinite(Location.Y) || !FMath::IsFinite(Location.Z))
+    {
+        OutError = TEXT("location values must be finite");
+        return false;
+    }
+
+    // Resolve every target before mutating anything so a multi-actor request
+    // cannot partially apply when one entity is invalid.
+    TArray<AActor*> Actors;
+    Actors.Reserve(EntityIds.Num());
+
+    for (const FString& EntityId : EntityIds)
+    {
+        AActor* Actor = FindActorByEntityId(EntityId);
+        if (!Actor || !IsValid(Actor))
+        {
+            OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *EntityId);
+            return false;
+        }
+        Actors.Add(Actor);
+    }
+
+    for (AActor* Actor : Actors)
+    {
+        if (!Actor->SetActorLocation(Location, false, nullptr, ETeleportType::None))
+        {
+            OutError = FString::Printf(TEXT("Failed to set actor location for actor: %s"), *Actor->GetName());
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -633,25 +795,25 @@ AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
     {
         return nullptr;
     }
-    
+
     if (!GEngine || IsEngineExitRequested())
     {
         return nullptr;
     }
-    
+
     UWorld* World = nullptr;
     if (GEngine->GetWorldContexts().Num() > 0)
     {
         World = GEngine->GetWorldContexts()[0].World();
     }
-    
+
     if (!World || !IsValid(World))
     {
         return nullptr;
     }
-    
+
     FString TagToFind = FString::Printf(TEXT("atlas_entity:%s"), *EntityId);
-    
+
     for (TActorIterator<AActor> ActorItr(World); ActorItr; ++ActorItr)
     {
         AActor* Actor = *ActorItr;
@@ -660,6 +822,6 @@ AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
             return Actor;
         }
     }
-    
+
     return nullptr;
 }
