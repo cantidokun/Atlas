@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
+from controller.command_registry import ControllerCommandRegistry
 from controller.communication_gateway import ControllerCommunicationGateway
 
 
 class SessionControllerRuntime:
     """Bind communication sessions to a host command handler."""
 
-    def __init__(self, handle_command):
-        self.gateway = ControllerCommunicationGateway(handle_command)
+    def __init__(
+        self,
+        handle_command,
+        command_registry: Optional[ControllerCommandRegistry] = None,
+    ):
+        self.gateway = ControllerCommunicationGateway(handle_command, command_registry)
 
     def open(self, session_id: str) -> Dict[str, Any]:
         if not isinstance(session_id, str) or not session_id:
