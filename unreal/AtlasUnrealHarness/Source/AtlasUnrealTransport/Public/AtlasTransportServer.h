@@ -52,7 +52,6 @@ private:
         FString Source;
     };
 
-    // Shared state for game thread execution
     struct FGameThreadExecutionState
     {
         FTransportRequest Request;
@@ -81,22 +80,22 @@ private:
         }
     };
 
-    // Avoid the Windows CreateNamedPipe macro/API name collision.
     bool CreatePipeHandle();
     void CloseNamedPipe();
     bool WaitForClient();
     bool ReadRequest(FString& OutJsonRequest);
     bool WriteResponse(const FString& JsonResponse);
-    
+
     bool ParseRequest(const FString& JsonString, FTransportRequest& OutRequest);
     FString SerializeResponse(const FTransportResponse& Response);
-    
+
     bool ValidateRequest(const FTransportRequest& Request, FString& OutError);
     bool ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse);
-    
+
     static void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
     static bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool SetActorLocation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
+    static bool SetActorRotation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool InspectMaterialState(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool ApplyMaterialVariant(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool BuildMaterialVariantState(AActor* Actor, TSharedPtr<FJsonObject>& OutMaterialState, FString& OutError);
