@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional, Set
 
 from planning.planner_provider import PlannerProvider, PlannerProviderError
-from planning.task_planner import TaskPlanProposal
+from planning.task_planner import TaskPlanProposal, TaskPlanValidationError
 
 
 class PlanningRuntime:
@@ -31,6 +31,10 @@ class PlanningRuntime:
                 model_output,
                 allowed_tools=allowed_tools,
             )
+        except TaskPlanValidationError:
+            # Preserve the planning trust-boundary error so callers can
+            # distinguish an inadmissible tool/argument from provider failure.
+            raise
         except (ValueError, TypeError) as exc:
             raise PlannerProviderError(str(exc)) from exc
 
