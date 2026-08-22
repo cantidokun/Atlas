@@ -2,11 +2,10 @@
 
 import pytest
 
-from planning.unreal_adapter_production import create_production_adapter
+from planning.unreal_adapter_production import UnrealAdapterError, create_production_adapter
 from planning.unreal_agent import UnrealTaskIntent
 from planning.unreal_plan_executor import UnrealPlanExecutor
 from planning.unreal_task_planner import UnrealTaskPlanner
-from planning.unreal_transport_named_pipe import NamedPipeTransportError
 
 
 pytestmark = pytest.mark.integration
@@ -30,7 +29,7 @@ def test_real_unreal_location_sequence_executes_in_order_and_restores():
     """Exercise the compound sequence against the running Unreal Editor.
 
     The test uses two temporary locations, verifies each mutation independently,
-    checks the exact wire operation sequence, and restores the original actor
+    checks the exact operation sequence, and restores the original actor
     location in a finally block.
     """
     try:
@@ -88,10 +87,10 @@ def test_real_unreal_location_sequence_executes_in_order_and_restores():
                 original_location
             )
 
-    except NamedPipeTransportError as exc:
+    except UnrealAdapterError as exc:
         message = str(exc).lower()
         if "not available" in message:
             pytest.skip("Unreal Editor transport is unavailable")
-        if "not found" in message:
+        if "actor not found" in message or "not found" in message:
             pytest.skip("FIELD_SURFACE actor is not present in the Unreal fixture")
         raise
