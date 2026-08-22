@@ -109,7 +109,14 @@ def test_real_unreal_partial_sequence_failure_reassesses_without_retrying_write(
             assert failure.operation_name == "set_actor_location"
             assert failure.operation_arguments["location"] == second_location
             assert len(failure.completed_evidence) == 3
+
+            # plan_inspection() itself has two semantic operations (READ and
+            # VERIFY), and the VERIFY maps to a read-only inspect request on
+            # the current Unreal wire protocol. The compound sequence then
+            # contributes READ / WRITE / VERIFY / WRITE up to the failure.
             assert [request.operation_name for request in transport.requests] == [
+                "inspect_target_actors",
+                "inspect_target_actors",
                 "inspect_target_actors",
                 "set_actor_location",
                 "inspect_target_actors",
@@ -133,6 +140,8 @@ def test_real_unreal_partial_sequence_failure_reassesses_without_retrying_write(
                 reassessment.execution_result.evidence_ledger[0]
             ) == pytest.approx(second_location)
             assert [request.operation_name for request in transport.requests] == [
+                "inspect_target_actors",
+                "inspect_target_actors",
                 "inspect_target_actors",
                 "set_actor_location",
                 "inspect_target_actors",
