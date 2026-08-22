@@ -184,7 +184,30 @@ def test_executor_failure_preserves_completed_evidence_and_boundary():
     assert len(failure.completed_evidence) == 2
     assert failure.completed_evidence[0].operation_name == "inspect_target_actors"
     assert failure.completed_evidence[1].operation_name == "set_actor_location"
+    assert failure.completed_operation_arguments == (
+        {"entity_ids": ("FIELD_SURFACE",)},
+        {"entity_ids": ("FIELD_SURFACE",), "location": requested},
+    )
     assert "does not match expected" in failure.error
+
+
+def test_executor_failure_context_preserves_mutation_intent_for_post_write_recovery():
+    requested = {"x": 15.0, "y": 25.0, "z": 35.0}
+    observed = {"x": 15.0, "y": 25.5, "z": 35.0}
+    transport = RecordingTransport({"FIELD_SURFACE": {"location": observed}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan(
+        "location-write-recovery-intent",
+        (_location_operation(requested), _verify_operation()),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError) as exc_info:
+        executor.execute(plan, "auth-location-009")
+
+    failure = exc_info.value.failure
+    assert failure is not None
+    assert failure.operation_name == "verify_target_actor_mapping"
+    assert failure.completed_operation_arguments[-1]["location"] == requested
 
 
 class FailingTransport:
@@ -215,4 +238,5 @@ def test_executor_failure_preserves_operation_targets_without_completed_evidence
         "entity_ids": ("FIELD_SURFACE",),
         "location": {"x": 1.0, "y": 2.0, "z": 3.0},
     }
+    assert failure.completed_operation_arguments == ()
     assert failure.completed_evidence == ()
