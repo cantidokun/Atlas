@@ -7,32 +7,30 @@ import requests
 
 from audit_trail import AuditTrail
 from planning.blender_execution_boundary import BlenderExecutionBoundary
-from planning.marker_task import (
-    MARKER_OBJECT,
-    marker_task_definition,
-)
+from planning.marker_task import MARKER_COLLECTION, MARKER_OBJECT, marker_task_definition
 from planning.task_runtime import prepare_task_runtime
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
 from task_planner import TaskPlanProposal, TaskPlanValidationError
 from tools.blender import inspect_scene, create_empty_marker
+from tools.blender_collection import inspect_object_collections
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
 CORRECT_FILE = "marker_task_CORRECT.blend"
 INCORRECT_FILE = "marker_task_INCORRECT.blend"
-ALLOWED_TOOLS = {"inspect_scene", "create_empty_marker"}
+ALLOWED_TOOLS = {"inspect_scene", "inspect_object_collections", "create_empty_marker"}
 
 
 def prompt(file_name: str) -> str:
-    definition = marker_task_definition(file_name)
-    action = definition.actions[0]
     return f'''You are the Atlas Blender planning assistant.
-Ensure Blender object {MARKER_OBJECT} exists as an EMPTY in the Atlas_Test collection in {file_name}.
+Ensure Blender object {MARKER_OBJECT} exists as an EMPTY in the {MARKER_COLLECTION} collection in {file_name}.
 Return exactly one JSON object with exactly two top-level fields: evidence and actions.
-Evidence: exactly one item with tool="inspect_scene", arguments containing file_name="{file_name}", and name="inspect_scene".
-Actions: exactly one item with tool="create_empty_marker", arguments containing file_name="{file_name}", collection_name="Atlas_Test", object_name="{MARKER_OBJECT}", and name="create Atlas_Marker".
+Evidence must contain exactly two items, in this order:
+1. tool="inspect_scene", arguments={{"file_name":"{file_name}"}}, name="inspect_scene"
+2. tool="inspect_object_collections", arguments={{"file_name":"{file_name}","object_name":"{MARKER_OBJECT}"}}, name="inspect marker collection membership"
+Actions must contain exactly one item with tool="create_empty_marker", arguments containing file_name="{file_name}", collection_name="{MARKER_COLLECTION}", object_name="{MARKER_OBJECT}", and name="create Atlas_Marker".
 Every item must contain exactly tool, arguments, and name.
 Do not execute tools. Do not add fields, tools, markdown, or explanations.'''
 
@@ -40,8 +38,11 @@ Do not execute tools. Do not add fields, tools, markdown, or explanations.'''
 def correction(file_name: str) -> str:
     return f'''Return ONLY this JSON object:
 {{
-  "evidence": [{{"tool":"inspect_scene","arguments":{{"file_name":"{file_name}"}},"name":"inspect_scene"}}],
-  "actions": [{{"tool":"create_empty_marker","arguments":{{"file_name":"{file_name}","collection_name":"Atlas_Test","object_name":"{MARKER_OBJECT}"}},"name":"create Atlas_Marker"}}]
+  "evidence": [
+    {{"tool":"inspect_scene","arguments":{{"file_name":"{file_name}"}},"name":"inspect_scene"}},
+    {{"tool":"inspect_object_collections","arguments":{{"file_name":"{file_name}","object_name":"{MARKER_OBJECT}"}},"name":"inspect marker collection membership"}}
+  ],
+  "actions": [{{"tool":"create_empty_marker","arguments":{{"file_name":"{file_name}","collection_name":"{MARKER_COLLECTION}","object_name":"{MARKER_OBJECT}"}},"name":"create Atlas_Marker"}}]
 }}'''
 
 
@@ -82,9 +83,11 @@ def build_plan(file_name: str, audit: AuditTrail) -> TaskPlanProposal:
 
 
 def evidence(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    if tool != "inspect_scene":
-        raise RuntimeError(f"Unexpected evidence tool: {tool}")
-    return inspect_scene(**arguments)
+    if tool == "inspect_scene":
+        return inspect_scene(**arguments)
+    if tool == "inspect_object_collections":
+        return inspect_object_collections(**arguments)
+    raise RuntimeError(f"Unexpected evidence tool: {tool}")
 
 
 def boundary() -> BlenderExecutionBoundary:
@@ -112,9 +115,12 @@ def main() -> None:
         raise RuntimeError("Qwen action plan does not match marker task definition")
 
     orchestrator = prepare_task_runtime(definition)
-    initial = orchestrator.acquire_next_evidence(evidence)
-    audit.record_evidence({"tool": definition.evidence[0].tool, "arguments": dict(definition.evidence[0].arguments), "name": definition.evidence[0].name}, initial)
-    state = orchestrator.evaluate_target_state(initial)
+    evidence_state: Dict[str, Any] = {}
+    for request in definition.evidence:
+        result = evidence(request.tool, dict(request.arguments))
+        evidence_state.update(result)
+        audit.record_evidence({"tool": request.tool, "arguments": dict(request.arguments), "name": request.name}, result)
+    state = orchestrator.evaluate_target_state(evidence_state)
     audit.record("conditional_decision", "skip" if state.satisfied else "execute", target_satisfied=state.satisfied, failed_invariants=state.failed, case=args.case)
 
     execution_count = 0
@@ -145,13 +151,15 @@ def main() -> None:
 
     expected_execution_count = 0 if state.satisfied else 1
     if execution_count != expected_execution_count:
-        raise RuntimeError(
-            f"Marker execution count mismatch: expected {expected_execution_count}, got {execution_count}"
-        )
+        raise RuntimeError(f"Marker execution count mismatch: expected {expected_execution_count}, got {execution_count}")
 
-    final = evidence("inspect_scene", {"file_name": file_name})
-    final_state = orchestrator.verify_post_action(final)
-    audit.record_verification(final, final_state.satisfied)
+    final_state_data: Dict[str, Any] = {}
+    for request in definition.evidence:
+        result = evidence(request.tool, dict(request.arguments))
+        final_state_data.update(result)
+        audit.record_evidence({"tool": request.tool, "arguments": dict(request.arguments), "name": request.name}, result)
+    final_state = orchestrator.verify_post_action(final_state_data)
+    audit.record_verification(final_state_data, final_state.satisfied)
     if definition.verify_after_action and not final_state.satisfied:
         raise RuntimeError(f"Independent marker verification failed: {final_state.failed}")
     orchestrator.finalize_future()
