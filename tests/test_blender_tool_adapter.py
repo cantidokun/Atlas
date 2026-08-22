@@ -3,7 +3,7 @@ import pytest
 from planning.blender_tool_adapter import BlenderToolAdapter
 
 
-def test_adapter_exposes_explicit_capabilities_and_normalizes_status():
+def test_adapter_exposes_explicit_capabilities_without_normalizing_results():
     calls = []
 
     def move_object(**arguments):
@@ -19,12 +19,8 @@ def test_adapter_exposes_explicit_capabilities_and_normalizes_status():
     })
 
     assert result == {
-        "ok": True,
-        "state": "moved",
-        "details": {
-            "status": "moved",
-            "object_name": "Goal_Left_post",
-        },
+        "status": "moved",
+        "object_name": "Goal_Left_post",
     }
     assert calls == [{
         "object_name": "Goal_Left_post",
@@ -39,49 +35,25 @@ def test_adapter_does_not_expand_authority_or_accept_unknown_tools():
         adapter("delete_object", {"file_name": "scene.blend", "object_name": "Goal_Left_post"})
 
 
-def test_adapter_preserves_contract_results_from_test_doubles():
-    adapter = BlenderToolAdapter({
-        "move_object": lambda **_: {
-            "ok": True,
-            "state": "moved",
-            "details": {"verified": True},
-        }
-    })
+def test_adapter_preserves_raw_contract_results_for_shared_boundary_normalization():
+    raw = {"ok": True, "state": "moved", "details": {"verified": True}}
+    adapter = BlenderToolAdapter({"move_object": lambda **_: raw})
 
     assert adapter("move_object", {
         "object_name": "Goal_Left_post",
         "location": [1.0, 2.0, 3.0],
-    }) == {
-        "ok": True,
-        "state": "moved",
-        "details": {"verified": True},
-    }
+    }) is raw
 
 
-def test_adapter_fails_closed_on_tool_error_response():
-    adapter = BlenderToolAdapter({
-        "rename_object": lambda **_: {"error": "Object not found"},
-    })
+def test_adapter_forwards_error_response_without_reinterpreting_it():
+    raw = {"error": "Object not found"}
+    adapter = BlenderToolAdapter({"rename_object": lambda **_: raw})
 
     assert adapter("rename_object", {
         "file_name": "object_rename_INCORRECT.blend",
         "object_name": "Goal_Left_post",
         "new_name": "Goal_Left_Post",
-    }) == {
-        "ok": False,
-        "state": "error",
-        "details": {"error": "Object not found"},
-    }
-
-
-def test_adapter_rejects_partial_contract_response():
-    adapter = BlenderToolAdapter({"move_object": lambda **_: {"ok": True}})
-
-    with pytest.raises(ValueError, match="partial result contract"):
-        adapter("move_object", {
-            "object_name": "Goal_Left_post",
-            "location": [1.0, 2.0, 3.0],
-        })
+    }) is raw
 
 
 def test_adapter_copies_argument_mapping_before_dispatch():
@@ -101,3 +73,14 @@ def test_adapter_copies_argument_mapping_before_dispatch():
     arguments["object_name"] = "Tampered"
 
     assert received[0]["object_name"] == "Goal_Left_post"
+
+
+def test_adapter_rejects_invalid_registry_entries():
+    with pytest.raises(ValueError, match="requires at least one capability"):
+        BlenderToolAdapter({})
+
+    with pytest.raises(ValueError, match="non-empty strings"):
+        BlenderToolAdapter({"": lambda **_: {}})
+
+    with pytest.raises(TypeError, match="not callable"):
+        BlenderToolAdapter({"move_object": object()})
