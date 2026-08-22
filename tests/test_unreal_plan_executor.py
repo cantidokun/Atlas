@@ -131,7 +131,7 @@ def test_executor_verifies_actor_location_after_write():
     assert len(result.evidence_ledger) == 2
     assert [request.operation_name for request in transport.requests] == [
         "set_actor_location",
-        "verify_target_actor_mapping",
+        "inspect_target_actors",
     ]
 
 
