@@ -60,6 +60,7 @@ class TaskRuntimeSession:
         self.evidence_reducer = evidence_reducer
         self.orchestrator = prepare_task_runtime(task)
         self.initial_evidence: List[Dict[str, Any]] = []
+        self.post_action_evidence: List[Dict[str, Any]] = []
         self.evidence_state: Optional[Any] = None
 
     @property
@@ -90,6 +91,18 @@ class TaskRuntimeSession:
     def execute_authorized_action(self) -> Dict[str, Any]:
         """Execute the next action only after the orchestrator's authorization gate."""
         return self.orchestrator.execute_next_action(self.execute)
+
+    def acquire_post_action_evidence(self) -> Any:
+        """Acquire a fresh complete evidence set after an authorized action."""
+        if not self.task.verify_after_action:
+            raise RuntimeError("Post-action evidence is disabled by the task definition.")
+        self.post_action_evidence.clear()
+        # The orchestrator's evidence plan is consumed during the initial phase, so
+        # post-action observations are intentionally fresh calls rather than replaying
+        # the original evidence state.
+        for request in self.task.evidence:
+            self.post_action_evidence.append(self.execute(request.tool, dict(request.arguments)))
+        return self.evidence_reducer(self.post_action_evidence)
 
     def verify_post_action(self, evidence: Any) -> Any:
         """Independently verify fresh post-action evidence."""
