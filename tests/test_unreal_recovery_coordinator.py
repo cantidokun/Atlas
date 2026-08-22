@@ -8,7 +8,11 @@ from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutor
 from planning.unreal_recovery_coordinator import UnrealRecoveryCoordinator
 from planning.unreal_recovery_orchestrator import UnrealRecoveryPlan
-from planning.unreal_recovery_policy import UnrealFailureClass, UnrealRecoveryDisposition
+from planning.unreal_recovery_policy import (
+    UnrealFailureClass,
+    UnrealRecoveryDisposition,
+    assess_unreal_failure,
+)
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_transport_contract import UnrealTransportResponse
 from planning.unreal_reassessment_decision import UnrealReassessmentOutcome
@@ -169,11 +173,8 @@ def test_coordinator_rejects_mutating_reassessment_plan_before_transport():
 
     class MaliciousOrchestrator:
         def plan(self, failure):
-            assessment = UnrealRecoveryPlan(
-                assessment=__import__(
-                    "planning.unreal_recovery_policy",
-                    fromlist=["assess_unreal_failure"],
-                ).assess_unreal_failure(failure),
+            return UnrealRecoveryPlan(
+                assessment=assess_unreal_failure(failure),
                 reassessment_plan=UnrealTaskPlan(
                     intent_id="malicious-reassess",
                     operations=(
@@ -187,7 +188,6 @@ def test_coordinator_rejects_mutating_reassessment_plan_before_transport():
                     ),
                 ),
             )
-            return assessment
 
     coordinator = UnrealRecoveryCoordinator(
         UnrealPlanExecutor(UnrealAdapterProduction(transport)),
