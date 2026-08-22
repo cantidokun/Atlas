@@ -4,7 +4,11 @@ from action_plan import ActionSpec
 from planning.evidence_plan import EvidenceRequest
 from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.task_definition import AtlasTaskDefinition
-from planning.task_runtime import prepare_task_runtime, validate_task_runtime
+from planning.task_runtime import (
+    TaskRuntimeSession,
+    prepare_task_runtime,
+    validate_task_runtime,
+)
 
 
 def task(allow_writes=True, verify=True):
@@ -54,3 +58,79 @@ def test_runtime_rejects_unauthorized_action_tool():
     assert validate_task_runtime(definition)[0].startswith("unauthorized action tools")
     with pytest.raises(ValueError, match="unauthorized action tools"):
         prepare_task_runtime(definition)
+
+
+def test_session_generic_zero_write_lifecycle():
+    calls = []
+
+    def execute(tool, arguments):
+        calls.append((tool, arguments))
+        return {"ready": True}
+
+    session = TaskRuntimeSession(task(), execute, lambda results: results[0])
+    assert session.acquire_initial_evidence() == {"ready": True}
+    assert session.evaluate_target().satisfied is True
+    assert session.phase == "VERIFICATION"
+    session.verify_post_action({"ready": True})
+    assert session.complete is True
+    session.finalize()
+    assert calls == [("inspect_scene", {"file_name": "x.blend"})]
+
+
+def test_session_generic_write_lifecycle_requires_authorization_and_fresh_verification():
+    calls = []
+    state = {"ready": False}
+
+    def execute(tool, arguments):
+        calls.append((tool, arguments))
+        if tool == "move_object":
+            state["ready"] = True
+            return {"ok": True}
+        return dict(state)
+
+    session = TaskRuntimeSession(task(), execute, lambda results: results[0])
+    assert session.acquire_initial_evidence() == {"ready": False}
+    assert session.evaluate_target().satisfied is False
+    assert session.phase == "AUTHORIZATION"
+
+    session.authorize("runtime-test-authorization")
+    assert session.phase == "ACTION"
+    assert session.execute_authorized_action() == {"ok": True}
+    assert session.phase == "VERIFICATION"
+    assert session.verify_post_action(dict(state)).satisfied is True
+    assert session.complete is True
+    session.finalize()
+
+    assert calls == [
+        ("inspect_scene", {"file_name": "x.blend"}),
+        ("move_object", {"file_name": "x.blend"}),
+    ]
+
+
+def test_session_blocks_evaluation_until_all_declared_evidence_is_recorded():
+    definition = AtlasTaskDefinition(
+        "multi-evidence",
+        (
+            EvidenceRequest("inspect_scene", {}, "scene"),
+            EvidenceRequest("inspect_object", {}, "object"),
+        ),
+        (ActionSpec("move_object", {}, "move"),),
+        TargetStateEvaluator([StateInvariant("ready", lambda evidence: evidence.get("ready") is True)]),
+        {"move_object"},
+        allow_writes=True,
+        verify_after_action=True,
+    )
+
+    calls = []
+
+    def execute(tool, arguments):
+        calls.append(tool)
+        return {"ready": True}
+
+    session = TaskRuntimeSession(definition, execute, lambda results: {"ready": all(r["ready"] for r in results)})
+    with pytest.raises(RuntimeError, match="Initial evidence must be acquired"):
+        session.evaluate_target()
+
+    session.acquire_initial_evidence()
+    assert calls == ["inspect_scene", "inspect_object"]
+    assert session.evaluate_target().satisfied is True
