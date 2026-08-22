@@ -17,7 +17,8 @@ def test_inspection_plan_is_read_then_verify():
 
 def test_material_variant_is_inspect_write_verify():
     plan = UnrealTaskPlanner().plan_material_variant(
-        UnrealTaskIntent("variant-1", "create liquid surface variant", ("FIELD_SURFACE",))
+        UnrealTaskIntent("variant-1", "create liquid surface variant", ("FIELD_SURFACE",)),
+        {"name": "liquid_surface"},
     )
     assert [op.kind for op in plan.operations] == [
         UnrealOperationKind.READ,
@@ -26,6 +27,11 @@ def test_material_variant_is_inspect_write_verify():
         UnrealOperationKind.VERIFY,
     ]
     assert plan.operations[2].name == "apply_material_variant"
+    assert plan.operations[2].arguments == {
+        "entity_ids": ("FIELD_SURFACE",),
+        "material_variant": {"name": "liquid_surface"},
+    }
+    assert plan.operations[3].arguments == plan.operations[2].arguments
 
 
 def test_actor_location_write_is_inspect_write_verify():
@@ -107,4 +113,4 @@ def test_actor_location_write_rejects_non_numeric_location():
 def test_planner_requires_explicit_targets():
     intent = UnrealTaskIntent("bad-1", "modify something", ())
     with pytest.raises(ValueError):
-        UnrealTaskPlanner().plan_material_variant(intent)
+        UnrealTaskPlanner().plan_material_variant(intent, {"name": "liquid_surface"})
