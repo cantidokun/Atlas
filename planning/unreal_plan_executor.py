@@ -6,6 +6,7 @@ from typing import Any, List, Mapping, Optional, Tuple
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
+from planning.unreal_material_verifier import verify_material_variant
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
 from planning.unreal_task_planner import UnrealTaskPlan
@@ -49,7 +50,7 @@ class UnrealPlanExecutor:
 
     def __init__(self, adapter: UnrealAdapterProduction) -> None:
         if not isinstance(adapter, UnrealAdapterProduction):
-            raise TypeError("adapter must be an UnrealAdapterProduction instance")
+            raise TypeError("adapter must be a UnrealAdapterProduction instance")
         self._adapter = adapter
 
     _DISPATCH = {
@@ -78,6 +79,7 @@ class UnrealPlanExecutor:
         expected_location: Optional[dict] = None,
         expected_rotation: Optional[dict] = None,
         expected_scale: Optional[dict] = None,
+        expected_material_variant: Optional[dict] = None,
     ) -> UnrealEvidence:
         arguments = dict(operation.arguments)
         arguments["entity_ids"] = tuple(operation.entity_ids)
@@ -92,6 +94,7 @@ class UnrealPlanExecutor:
             if expected_location is not None: verify_actor_location(evidence, expected_location)
             if expected_rotation is not None: verify_actor_rotation(evidence, expected_rotation)
             if expected_scale is not None: verify_actor_scale(evidence, expected_scale)
+            if expected_material_variant is not None: verify_material_variant(evidence, expected_material_variant)
         return evidence
 
     @staticmethod
@@ -114,16 +117,22 @@ class UnrealPlanExecutor:
         expected_location: Optional[dict] = None
         expected_rotation: Optional[dict] = None
         expected_scale: Optional[dict] = None
+        expected_material_variant: Optional[dict] = None
 
         for index, operation in enumerate(plan.operations):
-            if operation.name == "set_actor_location": expected_location, expected_rotation, expected_scale = dict(operation.arguments["location"]), None, None
-            elif operation.name == "set_actor_rotation": expected_location, expected_rotation, expected_scale = None, dict(operation.arguments["rotation"]), None
-            elif operation.name == "set_actor_scale": expected_location, expected_rotation, expected_scale = None, None, dict(operation.arguments["scale"])
+            if operation.name == "set_actor_location": expected_location, expected_rotation, expected_scale, expected_material_variant = dict(operation.arguments["location"]), None, None, None
+            elif operation.name == "set_actor_rotation": expected_location, expected_rotation, expected_scale, expected_material_variant = None, dict(operation.arguments["rotation"]), None, None
+            elif operation.name == "set_actor_scale": expected_location, expected_rotation, expected_scale, expected_material_variant = None, None, dict(operation.arguments["scale"]), None
+            elif operation.name == "apply_material_variant": expected_location, expected_rotation, expected_scale, expected_material_variant = None, None, None, dict(operation.arguments["material_variant"])
             try:
-                evidence = self._execute_one(operation, authorization_id,
+                evidence = self._execute_one(
+                    operation,
+                    authorization_id,
                     expected_location if operation.kind is UnrealOperationKind.VERIFY else None,
                     expected_rotation if operation.kind is UnrealOperationKind.VERIFY else None,
-                    expected_scale if operation.kind is UnrealOperationKind.VERIFY else None)
+                    expected_scale if operation.kind is UnrealOperationKind.VERIFY else None,
+                    expected_material_variant if operation.kind is UnrealOperationKind.VERIFY else None,
+                )
             except UnrealAdapterError as exc:
                 message = f"Operation {index} ('{operation.name}') failed: {exc}"
                 failure = UnrealPlanExecutionFailure(plan.intent_id, index, operation.name, tuple(ledger), message, tuple(operation.entity_ids), self._failure_context(operation), tuple(completed_operation_arguments))
