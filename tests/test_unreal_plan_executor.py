@@ -240,3 +240,36 @@ def test_executor_failure_preserves_operation_targets_without_completed_evidence
     }
     assert failure.completed_operation_arguments == ()
     assert failure.completed_evidence == ()
+
+
+class UnexpectedFailureTransport:
+    def __init__(self):
+        self.requests = []
+
+    def send(self, request):
+        self.requests.append(request)
+        raise RuntimeError("simulated unexpected transport runtime failure")
+
+
+def test_executor_wraps_unexpected_exception_with_failure_boundary():
+    transport = UnexpectedFailureTransport()
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan(
+        "unexpected-failure-context",
+        (_location_operation({"x": 4.0, "y": 5.0, "z": 6.0}), _verify_operation()),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError, match="Unexpected execution failure") as exc_info:
+        executor.execute(plan, "auth-unexpected-001")
+
+    failure = exc_info.value.failure
+    assert failure is not None
+    assert failure.operation_index == 0
+    assert failure.operation_name == "set_actor_location"
+    assert failure.operation_entity_ids == ("FIELD_SURFACE",)
+    assert failure.operation_arguments == {
+        "entity_ids": ("FIELD_SURFACE",),
+        "location": {"x": 4.0, "y": 5.0, "z": 6.0},
+    }
+    assert failure.completed_evidence == ()
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
