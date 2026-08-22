@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional, Set
 
 from planning.planner_provider import PlannerProvider, PlannerProviderError
+from planning.planning_orchestrator import PlanningOrchestrator
 from planning.task_planner import (
     TaskPlanProposal,
     TaskPlanValidationError,
@@ -66,3 +67,27 @@ class PlanningRuntime:
             proposal,
             authorization_id=authorization_id,
         )
+
+    def build_authorized_orchestrator(
+        self,
+        model_output: Any,
+        *,
+        authorization_id: str,
+        allowed_tools: Optional[Set[str]] = None,
+    ) -> Optional[PlanningOrchestrator]:
+        """Build a provider-neutral orchestrator with an authorized action plan.
+
+        This is the final handoff before execution: provider output is parsed
+        and validated, the exact action sequence receives one authorization
+        receipt, and the resulting plans are placed into the deterministic
+        orchestrator. No tool is executed by this method.
+        """
+        plans = self.build_authorized_plans(
+            model_output,
+            authorization_id=authorization_id,
+            allowed_tools=allowed_tools,
+        )
+        if plans is None:
+            return None
+        evidence_plan, action_plan = plans
+        return PlanningOrchestrator(evidence_plan, action_plan)
