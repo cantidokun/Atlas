@@ -9,11 +9,15 @@ from __future__ import annotations
 from typing import Any, Optional, Set
 
 from planning.planner_provider import PlannerProvider, PlannerProviderError
-from planning.task_planner import TaskPlanProposal, TaskPlanValidationError
+from planning.task_planner import (
+    TaskPlanProposal,
+    TaskPlanValidationError,
+    instantiate_authorized_plans,
+)
 
 
 class PlanningRuntime:
-    """Turn provider output into an Atlas planning proposal without authorizing it."""
+    """Turn provider output into validated plans at an explicit trust boundary."""
 
     def __init__(self, provider: PlannerProvider):
         if not isinstance(provider, PlannerProvider):
@@ -41,3 +45,24 @@ class PlanningRuntime:
         if proposal is not None and not isinstance(proposal, TaskPlanProposal):
             raise PlannerProviderError("planner provider returned an invalid proposal")
         return proposal
+
+    def build_authorized_plans(
+        self,
+        model_output: Any,
+        *,
+        authorization_id: str,
+        allowed_tools: Optional[Set[str]] = None,
+    ):
+        """Build, validate, and explicitly authorize one exact action plan.
+
+        Provider output is validated before authorization is even considered.
+        The returned action plan therefore carries a receipt bound to the
+        exact action sequence produced by the provider.
+        """
+        proposal = self.build_proposal(model_output, allowed_tools=allowed_tools)
+        if proposal is None:
+            return None
+        return instantiate_authorized_plans(
+            proposal,
+            authorization_id=authorization_id,
+        )
