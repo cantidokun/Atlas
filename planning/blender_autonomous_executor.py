@@ -8,6 +8,8 @@ is normalized and verified, and receives an immutable execution receipt.
 
 from typing import Any, Dict, Optional
 
+from controller.command_registry import ControllerCommandRegistry, CommandRegistryError
+from controller.blender_capabilities import create_blender_command_registry
 from planning.blender_execution_boundary import BlenderExecutionBoundary, BlenderExecutor
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_result_contract import BlenderExecutionResult
@@ -16,8 +18,13 @@ from planning.blender_result_contract import BlenderExecutionResult
 class BlenderAutonomousExecutor:
     """Adapt the verified Blender boundary to the autonomous ToolExecutor API."""
 
-    def __init__(self, executor: BlenderExecutor):
+    def __init__(
+        self,
+        executor: BlenderExecutor,
+        command_registry: Optional[ControllerCommandRegistry] = None,
+    ):
         self._boundary = BlenderExecutionBoundary(executor)
+        self._command_registry = command_registry or create_blender_command_registry()
         self._last_result: Optional[BlenderExecutionResult] = None
         self._last_receipt: Optional[BlenderExecutionReceipt] = None
 
@@ -29,8 +36,16 @@ class BlenderAutonomousExecutor:
     def last_receipt(self) -> Optional[BlenderExecutionReceipt]:
         return self._last_receipt
 
+    def capability_for(self, tool: str):
+        """Return the declared capability for a Blender tool or fail closed."""
+        try:
+            return self._command_registry.resolve(tool)
+        except CommandRegistryError as exc:
+            raise ValueError(str(exc)) from exc
+
     def __call__(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute one autonomous action through validation and verification."""
+        """Execute one autonomous action through capability and execution boundaries."""
+        self.capability_for(tool)
         normalized, receipt = self._boundary.execute_with_receipt(tool, arguments)
         self._last_result = normalized
         self._last_receipt = receipt

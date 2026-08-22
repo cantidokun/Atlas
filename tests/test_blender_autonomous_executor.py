@@ -3,6 +3,9 @@ import pytest
 from planning.blender_autonomous_executor import BlenderAutonomousExecutor
 
 
+MOVE = {"file_name": "test_scene.blend", "object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]}
+
+
 def test_autonomous_executor_returns_verified_result_and_receipt():
     calls = []
 
@@ -15,17 +18,15 @@ def test_autonomous_executor_returns_verified_result_and_receipt():
         }
 
     executor = BlenderAutonomousExecutor(fake_blender)
-    result = executor("move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]})
+    result = executor("move_object", MOVE)
 
     assert result["ok"] is True
     assert result["state"] == "moved"
     assert result["details"]["object_name"] == "Goal_Left_post"
     assert executor.last_result is not None
     assert executor.last_receipt is not None
-    assert executor.receipt_matches_last_execution(
-        "move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]}
-    )
-    assert calls == [("move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]})]
+    assert executor.receipt_matches_last_execution("move_object", MOVE)
+    assert calls == [("move_object", MOVE)]
 
 
 def test_autonomous_executor_rejects_invalid_call_before_blender():
@@ -39,7 +40,7 @@ def test_autonomous_executor_rejects_invalid_call_before_blender():
     )
 
     with pytest.raises(ValueError):
-        executor("move_object", {"object_name": "Goal_Left_post", "location": [1.0, 2.0]})
+        executor("move_object", {**MOVE, "location": [1.0, 2.0]})
 
     assert calls == []
     assert executor.last_result is None
