@@ -11,15 +11,18 @@ from planning.unreal_transport_contract import UnrealTransportResponse
 class RecordingTransport:
     def __init__(self):
         self.requests = []
+        self.location = {"x": 10.0, "y": 20.0, "z": 30.0}
 
     def send(self, request):
         self.requests.append(request)
+        if request.operation_name == "set_actor_location":
+            self.location = dict(request.arguments["location"])
         return UnrealTransportResponse(
             request_id=request.request_id,
             operation_name=request.operation_name,
             entity_ids=request.entity_ids,
             success=True,
-            observed_state={"FIELD_SURFACE": {"location": {"x": 10.0, "y": 20.0, "z": 30.0}}},
+            observed_state={"FIELD_SURFACE": {"location": dict(self.location)}},
             error="",
             source="test-unreal-compound-authorization",
         )
