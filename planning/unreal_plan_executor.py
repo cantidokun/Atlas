@@ -18,8 +18,29 @@ from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_tool_schema import validate_unreal_tool_call
 
 
+@dataclass(frozen=True)
+class UnrealPlanExecutionFailure:
+    """Structured context for a failed plan execution."""
+
+    intent_id: str
+    operation_index: int
+    operation_name: str
+    completed_evidence: Tuple[UnrealEvidence, ...]
+    error: str
+
+
 class UnrealPlanExecutionError(RuntimeError):
-    """Raised when plan execution cannot continue."""
+    """Raised when plan execution cannot continue.
+
+    The exception preserves the completed evidence ledger and the exact
+    operation boundary at which execution stopped. This allows a caller to
+    distinguish partial execution from a plan that never reached Unreal and
+    provides the facts required by a future recovery policy.
+    """
+
+    def __init__(self, message: str, *, failure: Optional[UnrealPlanExecutionFailure] = None):
+        super().__init__(message)
+        self.failure = failure
 
 
 @dataclass(frozen=True)
@@ -85,10 +106,6 @@ class UnrealPlanExecutor:
         authorization_id: str,
         expected_location: Optional[dict] = None,
     ) -> UnrealEvidence:
-        # Validate the complete operation payload before dispatching. The
-        # operation arguments are preserved so mutation-specific schemas (for
-        # example set_actor_location.location) cannot be bypassed by the
-        # executor.
         arguments = dict(operation.arguments)
         arguments["entity_ids"] = tuple(operation.entity_ids)
         arguments["authorization_id"] = authorization_id
@@ -118,20 +135,7 @@ class UnrealPlanExecutor:
         plan: UnrealTaskPlan,
         authorization_id: str,
     ) -> UnrealPlanExecutionResult:
-        """Execute *plan* in strict order and return the evidence ledger.
-
-        Parameters
-        ----------
-        plan:
-            A validated ``UnrealTaskPlan`` produced by ``UnrealTaskPlanner``.
-        authorization_id:
-            The Atlas authorization receipt ID that covers this plan.
-
-        Raises
-        ------
-        UnrealPlanExecutionError
-            If any operation fails or evidence validation rejects a result.
-        """
+        """Execute *plan* in strict order and return the evidence ledger."""
         if not isinstance(plan, UnrealTaskPlan):
             raise TypeError("plan must be a UnrealTaskPlan instance")
         if not isinstance(authorization_id, str) or not authorization_id.strip():
@@ -153,19 +157,41 @@ class UnrealPlanExecutor:
                     expected_location if operation.kind is UnrealOperationKind.VERIFY else None,
                 )
             except UnrealAdapterError as exc:
-                raise UnrealPlanExecutionError(
-                    f"Operation {index} ('{operation.name}') failed: {exc}"
-                ) from exc
+                message = f"Operation {index} ('{operation.name}') failed: {exc}"
+                failure = UnrealPlanExecutionFailure(
+                    intent_id=plan.intent_id,
+                    operation_index=index,
+                    operation_name=operation.name,
+                    completed_evidence=tuple(ledger),
+                    error=message,
+                )
+                raise UnrealPlanExecutionError(message, failure=failure) from exc
             except ValueError as exc:
-                raise UnrealPlanExecutionError(
+                message = (
                     f"Evidence/tool validation failed for operation {index} "
                     f"('{operation.name}'): {exc}"
-                ) from exc
+                )
+                failure = UnrealPlanExecutionFailure(
+                    intent_id=plan.intent_id,
+                    operation_index=index,
+                    operation_name=operation.name,
+                    completed_evidence=tuple(ledger),
+                    error=message,
+                )
+                raise UnrealPlanExecutionError(message, failure=failure) from exc
             except TypeError as exc:
-                raise UnrealPlanExecutionError(
+                message = (
                     f"Tool argument validation failed for operation {index} "
                     f"('{operation.name}'): {exc}"
-                ) from exc
+                )
+                failure = UnrealPlanExecutionFailure(
+                    intent_id=plan.intent_id,
+                    operation_index=index,
+                    operation_name=operation.name,
+                    completed_evidence=tuple(ledger),
+                    error=message,
+                )
+                raise UnrealPlanExecutionError(message, failure=failure) from exc
             ledger.append(evidence)
 
         return UnrealPlanExecutionResult(
