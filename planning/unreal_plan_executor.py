@@ -232,6 +232,26 @@ class UnrealPlanExecutor:
                     completed_operation_arguments=tuple(completed_operation_arguments),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
+            except Exception as exc:
+                # Preserve the same structured failure boundary for unexpected
+                # adapter/runtime errors. Recovery can then fail closed using
+                # the exact operation and completed evidence instead of losing
+                # the execution context to an unclassified exception.
+                message = (
+                    f"Unexpected execution failure for operation {index} "
+                    f"('{operation.name}'): {exc}"
+                )
+                failure = UnrealPlanExecutionFailure(
+                    intent_id=plan.intent_id,
+                    operation_index=index,
+                    operation_name=operation.name,
+                    completed_evidence=tuple(ledger),
+                    error=message,
+                    operation_entity_ids=tuple(operation.entity_ids),
+                    operation_arguments=self._failure_context(operation),
+                    completed_operation_arguments=tuple(completed_operation_arguments),
+                )
+                raise UnrealPlanExecutionError(message, failure=failure) from exc
             ledger.append(evidence)
             completed_operation_arguments.append(self._failure_context(operation))
 
