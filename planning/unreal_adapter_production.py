@@ -10,14 +10,18 @@ Design invariants
 - Authorization IDs are transmitted, never issued, by this layer.
 - The transport is pluggable via the ``UnrealTransport`` protocol so that
   tests can inject an in-memory implementation.
-- Every response is correlated to its originating request before evidence
-  is constructed.
+- Every response is correlated to its originating request before evidence is
+  constructed.
+- Semantic VERIFY operations may be fulfilled by a read-only transport
+  observation when the process boundary does not expose a distinct VERIFY
+  command. Atlas still records the evidence against the original VERIFY
+  operation and performs semantic verification independently.
 """
 
 import uuid
 from typing import Any, Dict, Mapping, Optional, Protocol
 
-from planning.unreal_agent import UnrealOperation, UnrealOperationKind
+from planning.unreal_agent import UnrealOperation, UnrealOperationKind, UnrealCapability
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_transport_contract import (
     UnrealTransportRequest,
@@ -33,10 +37,6 @@ except ImportError:
     NAMED_PIPE_AVAILABLE = False
 
 
-# ---------------------------------------------------------------------------
-# Transport protocol — pluggable boundary
-# ---------------------------------------------------------------------------
-
 class UnrealTransport(Protocol):
     """Process-boundary transport between Atlas and the Unreal Editor."""
 
@@ -45,17 +45,9 @@ class UnrealTransport(Protocol):
         ...  # pragma: no cover
 
 
-# ---------------------------------------------------------------------------
-# Adapter result
-# ---------------------------------------------------------------------------
-
 class UnrealAdapterError(RuntimeError):
     """Raised when the adapter cannot complete an operation."""
 
-
-# ---------------------------------------------------------------------------
-# Production adapter
-# ---------------------------------------------------------------------------
 
 class UnrealAdapterProduction:
     """Execute authorized Unreal operations via a pluggable transport.
@@ -70,11 +62,20 @@ class UnrealAdapterProduction:
         self._transport = transport
         self._source_tag = source_tag.strip()
 
-    # -- internal helpers --------------------------------------------------
-
     @staticmethod
     def _new_request_id() -> str:
         return f"req-{uuid.uuid4().hex[:12]}"
+
+    @staticmethod
+    def _to_evidence(response: UnrealTransportResponse, operation_name: Optional[str] = None) -> UnrealEvidence:
+        """Convert correlated transport response to engine-neutral evidence."""
+        return UnrealEvidence(
+            operation_name=operation_name or response.operation_name,
+            entity_ids=response.entity_ids,
+            observed_state=response.observed_state,
+            source=response.source,
+            verified=False,
+        )
 
     def _build_request(
         self,
@@ -93,24 +94,12 @@ class UnrealAdapterProduction:
             authorization_id=authorization_id.strip(),
         )
 
-    @staticmethod
-    def _to_evidence(response: UnrealTransportResponse) -> UnrealEvidence:
-        """Convert a correlated transport response to engine-neutral evidence.
-
-        ``verified`` is **always** False — Atlas verification is independent.
-        """
-        return UnrealEvidence(
-            operation_name=response.operation_name,
-            entity_ids=response.entity_ids,
-            observed_state=response.observed_state,
-            source=response.source,
-            verified=False,
-        )
-
     def _execute(
         self,
         operation: UnrealOperation,
         authorization_id: str,
+        *,
+        evidence_operation_name: Optional[str] = None,
     ) -> UnrealEvidence:
         request = self._build_request(operation, authorization_id)
         response = self._transport.send(request)
@@ -121,10 +110,7 @@ class UnrealAdapterProduction:
                 f"entity_ids={list(operation.entity_ids)}, auth_id={authorization_id}) "
                 f"failed: {response.error}"
             )
-        return self._to_evidence(response)
-
-
-    # -- public API --------------------------------------------------------
+        return self._to_evidence(response, evidence_operation_name)
 
     def inspect(
         self,
@@ -151,15 +137,38 @@ class UnrealAdapterProduction:
         operation: UnrealOperation,
         authorization_id: str,
     ) -> UnrealEvidence:
-        """Execute a VERIFY operation and return unverified evidence."""
+        """Collect fresh read evidence for a semantic VERIFY operation.
+
+        The current Unreal transport exposes actor inspection as a READ
+        operation, not as a separate VERIFY wire command. The adapter maps
+        ``verify_target_actor_mapping`` to that read-only observation while
+        preserving the original semantic operation name in the evidence.
+        Atlas's state verifier remains the authority that decides whether
+        the observed state proves the requested mutation.
+        """
         if operation.kind is not UnrealOperationKind.VERIFY:
             raise UnrealAdapterError("verify accepts VERIFY operations only")
+
+        if operation.name == "verify_target_actor_mapping":
+            transport_operation = UnrealOperation(
+                capability=UnrealCapability.INSPECT_ACTOR,
+                kind=UnrealOperationKind.READ,
+                name="inspect_target_actors",
+                arguments={"entity_ids": tuple(operation.entity_ids)},
+                entity_ids=tuple(operation.entity_ids),
+            )
+            return self._execute(
+                transport_operation,
+                authorization_id,
+                evidence_operation_name=operation.name,
+            )
+
         return self._execute(operation, authorization_id)
 
 
 def create_production_adapter(source_tag: str = "atlas-adapter-production") -> UnrealAdapterProduction:
     """Create a production adapter with Windows named pipe transport.
-    
+
     Raises:
         RuntimeError: If named pipe transport is not available on this platform.
     """
@@ -168,6 +177,6 @@ def create_production_adapter(source_tag: str = "atlas-adapter-production") -> U
             "Named pipe transport not available. "
             "This requires Windows and the pywin32 package."
         )
-    
+
     transport = create_named_pipe_transport()
     return UnrealAdapterProduction(transport, source_tag)
