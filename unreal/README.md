@@ -1,12 +1,12 @@
 # Atlas Unreal Engine Validation
 
-This directory contains the first disposable Unreal Engine harness for Atlas.
+This directory contains the disposable Unreal Engine validation harness for Atlas and documents the transition into the production Unreal execution boundary.
 
 ## Current purpose
 
-This is the **first real-Unreal validation point** for the Unreal Agent architecture. It is intentionally a disposable integration fixture, not the production Unreal adapter.
+The harness is the **real-Unreal regression fixture** for the Unreal Agent architecture. It is intentionally disposable and is not the production Unreal adapter.
 
-The current development focus is solely the Unreal Agent and its supporting architecture.
+The current production work has progressed beyond the original engine smoke test: the real Windows/Unreal transport, first actor-location write/restore path, and recovery reassessment path have now been exercised successfully.
 
 ## Project
 
@@ -16,155 +16,166 @@ Open:
 unreal/AtlasUnrealHarness/AtlasUnrealHarness.uproject
 ```
 
-The project is Editor-only and does not require an Atlas runtime service or network connection.
+The project is Editor-only and the harness does not replace the production transport implementation.
 
 The current harness targets **Unreal Engine 5.6**.
 
-## Exact next test
+## Proven engine smoke test
 
-The current milestone is:
-
-**Unreal Engine Boundary Smoke Test — PASS**
-
-It is **not yet passed**. The Python-side Atlas contracts are already tested; the remaining gate is execution inside the real Unreal Editor.
-
-### From the Atlas repository on Windows
-
-```powershell
-cd <ATLAS_REPO>
-git fetch origin
-git checkout feat/unreal-engine-harness
-git pull
-cd .\unreal\AtlasUnrealHarness
-Start-Process ".\AtlasUnrealHarness.uproject"
-```
-
-Replace `<ATLAS_REPO>` with the local Atlas repository path.
-
-Do not merge PR #10 before the Unreal test passes.
-
-### In Unreal Editor
-
-Open the **Automation Tests** window.
-
-Find and run exactly:
+The Unreal Automation Test:
 
 ```text
 Atlas.UnrealAgent.OperationBoundary
 ```
 
-No manual Actor, Blueprint, Niagara, material, or level setup is required. The test creates and destroys its own temporary Actor.
+has passed in Unreal Engine 5.6.1.
 
-## What the test proves
+It remains a regression fixture and should continue to pass after relevant Unreal-side changes.
 
-The Automation Test performs this sequence:
+## Real production proof
+
+The first real production Unreal execution path has also passed from the Atlas Python test suite against the running Unreal Editor.
+
+Passed integration tests:
 
 ```text
-structured Atlas operation
-        ↓
-Unreal-side validation
-        ↓
-unsupported operation rejected fail-closed
-        ↓
-Atlas Entity ID preserved
-        ↓
-Unreal Editor world available
-        ↓
-temporary Actor created
-        ↓
-Atlas entity mapping attached to Actor
-        ↓
-authorized Actor write
-        ↓
-Actor state read back
-        ↓
-verification
-        ↓
-temporary Actor destroyed
+tests/test_unreal_plan_executor_real_integration.py::test_real_unreal_plan_executor_location_write_and_restore
+
+tests/test_unreal_recovery_coordinator_real_integration.py::test_real_unreal_recovery_coordinator_reassesses_live_state_without_retrying_write
 ```
 
-The fixture uses Atlas entity ID:
+These tests establish:
+
+```text
+Atlas operation
+        ↓
+production plan executor
+        ↓
+production Unreal adapter
+        ↓
+Windows Named Pipe transport
+        ↓
+real Unreal Editor
+        ↓
+Actor state
+        ↓
+independent evidence / verification
+```
+
+The recovery test additionally establishes that fresh live reassessment does **not** silently retry the previous mutation.
+
+This is a first production-boundary proof, not a claim that all future Unreal capabilities are implemented.
+
+## Current real fixture identity
+
+The current real integration fixture uses the exact Atlas entity mapping/tag:
 
 ```text
 FIELD_SURFACE
 ```
 
-and verifies the temporary Actor reaches:
+If a live test reports:
 
 ```text
-X = 100
-Y = 200
-Z = 300
+Actor not found for entity_id: FIELD_SURFACE
 ```
 
-## Command-line option
+verify that the intended Unreal Actor has the exact `FIELD_SURFACE` mapping/tag expected by the current transport/server implementation. Do not compensate by inventing entity discovery or changing the Atlas entity contract.
 
-For a Windows command-line Editor run, use PowerShell backticks for line continuation:
+## Production transport boundary
 
-```powershell
-& "<UE_INSTALL>\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
-  "<ATLAS_REPO>\unreal\AtlasUnrealHarness\AtlasUnrealHarness.uproject" `
-  -unattended -nop4 -nosplash -nullrhi -NoSound `
-  -ExecCmds="Automation RunTests Atlas.UnrealAgent.OperationBoundary; Quit"
-```
+The Windows Named Pipe transport now has bounded behavior for the important failure modes:
 
-The exact Unreal executable path depends on the local installation. Do not hard-code a machine-specific path into Atlas.
+- bounded connection availability timeout;
+- overlapped request writes;
+- overlapped response reads;
+- bounded pending-read timeout;
+- cancellation of a timed-out pending read before cleanup;
+- explicit handling of pywin32 `ERROR_IO_PENDING` results;
+- server-disconnect error classification;
+- unchanged JSON request/response framing.
 
-## Expected result
+Focused transport boundary tests and the full Python regression suite have passed in the current development cycle.
 
-A passing run must establish all of the following:
-
-- canonical structured operation accepted;
-- unsupported operation kind rejected fail-closed;
-- Atlas entity ID preserved across the boundary;
-- Unreal Editor world available;
-- temporary Actor created;
-- Atlas entity mapping present on the Actor;
-- authorized write reaches Unreal Actor state;
-- resulting state directly observable by the test;
-- temporary Actor cleaned up.
-
-If the test fails, **do not weaken the test or work around the failure**. Capture the Unreal Automation Test result/error and return it to Atlas development for diagnosis and correction.
-
-## Architectural boundary
-
-The harness is deliberately narrower than the production Unreal adapter:
+## Architecture
 
 ```text
 Atlas intent
     ↓
-Unreal Agent
+Unreal Agent / planner
     ↓
 strict operation contract
     ↓
 Atlas authorization
     ↓
-future production Unreal adapter
+UnrealPlanExecutor
+    ↓
+UnrealAdapterProduction
+    ↓
+Windows Named Pipe transport
     ↓
 Unreal Engine
     ↓
 independent evidence
     ↓
-Atlas verification
+Atlas verification / recovery
 ```
 
-The harness proves only the engine-side boundary. It does not yet establish production transport, full Digital Twin synchronization, or production Materials/Niagara/Blueprint/Sequencer/rendering capabilities.
+The Unreal Agent does not become an execution authority. Atlas authorization remains authoritative.
 
-## After this test passes
+## Current capability boundary
 
-Do not immediately turn the harness into the production adapter.
+The current C++ transport server has a narrower executable operation surface than the Python planner declares. The first production capability has been implemented and proven through the actor inspection/location path.
 
-First:
+Do not assume that future material, lighting, Sequencer, camera, or other planned capabilities are already executable merely because their Python-side contracts exist.
 
-1. record the real-Unreal result;
-2. repair any harness limitations revealed by the test;
-3. preserve the harness as a disposable regression fixture;
-4. design the production Unreal adapter transport against the proven boundary;
-5. connect Atlas authorization and evidence to that adapter;
-6. begin the first production Unreal capability.
+The next capability must be selected deliberately and implemented end-to-end:
 
-The current detailed continuation state is documented in:
+```text
+Atlas authorization
+→ transport
+→ Unreal execution
+→ evidence
+→ independent verification
+```
+
+## Regression rules
+
+- Do not weaken a failing test to make it pass.
+- Preserve the disposable harness.
+- Preserve fail-closed validation.
+- Do not change the existing Named Pipe wire protocol.
+- Do not add entity discovery as a workaround for fixture configuration.
+- Keep the Unreal adapter stateless.
+- Keep Atlas as the authorization and verification authority.
+- Do not run workflow/action-runner tests unless explicitly authorized by the user.
+
+## Next milestone
+
+The next development target is **multi-operation production execution with failure containment**.
+
+The Python-side implementation should first prove, with offline regression coverage:
+
+1. ordered evidence before mutation;
+2. exact authorization of the ordered operation set;
+3. correctly bound evidence for every operation;
+4. deterministic execution cursor advancement;
+5. safe stop on a later operation failure;
+6. preservation of completed write targets;
+7. fresh read-only recovery reassessment;
+8. no automatic mutation retry;
+9. explicit authorization for any replacement plan;
+10. independent verification before completion.
+
+After that boundary is green, run the expanded multi-operation scenario against the real Unreal Editor.
+
+## Detailed continuation state
+
+See:
 
 ```text
 UNREAL_AGENT_HANDOFF_CURRENT.md
+UNREAL_AIDER_SCOPE.md
 ```
+
+for the current production-boundary status, architectural constraints, and exact next gate.
