@@ -114,15 +114,18 @@ class WindowsNamedPipeTransport:
 
     @property
     def connect_timeout_ms(self) -> int:
-        return self.CONNECT_TIMEOUT_MS if self._connect_timeout_ms is None else self._connect_timeout_ms
+        value = getattr(self, "_connect_timeout_ms", None)
+        return self.CONNECT_TIMEOUT_MS if value is None else value
 
     @property
     def write_timeout_ms(self) -> int:
-        return self.WRITE_TIMEOUT_MS if self._write_timeout_ms is None else self._write_timeout_ms
+        value = getattr(self, "_write_timeout_ms", None)
+        return self.WRITE_TIMEOUT_MS if value is None else value
 
     @property
     def read_timeout_ms(self) -> int:
-        return self.READ_TIMEOUT_MS if self._read_timeout_ms is None else self._read_timeout_ms
+        value = getattr(self, "_read_timeout_ms", None)
+        return self.READ_TIMEOUT_MS if value is None else value
 
     def send(self, request: UnrealTransportRequest) -> UnrealTransportResponse:
         """Send a request to Unreal and return the response."""
@@ -132,18 +135,9 @@ class WindowsNamedPipeTransport:
         json_request = serialize_request(request)
         request_data = json_request.encode("utf-8")
 
-        # Tests and failure-boundary probes may intentionally construct an
-        # instance with __new__ to exercise error translation before normal
-        # initialization. Fall back to class defaults in that case.
-        connect_timeout_ms = getattr(
-            self, "connect_timeout_ms", self.CONNECT_TIMEOUT_MS
-        )
-        write_timeout_ms = getattr(
-            self, "write_timeout_ms", self.WRITE_TIMEOUT_MS
-        )
-        read_timeout_ms = getattr(
-            self, "read_timeout_ms", self.READ_TIMEOUT_MS
-        )
+        connect_timeout_ms = self.connect_timeout_ms
+        write_timeout_ms = self.write_timeout_ms
+        read_timeout_ms = self.read_timeout_ms
 
         try:
             win32pipe.WaitNamedPipe(self.pipe_name, connect_timeout_ms)
@@ -167,9 +161,7 @@ class WindowsNamedPipeTransport:
                 )
 
                 write_overlapped = pywintypes.OVERLAPPED()
-                write_overlapped.hEvent = win32event.CreateEvent(
-                    None, True, False, None
-                )
+                write_overlapped.hEvent = win32event.CreateEvent(None, True, False, None)
                 try:
                     write_result, _ = win32file.WriteFile(
                         pipe_handle, request_data, write_overlapped
