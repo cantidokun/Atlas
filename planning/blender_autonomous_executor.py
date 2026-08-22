@@ -1,10 +1,4 @@
-"""Tool executor that connects autonomous runtime steps to Blender safely.
-
-The autonomous runtime deliberately accepts a generic callable so it can be
-used with simulations and other adapters. This module supplies the production
-Blender implementation: every call crosses the Blender execution boundary,
-is normalized and verified, and receives an immutable execution receipt.
-"""
+"""Tool executor that connects autonomous runtime steps to Blender safely."""
 
 from typing import Any, Dict, Optional
 
@@ -13,6 +7,7 @@ from controller.blender_capabilities import create_blender_command_registry
 from planning.blender_execution_boundary import BlenderExecutionBoundary, BlenderExecutor
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_result_contract import BlenderExecutionResult
+from planning.blender_tool_adapter import BlenderToolAdapter
 
 
 class BlenderAutonomousExecutor:
@@ -20,10 +15,11 @@ class BlenderAutonomousExecutor:
 
     def __init__(
         self,
-        executor: BlenderExecutor,
+        executor: Optional[BlenderExecutor] = None,
         command_registry: Optional[ControllerCommandRegistry] = None,
     ):
-        self._boundary = BlenderExecutionBoundary(executor)
+        self._adapter = executor if executor is not None else BlenderToolAdapter()
+        self._boundary = BlenderExecutionBoundary(self._adapter)
         self._command_registry = command_registry or create_blender_command_registry()
         self._last_result: Optional[BlenderExecutionResult] = None
         self._last_receipt: Optional[BlenderExecutionReceipt] = None
@@ -55,11 +51,7 @@ class BlenderAutonomousExecutor:
             "details": dict(normalized.details),
         }
 
-    def receipt_matches_last_execution(
-        self,
-        tool: str,
-        arguments: Dict[str, Any],
-    ) -> bool:
+    def receipt_matches_last_execution(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """Confirm the retained receipt still binds the supplied request."""
         if self._last_result is None or self._last_receipt is None:
             return False
