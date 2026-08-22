@@ -1,10 +1,10 @@
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
-from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
+from planning.unreal_agent import UnrealTaskIntent
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
-from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
+from planning.unreal_task_planner import UnrealTaskPlanner
 from planning.unreal_transport_contract import UnrealTransportResponse
 
 
