@@ -1,89 +1,73 @@
 # Atlas Development Log
 
-## August 21, 2026 — Blender adapter and real-mutation proof gate
+## August 22, 2026 — generalized Blender runtime and third-operation gate
 
-### Concrete Blender adapter
+### Generalized task runtime
 
-Implemented the next production boundary:
-
-`planning/blender_tool_adapter.py`
-
-The adapter exposes an explicit immutable capability surface and dispatches authorized tool names to concrete Blender implementations. It deliberately does **not** normalize or reinterpret results; that responsibility remains in `BlenderExecutionBoundary`.
-
-### Capability integrity
-
-Added focused parity coverage ensuring:
-
-- authorized capability names have matching schemas;
-- authorized capabilities have concrete executable tools;
-- mutating capabilities are explicitly classified;
-- capability names are unique;
-- public Blender registry entries are callable.
-
-This prevents the autonomous agent's advertised authority from drifting away from the executable Blender surface.
-
-### Adapter failure-path hardening
-
-The adapter tests now cover unauthorized tools, invalid registries, raw result preservation, error-result preservation, and argument-container isolation.
-
-### Autonomous lifecycle coverage
-
-Added end-to-end offline lifecycle coverage for:
+`planning/task_runtime.py` now provides `TaskRuntimeSession`, the shared lifecycle facade for declarative Atlas tasks:
 
 ```text
-authorized request
- -> validation
- -> concrete dispatch
- -> normalized result
+initial evidence
+ -> target evaluation
+ -> authorization
+ -> action execution
+ -> fresh post-action evidence
  -> independent verification
- -> receipt
+ -> finalization
 ```
 
-Negative paths prove that unauthorized commands and malformed arguments are blocked before execution and failed results cannot produce accepted receipts.
+The runtime validates write-capable tasks, enforces action-tool allowlisting, blocks premature target evaluation, requires fresh verification for write tasks, and prevents finalization before the orchestrator reaches `COMPLETE`.
 
-### Separation correction
+### Proven live operations
 
-During review, result normalization was found to be too close to the adapter boundary. This was corrected. The adapter is now a pure dispatch boundary; the shared execution boundary remains the single normalization/verification authority.
+Two materially different Blender mutations have now been demonstrated through the real Windows/Blender execution path and migrated onto the shared runtime:
 
-### Real Blender mutation proof gate
+- **Rotation:** `Atlas_Rotation_Candidate` -> `[0, 0, 90]` degrees, with persistence and fresh independent transform verification.
+- **Marker creation:** `Atlas_Marker` -> `EMPTY` inside `Atlas_Test`, with absence evidence, conditional creation, persistence, fresh scene inspection, and independent collection-membership verification.
 
-The next materially important gate is the second non-goalpost live Blender task: object rotation.
+The marker work also exposed and corrected several important integration issues:
+
+- truncated Blender tool registry/import surface;
+- evidence acquired outside the orchestrator's authoritative state;
+- missing marker represented as tool failure instead of valid negative evidence;
+- insufficient collection-membership verification.
+
+These failures were corrected and regression coverage was added rather than bypassed.
+
+### Third operation: movement
+
+The third task is now implemented declaratively in `planning/object_move_task.py` using the existing canonical `move_object` capability.
 
 Target:
 
 ```text
-Atlas_Rotation_Candidate
-rotation = [0.0, 0.0, 90.0] degrees
+Goal_Left_post
+location = [1.0, 2.0, 0.0]
 ```
 
-The live path uses:
+The task requires:
 
-- constrained Qwen structured planning;
-- authoritative pre-action evidence;
-- explicit target-state evaluation;
-- mandatory authorization for writes;
-- controlled `set_object_rotation` execution;
-- immutable execution receipt;
-- fresh independent `inspect_object_transform` evidence;
-- independent target-state verification;
-- fail-closed completion.
+- authoritative `inspect_object_transform` evidence;
+- target-location invariant evaluation;
+- explicit authorization for the write;
+- allowlisted `move_object` execution;
+- fresh post-action verification;
+- receipt/completion semantics inherited from the shared runtime.
 
-The mutation tool saves the `.blend`; the subsequent inspection independently reads the persisted transform. The milestone will only be claimed when this real mutation/persistence proof succeeds.
+The latest focused/regression result reported during development is **104 passed**. This establishes regression coverage for the third task but is **not** live Windows/Blender proof of movement.
 
 ### Documentation synchronization
 
-Updated:
+Before ending this development session, the following were synchronized with the actual branch state:
 
 - `README.md`
 - `ATLAS_HANDOFF_CURRENT.md`
 - `DEVELOPMENT_LOG.md`
 
-All three now identify the same immediate gate and distinguish historical verification from current-branch verification.
+They now consistently identify the generalized runtime milestone, the two proven live operations, the 104-test regression result, and the third-operation live movement gate.
 
-### Current status
+### Resume point
 
-**Architectural execution gate: READY.**
+**Next action:** run/inspect the live Windows/Blender movement regression and require the complete movement -> persistence -> fresh independent inspection -> verification -> receipt -> `COMPLETE` loop before claiming the three-operation live milestone.
 
-**Real Blender mutation/persistence gate: PENDING.**
-
-No milestone is being claimed prematurely.
+If movement passes, proceed to continuation/resume and production-facing multi-task composition using the shared runtime. Do not reintroduce task-specific lifecycle orchestration.
