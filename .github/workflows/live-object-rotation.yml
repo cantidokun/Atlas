@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/blender-adapter-work
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -13,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: atlas-live-object-rotation-main
+  group: atlas-live-object-rotation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
