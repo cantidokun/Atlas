@@ -1,4 +1,4 @@
-name: Live Object Marker Regression
+name: Live Object Movement Regression
 
 on:
   push:
@@ -14,12 +14,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: atlas-live-object-marker-${{ github.ref }}
+  group: atlas-live-object-movement-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  live-object-marker:
-    name: live object marker (${{ matrix.case }})
+  live-object-movement:
+    name: live object movement (${{ matrix.case }})
     runs-on: [self-hosted, windows, local-win]
     environment: local-testing
     strategy:
@@ -39,11 +39,11 @@ jobs:
           echo Runner name: %RUNNER_NAME%
           echo Workspace: %GITHUB_WORKSPACE%
           cd
-      - name: Provision deterministic marker fixtures
+      - name: Provision deterministic movement fixtures
         shell: cmd
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_marker_task_fixtures.py"
-      - name: Run live Qwen marker task
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_object_move_fixtures.py"
+      - name: Run live Qwen object movement task
         shell: cmd
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_marker_task.py --case '${{ matrix.case }}'"
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_object_move.py --case '${{ matrix.case }}'"

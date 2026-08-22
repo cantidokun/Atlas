@@ -1,7 +1,8 @@
 """Controlled Blender object transform operations."""
 from math import isfinite
 
-from .blender import run_blender, validate_blend_file
+from .blender import BLENDER, validate_blend_file
+from .blender_process import run_checked_blender
 
 
 def _validate_rotation_degrees(rotation_degrees):
@@ -52,10 +53,11 @@ print("ATLAS_ROTATION_START")
 print(json.dumps(result))
 print("ATLAS_ROTATION_END")
 """
-    return run_blender(blend_path, script, "ATLAS_ROTATION_START", "ATLAS_ROTATION_END")
+    return run_checked_blender(BLENDER, blend_path, script, "ATLAS_ROTATION_START", "ATLAS_ROTATION_END")
 
 
 def inspect_object_transform(file_name, object_name):
+    """Return persisted location and rotation evidence from a fresh Blender process."""
     blend_path = validate_blend_file(file_name)
     script = f"""
 import bpy
@@ -70,6 +72,7 @@ else:
     result = {{
         "status": "ok",
         "object_name": object_name,
+        "location": [obj.location.x, obj.location.y, obj.location.z],
         "rotation_degrees": [math.degrees(angle) for angle in obj.rotation_euler],
     }}
 
@@ -77,4 +80,4 @@ print("ATLAS_TRANSFORM_START")
 print(json.dumps(result))
 print("ATLAS_TRANSFORM_END")
 """
-    return run_blender(blend_path, script, "ATLAS_TRANSFORM_START", "ATLAS_TRANSFORM_END")
+    return run_checked_blender(BLENDER, blend_path, script, "ATLAS_TRANSFORM_START", "ATLAS_TRANSFORM_END")

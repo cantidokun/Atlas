@@ -1,163 +1,98 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 20, 2026 19:41 EDT  
-**Branch:** `main`  
+**Updated:** August 22, 2026 02:00 EDT  
+**Branch:** `feat/blender-adapter-work`  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
-## 1. Current operating constraint
+## Current position
 
-Atlas remains actively developed, but **workflow/action-runner testing is explicitly paused until the user authorizes it**. Do not trigger, rerun, approve, or otherwise initiate GitHub Actions/self-hosted-runner tests while this constraint is in effect. The local Windows runner `atlas-local` is the intended live-test environment, but its availability does not constitute permission to use it.
+**MAJOR MILESTONE PASSED: generalized Blender task-execution architecture.**
 
-Offline-safe development may continue when it is isolated from runner configuration and cannot create system conflicts. Suitable work includes contracts, schemas, receipt/verification logic, authorization/replan boundaries, deterministic utilities, static checks, diagnostics, fixture tooling, and documentation.
+Atlas has now proven two materially different live Blender mutations and migrated both onto the shared `TaskRuntimeSession` lifecycle:
 
-## 2. Scope and authority model
+1. **Object rotation** — authorized rotation, persistence, fresh independent transform inspection, invariant verification, receipt validation, and `COMPLETE`.
+2. **Marker creation** — absence evidence, conditional authorized creation, persistence, fresh scene inspection, independent collection-membership verification, receipt validation, and `COMPLETE`.
 
-This track is the **Blender Agent only**. Unreal Agent work is out of scope.
-
-```text
-Qwen / AI -> reason + propose
-Python / Atlas -> validate -> authorize -> execute -> track -> verify -> recover
-Blender -> production execution adapter
-Atlas -> independent authoritative-state verification
-```
-
-Qwen is never execution authority. Blender execution success is never treated as proof of final state.
-
-Photogrammetry is upstream: dedicated photogrammetry software creates the initial 3D reconstruction; Blender receives it for analysis, cleanup, correction, and preparation.
-
-## 3. Generic architecture currently implemented
-
-Core primitives and boundaries include:
-
-- `ActionPlan`
-- `EvidencePlan`
-- `TargetStateEvaluator`
-- `VerificationPlan`
-- `PlanningOrchestrator`
-- `ConditionalPlanningOrchestrator`
-- `ActionAuthorization`
-- `ReplanAuthorization`
-- `DeterministicFutureGenerator`
-- `FutureExecutionController`
-- `FutureRecoveryGate`
-- runtime-context fingerprinting / integrity checks
-- audit trail
-- immutable Blender execution receipts
-- `AtlasTaskDefinition` — declarative task data boundary
-- `planning/task_runtime.py` — runtime enforcement of task write/verification policy
-- `docs/ATLAS_ARCHITECTURE_CONTRACT.md` — promotion and authority contract
-
-The intended closed loop is:
+The shared lifecycle is now:
 
 ```text
-Qwen proposal
- -> validated task/evidence/action structure
- -> authoritative Blender evidence
- -> target-state evaluation
- -> conditional decision
- -> authorization
- -> deterministic execution
- -> fresh independent verification
- -> immutable receipt
- -> completion / conservative recovery
+initial evidence
+ -> target evaluation
+ -> explicit authorization
+ -> deterministic action
+ -> fresh post-action evidence
+ -> independent verification
+ -> receipt/completion
 ```
 
-`AtlasTaskDefinition` contains task-specific data only. Orchestration and execution-policy enforcement remain generic runtime concerns.
+Task-specific definitions declare evidence, actions, invariants, permitted tools, write policy, and verification policy. The runtime owns lifecycle sequencing and fail-closed completion.
 
-## 4. Concrete Blender/task files and tools
+## Current regression status
 
-Execution/verification boundary:
+The latest focused/regression result reported from the runner is **104 passed** after adding the third operation's declarative task coverage.
 
-- `planning/blender_tool_schema.py` — validates supported Blender tools, required arguments, types, and 3D coordinates; includes `create_empty_marker`.
-- `planning/blender_execution_boundary.py` — validated execution, `execute_verified()`, and receipt-bound single execution.
-- `planning/blender_result_contract.py` — normalized immutable result contract.
-- `planning/blender_verification.py` — requested-tool identity and successful-execution verification.
-- `planning/blender_execution_receipt.py` — deterministic request/result receipt and mutation detection.
-- `planning/verification_plan.py` — required/pending/complete/blocked verification state.
-- `planning/task_definition.py` — declarative `AtlasTaskDefinition`.
-- `planning/task_runtime.py` — runtime preparation/enforcement of task write and verification policy.
-- `tools/blender.py` — scene/relationship inspection, collection creation, marker creation, goalpost movement.
-- `tools/blender_transform.py` — transform inspection and rotation mutation.
-- `tools/__init__.py` — Blender tool registry.
+This is current development/test evidence, but **the third movement task has not yet been proven in live Windows/Blender execution**. Do not infer live success from the 104-test result.
 
-Task/harness coverage includes conditional goalpost, collection creation/membership, parent relationships, object rotation, rename, delete, marker creation, verification-failure, continuation/resume, and deterministic fixture tooling.
+## Third live gate: object movement
 
-## 5. Model/runtime setup
+The next materially important gate is the existing `move_object` capability through the generalized runtime.
 
-- Ollama API: `http://localhost:11434/api/chat`
-- Model: `qwen3:8b`
-- Blender: **4.4.3**
-- Intended local live-test runner: `atlas-local` on Windows
-- Structured Qwen planning: `qwen/structured_plan.py`, `TASK_PLAN_JSON_SCHEMA`, `qwen_planning_runtime.py`
+Task contract:
 
-Recent reliability work added bounded transient Ollama planning-timeout retry behavior within the existing planning budget and audit trail. Ollama is treated as dedicated Atlas infrastructure.
+```text
+Goal_Left_post
+location = [1.0, 2.0, 0.0]
+```
 
-## 6. Tests and verification status
+Files:
 
-### Established historical baselines
+- `planning/object_move_task.py`
+- `planning/task_runtime.py`
+- canonical Blender movement capability/tool implementation
 
-- **Atlas Tests #401:** PASS on Python 3.9 and Python 3.11. This is a historical offline baseline and does not automatically validate later code changes.
-- **Live Conditional Atlas Regression #155:** PASS across all four jobs:
-  - live generic collection — incorrect: PASS
-  - live generic collection — already-correct: PASS
-  - live conditional — incorrect: PASS
-  - live conditional — already-correct: PASS
+Required live proof:
 
-Historical live proofs also cover materially different Blender behaviors including object rotation, object rename, object delete, collection creation/membership, parent relationships, goalpost correction, continuation/pause-resume, tampered continuation rejection, and adversarial verification failure -> `BLOCKED`.
+1. already-correct fixture produces zero writes;
+2. incorrect fixture produces one authorized movement;
+3. Blender saves the `.blend`;
+4. fresh independent `inspect_object_transform` evidence proves the target location;
+5. receipt matches the authorized execution;
+6. runtime reaches `COMPLETE`.
 
-### Newer work
+A failed or unverifiable post-action inspection must produce `BLOCKED`, never completion.
 
-The `AtlasTaskDefinition` / `planning/task_runtime.py` refinement and subsequent offline hardening are newer than the established #401 baseline. Do **not** claim a fresh green workflow result for these changes while runner testing is paused.
+## Generic runtime milestone
 
-The last handoff noted an in-flight **Atlas Tests #629** run at setup/checkout stage. Its final result must be checked when workflow testing is explicitly resumed; do not infer success or failure from its existence.
+`TaskRuntimeSession` now centralizes:
 
-## 7. Current architectural progress
-
-Atlas has progressed beyond a single Blender-edit proof. The same control architecture has been demonstrated across materially different Blender operations:
-
-- evidence acquisition and validation;
-- conditional skip vs execute;
-- mandatory authorization before writes;
-- deterministic single execution;
+- initial evidence acquisition;
+- target evaluation;
+- authorization;
+- action execution;
+- fresh post-action evidence acquisition;
 - independent post-action verification;
-- immutable receipt binding;
-- fail-closed `BLOCKED` behavior;
-- continuation identity/integrity checks;
-- authorized vs unauthorized replanning.
+- finalization/completion.
 
-The current focus is hardening and integration rather than inventing another bespoke orchestration path for each Blender operation.
+Rotation and marker live paths have been migrated onto this lifecycle. The next objective is to prove that adding movement requires only a task definition and does not require rebuilding lifecycle orchestration.
 
-## 8. Known issues / boundaries
+## Authority and verification boundary
 
-- Fresh CI/workflow validation of the newest integrated code is unavailable by instruction until the user authorizes runner testing.
-- `create_empty_marker` remains the clean next materially distinct live capability to prove once testing resumes.
-- Newer task-runtime changes must not be represented as verified merely because older historical suites passed.
-- Production-facing continuation/resume still needs broader proof across multiple materially different task types.
-- Do not modify runner configuration merely to work around test availability.
+- `controller/blender_capabilities.py` defines authorized capability names.
+- `planning/blender_tool_schema.py` validates admitted arguments.
+- `planning/blender_tool_adapter.py` dispatches authorized capabilities.
+- `planning/blender_execution_boundary.py` owns result normalization.
+- `planning/blender_execution_receipt.py` binds validated request to verified result.
+- `planning/blender_verification.py` owns independent verification primitives.
+- `planning/task_runtime.py` owns generic task lifecycle sequencing.
 
-## 9. Offline-safe development priorities while runner testing is paused
+Qwen proposes; Atlas validates, authorizes, executes, tracks, and verifies. Blender is an execution target, never an authority.
 
-1. Deterministic task-contract validation.
-2. Receipt immutability and mutation detection.
-3. Malformed-result and wrong-tool rejection.
-4. Authorization/replan boundary hardening.
-5. Fail-closed recovery logic.
-6. Static architecture checks that cannot start workflows.
-7. Deterministic Blender fixture and diagnostic tooling.
-8. Documentation synchronization.
+## Verification discipline
 
-Required regression cases to preserve include: already-satisfied -> zero writes; unsatisfied -> exact authorized action order; authorization mandatory before writes; successful write -> verification mandatory; failed verification -> `BLOCKED`; failed action -> recovery gate; mutated arguments/result -> receipt mismatch; malformed executor response -> rejected; wrong result tool -> rejected; invalid continuation identity -> rejected; authorized fresh-evidence replan -> accepted; unauthorized replan -> rejected; one receipt-bound execution cannot duplicate writes; write-capable task runtime requires post-action verification; task snapshots cannot mutate live task definitions.
+Historical CI/live results are not proof of current-branch behavior unless explicitly associated with the current commit/workflow. Focused tests are useful regression evidence; live Blender claims require the actual Windows/Blender runner result.
 
-## 10. Exact next steps when workflow testing is authorized again
+## After the movement gate
 
-1. Inspect the final result of the already-existing **Atlas Tests #629** run before starting any new run.
-2. Inspect current `main` and the newest workflow state.
-3. Obtain a fresh fully green baseline for the current integrated code.
-4. Live-prove `create_empty_marker` through the generic task/runtime architecture.
-5. Preserve explicit zero-write, single-write, authorization, verification-failure, receipt-integrity, and malformed-result regressions.
-6. Expand production-facing continuation/resume across multiple materially different Blender task types.
-7. Promote the resulting closed loop as the next major Blender milestone only when the evidence supports it.
+If movement passes live, the next milestone is **three-operation generalized live Blender proof** followed by continuation/resume and production-facing multi-task composition. Do not add bespoke lifecycle orchestration for individual tools; extend the declarative task contract and shared runtime instead.
 
-## 11. Resume rule
-
-**Do not resume workflow testing automatically.** The explicit user constraint is the controlling instruction. When the user authorizes testing, read this handoff first, inspect the existing #629 result, then continue from the current code state without repeating already-completed work.
+Digital Twin identity/revision, photogrammetry intake, and Unreal production remain later stages. Photogrammetry is upstream of Blender; Atlas owns canonical Digital Twin identity/state.

@@ -1,10 +1,8 @@
-name: Live Object Marker Regression
+name: Live Blender Task Sequence Regression
 
 on:
   push:
-    branches:
-      - main
-      - feat/blender-adapter-work
+    branches: [feat/blender-adapter-work]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -14,12 +12,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: atlas-live-object-marker-${{ github.ref }}
+  group: atlas-live-task-sequence-feature
   cancel-in-progress: true
 
 jobs:
-  live-object-marker:
-    name: live object marker (${{ matrix.case }})
+  live-sequence:
+    name: live Blender task sequence (${{ matrix.case }})
     runs-on: [self-hosted, windows, local-win]
     environment: local-testing
     strategy:
@@ -28,6 +26,7 @@ jobs:
         case:
           - already-correct
           - incorrect
+          - tampered-checkpoint
     steps:
       - name: Check out triggering Atlas revision
         uses: actions/checkout@v4
@@ -39,11 +38,11 @@ jobs:
           echo Runner name: %RUNNER_NAME%
           echo Workspace: %GITHUB_WORKSPACE%
           cd
-      - name: Provision deterministic marker fixtures
+      - name: Provision deterministic task sequence fixtures
         shell: cmd
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_marker_task_fixtures.py"
-      - name: Run live Qwen marker task
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_task_sequence_fixtures.py"
+      - name: Run live Qwen task sequence harness
         shell: cmd
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_marker_task.py --case '${{ matrix.case }}'"
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_task_sequence.py --case '${{ matrix.case }}'"

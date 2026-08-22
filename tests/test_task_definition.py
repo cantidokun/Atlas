@@ -41,6 +41,23 @@ def test_write_task_requires_verification_at_runtime():
         prepare_task_runtime(task)
 
 
+def test_task_definition_authorization_surface_is_immutable_after_construction():
+    allowed = {"move_object"}
+    task = AtlasTaskDefinition(
+        "immutable",
+        (EvidenceRequest("inspect_scene", {}, "inspect_scene"),),
+        (ActionSpec("move_object", {}, "move_object"),),
+        evaluator(),
+        allowed,
+    )
+
+    allowed.add("delete_object")
+
+    assert task.allowed_action_tools == frozenset({"move_object"})
+    with pytest.raises(AttributeError):
+        task.allowed_action_tools.add("delete_object")
+
+
 def test_task_definition_snapshot_is_serializable_and_task_specific():
     task = AtlasTaskDefinition(
         "marker",
