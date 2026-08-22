@@ -1,9 +1,16 @@
 import pytest
 
 from planning.blender_autonomous_executor import BlenderAutonomousExecutor
+from planning.blender_tool_adapter import BlenderToolAdapter
 
 
 MOVE = {"file_name": "test_scene.blend", "object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]}
+
+
+def test_autonomous_executor_uses_concrete_adapter_by_default():
+    executor = BlenderAutonomousExecutor()
+    assert isinstance(executor._adapter, BlenderToolAdapter)
+    assert "move_object" in executor._adapter.supported_tools
 
 
 def test_autonomous_executor_returns_verified_result_and_receipt():
@@ -45,6 +52,22 @@ def test_autonomous_executor_rejects_invalid_call_before_blender():
     assert calls == []
     assert executor.last_result is None
     assert executor.last_receipt is None
+
+
+def test_autonomous_executor_rejects_unregistered_tool_before_blender():
+    calls = []
+    executor = BlenderAutonomousExecutor(
+        lambda tool, arguments: calls.append((tool, arguments)) or {
+            "ok": True,
+            "state": "moved",
+            "details": {},
+        }
+    )
+
+    with pytest.raises(ValueError, match="not registered"):
+        executor("unknown_blender_tool", {})
+
+    assert calls == []
 
 
 def test_autonomous_executor_rejects_unsuccessful_blender_result():
