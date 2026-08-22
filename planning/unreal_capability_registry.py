@@ -17,6 +17,12 @@ class UnrealCapabilitySpec:
     required_evidence: Tuple[str, ...]
     description: str
     argument_keys: FrozenSet[str] = frozenset({"entity_ids"})
+    argument_keys_by_kind: Mapping[UnrealOperationKind, FrozenSet[str]] = None
+
+    def keys_for_kind(self, kind: UnrealOperationKind) -> FrozenSet[str]:
+        if self.argument_keys_by_kind is not None and kind in self.argument_keys_by_kind:
+            return self.argument_keys_by_kind[kind]
+        return self.argument_keys
 
 
 DEFAULT_UNREAL_CAPABILITIES = (
@@ -56,7 +62,11 @@ DEFAULT_UNREAL_CAPABILITIES = (
         frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
         ("material_state",),
         "Inspect, modify, or verify material state.",
-        argument_keys=frozenset({"entity_ids", "material_variant"}),
+        argument_keys_by_kind={
+            UnrealOperationKind.READ: frozenset({"entity_ids"}),
+            UnrealOperationKind.WRITE: frozenset({"entity_ids", "material_variant"}),
+            UnrealOperationKind.VERIFY: frozenset({"entity_ids", "material_variant"}),
+        },
     ),
     UnrealCapabilitySpec(
         UnrealCapability.NIAGARA,
@@ -109,7 +119,7 @@ class UnrealCapabilityRegistry:
         arguments = operation.arguments
         if not isinstance(arguments, Mapping):
             raise ValueError("Unreal operation arguments must be a mapping")
-        if frozenset(arguments.keys()) != spec.argument_keys:
+        if frozenset(arguments.keys()) != spec.keys_for_kind(operation.kind):
             raise ValueError(
                 "Unreal operation arguments do not match the capability schema"
             )
