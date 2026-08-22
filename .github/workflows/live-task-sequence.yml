@@ -26,6 +26,7 @@ jobs:
         case:
           - already-correct
           - incorrect
+          - tampered-checkpoint
     steps:
       - name: Check out triggering Atlas revision
         uses: actions/checkout@v4
