@@ -45,6 +45,7 @@ def test_sequence_runs_two_tasks_only_after_each_task_verifies():
 
     checkpoint = sequence.run_current(authorization_id="seq:rotation")
     assert checkpoint["next_task_index"] == 1
+    assert checkpoint["integrity_digest"]
     assert sequence.current_task.name == "marker"
     assert calls.count(("set_rotation", {"key": "rotation", "value": 90})) == 1
     assert state["rotation"] == 90
@@ -79,7 +80,7 @@ def test_sequence_resume_reconstructs_only_at_a_completed_task_boundary():
 
     tampered = dict(checkpoint)
     tampered["sequence"] = {"tasks": []}
-    with pytest.raises(ValueError, match="does not match"):
+    with pytest.raises(ValueError, match="integrity digest"):
         TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer, reducer), tampered)
 
 
@@ -102,14 +103,14 @@ def test_sequence_rejects_tampered_completion_history_and_current_task():
     bad_history["next_task_index"] = 1
     bad_history["completed"] = [{"index": 0, "task": "forged"}]
     bad_history["current_task"] = "second"
-    with pytest.raises(ValueError, match="completion history"):
+    with pytest.raises(ValueError, match="integrity digest"):
         TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer, reducer), bad_history)
 
     bad_current = dict(checkpoint)
     bad_current["next_task_index"] = 1
     bad_current["completed"] = [{"index": 0, "task": "first"}]
     bad_current["current_task"] = "forged"
-    with pytest.raises(ValueError, match="current task"):
+    with pytest.raises(ValueError, match="integrity digest"):
         TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer, reducer), bad_current)
 
 
@@ -120,3 +121,18 @@ def test_sequence_cannot_advance_before_current_task_is_complete():
     sequence.start_current()
     with pytest.raises(RuntimeError, match="before task completion"):
         sequence.advance_after_completion()
+
+
+def test_sequence_rejects_missing_or_invalid_checkpoint_integrity_digest():
+    definition = TaskSequenceDefinition((_task("first", "set_first", "first", 1),))
+    reducer = lambda evidence: evidence[0]
+    execute = lambda tool, arguments: {"value": 0}
+    checkpoint = TaskSequenceSession(definition, execute, (reducer,)).checkpoint()
+    missing = dict(checkpoint)
+    del missing["integrity_digest"]
+    with pytest.raises(ValueError, match="integrity digest is required"):
+        TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer,), missing)
+    invalid = dict(checkpoint)
+    invalid["integrity_digest"] = "0" * 64
+    with pytest.raises(ValueError, match="does not match payload"):
+        TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer,), invalid)
