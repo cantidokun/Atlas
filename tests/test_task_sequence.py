@@ -55,21 +55,33 @@ def test_sequence_runs_two_tasks_only_after_each_task_verifies():
     assert state == {"rotation": 90, "marker": 1}
 
 
-def test_sequence_resume_accepts_only_matching_boundary_checkpoint():
+def test_sequence_resume_reconstructs_only_at_a_completed_task_boundary():
+    state = {"first": 0, "second": 0}
+
+    def execute(tool, arguments):
+        key = arguments["key"]
+        if tool == "inspect_state":
+            return {"key": key, "value": state[key]}
+        state[key] = arguments["value"]
+        return {"status": "ok", "key": key, "value": state[key]}
+
     definition = TaskSequenceDefinition((
         _task("first", "set_first", "first", 1),
         _task("second", "set_second", "second", 2),
     ))
     reducer = lambda evidence: evidence[0]
-    execute = lambda tool, arguments: {"key": arguments["key"], "value": arguments.get("value", 0)}
     original = TaskSequenceSession(definition, execute, (reducer, reducer))
-    checkpoint = original.checkpoint()
+    checkpoint = original.run_current(authorization_id="seq:first")
+    assert checkpoint["next_task_index"] == 1
 
     resumed = TaskSequenceSession.resume_from_checkpoint(
         definition, execute, (reducer, reducer), checkpoint
     )
-    assert resumed.index == 0
-    assert resumed.current_task.name == "first"
+    assert resumed.index == 1
+    assert resumed.current_task.name == "second"
+    resumed.run_current(authorization_id="seq:second")
+    assert resumed.complete
+    assert state == {"first": 1, "second": 2}
 
     tampered = dict(checkpoint)
     tampered["sequence"] = {"tasks": []}
