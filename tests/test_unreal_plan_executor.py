@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from planning.unreal_adapter_production import UnrealAdapterProduction
+from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_task_planner import UnrealTaskPlan
@@ -179,7 +179,35 @@ def test_executor_failure_preserves_completed_evidence_and_boundary():
     assert failure.intent_id == "location-write-failure-context"
     assert failure.operation_index == 2
     assert failure.operation_name == "verify_target_actor_mapping"
+    assert failure.operation_entity_ids == ("FIELD_SURFACE",)
     assert len(failure.completed_evidence) == 2
     assert failure.completed_evidence[0].operation_name == "inspect_target_actors"
     assert failure.completed_evidence[1].operation_name == "set_actor_location"
     assert "does not match expected" in failure.error
+
+
+class FailingTransport:
+    def __init__(self):
+        self.requests = []
+
+    def send(self, request):
+        self.requests.append(request)
+        raise UnrealAdapterError("simulated Unreal write failure")
+
+
+def test_executor_failure_preserves_operation_targets_without_completed_evidence():
+    transport = FailingTransport()
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan(
+        "location-write-no-evidence",
+        (_location_operation({"x": 1.0, "y": 2.0, "z": 3.0}), _verify_operation()),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError) as exc_info:
+        executor.execute(plan, "auth-location-008")
+
+    failure = exc_info.value.failure
+    assert failure is not None
+    assert failure.operation_name == "set_actor_location"
+    assert failure.operation_entity_ids == ("FIELD_SURFACE",)
+    assert failure.completed_evidence == ()
