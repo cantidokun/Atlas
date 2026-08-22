@@ -34,7 +34,6 @@ class UnrealTaskPlanner:
 
     @staticmethod
     def _validate_intent(intent: UnrealTaskIntent) -> None:
-        """Fail-closed validation of the intent before any planning work."""
         if not isinstance(intent, UnrealTaskIntent):
             raise TypeError("intent must be an UnrealTaskIntent instance")
         if not intent.target_entity_ids:
@@ -48,38 +47,32 @@ class UnrealTaskPlanner:
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_inspection(intent))
 
     def plan_material_variant(self, intent: UnrealTaskIntent, material_variant: Mapping[str, object]) -> UnrealTaskPlan:
-        """Plan an explicit material variant with read/write/verify boundaries."""
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_material_variant(intent, material_variant))
 
     def plan_actor_location_write(self, intent: UnrealTaskIntent, location: Mapping[str, float]) -> UnrealTaskPlan:
-        """Plan one actor-location change with independent post-write inspection."""
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_write(intent, location))
 
     def plan_actor_rotation_write(self, intent: UnrealTaskIntent, rotation: Mapping[str, float]) -> UnrealTaskPlan:
-        """Plan one actor-rotation change with independent post-write inspection."""
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_rotation_write(intent, rotation))
 
+    def plan_actor_scale_write(self, intent: UnrealTaskIntent, scale: Mapping[str, float]) -> UnrealTaskPlan:
+        """Plan one actor-scale change with independent post-write inspection."""
+        self._validate_intent(intent)
+        return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_scale_write(intent, scale))
+
     def plan_actor_location_sequence(self, intent: UnrealTaskIntent, locations: Sequence[Mapping[str, float]]) -> UnrealTaskPlan:
-        """Plan ordered actor-location writes with proof after every mutation."""
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
 
     def compose_plans(self, intent: UnrealTaskIntent, plans: Sequence[UnrealTaskPlan]) -> UnrealTaskPlan:
-        """Compose deterministic sub-plans for one explicit Atlas intent.
-
-        Composition is deliberately limited to already-validated task plans.
-        It does not invent operations, authorize mutations, reorder operations,
-        or merge plans belonging to different intents.
-        """
         self._validate_intent(intent)
         if isinstance(plans, (str, bytes)) or not isinstance(plans, Sequence):
             raise TypeError("plans must be a sequence of UnrealTaskPlan instances")
         if not plans:
             raise ValueError("plans must contain at least one UnrealTaskPlan")
-
         operations = []
         for index, plan in enumerate(plans):
             if not isinstance(plan, UnrealTaskPlan):
@@ -87,7 +80,6 @@ class UnrealTaskPlanner:
             if plan.intent_id != intent.intent_id:
                 raise ValueError("all composed plans must use the same intent_id as the supplied intent")
             operations.extend(plan.operations)
-
         return UnrealTaskPlan(intent.intent_id, tuple(operations))
 
 
@@ -121,6 +113,16 @@ class UnrealAgentPlanBuilder:
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in rotation.values()):
             raise TypeError("rotation angles must be numeric")
         return dict(rotation)
+
+    @staticmethod
+    def _validate_scale(scale: Mapping[str, float]) -> Mapping[str, float]:
+        if not isinstance(scale, Mapping):
+            raise TypeError("scale must be a mapping")
+        if set(scale.keys()) != {"x", "y", "z"}:
+            raise ValueError("scale must contain exactly x, y, and z")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in scale.values()):
+            raise TypeError("scale components must be numeric")
+        return dict(scale)
 
     @staticmethod
     def _validate_material_variant(material_variant: Mapping[str, object]) -> Mapping[str, object]:
@@ -173,13 +175,21 @@ class UnrealAgentPlanBuilder:
             self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", entity_ids),
         )
 
+    def for_actor_scale_write(self, intent, scale: Mapping[str, float]):
+        entity_ids = self._require_targets(intent)
+        scale = self._validate_scale(scale)
+        return (
+            self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids),
+            self._operation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE, "set_actor_scale", entity_ids, {"scale": scale}),
+            self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", entity_ids),
+        )
+
     def for_actor_location_sequence(self, intent, locations: Sequence[Mapping[str, float]]):
         entity_ids = self._require_targets(intent)
         if isinstance(locations, (str, bytes)) or not isinstance(locations, Sequence):
             raise TypeError("locations must be a sequence of mappings")
         if not locations:
             raise ValueError("locations must contain at least one location")
-
         operations = [self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids)]
         for location in locations:
             location = self._validate_location(location)
