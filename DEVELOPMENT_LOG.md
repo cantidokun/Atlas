@@ -1,222 +1,89 @@
 # Atlas Development Log
 
-## August 16, 2026 — Live Controller Passed / General Planning Integration
+## August 21, 2026 — Blender adapter and real-mutation proof gate
 
-### Live controller result
+### Concrete Blender adapter
 
-The real local end-to-end controller test passed.
+Implemented the next production boundary:
 
-The controller:
+`planning/blender_tool_adapter.py`
 
-1. started from measured BEFORE evidence
-2. calculated the target state
-3. executed both required `move_object` writes
-4. performed an independent `inspect_object_relationship` verification
-5. confirmed the required final state
-6. built the final report in Python
-7. exited without another Qwen reasoning cycle
+The adapter exposes an explicit immutable capability surface and dispatches authorized tool names to concrete Blender implementations. It deliberately does **not** normalize or reinterpret results; that responsibility remains in `BlenderExecutionBoundary`.
 
-Final verified state:
+### Capability integrity
 
-```text
-Goal_Left_post  = [0.0, 5.233, 0.0]
-Goal_Right_Post = [0.0, -5.233, 0.0]
-Midpoint        = [0.0, 0.0, 0.0]
-Distance        = 10.466 units
-Symmetric       = true
-```
+Added focused parity coverage ensuring:
 
-### General Action Planning V1
+- authorized capability names have matching schemas;
+- authorized capabilities have concrete executable tools;
+- mutating capabilities are explicitly classified;
+- capability names are unique;
+- public Blender registry entries are callable.
 
-Added:
+This prevents the autonomous agent's advertised authority from drifting away from the executable Blender surface.
 
-`action_plan.py`
+### Adapter failure-path hardening
 
-It contains:
+The adapter tests now cover unauthorized tools, invalid registries, raw result preservation, error-result preservation, and argument-container isolation.
 
-- `ActionSpec` — one ordered authorized action
-- `ActionPlan` — deterministic state for an ordered action sequence
+### Autonomous lifecycle coverage
 
-The plan exposes the next action, records results, advances only after success, blocks after a required failure, reports completion, and provides a serializable state snapshot.
-
-### General Evidence Planning V1
-
-Added:
-
-`evidence_plan.py`
-
-It tracks ordered evidence requests, completion, reuse, and blocking failures.
-
-### Planning Orchestrator V1
-
-Added:
-
-`planning_orchestrator.py`
-
-It connects evidence and action plans. Action execution remains blocked until required evidence is complete.
-
-### Controlled failure / recovery
-
-The live recovery harness passed.
-
-A failed write is detected as recoverable, fresh evidence is required, and automatic retry is refused. A new validated and explicitly authorized plan is required before retrying.
-
-### Audit trail
-
-The live action workflow records the lifecycle in order:
+Added end-to-end offline lifecycle coverage for:
 
 ```text
-Qwen proposal
- ↓
-Evidence
- ↓
-Authorization
- ↓
-Execution 1
- ↓
-Execution 2
- ↓
-Verification
+authorized request
+ -> validation
+ -> concrete dispatch
+ -> normalized result
+ -> independent verification
+ -> receipt
 ```
 
-The final live test completed with an audit trail and independent verification.
+Negative paths prove that unauthorized commands and malformed arguments are blocked before execution and failed results cannot produce accepted receipts.
 
-### Qwen Structured Planning Bridge — PASS
+### Separation correction
 
-Added:
+During review, result normalization was found to be too close to the adapter boundary. This was corrected. The adapter is now a pure dispatch boundary; the shared execution boundary remains the single normalization/verification authority.
 
-`live_qwen_planning_loop.py`
+### Real Blender mutation proof gate
 
-The live planning bridge now proves:
+The next materially important gate is the second non-goalpost live Blender task: object rotation.
+
+Target:
 
 ```text
-Qwen structured plan
- ↓
-Python plan validation
- ↓
-Read-only Blender evidence
- ↓
-Planning orchestrator
- ↓
-Structured action plan
- ↓
-No write execution
+Atlas_Rotation_Candidate
+rotation = [0.0, 0.0, 90.0] degrees
 ```
 
-The successful run produced:
+The live path uses:
 
-- 1 structured evidence request
-- 2 structured actions
-- validated plan
-- authoritative read-only evidence
-- completed evidence plan
-- structured action plan with the next action exposed
-- zero write execution
+- constrained Qwen structured planning;
+- authoritative pre-action evidence;
+- explicit target-state evaluation;
+- mandatory authorization for writes;
+- controlled `set_object_rotation` execution;
+- immutable execution receipt;
+- fresh independent `inspect_object_transform` evidence;
+- independent target-state verification;
+- fail-closed completion.
 
-Result:
+The mutation tool saves the `.blend`; the subsequent inspection independently reads the persisted transform. The milestone will only be claimed when this real mutation/persistence proof succeeds.
 
-```text
-QWEN PLAN ACCEPTED
-EVIDENCE VERIFIED READ-ONLY
-ACTION PLAN STRUCTURED
-WRITE EXECUTION NOT PERFORMED
-ATLAS QWEN PLANNING BRIDGE TEST: PASS
-```
+### Documentation synchronization
 
-This is the first live boundary between Qwen task planning and the generic Python planning primitives.
+Updated:
 
-### Regression status
+- `README.md`
+- `ATLAS_HANDOFF_CURRENT.md`
+- `DEVELOPMENT_LOG.md`
 
-Latest local regression result:
+All three now identify the same immediate gate and distinguish historical verification from current-branch verification.
 
-```text
-98 passed
-```
+### Current status
 
-### August 16 overnight checkpoint
+**Architectural execution gate: READY.**
 
-The repository organization/refactor is complete and the regression suite remains green at 98 tests.
+**Real Blender mutation/persistence gate: PENDING.**
 
-The live action harness was restored to the known-good write-test version before pausing development. An experimental conditional-planning harness was deliberately not left as the primary live write path because testing exposed malformed Qwen tool-argument structures reaching the executor boundary.
-
-That failure is useful architectural evidence: Atlas must validate not only the top-level plan shape but also the argument schema for each proposed tool before any executor is called.
-
-The next development target is therefore:
-
-```text
-Qwen proposal
- ↓
-Tool + argument schema validation
- ↓
-Authoritative evidence
- ↓
-Determine whether target state already holds
- ↓
-Skip unnecessary write OR retain authorized action plan
- ↓
-Python-controlled execution
- ↓
-Independent verification
-```
-
-Two live cases are required:
-
-1. already-correct state → no write
-2. incorrect state → required authorized write still executes and verifies
-
-### Atlas product direction update
-
-Atlas is broader than the current Blender implementation. The project is being developed as an AI-assisted sports virtual production and digital-twin platform.
-
-The wider direction includes:
-
-- sports capture and analysis
-- digital-twin construction and spatial reasoning
-- Blender production agents
-- planned Unreal Engine production agents
-- cinematic sports effects and environmental transformations
-- production orchestration across specialized tools and agents
-
-Planned Unreal capabilities include asset/scene organization, materials and look development, Lumen lighting, Nanite assets, CineCamera workflows, Sequencer, Movie Render Queue, and real-time virtual-production operations.
-
-The production-agent architecture remains environment-agnostic at the orchestration layer: AI reasons and proposes; Python validates and authorizes; the production environment executes; independent verification confirms the result.
-
-### Documentation
-
-`README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` have been updated to reflect the broader sports-production-suite direction and the verified August 16 milestone state.
-
-### User test protocol
-
-When a new local test is ready, immediately provide the exact command/prompt. Do not ask the user to run a test before the harness exists on `main`.
-
-## August 17, 2026 — Runtime Continuation Integrity Milestone
-
-The runtime-integrity boundary has now been promoted from an isolated regression primitive into the actual autonomous continuation/resume path.
-
-Implemented and merged in PR #9:
-
-- `RuntimeIntegrity` receipts are serializable and persisted with future runtime checkpoints.
-- `AutonomousFutureRuntime` now binds continuation to:
-  1. stable instruction fingerprint
-  2. authorized future/plan digest
-  3. exact persisted checkpoint-state digest
-- validated resume now fails closed when the receipt is missing, tampered, the stable instructions change, or the authorized future changes.
-- a dedicated `resume_from_store()` entry point makes the validated resume boundary explicit.
-- regression coverage was added for matching, changed-context, tampered-receipt, missing-receipt, and exact-checkpoint continuation.
-- an existing Unreal planner regression was also corrected so empty target sets fail closed rather than producing an executable plan.
-
-Validation:
-
-```text
-Atlas Tests PR run #348
-Python 3.9: PASS
-Python 3.11: PASS
-```
-
-The change is merged to `main` at:
-
-`15c31321960c05aa4f8694bfc4891c2c206d8d50`
-
-The self-hosted live regression was automatically triggered against this new `main` HEAD as run #118. At the time of this log entry its jobs remain waiting, so the live portion is **not yet declared passed**. This is an execution-runner availability gate, not an offline regression failure.
-
-The next major development target is now the broader live autonomous-task proof: use a second non-goalpost production task to demonstrate that the same generic conditional planning, authorization, deterministic future, verification, recovery, and continuation-integrity machinery works outside the original goalpost fixture.
+No milestone is being claimed prematurely.
