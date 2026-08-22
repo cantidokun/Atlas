@@ -1,21 +1,31 @@
 # Atlas Unreal Agent — Current Development Handoff
 
 **Updated:** August 22, 2026
-**Current focus:** Real Unreal multi-operation production gate
+**Current focus:** Live multi-operation failure/recovery boundary
 **Current branch:** `feat/unreal-production-actor-write`
-**Latest branch development commits:** `20a4b265` and `372ad001`
+**Latest validated live gate:** compound actor-location sequence passed against the running Unreal Editor
 
 ## Current position
 
-The Unreal Agent has crossed the first real Unreal production boundary. The production adapter, Windows Named Pipe transport, actor-location write/verify path, and read-only recovery reassessment have all been exercised against the running Unreal Editor.
+The Unreal Agent has crossed the first real Unreal production boundary and the first live multi-operation production boundary. The production adapter, Windows Named Pipe transport, actor-location write/verify path, read-only recovery reassessment, and the deterministic compound actor-location sequence have all been exercised against the running Unreal Editor.
 
-The latest user-reported full regression is:
+Latest user-reported validation:
+
+```text
+python -m pytest tests/test_unreal_location_sequence.py -q
+3 passed
+
+python -m pytest tests/test_unreal_location_sequence_real_integration.py -vv -s
+1 passed in 1.64s
+```
+
+The earlier full regression baseline remains green at:
 
 ```text
 539 passed, 5 skipped
 ```
 
-The two existing live Unreal tests also pass:
+The two original live Unreal tests also pass:
 
 ```text
 test_real_unreal_plan_executor_location_write_and_restore                         PASS
@@ -78,9 +88,9 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
   - typed timeout/disconnect failure translation;
   - pending-read cancellation and cleanup.
 
-## Multi-operation capability
+## Multi-operation capability — LIVE PROVEN
 
-`UnrealTaskPlanner.plan_actor_location_sequence(...)` now produces a deterministic compound plan:
+`UnrealTaskPlanner.plan_actor_location_sequence(...)` produces a deterministic compound plan:
 
 ```text
 READ
@@ -88,64 +98,62 @@ WRITE(location A)
 VERIFY(location A)
 WRITE(location B)
 VERIFY(location B)
-...
 ```
 
-The executor rejects any write that is not immediately followed by verification for the same targets.
+The live Unreal test `tests/test_unreal_location_sequence_real_integration.py` passed against the running Editor.
 
-Unit coverage now includes sequence execution/order and a failure-containment regression. The new failure test proves that when the second write fails:
+The live proof established that:
 
-- execution stops exactly at that operation;
-- no later operation is sent;
-- completed evidence is preserved;
-- the failed write's exact location intent is preserved for recovery;
-- the already-applied first mutation is not silently retried.
+1. `FIELD_SURFACE` was inspected successfully;
+2. the first location mutation executed;
+3. the first mutation was independently verified;
+4. the second location mutation executed;
+5. the second mutation was independently verified;
+6. the second verified state differed from the first;
+7. the original actor location was restored in the test's cleanup path;
+8. the executor preserved the declared operation/evidence order.
 
-## Real Unreal proof already passed
+The unit regression `tests/test_unreal_location_sequence.py` also passed all 3 tests.
 
-The running Unreal Editor has already proven:
-
-1. live actor inspection of `FIELD_SURFACE`;
-2. authorized actor-location mutation through the production adapter;
-3. independent post-write verification;
-4. restoration to the original location;
-5. read-only recovery reassessment after a simulated failure boundary;
-6. no silent mutation retry during reassessment.
-
-## Current external gate
-
-A new live integration test has now been added:
-
-```text
-tests/test_unreal_location_sequence_real_integration.py
-```
-
-It is intentionally narrow. It must prove against the running Unreal Editor that:
-
-1. `FIELD_SURFACE` can be inspected;
-2. the first location write succeeds;
-3. the first location is independently verified;
-4. the second location write succeeds;
-5. the second location is independently verified;
-6. the second verified location differs from the first;
-7. the fixture is restored to its original location;
-8. the sequence produces exactly the declared READ/WRITE/VERIFY operation order.
-
-**This is now the next Unreal-dependent gate.** Do not add more Unreal-specific architecture before this test passes unless the live result exposes a genuine implementation defect.
-
-Suggested command after pulling the latest branch:
-
-```powershell
-python -m pytest tests/test_unreal_location_sequence_real_integration.py -vv -s
-```
-
-If the Editor transport or `FIELD_SURFACE` fixture is unavailable, the test may skip for those explicit environmental conditions. A real transport/operation failure must not be converted into a skip.
+This is a meaningful milestone: Atlas is no longer proven only for a single isolated Unreal write. It now has a live proof of ordered multi-operation mutation with an independent proof boundary after each mutation.
 
 ## Recovery invariant
 
 If any operation fails, execution stops at that operation. The executor preserves completed evidence and the exact operation boundary. Recovery may perform a fresh read-only reassessment, but it must never silently retry the mutation. Any replacement mutation requires explicit authorization.
 
-## Unreal fixture convention
+The next work therefore focuses on the **live failure/recovery path for a partial multi-operation sequence**, not on another happy-path sequence test.
+
+## Next major milestone — LIVE partial-failure recovery
+
+The next milestone is to prove this sequence against the real Unreal Editor:
+
+```text
+READ
+WRITE A
+VERIFY A
+WRITE B  ← failure boundary
+HALT
+↓
+FRESH READ-ONLY REASSESSMENT
+↓
+CLASSIFY RESULT
+↓
+NO AUTOMATIC RETRY
+```
+
+The preferred implementation is to create a deterministic external failure condition at the second operation without changing the production wire protocol or weakening the executor. The test must establish that:
+
+- the first mutation remains completed;
+- the second operation is the exact failure boundary;
+- no third mutation is sent;
+- completed evidence and failed mutation intent remain available to recovery;
+- fresh Unreal state is read after the failure;
+- the reassessment decision does not authorize a mutation retry;
+- the fixture is restored safely before the test exits.
+
+A useful test should fail for a real transport/operation defect rather than converting the condition into a skip. Environmental unavailability may still be skipped only when the current integration conventions explicitly allow it.
+
+## Important Unreal fixture convention
 
 The current real integration fixture uses the Atlas entity ID/tag:
 
@@ -166,17 +174,18 @@ If Unreal reports `Actor not found for entity_id: FIELD_SURFACE`, fix the Unreal
 - Keep development isolated from the action/workflow runner.
 - Do not run workflow/action-runner tests unless explicitly authorized by the user.
 
-## What comes after the gate
+## What comes after the next gate
 
-If the live compound sequence passes, the next development milestone is broader multi-operation failure/recovery behavior against the real Editor. The likely progression is:
+If the live partial-failure/recovery proof passes, the next production milestone is the explicit **replacement-plan authorization boundary**:
 
-1. live sequence success proof;
-2. live mid-sequence failure containment with preserved recovery context;
-3. live read-only reassessment of that partial state;
-4. explicit re-authorization boundary for any replacement mutation plan;
-5. reusable multi-operation production task composition.
+1. failed multi-operation sequence;
+2. fresh reassessment;
+3. explicit new mutation plan;
+4. independent authorization of that replacement plan;
+5. deterministic execution from the new plan;
+6. final independent verification.
 
-Do not skip directly to broad autonomous behavior. Each new production capability must preserve the same Atlas authority, explicit authorization, deterministic execution, independent verification, and fail-closed recovery model.
+Only after that boundary is proven should the Unreal Agent move toward broader autonomous multi-operation task composition.
 
 ## Architectural invariant
 
