@@ -17,6 +17,7 @@ class RecordingTransport:
         self.requests.append(request)
         if request.operation_name == "set_actor_location":
             self.location = dict(request.arguments["location"])
+
         return UnrealTransportResponse(
             request_id=request.request_id,
             operation_name=request.operation_name,
@@ -99,9 +100,18 @@ def test_compound_authorized_execution_propagates_one_receipt_id_to_every_operat
 
     assert result.success is True
     assert len(result.evidence_ledger) == 5
-    assert [request.operation_name for request in transport.requests] == [
+    # Semantic evidence preserves the VERIFY operation name, while the
+    # current wire protocol implements VERIFY as a fresh read-only inspection.
+    assert [evidence.operation_name for evidence in result.evidence_ledger] == [
         "inspect_target_actors",
         "verify_target_actor_mapping",
+        "inspect_target_actors",
+        "set_actor_location",
+        "verify_target_actor_mapping",
+    ]
+    assert [request.operation_name for request in transport.requests] == [
+        "inspect_target_actors",
+        "inspect_target_actors",
         "inspect_target_actors",
         "set_actor_location",
         "inspect_target_actors",
