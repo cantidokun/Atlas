@@ -5,15 +5,11 @@ import argparse
 from pathlib import Path
 from typing import Any, Dict, List
 
-from action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.marker_task import marker_task_definition
 from planning.object_move_task import object_move_task_definition
 from planning.task_checkpoint_store import TaskCheckpointStore
 from planning.task_sequence import TaskSequenceDefinition, TaskSequenceSession
-from planning.target_state import StateInvariant, TargetStateEvaluator
-from planning.evidence_plan import EvidenceRequest
-from planning.task_definition import AtlasTaskDefinition
 from tools.blender import create_empty_marker, inspect_object_collections, inspect_scene, move_object
 from tools.blender_transform import inspect_object_transform
 
@@ -69,9 +65,13 @@ def main() -> None:
         return {"ok": normalized.ok, "state": normalized.state, "details": {**normalized.details, "receipt": receipt}}
 
     if args.case == "interrupt-after-move":
+        # Persist only the pre-task boundary. The mutation below intentionally
+        # occurs after that checkpoint and before this process exits, simulating
+        # a crash at the exact unsafe window without making the runner itself fail.
         store.save(_initial_checkpoint(definition))
-        session = TaskSequenceSession.resume_from_checkpoint(definition, execute, (_move_reducer, _marker_reducer), store.load())
-        task = session.current_task
+        session = TaskSequenceSession.resume_from_checkpoint(
+            definition, execute, (_move_reducer, _marker_reducer), store.load()
+        )
         session.start_current().acquire_initial_evidence()
         target = session.start_current().evaluate_target()
         if target.satisfied:
@@ -79,17 +79,24 @@ def main() -> None:
         session.authorize("live:interruption:movement")
         session.execute_authorized_action()
         print("ATLAS INTERRUPTION POINT: MOVE COMPLETED BEFORE TASK CHECKPOINT")
-        raise SystemExit(17)
+        print("EXPECTED PROCESS BOUNDARY: PASS")
+        return
 
-    resumed = TaskSequenceSession.resume_from_checkpoint(definition, execute, (_move_reducer, _marker_reducer), store.load())
+    # A new process loads only the last durable boundary. It must re-observe
+    # Blender rather than assuming the interrupted action was lost or undone.
+    resumed = TaskSequenceSession.resume_from_checkpoint(
+        definition, execute, (_move_reducer, _marker_reducer), store.load()
+    )
     checkpoint = resumed.run_current(authorization_id="live:recovery:movement")
     store.save(checkpoint)
-    final = TaskSequenceSession.resume_from_checkpoint(definition, execute, (_move_reducer, _marker_reducer), store.load())
+    final = TaskSequenceSession.resume_from_checkpoint(
+        definition, execute, (_move_reducer, _marker_reducer), store.load()
+    )
     final.run_current(authorization_id="live:recovery:marker")
     if not final.complete:
         raise RuntimeError("recovery sequence did not complete")
     print("ATLAS INTERRUPTED MULTI-TASK RECOVERY: PASS")
-    print("MUTATE -> PROCESS INTERRUPTION -> RELOAD BOUNDARY -> FRESH INSPECTION -> NO REPEAT WRITE -> MARKER -> COMPLETE")
+    print("MUTATE -> PROCESS BOUNDARY -> RELOAD LAST SAFE CHECKPOINT -> FRESH INSPECTION -> NO REPEAT WRITE -> MARKER -> COMPLETE")
 
 
 if __name__ == "__main__":
