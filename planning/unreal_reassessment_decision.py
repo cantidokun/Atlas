@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
+from typing import Any, Mapping
 
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_recovery_policy import (
@@ -26,6 +26,28 @@ class UnrealReassessmentDecision:
     reason: str
 
 
+def _validate_fresh_location_evidence(evidence: UnrealEvidence) -> None:
+    """Reject malformed observations before semantic mismatch evaluation.
+
+    A malformed observation cannot establish that the actor changed state.
+    Keeping this validation separate from ``verify_actor_location`` prevents
+    structural evidence errors from being misclassified as state changes.
+    """
+    for entity_id in evidence.entity_ids:
+        entity_state = evidence.observed_state.get(entity_id)
+        if not isinstance(entity_state, Mapping):
+            raise TypeError(f"fresh evidence for entity '{entity_id}' is not a mapping")
+        location = entity_state.get("location")
+        if not isinstance(location, Mapping):
+            raise TypeError(f"fresh evidence for entity '{entity_id}' is missing location")
+        for axis in ("x", "y", "z"):
+            value = location.get(axis)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(
+                    f"fresh evidence for entity '{entity_id}' has non-numeric {axis}"
+                )
+
+
 def decide_reassessment(
     assessment: UnrealRecoveryAssessment,
     evidence: UnrealEvidence,
@@ -33,9 +55,9 @@ def decide_reassessment(
 ) -> UnrealReassessmentDecision:
     """Consume fresh read evidence without authorizing a mutation.
 
-    A matching location resolves the uncertainty. A mismatch or malformed
-    observation never authorizes a retry; it instead produces a terminal
-    ``STATE_CHANGED``/``INSUFFICIENT_EVIDENCE`` decision for a new planner.
+    A matching location resolves the uncertainty. A valid but different
+    observation produces ``STATE_CHANGED``. Malformed observations remain
+    ``INSUFFICIENT_EVIDENCE`` and never establish mutation state.
     """
     if not isinstance(assessment, UnrealRecoveryAssessment):
         raise TypeError("assessment must be an UnrealRecoveryAssessment instance")
@@ -49,6 +71,7 @@ def decide_reassessment(
         raise ValueError("fresh evidence targets do not match reassessment targets")
 
     try:
+        _validate_fresh_location_evidence(evidence)
         verify_actor_location(evidence, expected_location)
     except UnrealStateVerificationError as exc:
         return UnrealReassessmentDecision(
