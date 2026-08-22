@@ -100,20 +100,18 @@ class UnrealRecoveryCoordinator:
         if recovery.reassessment_plan is None:
             raise ValueError("REASSESS_STATE recovery must provide a reassessment plan")
 
+        expected_location = _expected_location(failure)
+        if expected_location is None:
+            raise ValueError(
+                "REASSESS_STATE recovery requires recoverable mutation location intent"
+            )
+
         execution_result = self._executor.execute(
             recovery.reassessment_plan,
             authorization_id,
         )
         if len(execution_result.evidence_ledger) != 1:
             raise ValueError("reassessment execution must produce exactly one evidence item")
-
-        expected_location = _expected_location(failure)
-        if expected_location is None:
-            return UnrealRecoveryReassessmentResult(
-                assessment=recovery.assessment,
-                execution_result=execution_result,
-                decision=None,
-            )
 
         decision = decide_reassessment(
             recovery.assessment,
