@@ -15,10 +15,16 @@ object_name = {object_name!r}
 obj = bpy.data.objects.get(object_name)
 
 if obj is None:
-    result = {{"error": "Object not found", "object_name": object_name}}
+    # Missing object is valid negative evidence for conditional creation tasks.
+    result = {{
+        "object_name": object_name,
+        "exists": False,
+        "collections": [],
+    }}
 else:
     result = {{
         "object_name": obj.name,
+        "exists": True,
         "collections": sorted(collection.name for collection in obj.users_collection),
     }}
 
