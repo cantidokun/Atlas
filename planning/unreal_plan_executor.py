@@ -8,7 +8,7 @@ Execution is fail-closed: any adapter or validation error aborts immediately.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Any, List, Mapping, Optional, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind
@@ -20,7 +20,14 @@ from planning.unreal_tool_schema import validate_unreal_tool_call
 
 @dataclass(frozen=True)
 class UnrealPlanExecutionFailure:
-    """Structured context for a failed plan execution."""
+    """Structured context for a failed plan execution.
+
+    ``operation_arguments`` preserves the exact caller-supplied operation
+    payload at the failure boundary. This is context only: it is never an
+    authorization receipt and cannot authorize a retry. Recovery code can use
+    it to compare fresh state against the original mutation intent without
+    requiring the original plan object to remain in scope.
+    """
 
     intent_id: str
     operation_index: int
@@ -28,6 +35,13 @@ class UnrealPlanExecutionFailure:
     completed_evidence: Tuple[UnrealEvidence, ...]
     error: str
     operation_entity_ids: Tuple[str, ...] = ()
+    operation_arguments: Mapping[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.operation_arguments is None:
+            object.__setattr__(self, "operation_arguments", {})
+        else:
+            object.__setattr__(self, "operation_arguments", dict(self.operation_arguments))
 
 
 class UnrealPlanExecutionError(RuntimeError):
@@ -131,6 +145,11 @@ class UnrealPlanExecutor:
 
         return evidence
 
+    @staticmethod
+    def _failure_context(operation: UnrealOperation) -> Mapping[str, Any]:
+        """Capture operation arguments without the transport-only auth field."""
+        return dict(operation.arguments)
+
     def execute(
         self,
         plan: UnrealTaskPlan,
@@ -166,6 +185,7 @@ class UnrealPlanExecutor:
                     completed_evidence=tuple(ledger),
                     error=message,
                     operation_entity_ids=tuple(operation.entity_ids),
+                    operation_arguments=self._failure_context(operation),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except ValueError as exc:
@@ -180,6 +200,7 @@ class UnrealPlanExecutor:
                     completed_evidence=tuple(ledger),
                     error=message,
                     operation_entity_ids=tuple(operation.entity_ids),
+                    operation_arguments=self._failure_context(operation),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except TypeError as exc:
@@ -194,6 +215,7 @@ class UnrealPlanExecutor:
                     completed_evidence=tuple(ledger),
                     error=message,
                     operation_entity_ids=tuple(operation.entity_ids),
+                    operation_arguments=self._failure_context(operation),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             ledger.append(evidence)
