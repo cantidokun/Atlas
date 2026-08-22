@@ -9,9 +9,6 @@ class UnrealToolSchema:
     required: Mapping[str, Any]
 
 
-# Operation names currently produced by UnrealTaskPlanner.
-# Every Unreal operation receives entity_ids and authorization_id. Write
-# operations additionally validate their mutation payload at this boundary.
 UNREAL_TOOL_SCHEMAS = {
     "inspect_target_actors": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
     "verify_target_actor_mapping": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
@@ -22,6 +19,11 @@ UNREAL_TOOL_SCHEMAS = {
         "entity_ids": (list, tuple),
         "authorization_id": str,
         "location": dict,
+    }),
+    "set_actor_rotation": UnrealToolSchema({
+        "entity_ids": (list, tuple),
+        "authorization_id": str,
+        "rotation": dict,
     }),
 }
 
@@ -44,7 +46,6 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
             raise TypeError(f"argument {name} has invalid type")
 
     snapshot = dict(arguments)
-
     ids = snapshot.get("entity_ids")
     if ids is not None:
         if not isinstance(ids, (list, tuple)):
@@ -58,11 +59,16 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
         location = snapshot["location"]
         if set(location.keys()) != {"x", "y", "z"}:
             raise ValueError("location must contain exactly x, y, and z")
-        if any(
-            isinstance(value, bool) or not isinstance(value, (int, float))
-            for value in location.values()
-        ):
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location.values()):
             raise TypeError("location coordinates must be numeric")
         snapshot["location"] = dict(location)
+
+    if tool == "set_actor_rotation":
+        rotation = snapshot["rotation"]
+        if set(rotation.keys()) != {"pitch", "yaw", "roll"}:
+            raise ValueError("rotation must contain exactly pitch, yaw, and roll")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in rotation.values()):
+            raise TypeError("rotation angles must be numeric")
+        snapshot["rotation"] = dict(rotation)
 
     return snapshot
