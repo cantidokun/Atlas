@@ -27,6 +27,7 @@ class UnrealPlanExecutionFailure:
     operation_name: str
     completed_evidence: Tuple[UnrealEvidence, ...]
     error: str
+    operation_entity_ids: Tuple[str, ...] = ()
 
 
 class UnrealPlanExecutionError(RuntimeError):
@@ -164,6 +165,7 @@ class UnrealPlanExecutor:
                     operation_name=operation.name,
                     completed_evidence=tuple(ledger),
                     error=message,
+                    operation_entity_ids=tuple(operation.entity_ids),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except ValueError as exc:
@@ -177,6 +179,7 @@ class UnrealPlanExecutor:
                     operation_name=operation.name,
                     completed_evidence=tuple(ledger),
                     error=message,
+                    operation_entity_ids=tuple(operation.entity_ids),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except TypeError as exc:
@@ -190,6 +193,7 @@ class UnrealPlanExecutor:
                     operation_name=operation.name,
                     completed_evidence=tuple(ledger),
                     error=message,
+                    operation_entity_ids=tuple(operation.entity_ids),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             ledger.append(evidence)
