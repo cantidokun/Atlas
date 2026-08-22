@@ -46,6 +46,8 @@ def test_location_write_failure_is_state_uncertain_and_requires_reassessment():
     assert assessment.state_uncertain is True
     assert assessment.requires_fresh_evidence is True
     assert assessment.target_entity_ids == ("FIELD_SURFACE",)
+    assert assessment.retry_authorized is False
+    assert assessment.mutation_authorized is False
 
 
 def test_location_write_failure_preserves_targets_without_completed_evidence():
@@ -58,6 +60,8 @@ def test_location_write_failure_preserves_targets_without_completed_evidence():
     assert assessment.state_uncertain is True
     assert assessment.requires_fresh_evidence is True
     assert assessment.target_entity_ids == ("FIELD_SURFACE",)
+    assert assessment.retry_authorized is False
+    assert assessment.mutation_authorized is False
 
 
 def test_post_write_verification_failure_requires_reassessment():
@@ -74,6 +78,8 @@ def test_post_write_verification_failure_requires_reassessment():
     assert assessment.state_uncertain is True
     assert assessment.requires_fresh_evidence is True
     assert assessment.target_entity_ids == ("FIELD_SURFACE",)
+    assert assessment.retry_authorized is False
+    assert assessment.mutation_authorized is False
 
 
 def test_observation_failure_halts_without_claiming_mutation_state():
@@ -83,6 +89,8 @@ def test_observation_failure_halts_without_claiming_mutation_state():
     assert assessment.disposition is UnrealRecoveryDisposition.HALT
     assert assessment.state_uncertain is False
     assert assessment.requires_fresh_evidence is False
+    assert assessment.retry_authorized is False
+    assert assessment.mutation_authorized is False
 
 
 def test_unknown_failure_halts_fail_closed():
@@ -91,6 +99,8 @@ def test_unknown_failure_halts_fail_closed():
     assert assessment.failure_class is UnrealFailureClass.UNKNOWN_FAILURE
     assert assessment.disposition is UnrealRecoveryDisposition.HALT
     assert assessment.state_uncertain is True
+    assert assessment.retry_authorized is False
+    assert assessment.mutation_authorized is False
 
 
 def test_inconsistent_completed_targets_are_rejected():
