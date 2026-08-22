@@ -1,36 +1,28 @@
 # Atlas Unreal Agent — Current Development Handoff
 
 **Updated:** August 22, 2026
-**Current focus:** Live multi-operation failure/recovery boundary
+**Current focus:** Explicit replacement-plan authorization boundary
 **Current branch:** `feat/unreal-production-actor-write`
-**Latest validated live gate:** compound actor-location sequence passed against the running Unreal Editor
+**Latest validated live gate:** partial multi-operation failure/recovery sequence passed against the running Unreal Editor
 
 ## Current position
 
-The Unreal Agent has crossed the first real Unreal production boundary and the first live multi-operation production boundary. The production adapter, Windows Named Pipe transport, actor-location write/verify path, read-only recovery reassessment, and the deterministic compound actor-location sequence have all been exercised against the running Unreal Editor.
+The Unreal Agent has crossed the first real Unreal production boundary, the live multi-operation mutation boundary, and the live partial-failure/recovery boundary. The production adapter, Windows Named Pipe transport, actor-location write/verify path, read-only recovery reassessment, deterministic compound actor-location sequencing, and fail-closed partial recovery have all been exercised against the running Unreal Editor.
 
-Latest user-reported validation:
+Latest user-reported live validation:
 
 ```text
-python -m pytest tests/test_unreal_location_sequence.py -q
-3 passed
-
-python -m pytest tests/test_unreal_location_sequence_real_integration.py -vv -s
-1 passed in 1.64s
+python -m pytest tests/test_unreal_partial_sequence_recovery_real_integration.py -vv -s
+1 passed
 ```
 
-The earlier full regression baseline remains green at:
+The full regression baseline immediately before the latest authorization work was:
 
 ```text
 539 passed, 5 skipped
 ```
 
-The two original live Unreal tests also pass:
-
-```text
-test_real_unreal_plan_executor_location_write_and_restore                         PASS
-test_real_unreal_recovery_coordinator_reassesses_live_state_without_retrying_write PASS
-```
+The live location-sequence and recovery gates also passed. The partial-failure test established the exact `WRITE B` failure boundary, preserved the first mutation, performed fresh read-only reassessment, and did not retry the failed write.
 
 Atlas remains the authority. Unreal is a production execution/evidence environment around the Atlas-owned canonical Digital Twin.
 
@@ -70,7 +62,12 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
   - strict ordered READ/WRITE/VERIFY dispatch;
   - evidence ledger;
   - immediate failure boundary;
-  - preservation of completed evidence and exact mutation intent.
+  - preservation of completed evidence and exact mutation intent;
+  - explicit `execute_authorized(...)` boundary for plan-bound mutation authorization.
+- `planning/unreal_plan_authorization.py`
+  - immutable SHA-256 receipt binding an exact `UnrealTaskPlan` to an authorization ID;
+  - changed plans are rejected before transport;
+  - receipt authorization ID is the only ID propagated through authorized execution.
 - `planning/unreal_recovery_policy.py`
   - fail-closed mutation/verification/observation failure classification.
 - `planning/unreal_reassessment_planner.py`
@@ -90,7 +87,7 @@ The Unreal Agent proposes/decomposes operations. It does not authorize or direct
 
 ## Multi-operation capability — LIVE PROVEN
 
-`UnrealTaskPlanner.plan_actor_location_sequence(...)` produces a deterministic compound plan:
+`UnrealTaskPlanner.plan_actor_location_sequence(...)` produces:
 
 ```text
 READ
@@ -100,38 +97,17 @@ WRITE(location B)
 VERIFY(location B)
 ```
 
-The live Unreal test `tests/test_unreal_location_sequence_real_integration.py` passed against the running Editor.
+The live Unreal location-sequence test passed against the running Editor. The test proved ordered mutation, independent verification after every write, changed state between writes, and safe restoration of the original location.
 
-The live proof established that:
+## Partial-failure recovery — LIVE PROVEN
 
-1. `FIELD_SURFACE` was inspected successfully;
-2. the first location mutation executed;
-3. the first mutation was independently verified;
-4. the second location mutation executed;
-5. the second mutation was independently verified;
-6. the second verified state differed from the first;
-7. the original actor location was restored in the test's cleanup path;
-8. the executor preserved the declared operation/evidence order.
-
-The unit regression `tests/test_unreal_location_sequence.py` also passed all 3 tests.
-
-This is a meaningful milestone: Atlas is no longer proven only for a single isolated Unreal write. It now has a live proof of ordered multi-operation mutation with an independent proof boundary after each mutation.
-
-## Recovery invariant
-
-If any operation fails, execution stops at that operation. The executor preserves completed evidence and the exact operation boundary. Recovery may perform a fresh read-only reassessment, but it must never silently retry the mutation. Any replacement mutation requires explicit authorization.
-
-The next work therefore focuses on the **live failure/recovery path for a partial multi-operation sequence**, not on another happy-path sequence test.
-
-## Next major milestone — LIVE partial-failure recovery
-
-The next milestone is to prove this sequence against the real Unreal Editor:
+The live partial-sequence test now proves:
 
 ```text
 READ
 WRITE A
 VERIFY A
-WRITE B  ← failure boundary
+WRITE B  ← deliberate response-loss/failure boundary
 HALT
 ↓
 FRESH READ-ONLY REASSESSMENT
@@ -141,17 +117,67 @@ CLASSIFY RESULT
 NO AUTOMATIC RETRY
 ```
 
-The preferred implementation is to create a deterministic external failure condition at the second operation without changing the production wire protocol or weakening the executor. The test must establish that:
+Important invariant: the second write may have reached Unreal before its response was discarded, so the system treats the mutation state as uncertain rather than pretending the write definitely did or did not happen. Recovery reads fresh state and classifies it without replaying the write.
 
-- the first mutation remains completed;
-- the second operation is the exact failure boundary;
-- no third mutation is sent;
-- completed evidence and failed mutation intent remain available to recovery;
-- fresh Unreal state is read after the failure;
-- the reassessment decision does not authorize a mutation retry;
-- the fixture is restored safely before the test exits.
+The integration test also accounts for the current inspection representation: a planned VERIFY is represented by a read transport operation. The production wire protocol was not changed to accommodate the test.
 
-A useful test should fail for a real transport/operation defect rather than converting the condition into a skip. Environmental unavailability may still be skipped only when the current integration conventions explicitly allow it.
+## Explicit replacement-plan authorization — IMPLEMENTED, NEXT GATE
+
+`planning/unreal_plan_authorization.py` introduces the explicit authorization receipt required for a replacement mutation plan.
+
+The receipt binds:
+
+```text
+exact UnrealTaskPlan
+        ↓
+SHA-256 plan digest
+        ↓
+Atlas authorization ID
+```
+
+`UnrealPlanExecutor.execute_authorized(...)` then enforces:
+
+1. the caller supplies an `UnrealPlanAuthorization` receipt;
+2. the receipt matches the exact replacement plan;
+3. a modified plan is rejected before any transport call;
+4. the receipt's authorization ID is propagated to Unreal;
+5. normal WRITE→VERIFY execution rules remain in force.
+
+Unit coverage has been added in `tests/test_unreal_plan_authorization.py` for exact-plan binding, changed-plan rejection, authorization propagation, wrong receipt type, and digest sensitivity to operation changes.
+
+## Next major milestone — LIVE AUTHORIZED REPLACEMENT
+
+The next gate is the complete recovery-to-replacement path against the running Unreal Editor:
+
+```text
+FAILED MULTI-OPERATION SEQUENCE
+        ↓
+FRESH REASSESSMENT
+        ↓
+RECOVERY DECISION
+        ↓
+EXPLICIT NEW MUTATION PLAN
+        ↓
+ATLAS AUTHORIZATION RECEIPT
+        ↓
+execute_authorized(...)
+        ↓
+WRITE
+VERIFY
+        ↓
+FINAL INDEPENDENT EVIDENCE
+```
+
+The live proof must establish that:
+
+- the replacement plan is distinct from the failed plan;
+- no mutation occurs before explicit replacement authorization;
+- a mismatched or modified replacement plan is rejected before transport;
+- the authorized replacement uses the new authorization ID;
+- the replacement mutation is independently verified;
+- the original Unreal fixture is restored safely.
+
+Only after this gate should Atlas move toward broader autonomous multi-operation task composition.
 
 ## Important Unreal fixture convention
 
@@ -174,19 +200,6 @@ If Unreal reports `Actor not found for entity_id: FIELD_SURFACE`, fix the Unreal
 - Keep development isolated from the action/workflow runner.
 - Do not run workflow/action-runner tests unless explicitly authorized by the user.
 
-## What comes after the next gate
-
-If the live partial-failure/recovery proof passes, the next production milestone is the explicit **replacement-plan authorization boundary**:
-
-1. failed multi-operation sequence;
-2. fresh reassessment;
-3. explicit new mutation plan;
-4. independent authorization of that replacement plan;
-5. deterministic execution from the new plan;
-6. final independent verification.
-
-Only after that boundary is proven should the Unreal Agent move toward broader autonomous multi-operation task composition.
-
 ## Architectural invariant
 
 ```text
@@ -197,6 +210,6 @@ Unreal adapter executes.
 Unreal provides evidence.
 Atlas verifies.
 Failures require fresh evidence and explicit recovery.
-```
-
+Replacement mutations require explicit plan-bound authorization.
 The Unreal Agent must never become a second autonomous authority separate from Atlas.
+```
