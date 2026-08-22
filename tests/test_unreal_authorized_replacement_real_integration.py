@@ -145,6 +145,9 @@ def test_real_unreal_recovery_to_explicit_authorized_replacement():
             assert len(transport.requests) == request_count_before_rejection
 
             # Only the exact, explicitly authorized replacement may mutate.
+            # A location-write plan deliberately performs a fresh inspection
+            # before the write and a verification after it. Include that
+            # read-only precondition in the transport boundary assertion.
             replacement_result = executor.execute_authorized(
                 replacement_plan,
                 authorization,
@@ -157,8 +160,9 @@ def test_real_unreal_recovery_to_explicit_authorized_replacement():
 
             replacement_requests = transport.requests[request_count_before_rejection:]
             assert [request.operation_name for request in replacement_requests] == [
-                "set_actor_location",
                 "inspect_target_actors",
+                "set_actor_location",
+                "verify_target_actor_mapping",
             ]
             assert all(
                 request.authorization_id == "replacement-authorized-auth"
