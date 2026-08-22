@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 
+import pytest
+
 from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_agent import UnrealTaskIntent
-from planning.unreal_plan_executor import UnrealPlanExecutor
+from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_task_planner import UnrealTaskPlanner
 from planning.unreal_transport_contract import UnrealTransportResponse
 
@@ -73,3 +75,55 @@ def test_sequence_plan_keeps_each_mutation_adjacent_to_its_proof():
         assert operations[index].kind.value == "write"
         assert operations[index + 1].kind.value == "verify"
         assert operations[index].entity_ids == operations[index + 1].entity_ids
+
+
+class FailingSequenceTransport(SequenceTransport):
+    def __init__(self, state, fail_on_request_index):
+        super().__init__(state)
+        self.fail_on_request_index = fail_on_request_index
+
+    def send(self, request):
+        if len(self.requests) == self.fail_on_request_index:
+            self.requests.append(request)
+            raise RuntimeError("simulated sequence transport failure")
+        return super().send(request)
+
+
+def test_sequence_failure_stops_at_failed_operation_and_preserves_mutation_context():
+    state = {"FIELD_SURFACE": {"location": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+    transport = FailingSequenceTransport(state, fail_on_request_index=3)
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    planner = UnrealTaskPlanner()
+    plan = planner.plan_actor_location_sequence(
+        UnrealTaskIntent("sequence-failure-1", "fail during second write", ("FIELD_SURFACE",)),
+        (
+            {"x": 100.0, "y": 200.0, "z": 300.0},
+            {"x": 110.0, "y": 210.0, "z": 310.0},
+        ),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError) as exc_info:
+        executor.execute(plan, "sequence-failure-auth")
+
+    failure = exc_info.value.failure
+    assert failure is not None
+    assert failure.operation_index == 3
+    assert failure.operation_name == "set_actor_location"
+    assert failure.operation_arguments["location"] == {
+        "x": 110.0,
+        "y": 210.0,
+        "z": 310.0,
+    }
+    assert len(failure.completed_evidence) == 3
+    assert len(transport.requests) == 4
+    assert [request.operation_name for request in transport.requests] == [
+        "inspect_target_actors",
+        "set_actor_location",
+        "inspect_target_actors",
+        "set_actor_location",
+    ]
+    assert state["FIELD_SURFACE"]["location"] == {
+        "x": 100.0,
+        "y": 200.0,
+        "z": 300.0,
+    }
