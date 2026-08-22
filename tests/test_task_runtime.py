@@ -25,7 +25,6 @@ def task(allow_writes=True, verify=True):
 
 
 def _invalid_runtime_definition(*, allow_writes, verify, action_tool="move_object"):
-    """Build an intentionally invalid definition without invoking task invariants."""
     definition = object.__new__(AtlasTaskDefinition)
     evaluator = TargetStateEvaluator([StateInvariant("ready", lambda evidence: True)])
     object.__setattr__(definition, "name", "runtime-invalid")
@@ -105,6 +104,28 @@ def test_session_generic_write_lifecycle_requires_authorization_and_fresh_verifi
         ("inspect_scene", {"file_name": "x.blend"}),
         ("move_object", {"file_name": "x.blend"}),
     ]
+
+
+def test_session_acquires_fresh_post_action_evidence_from_declared_requests():
+    state = {"ready": False}
+    calls = []
+
+    def execute(tool, arguments):
+        calls.append(tool)
+        if tool == "move_object":
+            state["ready"] = True
+            return {"ok": True}
+        return dict(state)
+
+    session = TaskRuntimeSession(task(), execute, lambda results: results[0])
+    assert session.acquire_initial_evidence() == {"ready": False}
+    assert session.evaluate_target().satisfied is False
+    session.authorize("fresh-evidence")
+    session.execute_authorized_action()
+    fresh = session.acquire_post_action_evidence()
+    assert fresh == {"ready": True}
+    assert session.verify_post_action(fresh).satisfied is True
+    assert calls == ["inspect_scene", "move_object", "inspect_scene"]
 
 
 def test_session_blocks_evaluation_until_all_declared_evidence_is_recorded():
