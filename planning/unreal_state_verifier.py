@@ -111,3 +111,20 @@ def verify_actor_rotation(
         name="expected_rotation",
         tolerance=tolerance,
     )
+
+
+def verify_actor_scale(
+    evidence: UnrealEvidence,
+    expected_scale: Mapping[str, float],
+    *,
+    tolerance: float = 1e-4,
+) -> UnrealEvidence:
+    """Prove that Unreal's observed actor scale matches the requested state."""
+    return _verify_vector(
+        evidence,
+        expected_scale,
+        component="scale",
+        axes=("x", "y", "z"),
+        name="expected_scale",
+        tolerance=tolerance,
+    )

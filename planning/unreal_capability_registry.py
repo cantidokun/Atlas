@@ -51,7 +51,10 @@ DEFAULT_UNREAL_CAPABILITIES = (
         "Modify an already-authorized Unreal Actor representation.",
         argument_keys=frozenset({"entity_ids", "location"}),
         alternative_argument_keys_by_kind={
-            UnrealOperationKind.WRITE: (frozenset({"entity_ids", "rotation"}),),
+            UnrealOperationKind.WRITE: (
+                frozenset({"entity_ids", "rotation"}),
+                frozenset({"entity_ids", "scale"}),
+            ),
         },
     ),
     UnrealCapabilitySpec(
@@ -117,22 +120,17 @@ class UnrealCapabilityRegistry:
     def validate(self, capability: UnrealCapability, kind: UnrealOperationKind) -> UnrealCapabilitySpec:
         spec = self.get(capability)
         if kind not in spec.allowed_kinds:
-            raise ValueError(
-                "operation kind is not permitted for capability " + capability.value
-            )
+            raise ValueError("operation kind is not permitted for capability " + capability.value)
         return spec
 
     def validate_operation(self, operation: UnrealOperation) -> UnrealOperation:
-        """Fail closed unless a proposed operation matches its argument schema."""
         spec = self.validate(operation.capability, operation.kind)
         arguments = operation.arguments
         if not isinstance(arguments, Mapping):
             raise ValueError("Unreal operation arguments must be a mapping")
         valid_key_sets = (spec.keys_for_kind(operation.kind),) + spec.alternative_keys_for_kind(operation.kind)
         if frozenset(arguments.keys()) not in valid_key_sets:
-            raise ValueError(
-                "Unreal operation arguments do not match the capability schema"
-            )
+            raise ValueError("Unreal operation arguments do not match the capability schema")
 
         argument_entity_ids = arguments.get("entity_ids")
         if not isinstance(argument_entity_ids, (tuple, list)) or not argument_entity_ids:
@@ -145,17 +143,24 @@ class UnrealCapabilityRegistry:
 
         if operation.capability is UnrealCapability.MODIFY_ACTOR:
             if "location" in arguments:
-                location = arguments["location"]
-                if not isinstance(location, Mapping) or set(location.keys()) != {"x", "y", "z"}:
-                    raise ValueError("location must contain exactly x, y, and z")
-                if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location.values()):
-                    raise TypeError("location coordinates must be numeric")
+                vector = arguments["location"]
+                axes = {"x", "y", "z"}
+                label = "location"
+                error = "location coordinates must be numeric"
+            elif "rotation" in arguments:
+                vector = arguments["rotation"]
+                axes = {"pitch", "yaw", "roll"}
+                label = "rotation"
+                error = "rotation angles must be numeric"
             else:
-                rotation = arguments["rotation"]
-                if not isinstance(rotation, Mapping) or set(rotation.keys()) != {"pitch", "yaw", "roll"}:
-                    raise ValueError("rotation must contain exactly pitch, yaw, and roll")
-                if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in rotation.values()):
-                    raise TypeError("rotation angles must be numeric")
+                vector = arguments["scale"]
+                axes = {"x", "y", "z"}
+                label = "scale"
+                error = "scale components must be numeric"
+            if not isinstance(vector, Mapping) or set(vector.keys()) != axes:
+                raise ValueError(f"{label} must contain exactly {', '.join(sorted(axes))}")
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in vector.values()):
+                raise TypeError(error)
 
         return operation
 
