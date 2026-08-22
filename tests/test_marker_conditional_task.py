@@ -11,6 +11,10 @@ from planning.verification_plan import VerificationPlan
 def make_orchestrator():
     evidence = EvidencePlan([
         EvidenceRequest(tool="inspect_scene", arguments={"file_name": "marker.blend"}),
+        EvidenceRequest(
+            tool="inspect_object_collections",
+            arguments={"file_name": "marker.blend", "object_name": MARKER_OBJECT},
+        ),
     ])
     action = marker_create_action("marker.blend")
     actions = ConditionalActionPlan([action])
@@ -23,11 +27,14 @@ def make_orchestrator():
     )
 
 
-def scene(with_marker=False):
+def scene(with_marker=False, collection=MARKER_COLLECTION):
     objects = [{"name": "Goal_Left_post", "type": "MESH"}]
     if with_marker:
         objects.append({"name": MARKER_OBJECT, "type": "EMPTY"})
-    return {"objects": objects}
+    return {
+        "objects": objects,
+        "collections": [collection] if with_marker else [],
+    }
 
 
 def test_marker_already_correct_skips_action_but_still_requires_fresh_verification():
@@ -70,6 +77,15 @@ def test_marker_missing_requires_explicit_authorization_then_action_and_fresh_ve
     verified = orchestrator.verify_post_action(scene(with_marker=True))
     assert verified.satisfied
     assert orchestrator.next_phase() == "COMPLETE"
+
+
+def test_marker_wrong_collection_blocks_completion():
+    orchestrator = make_orchestrator()
+    orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=True, collection="Other"))
+    result = orchestrator.evaluate_target_state(scene(with_marker=True, collection="Other"))
+
+    assert not result.satisfied
+    assert "marker_in_atlas_collection" in result.failed
 
 
 def test_marker_failed_verification_blocks_completion():
