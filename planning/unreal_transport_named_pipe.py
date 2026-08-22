@@ -55,6 +55,10 @@ def _translate_pipe_error(error: "pywintypes.error") -> NamedPipeTransportError:
         return NamedPipeTransportError(
             "Unreal transport server not available (pipe not found)"
         )
+    if error_code == 121:  # ERROR_SEM_TIMEOUT from WaitNamedPipe
+        return NamedPipeTransportTimeoutError(
+            f"Timed out waiting {WindowsNamedPipeTransport.CONNECT_TIMEOUT_MS}ms for Unreal transport server"
+        )
     if error_code == 231:  # ERROR_PIPE_BUSY
         return NamedPipeTransportError(
             "Unreal transport server busy (pipe in use)"
