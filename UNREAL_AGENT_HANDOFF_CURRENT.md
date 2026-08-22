@@ -1,104 +1,124 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 22, 2026 — resumed development
-**Current focus:** Deterministic compound task-plan composition
+**Updated:** August 22, 2026 — actor-rotation capability development
+**Current focus:** Controlled actor transform expansion — rotation
 **Current branch:** `feat/unreal-production-actor-write`
-**Latest validated live gate:** explicit recovery-to-authorized-replacement passed against the running Unreal Editor
+**Latest validated live gates:** recovery-to-explicit-authorized replacement, compound plan execution, and material-variant execution passed against the running Unreal Editor.
 
 ## Current position
 
-The Unreal Agent has crossed the first real Unreal production boundary, the live multi-operation mutation boundary, the live partial-failure/recovery boundary, and the live recovery-to-explicit-replacement authorization boundary.
+The Unreal Agent has crossed the first real Unreal production boundary, multi-operation mutation, partial-failure/recovery, explicit replacement authorization, deterministic compound-plan composition, and material-variant mutation/verification.
 
-The latest live authorized-replacement proof established:
+The next capability is actor rotation. It extends the existing `MODIFY_ACTOR` capability rather than introducing a parallel execution architecture.
 
-```text
-FAILED MULTI-OPERATION SEQUENCE
-        ↓
-FRESH READ-ONLY REASSESSMENT
-        ↓
-CONFIRMED STATE / NO RETRY AUTHORIZATION
-        ↓
-EXPLICIT NEW REPLACEMENT PLAN
-        ↓
-PLAN-BOUND ATLAS AUTHORIZATION RECEIPT
-        ↓
-MISMATCHED PLAN REJECTED BEFORE TRANSPORT
-        ↓
-execute_authorized(EXACT PLAN, RECEIPT)
-        ↓
-WRITE
-VERIFY
-        ↓
-RESTORE ORIGINAL FIXTURE
+## Actor rotation — IMPLEMENTED, LIVE GATE NEXT
+
+The new deterministic planner API is:
+
+```python
+UnrealTaskPlanner.plan_actor_rotation_write(intent, rotation)
 ```
 
-The replacement mutation used its new authorization ID and the modified replacement plan was rejected before any transport request.
-
-## New development completed after the live replacement gate
-
-`UnrealTaskPlanner.compose_plans(...)` now provides a controlled composition boundary for broader autonomous multi-operation planning.
-
-The composition API deliberately does **not** create new operations or grant authority. It accepts already validated `UnrealTaskPlan` instances and:
-
-- requires one explicit `UnrealTaskIntent`;
-- requires at least one sub-plan;
-- requires every sub-plan to use the same `intent_id`;
-- preserves the exact caller-supplied sub-plan order;
-- returns a new immutable `UnrealTaskPlan` containing the concatenated operations;
-- leaves authorization entirely outside planning.
-
-New unit coverage:
+It produces:
 
 ```text
-tests/test_unreal_plan_composition.py
+READ inspect_target_actors
+WRITE set_actor_rotation
+VERIFY verify_target_actor_mapping
 ```
 
-The next live gate is:
+The write payload is exactly:
 
 ```text
-tests/test_unreal_compound_plan_real_integration.py
+entity_ids
+rotation:
+  pitch
+  yaw
+  roll
 ```
 
-It composes an inspection plan and an actor-location mutation plan, executes the resulting five-operation plan against the real Unreal Editor, checks the ordered evidence and wire requests, and restores the original fixture.
+The capability registry now accepts either the established actor-location payload or the new actor-rotation payload for `MODIFY_ACTOR` writes, with strict numeric validation and fail-closed key sets.
 
-## Implemented production architecture
+The production Unreal transport now supports:
+
+```text
+set_actor_rotation
+```
+
+The mutation runs on Unreal's game thread, changes the actor's `FRotator`, and returns fresh actor observation. Semantic verification continues to use the existing read-only `inspect_target_actors` transport operation, preserving independent verification without changing the wire protocol.
+
+Focused coverage added:
+
+```text
+tests/test_unreal_actor_rotation_schema.py
+tests/test_unreal_actor_rotation_execution.py
+tests/test_unreal_actor_rotation_real_integration.py
+```
+
+### Required live gate
+
+After pulling the branch and rebuilding the Unreal harness:
+
+```powershell
+python -m pytest tests/test_unreal_actor_rotation_execution.py -q
+python -m pytest tests/test_unreal_actor_rotation_real_integration.py -vv -s
+```
+
+The live gate must prove:
+
+- original rotation is read from real Unreal;
+- exact rotation write reaches the real Editor;
+- the returned write evidence contains the requested rotation;
+- the independent VERIFY evidence contains the requested rotation;
+- the original rotation is restored even when the test exits through an assertion/failure path;
+- the existing `FIELD_SURFACE` mapping is reused;
+- no new entity-discovery mechanism is introduced.
+
+## Proven production architecture
 
 - `planning/unreal_task_planner.py`
-  - deterministic inspection and actor-location planning;
-  - compound actor-location sequence planning;
-  - deterministic composition of already validated sub-plans;
-  - every mutation is immediately followed by verification.
+  - deterministic inspection;
+  - actor-location write and multi-location sequences;
+  - actor-rotation write;
+  - material-variant write/verify;
+  - deterministic composition of already validated sub-plans.
+- `planning/unreal_capability_registry.py`
+  - fail-closed operation schemas;
+  - strict actor location/rotation payload validation;
+  - explicit material-variant schemas.
 - `planning/unreal_plan_executor.py`
   - strict ordered READ/WRITE/VERIFY dispatch;
   - evidence ledger;
   - immediate failure boundary;
-  - preservation of completed evidence and exact mutation intent;
-  - explicit `execute_authorized(...)` boundary for plan-bound mutation authorization.
+  - exact-plan authorized execution.
 - `planning/unreal_plan_authorization.py`
   - immutable SHA-256 receipt binding an exact `UnrealTaskPlan` to an authorization ID;
-  - changed plans are rejected before transport;
-  - receipt authorization ID is the only ID propagated through authorized execution.
+  - changed plans rejected before transport.
 - `planning/unreal_recovery_policy.py`
   - fail-closed mutation/verification/observation failure classification.
 - `planning/unreal_reassessment_planner.py`
   - targeted read-only reassessment plans.
 - `planning/unreal_recovery_orchestrator.py`
-  - converts eligible failures into targeted reassessment plans without automatic mutation retry.
+  - converts eligible failures into targeted reassessment without automatic mutation retry.
 - `planning/unreal_recovery_coordinator.py`
   - executes fresh read-only reassessment and returns the resulting decision.
 - `planning/unreal_adapter_production.py`
   - stateless production adapter;
   - authorization propagation;
   - transport/evidence correlation;
-  - semantic VERIFY mapping to fresh read-only transport observation where the wire protocol has no distinct VERIFY command.
+  - semantic VERIFY mapping to fresh read-only observations.
 - `planning/unreal_transport_named_pipe.py`
   - bounded Windows Named Pipe transport;
-  - typed timeout/disconnect failure translation;
+  - typed timeout/disconnect translation;
   - pending-read cancellation and cleanup.
+- `unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp`
+  - real Unreal game-thread execution for actor location, actor rotation, and material variant operations.
 
-## Multi-operation capability — LIVE PROVEN
+## Live-proven boundaries
 
-`UnrealTaskPlanner.plan_actor_location_sequence(...)` produces:
+### Multi-operation actor mutation
+
+The live location-sequence proof establishes:
 
 ```text
 READ
@@ -108,113 +128,58 @@ WRITE(location B)
 VERIFY(location B)
 ```
 
-The live Unreal location-sequence test passed against the running Editor. The test proved ordered mutation, independent verification after every write, changed state between writes, and safe restoration of the original location.
+with ordered mutation, independent verification, changed state between writes, and fixture restoration.
 
-## Partial-failure recovery — LIVE PROVEN
+### Partial-failure recovery
 
-The live partial-sequence test proves:
+The live failure proof establishes:
 
 ```text
 READ
 WRITE A
 VERIFY A
-WRITE B  ← deliberate response-loss/failure boundary
+WRITE B ← response-loss boundary
 HALT
 ↓
 FRESH READ-ONLY REASSESSMENT
 ↓
-CLASSIFY RESULT
+CLASSIFY
 ↓
 NO AUTOMATIC RETRY
 ```
 
-The second write may have reached Unreal before its response was discarded, so Atlas treats the mutation state as uncertain rather than pretending the write definitely did or did not happen. Recovery reads fresh state and classifies it without replaying the write.
+### Explicit replacement authorization
 
-## Explicit replacement-plan authorization — LIVE PROVEN
+Recovery informs a replacement but does not authorize it. The replacement plan is independently authorized, plan-bound, and rejected before transport if modified.
 
-`planning/unreal_plan_authorization.py` binds:
+### Compound plan composition
 
-```text
-exact UnrealTaskPlan
-        ↓
-SHA-256 plan digest
-        ↓
-Atlas authorization ID
-```
+`UnrealTaskPlanner.compose_plans(...)` concatenates already validated plans for one intent without inventing operations, reordering them, or granting authority. The real compound-plan integration gate passed.
 
-`UnrealPlanExecutor.execute_authorized(...)` enforces:
+### Material variant
 
-1. the caller supplies an `UnrealPlanAuthorization` receipt;
-2. the receipt matches the exact replacement plan;
-3. a modified plan is rejected before any transport call;
-4. the receipt's authorization ID is propagated to Unreal;
-5. normal WRITE→VERIFY execution rules remain in force.
+Material variant planning and transport are now live-proven. The current harness represents the semantic material variant as explicit actor state/tag data, avoiding asset discovery or an Atlas-side cache.
 
-The real integration test `tests/test_unreal_authorized_replacement_real_integration.py` passed against the running Editor.
+## Important fixture convention
 
-## Compound task-plan composition — IMPLEMENTED, LIVE GATE NEXT
-
-The new composition boundary is intentionally conservative:
-
-```text
-Atlas intent
-    ↓
-validated sub-plan A
-    +
-validated sub-plan B
-    +
-...
-    ↓
-ordered UnrealTaskPlan
-    ↓
-Atlas authorization
-    ↓
-executor
-```
-
-Composition does not authorize, mutate, discover entities, or reorder operations.
-
-Unit gate added:
-
-```powershell
-python -m pytest tests/test_unreal_plan_composition.py -q
-```
-
-Live gate to run next with the Unreal Editor fixture available:
-
-```powershell
-python -m pytest tests/test_unreal_compound_plan_real_integration.py -vv -s
-```
-
-The live gate must establish:
-
-- sub-plan operations remain in exact order;
-- the composed plan executes through the existing executor boundary;
-- read-only semantic verification still maps correctly at the wire boundary;
-- the single compound authorization ID reaches every transport request;
-- the mutation is independently verified;
-- the original `FIELD_SURFACE` fixture is restored.
-
-## Important Unreal fixture convention
-
-The current real integration fixture uses the Atlas entity ID/tag:
+The current real integration fixture uses:
 
 ```text
 FIELD_SURFACE
 ```
 
-If Unreal reports `Actor not found for entity_id: FIELD_SURFACE`, fix the Unreal fixture's Atlas mapping/tag rather than introducing another discovery mechanism.
+If Unreal reports `Actor not found for entity_id: FIELD_SURFACE`, fix the Unreal fixture's Atlas mapping/tag rather than changing Atlas entity discovery.
 
 ## Scope constraints
 
 - Do not revisit AdapterExecutionBridge or Option B.
-- Do not change the existing Named Pipe wire protocol.
 - Do not introduce entity discovery or an Atlas-side entity cache.
 - Preserve stateless Unreal adapter behavior.
 - Preserve independent evidence verification.
 - Do not weaken fail-closed validation.
 - Keep development isolated from the action/workflow runner.
 - Do not run workflow/action-runner tests unless explicitly authorized by the user.
+- Preserve the existing Named Pipe protocol; new operations may extend its existing operation-name surface without replacing the protocol.
 
 ## Architectural invariant
 
@@ -232,4 +197,4 @@ The Unreal Agent must never become a second autonomous authority separate from A
 
 ## End-of-session resume point
 
-The implementation is now at the **LIVE COMPOUND PLAN COMPOSITION** gate. Pull `feat/unreal-production-actor-write`, run the new unit test, then run the live integration gate with the Unreal Editor fixture available. Do not run action/workflow-runner tests without explicit authorization.
+The implementation is now at the **LIVE ACTOR ROTATION** gate. Pull `feat/unreal-production-actor-write`, run the focused rotation unit/schema coverage, rebuild the Unreal harness, then run the real rotation integration test with the Editor open and `FIELD_SURFACE` present. Do not run action/workflow-runner tests without explicit authorization.
