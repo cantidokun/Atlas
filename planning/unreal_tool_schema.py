@@ -13,8 +13,16 @@ UNREAL_TOOL_SCHEMAS = {
     "inspect_target_actors": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
     "verify_target_actor_mapping": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
     "inspect_material_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
-    "apply_material_variant": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
-    "verify_material_variant": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
+    "apply_material_variant": UnrealToolSchema({
+        "entity_ids": (list, tuple),
+        "authorization_id": str,
+        "material_variant": dict,
+    }),
+    "verify_material_variant": UnrealToolSchema({
+        "entity_ids": (list, tuple),
+        "authorization_id": str,
+        "material_variant": dict,
+    }),
     "set_actor_location": UnrealToolSchema({
         "entity_ids": (list, tuple),
         "authorization_id": str,
@@ -59,6 +67,14 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
 
     if not isinstance(snapshot.get("authorization_id"), str) or not snapshot["authorization_id"].strip():
         raise ValueError("authorization_id must be a non-empty string")
+
+    if tool in {"apply_material_variant", "verify_material_variant"}:
+        material_variant = snapshot["material_variant"]
+        if set(material_variant.keys()) != {"name"}:
+            raise ValueError("material_variant must contain exactly name")
+        if not isinstance(material_variant["name"], str) or not material_variant["name"].strip():
+            raise ValueError("material_variant.name must be a non-empty string")
+        snapshot["material_variant"] = {"name": material_variant["name"].strip()}
 
     if tool == "set_actor_location":
         location = snapshot["location"]
