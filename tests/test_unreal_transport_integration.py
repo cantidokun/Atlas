@@ -24,7 +24,6 @@ try:
         _translate_pipe_error,
         create_named_pipe_transport,
     )
-    from planning.unreal_adapter_production import create_production_adapter
     TRANSPORT_AVAILABLE = True
 except ImportError:
     TRANSPORT_AVAILABLE = False
@@ -39,12 +38,24 @@ class TestNamedPipeTransport:
         transport = create_named_pipe_transport()
         assert isinstance(transport, WindowsNamedPipeTransport)
         assert transport.pipe_name == r"\\.\pipe\AtlasUnrealTransport"
+        assert transport.connect_timeout_ms == 5000
+        assert transport.write_timeout_ms == 30000
+        assert transport.read_timeout_ms == 30000
 
     def test_transport_creation_custom_pipe(self):
         """Test transport creation with custom pipe name."""
         custom_pipe = r"\\.\pipe\TestPipe"
         transport = create_named_pipe_transport(custom_pipe)
         assert transport.pipe_name == custom_pipe
+
+    @pytest.mark.parametrize("timeout_name", [
+        "connect_timeout_ms",
+        "write_timeout_ms",
+        "read_timeout_ms",
+    ])
+    def test_transport_rejects_non_positive_timeouts(self, timeout_name):
+        with pytest.raises(ValueError, match="positive integer"):
+            create_named_pipe_transport(**{timeout_name: 0})
 
     def test_send_requires_transport_request(self):
         """Test that send() validates input type."""
@@ -73,6 +84,39 @@ class TestNamedPipeTransport:
 
         with pytest.raises(NamedPipeTransportError, match="not available"):
             transport.send(request)
+
+    def test_send_write_timeout_cancels_inflight_write(self):
+        """A stalled overlapped write must be bounded and explicitly cancelled."""
+        transport = create_named_pipe_transport(write_timeout_ms=17)
+        request = UnrealTransportRequest(
+            request_id="write-timeout-001",
+            operation_name="set_actor_location",
+            capability="modify_actor",
+            kind="write",
+            arguments={
+                "entity_ids": ("FIELD_SURFACE",),
+                "location": {"x": 1.0, "y": 2.0, "z": 3.0},
+            },
+            entity_ids=("FIELD_SURFACE",),
+            authorization_id="auth-write-timeout",
+        )
+
+        with patch("planning.unreal_transport_named_pipe.win32pipe.WaitNamedPipe"), \
+             patch("planning.unreal_transport_named_pipe.win32file.CreateFile", return_value=Mock()), \
+             patch("planning.unreal_transport_named_pipe.win32pipe.SetNamedPipeHandleState"), \
+             patch("planning.unreal_transport_named_pipe.win32file.WriteFile", return_value=(
+                 __import__("planning.unreal_transport_named_pipe", fromlist=["winerror"]).winerror.ERROR_IO_PENDING,
+                 0,
+             )), \
+             patch("planning.unreal_transport_named_pipe.win32event.WaitForSingleObject", return_value=
+                 __import__("planning.unreal_transport_named_pipe", fromlist=["win32event"]).win32event.WAIT_TIMEOUT), \
+             patch("planning.unreal_transport_named_pipe.win32file.CancelIo") as cancel_io, \
+             patch("planning.unreal_transport_named_pipe.win32file.GetOverlappedResult", return_value=0), \
+             patch("planning.unreal_transport_named_pipe.win32file.CloseHandle"):
+            with pytest.raises(NamedPipeTransportTimeoutError, match="Write operation timed out after 17ms"):
+                transport.send(request)
+
+        cancel_io.assert_called_once()
 
 
 @pytest.mark.skipif(not TRANSPORT_AVAILABLE, reason="Named pipe transport not available")
