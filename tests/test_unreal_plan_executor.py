@@ -180,6 +180,7 @@ def test_executor_failure_preserves_completed_evidence_and_boundary():
     assert failure.operation_index == 2
     assert failure.operation_name == "verify_target_actor_mapping"
     assert failure.operation_entity_ids == ("FIELD_SURFACE",)
+    assert failure.operation_arguments == {"entity_ids": ("FIELD_SURFACE",)}
     assert len(failure.completed_evidence) == 2
     assert failure.completed_evidence[0].operation_name == "inspect_target_actors"
     assert failure.completed_evidence[1].operation_name == "set_actor_location"
@@ -210,4 +211,8 @@ def test_executor_failure_preserves_operation_targets_without_completed_evidence
     assert failure is not None
     assert failure.operation_name == "set_actor_location"
     assert failure.operation_entity_ids == ("FIELD_SURFACE",)
+    assert failure.operation_arguments == {
+        "entity_ids": ("FIELD_SURFACE",),
+        "location": {"x": 1.0, "y": 2.0, "z": 3.0},
+    }
     assert failure.completed_evidence == ()
