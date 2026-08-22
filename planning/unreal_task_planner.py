@@ -47,9 +47,19 @@ class UnrealTaskPlanner:
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_inspection(intent))
 
-    def plan_material_variant(self, intent: UnrealTaskIntent) -> UnrealTaskPlan:
+    def plan_material_variant(
+        self,
+        intent: UnrealTaskIntent,
+        material_variant: Mapping[str, object],
+    ) -> UnrealTaskPlan:
+        """Plan an explicit material variant with read/write/verify boundaries."""
         self._validate_intent(intent)
-        return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_material_variant(intent))
+        return UnrealTaskPlan(
+            intent.intent_id,
+            UnrealAgentPlanBuilder(self.capabilities).for_material_variant(
+                intent, material_variant
+            ),
+        )
 
     def plan_actor_location_write(self, intent: UnrealTaskIntent, location: Mapping[str, float]) -> UnrealTaskPlan:
         """Plan one actor-location change with independent post-write inspection."""
@@ -114,6 +124,14 @@ class UnrealAgentPlanBuilder:
             raise TypeError("location coordinates must be numeric")
         return dict(location)
 
+    @staticmethod
+    def _validate_material_variant(material_variant: Mapping[str, object]) -> Mapping[str, object]:
+        if not isinstance(material_variant, Mapping):
+            raise TypeError("material_variant must be a mapping")
+        if not material_variant:
+            raise ValueError("material_variant must contain at least one setting")
+        return dict(material_variant)
+
     def _operation(self, capability, kind, name, entity_ids, arguments=None):
         self.capabilities.validate(capability, kind)
         operation_arguments = {"entity_ids": entity_ids}
@@ -135,13 +153,14 @@ class UnrealAgentPlanBuilder:
             self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", entity_ids),
         )
 
-    def for_material_variant(self, intent):
+    def for_material_variant(self, intent, material_variant: Mapping[str, object]):
         entity_ids = self._require_targets(intent)
+        material_variant = self._validate_material_variant(material_variant)
         return (
             self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids),
-            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.READ, "inspect_material_state", entity_ids),
-            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.WRITE, "apply_material_variant", entity_ids),
-            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.VERIFY, "verify_material_variant", entity_ids),
+            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.READ, "inspect_material_state", entity_ids, {"material_variant": material_variant}),
+            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.WRITE, "apply_material_variant", entity_ids, {"material_variant": material_variant}),
+            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.VERIFY, "verify_material_variant", entity_ids, {"material_variant": material_variant}),
         )
 
     def for_actor_location_write(self, intent, location: Mapping[str, float]):
