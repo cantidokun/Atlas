@@ -100,7 +100,7 @@ def main() -> None:
             raise RuntimeError(f"Unexpected movement action: {tool}")
         raw = move_object(**arguments)
         status = raw.get("status")
-        return {"ok": status in {"ok", "already_moved"}, "state": str(status or "unknown"), "details": dict(raw)}
+        return {"ok": status in {"moved", "already_moved"}, "state": str(status or "unknown"), "details": dict(raw)}
 
     action_boundary = BlenderExecutionBoundary(blender_action)
     capture: Dict[str, Any] = {}
