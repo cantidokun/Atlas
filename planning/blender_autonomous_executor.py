@@ -11,13 +11,18 @@ from typing import Any, Dict, Optional
 from planning.blender_execution_boundary import BlenderExecutionBoundary, BlenderExecutor
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_result_contract import BlenderExecutionResult
+from planning.blender_tool_adapter import BlenderToolAdapter
 
 
 class BlenderAutonomousExecutor:
     """Adapt the verified Blender boundary to the autonomous ToolExecutor API."""
 
-    def __init__(self, executor: BlenderExecutor):
-        self._boundary = BlenderExecutionBoundary(executor)
+    def __init__(self, executor: Optional[BlenderExecutor] = None):
+        # A caller may inject a deterministic executor for tests/simulations.
+        # Production construction defaults to the explicit concrete capability
+        # adapter; authorization and verification remain outside that adapter.
+        self._adapter = executor if executor is not None else BlenderToolAdapter()
+        self._boundary = BlenderExecutionBoundary(self._adapter)
         self._last_result: Optional[BlenderExecutionResult] = None
         self._last_receipt: Optional[BlenderExecutionReceipt] = None
 
