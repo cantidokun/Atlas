@@ -7,13 +7,14 @@ from planning.unreal_recovery_policy import (
 )
 
 
-def _failure(operation_name, completed=()):
+def _failure(operation_name, completed=(), operation_entity_ids=()):
     return UnrealPlanExecutionFailure(
         intent_id="intent-recovery-test",
         operation_index=len(completed),
         operation_name=operation_name,
         completed_evidence=tuple(completed),
         error="test failure",
+        operation_entity_ids=tuple(operation_entity_ids),
     )
 
 
@@ -47,11 +48,24 @@ def test_location_write_failure_is_state_uncertain_and_requires_reassessment():
     assert assessment.target_entity_ids == ("FIELD_SURFACE",)
 
 
+def test_location_write_failure_preserves_targets_without_completed_evidence():
+    assessment = assess_unreal_failure(
+        _failure("set_actor_location", operation_entity_ids=("FIELD_SURFACE",))
+    )
+
+    assert assessment.failure_class is UnrealFailureClass.MUTATION_FAILURE
+    assert assessment.disposition is UnrealRecoveryDisposition.REASSESS_STATE
+    assert assessment.state_uncertain is True
+    assert assessment.requires_fresh_evidence is True
+    assert assessment.target_entity_ids == ("FIELD_SURFACE",)
+
+
 def test_post_write_verification_failure_requires_reassessment():
     assessment = assess_unreal_failure(
         _failure(
             "verify_target_actor_mapping",
             (_inspection_evidence(), _write_evidence()),
+            operation_entity_ids=("FIELD_SURFACE",),
         )
     )
 
@@ -83,6 +97,7 @@ def test_inconsistent_completed_targets_are_rejected():
     failure = _failure(
         "verify_target_actor_mapping",
         (_inspection_evidence(("FIELD_SURFACE",)), _write_evidence(("OTHER_ACTOR",))),
+        operation_entity_ids=("FIELD_SURFACE",),
     )
 
     try:
