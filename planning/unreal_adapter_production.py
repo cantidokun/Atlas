@@ -28,6 +28,7 @@ from planning.unreal_transport_contract import (
     UnrealTransportResponse,
     validate_response_correlation,
 )
+from planning.unreal_transport_named_pipe import NamedPipeTransportError
 
 # Import the production named pipe transport
 try:
@@ -102,7 +103,13 @@ class UnrealAdapterProduction:
         evidence_operation_name: Optional[str] = None,
     ) -> UnrealEvidence:
         request = self._build_request(operation, authorization_id)
-        response = self._transport.send(request)
+        try:
+            response = self._transport.send(request)
+        except NamedPipeTransportError as exc:
+            raise UnrealAdapterError(
+                f"Unreal transport failed for operation '{operation.name}' "
+                f"(kind={operation.kind.value}, entity_ids={list(operation.entity_ids)}): {exc}"
+            ) from exc
         validate_response_correlation(request, response)
         if not response.success:
             raise UnrealAdapterError(
