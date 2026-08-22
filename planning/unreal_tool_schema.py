@@ -25,6 +25,11 @@ UNREAL_TOOL_SCHEMAS = {
         "authorization_id": str,
         "rotation": dict,
     }),
+    "set_actor_scale": UnrealToolSchema({
+        "entity_ids": (list, tuple),
+        "authorization_id": str,
+        "scale": dict,
+    }),
 }
 
 
@@ -70,5 +75,13 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in rotation.values()):
             raise TypeError("rotation angles must be numeric")
         snapshot["rotation"] = dict(rotation)
+
+    if tool == "set_actor_scale":
+        scale = snapshot["scale"]
+        if set(scale.keys()) != {"x", "y", "z"}:
+            raise ValueError("scale must contain exactly x, y, and z")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in scale.values()):
+            raise TypeError("scale components must be numeric")
+        snapshot["scale"] = dict(scale)
 
     return snapshot
