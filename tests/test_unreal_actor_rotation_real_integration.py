@@ -32,6 +32,7 @@ def test_real_unreal_actor_rotation_applies_verifies_and_restores():
     adapter = UnrealAdapterProduction(transport, "actor-rotation-integration")
     executor = UnrealPlanExecutor(adapter)
     planner = UnrealTaskPlanner()
+    original_rotation = None
 
     try:
         original_result = executor.execute(
@@ -67,9 +68,10 @@ def test_real_unreal_actor_rotation_applies_verifies_and_restores():
             pytest.skip("FIELD_SURFACE actor is not present in the Unreal fixture")
         raise
     finally:
-        restore_result = executor.execute(
-            planner.plan_actor_rotation_write(_intent("rotation-restore"), original_rotation),
-            "rotation-restore-auth",
-        )
-        assert restore_result.success is True
-        assert _rotation(restore_result.evidence_ledger[2]) == pytest.approx(original_rotation)
+        if original_rotation is not None:
+            restore_result = executor.execute(
+                planner.plan_actor_rotation_write(_intent("rotation-restore"), original_rotation),
+                "rotation-restore-auth",
+            )
+            assert restore_result.success is True
+            assert _rotation(restore_result.evidence_ledger[2]) == pytest.approx(original_rotation)
