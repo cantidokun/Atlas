@@ -1,8 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 22, 2026 — automation handoff refresh (01:45 EDT)  
-**Current repository HEAD:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
-**Previous handoff HEAD:** `832ae2568df1197e96bfdb363f70c456bba44a2c` (`test: harden Blender subprocess verification`)  
+**Updated:** August 22, 2026 — 10:40 EDT  
+**Current repository HEAD:** `30c24ea00f1861bd15fa1d8e0dbaf2239bef3d6e` (`docs: add August 22 10:40 EDT Atlas development handoff`)  
+**Latest implementation commit:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
+**Previous handoff commit:** `671a1aa25b8789e5863d5282f4a5cd5425c78988` (`docs: add August 22 07:41 EDT Atlas development handoff`)  
 **Latest recorded development test milestone:** **694 passed** (conversation/runtime report); this is not fresh GitHub Actions verification.  
 **Previously recorded verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas development session.
@@ -11,13 +12,13 @@
 
 Atlas remains actively under development. **Workflow/action-runner testing is paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue.
 
-The repository has advanced beyond the previous handoff. The current `main` tip is `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`, whose commit message is `Test named-pipe failure propagation through adapter`. This commit adds `tests/test_unreal_transport_failure_boundary.py` with focused regression coverage for named-pipe timeout/disconnect propagation through the production Unreal adapter and plan executor.
+The latest repository change is documentation only. No newer implementation commit has been identified since `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`. The intervening commits through the current handoff are documentation/handoff refreshes.
 
 Do not treat the 687-pass CI baseline as validation for code added after that baseline. Do not treat the 694-pass development report as GitHub Actions verification unless an actual authorized runner result is recorded.
 
 ## 2. Scope and current tracks
 
-The primary development track remains the **Blender Agent / Blender execution bridge**. The repository HEAD now also contains a concrete **Unreal transport/adapter failure-boundary regression test**. That Unreal work should be treated as a complementary production-environment track rather than as evidence that the Blender gate has been completed.
+The primary development track remains the **Blender Agent / Blender execution bridge**. The repository also contains a concrete **Unreal transport/adapter failure-boundary regression test**. That Unreal work is a complementary production-environment hardening track rather than evidence that the Blender gate has been completed.
 
 Photogrammetry remains upstream: dedicated photogrammetry software creates the initial 3D reconstruction; Blender receives it for analysis, cleanup, correction, optimization, and preparation.
 
@@ -124,7 +125,7 @@ The focused tests cover:
 - rejecting a JSON array when a JSON object is required;
 - accepting and returning a valid structured JSON object.
 
-**Result:** no fresh test result is claimed. The commit has not been promoted to the verified-CI baseline. The test imports `tools.blender_process.run_checked_blender`; the previous repository inspection did not surface a tracked `tools/blender_process.py`, so this import/module relationship remains an explicit offline reconciliation task.
+**Result:** no fresh test result is claimed. The test imports `tools.blender_process.run_checked_blender`; the previous repository inspection did not surface a tracked `tools/blender_process.py`, so this import/module relationship remains an explicit offline reconciliation task.
 
 ### New Unreal transport failure-boundary coverage
 
