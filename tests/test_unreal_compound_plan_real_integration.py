@@ -6,12 +6,27 @@ from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapter
 from planning.unreal_agent import UnrealTaskIntent
 from planning.unreal_plan_executor import UnrealPlanExecutor
 from planning.unreal_task_planner import UnrealTaskPlanner
-from planning.unreal_transport_named_pipe import NamedPipeTransportError, create_named_pipe_transport
+from planning.unreal_transport_named_pipe import (
+    NamedPipeTransportError,
+    create_named_pipe_transport,
+)
 
 
 pytestmark = pytest.mark.integration
 
 ENTITY_ID = "FIELD_SURFACE"
+
+
+class RecordingTransport:
+    """Capture real transport requests while delegating to the named pipe."""
+
+    def __init__(self, transport):
+        self._transport = transport
+        self.requests = []
+
+    def send(self, request):
+        self.requests.append(request)
+        return self._transport.send(request)
 
 
 def _intent(intent_id: str) -> UnrealTaskIntent:
@@ -30,7 +45,7 @@ def test_real_unreal_compound_plan_executes_subplans_in_order_and_restores():
     """Prove composed sub-plans execute deterministically against real Unreal."""
     transport = None
     try:
-        transport = create_named_pipe_transport()
+        transport = RecordingTransport(create_named_pipe_transport())
         adapter = UnrealAdapterProduction(transport, "compound-plan-integration")
         executor = UnrealPlanExecutor(adapter)
         planner = UnrealTaskPlanner()
