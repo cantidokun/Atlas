@@ -44,7 +44,17 @@ def test_runtime_does_not_authorize_provider_output():
 
 
 def test_runtime_build_authorized_plans_binds_one_receipt_to_exact_actions():
-    actions = [ActionSpec(tool="move_object", arguments={"object_name": "A"}, name="move")]
+    actions = [
+        ActionSpec(
+            tool="move_object",
+            arguments={
+                "file_name": "field.blend",
+                "object_name": "A",
+                "location": [1, 2, 3],
+            },
+            name="move",
+        )
+    ]
     proposal = TaskPlanProposal(evidence=[], actions=actions)
     runtime = PlanningRuntime(StubProvider(proposal))
 
