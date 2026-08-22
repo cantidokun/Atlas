@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 22, 2026 — 16:43 EDT  
-**Current repository HEAD:** `730d66920b319cc82479feaf0be54dd79df212b1` (`docs: refresh canonical Atlas handoff at 13:42 EDT`)  
+**Updated:** August 22, 2026 — 19:39 EDT  
+**Current repository HEAD:** `7f35673d6881729b4a55265e6e6fe073a0b45b99` (`docs: refresh canonical Atlas handoff at 16:43 EDT`)  
 **Latest implementation commit:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
-**Previous handoff commit:** `730d66920b319cc82479feaf0be54dd79df212b1` (`docs: refresh canonical Atlas handoff at 13:42 EDT`)  
+**Previous handoff commit:** `7f35673d6881729b4a55265e6e6fe073a0b45b99` (`docs: refresh canonical Atlas handoff at 16:43 EDT`)  
 **Latest recorded development test milestone:** **694 passed** (conversation/runtime report); this is not fresh GitHub Actions verification.  
 **Previously recorded verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas development session.
