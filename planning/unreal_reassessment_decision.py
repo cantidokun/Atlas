@@ -21,9 +21,31 @@ class UnrealReassessmentOutcome(str, Enum):
 
 @dataclass(frozen=True)
 class UnrealReassessmentDecision:
+    """Result of reassessment; it is informational and never authorizes mutation.
+
+    Retry authorization intentionally does not exist as mutable decision data.
+    Callers must obtain mutation authorization from the normal planning and
+    authorization boundaries after reassessment; a reassessment result alone
+    can never authorize a retry.
+    """
+
     outcome: UnrealReassessmentOutcome
     state_uncertain: bool
     reason: str
+
+    @property
+    def retry_authorized(self) -> bool:
+        """Whether this reassessment result authorizes repeating a mutation.
+
+        Always false by construction. This explicit capability boundary avoids
+        treating a state-change or evidence result as implicit retry permission.
+        """
+        return False
+
+    @property
+    def mutation_authorized(self) -> bool:
+        """Whether this reassessment result authorizes any mutation."""
+        return False
 
 
 def _validate_fresh_location_evidence(evidence: UnrealEvidence) -> None:
