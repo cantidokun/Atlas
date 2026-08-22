@@ -32,7 +32,11 @@ class UnrealFailureClass(str, Enum):
 
 @dataclass(frozen=True)
 class UnrealRecoveryAssessment:
-    """Immutable, non-executing assessment of a failed plan."""
+    """Immutable, non-executing assessment of a failed plan.
+
+    The assessment describes a safe next step; it is never an authorization
+    object. In particular, an assessment cannot authorize retry or mutation.
+    """
 
     failure_class: UnrealFailureClass
     disposition: UnrealRecoveryDisposition
@@ -40,6 +44,16 @@ class UnrealRecoveryAssessment:
     reason: str
     target_entity_ids: Tuple[str, ...] = ()
     requires_fresh_evidence: bool = False
+
+    @property
+    def retry_authorized(self) -> bool:
+        """Whether this recovery assessment authorizes repeating a mutation."""
+        return False
+
+    @property
+    def mutation_authorized(self) -> bool:
+        """Whether this recovery assessment authorizes any mutation."""
+        return False
 
 
 def _recovery_targets(failure: UnrealPlanExecutionFailure) -> Tuple[str, ...]:
