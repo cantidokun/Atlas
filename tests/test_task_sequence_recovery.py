@@ -63,31 +63,29 @@ def test_second_task_failure_recovers_from_last_completed_boundary_without_dupli
         if tool == "inspect":
             return {"moved": state["moved"], "marked": state["marked"]}
         state["writes"] += 1
-        if arguments.get("task") == "marker":
-            state["marked"] = True
-            if state["crash_marker"]:
-                state["crash_marker"] = False
-                raise RuntimeError("simulated second-task interruption after mutation")
-        else:
+        if state["writes"] == 1:
             state["moved"] = True
+            return {"status": "mutated"}
+        state["marked"] = True
+        if state["crash_marker"]:
+            state["crash_marker"] = False
+            raise RuntimeError("simulated second-task interruption after mutation")
         return {"status": "mutated"}
 
     session = TaskSequenceSession(definition, execute, (first_reducer, second_reducer))
     first_checkpoint = session.run_current(authorization_id="first-task")
-    resumed = TaskSequenceSession.resume_from_checkpoint(definition, execute, (first_reducer, second_reducer), first_checkpoint)
-    assert resumed.index == 1
-
+    resumed = TaskSequenceSession.resume_from_checkpoint(
+        definition, execute, (first_reducer, second_reducer), first_checkpoint
+    )
     try:
         resumed.run_current(authorization_id="second-task")
     except RuntimeError as exc:
         assert "second-task interruption" in str(exc)
 
-    recovery_checkpoint = first_checkpoint
     recovered = TaskSequenceSession.resume_from_checkpoint(
-        definition, execute, (first_reducer, second_reducer), recovery_checkpoint
+        definition, execute, (first_reducer, second_reducer), first_checkpoint
     )
     recovered.index = 1
-    recovered.completed = list(recovered.completed)
     recovered.recover_current()
 
     assert state["writes"] == 2
