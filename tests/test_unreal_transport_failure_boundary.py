@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock, patch
 
+import pywintypes
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapterProduction
@@ -79,8 +80,7 @@ class TestWaitNamedPipeBoundary:
         transport = WindowsNamedPipeTransport.__new__(WindowsNamedPipeTransport)
         transport.pipe_name = r"\\.\pipe\AtlasUnrealTransport"
 
-        error = Mock()
-        error.args = (121, "mock_error", "timed out")
+        error = pywintypes.error(121, "WaitNamedPipe", "timed out")
 
         with patch("planning.unreal_transport_named_pipe.win32pipe.WaitNamedPipe", side_effect=error) as wait:
             with pytest.raises(NamedPipeTransportTimeoutError):
