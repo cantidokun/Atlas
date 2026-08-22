@@ -1,6 +1,6 @@
 """Deterministic composition and boundary-safe resume for Atlas tasks."""
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from planning.task_definition import AtlasTaskDefinition
 from planning.task_runtime import EvidenceReducer, TaskRuntimeSession, ToolExecutor
@@ -46,7 +46,7 @@ class TaskSequenceSession:
         self.execute = execute
         self.evidence_reducers = tuple(evidence_reducers)
         self.index = start_index
-        self.session: TaskRuntimeSession | None = None
+        self.session: Optional[TaskRuntimeSession] = None
         self.completed: List[Dict[str, Any]] = []
 
     @property
@@ -54,7 +54,7 @@ class TaskSequenceSession:
         return self.index == len(self.definition.tasks)
 
     @property
-    def current_task(self) -> AtlasTaskDefinition | None:
+    def current_task(self) -> Optional[AtlasTaskDefinition]:
         if self.complete:
             return None
         return self.definition.tasks[self.index]
@@ -80,15 +80,16 @@ class TaskSequenceSession:
         session = self.start_current()
         if not session.complete:
             raise RuntimeError("Cannot advance a task sequence before task completion.")
-        self.completed.append({"index": self.index, "task": self.current_task.name})
+        task = self.current_task
+        self.completed.append({"index": self.index, "task": task.name})
         self.index += 1
         self.session = None
         return self.checkpoint()
 
     def run_current(
         self,
-        authorization_id: str | None = None,
-        authorization_callback: Callable[[AtlasTaskDefinition], None] | None = None,
+        authorization_id: Optional[str] = None,
+        authorization_callback: Optional[Callable[[AtlasTaskDefinition], None]] = None,
     ) -> Dict[str, Any]:
         """Drive one task through its full generic lifecycle, then advance.
 
@@ -97,7 +98,7 @@ class TaskSequenceSession:
         by TaskRuntimeSession after its exact action authorization is issued.
         """
         session = self.start_current()
-        state = session.acquire_initial_evidence()
+        session.acquire_initial_evidence()
         target = session.evaluate_target()
         if not target.satisfied:
             if authorization_callback is not None:
