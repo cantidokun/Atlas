@@ -1,8 +1,9 @@
 import pytest
 
+from planning.action_plan import ActionSpec
 from planning.planner_provider import PlannerProvider
 from planning.planning_runtime import PlanningRuntime
-from planning.task_planner import TaskPlanProposal
+from planning.task_planner import TaskPlanProposal, TaskPlanValidationError
 
 
 class StubProvider(PlannerProvider):
@@ -40,3 +41,33 @@ def test_runtime_does_not_authorize_provider_output():
 
     assert result is proposal
     assert not hasattr(result, "authorization")
+
+
+def test_runtime_build_authorized_plans_binds_one_receipt_to_exact_actions():
+    actions = [ActionSpec(tool="move_object", arguments={"object_name": "A"}, name="move")]
+    proposal = TaskPlanProposal(evidence=[], actions=actions)
+    runtime = PlanningRuntime(StubProvider(proposal))
+
+    evidence_plan, action_plan = runtime.build_authorized_plans(
+        "output",
+        authorization_id="runtime-auth-001",
+        allowed_tools={"move_object"},
+    )
+
+    assert evidence_plan.requests == []
+    assert action_plan.authorized is True
+    assert action_plan.authorization_id == "runtime-auth-001"
+    assert action_plan.next_action is actions[0]
+
+
+def test_runtime_validates_before_authorizing():
+    actions = [ActionSpec(tool="delete_object", arguments={"object_name": "A"})]
+    proposal = TaskPlanProposal(evidence=[], actions=actions)
+    runtime = PlanningRuntime(StubProvider(proposal))
+
+    with pytest.raises(TaskPlanValidationError):
+        runtime.build_authorized_plans(
+            "output",
+            authorization_id="runtime-auth-002",
+            allowed_tools={"move_object"},
+        )
