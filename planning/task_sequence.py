@@ -99,6 +99,36 @@ class TaskSequenceSession:
         session.finalize()
         return self.advance_after_completion()
 
+    def recover_current(self, authorization_id: Optional[str] = None, authorization_callback: Optional[Callable[[AtlasTaskDefinition], None]] = None) -> Dict[str, Any]:
+        """Resume a task after an uncertain interruption without repeating a satisfied write.
+
+        Recovery always starts with fresh evidence. If the target is already satisfied,
+        the task is verified and finalized without issuing another write authorization.
+        If it is still unsatisfied, normal authorization/execution proceeds.
+        """
+        session = self.start_current()
+        session.acquire_initial_evidence()
+        target = session.evaluate_target()
+        if target.satisfied:
+            verified = session.acquire_post_action_evidence()
+            result = session.verify_post_action(verified)
+            if not result.satisfied:
+                raise RuntimeError(f"Recovered task verification failed: {result.failed}")
+            session.finalize()
+            return self.advance_after_completion()
+        if authorization_callback is not None:
+            authorization_callback(session.task)
+        if not authorization_id:
+            raise RuntimeError("authorization_id is required for an unsatisfied recovery task")
+        session.authorize(authorization_id)
+        session.execute_authorized_action()
+        verified = session.acquire_post_action_evidence()
+        result = session.verify_post_action(verified)
+        if not result.satisfied:
+            raise RuntimeError(f"Recovered task verification failed: {result.failed}")
+        session.finalize()
+        return self.advance_after_completion()
+
     @classmethod
     def resume_from_checkpoint(cls, definition: TaskSequenceDefinition, execute: ToolExecutor, evidence_reducers: Sequence[EvidenceReducer], checkpoint: Dict[str, Any]) -> "TaskSequenceSession":
         if not isinstance(checkpoint, dict):
