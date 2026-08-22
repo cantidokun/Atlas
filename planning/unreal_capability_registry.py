@@ -56,6 +56,7 @@ DEFAULT_UNREAL_CAPABILITIES = (
         frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
         ("material_state",),
         "Inspect, modify, or verify material state.",
+        argument_keys=frozenset({"entity_ids", "material_variant"}),
     ),
     UnrealCapabilitySpec(
         UnrealCapability.NIAGARA,
@@ -73,7 +74,7 @@ DEFAULT_UNREAL_CAPABILITIES = (
         UnrealCapability.SEQUENCER,
         frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
         ("sequencer_state",),
-        "Inspect, modify, or verify cinematic Sequencer state.",
+        "Inspect, modify, or verify Sequencer state.",
     ),
     UnrealCapabilitySpec(
         UnrealCapability.RENDER,
