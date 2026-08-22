@@ -127,83 +127,24 @@ This is the first live boundary between Qwen task planning and the generic Pytho
 
 ### Regression status
 
-Latest local regression result:
+Latest local regression result at this early checkpoint:
 
 ```text
 98 passed
 ```
 
-### August 16 overnight checkpoint
-
-The repository organization/refactor is complete and the regression suite remains green at 98 tests.
-
-The live action harness was restored to the known-good write-test version before pausing development. An experimental conditional-planning harness was deliberately not left as the primary live write path because testing exposed malformed Qwen tool-argument structures reaching the executor boundary.
-
-That failure is useful architectural evidence: Atlas must validate not only the top-level plan shape but also the argument schema for each proposed tool before any executor is called.
-
-The next development target is therefore:
-
-```text
-Qwen proposal
- ↓
-Tool + argument schema validation
- ↓
-Authoritative evidence
- ↓
-Determine whether target state already holds
- ↓
-Skip unnecessary write OR retain authorized action plan
- ↓
-Python-controlled execution
- ↓
-Independent verification
-```
-
-Two live cases are required:
-
-1. already-correct state → no write
-2. incorrect state → required authorized write still executes and verifies
-
-### Atlas product direction update
-
-Atlas is broader than the current Blender implementation. The project is being developed as an AI-assisted sports virtual production and digital-twin platform.
-
-The wider direction includes:
-
-- sports capture and analysis
-- digital-twin construction and spatial reasoning
-- Blender production agents
-- planned Unreal Engine production agents
-- cinematic sports effects and environmental transformations
-- production orchestration across specialized tools and agents
-
-Planned Unreal capabilities include asset/scene organization, materials and look development, Lumen lighting, Nanite assets, CineCamera workflows, Sequencer, Movie Render Queue, and real-time virtual-production operations.
-
-The production-agent architecture remains environment-agnostic at the orchestration layer: AI reasons and proposes; Python validates and authorizes; the production environment executes; independent verification confirms the result.
-
-### Documentation
-
-`README.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `DEVELOPMENT_LOG.md` have been updated to reflect the broader sports-production-suite direction and the verified August 16 milestone state.
-
-### User test protocol
-
-When a new local test is ready, immediately provide the exact command/prompt. Do not ask the user to run a test before the harness exists on `main`.
-
 ## August 17, 2026 — Runtime Continuation Integrity Milestone
 
-The runtime-integrity boundary has now been promoted from an isolated regression primitive into the actual autonomous continuation/resume path.
+The runtime-integrity boundary was promoted from an isolated regression primitive into the actual autonomous continuation/resume path.
 
 Implemented and merged in PR #9:
 
 - `RuntimeIntegrity` receipts are serializable and persisted with future runtime checkpoints.
-- `AutonomousFutureRuntime` now binds continuation to:
-  1. stable instruction fingerprint
-  2. authorized future/plan digest
-  3. exact persisted checkpoint-state digest
-- validated resume now fails closed when the receipt is missing, tampered, the stable instructions change, or the authorized future changes.
-- a dedicated `resume_from_store()` entry point makes the validated resume boundary explicit.
+- `AutonomousFutureRuntime` binds continuation to stable instruction fingerprint, authorized future/plan digest, and exact persisted checkpoint-state digest.
+- validated resume fails closed when the receipt is missing, tampered, the stable instructions change, or the authorized future changes.
+- `resume_from_store()` makes the validated resume boundary explicit.
 - regression coverage was added for matching, changed-context, tampered-receipt, missing-receipt, and exact-checkpoint continuation.
-- an existing Unreal planner regression was also corrected so empty target sets fail closed rather than producing an executable plan.
+- an existing Unreal planner regression was corrected so empty target sets fail closed rather than producing an executable plan.
 
 Validation:
 
@@ -213,46 +154,29 @@ Python 3.9: PASS
 Python 3.11: PASS
 ```
 
-The change is merged to `main` at:
-
-`15c31321960c05aa4f8694bfc4891c2c206d8d50`
-
-The self-hosted live regression was automatically triggered against this new `main` HEAD as run #118. At the time of this log entry its jobs remain waiting, so the live portion is **not yet declared passed**. This is an execution-runner availability gate, not an offline regression failure.
-
-The next major development target is now the broader live autonomous-task proof: use a second non-goalpost production task to demonstrate that the same generic conditional planning, authorization, deterministic future, verification, recovery, and continuation-integrity machinery works outside the original goalpost fixture.
+The next major development target became the broader live autonomous-task proof: use a second non-goalpost production task to demonstrate that the same generic conditional planning, authorization, deterministic future, verification, recovery, and continuation-integrity machinery works outside the original goalpost fixture.
 
 ## August 21, 2026 — Unreal Architecture Decision Finalized
 
 ### Comprehensive Unreal Integration Audit Completed
 
-A complete source-level audit of the Unreal integration architecture was conducted using all loaded Unreal-specific files:
-- planning/unreal_task_planner.py
-- planning/unreal_capability_registry.py  
-- planning/unreal_adapter_production.py
-- planning/unreal_plan_executor.py
-- planning/unreal_agent.py
-- planning/unreal_evidence_contract.py
-- planning/unreal_tool_schema.py
-- planning/unreal_transport_contract.py
-- planning/unreal_transport_named_pipe.py
-- planning/unreal_transport_serialization.py
+A complete source-level audit of the Unreal integration architecture was conducted across the Unreal-specific planning, capability, adapter, executor, evidence, schema, and transport layers.
 
 ### Final Architectural Decision: Option B Investigation CLOSED
 
-**Decision:** UnrealPlanExecutor remains the Unreal-specific execution boundary. AdapterExecutionBridge integration is NOT pursued.
+**Decision:** `UnrealPlanExecutor` remains the Unreal-specific execution boundary. `AdapterExecutionBridge` integration is NOT pursued.
 
-**Rationale:** 
-- Option B would require breaking API changes to UnrealPlanExecutor constructor
-- Generic AdapterExecutionBridge does not support Unreal-specific READ/WRITE/VERIFY dispatch
-- TwinRepresentation dependencies not available in Unreal context
-- Authorization propagation incompatible with generic adapter contract
+**Rationale:**
+- Option B would require breaking API changes to `UnrealPlanExecutor` constructor
+- Generic `AdapterExecutionBridge` does not support Unreal-specific READ/WRITE/VERIFY dispatch
+- `TwinRepresentation` dependencies are not available in the Unreal context
+- authorization propagation is incompatible with the generic adapter contract
 
 ### Confirmed Unreal Execution Architecture
 
-**Complete execution flow:**
-```
+```text
 UnrealTaskPlanner
-→ UnrealTaskPlan  
+→ UnrealTaskPlan
 → UnrealPlanExecutor
 → UnrealAdapterProduction
 → UnrealTransport
@@ -261,19 +185,159 @@ UnrealTaskPlanner
 → UnrealPlanExecutor validation/ledger
 ```
 
-**Key confirmations:**
-- READ/WRITE/VERIFY dispatch remains Unreal-specific (READ→inspect, WRITE→apply_authorized, VERIFY→verify)
-- authorization_id correctly propagated through complete execution path
-- Authorization validation delegated to Unreal process
-- No implementation bugs or architectural gaps found
-- Generic Atlas infrastructure remains unchanged
+Key confirmations:
 
-### Implementation Status
+- READ/WRITE/VERIFY dispatch remains Unreal-specific;
+- `authorization_id` propagates through the complete execution path;
+- authorization validation remains delegated to the Unreal process;
+- generic Atlas infrastructure remains unchanged;
+- the Unreal integration preserves the intended separation from generic orchestration.
 
-**COMPLETE AND FUNCTIONAL** — Source-level audit confirmed the Unreal architecture is:
-- Architecturally sound
-- Completely implemented  
-- Ready for execution
-- No modifications required
+### Production Named Pipe hardening
 
-The Unreal integration maintains appropriate separation from generic Atlas orchestration while providing complete production-agent capabilities.
+The Windows Named Pipe transport was hardened against indefinite response-read blocking while preserving the existing JSON wire protocol.
+
+The corrected transport uses a genuinely overlapped pipe handle, bounded pending response reads, explicit pywin32 result-code handling, cancellation on timeout, and safe cleanup.
+
+Focused regression coverage was added for connection timeout, pending-read timeout, cancellation, and server-disconnect behavior.
+
+## August 22, 2026 — First Real Unreal Production Boundary Milestone
+
+### Regression and boundary fixes
+
+The Unreal production path went through several deliberately fail-closed fixes during live validation.
+
+A malformed fresh Unreal state containing a non-numeric coordinate was initially classified incorrectly as `STATE_CHANGED`. The reassessment decision boundary was corrected so malformed fresh evidence remains `INSUFFICIENT_EVIDENCE` / uncertain rather than being treated as proof of a changed state.
+
+An evidence/transport metadata consistency issue was also corrected so transport requests and the corresponding evidence ledger entries remain aligned through the executor pipeline.
+
+The Named Pipe transport failure boundary was hardened further so:
+
+- `WaitNamedPipe` timeout is translated before `CreateFile` is attempted;
+- pending response-read timeouts cancel the pending operation and close handles safely;
+- pywin32 `ReadFile` result codes are interpreted correctly rather than assuming asynchronous completion always raises an exception.
+
+### Full regression status
+
+The latest full local regression reported:
+
+```text
+530 passed, 5 skipped
+```
+
+The focused transport boundary tests then passed, and the user subsequently reported the remaining skipped coverage as passed as well.
+
+The key focused Unreal recovery/executor suite reached:
+
+```text
+24 passed
+```
+
+and the recovery coordinator/executor integration suite reached:
+
+```text
+22 passed
+```
+
+### Real Unreal Editor proof — PASS
+
+The first actual production-boundary tests were run against the running Unreal Editor.
+
+Passed:
+
+```text
+test_real_unreal_plan_executor_location_write_and_restore
+
+test_real_unreal_recovery_coordinator_reassesses_live_state_without_retrying_write
+```
+
+The combined live run passed both tests.
+
+Earlier live Unreal transport/integration checks also passed when the Editor transport was available, including real connection, sequential requests, production actor write/restore, and recovery reassessment.
+
+### What is now proven
+
+Atlas has now demonstrated the following real process-boundary sequence:
+
+```text
+Atlas operation
+    ↓
+production Unreal adapter
+    ↓
+Windows Named Pipe transport
+    ↓
+real Unreal Editor
+    ↓
+actor state mutation
+    ↓
+independent state readback
+    ↓
+verification
+    ↓
+restore
+```
+
+And for recovery:
+
+```text
+mutation / verification uncertainty
+    ↓
+fresh live Unreal observation
+    ↓
+reassessment
+    ↓
+NO automatic mutation retry
+```
+
+This is a genuine external production-boundary milestone. It is not yet proof of arbitrary multi-operation Unreal production automation.
+
+### Fixture lesson
+
+The live integration initially failed because the expected Unreal entity mapping was absent:
+
+```text
+Actor not found for entity_id: FIELD_SURFACE
+```
+
+The correct resolution was to configure the Unreal fixture with the exact expected `FIELD_SURFACE` entity mapping/tag rather than changing Atlas entity discovery or weakening the Python contract.
+
+This convention is now documented in the Unreal handoff and Unreal README.
+
+### Current architectural boundary
+
+Python currently declares/plans additional Unreal capabilities beyond the operation surface implemented by the current C++ transport server. The next capability must therefore be selected deliberately and implemented end-to-end.
+
+Do not broaden the C++ operation surface merely because a future capability exists in Python planning code.
+
+## August 22, 2026 — Next Milestone Definition
+
+The next major development target is **multi-operation production execution with failure containment**.
+
+The Python-side implementation should establish:
+
+1. ordered evidence before mutation;
+2. exact authorization of the ordered operation set;
+3. evidence bound to each exact operation/entity target;
+4. deterministic execution cursor advancement;
+5. safe stop when a later operation fails;
+6. preservation of completed write targets;
+7. fresh read-only reassessment after uncertain mutation/verification;
+8. no automatic mutation retry;
+9. explicit authorization for any replacement plan;
+10. independent verification before completion.
+
+Only after this boundary is green in offline regression should the expanded multi-operation scenario be exercised against the real Unreal Editor.
+
+### Action-runner constraint
+
+Do not run workflow/action-runner tests unless the user explicitly authorizes them. Continue isolated development that cannot create system conflicts while the external runner is unavailable or intentionally unused.
+
+### Documentation checkpoint
+
+The following current-state documents were updated after the real production-boundary milestone:
+
+- `UNREAL_AGENT_HANDOFF_CURRENT.md`
+- `UNREAL_AIDER_SCOPE.md`
+- `unreal/README.md`
+
+These documents now identify the first real production proof as passed and point to the multi-operation/failure-containment milestone as the next gate.
