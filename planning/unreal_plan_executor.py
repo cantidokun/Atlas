@@ -14,7 +14,7 @@ from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAd
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_state_verifier import verify_actor_location
+from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_tool_schema import validate_unreal_tool_call
 
@@ -134,6 +134,7 @@ class UnrealPlanExecutor:
         operation: UnrealOperation,
         authorization_id: str,
         expected_location: Optional[dict] = None,
+        expected_rotation: Optional[dict] = None,
     ) -> UnrealEvidence:
         arguments = dict(operation.arguments)
         arguments["entity_ids"] = tuple(operation.entity_ids)
@@ -154,8 +155,11 @@ class UnrealPlanExecutor:
             tuple(operation.entity_ids),
         )
 
-        if operation.kind is UnrealOperationKind.VERIFY and expected_location is not None:
-            verify_actor_location(evidence, expected_location)
+        if operation.kind is UnrealOperationKind.VERIFY:
+            if expected_location is not None:
+                verify_actor_location(evidence, expected_location)
+            if expected_rotation is not None:
+                verify_actor_rotation(evidence, expected_rotation)
 
         return evidence
 
@@ -200,16 +204,22 @@ class UnrealPlanExecutor:
         ledger: List[UnrealEvidence] = []
         completed_operation_arguments: List[Mapping[str, Any]] = []
         expected_location: Optional[dict] = None
+        expected_rotation: Optional[dict] = None
 
         for index, operation in enumerate(plan.operations):
             if operation.name == "set_actor_location":
                 expected_location = dict(operation.arguments["location"])
+                expected_rotation = None
+            elif operation.name == "set_actor_rotation":
+                expected_rotation = dict(operation.arguments["rotation"])
+                expected_location = None
 
             try:
                 evidence = self._execute_one(
                     operation,
                     authorization_id,
                     expected_location if operation.kind is UnrealOperationKind.VERIFY else None,
+                    expected_rotation if operation.kind is UnrealOperationKind.VERIFY else None,
                 )
             except UnrealAdapterError as exc:
                 message = f"Operation {index} ('{operation.name}') failed: {exc}"
@@ -257,10 +267,6 @@ class UnrealPlanExecutor:
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except Exception as exc:
-                # Preserve the same structured failure boundary for unexpected
-                # adapter/runtime errors. Recovery can then fail closed using
-                # the exact operation and completed evidence instead of losing
-                # the execution context to an unclassified exception.
                 message = (
                     f"Unexpected execution failure for operation {index} "
                     f"('{operation.name}'): {exc}"
