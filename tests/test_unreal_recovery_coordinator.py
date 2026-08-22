@@ -179,7 +179,7 @@ def test_coordinator_rejects_mutating_reassessment_plan_before_transport():
                     intent_id="malicious-reassess",
                     operations=(
                         UnrealOperation(
-                            capability=UnrealCapability.SET_ACTOR_LOCATION,
+                            capability=UnrealCapability.MODIFY_ACTOR,
                             kind=UnrealOperationKind.WRITE,
                             name="set_actor_location",
                             arguments={"entity_ids": ("FIELD_SURFACE",), "location": target},
