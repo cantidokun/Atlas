@@ -43,21 +43,23 @@ class UnrealRecoveryAssessment:
 
 
 def _recovery_targets(failure: UnrealPlanExecutionFailure) -> Tuple[str, ...]:
-    """Extract and validate the explicit targets established by prior evidence."""
-    targets = []
+    """Extract targets from the failed operation and validate prior evidence."""
+    operation_targets = tuple(failure.operation_entity_ids)
+    evidence_targets = []
     for evidence in failure.completed_evidence:
         for entity_id in evidence.entity_ids:
-            if entity_id not in targets:
-                targets.append(entity_id)
+            if entity_id not in evidence_targets:
+                evidence_targets.append(entity_id)
 
-    if not targets:
-        return ()
-
-    target_tuple = tuple(targets)
-    for evidence in failure.completed_evidence:
-        if tuple(dict.fromkeys(evidence.entity_ids)) != target_tuple:
+    if operation_targets:
+        if any(
+            tuple(dict.fromkeys(evidence.entity_ids)) != operation_targets
+            for evidence in failure.completed_evidence
+        ):
             raise ValueError("completed evidence contains inconsistent recovery targets")
-    return target_tuple
+        return operation_targets
+
+    return tuple(evidence_targets)
 
 
 def assess_unreal_failure(
