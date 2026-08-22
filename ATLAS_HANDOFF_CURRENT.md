@@ -1,30 +1,20 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 22, 2026 — 10:40 EDT  
-**Current repository HEAD:** `30c24ea00f1861bd15fa1d8e0dbaf2239bef3d6e` (`docs: add August 22 10:40 EDT Atlas development handoff`)  
+**Updated:** August 22, 2026 — 13:42 EDT  
+**Current repository HEAD:** `9ef3a40076004da4d26dcefe081dffc5716af20a` (`docs: refresh canonical Atlas handoff at 10:40 EDT`)  
 **Latest implementation commit:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
-**Previous handoff commit:** `671a1aa25b8789e5863d5282f4a5cd5425c78988` (`docs: add August 22 07:41 EDT Atlas development handoff`)  
+**Previous handoff commit:** `30c24ea00f1861bd15fa1d8e0dbaf2239bef3d6e` (`docs: add August 22 10:40 EDT Atlas development handoff`)  
 **Latest recorded development test milestone:** **694 passed** (conversation/runtime report); this is not fresh GitHub Actions verification.  
 **Previously recorded verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas development session.
 
-## 1. Current operating state
+## Current state
 
 Atlas remains actively under development. **Workflow/action-runner testing is paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue.
 
-The latest repository change is documentation only. No newer implementation commit has been identified since `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`. The intervening commits through the current handoff are documentation/handoff refreshes.
+No newer implementation commit has been identified after `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`; subsequent commits are handoff/documentation refreshes. Do not treat the 687-pass CI baseline as validation for code added after that baseline, and do not treat the 694-pass development report as GitHub Actions verification without an actual authorized runner result.
 
-Do not treat the 687-pass CI baseline as validation for code added after that baseline. Do not treat the 694-pass development report as GitHub Actions verification unless an actual authorized runner result is recorded.
-
-## 2. Scope and current tracks
-
-The primary development track remains the **Blender Agent / Blender execution bridge**. The repository also contains a concrete **Unreal transport/adapter failure-boundary regression test**. That Unreal work is a complementary production-environment hardening track rather than evidence that the Blender gate has been completed.
-
-Photogrammetry remains upstream: dedicated photogrammetry software creates the initial 3D reconstruction; Blender receives it for analysis, cleanup, correction, optimization, and preparation.
-
-Atlas remains focused on soccer/sports digital-twin production workflows.
-
-## 3. Architecture currently established
+## Architecture
 
 ```text
 Qwen / AI
@@ -50,128 +40,83 @@ verified agent state / evidence
 replan if objective remains unsatisfied
 ```
 
-Qwen is never execution authority. A successful production-tool response is never sufficient to establish final state.
+Qwen is never execution authority. A production-tool response is never sufficient to establish final state. The established architecture includes evidence/action plans, target-state evaluation, verification plans, authorization and replan gates, deterministic futures, recovery, runtime integrity, audit trail, immutable receipts, task runtime policy, declarative task definitions, controlled adapters, and transport failure boundaries. The generic contract is `docs/ATLAS_ARCHITECTURE_CONTRACT.md`.
 
-The established architecture includes action/evidence plans, target-state evaluation, verification plans, action authorization, replan authorization, deterministic futures, future execution/recovery, runtime integrity, audit trail, immutable execution receipts, task runtime policy, declarative task definitions, controlled production adapters, and transport failure boundaries.
+### Declarative runtime
 
-The generic architecture contract is documented in `docs/ATLAS_ARCHITECTURE_CONTRACT.md`.
+- `planning/task_definition.py` — `AtlasTaskDefinition`; validates task identity, evidence/actions, tool allowlists, write policy, verification policy, and metadata.
+- `planning/task_runtime.py` — `build_orchestrator(task)`, `validate_task_runtime(task)`, `prepare_task_runtime(task)`; validates before evidence or writes and bridges into `ConditionalPlanningOrchestrator`.
 
-## 4. Current declarative task/runtime layer
+### Replanning
 
-### `planning/task_definition.py`
+Replanning consumes verified production observations. It either stops on verified satisfaction or emits a new task intent through the normal planning/authorization path. An authorized plan is never silently mutated.
 
-`AtlasTaskDefinition` is the task-specific declarative boundary. It carries evidence requests, action specifications, target-state evaluation, allowed action tools, write policy, verification policy, and task metadata. Construction rejects empty task identity, missing evidence/actions, missing tool allowlists, and unauthorized action tools. The runtime additionally rejects write-capable tasks that disable post-action verification.
+### Qwen contract
 
-### `planning/task_runtime.py`
+Structured Qwen output is constrained before executable intent formation. Current recorded coverage rejects malformed confidence, empty objective/observation/action/evidence fields, non-object action arguments, and unknown Blender tools. The latest recorded correction aligns the Qwen reasoning test with the canonical Blender rotation schema using `rotation_degrees` and required file/object fields.
 
-Provides the generic bridge from a task definition to `ConditionalPlanningOrchestrator`:
+## Model/runtime
 
-- `build_orchestrator(task)`
-- `validate_task_runtime(task)`
-- `prepare_task_runtime(task)`
+- Reasoning model: **Qwen `qwen3:8b` via Ollama**
+- Blender target: **Blender 4.4.3**
+- Local Atlas runtime: **`atlas-local`**
+- Qwen remains planner/reasoner only; it cannot become an arbitrary Python execution channel through a production adapter.
 
-Validation occurs before evidence or writes, and task-specific data does not create a second orchestration architecture.
+Photogrammetry remains upstream of Blender: dedicated photogrammetry software creates the initial reconstruction; Blender performs analysis, cleanup, correction, optimization, and preparation. Atlas remains focused on soccer/sports digital-twin production workflows.
 
-### Architecture contract
+## Tests and verification status
 
-`docs/ATLAS_ARCHITECTURE_CONTRACT.md` formalizes Qwen/Atlas/production-tool authority, evidence-before-write, authorization, immutable receipts, fresh verification, zero-write behavior, fail-closed behavior, and promotion criteria.
+### Latest recorded development milestone
 
-## 5. Agent state + evidence-driven replanning
+**694 passed** remains the newest test outcome available from the active Atlas development conversation. It is a development-session result, not fresh GitHub Actions verification.
 
-Replanning consumes a **verified** production observation and either:
+### Latest verified CI baseline
 
-- stops when the objective is verified satisfied; or
-- produces a new task intent for the normal planning/authorization path.
+**687 passed**, green on **Python 3.9 and 3.11**. Any code after that baseline requires fresh CI validation once workflow testing is authorized.
 
-An existing authorized plan is never silently mutated by the replanner.
+### Blender subprocess hardening
 
-## 6. Qwen → Atlas reasoning contract
+Commit `832ae2568df1197e96bfdb363f70c456bba44a2c` adds `tests/test_blender_process.py`, covering:
 
-Structured Qwen output is constrained before it can become an executable intent. Current coverage rejects malformed confidence, empty objective/observation/action/evidence fields, non-object action arguments, and unknown Blender tools at the capability-planning boundary.
+- non-zero Blender process exit rejection;
+- invalid JSON between `ATLAS_START` / `ATLAS_END` rejection;
+- JSON-array rejection when an object is required;
+- valid structured JSON acceptance.
 
-The latest recorded correction aligned the Qwen reasoning test with the canonical Blender rotation schema using `rotation_degrees` and the required file/object fields.
+**Status:** no fresh result claimed. The test imports `tools.blender_process.run_checked_blender`; the prior repository inspection did not surface a tracked `tools/blender_process.py`. Reconcile that implementation/import surface before promoting the test.
 
-## 7. Model/runtime setup
+### Unreal transport boundary hardening
 
-The current handoff baseline uses **Qwen `qwen3:8b` through Ollama** as the local reasoning model, with Atlas enforcing planning, authorization, execution, receipt, verification, and replanning boundaries around it. The Blender target runtime baseline is **Blender 4.4.3**. The local Atlas runtime is referred to as **`atlas-local`** in the established development context.
+Commit `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` adds `tests/test_unreal_transport_failure_boundary.py`, covering timeout/disconnect wrapping at `UnrealAdapterError`, original-cause preservation, propagation to `UnrealPlanExecutionError`, and preservation of operation index/name, entity IDs, and transport error context.
 
-Qwen remains a planner/reasoner, not an execution authority; it cannot turn a production adapter into an arbitrary Python execution channel.
+**Status:** no fresh result claimed. This is post-687 regression coverage and remains unverified until an authorized test/CI result is recorded.
 
-## 8. Latest test status and verification hardening
-
-### Recorded development milestone
-
-**694 passed** remains the newest test outcome available from the active Atlas development conversation. It is a development-session result, not a newly verified GitHub Actions result.
-
-### Recorded verified CI milestone
-
-**687 passed** remains the latest explicitly recorded GitHub Actions baseline, green on:
-
-- Python 3.9
-- Python 3.11
-
-Any code added after that baseline requires fresh CI validation once workflow testing is authorized.
-
-### Blender subprocess verification hardening
-
-Commit `832ae2568df1197e96bfdb363f70c456bba44a2c` adds:
-
-- `tests/test_blender_process.py`
-
-The focused tests cover:
-
-- `run_checked_blender` rejecting a non-zero Blender process exit;
-- rejecting invalid JSON between `ATLAS_START` / `ATLAS_END` markers;
-- rejecting a JSON array when a JSON object is required;
-- accepting and returning a valid structured JSON object.
-
-**Result:** no fresh test result is claimed. The test imports `tools.blender_process.run_checked_blender`; the previous repository inspection did not surface a tracked `tools/blender_process.py`, so this import/module relationship remains an explicit offline reconciliation task.
-
-### New Unreal transport failure-boundary coverage
-
-Commit `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` adds:
-
-- `tests/test_unreal_transport_failure_boundary.py`
-
-The new focused coverage exercises the existing production Unreal adapter/executor boundary with a failing transport and checks that:
-
-- `NamedPipeTransportTimeoutError` and `NamedPipeTransportDisconnectedError` are wrapped as `UnrealAdapterError` at the adapter boundary;
-- the original transport error is preserved as the exception cause;
-- transport failure reaches `UnrealPlanExecutor` as `UnrealPlanExecutionError`;
-- failure context preserves operation index, operation name, entity IDs, and the transport error message.
-
-**Result:** no fresh test result is claimed in this handoff. This is newly added regression coverage after the recorded 687-pass CI baseline and therefore remains unverified until an authorized test/CI result is recorded.
-
-## 9. Current development stage
+## Current development gate
 
 ### Stage 10 — Blender Adapter / Real Execution Bridge
 
-**CURRENT PRIMARY GATE**
+**PRIMARY GATE**
 
-The primary implementation target remains the adapter that maps an already-authorized Atlas action into a controlled real Blender execution request and maps the resulting Blender response/evidence back into Atlas.
-
-The subprocess-verification hardening is directly relevant to this bridge because process-level failure and malformed structured output must fail closed before any response can be treated as execution evidence.
-
-The newly added Unreal transport regression should be treated as a parallel production-boundary hardening step; it does not advance the Blender live-proof gate by itself.
-
-Required properties:
+The target is the controlled adapter that maps an already-authorized Atlas action into a real Blender execution request and maps structured Blender response/evidence back into Atlas. Required properties:
 
 - capability restrictions remain enforced;
 - exact validated arguments are preserved;
-- authorization scope cannot expand at the adapter;
+- adapter cannot expand authorization scope;
 - execution is deterministic and observable;
-- process/transport failures are surfaced as failures, not successful payloads;
+- process/transport failures surface as failures, not success payloads;
 - structured responses are normalized and validated;
 - verification remains independent;
 - malformed/ambiguous responses fail closed;
-- evidence can be returned to agent state/replanning;
-- Qwen cannot use an adapter as an arbitrary Python execution channel.
+- evidence returns to agent state/replanning;
+- Qwen cannot use the adapter as arbitrary Python execution.
 
-Do not add a second bespoke execution architecture. Reuse the existing planning, authorization, receipt, verification, and state machinery.
+Do not add a parallel execution architecture; reuse the existing planning, authorization, receipt, verification, and state machinery.
 
-## 10. Concrete files/tools currently relevant
+The Unreal regression is complementary production-boundary hardening and does not complete the Blender gate.
 
-Core Blender architecture and planning/runtime files currently documented as relevant include:
+## Concrete files/tools
+
+Blender/planning/runtime:
 
 - `planning/task_definition.py`
 - `planning/task_runtime.py`
@@ -180,13 +125,13 @@ Core Blender architecture and planning/runtime files currently documented as rel
 - `planning/blender_execution_receipt.py`
 - `tools/blender.py`
 - `tools/blender_transform.py`
+- `tests/test_blender_process.py`
 - `docs/ATLAS_ARCHITECTURE_CONTRACT.md`
 - `ATLAS_HANDOFF_CURRENT.md`
-- `tests/test_blender_process.py`
 
-The established Blender flow uses `BlenderTaskIntent`, `ActionPlan`, `ConditionalPlanningOrchestrator`, authorization/replan gates, execution receipts, independent verification, and Qwen structured reasoning.
+Established flow: `BlenderTaskIntent` → `ActionPlan` → `ConditionalPlanningOrchestrator` → authorization/replan gates → execution receipt → independent verification → Qwen structured reasoning.
 
-The latest Unreal regression references the concrete production boundary components:
+Unreal boundary:
 
 - `planning/unreal_adapter_production.py`
 - `planning/unreal_agent.py`
@@ -196,34 +141,23 @@ The latest Unreal regression references the concrete production boundary compone
 - `planning/unreal_transport_named_pipe.py`
 - `tests/test_unreal_transport_failure_boundary.py`
 
-The Unreal test's `FailingTransport` is intentionally local test infrastructure; it does not represent a real transport connection or live Unreal proof.
+The Unreal test `FailingTransport` is local test infrastructure, not live Unreal proof.
 
-The new Blender test expects `tools.blender_process.run_checked_blender`; confirm the implementation path and packaging/import surface before promoting that test.
+## Offline-safe work while runner testing is paused
 
-## 11. Offline-safe work permitted during runner pause
+- Reconcile/implement the missing `tools.blender_process.run_checked_blender` import surface.
+- Harden deterministic request/result normalization.
+- Strengthen authorization boundaries, immutable receipts, evidence binding, and malformed/ambiguous response handling.
+- Harden Unreal named-pipe/adapter failure normalization and recovery boundaries.
+- Validate runtime policy, continuation/recovery identity, and static architecture invariants.
+- Add focused unit tests that do not invoke workflow/action-runner infrastructure.
+- Improve diagnostics and documentation.
 
-Continue development that does not require the action runner or real production-tool connection, including:
+Do not weaken authorization/verification or introduce a parallel execution path merely to avoid the runner.
 
-- inspect and reconcile the new `tests/test_blender_process.py` dependency;
-- implement or correct the controlled Blender subprocess helper if missing;
-- deterministic request/result normalization;
-- authorization-boundary checks;
-- immutable receipt and evidence-binding hardening;
-- malformed/ambiguous response handling;
-- Unreal named-pipe/adapter failure normalization and recovery-boundary hardening;
-- runtime policy validation;
-- continuation/recovery identity checks;
-- static architecture/invariant checks;
-- focused unit tests that do not invoke workflow/action-runner infrastructure;
-- diagnostics and documentation.
+## Blender integration gate
 
-Do not make changes that introduce a parallel execution path or weaken the existing authorization/verification boundary merely to avoid the runner.
-
-## 12. Blender integration gate
-
-Do **not** connect to the user's real Blender environment yet merely because the architecture looks close.
-
-When workflow testing is eventually authorized, the Blender adapter must first have focused tests and a fresh green CI result. Only then should the first live Blender proof be prepared:
+Do not connect to the real Blender environment merely because the architecture looks close. Once workflow testing is authorized, first establish focused adapter tests and a fresh green CI result, then prove one controlled live operation:
 
 ```text
 controlled Blender scene
@@ -237,70 +171,37 @@ structured result
 independent verification
 ```
 
-Only after that should the loop be expanded toward autonomous multi-step Blender work.
+Only then expand toward autonomous multi-step Blender work.
 
-## 13. Regression requirements
+## Regression requirements
 
-Preserve and extend coverage for:
+Preserve/extend coverage for zero-write already-satisfied tasks; exact authorized ordering; mandatory post-write verification; verification failure → `BLOCKED`; action failure → recovery gate; receipt mismatches; malformed/wrong executor results; continuation identity; authorized/unauthorized replanning; malformed Qwen reasoning; unknown Blender tools; adapter authorization bypass; validated-argument preservation; executor-result normalization; subprocess non-zero exits; malformed/non-object JSON; Blender fail-closed behavior; Unreal timeout/disconnect → adapter failure; and Unreal transport failure retaining executor operation context.
 
-- already-satisfied → zero writes;
-- unsatisfied → exact authorized order;
-- successful write → verification still mandatory;
-- verification failure → `BLOCKED`;
-- action failure → recovery gate;
-- mutated arguments/result → receipt mismatch;
-- malformed executor result → rejected;
-- wrong result tool → rejected;
-- invalid continuation identity → rejected;
-- authorized fresh-evidence replan → accepted;
-- unauthorized replan → rejected;
-- malformed Qwen reasoning → rejected;
-- unknown/non-capability Blender tool → rejected;
-- adapter cannot bypass authorization;
-- adapter preserves validated arguments;
-- adapter normalizes executor results;
-- subprocess non-zero exit → rejected;
-- malformed subprocess JSON → rejected;
-- non-object subprocess payload → rejected;
-- Blender adapter fails closed on malformed/ambiguous responses;
-- Unreal transport timeout/disconnect → adapter failure, not success;
-- Unreal transport failure → executor failure retains operation context.
+## Exact next steps when runner testing is authorized
 
-## 14. Exact resume procedure after runner authorization
+1. Read this handoff and inspect current `main`/HEAD against the 687-pass baseline.
+2. Reconcile `tests/test_blender_process.py` with the actual `tools.blender_process` implementation/import surface.
+3. Inspect `tests/test_unreal_transport_failure_boundary.py` against the current Unreal transport/adapter implementation.
+4. Run focused offline-safe tests where allowed without workflow/live infrastructure.
+5. Inspect fresh GitHub Actions only after explicit workflow-test authorization.
+6. Reconfirm the 694-pass development milestone against the current checkout before promotion.
+7. Implement the smallest coherent Blender adapter increment and add focused tests.
+8. Run the authorized regression gate and fix failures.
+9. After adapter tests are green, prepare the first controlled live Blender connection.
+10. Prove one live Blender operation with independent verification.
+11. Expand toward rotation/marker and closed-loop autonomous Blender behavior only after their specific proof gates pass.
+12. Treat Unreal live transport/connection proof as a separate gate; the named-pipe tests are regression coverage, not live proof.
 
-1. Read this handoff first.
-2. Inspect current `main`/HEAD and identify commits added since the 687-pass verified CI baseline.
-3. Reconcile `tests/test_blender_process.py` with the actual `tools.blender_process` implementation/import surface before treating the new test as complete.
-4. Inspect the current Unreal transport/adapter implementation against `tests/test_unreal_transport_failure_boundary.py` and run its focused tests only when permitted by the current runner/testing instruction.
-5. Run focused offline-safe tests for the Blender subprocess helper and Unreal transport boundary if they can be executed without workflow/action-runner infrastructure and without a prohibited live connection.
-6. Inspect fresh GitHub Actions status only after workflow testing is explicitly authorized.
-7. Reconfirm the 694-pass development milestone against the current checkout before treating it as a promotion candidate.
-8. Implement the smallest coherent Blender adapter increment.
-9. Add focused tests before considering the increment complete.
-10. Run the applicable regression gate once authorized and fix any failures.
-11. Only after the Blender adapter tests are green, prepare the first controlled live Blender connection.
-12. Prove one small live Blender operation with independent verification.
-13. Expand toward rotation/marker and then closed-loop autonomous Blender behavior only after their specific proof gates pass.
-14. Treat Unreal live transport/connection proof as a separate gate; the new named-pipe tests are boundary regression coverage, not live proof.
+## Do not regress
 
-## 15. Product architecture reminders
-
-- Atlas is a soccer/sports digital-twin production platform, not a generic gym-digital-twin system.
-- Photogrammetry is upstream of Blender.
-- Blender receives the initial reconstruction and performs analysis, cleanup, correction, optimization, and preparation.
-- Unreal is a later complementary production environment; the current Unreal transport test does not replace or complete the Blender development gate.
-- Canonical Digital Twin identity/state must remain distinct from `.blend` representations and shot-specific variants.
-
-## 16. Do not regress
-
-- Do not give Qwen direct production-tool execution authority.
-- Do not allow automatic retry after failed writes.
-- Do not silently mutate an authorized plan during replanning.
-- Do not declare completion from a write/transport response alone.
-- Do not make goalpost-specific behavior the generic architecture.
-- Do not trigger workflow/action-runner tests during the current pause.
-- Do not represent 687 passed as validation of newer code.
-- Do not represent 694 passed as fresh GitHub Actions verification without an actual authorized runner result.
-- Do not connect live Blender until the adapter's focused tests and later authorized regression gates are green.
-- Do not mark `tests/test_blender_process.py` complete until its `tools.blender_process` dependency is confirmed and its focused tests have a recorded result.
-- Do not mark `tests/test_unreal_transport_failure_boundary.py` as verified until its focused test result is recorded.
+- Never give Qwen direct production-tool execution authority.
+- Never automatically retry failed writes.
+- Never silently mutate an authorized plan during replanning.
+- Never declare completion from a write/transport response alone.
+- Never make goalpost-specific behavior the generic architecture.
+- Never trigger workflow/action-runner tests during the current pause.
+- Never represent 687 passed as validation of newer code.
+- Never represent 694 passed as fresh GitHub Actions verification without an actual authorized runner result.
+- Never connect live Blender until adapter-focused tests and authorized regression gates are green.
+- Never mark `tests/test_blender_process.py` complete until its `tools.blender_process` dependency is confirmed and a result is recorded.
+- Never mark `tests/test_unreal_transport_failure_boundary.py` verified until its focused result is recorded.
