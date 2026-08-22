@@ -19,6 +19,9 @@ try:
     from planning.unreal_transport_named_pipe import (
         WindowsNamedPipeTransport,
         NamedPipeTransportError,
+        NamedPipeTransportTimeoutError,
+        NamedPipeTransportDisconnectedError,
+        _translate_pipe_error,
         create_named_pipe_transport,
     )
     from planning.unreal_adapter_production import create_production_adapter
@@ -30,30 +33,30 @@ except ImportError:
 @pytest.mark.skipif(not TRANSPORT_AVAILABLE, reason="Named pipe transport not available")
 class TestNamedPipeTransport:
     """Test the Windows named pipe transport implementation."""
-    
+
     def test_transport_creation(self):
         """Test that transport can be created."""
         transport = create_named_pipe_transport()
         assert isinstance(transport, WindowsNamedPipeTransport)
         assert transport.pipe_name == r"\\.\pipe\AtlasUnrealTransport"
-    
+
     def test_transport_creation_custom_pipe(self):
         """Test transport creation with custom pipe name."""
         custom_pipe = r"\\.\pipe\TestPipe"
         transport = create_named_pipe_transport(custom_pipe)
         assert transport.pipe_name == custom_pipe
-    
+
     def test_send_requires_transport_request(self):
         """Test that send() validates input type."""
         transport = create_named_pipe_transport()
-        
+
         with pytest.raises(TypeError, match="UnrealTransportRequest"):
             transport.send({"not": "a request"})
-    
+
     def test_send_unavailable_server(self):
         """Test behavior when Unreal server is not available."""
         transport = create_named_pipe_transport()
-        
+
         request = UnrealTransportRequest(
             request_id="test-001",
             operation_name="inspect_target_actors",
@@ -63,29 +66,61 @@ class TestNamedPipeTransport:
             entity_ids=("FIELD_SURFACE",),
             authorization_id="auth-test-123",
         )
-        
+
         with pytest.raises(NamedPipeTransportError, match="not available"):
             transport.send(request)
 
 
 @pytest.mark.skipif(not TRANSPORT_AVAILABLE, reason="Named pipe transport not available")
+class TestNamedPipeErrorTranslation:
+    """Test stable classification of Windows named-pipe failures."""
+
+    @staticmethod
+    def _win32_error(code):
+        error = Mock()
+        error.args = (code, "mock_error", "mock description")
+        return error
+
+    def test_missing_pipe_remains_connection_error(self):
+        error = _translate_pipe_error(self._win32_error(2))
+        assert type(error) is NamedPipeTransportError
+        assert "not available" in str(error)
+
+    def test_busy_pipe_remains_connection_error(self):
+        error = _translate_pipe_error(self._win32_error(231))
+        assert type(error) is NamedPipeTransportError
+        assert "busy" in str(error)
+
+    @pytest.mark.parametrize("error_code", [109, 232, 233])
+    def test_server_disconnect_codes_are_distinguished(self, error_code):
+        error = _translate_pipe_error(self._win32_error(error_code))
+        assert isinstance(error, NamedPipeTransportDisconnectedError)
+        assert "disconnected" in str(error)
+
+    def test_timeout_error_is_distinct_transport_failure(self):
+        error = NamedPipeTransportTimeoutError("Read operation timed out after 30ms")
+        assert isinstance(error, NamedPipeTransportError)
+        assert "timed out" in str(error)
+
+
+@pytest.mark.skipif(not TRANSPORT_AVAILABLE, reason="Named pipe transport not available")
 class TestProductionAdapter:
     """Test the production adapter with named pipe transport."""
-    
+
     def test_adapter_creation(self):
         """Test that production adapter can be created."""
         adapter = create_production_adapter()
         assert adapter._source_tag == "atlas-adapter-production"
-    
+
     def test_adapter_creation_custom_source(self):
         """Test adapter creation with custom source tag."""
         adapter = create_production_adapter("custom-source")
         assert adapter._source_tag == "custom-source"
-    
+
     def test_inspect_operation_validation(self):
         """Test that inspect validates operation kind."""
         adapter = create_production_adapter()
-        
+
         # Create a WRITE operation (should be rejected)
         write_operation = UnrealOperation(
             name="invalid_write",
@@ -94,7 +129,7 @@ class TestProductionAdapter:
             arguments={},
             entity_ids=("TEST",),
         )
-        
+
         with pytest.raises(Exception, match="READ operations only"):
             adapter.inspect(write_operation, "auth-123")
 
@@ -111,8 +146,6 @@ class TestProductionAdapter:
             },
             entity_ids=("FIELD_SURFACE",),
         )
-        # The adapter's kind boundary is local; the live transport test below
-        # proves the actual engine mutation.
         assert operation.kind is UnrealOperationKind.WRITE
         assert operation.capability is UnrealCapability.MODIFY_ACTOR
         assert adapter.apply_authorized is not None
@@ -120,11 +153,12 @@ class TestProductionAdapter:
 
 class TestTransportIntegration:
     """Integration tests that can run without Unreal Editor."""
-    
+
     def test_request_serialization_compatibility(self):
         """Test that our serialization matches expected format."""
         from planning.unreal_transport_serialization import serialize_request
-        
+        import json
+
         request = UnrealTransportRequest(
             request_id="req-001",
             operation_name="inspect_target_actors",
@@ -134,13 +168,10 @@ class TestTransportIntegration:
             entity_ids=("FIELD_SURFACE",),
             authorization_id="auth-abc-123",
         )
-        
+
         json_str = serialize_request(request)
-        
-        # Verify it's valid JSON and contains expected fields
-        import json
         data = json.loads(json_str)
-        
+
         assert data["request_id"] == "req-001"
         assert data["operation_name"] == "inspect_target_actors"
         assert data["capability"] == "inspect_actor"
@@ -173,11 +204,11 @@ class TestTransportIntegration:
         assert data["kind"] == "write"
         assert data["arguments"]["entity_ids"] == ["FIELD_SURFACE"]
         assert data["arguments"]["location"] == {"x": 100.0, "y": 200.0, "z": 300.0}
-    
+
     def test_response_deserialization_compatibility(self):
         """Test that we can deserialize expected response format."""
         from planning.unreal_transport_serialization import deserialize_response
-        
+
         response_json = """{
             "request_id": "req-001",
             "operation_name": "inspect_target_actors",
@@ -195,44 +226,41 @@ class TestTransportIntegration:
             "error": "",
             "source": "unreal-editor-atlas-transport"
         }"""
-        
+
         response = deserialize_response(response_json)
-        
+
         assert response.request_id == "req-001"
         assert response.operation_name == "inspect_target_actors"
         assert response.entity_ids == ("FIELD_SURFACE",)
         assert response.success is True
         assert response.error == ""
         assert response.source == "unreal-editor-atlas-transport"
-        
-        # Verify observed state structure
+
         observed = response.observed_state
         assert "FIELD_SURFACE" in observed
-        
+
         field_data = observed["FIELD_SURFACE"]
         assert field_data["entity_id"] == "FIELD_SURFACE"
         assert field_data["actor_name"] == "TestActor"
         assert field_data["actor_class"] == "StaticMeshActor"
-        
+
         location = field_data["location"]
         assert location["x"] == 100.0
         assert location["y"] == 200.0
         assert location["z"] == 300.0
-        
+
         rotation = field_data["rotation"]
         assert rotation["pitch"] == 0.0
         assert rotation["yaw"] == 90.0
         assert rotation["roll"] == 0.0
-    
+
     def test_malformed_request_rejection(self):
         """Test that malformed requests are rejected."""
         from planning.unreal_transport_serialization import deserialize_request, TransportDeserializationError
-        
-        # Missing required field
+
         with pytest.raises(TransportDeserializationError, match="missing keys"):
             deserialize_request('{"request_id": "test"}')
-        
-        # Extra field
+
         with pytest.raises(TransportDeserializationError, match="extra keys"):
             deserialize_request('''{
                 "request_id": "test",
@@ -244,22 +272,18 @@ class TestTransportIntegration:
                 "authorization_id": "auth",
                 "extra_field": "not allowed"
             }''')
-        
-        # Invalid JSON
+
         with pytest.raises(TransportDeserializationError, match="not valid JSON"):
             deserialize_request('{invalid json}')
-    
+
     def test_unsupported_operation_handling(self):
         """Test handling of unsupported operations."""
-        # This would be tested with a mock transport that simulates
-        # the Unreal side rejecting unsupported operations
         pass
-    
+
     def test_authorization_validation(self):
         """Test that authorization_id is properly validated."""
         from planning.unreal_transport_serialization import deserialize_request, TransportDeserializationError
-        
-        # Empty authorization_id should be caught by UnrealTransportRequest.__post_init__
+
         with pytest.raises(ValueError, match="authorization_id"):
             deserialize_request('''{
                 "request_id": "test",
@@ -276,7 +300,7 @@ class TestTransportIntegration:
 @pytest.mark.skipif(not TRANSPORT_AVAILABLE, reason="Named pipe transport not available")
 class TestRealUnrealIntegration:
     """Integration tests that require a running Unreal Editor."""
-    
+
     def test_real_unreal_connection(self):
         """Test actual connection to running Unreal Editor."""
         adapter = create_production_adapter("integration-test")
@@ -288,7 +312,7 @@ class TestRealUnrealIntegration:
             arguments={"entity_ids": ("FIELD_SURFACE",)},
             entity_ids=("FIELD_SURFACE",),
         )
-        
+
         try:
             evidence = adapter.inspect(operation, "integration-test-auth-001")
             assert evidence.operation_name == "inspect_target_actors"
@@ -300,7 +324,7 @@ class TestRealUnrealIntegration:
                 pytest.fail("Transport incorrectly set verified=True")
             print(f"✓ Real Unreal integration successful: {evidence.source}")
             print(f"✓ Observed state keys: {list(observed.keys())}")
-            
+
         except NamedPipeTransportError as e:
             if "not available" in str(e):
                 pytest.skip("Unreal Editor not running - cannot test real integration")
@@ -379,7 +403,7 @@ class TestRealUnrealIntegration:
     def test_sequential_requests(self):
         """Test that multiple sequential requests work (pipe lifecycle)."""
         adapter = create_production_adapter("sequential-test")
-        
+
         operation = UnrealOperation(
             name="inspect_target_actors",
             capability=UnrealCapability.INSPECT_ACTOR,
@@ -387,18 +411,16 @@ class TestRealUnrealIntegration:
             arguments={"entity_ids": ("FIELD_SURFACE",)},
             entity_ids=("FIELD_SURFACE",),
         )
-        
+
         try:
-            # First request
             evidence1 = adapter.inspect(operation, "sequential-test-auth-001")
             assert evidence1.operation_name == "inspect_target_actors"
-            
-            # Second request (tests pipe recreation)
+
             evidence2 = adapter.inspect(operation, "sequential-test-auth-002")
             assert evidence2.operation_name == "inspect_target_actors"
-            
+
             print("✓ Sequential requests successful")
-            
+
         except NamedPipeTransportError as e:
             if "not available" in str(e):
                 pytest.skip("Unreal Editor not running - cannot test sequential requests")
