@@ -1,6 +1,6 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 22, 2026
+**Updated:** August 22, 2026 — end-of-session checkpoint
 **Current focus:** Explicit replacement-plan authorization boundary
 **Current branch:** `feat/unreal-production-actor-write`
 **Latest validated live gate:** partial multi-operation failure/recovery sequence passed against the running Unreal Editor
@@ -9,20 +9,23 @@
 
 The Unreal Agent has crossed the first real Unreal production boundary, the live multi-operation mutation boundary, and the live partial-failure/recovery boundary. The production adapter, Windows Named Pipe transport, actor-location write/verify path, read-only recovery reassessment, deterministic compound actor-location sequencing, and fail-closed partial recovery have all been exercised against the running Unreal Editor.
 
-Latest user-reported live validation:
+Latest user-reported validation at this checkpoint:
 
 ```text
+python -m pytest tests -q
+539 passed, 5 skipped
+
+python -m pytest tests/test_unreal_location_sequence_real_integration.py -vv -s
+1 passed
+
 python -m pytest tests/test_unreal_partial_sequence_recovery_real_integration.py -vv -s
 1 passed
+
+python -m pytest tests/test_unreal_plan_executor_real_integration.py::test_real_unreal_plan_executor_location_write_and_restore tests/test_unreal_recovery_coordinator_real_integration.py::test_real_unreal_recovery_coordinator_reassesses_live_state_without_retrying_write -vv -s
+2 passed
 ```
 
-The full regression baseline immediately before the latest authorization work was:
-
-```text
-539 passed, 5 skipped
-```
-
-The live location-sequence and recovery gates also passed. The partial-failure test established the exact `WRITE B` failure boundary, preserved the first mutation, performed fresh read-only reassessment, and did not retry the failed write.
+The Named Pipe transport regression suite also passed, and the real Unreal transport/executor/recovery integration gates have been exercised successfully. The remaining skipped tests are environment-gated coverage and are not an action/workflow-runner blocker for the current milestone.
 
 Atlas remains the authority. Unreal is a production execution/evidence environment around the Atlas-owned canonical Digital Twin.
 
@@ -213,3 +216,7 @@ Failures require fresh evidence and explicit recovery.
 Replacement mutations require explicit plan-bound authorization.
 The Unreal Agent must never become a second autonomous authority separate from Atlas.
 ```
+
+## End-of-session resume point
+
+Resume development from the **LIVE AUTHORIZED REPLACEMENT** gate above. Do not treat the remaining skipped tests as a blocker unless their specific coverage becomes necessary for the next milestone. Do not run action/workflow-runner tests without explicit authorization.
