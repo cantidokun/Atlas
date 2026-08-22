@@ -55,7 +55,10 @@ def _verify_operation():
 def test_executor_preserves_actor_location_payload():
     transport = RecordingTransport({"FIELD_SURFACE": {"location": {"x": 1, "y": 2, "z": 3}}})
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
-    plan = UnrealTaskPlan("location-write", (_location_operation({"x": 1.0, "y": 2.0, "z": 3.0}),))
+    plan = UnrealTaskPlan(
+        "location-write",
+        (_location_operation({"x": 1.0, "y": 2.0, "z": 3.0}), _verify_operation()),
+    )
 
     result = executor.execute(plan, "auth-location-001")
 
@@ -67,10 +70,48 @@ def test_executor_preserves_actor_location_payload():
 def test_executor_rejects_malformed_actor_location_before_transport():
     transport = RecordingTransport({})
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
-    plan = UnrealTaskPlan("location-write", (_location_operation({"x": 1.0, "y": 2.0}),))
+    plan = UnrealTaskPlan(
+        "location-write",
+        (_location_operation({"x": 1.0, "y": 2.0}), _verify_operation()),
+    )
 
     with pytest.raises(UnrealPlanExecutionError, match="location must contain exactly x, y, and z"):
         executor.execute(plan, "auth-location-002")
+
+    assert transport.requests == []
+
+
+def test_executor_rejects_unverified_write():
+    transport = RecordingTransport({"FIELD_SURFACE": {"location": {"x": 1, "y": 2, "z": 3}}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan(
+        "location-write-unverified",
+        (_location_operation({"x": 1.0, "y": 2.0, "z": 3.0}),),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError, match="must be followed by verification"):
+        executor.execute(plan, "auth-location-003")
+
+    assert transport.requests == []
+
+
+def test_executor_rejects_write_with_wrong_verification_targets():
+    transport = RecordingTransport({"FIELD_SURFACE": {"location": {"x": 10, "y": 20, "z": 30}}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    wrong_target_verify = UnrealOperation(
+        capability=UnrealCapability.INSPECT_ACTOR,
+        kind=UnrealOperationKind.VERIFY,
+        name="verify_target_actor_mapping",
+        arguments={"entity_ids": ("OTHER_ACTOR",)},
+        entity_ids=("OTHER_ACTOR",),
+    )
+    plan = UnrealTaskPlan(
+        "location-write-wrong-target",
+        (_location_operation({"x": 10.0, "y": 20.0, "z": 30.0}), wrong_target_verify),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError, match="must target the same entities"):
+        executor.execute(plan, "auth-location-004")
 
     assert transport.requests == []
 
@@ -84,7 +125,7 @@ def test_executor_verifies_actor_location_after_write():
         (_location_operation(target), _verify_operation()),
     )
 
-    result = executor.execute(plan, "auth-location-003")
+    result = executor.execute(plan, "auth-location-005")
 
     assert result.success is True
     assert len(result.evidence_ledger) == 2
@@ -105,6 +146,6 @@ def test_executor_rejects_post_write_location_mismatch():
     )
 
     with pytest.raises(UnrealPlanExecutionError, match="does not match expected"):
-        executor.execute(plan, "auth-location-004")
+        executor.execute(plan, "auth-location-006")
 
     assert len(transport.requests) == 2
