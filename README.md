@@ -19,9 +19,11 @@ Qwen never receives direct Blender execution authority.
 
 ## Current Blender Agent status
 
-**Current milestone position: controlled execution architecture complete; real Blender mutation/persistence proof gate next.**
+**Current milestone: generalized Blender task-execution architecture established; third live mutation proof is the next gate.**
 
-The current architecture is:
+Atlas has now demonstrated real Blender rotation and marker-creation workflows and migrated both onto the shared `TaskRuntimeSession` lifecycle. The next operation, object movement, is implemented and regression-tested but has not yet received live Windows/Blender proof.
+
+The generic lifecycle is:
 
 ```text
 Qwen proposal
@@ -39,64 +41,71 @@ Qwen proposal
  -> completion / conservative recovery
 ```
 
-The important architectural separation is:
+### Proven live mutations
 
-- capability catalog defines what Atlas is authorized to use;
-- schemas validate admitted arguments;
-- `BlenderToolAdapter` maps authorized names to concrete Blender implementations;
-- `BlenderExecutionBoundary` owns result normalization and verification;
-- receipts bind the validated request to the verified result;
-- generic task/runtime primitives enforce ordering and completion.
-
-### Current real-mutation proof task
-
-The next live gate uses the non-goalpost object-rotation task:
+**Rotation**
 
 ```text
 Atlas_Rotation_Candidate
 rotation = [0.0, 0.0, 90.0] degrees
 ```
 
+**Marker creation**
+
+```text
+Atlas_Marker
+EMPTY
+inside Atlas_Test
+```
+
+Both use the shared task/runtime architecture and require fresh independent Blender evidence before completion.
+
+### Next live gate: object movement
+
+The third task is declaratively defined as:
+
+```text
+Goal_Left_post
+location = [1.0, 2.0, 0.0]
+```
+
 The intended proof is:
 
 ```text
 incorrect fixture
- -> inspect
+ -> inspect location
  -> target unsatisfied
  -> authorize
- -> rotate
+ -> move
  -> save .blend
- -> receipt
  -> fresh independent inspect
- -> invariant satisfied
+ -> location invariant satisfied
+ -> receipt validated
  -> COMPLETE
 ```
 
-The already-correct fixture must remain a zero-write path followed by fresh verification. A failed or unverifiable post-action inspection must produce `BLOCKED`, never completion.
+The already-correct path must remain zero-write followed by fresh verification. Any failed or unverifiable post-action inspection must produce `BLOCKED`, never completion.
 
-Relevant files:
+Relevant files include:
 
+- `planning/task_runtime.py`
+- `planning/object_rotation_task.py`
+- `planning/marker_task.py`
+- `planning/object_move_task.py`
 - `planning/blender_tool_adapter.py`
 - `planning/blender_execution_boundary.py`
-- `planning/blender_result_contract.py`
-- `planning/blender_verification.py`
 - `planning/blender_execution_receipt.py`
 - `planning/blender_autonomous_executor.py`
-- `planning/object_rotation_task.py`
-- `planning/task_runtime.py`
-- `tools/blender_transform.py`
-- `live_qwen_object_rotation.py`
 
 ## Verification discipline
 
-Historical CI/live results in this repository describe earlier commits unless explicitly associated with the current branch/commit. Do not infer current success from historical results. Only actual test/workflow output establishes current verification.
+Historical CI/live results describe earlier commits unless explicitly associated with the current branch/commit. The current movement task has **104 focused/regression tests passing**, but that does not constitute live Windows/Blender proof. Only actual current workflow/test output establishes live verification.
 
 ## Development path
 
-1. establish real Blender mutation + persistence proof;
-2. generalize the verified loop across materially different Blender tasks;
-3. expand production-facing continuation/resume across multiple task types;
-4. advance Digital Twin identity/revision and photogrammetry intake contracts;
-5. later integrate Unreal production workflows.
+1. prove a third materially different Blender mutation through the shared runtime;
+2. generalize continuation/resume and multi-task production composition;
+3. advance Digital Twin identity/revision and photogrammetry intake contracts;
+4. later integrate Unreal production workflows.
 
 See `ATLAS_HANDOFF_CURRENT.md` for the authoritative resume point and `DEVELOPMENT_LOG.md` for chronological progress.
