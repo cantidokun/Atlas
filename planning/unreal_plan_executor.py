@@ -38,6 +38,11 @@ class UnrealPlanExecutor:
     ``kind``. Evidence returned by the adapter is validated against the
     originating operation before being appended to the ledger.
 
+    Every mutation is required to be immediately followed by a verification
+    operation for the same explicit targets. This prevents a write from being
+    reported as a successful production execution without a post-write proof
+    step.
+
     The executor does **not** issue or verify authorization — it only
     transmits the caller-supplied ``authorization_id``.
     """
@@ -52,6 +57,27 @@ class UnrealPlanExecutor:
         UnrealOperationKind.WRITE: "apply_authorized",
         UnrealOperationKind.VERIFY: "verify",
     }
+
+    @staticmethod
+    def _validate_execution_shape(plan: UnrealTaskPlan) -> None:
+        """Require every write to have an adjacent verification boundary."""
+        operations = plan.operations
+        for index, operation in enumerate(operations):
+            if operation.kind is not UnrealOperationKind.WRITE:
+                continue
+            if index + 1 >= len(operations):
+                raise UnrealPlanExecutionError(
+                    f"Write operation {index} ('{operation.name}') must be followed by verification"
+                )
+            verification = operations[index + 1]
+            if verification.kind is not UnrealOperationKind.VERIFY:
+                raise UnrealPlanExecutionError(
+                    f"Write operation {index} ('{operation.name}') must be immediately followed by verification"
+                )
+            if tuple(verification.entity_ids) != tuple(operation.entity_ids):
+                raise UnrealPlanExecutionError(
+                    f"Write operation {index} ('{operation.name}') and verification must target the same entities"
+                )
 
     def _execute_one(
         self,
@@ -110,6 +136,8 @@ class UnrealPlanExecutor:
             raise TypeError("plan must be a UnrealTaskPlan instance")
         if not isinstance(authorization_id, str) or not authorization_id.strip():
             raise UnrealPlanExecutionError("authorization_id must be a non-empty string")
+
+        self._validate_execution_shape(plan)
 
         ledger: List[UnrealEvidence] = []
         expected_location: Optional[dict] = None
