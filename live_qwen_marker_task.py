@@ -117,8 +117,18 @@ def main() -> None:
     if tuple(proposal.actions) != definition.actions:
         raise RuntimeError("Qwen action plan does not match marker task definition")
 
-    execution = boundary()
-    session = TaskRuntimeSession(definition, execution.execute, _reduce_marker_evidence)
+    execution_boundary = boundary()
+    capture: Dict[str, Any] = {}
+
+    def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        if tool in {request.tool for request in definition.evidence}:
+            return evidence(tool, arguments)
+        normalized, receipt = execution_boundary.execute_with_receipt(tool, arguments)
+        capture["receipt"] = receipt
+        capture["normalized"] = normalized
+        return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
+
+    session = TaskRuntimeSession(definition, execute, _reduce_marker_evidence)
     initial = session.acquire_initial_evidence()
     audit.record("evidence_batch", "initial", state=initial)
     state = session.evaluate_target()
@@ -129,6 +139,9 @@ def main() -> None:
         authorization = session.authorize(f"live:marker-creation:{args.case}")
         audit.record_authorization(True, action_count=len(definition.actions), authorization_id=authorization.authorization_id)
         result = session.execute_authorized_action()
+        action = definition.actions[0]
+        if not capture["receipt"].matches(action.tool, action.arguments, capture["normalized"]):
+            raise RuntimeError("Marker execution receipt mismatch")
         if not result.get("ok"):
             raise RuntimeError(f"Authorized marker action failed: {result}")
 
