@@ -86,6 +86,11 @@ class TestNamedPipeErrorTranslation:
         assert type(error) is NamedPipeTransportError
         assert "not available" in str(error)
 
+    def test_wait_named_pipe_timeout_is_classified_as_timeout(self):
+        error = _translate_pipe_error(self._win32_error(121))
+        assert isinstance(error, NamedPipeTransportTimeoutError)
+        assert "Timed out waiting" in str(error)
+
     def test_busy_pipe_remains_connection_error(self):
         error = _translate_pipe_error(self._win32_error(231))
         assert type(error) is NamedPipeTransportError
@@ -121,7 +126,6 @@ class TestProductionAdapter:
         """Test that inspect validates operation kind."""
         adapter = create_production_adapter()
 
-        # Create a WRITE operation (should be rejected)
         write_operation = UnrealOperation(
             name="invalid_write",
             capability=UnrealCapability.INSPECT_ACTOR,
