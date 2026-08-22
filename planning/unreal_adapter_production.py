@@ -30,7 +30,6 @@ from planning.unreal_transport_contract import (
 )
 from planning.unreal_transport_named_pipe import NamedPipeTransportError
 
-# Import the production named pipe transport
 try:
     from planning.unreal_transport_named_pipe import create_named_pipe_transport
     NAMED_PIPE_AVAILABLE = True
@@ -119,39 +118,25 @@ class UnrealAdapterProduction:
             )
         return self._to_evidence(response, evidence_operation_name)
 
-    def inspect(
-        self,
-        operation: UnrealOperation,
-        authorization_id: str,
-    ) -> UnrealEvidence:
+    def inspect(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence:
         """Execute a READ operation and return unverified evidence."""
         if operation.kind is not UnrealOperationKind.READ:
             raise UnrealAdapterError("inspect accepts READ operations only")
         return self._execute(operation, authorization_id)
 
-    def apply_authorized(
-        self,
-        operation: UnrealOperation,
-        authorization_id: str,
-    ) -> UnrealEvidence:
+    def apply_authorized(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence:
         """Execute a WRITE operation and return unverified evidence."""
         if operation.kind is not UnrealOperationKind.WRITE:
             raise UnrealAdapterError("apply_authorized accepts WRITE operations only")
         return self._execute(operation, authorization_id)
 
-    def verify(
-        self,
-        operation: UnrealOperation,
-        authorization_id: str,
-    ) -> UnrealEvidence:
+    def verify(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence:
         """Collect fresh read evidence for a semantic VERIFY operation.
 
-        The current Unreal transport exposes actor inspection as a READ
-        operation, not as a separate VERIFY wire command. The adapter maps
-        ``verify_target_actor_mapping`` to that read-only observation while
-        preserving the original semantic operation name in the evidence.
-        Atlas's state verifier remains the authority that decides whether
-        the observed state proves the requested mutation.
+        The current Unreal transport exposes read operations as the concrete
+        observation boundary. Actor verification maps to actor inspection and
+        material verification maps to material-state inspection while Atlas
+        preserves the original semantic VERIFY operation in the evidence.
         """
         if operation.kind is not UnrealOperationKind.VERIFY:
             raise UnrealAdapterError("verify accepts VERIFY operations only")
@@ -170,15 +155,25 @@ class UnrealAdapterProduction:
                 evidence_operation_name=operation.name,
             )
 
+        if operation.name == "verify_material_variant":
+            transport_operation = UnrealOperation(
+                capability=UnrealCapability.MATERIAL,
+                kind=UnrealOperationKind.READ,
+                name="inspect_material_state",
+                arguments={"entity_ids": tuple(operation.entity_ids)},
+                entity_ids=tuple(operation.entity_ids),
+            )
+            return self._execute(
+                transport_operation,
+                authorization_id,
+                evidence_operation_name=operation.name,
+            )
+
         return self._execute(operation, authorization_id)
 
 
 def create_production_adapter(source_tag: str = "atlas-adapter-production") -> UnrealAdapterProduction:
-    """Create a production adapter with Windows named pipe transport.
-
-    Raises:
-        RuntimeError: If named pipe transport is not available on this platform.
-    """
+    """Create a production adapter with Windows named pipe transport."""
     if not NAMED_PIPE_AVAILABLE:
         raise RuntimeError(
             "Named pipe transport not available. "
