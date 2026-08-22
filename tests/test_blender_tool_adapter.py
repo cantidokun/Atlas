@@ -1,6 +1,16 @@
 import pytest
 
+from controller.blender_capabilities import BLENDER_CAPABILITIES
 from planning.blender_tool_adapter import BlenderToolAdapter
+from tools import TOOLS
+
+
+def test_default_adapter_matches_authorized_capability_surface():
+    adapter = BlenderToolAdapter()
+    declared = {capability.name for capability in BLENDER_CAPABILITIES}
+    executable = set(TOOLS)
+
+    assert set(adapter.supported_tools) == declared == executable
 
 
 def test_adapter_dispatches_without_reinterpreting_result():
