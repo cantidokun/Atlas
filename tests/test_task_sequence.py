@@ -2,6 +2,8 @@ import pytest
 
 from action_plan import ActionSpec
 from planning.evidence_plan import EvidenceRequest
+from planning.marker_task import marker_task_definition
+from planning.object_move_task import object_move_task_definition
 from planning.target_state import StateInvariant, TargetStateEvaluator
 from planning.task_definition import AtlasTaskDefinition
 from planning.task_runtime import EvidenceReducer
@@ -89,6 +91,15 @@ def test_sequence_resume_reconstructs_only_at_a_completed_task_boundary():
         TaskSequenceSession.resume_from_checkpoint(
             definition, execute, (reducer, reducer), tampered
         )
+
+
+def test_real_blender_task_definitions_share_the_sequence_contract():
+    move = object_move_task_definition("sequence.blend")
+    marker = marker_task_definition("sequence.blend")
+    definition = TaskSequenceDefinition((move, marker))
+    assert [task.name for task in definition.tasks] == ["object_move", "marker_creation"]
+    assert definition.tasks[0].allowed_action_tools == frozenset({"move_object"})
+    assert definition.tasks[1].allowed_action_tools == frozenset({"create_empty_marker"})
 
 
 def test_sequence_cannot_advance_before_current_task_is_complete():
