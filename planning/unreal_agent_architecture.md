@@ -86,6 +86,16 @@ A mapping must not be inferred solely from mutable display names when a stable A
 mapping can be maintained. Missing or ambiguous mappings fail closed and require
 fresh evidence or explicit recovery.
 
+The current live Unreal integration fixture uses the Atlas entity ID/tag:
+
+```text
+FIELD_SURFACE
+```
+
+This is a fixture mapping convention, not a generic discovery mechanism. If the
+fixture cannot resolve `FIELD_SURFACE`, the mapping/tag must be corrected in Unreal
+rather than introducing implicit actor discovery.
+
 ## State separation
 
 Unreal must distinguish:
@@ -117,6 +127,42 @@ Qwen/agent proposal
 
 A successful Unreal API call is not proof of final production state.
 
+For compound operations, the same contract applies to the complete ordered plan.
+Every mutation is followed by independent verification, and a failure creates a
+hard execution boundary. Recovery never automatically replays an uncertain write.
+
+Replacement mutation plans require an explicit immutable authorization receipt bound
+to the exact plan. The Unreal executor rejects a changed or mismatched replacement
+plan before transport, and the authorization ID from the receipt is propagated to
+the Unreal operation. This keeps recovery separate from mutation authority.
+
+## Verified production boundaries
+
+The current implementation has crossed these live boundaries against a running
+Unreal Editor:
+
+1. production Named Pipe transport and real Unreal inspection;
+2. authorized actor-location write followed by independent verification;
+3. deterministic multi-operation actor-location sequence with restoration;
+4. partial multi-operation failure with fresh read-only reassessment and no automatic
+   retry of the failed write.
+
+The next production gate is the complete recovery-to-replacement path:
+
+```text
+failed sequence
+    -> fresh reassessment
+    -> recovery decision
+    -> distinct replacement plan
+    -> explicit new plan-bound authorization
+    -> authorized WRITE
+    -> independent VERIFY
+    -> final evidence
+```
+
+That gate must prove that no replacement mutation occurs before authorization and that
+a changed replacement plan cannot reuse an existing receipt.
+
 ## Verification examples
 
 A task such as "make the field behave like liquid" should not verify only that a
@@ -136,6 +182,11 @@ Unreal action failure or ambiguous evidence must enter the existing Atlas recove
 boundary. Automatic retry is prohibited. Recovery requires fresh authoritative
 evidence and a new authorized plan where a replacement action is appropriate.
 
+A response-loss boundary is treated as state-uncertain when the write may have reached
+Unreal. The system reassesses live state instead of assuming the mutation failed or
+replaying it. A replacement mutation is a separate plan and requires a separate
+explicit authorization receipt.
+
 ## Blender relationship
 
 Blender and Unreal implement the same engine-neutral adapter contract, but they do
@@ -148,3 +199,10 @@ Both consume Atlas-owned state and return evidence through the same control boun
 Do not add a hard dependency on the Unreal Engine SDK to the Atlas core. Unreal-specific
 transport, process control, Editor scripting, Python API, Remote Control, or future
 integration mechanisms belong behind the Unreal adapter boundary.
+
+## Development boundary
+
+The Unreal production path is developed independently of the action/workflow runner.
+Workflow/action-runner tests must not be run unless explicitly authorized. The current
+Unreal proof protocol relies on targeted local regression plus explicit live Unreal
+Editor integration gates.
