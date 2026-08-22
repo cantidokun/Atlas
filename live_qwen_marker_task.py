@@ -117,7 +117,10 @@ def main() -> None:
     orchestrator = prepare_task_runtime(definition)
     evidence_state: Dict[str, Any] = {}
     for request in definition.evidence:
-        result = evidence(request.tool, dict(request.arguments))
+        # Record evidence through the orchestrator itself. The runtime's
+        # evidence plan is authoritative; direct audit recording alone must
+        # never make incomplete evidence appear complete.
+        result = orchestrator.acquire_next_evidence(evidence)
         evidence_state.update(result)
         audit.record_evidence({"tool": request.tool, "arguments": dict(request.arguments), "name": request.name}, result)
     state = orchestrator.evaluate_target_state(evidence_state)
