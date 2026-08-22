@@ -525,6 +525,7 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
         
         if (bStopRequested)
         {
+            SharedState->bCancelled = true;
             OutResponse.bSuccess = false;
             OutResponse.Error = TEXT("Operation cancelled during shutdown");
             return false;
@@ -532,6 +533,10 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
         
         if (!bEventTriggered)
         {
+            // The game-thread task may still be queued. Mark it cancelled before
+            // returning so a delayed task cannot start a new mutation after the
+            // server has already reported the timeout to the caller.
+            SharedState->bCancelled = true;
             OutResponse.bSuccess = false;
             OutResponse.Error = TEXT("Operation timed out");
             return false;
@@ -549,6 +554,18 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
 
 void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState)
 {
+    // A timeout or shutdown can leave the queued task alive after the transport
+    // thread has returned. Refuse to begin the operation in that case.
+    if (SharedState->bCancelled)
+    {
+        SharedState->Response.bSuccess = false;
+        SharedState->Response.Error = TEXT("Operation cancelled before execution");
+        SharedState->bSuccess = false;
+        SharedState->bCompleted = true;
+        SharedState->CompletionEvent->Trigger();
+        return;
+    }
+
     // Ensure we're on the game thread
     if (!IsInGameThread())
     {
