@@ -18,11 +18,17 @@ class UnrealCapabilitySpec:
     description: str
     argument_keys: FrozenSet[str] = frozenset({"entity_ids"})
     argument_keys_by_kind: Mapping[UnrealOperationKind, FrozenSet[str]] = None
+    alternative_argument_keys_by_kind: Mapping[UnrealOperationKind, Tuple[FrozenSet[str], ...]] = None
 
     def keys_for_kind(self, kind: UnrealOperationKind) -> FrozenSet[str]:
         if self.argument_keys_by_kind is not None and kind in self.argument_keys_by_kind:
             return self.argument_keys_by_kind[kind]
         return self.argument_keys
+
+    def alternative_keys_for_kind(self, kind: UnrealOperationKind) -> Tuple[FrozenSet[str], ...]:
+        if self.alternative_argument_keys_by_kind is not None:
+            return self.alternative_argument_keys_by_kind.get(kind, ())
+        return ()
 
 
 DEFAULT_UNREAL_CAPABILITIES = (
@@ -44,6 +50,9 @@ DEFAULT_UNREAL_CAPABILITIES = (
         ("actor_state",),
         "Modify an already-authorized Unreal Actor representation.",
         argument_keys=frozenset({"entity_ids", "location"}),
+        alternative_argument_keys_by_kind={
+            UnrealOperationKind.WRITE: (frozenset({"entity_ids", "rotation"}),),
+        },
     ),
     UnrealCapabilitySpec(
         UnrealCapability.INSPECT_ASSET,
@@ -119,7 +128,8 @@ class UnrealCapabilityRegistry:
         arguments = operation.arguments
         if not isinstance(arguments, Mapping):
             raise ValueError("Unreal operation arguments must be a mapping")
-        if frozenset(arguments.keys()) != spec.keys_for_kind(operation.kind):
+        valid_key_sets = (spec.keys_for_kind(operation.kind),) + spec.alternative_keys_for_kind(operation.kind)
+        if frozenset(arguments.keys()) not in valid_key_sets:
             raise ValueError(
                 "Unreal operation arguments do not match the capability schema"
             )
@@ -132,6 +142,21 @@ class UnrealCapabilityRegistry:
             raise ValueError("Unreal operation entity_ids must contain non-empty strings")
         if normalized != tuple(operation.entity_ids):
             raise ValueError("Unreal operation entity_ids must match its argument payload")
+
+        if operation.capability is UnrealCapability.MODIFY_ACTOR:
+            if "location" in arguments:
+                location = arguments["location"]
+                if not isinstance(location, Mapping) or set(location.keys()) != {"x", "y", "z"}:
+                    raise ValueError("location must contain exactly x, y, and z")
+                if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in location.values()):
+                    raise TypeError("location coordinates must be numeric")
+            else:
+                rotation = arguments["rotation"]
+                if not isinstance(rotation, Mapping) or set(rotation.keys()) != {"pitch", "yaw", "roll"}:
+                    raise ValueError("rotation must contain exactly pitch, yaw, and roll")
+                if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in rotation.values()):
+                    raise TypeError("rotation angles must be numeric")
+
         return operation
 
     def all(self):
