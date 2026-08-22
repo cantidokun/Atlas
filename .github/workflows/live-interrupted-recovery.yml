@@ -34,7 +34,7 @@ jobs:
       - name: Provision deterministic interrupted-recovery fixture
         shell: cmd
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_object_move_task_fixtures.py"
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_object_move_fixtures.py"
       - name: Phase 1 - mutate before checkpoint boundary
         shell: cmd
         run: |
