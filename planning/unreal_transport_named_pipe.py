@@ -175,9 +175,9 @@ class WindowsNamedPipeTransport:
                 
         except pywintypes.error as e:
             error_code, error_name, error_desc = e.args
-            if error_code == 2:  # ERROR_FILE_NOT_FOUND
+            if error_code in (2, 232):
                 raise NamedPipeTransportError(
-                    "Unreal transport server not available (pipe not found)"
+                    "Unreal transport server not available (pipe not found or closed)"
                 )
             elif error_code == 231:  # ERROR_PIPE_BUSY
                 raise NamedPipeTransportError(
