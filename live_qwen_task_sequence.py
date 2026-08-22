@@ -8,8 +8,8 @@ from planning.marker_task import marker_task_definition
 from planning.object_move_task import object_move_task_definition
 from planning.task_sequence import TaskSequenceDefinition, TaskSequenceSession
 from task_plan_authorization import authorize_task_plan
-from tools.blender import create_empty_marker, inspect_scene
-from tools.blender_transform import inspect_object_transform, move_object
+from tools.blender import create_empty_marker, inspect_object_collections, inspect_scene, move_object
+from tools.blender_transform import inspect_object_transform
 from live_qwen_marker_task import build_plan as build_marker_plan
 from live_qwen_object_move import build_plan as build_move_plan
 
@@ -68,7 +68,6 @@ def main() -> None:
         if tool == "inspect_scene":
             return inspect_scene(**arguments)
         if tool == "inspect_object_collections":
-            from tools.blender import inspect_object_collections
             return inspect_object_collections(**arguments)
         normalized, receipt = boundary.execute_with_receipt(tool, arguments)
         captures[tool] = {"normalized": normalized, "receipt": receipt}
