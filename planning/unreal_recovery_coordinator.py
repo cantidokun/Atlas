@@ -3,7 +3,7 @@
 This layer closes the recovery loop for actor-location mutations:
 1. classify the execution failure;
 2. build the targeted read-only reassessment plan;
-3. execute only that read-only plan; and
+3. validate that plan before execution; and
 4. compare fresh evidence with the original mutation intent.
 
 It deliberately has no mutation path. A reassessment decision can confirm or
@@ -13,6 +13,7 @@ reject state, but it can never authorize repeating the failed write.
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
+from planning.unreal_agent import UnrealCapability, UnrealOperationKind
 from planning.unreal_plan_executor import (
     UnrealPlanExecutionFailure,
     UnrealPlanExecutionResult,
@@ -65,6 +66,32 @@ def _expected_location(failure: UnrealPlanExecutionFailure) -> Optional[Mapping[
     return None
 
 
+def _validate_reassessment_plan(recovery_plan, assessment: UnrealRecoveryAssessment) -> None:
+    """Fail closed if a recovery plan is anything other than the safe read.
+
+    The default recovery planner already constructs this exact shape. The
+    coordinator validates it again because this is the last boundary before a
+    plan reaches the executor; a swapped or compromised planner must never be
+    able to turn reassessment into a mutation.
+    """
+    operations = tuple(recovery_plan.operations)
+    if len(operations) != 1:
+        raise ValueError("reassessment plan must contain exactly one operation")
+
+    operation = operations[0]
+    expected_targets = tuple(assessment.target_entity_ids)
+    if operation.kind is not UnrealOperationKind.READ:
+        raise ValueError("reassessment plan must be read-only")
+    if operation.capability is not UnrealCapability.INSPECT_ACTOR:
+        raise ValueError("reassessment plan must use actor inspection capability")
+    if operation.name != "inspect_target_actors":
+        raise ValueError("reassessment plan must use inspect_target_actors")
+    if tuple(operation.entity_ids) != expected_targets:
+        raise ValueError("reassessment plan targets must match the recovery assessment")
+    if dict(operation.arguments) != {"entity_ids": expected_targets}:
+        raise ValueError("reassessment plan arguments must contain only the recovery targets")
+
+
 class UnrealRecoveryCoordinator:
     """Perform the safe read-only portion of Unreal recovery."""
 
@@ -85,8 +112,8 @@ class UnrealRecoveryCoordinator:
     ) -> UnrealRecoveryReassessmentResult:
         """Execute the targeted reassessment and classify its fresh evidence.
 
-        The only plan executed here is the read-only plan produced by the
-        recovery orchestrator. A confirmed or changed state is returned as
+        The only plan executed here is the validated read-only plan produced by
+        the recovery orchestrator. A confirmed or changed state is returned as
         information only; neither outcome authorizes a mutation.
         """
         recovery = self._orchestrator.plan(failure)
@@ -99,6 +126,8 @@ class UnrealRecoveryCoordinator:
 
         if recovery.reassessment_plan is None:
             raise ValueError("REASSESS_STATE recovery must provide a reassessment plan")
+
+        _validate_reassessment_plan(recovery.reassessment_plan, recovery.assessment)
 
         expected_location = _expected_location(failure)
         if expected_location is None:
