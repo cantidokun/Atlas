@@ -22,7 +22,11 @@ def _proposal():
         actions=[
             ActionSpec(
                 tool="move_object",
-                arguments={"object_name": "FIELD_SURFACE", "location": {"x": 1, "y": 2, "z": 3}},
+                arguments={
+                    "file_name": "field.blend",
+                    "object_name": "FIELD_SURFACE",
+                    "location": [1, 2, 3],
+                },
                 name="move field",
             )
         ],
@@ -85,7 +89,7 @@ def test_disallowed_provider_output_is_rejected_before_authorization():
         runtime.build_authorized_plans(
             "model output",
             authorization_id="runtime-auth-003",
-            allowed_tools={"inspect_object"},
+            allowed_tools={"inspect_scene"},
         )
 
 
@@ -99,7 +103,7 @@ def test_authorized_action_plan_rejects_mutation_before_execution_receipt_is_rep
     original = action_plan.actions[0]
     action_plan.actions[0] = ActionSpec(
         tool=original.tool,
-        arguments={**original.arguments, "location": {"x": 99, "y": 2, "z": 3}},
+        arguments={**original.arguments, "location": [99, 2, 3]},
         name=original.name,
     )
 
