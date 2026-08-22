@@ -1,0 +1,47 @@
+name: Live Blender Task Sequence Regression
+
+on:
+  push:
+    branches: [feat/blender-adapter-work]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-live-task-sequence-feature
+  cancel-in-progress: true
+
+jobs:
+  live-sequence:
+    name: live Blender task sequence (${{ matrix.case }})
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - already-correct
+          - incorrect
+    steps:
+      - name: Check out triggering Atlas revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+      - name: Provision deterministic task sequence fixtures
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_task_sequence_fixtures.py"
+      - name: Run live Qwen task sequence harness
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_task_sequence.py --case '${{ matrix.case }}'"
