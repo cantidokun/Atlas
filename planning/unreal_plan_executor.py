@@ -23,10 +23,14 @@ class UnrealPlanExecutionFailure:
     """Structured context for a failed plan execution.
 
     ``operation_arguments`` preserves the exact caller-supplied operation
-    payload at the failure boundary. This is context only: it is never an
-    authorization receipt and cannot authorize a retry. Recovery code can use
-    it to compare fresh state against the original mutation intent without
-    requiring the original plan object to remain in scope.
+    payload at the failure boundary. ``completed_operation_arguments`` keeps
+    the same payload history for operations that already succeeded. This is
+    critical when a post-write verification fails: the failed VERIFY operation
+    has no mutation payload, but recovery still needs the original write intent
+    to determine what fresh state must be compared against.
+
+    These fields are context only. They are never authorization receipts and
+    cannot authorize a retry.
     """
 
     intent_id: str
@@ -36,12 +40,18 @@ class UnrealPlanExecutionFailure:
     error: str
     operation_entity_ids: Tuple[str, ...] = ()
     operation_arguments: Mapping[str, Any] = None
+    completed_operation_arguments: Tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if self.operation_arguments is None:
             object.__setattr__(self, "operation_arguments", {})
         else:
             object.__setattr__(self, "operation_arguments", dict(self.operation_arguments))
+        object.__setattr__(
+            self,
+            "completed_operation_arguments",
+            tuple(dict(arguments) for arguments in self.completed_operation_arguments),
+        )
 
 
 class UnrealPlanExecutionError(RuntimeError):
@@ -164,6 +174,7 @@ class UnrealPlanExecutor:
         self._validate_execution_shape(plan)
 
         ledger: List[UnrealEvidence] = []
+        completed_operation_arguments: List[Mapping[str, Any]] = []
         expected_location: Optional[dict] = None
 
         for index, operation in enumerate(plan.operations):
@@ -186,6 +197,7 @@ class UnrealPlanExecutor:
                     error=message,
                     operation_entity_ids=tuple(operation.entity_ids),
                     operation_arguments=self._failure_context(operation),
+                    completed_operation_arguments=tuple(completed_operation_arguments),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except ValueError as exc:
@@ -201,6 +213,7 @@ class UnrealPlanExecutor:
                     error=message,
                     operation_entity_ids=tuple(operation.entity_ids),
                     operation_arguments=self._failure_context(operation),
+                    completed_operation_arguments=tuple(completed_operation_arguments),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except TypeError as exc:
@@ -216,9 +229,11 @@ class UnrealPlanExecutor:
                     error=message,
                     operation_entity_ids=tuple(operation.entity_ids),
                     operation_arguments=self._failure_context(operation),
+                    completed_operation_arguments=tuple(completed_operation_arguments),
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             ledger.append(evidence)
+            completed_operation_arguments.append(self._failure_context(operation))
 
         return UnrealPlanExecutionResult(
             intent_id=plan.intent_id,
