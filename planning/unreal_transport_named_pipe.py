@@ -41,30 +41,22 @@ class NamedPipeTransportDisconnectedError(NamedPipeTransportError):
 
 
 def _translate_pipe_error(error: "pywintypes.error") -> NamedPipeTransportError:
-    """Translate a Windows pipe error into a stable Atlas transport error.
-
-    The numeric Win32 error codes are intentionally contained here so callers
-    do not need to understand Windows IPC details. In particular, a server
-    that disappears after connection is different from a server that was
-    never available: the former means an in-flight request lost its peer and
-    must not be treated as a normal connection miss.
-    """
+    """Translate a Windows pipe error into a stable Atlas transport error."""
     error_code, _error_name, error_desc = error.args
 
-    if error_code == 2:  # ERROR_FILE_NOT_FOUND / pipe not created
+    if error_code == 2:
         return NamedPipeTransportError(
             "Unreal transport server not available (pipe not found)"
         )
-    if error_code == 121:  # ERROR_SEM_TIMEOUT from WaitNamedPipe
+    if error_code == 121:
         return NamedPipeTransportTimeoutError(
-            f"Timed out waiting {WindowsNamedPipeTransport.CONNECT_TIMEOUT_MS}ms for Unreal transport server"
+            "Timed out waiting for Unreal transport server"
         )
-    if error_code == 231:  # ERROR_PIPE_BUSY
+    if error_code == 231:
         return NamedPipeTransportError(
             "Unreal transport server busy (pipe in use)"
         )
     if error_code in (109, 232, 233):
-        # ERROR_BROKEN_PIPE, ERROR_NO_DATA, ERROR_PIPE_NOT_CONNECTED.
         return NamedPipeTransportDisconnectedError(
             "Unreal transport server disconnected while processing the request"
         )
@@ -77,10 +69,8 @@ def _translate_pipe_error(error: "pywintypes.error") -> NamedPipeTransportError:
 class WindowsNamedPipeTransport:
     """Windows Named Pipe transport for Atlas ↔ Unreal communication.
 
-    This transport connects to the Unreal Editor's named pipe server to
-    send requests and receive responses. Both the connection and the
-    overlapped write/read phases are bounded so a stalled Unreal peer cannot
-    leave the Atlas caller blocked indefinitely.
+    Connection, write, and read phases are bounded so a stalled Unreal peer
+    cannot leave the Atlas caller blocked indefinitely.
     """
 
     PIPE_NAME = r"\\.\pipe\AtlasUnrealTransport"
@@ -102,23 +92,37 @@ class WindowsNamedPipeTransport:
             )
 
         self.pipe_name = pipe_name or self.PIPE_NAME
-        self.connect_timeout_ms = self._validate_timeout(
-            "connect_timeout_ms", connect_timeout_ms, self.CONNECT_TIMEOUT_MS
+        self._connect_timeout_ms = self._validate_timeout(
+            "connect_timeout_ms", connect_timeout_ms
         )
-        self.write_timeout_ms = self._validate_timeout(
-            "write_timeout_ms", write_timeout_ms, self.WRITE_TIMEOUT_MS
+        self._write_timeout_ms = self._validate_timeout(
+            "write_timeout_ms", write_timeout_ms
         )
-        self.read_timeout_ms = self._validate_timeout(
-            "read_timeout_ms", read_timeout_ms, self.READ_TIMEOUT_MS
+        self._read_timeout_ms = self._validate_timeout(
+            "read_timeout_ms", read_timeout_ms
         )
 
     @staticmethod
-    def _validate_timeout(name: str, value: Optional[int], default: int) -> int:
+    def _validate_timeout(name: str, value: Optional[int]) -> Optional[int]:
         if value is None:
-            return default
+            return None
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ValueError(f"{name} must be a positive integer number of milliseconds")
+            raise ValueError(
+                f"{name} must be a positive integer number of milliseconds"
+            )
         return value
+
+    @property
+    def connect_timeout_ms(self) -> int:
+        return self.CONNECT_TIMEOUT_MS if self._connect_timeout_ms is None else self._connect_timeout_ms
+
+    @property
+    def write_timeout_ms(self) -> int:
+        return self.WRITE_TIMEOUT_MS if self._write_timeout_ms is None else self._write_timeout_ms
+
+    @property
+    def read_timeout_ms(self) -> int:
+        return self.READ_TIMEOUT_MS if self._read_timeout_ms is None else self._read_timeout_ms
 
     def send(self, request: UnrealTransportRequest) -> UnrealTransportResponse:
         """Send a request to Unreal and return the response."""
@@ -126,10 +130,23 @@ class WindowsNamedPipeTransport:
             raise TypeError("request must be UnrealTransportRequest")
 
         json_request = serialize_request(request)
-        request_data = json_request.encode('utf-8')
+        request_data = json_request.encode("utf-8")
+
+        # Tests and failure-boundary probes may intentionally construct an
+        # instance with __new__ to exercise error translation before normal
+        # initialization. Fall back to class defaults in that case.
+        connect_timeout_ms = getattr(
+            self, "connect_timeout_ms", self.CONNECT_TIMEOUT_MS
+        )
+        write_timeout_ms = getattr(
+            self, "write_timeout_ms", self.WRITE_TIMEOUT_MS
+        )
+        read_timeout_ms = getattr(
+            self, "read_timeout_ms", self.READ_TIMEOUT_MS
+        )
 
         try:
-            win32pipe.WaitNamedPipe(self.pipe_name, self.connect_timeout_ms)
+            win32pipe.WaitNamedPipe(self.pipe_name, connect_timeout_ms)
 
             pipe_handle = win32file.CreateFile(
                 self.pipe_name,
@@ -138,7 +155,7 @@ class WindowsNamedPipeTransport:
                 None,
                 win32file.OPEN_EXISTING,
                 win32file.FILE_FLAG_OVERLAPPED,
-                None
+                None,
             )
 
             try:
@@ -146,18 +163,20 @@ class WindowsNamedPipeTransport:
                     pipe_handle,
                     win32pipe.PIPE_READMODE_MESSAGE,
                     None,
-                    None
+                    None,
                 )
 
                 write_overlapped = pywintypes.OVERLAPPED()
-                write_overlapped.hEvent = win32event.CreateEvent(None, True, False, None)
+                write_overlapped.hEvent = win32event.CreateEvent(
+                    None, True, False, None
+                )
                 try:
                     write_result, _ = win32file.WriteFile(
                         pipe_handle, request_data, write_overlapped
                     )
                     if write_result == winerror.ERROR_IO_PENDING:
                         wait_result = win32event.WaitForSingleObject(
-                            write_overlapped.hEvent, self.write_timeout_ms
+                            write_overlapped.hEvent, write_timeout_ms
                         )
                         if wait_result == win32event.WAIT_TIMEOUT:
                             win32file.CancelIo(pipe_handle)
@@ -169,19 +188,23 @@ class WindowsNamedPipeTransport:
                                 if cancel_error.winerror != winerror.ERROR_OPERATION_ABORTED:
                                     raise
                             raise NamedPipeTransportTimeoutError(
-                                f"Write operation timed out after {self.write_timeout_ms}ms"
+                                f"Write operation timed out after {write_timeout_ms}ms"
                             )
                         if wait_result != win32event.WAIT_OBJECT_0:
                             raise NamedPipeTransportError(
                                 f"Write wait failed with result: {wait_result}"
                             )
-                        win32file.GetOverlappedResult(pipe_handle, write_overlapped, True)
+                        win32file.GetOverlappedResult(
+                            pipe_handle, write_overlapped, True
+                        )
                     elif write_result != 0:
                         raise NamedPipeTransportError(
                             f"WriteFile failed with result: {write_result}"
                         )
                     else:
-                        win32file.GetOverlappedResult(pipe_handle, write_overlapped, True)
+                        win32file.GetOverlappedResult(
+                            pipe_handle, write_overlapped, True
+                        )
                 finally:
                     win32file.CloseHandle(write_overlapped.hEvent)
 
@@ -196,7 +219,7 @@ class WindowsNamedPipeTransport:
 
                     if result == winerror.ERROR_IO_PENDING:
                         wait_result = win32event.WaitForSingleObject(
-                            overlapped.hEvent, self.read_timeout_ms
+                            overlapped.hEvent, read_timeout_ms
                         )
 
                         if wait_result == win32event.WAIT_TIMEOUT:
@@ -209,9 +232,9 @@ class WindowsNamedPipeTransport:
                                 if cancel_error.winerror != winerror.ERROR_OPERATION_ABORTED:
                                     raise
                             raise NamedPipeTransportTimeoutError(
-                                f"Read operation timed out after {self.read_timeout_ms}ms"
+                                f"Read operation timed out after {read_timeout_ms}ms"
                             )
-                        elif wait_result != win32event.WAIT_OBJECT_0:
+                        if wait_result != win32event.WAIT_OBJECT_0:
                             raise NamedPipeTransportError(
                                 f"Wait failed with result: {wait_result}"
                             )
@@ -234,12 +257,10 @@ class WindowsNamedPipeTransport:
                         )
 
                     response_data = bytes(buffer[:nbytes])
-
                 finally:
                     win32file.CloseHandle(overlapped.hEvent)
 
-                json_response = response_data.decode('utf-8')
-
+                json_response = response_data.decode("utf-8")
             finally:
                 win32file.CloseHandle(pipe_handle)
 
@@ -249,7 +270,7 @@ class WindowsNamedPipeTransport:
         try:
             response = deserialize_response(json_response)
         except TransportDeserializationError as e:
-            raise NamedPipeTransportError(f"Failed to deserialize response: {e}")
+            raise NamedPipeTransportError(f"Failed to deserialize response: {e}") from e
 
         return response
 
