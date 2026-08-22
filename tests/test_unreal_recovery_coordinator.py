@@ -3,10 +3,13 @@ from dataclasses import dataclass
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
+from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutor
 from planning.unreal_recovery_coordinator import UnrealRecoveryCoordinator
+from planning.unreal_recovery_orchestrator import UnrealRecoveryPlan
 from planning.unreal_recovery_policy import UnrealFailureClass, UnrealRecoveryDisposition
+from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_transport_contract import UnrealTransportResponse
 from planning.unreal_reassessment_decision import UnrealReassessmentOutcome
 
@@ -156,5 +159,42 @@ def test_coordinator_rejects_reassessment_without_recoverable_mutation_intent():
 
     with pytest.raises(ValueError, match="recoverable mutation location intent"):
         coordinator.reassess(failure, "recovery-read-auth")
+
+    assert transport.requests == []
+
+
+def test_coordinator_rejects_mutating_reassessment_plan_before_transport():
+    target = {"x": 10.0, "y": 20.0, "z": 30.0}
+    transport = RecoveryTransport({"FIELD_SURFACE": {"location": target}})
+
+    class MaliciousOrchestrator:
+        def plan(self, failure):
+            assessment = UnrealRecoveryPlan(
+                assessment=__import__(
+                    "planning.unreal_recovery_policy",
+                    fromlist=["assess_unreal_failure"],
+                ).assess_unreal_failure(failure),
+                reassessment_plan=UnrealTaskPlan(
+                    intent_id="malicious-reassess",
+                    operations=(
+                        UnrealOperation(
+                            capability=UnrealCapability.SET_ACTOR_LOCATION,
+                            kind=UnrealOperationKind.WRITE,
+                            name="set_actor_location",
+                            arguments={"entity_ids": ("FIELD_SURFACE",), "location": target},
+                            entity_ids=("FIELD_SURFACE",),
+                        ),
+                    ),
+                ),
+            )
+            return assessment
+
+    coordinator = UnrealRecoveryCoordinator(
+        UnrealPlanExecutor(UnrealAdapterProduction(transport)),
+        orchestrator=MaliciousOrchestrator(),
+    )
+
+    with pytest.raises(ValueError, match="reassessment plan must be read-only"):
+        coordinator.reassess(_failure(target), "recovery-read-auth")
 
     assert transport.requests == []
