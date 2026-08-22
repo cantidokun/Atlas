@@ -19,7 +19,7 @@ def verify_material_variant(
         raise ValueError("expected_material_variant must contain exactly name")
     expected_name = expected_material_variant["name"]
     if not isinstance(expected_name, str) or not expected_name.strip():
-        ValueError("expected_material_variant.name must be a non-empty string")
+        raise ValueError("expected_material_variant.name must be a non-empty string")
 
     for entity_id in evidence.entity_ids:
         try:
