@@ -32,43 +32,18 @@ class UnrealCapabilitySpec:
 
 
 DEFAULT_UNREAL_CAPABILITIES = (
-    UnrealCapabilitySpec(
-        UnrealCapability.INSPECT_WORLD,
-        frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}),
-        ("world_state",),
-        "Inspect or verify Unreal world/level state.",
-    ),
-    UnrealCapabilitySpec(
-        UnrealCapability.INSPECT_ACTOR,
-        frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}),
-        ("actor_state",),
-        "Inspect or verify an Unreal Actor representation.",
-    ),
+    UnrealCapabilitySpec(UnrealCapability.INSPECT_WORLD, frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}), ("world_state",), "Inspect or verify Unreal world/level state."),
+    UnrealCapabilitySpec(UnrealCapability.INSPECT_ACTOR, frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}), ("actor_state",), "Inspect or verify an Unreal Actor representation."),
     UnrealCapabilitySpec(
         UnrealCapability.MODIFY_ACTOR,
         frozenset({UnrealOperationKind.WRITE}),
         ("actor_state",),
         "Modify an already-authorized Unreal Actor representation.",
         argument_keys=frozenset({"entity_ids", "location"}),
-        alternative_argument_keys_by_kind={
-            UnrealOperationKind.WRITE: (
-                frozenset({"entity_ids", "rotation"}),
-                frozenset({"entity_ids", "scale"}),
-            ),
-        },
+        alternative_argument_keys_by_kind={UnrealOperationKind.WRITE: (frozenset({"entity_ids", "rotation"}), frozenset({"entity_ids", "scale"}))},
     ),
-    UnrealCapabilitySpec(
-        UnrealCapability.INSPECT_ASSET,
-        frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}),
-        ("asset_state",),
-        "Inspect or verify an Unreal asset representation.",
-    ),
-    UnrealCapabilitySpec(
-        UnrealCapability.MODIFY_ASSET,
-        frozenset({UnrealOperationKind.WRITE}),
-        ("asset_state",),
-        "Modify an already-authorized Unreal asset representation.",
-    ),
+    UnrealCapabilitySpec(UnrealCapability.INSPECT_ASSET, frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}), ("asset_state",), "Inspect or verify an Unreal asset representation."),
+    UnrealCapabilitySpec(UnrealCapability.MODIFY_ASSET, frozenset({UnrealOperationKind.WRITE}), ("asset_state",), "Modify an already-authorized Unreal asset representation."),
     UnrealCapabilitySpec(
         UnrealCapability.MATERIAL,
         frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
@@ -80,30 +55,10 @@ DEFAULT_UNREAL_CAPABILITIES = (
             UnrealOperationKind.VERIFY: frozenset({"entity_ids", "material_variant"}),
         },
     ),
-    UnrealCapabilitySpec(
-        UnrealCapability.NIAGARA,
-        frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
-        ("niagara_state",),
-        "Inspect, modify, or verify Niagara VFX state.",
-    ),
-    UnrealCapabilitySpec(
-        UnrealCapability.BLUEPRINT,
-        frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
-        ("blueprint_state",),
-        "Inspect, modify, or verify Blueprint state.",
-    ),
-    UnrealCapabilitySpec(
-        UnrealCapability.SEQUENCER,
-        frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
-        ("sequencer_state",),
-        "Inspect, modify, or verify Sequencer state.",
-    ),
-    UnrealCapabilitySpec(
-        UnrealCapability.RENDER,
-        frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
-        ("render_state",),
-        "Configure or verify controlled Unreal rendering operations.",
-    ),
+    UnrealCapabilitySpec(UnrealCapability.NIAGARA, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("niagara_state",), "Inspect, modify, or verify Niagara VFX state."),
+    UnrealCapabilitySpec(UnrealCapability.BLUEPRINT, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("blueprint_state",), "Inspect, modify, or verify Blueprint state."),
+    UnrealCapabilitySpec(UnrealCapability.SEQUENCER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("sequencer_state",), "Inspect, modify, or verify Sequencer state."),
+    UnrealCapabilitySpec(UnrealCapability.RENDER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("render_state",), "Configure or verify controlled Unreal rendering operations."),
 )
 
 
@@ -143,24 +98,22 @@ class UnrealCapabilityRegistry:
 
         if operation.capability is UnrealCapability.MODIFY_ACTOR:
             if "location" in arguments:
-                vector = arguments["location"]
-                axes = {"x", "y", "z"}
-                label = "location"
-                error = "location coordinates must be numeric"
+                vector, axes, label, error = arguments["location"], {"x", "y", "z"}, "location", "location coordinates must be numeric"
             elif "rotation" in arguments:
-                vector = arguments["rotation"]
-                axes = {"pitch", "yaw", "roll"}
-                label = "rotation"
-                error = "rotation angles must be numeric"
+                vector, axes, label, error = arguments["rotation"], {"pitch", "yaw", "roll"}, "rotation", "rotation angles must be numeric"
             else:
-                vector = arguments["scale"]
-                axes = {"x", "y", "z"}
-                label = "scale"
-                error = "scale components must be numeric"
+                vector, axes, label, error = arguments["scale"], {"x", "y", "z"}, "scale", "scale components must be numeric"
             if not isinstance(vector, Mapping) or set(vector.keys()) != axes:
                 raise ValueError(f"{label} must contain exactly {', '.join(sorted(axes))}")
             if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in vector.values()):
                 raise TypeError(error)
+
+        if operation.capability is UnrealCapability.MATERIAL and operation.kind in {UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}:
+            variant = arguments.get("material_variant")
+            if not isinstance(variant, Mapping) or set(variant.keys()) != {"name"}:
+                raise ValueError("material_variant must contain exactly name")
+            if not isinstance(variant["name"], str) or not variant["name"].strip():
+                raise ValueError("material_variant.name must be a non-empty string")
 
         return operation
 
