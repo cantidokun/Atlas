@@ -47,42 +47,32 @@ class UnrealTaskPlanner:
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_inspection(intent))
 
-    def plan_material_variant(
-        self,
-        intent: UnrealTaskIntent,
-        material_variant: Mapping[str, object],
-    ) -> UnrealTaskPlan:
+    def plan_material_variant(self, intent: UnrealTaskIntent, material_variant: Mapping[str, object]) -> UnrealTaskPlan:
         """Plan an explicit material variant with read/write/verify boundaries."""
         self._validate_intent(intent)
-        return UnrealTaskPlan(
-            intent.intent_id,
-            UnrealAgentPlanBuilder(self.capabilities).for_material_variant(
-                intent, material_variant
-            ),
-        )
+        return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_material_variant(intent, material_variant))
 
     def plan_actor_location_write(self, intent: UnrealTaskIntent, location: Mapping[str, float]) -> UnrealTaskPlan:
         """Plan one actor-location change with independent post-write inspection."""
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_write(intent, location))
 
+    def plan_actor_rotation_write(self, intent: UnrealTaskIntent, rotation: Mapping[str, float]) -> UnrealTaskPlan:
+        """Plan one actor-rotation change with independent post-write inspection."""
+        self._validate_intent(intent)
+        return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_rotation_write(intent, rotation))
+
     def plan_actor_location_sequence(self, intent: UnrealTaskIntent, locations: Sequence[Mapping[str, float]]) -> UnrealTaskPlan:
         """Plan ordered actor-location writes with proof after every mutation."""
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
 
-    def compose_plans(
-        self,
-        intent: UnrealTaskIntent,
-        plans: Sequence[UnrealTaskPlan],
-    ) -> UnrealTaskPlan:
+    def compose_plans(self, intent: UnrealTaskIntent, plans: Sequence[UnrealTaskPlan]) -> UnrealTaskPlan:
         """Compose deterministic sub-plans for one explicit Atlas intent.
 
         Composition is deliberately limited to already-validated task plans.
         It does not invent operations, authorize mutations, reorder operations,
-        or merge plans belonging to different intents. Each sub-plan must use
-        the same intent ID as the supplied intent, and the resulting plan keeps
-        the exact operation order supplied by the caller.
+        or merge plans belonging to different intents.
         """
         self._validate_intent(intent)
         if isinstance(plans, (str, bytes)) or not isinstance(plans, Sequence):
@@ -95,9 +85,7 @@ class UnrealTaskPlanner:
             if not isinstance(plan, UnrealTaskPlan):
                 raise TypeError(f"plans[{index}] must be an UnrealTaskPlan instance")
             if plan.intent_id != intent.intent_id:
-                raise ValueError(
-                    "all composed plans must use the same intent_id as the supplied intent"
-                )
+                raise ValueError("all composed plans must use the same intent_id as the supplied intent")
             operations.extend(plan.operations)
 
         return UnrealTaskPlan(intent.intent_id, tuple(operations))
@@ -125,6 +113,16 @@ class UnrealAgentPlanBuilder:
         return dict(location)
 
     @staticmethod
+    def _validate_rotation(rotation: Mapping[str, float]) -> Mapping[str, float]:
+        if not isinstance(rotation, Mapping):
+            raise TypeError("rotation must be a mapping")
+        if set(rotation.keys()) != {"pitch", "yaw", "roll"}:
+            raise ValueError("rotation must contain exactly pitch, yaw, and roll")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in rotation.values()):
+            raise TypeError("rotation angles must be numeric")
+        return dict(rotation)
+
+    @staticmethod
     def _validate_material_variant(material_variant: Mapping[str, object]) -> Mapping[str, object]:
         if not isinstance(material_variant, Mapping):
             raise TypeError("material_variant must be a mapping")
@@ -137,13 +135,7 @@ class UnrealAgentPlanBuilder:
         operation_arguments = {"entity_ids": entity_ids}
         if arguments:
             operation_arguments.update(arguments)
-        operation = UnrealOperation(
-            capability=capability,
-            kind=kind,
-            name=name,
-            arguments=operation_arguments,
-            entity_ids=entity_ids,
-        )
+        operation = UnrealOperation(capability=capability, kind=kind, name=name, arguments=operation_arguments, entity_ids=entity_ids)
         return self.capabilities.validate_operation(operation)
 
     def for_inspection(self, intent):
@@ -172,6 +164,15 @@ class UnrealAgentPlanBuilder:
             self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", entity_ids),
         )
 
+    def for_actor_rotation_write(self, intent, rotation: Mapping[str, float]):
+        entity_ids = self._require_targets(intent)
+        rotation = self._validate_rotation(rotation)
+        return (
+            self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids),
+            self._operation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE, "set_actor_rotation", entity_ids, {"rotation": rotation}),
+            self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", entity_ids),
+        )
+
     def for_actor_location_sequence(self, intent, locations: Sequence[Mapping[str, float]]):
         entity_ids = self._require_targets(intent)
         if isinstance(locations, (str, bytes)) or not isinstance(locations, Sequence):
@@ -179,9 +180,7 @@ class UnrealAgentPlanBuilder:
         if not locations:
             raise ValueError("locations must contain at least one location")
 
-        operations = [
-            self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids)
-        ]
+        operations = [self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids)]
         for location in locations:
             location = self._validate_location(location)
             operations.extend((
