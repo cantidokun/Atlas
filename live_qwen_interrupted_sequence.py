@@ -43,10 +43,14 @@ def main() -> None:
     definition = TaskSequenceDefinition((move_task, marker_task))
     store = TaskCheckpointStore(Path(args.checkpoint))
 
+    writes = {"move_object": 0, "create_empty_marker": 0}
+
     def action(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if tool == "move_object":
+            writes[tool] += 1
             result = move_object(**arguments)
         elif tool == "create_empty_marker":
+            writes[tool] += 1
             result = create_empty_marker(**arguments)
         else:
             raise RuntimeError(f"unexpected action: {tool}")
@@ -65,9 +69,8 @@ def main() -> None:
         return {"ok": normalized.ok, "state": normalized.state, "details": {**normalized.details, "receipt": receipt}}
 
     if args.case == "interrupt-after-move":
-        # Persist only the pre-task boundary. The mutation below intentionally
-        # occurs after that checkpoint and before this process exits, simulating
-        # a crash at the exact unsafe window without making the runner itself fail.
+        # Persist only the pre-task boundary. The mutation intentionally occurs
+        # after that checkpoint and before the process boundary.
         store.save(_initial_checkpoint(definition))
         session = TaskSequenceSession.resume_from_checkpoint(
             definition, execute, (_move_reducer, _marker_reducer), store.load()
@@ -82,19 +85,24 @@ def main() -> None:
         print("EXPECTED PROCESS BOUNDARY: PASS")
         return
 
-    # A new process loads only the last durable boundary. It must re-observe
-    # Blender rather than assuming the interrupted action was lost or undone.
+    # A new process loads only the last durable boundary. Recovery must freshly
+    # inspect Blender and skip the write because the target is already satisfied.
     resumed = TaskSequenceSession.resume_from_checkpoint(
         definition, execute, (_move_reducer, _marker_reducer), store.load()
     )
-    checkpoint = resumed.run_current(authorization_id="live:recovery:movement")
+    checkpoint = resumed.recover_current(authorization_id="must-not-be-needed")
+    if writes["move_object"] != 0:
+        raise RuntimeError("recovery repeated the already-completed movement write")
     store.save(checkpoint)
+
     final = TaskSequenceSession.resume_from_checkpoint(
         definition, execute, (_move_reducer, _marker_reducer), store.load()
     )
     final.run_current(authorization_id="live:recovery:marker")
     if not final.complete:
         raise RuntimeError("recovery sequence did not complete")
+    if writes["create_empty_marker"] != 1:
+        raise RuntimeError("recovery did not execute marker creation exactly once")
     print("ATLAS INTERRUPTED MULTI-TASK RECOVERY: PASS")
     print("MUTATE -> PROCESS BOUNDARY -> RELOAD LAST SAFE CHECKPOINT -> FRESH INSPECTION -> NO REPEAT WRITE -> MARKER -> COMPLETE")
 
