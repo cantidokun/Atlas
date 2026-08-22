@@ -39,10 +39,7 @@ def test_sequence_runs_two_tasks_only_after_each_task_verifies():
         state[key] = arguments["value"]
         return {"status": "ok", "key": key, "value": state[key]}
 
-    definition = TaskSequenceDefinition((
-        _task("rotation", "set_rotation", "rotation", 90),
-        _task("marker", "create_marker", "marker", 1),
-    ))
+    definition = TaskSequenceDefinition((_task("rotation", "set_rotation", "rotation", 90), _task("marker", "create_marker", "marker", 1)))
     reducer: EvidenceReducer = lambda evidence: evidence[0]
     sequence = TaskSequenceSession(definition, execute, (reducer, reducer))
 
@@ -67,18 +64,13 @@ def test_sequence_resume_reconstructs_only_at_a_completed_task_boundary():
         state[key] = arguments["value"]
         return {"status": "ok", "key": key, "value": state[key]}
 
-    definition = TaskSequenceDefinition((
-        _task("first", "set_first", "first", 1),
-        _task("second", "set_second", "second", 2),
-    ))
+    definition = TaskSequenceDefinition((_task("first", "set_first", "first", 1), _task("second", "set_second", "second", 2)))
     reducer = lambda evidence: evidence[0]
     original = TaskSequenceSession(definition, execute, (reducer, reducer))
     checkpoint = original.run_current(authorization_id="seq:first")
     assert checkpoint["next_task_index"] == 1
 
-    resumed = TaskSequenceSession.resume_from_checkpoint(
-        definition, execute, (reducer, reducer), checkpoint
-    )
+    resumed = TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer, reducer), checkpoint)
     assert resumed.index == 1
     assert resumed.current_task.name == "second"
     resumed.run_current(authorization_id="seq:second")
@@ -88,9 +80,7 @@ def test_sequence_resume_reconstructs_only_at_a_completed_task_boundary():
     tampered = dict(checkpoint)
     tampered["sequence"] = {"tasks": []}
     with pytest.raises(ValueError, match="does not match"):
-        TaskSequenceSession.resume_from_checkpoint(
-            definition, execute, (reducer, reducer), tampered
-        )
+        TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer, reducer), tampered)
 
 
 def test_real_blender_task_definitions_share_the_sequence_contract():
@@ -100,6 +90,27 @@ def test_real_blender_task_definitions_share_the_sequence_contract():
     assert [task.name for task in definition.tasks] == ["object_move", "marker_creation"]
     assert definition.tasks[0].allowed_action_tools == frozenset({"move_object"})
     assert definition.tasks[1].allowed_action_tools == frozenset({"create_empty_marker"})
+
+
+def test_sequence_rejects_tampered_completion_history_and_current_task():
+    definition = TaskSequenceDefinition((_task("first", "set_first", "first", 1), _task("second", "set_second", "second", 2)))
+    reducer = lambda evidence: evidence[0]
+    execute = lambda tool, arguments: {"key": arguments["key"], "value": arguments.get("value", 0)}
+    checkpoint = TaskSequenceSession(definition, execute, (reducer, reducer)).checkpoint()
+
+    bad_history = dict(checkpoint)
+    bad_history["next_task_index"] = 1
+    bad_history["completed"] = [{"index": 0, "task": "forged"}]
+    bad_history["current_task"] = "second"
+    with pytest.raises(ValueError, match="completion history"):
+        TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer, reducer), bad_history)
+
+    bad_current = dict(checkpoint)
+    bad_current["next_task_index"] = 1
+    bad_current["completed"] = [{"index": 0, "task": "first"}]
+    bad_current["current_task"] = "forged"
+    with pytest.raises(ValueError, match="current task"):
+        TaskSequenceSession.resume_from_checkpoint(definition, execute, (reducer, reducer), bad_current)
 
 
 def test_sequence_cannot_advance_before_current_task_is_complete():
