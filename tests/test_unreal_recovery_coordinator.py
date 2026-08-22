@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import pytest
+
 from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutor
@@ -123,4 +125,36 @@ def test_coordinator_halts_observation_failure_without_transport_work():
     assert result.assessment.disposition is UnrealRecoveryDisposition.HALT
     assert result.execution_result is None
     assert result.decision is None
+    assert transport.requests == []
+
+
+def test_coordinator_rejects_reassessment_without_recoverable_mutation_intent():
+    failure = UnrealPlanExecutionFailure(
+        intent_id="recovery-missing-intent",
+        operation_index=2,
+        operation_name="verify_target_actor_mapping",
+        completed_evidence=(
+            UnrealEvidence(
+                operation_name="inspect_target_actors",
+                entity_ids=("FIELD_SURFACE",),
+                observed_state={
+                    "FIELD_SURFACE": {"location": {"x": 0.0, "y": 0.0, "z": 0.0}}
+                },
+                source="test-recovery",
+                verified=False,
+            ),
+        ),
+        error="simulated post-write verification failure",
+        operation_entity_ids=("FIELD_SURFACE",),
+        operation_arguments={"entity_ids": ("FIELD_SURFACE",)},
+        completed_operation_arguments=({"entity_ids": ("FIELD_SURFACE",)},),
+    )
+    transport = RecoveryTransport({"FIELD_SURFACE": {"location": {"x": 0.0, "y": 0.0, "z": 0.0}}})
+    coordinator = UnrealRecoveryCoordinator(
+        UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    )
+
+    with pytest.raises(ValueError, match="recoverable mutation location intent"):
+        coordinator.reassess(failure, "recovery-read-auth")
+
     assert transport.requests == []
