@@ -1,7 +1,7 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 22, 2026 — end-of-session checkpoint
-**Current focus:** Explicit replacement-plan authorization boundary
+**Updated:** August 22, 2026 — resumed session
+**Current focus:** Live recovery-to-explicit-replacement authorization
 **Current branch:** `feat/unreal-production-actor-write`
 **Latest validated live gate:** partial multi-operation failure/recovery sequence passed against the running Unreal Editor
 
@@ -9,7 +9,40 @@
 
 The Unreal Agent has crossed the first real Unreal production boundary, the live multi-operation mutation boundary, and the live partial-failure/recovery boundary. The production adapter, Windows Named Pipe transport, actor-location write/verify path, read-only recovery reassessment, deterministic compound actor-location sequencing, and fail-closed partial recovery have all been exercised against the running Unreal Editor.
 
-Latest user-reported validation at this checkpoint:
+The next implementation is now prepared for the **LIVE AUTHORIZED REPLACEMENT** gate. A new real-integration test has been added at:
+
+```text
+tests/test_unreal_authorized_replacement_real_integration.py
+```
+
+That test intentionally exercises the complete boundary:
+
+```text
+FAILED MULTI-OPERATION SEQUENCE
+        ↓
+FRESH READ-ONLY REASSESSMENT
+        ↓
+CONFIRMED STATE / NO RETRY AUTHORIZATION
+        ↓
+EXPLICIT NEW REPLACEMENT PLAN
+        ↓
+PLAN-BOUND ATLAS AUTHORIZATION RECEIPT
+        ↓
+MISMATCHED PLAN REJECTED BEFORE TRANSPORT
+        ↓
+execute_authorized(EXACT PLAN, RECEIPT)
+        ↓
+WRITE
+VERIFY
+        ↓
+RESTORE ORIGINAL FIXTURE
+```
+
+The test deliberately uses the same real `FIELD_SURFACE` Unreal fixture and real Named Pipe transport used by the preceding live gates. It also proves that the replacement authorization ID, rather than the failed or reassessment authorization ID, reaches Unreal for the replacement mutation.
+
+## Latest validated baseline before the new gate
+
+User-reported validation from the previous session:
 
 ```text
 python -m pytest tests -q
@@ -26,34 +59,6 @@ python -m pytest tests/test_unreal_plan_executor_real_integration.py::test_real_
 ```
 
 The Named Pipe transport regression suite also passed, and the real Unreal transport/executor/recovery integration gates have been exercised successfully. The remaining skipped tests are environment-gated coverage and are not an action/workflow-runner blocker for the current milestone.
-
-Atlas remains the authority. Unreal is a production execution/evidence environment around the Atlas-owned canonical Digital Twin.
-
-## Proven execution architecture
-
-```text
-Atlas production intent
-        ↓
-Unreal Agent / task planner
-        ↓
-Capability registry + strict operation contract
-        ↓
-Atlas authorization
-        ↓
-UnrealPlanExecutor
-        ↓
-UnrealAdapterProduction
-        ↓
-Windows Named Pipe transport
-        ↓
-Unreal Engine
-        ↓
-Independent Unreal evidence
-        ↓
-Atlas verification / recovery policy
-```
-
-The Unreal Agent proposes/decomposes operations. It does not authorize or directly execute them.
 
 ## Implemented production architecture
 
@@ -104,7 +109,7 @@ The live Unreal location-sequence test passed against the running Editor. The te
 
 ## Partial-failure recovery — LIVE PROVEN
 
-The live partial-sequence test now proves:
+The live partial-sequence test proves:
 
 ```text
 READ
@@ -122,9 +127,7 @@ NO AUTOMATIC RETRY
 
 Important invariant: the second write may have reached Unreal before its response was discarded, so the system treats the mutation state as uncertain rather than pretending the write definitely did or did not happen. Recovery reads fresh state and classifies it without replaying the write.
 
-The integration test also accounts for the current inspection representation: a planned VERIFY is represented by a read transport operation. The production wire protocol was not changed to accommodate the test.
-
-## Explicit replacement-plan authorization — IMPLEMENTED, NEXT GATE
+## Explicit replacement-plan authorization — IMPLEMENTED
 
 `planning/unreal_plan_authorization.py` introduces the explicit authorization receipt required for a replacement mutation plan.
 
@@ -138,7 +141,7 @@ SHA-256 plan digest
 Atlas authorization ID
 ```
 
-`UnrealPlanExecutor.execute_authorized(...)` then enforces:
+`UnrealPlanExecutor.execute_authorized(...)` enforces:
 
 1. the caller supplies an `UnrealPlanAuthorization` receipt;
 2. the receipt matches the exact replacement plan;
@@ -146,41 +149,26 @@ Atlas authorization ID
 4. the receipt's authorization ID is propagated to Unreal;
 5. normal WRITE→VERIFY execution rules remain in force.
 
-Unit coverage has been added in `tests/test_unreal_plan_authorization.py` for exact-plan binding, changed-plan rejection, authorization propagation, wrong receipt type, and digest sensitivity to operation changes.
+Unit coverage exists in `tests/test_unreal_plan_authorization.py` for exact-plan binding, changed-plan rejection, authorization propagation, wrong receipt type, and digest sensitivity to operation changes.
 
-## Next major milestone — LIVE AUTHORIZED REPLACEMENT
+## Current gate — LIVE AUTHORIZED REPLACEMENT
 
-The next gate is the complete recovery-to-replacement path against the running Unreal Editor:
+Run this next against the running Unreal Editor:
 
-```text
-FAILED MULTI-OPERATION SEQUENCE
-        ↓
-FRESH REASSESSMENT
-        ↓
-RECOVERY DECISION
-        ↓
-EXPLICIT NEW MUTATION PLAN
-        ↓
-ATLAS AUTHORIZATION RECEIPT
-        ↓
-execute_authorized(...)
-        ↓
-WRITE
-VERIFY
-        ↓
-FINAL INDEPENDENT EVIDENCE
+```powershell
+python -m pytest tests/test_unreal_authorized_replacement_real_integration.py -vv -s
 ```
 
 The live proof must establish that:
 
 - the replacement plan is distinct from the failed plan;
-- no mutation occurs before explicit replacement authorization;
-- a mismatched or modified replacement plan is rejected before transport;
+- reassessment confirms the live state without authorizing retry;
+- a mismatched replacement plan is rejected before any transport call;
 - the authorized replacement uses the new authorization ID;
 - the replacement mutation is independently verified;
 - the original Unreal fixture is restored safely.
 
-Only after this gate should Atlas move toward broader autonomous multi-operation task composition.
+If this gate passes, the next development step is to review the complete recovery-to-replacement boundary and then move toward broader autonomous multi-operation task composition without weakening Atlas authorization ownership.
 
 ## Important Unreal fixture convention
 
@@ -219,4 +207,4 @@ The Unreal Agent must never become a second autonomous authority separate from A
 
 ## End-of-session resume point
 
-Resume development from the **LIVE AUTHORIZED REPLACEMENT** gate above. Do not treat the remaining skipped tests as a blocker unless their specific coverage becomes necessary for the next milestone. Do not run action/workflow-runner tests without explicit authorization.
+The implementation is now waiting at the **LIVE AUTHORIZED REPLACEMENT** gate. Pull the branch and run the one integration test above with the Unreal Editor fixture available. Do not run action/workflow-runner tests without explicit authorization.
