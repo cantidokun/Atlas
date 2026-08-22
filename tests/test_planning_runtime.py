@@ -71,3 +71,16 @@ def test_runtime_validates_before_authorizing():
             authorization_id="runtime-auth-002",
             allowed_tools={"move_object"},
         )
+
+
+def test_runtime_revalidates_provider_built_proposal_arguments_before_authorizing():
+    actions = [ActionSpec(tool="move_object", arguments={"wrong_key": "A"})]
+    proposal = TaskPlanProposal(evidence=[], actions=actions)
+    runtime = PlanningRuntime(StubProvider(proposal))
+
+    with pytest.raises(TaskPlanValidationError):
+        runtime.build_authorized_plans(
+            "output",
+            authorization_id="runtime-auth-003",
+            allowed_tools={"move_object"},
+        )
