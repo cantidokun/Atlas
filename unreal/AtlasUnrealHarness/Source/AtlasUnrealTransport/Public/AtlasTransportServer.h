@@ -16,7 +16,6 @@ public:
     bool StartServer();
     void StopServer();
 
-    // FRunnable interface
     virtual bool Init() override;
     virtual uint32 Run() override;
     virtual void Stop() override;
@@ -64,19 +63,11 @@ private:
         FEvent* CompletionEvent;
 
         FGameThreadExecutionState()
-            : bCompleted(false)
-            , bSuccess(false)
-            , bCancelled(false)
-            , CompletionEvent(FPlatformProcess::GetSynchEventFromPool(false))
-        {
-        }
+            : bCompleted(false), bSuccess(false), bCancelled(false), CompletionEvent(FPlatformProcess::GetSynchEventFromPool(false)) {}
 
         ~FGameThreadExecutionState()
         {
-            if (CompletionEvent)
-            {
-                FPlatformProcess::ReturnSynchEventToPool(CompletionEvent);
-            }
+            if (CompletionEvent) FPlatformProcess::ReturnSynchEventToPool(CompletionEvent);
         }
     };
 
@@ -85,10 +76,8 @@ private:
     bool WaitForClient();
     bool ReadRequest(FString& OutJsonRequest);
     bool WriteResponse(const FString& JsonResponse);
-
     bool ParseRequest(const FString& JsonString, FTransportRequest& OutRequest);
     FString SerializeResponse(const FTransportResponse& Response);
-
     bool ValidateRequest(const FTransportRequest& Request, FString& OutError);
     bool ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse);
 
@@ -96,6 +85,7 @@ private:
     static bool InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool SetActorLocation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool SetActorRotation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
+    static bool SetActorScale(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool InspectMaterialState(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool ApplyMaterialVariant(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError);
     static bool BuildMaterialVariantState(AActor* Actor, TSharedPtr<FJsonObject>& OutMaterialState, FString& OutError);
