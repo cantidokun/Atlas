@@ -29,10 +29,14 @@ class FreshStateReplan:
         actions = planner(evidence)
         if not isinstance(actions, list):
             raise TypeError("replanner must return a list of ActionSpec objects")
+        if not all(isinstance(action, ActionSpec) for action in actions):
+            raise TypeError("replanner must return only ActionSpec objects")
         authorization = ReplanAuthorization.issue(evidence, actions, authorization_id)
         return cls(evidence=evidence, actions=list(actions), authorization=authorization)
 
     def validate_before_execution(self, evidence: Any, actions: List[ActionSpec]) -> None:
+        if not isinstance(actions, list) or not all(isinstance(action, ActionSpec) for action in actions):
+            raise TypeError("replacement actions must be a list of ActionSpec objects")
         if not self.authorization.matches(evidence, actions):
             raise RuntimeError("replacement plan is stale or authorization-bound evidence changed")
 
