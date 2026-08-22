@@ -24,20 +24,9 @@ class TaskSequenceDefinition:
 
 
 class TaskSequenceSession:
-    """Run declarative tasks sequentially without weakening each task's gates.
+    """Run declarative tasks sequentially without weakening each task's gates."""
 
-    A sequence advances only after the current TaskRuntimeSession has independently
-    verified and finalized. Checkpoints are intentionally task-boundary only: an
-    incomplete task cannot be skipped or resumed by inventing internal state.
-    """
-
-    def __init__(
-        self,
-        definition: TaskSequenceDefinition,
-        execute: ToolExecutor,
-        evidence_reducers: Sequence[EvidenceReducer],
-        start_index: int = 0,
-    ) -> None:
+    def __init__(self, definition: TaskSequenceDefinition, execute: ToolExecutor, evidence_reducers: Sequence[EvidenceReducer], start_index: int = 0) -> None:
         if len(evidence_reducers) != len(definition.tasks):
             raise ValueError("one evidence reducer is required for each task")
         if not 0 <= start_index <= len(definition.tasks):
@@ -63,15 +52,13 @@ class TaskSequenceSession:
         if self.complete:
             raise RuntimeError("Task sequence is already complete.")
         if self.session is None:
-            self.session = TaskRuntimeSession(
-                self.current_task, self.execute, self.evidence_reducers[self.index]
-            )
+            self.session = TaskRuntimeSession(self.current_task, self.execute, self.evidence_reducers[self.index])
         return self.session
 
     def checkpoint(self) -> Dict[str, Any]:
         return {
             "next_task_index": self.index,
-            "completed": list(self.completed),
+            "completed": [dict(entry) for entry in self.completed],
             "sequence": self.definition.snapshot(),
             "current_task": self.current_task.name if self.current_task else None,
         }
@@ -86,17 +73,7 @@ class TaskSequenceSession:
         self.session = None
         return self.checkpoint()
 
-    def run_current(
-        self,
-        authorization_id: Optional[str] = None,
-        authorization_callback: Optional[Callable[[AtlasTaskDefinition], None]] = None,
-    ) -> Dict[str, Any]:
-        """Drive one task through its full generic lifecycle, then advance.
-
-        Authorization is required only when target state is unsatisfied. The callback
-        is deliberately task-level and cannot execute tools; mutation remains owned
-        by TaskRuntimeSession after its exact action authorization is issued.
-        """
+    def run_current(self, authorization_id: Optional[str] = None, authorization_callback: Optional[Callable[[AtlasTaskDefinition], None]] = None) -> Dict[str, Any]:
         session = self.start_current()
         session.acquire_initial_evidence()
         target = session.evaluate_target()
@@ -107,7 +84,6 @@ class TaskSequenceSession:
                 raise RuntimeError("authorization_id is required for an unsatisfied task")
             session.authorize(authorization_id)
             session.execute_authorized_action()
-
         verified = session.acquire_post_action_evidence()
         result = session.verify_post_action(verified)
         if not result.satisfied:
@@ -116,22 +92,25 @@ class TaskSequenceSession:
         return self.advance_after_completion()
 
     @classmethod
-    def resume_from_checkpoint(
-        cls,
-        definition: TaskSequenceDefinition,
-        execute: ToolExecutor,
-        evidence_reducers: Sequence[EvidenceReducer],
-        checkpoint: Dict[str, Any],
-    ) -> "TaskSequenceSession":
+    def resume_from_checkpoint(cls, definition: TaskSequenceDefinition, execute: ToolExecutor, evidence_reducers: Sequence[EvidenceReducer], checkpoint: Dict[str, Any]) -> "TaskSequenceSession":
         expected = definition.snapshot()
         if checkpoint.get("sequence") != expected:
             raise ValueError("checkpoint does not match the task sequence definition")
         completed = checkpoint.get("completed", [])
         start_index = checkpoint.get("next_task_index")
+        current_task = checkpoint.get("current_task")
         if not isinstance(start_index, int):
             raise ValueError("checkpoint next_task_index must be an integer")
-        session = cls(definition, execute, evidence_reducers, start_index)
-        session.completed = list(completed)
-        if len(session.completed) != start_index:
+        if not isinstance(completed, list):
+            raise ValueError("checkpoint completed history must be a list")
+        if len(completed) != start_index:
             raise ValueError("checkpoint completion history does not match next task index")
+        expected_completed = [{"index": index, "task": definition.tasks[index].name} for index in range(start_index)]
+        if completed != expected_completed:
+            raise ValueError("checkpoint completion history does not match task boundary")
+        expected_current = definition.tasks[start_index].name if start_index < len(definition.tasks) else None
+        if current_task != expected_current:
+            raise ValueError("checkpoint current task does not match task boundary")
+        session = cls(definition, execute, evidence_reducers, start_index)
+        session.completed = [dict(entry) for entry in completed]
         return session
