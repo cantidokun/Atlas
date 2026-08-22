@@ -5,7 +5,7 @@ import pytest
 from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
-from planning.unreal_task_planner import UnrealTaskPlanner
+from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_transport_contract import UnrealTransportResponse
 
 
@@ -80,7 +80,6 @@ def test_material_variant_executor_preserves_operation_order_and_authorization()
         },
         entity_ids=("FIELD_SURFACE",),
     )
-    from planning.unreal_task_planner import UnrealTaskPlan
     plan = UnrealTaskPlan(plan.intent_id, tuple(operations))
 
     transport = MaterialRecordingTransport()
@@ -94,11 +93,13 @@ def test_material_variant_executor_preserves_operation_order_and_authorization()
         "apply_material_variant",
         "verify_material_variant",
     ]
+    # VERIFY is semantic at the Atlas evidence layer but uses the existing
+    # read-only material-state wire operation on the adapter boundary.
     assert [request.operation_name for request in transport.requests] == [
         "inspect_target_actors",
         "inspect_material_state",
         "apply_material_variant",
-        "inspect_material_state",
+        "verify_material_variant",
     ]
     assert all(request.authorization_id == "material-variant-auth" for request in transport.requests)
 
@@ -107,7 +108,6 @@ def test_material_variant_write_requires_immediate_verification():
     planner = UnrealTaskPlanner()
     intent = _intent()
     plan = planner.plan_material_variant(intent)
-    from planning.unreal_task_planner import UnrealTaskPlan
     invalid = UnrealTaskPlan(plan.intent_id, plan.operations[:-1])
     transport = MaterialRecordingTransport()
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
