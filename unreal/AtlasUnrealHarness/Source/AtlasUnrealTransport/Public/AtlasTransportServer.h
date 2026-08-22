@@ -61,11 +61,13 @@ private:
         TSharedPtr<FJsonObject> ObservedState;
         FThreadSafeBool bCompleted;
         FThreadSafeBool bSuccess;
+        FThreadSafeBool bCancelled;
         FEvent* CompletionEvent;
 
         FGameThreadExecutionState()
             : bCompleted(false)
             , bSuccess(false)
+            , bCancelled(false)
             , CompletionEvent(FPlatformProcess::GetSynchEventFromPool(false))
         {
         }
