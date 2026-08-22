@@ -13,6 +13,7 @@ from typing import Any, List, Mapping, Optional, Tuple
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
+from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_state_verifier import verify_actor_location
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_tool_schema import validate_unreal_tool_call
@@ -89,8 +90,11 @@ class UnrealPlanExecutor:
     reported as a successful production execution without a post-write proof
     step.
 
-    The executor does **not** issue or verify authorization — it only
-    transmits the caller-supplied ``authorization_id``.
+    The executor does **not** issue or verify authorization for the legacy
+    execution path — it only transmits the caller-supplied ``authorization_id``.
+    The explicit ``execute_authorized`` path requires a plan-bound
+    ``UnrealPlanAuthorization`` receipt and is the required boundary for
+    replacement/recovery mutations.
     """
 
     def __init__(self, adapter: UnrealAdapterProduction) -> None:
@@ -159,6 +163,26 @@ class UnrealPlanExecutor:
     def _failure_context(operation: UnrealOperation) -> Mapping[str, Any]:
         """Capture operation arguments without the transport-only auth field."""
         return dict(operation.arguments)
+
+    def execute_authorized(
+        self,
+        plan: UnrealTaskPlan,
+        authorization: UnrealPlanAuthorization,
+    ) -> UnrealPlanExecutionResult:
+        """Execute only when an immutable receipt matches the exact plan.
+
+        This is the explicit authorization boundary for replacement plans.
+        A receipt for a different plan is rejected before any transport call,
+        and the receipt's authorization identifier is the only identifier
+        propagated to Unreal.
+        """
+        if not isinstance(authorization, UnrealPlanAuthorization):
+            raise TypeError("authorization must be an UnrealPlanAuthorization instance")
+        if not authorization.matches(plan):
+            raise UnrealPlanExecutionError(
+                "authorization receipt does not match the exact Unreal task plan"
+            )
+        return self.execute(plan, authorization.authorization_id)
 
     def execute(
         self,
