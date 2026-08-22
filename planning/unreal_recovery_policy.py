@@ -8,7 +8,6 @@ re-established.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure
 
