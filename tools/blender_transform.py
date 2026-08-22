@@ -57,6 +57,7 @@ print("ATLAS_ROTATION_END")
 
 
 def inspect_object_transform(file_name, object_name):
+    """Return persisted location and rotation evidence from a fresh Blender process."""
     blend_path = validate_blend_file(file_name)
     script = f"""
 import bpy
@@ -71,6 +72,7 @@ else:
     result = {{
         "status": "ok",
         "object_name": object_name,
+        "location": [obj.location.x, obj.location.y, obj.location.z],
         "rotation_degrees": [math.degrees(angle) for angle in obj.rotation_euler],
     }}
 
