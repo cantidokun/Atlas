@@ -67,7 +67,11 @@ def test_real_unreal_compound_plan_executes_subplans_in_order_and_restores():
             "set_actor_location",
             "verify_target_actor_mapping",
         ]
-        assert _location(result.evidence_ledger[2]) == pytest.approx(target_location)
+        # The first two evidence entries belong to the inspection sub-plan.
+        # The location-write sub-plan then contributes its pre-write read,
+        # mutation, and post-write verification in that exact order.
+        assert _location(result.evidence_ledger[2]) == pytest.approx(original_location)
+        assert _location(result.evidence_ledger[3]) == pytest.approx(target_location)
         assert _location(result.evidence_ledger[4]) == pytest.approx(target_location)
 
         assert [request.operation_name for request in transport.requests[-5:]] == [
