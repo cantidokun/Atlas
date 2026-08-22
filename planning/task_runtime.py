@@ -80,9 +80,7 @@ class TaskRuntimeSession:
     def acquire_post_action_evidence(self) -> Any:
         if not self.task.verify_after_action:
             raise RuntimeError("Post-action evidence is disabled by the task definition.")
-        self.post_action_evidence = [
-            self.execute(request.tool, dict(request.arguments)) for request in self.task.evidence
-        ]
+        self.post_action_evidence = [self.execute(request.tool, dict(request.arguments)) for request in self.task.evidence]
         return self.evidence_reducer(self.post_action_evidence)
 
     def verify_post_action(self, evidence: Any) -> Any:
