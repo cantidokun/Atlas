@@ -146,14 +146,17 @@ def test_real_unreal_recovery_to_explicit_authorized_replacement():
 
             # Only the exact, explicitly authorized replacement may mutate.
             # A location-write plan deliberately performs a fresh inspection
-            # before the write and a verification after it. Include that
-            # read-only precondition in the transport boundary assertion.
+            # before the write and a read-only transport observation for the
+            # semantic verification after it. The evidence retains the
+            # semantic VERIFY operation name even though the wire operation is
+            # inspect_target_actors.
             replacement_result = executor.execute_authorized(
                 replacement_plan,
                 authorization,
             )
             assert replacement_result.success is True
             assert len(replacement_result.evidence_ledger) == 3
+            assert replacement_result.evidence_ledger[2].operation_name == "verify_target_actor_mapping"
             assert _location(replacement_result.evidence_ledger[2]) == pytest.approx(
                 replacement_location
             )
@@ -162,7 +165,7 @@ def test_real_unreal_recovery_to_explicit_authorized_replacement():
             assert [request.operation_name for request in replacement_requests] == [
                 "inspect_target_actors",
                 "set_actor_location",
-                "verify_target_actor_mapping",
+                "inspect_target_actors",
             ]
             assert all(
                 request.authorization_id == "replacement-authorized-auth"
