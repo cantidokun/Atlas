@@ -50,6 +50,8 @@ def test_changed_fresh_state_never_authorizes_retry():
 
     assert decision.outcome is UnrealReassessmentOutcome.STATE_CHANGED
     assert decision.state_uncertain is False
+    assert decision.retry_authorized is False
+    assert decision.mutation_authorized is False
     assert "requested location" in decision.reason
 
 
@@ -62,6 +64,8 @@ def test_malformed_fresh_state_remains_uncertain():
 
     assert decision.outcome is UnrealReassessmentOutcome.INSUFFICIENT_EVIDENCE
     assert decision.state_uncertain is True
+    assert decision.retry_authorized is False
+    assert decision.mutation_authorized is False
 
 
 def test_reassessment_rejects_wrong_targets():
@@ -88,3 +92,11 @@ def test_reassessment_rejects_halt_assessment():
 
     with pytest.raises(ValueError, match="REASSESS_STATE"):
         decide_reassessment(assessment, _evidence(EXPECTED), EXPECTED)
+
+
+def test_confirmed_reassessment_never_authorizes_mutation():
+    decision = decide_reassessment(_assessment(), _evidence(EXPECTED), EXPECTED)
+
+    assert decision.outcome is UnrealReassessmentOutcome.CONFIRMED
+    assert decision.retry_authorized is False
+    assert decision.mutation_authorized is False
