@@ -6,6 +6,7 @@ from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAd
 from planning.unreal_agent import UnrealTaskIntent
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
+from planning.unreal_reassessment_decision import UnrealReassessmentOutcome
 from planning.unreal_recovery_coordinator import UnrealRecoveryCoordinator
 from planning.unreal_task_planner import UnrealTaskPlanner
 from planning.unreal_transport_named_pipe import (
@@ -107,9 +108,9 @@ def test_real_unreal_recovery_to_explicit_authorized_replacement():
                 "replacement-reassessment-auth",
             )
             assert reassessment.decision is not None
+            assert reassessment.decision.outcome is UnrealReassessmentOutcome.CONFIRMED
             assert reassessment.decision.retry_authorized is False
             assert reassessment.decision.mutation_authorized is False
-            assert reassessment.decision.confirmed is True
             assert reassessment.execution_result is not None
             assert _location(reassessment.execution_result.evidence_ledger[0]) == pytest.approx(
                 failed_location
