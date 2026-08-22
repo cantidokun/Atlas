@@ -5,7 +5,6 @@ for IPC between the Python Atlas system and the Unreal Editor.
 """
 
 import json
-import time
 from typing import Optional
 
 try:
@@ -33,61 +32,92 @@ class NamedPipeTransportError(RuntimeError):
     """Raised when the named pipe transport encounters an error."""
 
 
+class NamedPipeTransportTimeoutError(NamedPipeTransportError):
+    """Raised when a named-pipe operation exceeds its configured timeout."""
+
+
+class NamedPipeTransportDisconnectedError(NamedPipeTransportError):
+    """Raised when the Unreal named-pipe server disconnects mid-request."""
+
+
+def _translate_pipe_error(error: "pywintypes.error") -> NamedPipeTransportError:
+    """Translate a Windows pipe error into a stable Atlas transport error.
+
+    The numeric Win32 error codes are intentionally contained here so callers
+    do not need to understand Windows IPC details. In particular, a server
+    that disappears after connection is different from a server that was
+    never available: the former means an in-flight request lost its peer and
+    must not be treated as a normal connection miss.
+    """
+    error_code, _error_name, error_desc = error.args
+
+    if error_code == 2:  # ERROR_FILE_NOT_FOUND / pipe not created
+        return NamedPipeTransportError(
+            "Unreal transport server not available (pipe not found)"
+        )
+    if error_code == 231:  # ERROR_PIPE_BUSY
+        return NamedPipeTransportError(
+            "Unreal transport server busy (pipe in use)"
+        )
+    if error_code in (109, 232, 233):
+        # ERROR_BROKEN_PIPE, ERROR_NO_DATA, ERROR_PIPE_NOT_CONNECTED.
+        return NamedPipeTransportDisconnectedError(
+            "Unreal transport server disconnected while processing the request"
+        )
+
+    return NamedPipeTransportError(
+        f"Named pipe error {error_code}: {error_desc}"
+    )
+
+
 class WindowsNamedPipeTransport:
     """Windows Named Pipe transport for Atlas ↔ Unreal communication.
-    
+
     This transport connects to the Unreal Editor's named pipe server to
     send requests and receive responses.
     """
-    
+
     PIPE_NAME = r"\\.\pipe\AtlasUnrealTransport"
     CONNECT_TIMEOUT_MS = 5000
     READ_TIMEOUT_MS = 30000
-    
+
     def __init__(self, pipe_name: Optional[str] = None):
         if not WINDOWS_AVAILABLE:
             raise NamedPipeTransportError(
                 "Windows named pipe transport requires pywin32 package"
             )
-        
+
         self.pipe_name = pipe_name or self.PIPE_NAME
-    
+
     def send(self, request: UnrealTransportRequest) -> UnrealTransportResponse:
         """Send a request to Unreal and return the response."""
         if not isinstance(request, UnrealTransportRequest):
             raise TypeError("request must be UnrealTransportRequest")
-        
-        # Serialize request
+
         json_request = serialize_request(request)
         request_data = json_request.encode('utf-8')
-        
-        # Connect to pipe and send/receive
+
         try:
-            # Wait for pipe to become available
             win32pipe.WaitNamedPipe(self.pipe_name, self.CONNECT_TIMEOUT_MS)
-            
-            # Open pipe in overlapped mode so ReadFile/WriteFile can use OVERLAPPED.
+
             pipe_handle = win32file.CreateFile(
                 self.pipe_name,
                 win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-                0,  # No sharing
-                None,  # Default security
+                0,
+                None,
                 win32file.OPEN_EXISTING,
                 win32file.FILE_FLAG_OVERLAPPED,
-                None  # No template
+                None
             )
-            
+
             try:
-                # Set pipe mode
                 win32pipe.SetNamedPipeHandleState(
                     pipe_handle,
                     win32pipe.PIPE_READMODE_MESSAGE,
                     None,
                     None
                 )
-                
-                # Write request using overlapped I/O. The request buffer must
-                # remain alive until the operation has completed.
+
                 write_overlapped = pywintypes.OVERLAPPED()
                 write_overlapped.hEvent = win32event.CreateEvent(None, True, False, None)
                 try:
@@ -101,31 +131,25 @@ class WindowsNamedPipeTransport:
                             f"WriteFile failed with result: {write_result}"
                         )
                     else:
-                        # The operation completed immediately; still obtain the
-                        # final result through the OVERLAPPED API.
                         win32file.GetOverlappedResult(pipe_handle, write_overlapped, True)
                 finally:
                     win32file.CloseHandle(write_overlapped.hEvent)
 
                 win32file.FlushFileBuffers(pipe_handle)
-                
-                # Read response with timeout using overlapped I/O
+
                 overlapped = pywintypes.OVERLAPPED()
                 overlapped.hEvent = win32event.CreateEvent(None, True, False, None)
-                buffer = win32file.AllocateReadBuffer(1024 * 1024)  # 1MB max
-                
+                buffer = win32file.AllocateReadBuffer(1024 * 1024)
+
                 try:
                     result, _ = win32file.ReadFile(pipe_handle, buffer, overlapped)
 
                     if result == winerror.ERROR_IO_PENDING:
-                        # Wait for completion with timeout
                         wait_result = win32event.WaitForSingleObject(
                             overlapped.hEvent, self.READ_TIMEOUT_MS
                         )
 
                         if wait_result == win32event.WAIT_TIMEOUT:
-                            # Cancel the pending read and wait for cancellation
-                            # to complete before releasing the OVERLAPPED/event.
                             win32file.CancelIo(pipe_handle)
                             try:
                                 win32file.GetOverlappedResult(
@@ -134,7 +158,7 @@ class WindowsNamedPipeTransport:
                             except pywintypes.error as cancel_error:
                                 if cancel_error.winerror != winerror.ERROR_OPERATION_ABORTED:
                                     raise
-                            raise NamedPipeTransportError(
+                            raise NamedPipeTransportTimeoutError(
                                 f"Read operation timed out after {self.READ_TIMEOUT_MS}ms"
                             )
                         elif wait_result != win32event.WAIT_OBJECT_0:
@@ -142,58 +166,41 @@ class WindowsNamedPipeTransport:
                                 f"Wait failed with result: {wait_result}"
                             )
 
-                        # The event is signaled, so the final result can be
-                        # retrieved without another indefinite wait.
                         nbytes = win32file.GetOverlappedResult(
                             pipe_handle, overlapped, True
                         )
                     elif result == 0:
-                        # Operation completed immediately.
                         nbytes = win32file.GetOverlappedResult(
                             pipe_handle, overlapped, True
                         )
                     else:
-                        # Preserve the existing transport behavior for pipe
-                        # errors such as ERROR_MORE_DATA.
                         raise NamedPipeTransportError(
                             f"ReadFile failed with result: {result}"
                         )
-                    
+
                     if nbytes == 0:
-                        raise NamedPipeTransportError("No data read from pipe")
-                    
-                    # Convert the allocated memoryview to bytes before decoding.
+                        raise NamedPipeTransportDisconnectedError(
+                            "Unreal transport server disconnected without returning data"
+                        )
+
                     response_data = bytes(buffer[:nbytes])
-                        
+
                 finally:
                     win32file.CloseHandle(overlapped.hEvent)
-                
+
                 json_response = response_data.decode('utf-8')
-                
+
             finally:
                 win32file.CloseHandle(pipe_handle)
-                
+
         except pywintypes.error as e:
-            error_code, error_name, error_desc = e.args
-            if error_code in (2, 232):
-                raise NamedPipeTransportError(
-                    "Unreal transport server not available (pipe not found or closed)"
-                )
-            elif error_code == 231:  # ERROR_PIPE_BUSY
-                raise NamedPipeTransportError(
-                    "Unreal transport server busy (pipe in use)"
-                )
-            else:
-                raise NamedPipeTransportError(
-                    f"Named pipe error {error_code}: {error_desc}"
-                )
-        
-        # Deserialize response
+            raise _translate_pipe_error(e) from e
+
         try:
             response = deserialize_response(json_response)
         except TransportDeserializationError as e:
             raise NamedPipeTransportError(f"Failed to deserialize response: {e}")
-        
+
         return response
 
 
