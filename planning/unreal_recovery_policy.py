@@ -8,6 +8,7 @@ re-established.
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Tuple
 
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure
 
@@ -37,6 +38,26 @@ class UnrealRecoveryAssessment:
     disposition: UnrealRecoveryDisposition
     state_uncertain: bool
     reason: str
+    target_entity_ids: Tuple[str, ...] = ()
+    requires_fresh_evidence: bool = False
+
+
+def _recovery_targets(failure: UnrealPlanExecutionFailure) -> Tuple[str, ...]:
+    """Extract and validate the explicit targets established by prior evidence."""
+    targets = []
+    for evidence in failure.completed_evidence:
+        for entity_id in evidence.entity_ids:
+            if entity_id not in targets:
+                targets.append(entity_id)
+
+    if not targets:
+        return ()
+
+    target_tuple = tuple(targets)
+    for evidence in failure.completed_evidence:
+        if tuple(dict.fromkeys(evidence.entity_ids)) != target_tuple:
+            raise ValueError("completed evidence contains inconsistent recovery targets")
+    return target_tuple
 
 
 def assess_unreal_failure(
@@ -48,11 +69,16 @@ def assess_unreal_failure(
     particular, a failed write or failed post-write verification is treated as
     state-uncertain because the remote side may have applied the mutation
     before reporting an error or may have diverged from the requested state.
+
+    ``target_entity_ids`` identifies the only entities a subsequent fresh
+    observation may inspect. ``requires_fresh_evidence`` is explicit so a
+    caller cannot interpret ``REASSESS_STATE`` as permission to retry.
     """
     if not isinstance(failure, UnrealPlanExecutionFailure):
         raise TypeError("failure must be an UnrealPlanExecutionFailure instance")
 
     operation_name = failure.operation_name
+    target_entity_ids = _recovery_targets(failure)
     completed = failure.completed_evidence
     has_completed_write = any(
         evidence.operation_name == "set_actor_location" for evidence in completed
@@ -64,6 +90,7 @@ def assess_unreal_failure(
             disposition=UnrealRecoveryDisposition.HALT,
             state_uncertain=False,
             reason="Required observation failed before a trustworthy state assessment was established.",
+            target_entity_ids=target_entity_ids,
         )
 
     if operation_name == "set_actor_location":
@@ -72,6 +99,8 @@ def assess_unreal_failure(
             disposition=UnrealRecoveryDisposition.REASSESS_STATE,
             state_uncertain=True,
             reason="A location mutation may have reached Unreal despite the reported failure; re-establish state before any retry.",
+            target_entity_ids=target_entity_ids,
+            requires_fresh_evidence=True,
         )
 
     if operation_name == "verify_target_actor_mapping":
@@ -89,6 +118,8 @@ def assess_unreal_failure(
                 if has_completed_write
                 else "Verification failed without a completed mutation in the evidence ledger."
             ),
+            target_entity_ids=target_entity_ids,
+            requires_fresh_evidence=True,
         )
 
     return UnrealRecoveryAssessment(
@@ -96,4 +127,5 @@ def assess_unreal_failure(
         disposition=UnrealRecoveryDisposition.HALT,
         state_uncertain=True,
         reason="Failure semantics are not established for this operation; automatic recovery is prohibited.",
+        target_entity_ids=target_entity_ids,
     )
