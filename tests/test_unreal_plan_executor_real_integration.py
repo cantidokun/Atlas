@@ -27,10 +27,6 @@ def _location(evidence):
     return dict(evidence.observed_state[ENTITY_ID]["location"])
 
 
-@pytest.mark.skipif(
-    not hasattr(create_production_adapter, "__call__"),
-    reason="production Unreal adapter unavailable",
-)
 def test_real_unreal_plan_executor_location_write_and_restore():
     """Execute a complete inspect/write/verify plan against the live Editor.
 
