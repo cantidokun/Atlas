@@ -1,9 +1,9 @@
-"""Unit coverage for the existing material-variant execution path."""
+"""Unit coverage for explicit material-variant execution."""
 
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
-from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
+from planning.unreal_agent import UnrealCapability, UnrealOperationKind, UnrealTaskIntent
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_transport_contract import UnrealTransportResponse
@@ -44,8 +44,12 @@ def _intent():
     )
 
 
-def test_material_variant_plan_has_read_write_verify_shape():
-    plan = UnrealTaskPlanner().plan_material_variant(_intent())
+def _variant():
+    return {"name": "liquid_surface"}
+
+
+def test_material_variant_plan_has_explicit_payload_and_read_write_verify_shape():
+    plan = UnrealTaskPlanner().plan_material_variant(_intent(), _variant())
     assert [operation.kind for operation in plan.operations] == [
         UnrealOperationKind.READ,
         UnrealOperationKind.READ,
@@ -60,27 +64,21 @@ def test_material_variant_plan_has_read_write_verify_shape():
     ]
     assert plan.operations[2].capability is UnrealCapability.MATERIAL
     assert plan.operations[3].capability is UnrealCapability.MATERIAL
+    assert plan.operations[2].arguments["material_variant"] == _variant()
+    assert plan.operations[3].arguments["material_variant"] == _variant()
+
+
+def test_material_variant_planner_rejects_missing_or_empty_variant():
+    planner = UnrealTaskPlanner()
+    with pytest.raises(TypeError, match="material_variant must be a mapping"):
+        planner.plan_material_variant(_intent(), None)
+    with pytest.raises(ValueError, match="at least one setting"):
+        planner.plan_material_variant(_intent(), {})
 
 
 def test_material_variant_executor_preserves_operation_order_and_authorization():
     planner = UnrealTaskPlanner()
-    intent = _intent()
-    plan = planner.plan_material_variant(intent)
-    # The current planner schema deliberately leaves the variant payload
-    # unspecified; this test exercises the executor with an explicit write
-    # operation matching the existing capability contract.
-    operations = list(plan.operations)
-    operations[2] = UnrealOperation(
-        capability=UnrealCapability.MATERIAL,
-        kind=UnrealOperationKind.WRITE,
-        name="apply_material_variant",
-        arguments={
-            "entity_ids": ("FIELD_SURFACE",),
-            "material_variant": {"name": "liquid_surface"},
-        },
-        entity_ids=("FIELD_SURFACE",),
-    )
-    plan = UnrealTaskPlan(plan.intent_id, tuple(operations))
+    plan = planner.plan_material_variant(_intent(), _variant())
 
     transport = MaterialRecordingTransport()
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
@@ -99,15 +97,14 @@ def test_material_variant_executor_preserves_operation_order_and_authorization()
         "inspect_target_actors",
         "inspect_material_state",
         "apply_material_variant",
-        "verify_material_variant",
+        "inspect_material_state",
     ]
     assert all(request.authorization_id == "material-variant-auth" for request in transport.requests)
 
 
 def test_material_variant_write_requires_immediate_verification():
     planner = UnrealTaskPlanner()
-    intent = _intent()
-    plan = planner.plan_material_variant(intent)
+    plan = planner.plan_material_variant(_intent(), _variant())
     invalid = UnrealTaskPlan(plan.intent_id, plan.operations[:-1])
     transport = MaterialRecordingTransport()
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
