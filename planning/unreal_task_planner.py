@@ -61,6 +61,37 @@ class UnrealTaskPlanner:
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
 
+    def compose_plans(
+        self,
+        intent: UnrealTaskIntent,
+        plans: Sequence[UnrealTaskPlan],
+    ) -> UnrealTaskPlan:
+        """Compose deterministic sub-plans for one explicit Atlas intent.
+
+        Composition is deliberately limited to already-validated task plans.
+        It does not invent operations, authorize mutations, reorder operations,
+        or merge plans belonging to different intents. Each sub-plan must use
+        the same intent ID as the supplied intent, and the resulting plan keeps
+        the exact operation order supplied by the caller.
+        """
+        self._validate_intent(intent)
+        if isinstance(plans, (str, bytes)) or not isinstance(plans, Sequence):
+            raise TypeError("plans must be a sequence of UnrealTaskPlan instances")
+        if not plans:
+            raise ValueError("plans must contain at least one UnrealTaskPlan")
+
+        operations = []
+        for index, plan in enumerate(plans):
+            if not isinstance(plan, UnrealTaskPlan):
+                raise TypeError(f"plans[{index}] must be an UnrealTaskPlan instance")
+            if plan.intent_id != intent.intent_id:
+                raise ValueError(
+                    "all composed plans must use the same intent_id as the supplied intent"
+                )
+            operations.extend(plan.operations)
+
+        return UnrealTaskPlan(intent.intent_id, tuple(operations))
+
 
 class UnrealAgentPlanBuilder:
     def __init__(self, capabilities: UnrealCapabilityRegistry):
