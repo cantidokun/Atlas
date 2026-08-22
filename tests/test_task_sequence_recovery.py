@@ -77,15 +77,22 @@ def test_second_task_failure_recovers_from_last_completed_boundary_without_dupli
     resumed = TaskSequenceSession.resume_from_checkpoint(
         definition, execute, (first_reducer, second_reducer), first_checkpoint
     )
+    assert resumed.index == 1
+    assert resumed.current_task is not None
+    assert resumed.current_task.name == "marker"
+
     try:
         resumed.run_current(authorization_id="second-task")
     except RuntimeError as exc:
         assert "second-task interruption" in str(exc)
 
+    # Restart from the last durable completed boundary. The checkpoint already
+    # points at task 2; recovery must re-observe the world and skip the write
+    # because the marker mutation survived the interrupted process.
     recovered = TaskSequenceSession.resume_from_checkpoint(
         definition, execute, (first_reducer, second_reducer), first_checkpoint
     )
-    recovered.index = 1
+    assert recovered.index == 1
     recovered.recover_current()
 
     assert state["writes"] == 2
