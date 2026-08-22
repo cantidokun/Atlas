@@ -44,7 +44,17 @@ def test_runtime_does_not_authorize_provider_output():
 
 
 def test_runtime_build_authorized_plans_binds_one_receipt_to_exact_actions():
-    actions = [ActionSpec(tool="move_object", arguments={"object_name": "A"}, name="move")]
+    actions = [
+        ActionSpec(
+            tool="move_object",
+            arguments={
+                "file_name": "field.blend",
+                "object_name": "A",
+                "location": [1, 2, 3],
+            },
+            name="move",
+        )
+    ]
     proposal = TaskPlanProposal(evidence=[], actions=actions)
     runtime = PlanningRuntime(StubProvider(proposal))
 
@@ -69,5 +79,18 @@ def test_runtime_validates_before_authorizing():
         runtime.build_authorized_plans(
             "output",
             authorization_id="runtime-auth-002",
+            allowed_tools={"move_object"},
+        )
+
+
+def test_runtime_revalidates_provider_built_proposal_arguments_before_authorizing():
+    actions = [ActionSpec(tool="move_object", arguments={"wrong_key": "A"})]
+    proposal = TaskPlanProposal(evidence=[], actions=actions)
+    runtime = PlanningRuntime(StubProvider(proposal))
+
+    with pytest.raises(TaskPlanValidationError):
+        runtime.build_authorized_plans(
+            "output",
+            authorization_id="runtime-auth-003",
             allowed_tools={"move_object"},
         )

@@ -57,6 +57,21 @@ def build_task_plan(proposal: Dict[str, Any], allowed_tools: Optional[set] = Non
         actions.append(ActionSpec(tool=tool, arguments=arguments, name=name))
     return TaskPlanProposal(evidence=evidence, actions=actions)
 
+def validate_task_plan(proposal: TaskPlanProposal, allowed_tools: Optional[set] = None) -> TaskPlanProposal:
+    """Revalidate a provider-built proposal at the runtime trust boundary."""
+    if not isinstance(proposal, TaskPlanProposal):
+        raise TaskPlanValidationError("Task plan proposal must be a TaskPlanProposal.")
+
+    for request in [*proposal.evidence, *proposal.actions]:
+        _validate_tool(request.tool, allowed_tools)
+        arguments = _validate_arguments(request.arguments)
+        if not isinstance(request.name, str):
+            raise TaskPlanValidationError("Plan item name must be a string.")
+        if allowed_tools is not None:
+            validate_tool_arguments(request.tool, arguments)
+
+    return proposal
+
 def instantiate_plans(proposal: TaskPlanProposal) -> tuple[EvidencePlan, ActionPlan]:
     """Instantiate plans without granting execution authorization."""
     return EvidencePlan(proposal.evidence), ActionPlan(proposal.actions)

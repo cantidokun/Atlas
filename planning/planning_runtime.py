@@ -14,6 +14,7 @@ from planning.task_planner import (
     TaskPlanProposal,
     TaskPlanValidationError,
     instantiate_authorized_plans,
+    validate_task_plan,
 )
 
 
@@ -63,6 +64,7 @@ class PlanningRuntime:
         proposal = self.build_proposal(model_output, allowed_tools=allowed_tools)
         if proposal is None:
             return None
+        validate_task_plan(proposal, allowed_tools=allowed_tools)
         return instantiate_authorized_plans(
             proposal,
             authorization_id=authorization_id,

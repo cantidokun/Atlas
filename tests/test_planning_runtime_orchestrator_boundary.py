@@ -17,8 +17,8 @@ def _proposal():
     return TaskPlanProposal(
         evidence=[
             EvidenceRequest(
-                tool="inspect_object",
-                arguments={"object_name": "FIELD_SURFACE"},
+                tool="inspect_scene",
+                arguments={"file_name": "field.blend"},
                 name="inspect field",
             )
         ],
@@ -26,8 +26,9 @@ def _proposal():
             ActionSpec(
                 tool="move_object",
                 arguments={
+                    "file_name": "field.blend",
                     "object_name": "FIELD_SURFACE",
-                    "location": {"x": 1, "y": 2, "z": 3},
+                    "location": [1, 2, 3],
                 },
                 name="move field",
             )
@@ -41,7 +42,7 @@ def test_runtime_builds_authorized_orchestrator_without_executing_tools():
     orchestrator = runtime.build_authorized_orchestrator(
         "provider output",
         authorization_id="runtime-orchestrator-auth-001",
-        allowed_tools={"inspect_object", "move_object"},
+        allowed_tools={"inspect_scene", "move_object"},
     )
 
     assert orchestrator is not None
@@ -56,7 +57,7 @@ def test_authorized_orchestrator_executes_evidence_then_exact_authorized_action(
     orchestrator = runtime.build_authorized_orchestrator(
         "provider output",
         authorization_id="runtime-orchestrator-auth-002",
-        allowed_tools={"inspect_object", "move_object"},
+        allowed_tools={"inspect_scene", "move_object"},
     )
     calls = []
 
@@ -70,8 +71,15 @@ def test_authorized_orchestrator_executes_evidence_then_exact_authorized_action(
     assert evidence_result["ok"] is True
     assert action_result["ok"] is True
     assert calls == [
-        ("inspect_object", {"object_name": "FIELD_SURFACE"}),
-        ("move_object", {"object_name": "FIELD_SURFACE", "location": {"x": 1, "y": 2, "z": 3}}),
+        ("inspect_scene", {"file_name": "field.blend"}),
+        (
+            "move_object",
+            {
+                "file_name": "field.blend",
+                "object_name": "FIELD_SURFACE",
+                "location": [1, 2, 3],
+            },
+        ),
     ]
     assert orchestrator.evidence_complete is True
     assert orchestrator.action_complete is True
