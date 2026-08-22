@@ -30,7 +30,7 @@ def reduce_marker(evidence: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
+    parser.add_argument("--case", choices=("already-correct", "incorrect", "tampered-checkpoint"), required=True)
     args = parser.parse_args()
     file_name = CORRECT_FILE if args.case == "already-correct" else INCORRECT_FILE
 
@@ -73,11 +73,7 @@ def main() -> None:
         captures[tool] = {"normalized": normalized, "receipt": receipt}
         return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
 
-    sequence = TaskSequenceSession(
-        definitions,
-        execute,
-        (reduce_move, reduce_marker),
-    )
+    sequence = TaskSequenceSession(definitions, execute, (reduce_move, reduce_marker))
 
     def authorize(task) -> None:
         proposal = proposals[task.name]
@@ -95,16 +91,33 @@ def main() -> None:
     if first_checkpoint["next_task_index"] != 1:
         raise RuntimeError(f"Sequence did not advance after verified movement: {first_checkpoint}")
 
-    if args.case == "incorrect":
+    if args.case in {"incorrect", "tampered-checkpoint"}:
         capture = captures.get("move_object")
         if not capture or not capture["receipt"].matches(move_definition.actions[0].tool, move_definition.actions[0].arguments, capture["normalized"]):
             raise RuntimeError("Movement receipt was missing or mismatched")
 
-    second_checkpoint = sequence.run_current(
+    if args.case == "tampered-checkpoint":
+        tampered = json.loads(json.dumps(first_checkpoint))
+        tampered["sequence"]["tasks"][0]["name"] = "TAMPERED"
+        try:
+            TaskSequenceSession.resume_from_checkpoint(
+                definitions, execute, (reduce_move, reduce_marker), tampered
+            )
+        except ValueError as exc:
+            print("ATLAS MULTI-TASK CONTINUATION INTEGRITY: PASS")
+            print(f"TAMPERED CHECKPOINT REJECTED: {exc}")
+            return
+        raise RuntimeError("Tampered sequence checkpoint was accepted")
+
+    persisted_checkpoint = json.loads(json.dumps(first_checkpoint))
+    resumed = TaskSequenceSession.resume_from_checkpoint(
+        definitions, execute, (reduce_move, reduce_marker), persisted_checkpoint
+    )
+    second_checkpoint = resumed.run_current(
         authorization_id=f"live:sequence:{args.case}:marker",
         authorization_callback=authorize,
     )
-    if not sequence.complete or second_checkpoint["next_task_index"] != 2:
+    if not resumed.complete or second_checkpoint["next_task_index"] != 2:
         raise RuntimeError(f"Sequence did not complete after independently verified tasks: {second_checkpoint}")
 
     if args.case == "incorrect":
@@ -113,7 +126,7 @@ def main() -> None:
             raise RuntimeError("Marker receipt was missing or mismatched")
 
     print("ATLAS MULTI-TASK SEQUENCE: PASS")
-    print("TWO TASKS VERIFIED WITH ZERO-WRITE FIRST TASK" if args.case == "already-correct" else "MOVE -> VERIFY -> MARKER CREATE -> VERIFY -> COMPLETE")
+    print("TWO TASKS VERIFIED WITH BOUNDARY RESUME AND ZERO-WRITE FIRST TASK" if args.case == "already-correct" else "MOVE -> VERIFY -> PERSIST CHECKPOINT -> RESUME -> MARKER CREATE -> VERIFY -> COMPLETE")
     print(json.dumps({"case": args.case, "checkpoint_after_move": first_checkpoint, "final_checkpoint": second_checkpoint}, indent=2))
 
 
