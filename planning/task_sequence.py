@@ -1,9 +1,16 @@
 """Deterministic composition and boundary-safe resume for Atlas tasks."""
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from planning.task_definition import AtlasTaskDefinition
 from planning.task_runtime import EvidenceReducer, TaskRuntimeSession, ToolExecutor
+
+
+def _checkpoint_digest(payload: Dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -56,12 +63,13 @@ class TaskSequenceSession:
         return self.session
 
     def checkpoint(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "next_task_index": self.index,
             "completed": [dict(entry) for entry in self.completed],
             "sequence": self.definition.snapshot(),
             "current_task": self.current_task.name if self.current_task else None,
         }
+        return {**payload, "integrity_digest": _checkpoint_digest(payload)}
 
     def advance_after_completion(self) -> Dict[str, Any]:
         session = self.start_current()
@@ -93,6 +101,14 @@ class TaskSequenceSession:
 
     @classmethod
     def resume_from_checkpoint(cls, definition: TaskSequenceDefinition, execute: ToolExecutor, evidence_reducers: Sequence[EvidenceReducer], checkpoint: Dict[str, Any]) -> "TaskSequenceSession":
+        if not isinstance(checkpoint, dict):
+            raise ValueError("checkpoint must be an object")
+        supplied_digest = checkpoint.get("integrity_digest")
+        if not isinstance(supplied_digest, str):
+            raise ValueError("checkpoint integrity digest is required")
+        payload = {key: value for key, value in checkpoint.items() if key != "integrity_digest"}
+        if _checkpoint_digest(payload) != supplied_digest:
+            raise ValueError("checkpoint integrity digest does not match payload")
         expected = definition.snapshot()
         if checkpoint.get("sequence") != expected:
             raise ValueError("checkpoint does not match the task sequence definition")
