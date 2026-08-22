@@ -446,7 +446,7 @@ class TestExecutorValidation:
                 UnrealTransportRequest(*case)
 
     def test_evidence_metadata_consistency(self):
-        """Test that evidence metadata remains consistent through the full pipeline."""
+        """Test that semantic evidence metadata remains consistent through the transport mapping boundary."""
         transport = InMemoryTransport()
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
@@ -455,14 +455,19 @@ class TestExecutorValidation:
         task_plan = planner.plan_inspection(intent)
         result = executor.execute(task_plan, authorization_id="auth-consistency")
 
-        # Verify evidence metadata consistency
+        # Evidence preserves the semantic operation name; the production adapter
+        # may translate that name to a different concrete transport operation.
         for i, (operation, evidence) in enumerate(zip(task_plan.operations, result.evidence_ledger)):
             assert evidence.operation_name == operation.name
             assert tuple(evidence.entity_ids) == tuple(operation.entity_ids)
             assert evidence.verified is False  # Always unverified from transport
-            
-            # Verify transport request metadata matches evidence through existing fields
+
             transport_req = transport.requests[i]
-            assert transport_req.operation_name == evidence.operation_name
+            expected_transport_operation = (
+                "inspect_target_actors"
+                if operation.name == "verify_target_actor_mapping"
+                else operation.name
+            )
+            assert transport_req.operation_name == expected_transport_operation
             assert tuple(transport_req.entity_ids) == tuple(evidence.entity_ids)
             assert transport_req.authorization_id == "auth-consistency"
