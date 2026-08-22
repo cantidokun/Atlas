@@ -158,7 +158,7 @@ class UnrealAgentPlanBuilder:
         material_variant = self._validate_material_variant(material_variant)
         return (
             self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids),
-            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.READ, "inspect_material_state", entity_ids, {"material_variant": material_variant}),
+            self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.READ, "inspect_material_state", entity_ids),
             self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.WRITE, "apply_material_variant", entity_ids, {"material_variant": material_variant}),
             self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.VERIFY, "verify_material_variant", entity_ids, {"material_variant": material_variant}),
         )
