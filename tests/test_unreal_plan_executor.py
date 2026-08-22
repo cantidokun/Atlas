@@ -149,3 +149,37 @@ def test_executor_rejects_post_write_location_mismatch():
         executor.execute(plan, "auth-location-006")
 
     assert len(transport.requests) == 2
+
+
+def test_executor_failure_preserves_completed_evidence_and_boundary():
+    requested = {"x": 10.0, "y": 20.0, "z": 30.0}
+    observed = {"x": 10.0, "y": 20.5, "z": 30.0}
+    transport = RecordingTransport({"FIELD_SURFACE": {"location": observed}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan(
+        "location-write-failure-context",
+        (
+            UnrealOperation(
+                capability=UnrealCapability.INSPECT_ACTOR,
+                kind=UnrealOperationKind.READ,
+                name="inspect_target_actors",
+                arguments={"entity_ids": ("FIELD_SURFACE",)},
+                entity_ids=("FIELD_SURFACE",),
+            ),
+            _location_operation(requested),
+            _verify_operation(),
+        ),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError) as exc_info:
+        executor.execute(plan, "auth-location-007")
+
+    failure = exc_info.value.failure
+    assert failure is not None
+    assert failure.intent_id == "location-write-failure-context"
+    assert failure.operation_index == 2
+    assert failure.operation_name == "verify_target_actor_mapping"
+    assert len(failure.completed_evidence) == 2
+    assert failure.completed_evidence[0].operation_name == "inspect_target_actors"
+    assert failure.completed_evidence[1].operation_name == "set_actor_location"
+    assert "does not match expected" in failure.error
