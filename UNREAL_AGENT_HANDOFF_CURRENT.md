@@ -1,9 +1,9 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 23, 2026 — explicit recovery-sequence coordinator
+**Updated:** August 23, 2026 — heterogeneous recovery coverage
 **Current focus:** Multi-operation production execution with failure containment, fresh-state recovery, and explicitly authorized replacement mutations
 **Current branch:** `feat/unreal-composite-production-operation`
-**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment, recovery disposition, plan-bound replacement execution, and an explicit end-to-end recovery coordinator are implemented and tested.
+**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment, recovery disposition, plan-bound replacement execution, an explicit end-to-end recovery coordinator, and heterogeneous material/Niagara recovery coverage are implemented and tested.
 
 ## Latest completed milestone
 
@@ -73,13 +73,32 @@ Verified recovery completion
 
 `build_reassessment_plan()` covers every supported write through the failure boundary while deduplicating equivalent state-domain reads. `assess_reassessment_sequence()` classifies each relevant write as `already_applied`, `replacement_required`, or `manual_review`. `build_replacement_plan()` emits only the writes requiring replacement, preserving their original order and semantic verifiers.
 
-`execute_recovery_sequence()` is now the explicit coordinator for that control loop. It requires an authorization receipt for the fresh reassessment and **never creates a replacement authorization itself**. If replacement is required, a separately issued authorization bound to the newly constructed replacement plan must be supplied. If recovery is already applied or requires manual review, a replacement authorization is rejected rather than silently consumed.
+`execute_recovery_sequence()` is the explicit coordinator for that control loop. It requires an authorization receipt for the fresh reassessment and **never creates a replacement authorization itself**. If replacement is required, a separately issued authorization bound to the newly constructed replacement plan must be supplied. If recovery is already applied or requires manual review, a replacement authorization is rejected rather than silently consumed.
+
+## Heterogeneous recovery coverage
+
+Recovery now handles the same semantics across the non-transform production domains already supported by the composite path:
+
+```text
+Transform write
+      ↓
+Material variant write
+      ↓
+Niagara variant write
+```
+
+The recovery sequence correctly maps composite `variant` write arguments into the verifier-specific semantic contracts:
+
+```text
+apply_material_variant -> {"name": <variant>} -> verify_material_variant
+apply_niagara_variant   -> {"name": <variant>} -> verify_niagara_variant
+```
+
+Focused tests now prove that a material failure can reassess a previously applied transform and replace only the material mutation, while a Niagara failure can reassess both earlier domains and replace only Niagara. This preserves the no-replay invariant across heterogeneous state domains.
 
 ## Verified recovery contract
 
-The deterministic live-sequence recovery gate now covers both the lower-level recovery primitives and the explicit coordinator. The latest focused gate must be run locally after pulling the current branch.
-
-The recovery contract covers:
+The deterministic recovery gates cover:
 
 - read-only reassessment planning
 - failed-entity scope preservation
@@ -94,6 +113,9 @@ The recovery contract covers:
 - rejection of stale plan authorization before transport
 - coordinator refusal to replace without a separate replacement authorization
 - coordinator execution only through the newly authorized replacement plan
+- material variant recovery
+- Niagara variant recovery
+- mixed-domain no-replay behavior
 
 ## Real Unreal integration gate
 
@@ -102,10 +124,10 @@ The engine-dependent composite production test has passed against the live Unrea
 ```text
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 
-1 passed in 3.31s
+1 passed
 ```
 
-This is the current real-Unreal proof boundary. The test exercises the production composite path against actual Unreal and confirms the apply/verify/restore cycle succeeds.
+This remains the current real-Unreal proof boundary. The test exercises the production composite path against actual Unreal and confirms the apply/verify/restore cycle succeeds.
 
 ## Recovery invariants
 
@@ -124,13 +146,14 @@ This is the current real-Unreal proof boundary. The test exercises the productio
 - The coordinator never creates replacement authorization implicitly.
 - Replacement execution is plan-bound; stale reassessment authorization is rejected before transport.
 - Manual review cannot be converted into an automatic replacement.
+- Material and Niagara replacement verification must use their domain-specific semantic evidence contracts.
 
 ## Testing gate
 
 After implementation changes, run:
 
 ```powershell
-python -m pytest tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py -q
+python -m pytest tests/test_unreal_recovery_heterogeneous_domains.py tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py -q
 ```
 
 Then run the real Unreal composite gate:
@@ -139,13 +162,11 @@ Then run the real Unreal composite gate:
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 ```
 
-The previous focused recovery/replacement gate passed 33/33, and the real Unreal composite gate passed 1/1. The new coordinator tests require a fresh local gate run.
-
 ## Next development boundary
 
-The next target is to exercise the recovery coordinator across the **non-transform production domains already supported by the composite plan**: material and Niagara variants. The goal is not to add breadth for its own sake, but to prove that the same fail-closed recovery semantics work across heterogeneous Unreal state domains.
+The next target is the **mixed-domain failure/recovery gate** followed by a real-Unreal recovery integration boundary. The deterministic layer should establish a failure after multiple heterogeneous writes, prove that every already-applied domain is left untouched, and authorize only the unresolved replacement. Then the live integration path should be extended only if the Unreal fixture can deterministically expose the required failure/reassessment condition without weakening the Named Pipe boundary.
 
-The next progression should be:
+The progression is now:
 
 ```text
 Transform recovery
@@ -154,7 +175,7 @@ Material recovery
        ↓
 Niagara recovery
        ↓
-Mixed-domain failure/recovery
+Mixed-domain failure/recovery  ← NEXT
        ↓
 Real-Unreal recovery integration gate
 ```
