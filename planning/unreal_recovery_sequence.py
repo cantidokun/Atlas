@@ -95,7 +95,7 @@ def assess_reassessment_sequence(
     failure: UnrealPlanExecutionFailure,
     result: UnrealPlanExecutionResult,
 ) -> UnrealRecoverySequenceAssessment:
-    """Classify every relevant prior write using fresh evidence only."""
+    """Classify every relevant prior write using fresh evidence in plan order."""
     if not isinstance(result, UnrealPlanExecutionResult):
         raise TypeError("result must be a UnrealPlanExecutionResult instance")
     steps = _write_steps(plan, failure)
@@ -108,19 +108,23 @@ def assess_reassessment_sequence(
     evidence_by_operation = {}
     for evidence in result.evidence_ledger:
         evidence_by_operation.setdefault(evidence.operation_name, []).append(evidence)
+    evidence_cursor = {}
 
     assessments = []
     for step in steps:
         index, operation, _, inspect_name, _, _ = step
-        matching = [
-            evidence for evidence in evidence_by_operation.get(inspect_name, [])
-            if tuple(evidence.entity_ids) == tuple(operation.entity_ids)
-        ]
-        if not matching:
+        cursor = evidence_cursor.get(inspect_name, 0)
+        evidence_list = evidence_by_operation.get(inspect_name, [])
+        evidence_cursor[inspect_name] = cursor + 1
+        if cursor >= len(evidence_list):
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment contains no matching evidence"))
             continue
+        evidence = evidence_list[cursor]
+        if tuple(evidence.entity_ids) != tuple(operation.entity_ids):
+            assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment evidence targets a different entity scope"))
+            continue
         try:
-            _verify(step, matching[-1])
+            _verify(step, evidence)
         except (TypeError, ValueError):
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "replacement_required", "fresh Unreal state does not match the requested state"))
         else:
