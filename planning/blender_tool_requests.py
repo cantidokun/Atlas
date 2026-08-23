@@ -70,7 +70,7 @@ if obj is None:
     }}
 else:
     obj.location = target
-    bpy.ops.wm.save_as_mainfile(filepath={file_name!r})
+    bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath)
     result = {{
         "ok": True,
         "state": "moved",
