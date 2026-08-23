@@ -51,6 +51,16 @@ class BlenderAutonomousExecutor:
             "details": dict(normalized.details),
         }
 
+    def execute_authorized_replan(self, authorized_step: Any, fresh_evidence: Any):
+        """Execute one already-authorized corrective step through the same protected boundary."""
+        actions = getattr(authorized_step, "actions", None)
+        if not isinstance(actions, list) or len(actions) != 1:
+            raise RuntimeError("authorized corrective execution requires exactly one ActionSpec")
+        action = actions[0]
+        self.capability_for(action.tool)
+        self._boundary.execute_authorized_replan(authorized_step, fresh_evidence)
+        return self._last_result, self._last_receipt
+
     def receipt_matches_last_execution(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """Confirm the retained receipt still binds the supplied request."""
         if self._last_result is None or self._last_receipt is None:
