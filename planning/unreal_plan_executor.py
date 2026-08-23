@@ -61,11 +61,11 @@ class UnrealPlanExecutor:
         evidence=getattr(self._adapter,method_name)(operation,authorization_id)
         validate_evidence_for_operation(evidence,operation.name,tuple(operation.entity_ids))
         if operation.kind is UnrealOperationKind.VERIFY:
-            if expected_location is not None: verify_actor_location(evidence,expected_location)
-            if expected_rotation is not None: verify_actor_rotation(evidence,expected_rotation)
-            if expected_scale is not None: verify_actor_scale(evidence,expected_scale)
-            if expected_material_variant is not None: verify_material_variant(evidence,expected_material_variant)
-            if expected_niagara_variant is not None: verify_niagara_variant(evidence,expected_niagara_variant)
+            if expected_location is not None: evidence=verify_actor_location(evidence,expected_location)
+            if expected_rotation is not None: evidence=verify_actor_rotation(evidence,expected_rotation)
+            if expected_scale is not None: evidence=verify_actor_scale(evidence,expected_scale)
+            if expected_material_variant is not None: evidence=verify_material_variant(evidence,expected_material_variant)
+            if expected_niagara_variant is not None: evidence=verify_niagara_variant(evidence,expected_niagara_variant)
         return evidence
     @staticmethod
     def _failure_context(operation): return dict(operation.arguments)
