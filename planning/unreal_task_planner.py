@@ -50,6 +50,10 @@ class UnrealTaskPlanner:
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_material_variant(intent, material_variant))
 
+    def plan_niagara_variant(self, intent: UnrealTaskIntent, niagara_variant: Mapping[str, object]) -> UnrealTaskPlan:
+        self._validate_intent(intent)
+        return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_niagara_variant(intent, niagara_variant))
+
     def plan_actor_location_write(self, intent: UnrealTaskIntent, location: Mapping[str, float]) -> UnrealTaskPlan:
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_write(intent, location))
@@ -59,7 +63,6 @@ class UnrealTaskPlanner:
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_rotation_write(intent, rotation))
 
     def plan_actor_scale_write(self, intent: UnrealTaskIntent, scale: Mapping[str, float]) -> UnrealTaskPlan:
-        """Plan one actor-scale change with independent post-write inspection."""
         self._validate_intent(intent)
         return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_scale_write(intent, scale))
 
@@ -132,6 +135,16 @@ class UnrealAgentPlanBuilder:
             raise ValueError("material_variant must contain at least one setting")
         return dict(material_variant)
 
+    @staticmethod
+    def _validate_niagara_variant(niagara_variant: Mapping[str, object]) -> Mapping[str, object]:
+        if not isinstance(niagara_variant, Mapping):
+            raise TypeError("niagara_variant must be a mapping")
+        if set(niagara_variant.keys()) != {"name"}:
+            raise ValueError("niagara_variant must contain exactly name")
+        if not isinstance(niagara_variant["name"], str) or not niagara_variant["name"].strip():
+            raise ValueError("niagara_variant.name must be a non-empty string")
+        return {"name": niagara_variant["name"].strip()}
+
     def _operation(self, capability, kind, name, entity_ids, arguments=None):
         self.capabilities.validate(capability, kind)
         operation_arguments = {"entity_ids": entity_ids}
@@ -155,6 +168,16 @@ class UnrealAgentPlanBuilder:
             self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.READ, "inspect_material_state", entity_ids),
             self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.WRITE, "apply_material_variant", entity_ids, {"material_variant": material_variant}),
             self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.VERIFY, "verify_material_variant", entity_ids, {"material_variant": material_variant}),
+        )
+
+    def for_niagara_variant(self, intent, niagara_variant: Mapping[str, object]):
+        entity_ids = self._require_targets(intent)
+        niagara_variant = self._validate_niagara_variant(niagara_variant)
+        return (
+            self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", entity_ids),
+            self._operation(UnrealCapability.NIAGARA, UnrealOperationKind.READ, "inspect_niagara_state", entity_ids),
+            self._operation(UnrealCapability.NIAGARA, UnrealOperationKind.WRITE, "apply_niagara_variant", entity_ids, {"niagara_variant": niagara_variant}),
+            self._operation(UnrealCapability.NIAGARA, UnrealOperationKind.VERIFY, "verify_niagara_variant", entity_ids, {"niagara_variant": niagara_variant}),
         )
 
     def for_actor_location_write(self, intent, location: Mapping[str, float]):
