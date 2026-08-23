@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 22, 2026 — 22:44 EDT  
-**Current repository HEAD:** `362a3bcb3fec54c34697b461f2436e89c809dd3f` (`docs: add OpenHands transition guide`)  
+**Updated:** August 23, 2026 — 01:42 EDT  
+**Current repository HEAD:** `876464a3ffa44c24baf9c8cd9953ef4a840fe928` (`docs: refresh canonical Atlas handoff with OpenHands transition state`)  
 **Latest implementation commit:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
-**Previous handoff commit:** `3a74c3c88f4e67ae0c2427236eb729f2f9b515c3` (`docs: refresh canonical Atlas handoff at 19:39 EDT`)  
+**Previous implementation/documentation transition commit:** `362a3bcb3fec54c34697b461f2436e89c809dd3f` (`docs: add OpenHands transition guide`)  
 **Latest recorded development test milestone:** **694 passed** (conversation/runtime report); this is not fresh GitHub Actions verification.  
 **Previously recorded verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas development session.
@@ -12,7 +12,7 @@
 
 Atlas remains actively under development. **Workflow/action-runner testing is paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue.
 
-A new documentation-only commit `362a3bcb3fec54c34697b461f2436e89c809dd3f` adds `docs/OPENHANDS_TRANSITION_GUIDE.md`. No newer implementation commit has been identified after `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`; subsequent commits are handoff/documentation updates. Do not treat the 687-pass CI baseline as validation for code added after that baseline, and do not treat the 694-pass development report as GitHub Actions verification without an actual authorized runner result.
+Since the previous handoff, the repository added and incorporated `docs/OPENHANDS_TRANSITION_GUIDE.md` in commit `362a3bcb3fec54c34697b461f2436e89c809dd3f`, followed by handoff/documentation refresh commit `876464a3ffa44c24baf9c8cd9953ef4a840fe928`. No newer implementation commit has been identified after `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`; the later commits are documentation/handoff updates. Do not treat the 687-pass CI baseline as validation for code added after that baseline, and do not treat the 694-pass development report as GitHub Actions verification without an actual authorized runner result.
 
 ## Architecture
 
@@ -116,7 +116,7 @@ The Unreal regression is complementary production-boundary hardening and does no
 
 ## OpenHands transition
 
-`docs/OPENHANDS_TRANSITION_GUIDE.md` is the current planned transition guide for moving from the ChatGPT/GitHub/local-machine workflow toward an OpenHands-assisted local development workflow.
+`docs/OPENHANDS_TRANSITION_GUIDE.md` is now part of the repository and is the current planned transition guide for moving from the ChatGPT/GitHub/local-machine workflow toward an OpenHands-assisted local development workflow.
 
 Important transition rules:
 
@@ -131,8 +131,7 @@ Important transition rules:
 - Do not weaken Docker/WSL isolation merely to make Unreal access convenient.
 - The intended autonomous loop is inspect → determine next work → implement → test → diagnose → fix → retest → document → commit → continue, while preserving human approval for major architecture, destructive operations, production access, and significant cross-system changes.
 - The guide explicitly keeps Python-first/hybrid development viable for future C++ replacement of performance-sensitive components through language-neutral contracts.
-
-This transition guide is documentation/planning only; it does not mean OpenHands, WSL, Docker, or broader production access has been installed or authorized.
+- The transition guide is planning/documentation only; it is not evidence that OpenHands, WSL, Docker, or broader production access has been installed, tested, or authorized.
 
 ## Concrete files/tools
 
@@ -186,7 +185,7 @@ Do not weaken authorization/verification or introduce a parallel execution path 
 
 ## Blender integration gate
 
-Do not connect to the real Blender environment merely because the architecture looks close. Once workflow testing is authorized, first establish focused adapter tests and a fresh green CI result, then prove one controlled live operation:
+Do not connect to the real Blender environment merely because the architecture looks close. Once workflow testing is authorized, first establish focused adapter tests and a fresh green CI result, then prove one controlled live Blender operation:
 
 ```text
 controlled Blender scene
