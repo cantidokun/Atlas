@@ -1,6 +1,6 @@
 """Deterministic executor for Unreal task plans."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
@@ -125,6 +125,9 @@ class UnrealPlanExecutor:
                 evidence = verify_material_variant(evidence, expected_material_variant)
             if expected_niagara_variant is not None:
                 evidence = verify_niagara_variant(evidence, expected_niagara_variant)
+            # Adapter evidence starts unverified by contract. Reaching this point
+            # means Atlas independently proved the requested post-write state.
+            evidence = replace(evidence, verified=True)
 
         return evidence
 
@@ -184,7 +187,7 @@ class UnrealPlanExecutor:
                 )
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except Exception as exc:
-                message = f"Unexpected execution failure for operation {index} ('{operation.name}'): {exc}"
+                message = f"Unexpected execution failure for operation {index} ('{operation.name}'):\n{exc}"
                 failure = UnrealPlanExecutionFailure(
                     plan.intent_id,
                     index,
