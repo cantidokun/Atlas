@@ -1,9 +1,9 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 23, 2026 — multi-operation execution preflight boundary
+**Updated:** August 23, 2026 — semantic verifier binding boundary
 **Current focus:** Multi-operation production execution with failure containment
 **Current branch:** `feat/unreal-composite-production-operation`
-**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, and full-plan executor preflight are implemented.
+**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, and semantic write-to-verifier binding are implemented.
 
 ## Latest completed milestone
 
@@ -27,30 +27,47 @@ VERIFY verify_niagara_variant
 
 Each write is immediately followed by a semantic verification boundary. Transform verification compares fresh Unreal observations against the requested location/rotation/scale; material and Niagara verification compare the observed variant names.
 
-## New execution-containment boundary
+## Execution-containment boundaries
 
 `UnrealPlanExecutor` now preflights **every operation in the complete ordered plan before the first transport call** using the central `UnrealCapabilityRegistry` operation contract.
 
-This closes a partial-mutation hazard where an externally constructed plan could contain a malformed later operation: previously, earlier mutations could reach Unreal before the later malformed operation was discovered. The executor now fails closed before any Unreal mutation when any operation in the plan violates the capability/argument contract.
+The executor also binds each supported production write to its required semantic verifier before execution:
 
-This is deliberately executor-side defense-in-depth. Planner-generated plans remain validated by the planner; the executor remains the final execution boundary.
+```text
+set_actor_location       -> verify_actor_location
+set_actor_rotation       -> verify_actor_rotation
+set_actor_scale          -> verify_actor_scale
+apply_material_variant   -> verify_material_variant
+apply_niagara_variant    -> verify_niagara_variant
+```
+
+A same-entity verification is therefore not sufficient by itself. A plan cannot substitute a semantically unrelated verifier for the mutation it claims to prove. This closes a second plan-integrity gap at the executor boundary.
+
+These checks are deliberately executor-side defense-in-depth. Planner-generated plans remain validated by the planner; the executor remains the final execution boundary.
 
 ## Failure containment invariants
 
 - A malformed later operation cannot cause an earlier real-Unreal mutation.
-- Every write still requires an immediate verification operation.
-- Verification still requires fresh evidence and independent Atlas-side semantic proof.
+- Every write requires an immediate verification operation.
+- Every supported production write requires its matching semantic verifier.
+- Verification requires fresh evidence and independent Atlas-side semantic proof.
 - Runtime transport failures stop execution immediately.
 - Completed evidence and operation arguments remain available through `UnrealPlanExecutionFailure` for recovery coordination.
 - Recovery must reassess fresh Unreal state and must not silently retry a failed mutation.
 - Replacement mutations require explicit authorization.
 
-## Immediate testing gate
+## Testing gate
 
-Run the focused executor/composite regression suite:
+After implementation changes, run the focused Unreal regression suite:
 
 ```powershell
 python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_transform_verification_planner.py tests/test_unreal_composite_operation.py tests/test_unreal_tool_schema.py -q
+```
+
+Also include authorization regression coverage when validating the broader Python Unreal boundary:
+
+```powershell
+python -m pytest tests/test_unreal_plan_authorization.py -q
 ```
 
 Then run the real Unreal composite gate:
@@ -59,7 +76,7 @@ Then run the real Unreal composite gate:
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 ```
 
-The real integration remains the engine-dependent proof boundary. The new preflight change itself is Python-side and should be established by the focused suite before spending another live Unreal run.
+The real integration remains the engine-dependent proof boundary. The semantic verifier binding change itself is Python-side and should be established by the focused suites before another live Unreal run.
 
 ## Architectural invariants
 
