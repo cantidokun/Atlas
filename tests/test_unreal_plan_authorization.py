@@ -35,10 +35,10 @@ def _plan(location=(10.0, 20.0, 30.0)):
         entity_ids=("FIELD_SURFACE",),
     )
     verify = UnrealOperation(
-        capability=UnrealCapability.INSPECT_ACTOR,
+        capability=UnrealCapability.MODIFY_ACTOR,
         kind=UnrealOperationKind.VERIFY,
-        name="verify_target_actor_mapping",
-        arguments={"entity_ids": ("FIELD_SURFACE",)},
+        name="verify_actor_location",
+        arguments={"entity_ids": ("FIELD_SURFACE",), "expected_location": target},
         entity_ids=("FIELD_SURFACE",),
     )
     return UnrealTaskPlan("replacement-plan", (write, verify))
