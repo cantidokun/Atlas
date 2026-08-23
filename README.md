@@ -19,93 +19,100 @@ Qwen never receives direct Blender execution authority.
 
 ## Current Blender Agent status
 
-**Current milestone: generalized Blender task-execution architecture established; third live mutation proof is the next gate.**
+**MAJOR MILESTONE PASSED: generalized Blender corrective runtime live interruption/replanning proof.**
 
-Atlas has now demonstrated real Blender rotation and marker-creation workflows and migrated both onto the shared `TaskRuntimeSession` lifecycle. The next operation, object movement, is implemented and regression-tested but has not yet received live Windows/Blender proof.
+Atlas has now proven that the generalized production corrective runtime can execute against real Blender, retain execution receipts, recover from an externally injected scene-state change, replan from fresh evidence, and independently verify final convergence.
 
-The generic lifecycle is:
+The live gate reported:
+
+```text
+ATLAS GENERALIZED BLENDER CORRECTIVE RUNTIME GATE: PASS
+receipts = 4
+external_change_injected = true
+```
+
+Final independently observed state:
+
+```text
+Goal_Left_post
+location = [1.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 45.0]
+
+Goal_Right_post
+location = [-1.0, 0.0, 0.0]
+rotation = [0.0, 0.0, -45.0]
+```
+
+The generalized lifecycle is:
+
+```text
+fresh world evidence
+ -> corrective planning
+ -> explicit authorization
+ -> protected Blender execution
+ -> normalized result + immutable receipt
+ -> fresh observation
+ -> external change / interruption
+ -> fresh replanning
+ -> reauthorization
+ -> corrective execution
+ -> independent final verification
+ -> completion
+```
+
+## Proven live Blender behavior
+
+Atlas now has live proof for:
+
+1. **Object rotation** — authorized mutation, persistence, fresh independent inspection, invariant verification, and receipt validation.
+2. **Marker creation** — conditional authorized creation, persistence, fresh scene inspection, independent membership verification, and receipt validation.
+3. **Generalized corrective recovery** — real Blender execution across multiple properties, injected external scene change, fresh-state replanning, protected corrective execution, receipt retention, and final independent convergence.
+
+The generalized corrective runtime is no longer dependent on the earlier specialized multi-step corrective demo.
+
+## Next development gate
+
+The next objective is to turn this proven generalized corrective runtime into a reusable production-facing autonomous Blender task runtime capable of composing different authorized operations while preserving:
+
+- fresh observation before each decision;
+- explicit authorization;
+- capability restrictions;
+- exact action/receipt binding;
+- normalized execution results;
+- independent post-action verification;
+- fail-closed completion and step budgets;
+- interruption recovery and continuation/resume.
+
+Do not rebuild lifecycle orchestration for individual tools. Extend the declarative task contract and shared runtime.
+
+## Authority and verification boundary
+
+Qwen proposes; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender is an execution target, never an authority.
 
 ```text
 Qwen proposal
  -> task/evidence/action validation
- -> authoritative pre-action evidence
- -> target-state evaluation
- -> conditional decision
+ -> authoritative fresh evidence
  -> explicit authorization
- -> deterministic action
- -> Blender capability adapter
+ -> deterministic capability execution
  -> normalized result
- -> fresh independent post-action evidence
- -> target-state verification
  -> immutable execution receipt
- -> completion / conservative recovery
+ -> fresh independent evidence
+ -> target verification / replan
+ -> completion or conservative recovery
 ```
-
-### Proven live mutations
-
-**Rotation**
-
-```text
-Atlas_Rotation_Candidate
-rotation = [0.0, 0.0, 90.0] degrees
-```
-
-**Marker creation**
-
-```text
-Atlas_Marker
-EMPTY
-inside Atlas_Test
-```
-
-Both use the shared task/runtime architecture and require fresh independent Blender evidence before completion.
-
-### Next live gate: object movement
-
-The third task is declaratively defined as:
-
-```text
-Goal_Left_post
-location = [1.0, 2.0, 0.0]
-```
-
-The intended proof is:
-
-```text
-incorrect fixture
- -> inspect location
- -> target unsatisfied
- -> authorize
- -> move
- -> save .blend
- -> fresh independent inspect
- -> location invariant satisfied
- -> receipt validated
- -> COMPLETE
-```
-
-The already-correct path must remain zero-write followed by fresh verification. Any failed or unverifiable post-action inspection must produce `BLOCKED`, never completion.
-
-Relevant files include:
-
-- `planning/task_runtime.py`
-- `planning/object_rotation_task.py`
-- `planning/marker_task.py`
-- `planning/object_move_task.py`
-- `planning/blender_tool_adapter.py`
-- `planning/blender_execution_boundary.py`
-- `planning/blender_execution_receipt.py`
-- `planning/blender_autonomous_executor.py`
 
 ## Verification discipline
 
-Historical CI/live results describe earlier commits unless explicitly associated with the current branch/commit. The current movement task has **104 focused/regression tests passing**, but that does not constitute live Windows/Blender proof. Only actual current workflow/test output establishes live verification.
+Historical CI/live results describe earlier commits unless explicitly associated with the current branch/commit. Focused tests are regression evidence; live Blender claims require actual Windows/Blender runner output.
 
 ## Development path
 
-1. prove a third materially different Blender mutation through the shared runtime;
-2. generalize continuation/resume and multi-task production composition;
+1. generalize the proven corrective runtime into reusable production task composition;
+2. implement continuation/resume across multi-task Blender operations;
 3. advance Digital Twin identity/revision and photogrammetry intake contracts;
 4. later integrate Unreal production workflows.
+
+Photogrammetry remains upstream of Blender. Atlas is exclusively concerned with soccer-field-related digital twins; Blender receives the upstream reconstruction for analysis, cleanup, correction, and preparation.
 
 See `ATLAS_HANDOFF_CURRENT.md` for the authoritative resume point and `DEVELOPMENT_LOG.md` for chronological progress.
