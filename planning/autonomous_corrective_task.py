@@ -44,12 +44,10 @@ class AutonomousCorrectiveTask:
             raise ValueError("max_steps must be at least 1")
         receipts: List[Any] = []
         for _ in range(max_steps):
-            step = self.recovery.next_step()
-            if step is None:
-                final = self.observe()
-                return CorrectiveTaskResult(tuple(receipts), final, True)
             fresh = self.observe()
-            self.recovery.validate_step(step, fresh)
+            step = self.recovery.next_step(fresh)
+            if step is None:
+                return CorrectiveTaskResult(tuple(receipts), fresh, True)
             receipts.append(self._execute_step(step, fresh))
         final = self.observe()
         return CorrectiveTaskResult(tuple(receipts), final, not bool(self.plan(final)))
