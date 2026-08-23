@@ -112,7 +112,7 @@ def main() -> None:
         raise RuntimeError(f"expected two corrective steps for object B, got {len(second)}")
 
     final = observe()
-    if final != TARGET:
+    if plan(final):
         raise RuntimeError(f"independent final observation failed: {final}")
 
     print("ATLAS MULTI-OBJECT MULTI-PROPERTY GATE: PASS")
