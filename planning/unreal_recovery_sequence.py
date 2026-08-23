@@ -42,6 +42,12 @@ _WRITE_DEFINITIONS = {
     "apply_niagara_variant": (UnrealCapability.NIAGARA, "inspect_niagara_state", "verify_niagara_variant", "niagara_variant"),
 }
 
+_INSPECTION_CAPABILITIES = {
+    "inspect_target_actors": UnrealCapability.INSPECT_ACTOR,
+    "inspect_material_state": UnrealCapability.MATERIAL,
+    "inspect_niagara_state": UnrealCapability.NIAGARA,
+}
+
 
 def _write_steps(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure):
     steps = []
@@ -61,14 +67,17 @@ def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFa
     """Build a read-only plan covering every relevant write through the failure boundary."""
     seen = set()
     operations = []
-    for _, operation, capability, inspect_name, _, _ in _write_steps(plan, failure):
+    for _, operation, _, inspect_name, _, _ in _write_steps(plan, failure):
         key = (inspect_name, tuple(operation.entity_ids))
         if key in seen:
             continue
         seen.add(key)
+        inspection_capability = _INSPECTION_CAPABILITIES.get(inspect_name)
+        if inspection_capability is None:
+            raise ValueError(f"unsupported Unreal recovery inspection operation: {inspect_name}")
         operations.append(
             UnrealOperation(
-                capability=capability,
+                capability=inspection_capability,
                 kind=UnrealOperationKind.READ,
                 name=inspect_name,
                 arguments={"entity_ids": tuple(operation.entity_ids)},
