@@ -1,16 +1,15 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 23, 2026 12:41 AM EDT  
+**Updated:** August 23, 2026 4:45 PM EDT  
 **Branch:** `feat/replan-race-gate`  
+**HEAD:** `1e2f4a5` (`test: cover legacy Blender result normalization`)  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
 ## Current position
 
-**MAJOR MILESTONE PASSED: generalized Blender corrective runtime live interruption/replanning proof.**
+**MAJOR LIVE MILESTONE PASSED:** generalized Blender corrective runtime with live interruption/replanning.
 
-Atlas has now proven the generalized production corrective runtime against real Windows/Blender execution. The live gate completed with an externally injected scene-state change and independently verified convergence.
-
-Live result:
+The Windows/Blender live gate previously completed with:
 
 ```text
 ATLAS GENERALIZED BLENDER CORRECTIVE RUNTIME GATE: PASS
@@ -30,44 +29,26 @@ location = [-1.0, 0.0, 0.0]
 rotation = [0.0, 0.0, -45.0]
 ```
 
-## What the milestone proves
-
-The generalized runtime can now:
-
-1. acquire fresh Blender world evidence;
-2. plan a corrective action from that evidence;
-3. obtain explicit authorization;
-4. execute through the protected Blender capability boundary;
-5. retain an execution receipt bound to the executed action;
-6. observe the world again after execution;
-7. tolerate an externally injected scene-state change;
-8. replan from fresh evidence rather than stale assumptions;
-9. reauthorize and execute the required correction;
-10. independently verify final Blender state before completion.
-
-The proven control loop is:
+The proven loop is:
 
 ```text
 fresh evidence
  -> plan
  -> authorize
  -> execute
- -> receipt
+ -> immutable receipt
  -> fresh evidence
  -> external interruption
  -> replan
  -> reauthorize
  -> execute
- -> fresh evidence
  -> independent verification
  -> COMPLETE
 ```
 
-This proof is materially stronger than the earlier specialized multi-step corrective demo because the generalized production corrective runtime itself now handles interruption/replanning against live Blender.
+## Current architecture
 
-## Architecture now in place
-
-The protected path is:
+Protected production path:
 
 ```text
 Qwen / agent proposal
@@ -85,62 +66,119 @@ Qwen / agent proposal
         -> completion or conservative recovery
 ```
 
-Important invariants:
+### Result contract
 
-- Qwen never receives direct Blender execution authority.
-- Only explicitly admitted Blender capabilities can execute.
-- Corrective planning uses fresh state.
-- Receipts must bind to the exact executed action/result.
-- Missing, stale, or unbound receipts fail closed.
-- Result normalization is centralized at the execution boundary.
-- Exhausting the corrective step budget is not success.
-- Failed or unverifiable final verification cannot produce completion.
+`planning/blender_result_contract.py` defines immutable `BlenderExecutionResult(tool, ok, state, details)` and strict normalization. Missing/invalid `ok` or `state`, malformed `details`, or non-object results fail closed. Legacy `status` results are normalized at the adapter edge rather than weakening the verified contract.
 
-## Live Blender proof achieved so far
+### Adapter
 
-### Rotation
+`planning/blender_tool_adapter.py` contains `BlenderToolAdapter`. It exposes only the explicit tool registry, preserves validated arguments, and converts legacy `status`/`error` responses to the shared `ok`/`state`/`details` shape.
 
-Authorized rotation of `Atlas_Rotation_Candidate`, persistence, fresh independent transform inspection, invariant verification, and receipt validation.
+### Execution boundary
 
-### Marker creation
+`planning/blender_execution_boundary.py` provides:
 
-Conditional authorized creation of `Atlas_Marker`, persistence, fresh scene inspection, independent collection-membership verification, and receipt validation.
+- `execute()` — backward-compatible raw adapter execution.
+- `execute_verified()` — strict normalized-result verification.
+- `execute_with_receipt()` — verified execution plus immutable receipt.
+- `execute_authorized_replan()` — requires exactly one authorized `ActionSpec`, revalidates authorization against fresh evidence, then executes with receipt binding.
 
-### Generalized corrective recovery
+### Receipt
 
-Two authorized goalpost objects were driven to target location/rotation state. An external scene change was injected during the generalized runtime. The runtime detected the changed state through fresh evidence, replanned, executed corrective actions, and reached independently verified final convergence with four receipts.
+`planning/blender_execution_receipt.py` defines immutable `BlenderExecutionReceipt`. It hashes the exact tool arguments and normalized result and can verify that a receipt still matches the executed action/result.
 
-## Current development target
+### Verification
 
-The next major objective is **production-facing reusable autonomous Blender task composition**.
+`planning/blender_verification.py` is fail-closed: only a `BlenderExecutionResult` for the expected tool with `ok=True` is accepted as successful.
 
-Do not return to bespoke lifecycle orchestration for individual tools. Extend the declarative task contract and generalized runtime.
+### Autonomous executor
 
-Priority sequence:
+`planning/blender_autonomous_executor.py` connects the autonomous runtime to the protected boundary. It resolves capabilities through `create_blender_command_registry()`, records the last normalized result and receipt, and exposes `receipt_matches_last_execution()`.
 
-1. reusable multi-operation task composition;
-2. continuation/resume after interruption or partial completion;
-3. stronger task identity and execution-session state;
-4. broader authorized Blender operations using the same verification/receipt boundary;
-5. Digital Twin identity/revision and photogrammetry intake contracts;
-6. later Unreal production workflows.
+## Recent commits / changes
 
-Photogrammetry remains upstream of Blender. Atlas owns canonical Digital Twin identity/state for the soccer-field-focused production pipeline.
+- `1e2f4a5` — `test: cover legacy Blender result normalization`
+- `9696b85` — `fix: normalize legacy Blender tool status results`
+- `f8f2ad8` — `fix: keep corrective runtime Python 3.9 compatible`
+- `47c0174` — `feat: wire observer interruption hook into generalized live gate`
+- `77c98a2` — `feat: add interruption-aware corrective runtime observer`
+- `0ef2043` — `test: enforce receipt sequence for corrective runtime`
+- `515c5a8` — `fix: replan corrective actions directly from each fresh observation`
+- `0411975` — `feat: allow corrective recovery to replan from supplied fresh evidence`
 
-## Testing / verification discipline
+## Validation history
 
-The live generalized gate above is actual Windows/Blender output and is therefore the authoritative proof of this milestone.
+Confirmed live / focused results from the active development conversation:
 
-Do not represent historical CI or focused test counts as live proof unless the result is explicitly associated with the current commit/workflow. Workflow/action-runner testing remains paused unless explicitly authorized.
+- **Test 313 passed** — earlier action-runner validation.
+- **141 passed** — earlier focused suite baseline.
+- A subsequent full `python -m pytest -q` initially stopped during collection because `tests/test_unreal_transport_failure_boundary.py` imported missing `planning.unreal_adapter_production`; that stale test was removed in commit `895709a978bc7faa33118cb36fec59f5cb520bef`.
+- The next full-suite run reached actual tests: **589 passed / 18 failed**.
+- The 18 failures were identified as contract/integration regressions concentrated around corrective-runtime compatibility, legacy synthetic result shapes, marker evidence sequencing, and marker task action count. They were not collection failures.
 
-## Resume instructions
+Do **not** claim the current branch is green. The authoritative latest reported full-suite result is **589 passed / 18 failed**.
 
-Start from branch:
+## Current known issues
+
+1. **Corrective-runtime / Blender boundary contract mismatch.** `BlenderExecutionBoundary.execute_authorized_replan()` currently always calls `execute_with_receipt()`. Generic corrective-runtime tests that use synthetic executors/results therefore cross into Blender-specific receipt/result assumptions.
+2. **Legacy synthetic result compatibility.** Some corrective-runtime tests use shapes such as `{"status": "created"}`. Legacy normalization should remain at the Blender adapter edge; do not weaken `BlenderExecutionResult` or verified execution to accept arbitrary legacy shapes globally.
+3. **Marker evidence sequencing.** Several marker tests fail because evidence-completeness validation occurs before marker-specific evidence is available. Fix sequencing/contract rather than bypassing verification.
+4. **Marker task definition.** `test_marker_task_definition_is_declarative_and_write_verified` currently observes two actions where the test expects one; reconcile the declarative task definition without weakening write verification.
+5. **BlenderToolAdapter compatibility.** One older test expects raw underlying adapter behavior while the current adapter normalizes results. Preserve the intentional normalization contract and determine whether the affected test belongs to the legacy/raw API or normalized adapter API.
+6. **Unreal production adapter.** `planning.unreal_adapter_production` is not present on the current branch; the stale transport-boundary test that imported it was removed. Unreal remains later-stage work, not the current blocker.
+7. **Untracked Blender fixtures.** The user's Windows checkout contains local `.blend` fixtures including `atlas_live_mutation.blend`, `atlas_live_smoke.blend`, `object_move_CORRECT.blend`, `object_move_INCORRECT.blend`, `marker_task_CORRECT.blend`, `marker_task_INCORRECT.blend`, and related CORRECT/INCORRECT fixtures. Leave these untracked unless explicitly needed in source control.
+
+## Runtime / development setup
+
+Current development is being exercised from the user's Windows PowerShell checkout:
 
 ```text
-feat/replan-race-gate
+C:\Users\Gavin's PC\Desktop\Atlas
+branch: feat/replan-race-gate
+tracking: origin/feat/replan-race-gate
 ```
 
-First inspect the generalized corrective runtime and its live gate. Continue toward reusable production task composition rather than creating another specialized corrective executor.
+The live Blender proof runs against actual Windows/Blender execution. The corrective runtime was explicitly kept Python 3.9 compatible. The test command used by the active runner is:
 
-The next meaningful milestone is a **multi-operation production task composition proof** that preserves the same authorization, receipt, fresh-observation, independent-verification, and interruption-recovery guarantees demonstrated by the live gate.
+```powershell
+python -m pytest -q
+```
+
+The current branch source is also being inspected/committed through GitHub. The user's local checkout was reported clean except for the untracked `.blend` fixtures; source changes were committed and pushed.
+
+Qwen is the agent/proposal layer; it does not receive direct Blender execution authority. Atlas remains the authorization, validation, execution-boundary, evidence, receipt, and verification layer.
+
+Workflow/action-runner tests are not to be represented as current proof unless explicitly run and reported by the user. The live Windows/Blender gate is the authoritative proof of the generalized corrective-runtime milestone.
+
+## Immediate resume plan
+
+1. Fix the corrective-runtime/Blender-boundary separation without weakening the strict Blender result contract.
+2. Keep legacy `status` normalization localized to `BlenderToolAdapter`.
+3. Preserve fail-closed authorization, receipt binding, and independent verification.
+4. Fix marker evidence sequencing so required evidence exists before evidence-completeness validation.
+5. Reconcile the marker declarative task to the intended single-action contract.
+6. Reconcile the affected `BlenderToolAdapter` compatibility test with the intentional normalized API.
+7. Run the complete suite again:
+
+```powershell
+python -m pytest -q
+```
+
+8. Use the new failure count as the next authoritative baseline; do not report success until the full suite is green.
+9. Once green, proceed to the next architectural milestone: reusable multi-operation production task composition with the same authorization, receipt, fresh-observation, independent-verification, and interruption-recovery guarantees.
+10. After that, extend continuation/resume state, stronger task/session identity, broader authorized Blender operations, and later Digital Twin/photogrammetry intake contracts. Unreal production workflows remain later.
+
+## Architectural constraints to preserve
+
+- Qwen never receives direct Blender execution authority.
+- Only explicitly admitted Blender capabilities execute.
+- Corrective planning uses fresh world state.
+- Authorization must match the fresh evidence and exact action.
+- Receipts bind to the exact executed action/result.
+- Missing, stale, or unbound receipts fail closed.
+- Strict verified execution accepts only the structured Blender result contract.
+- Legacy result normalization belongs at the Blender adapter boundary.
+- Exhausting a corrective step budget is not success.
+- Failed or unverifiable final verification cannot produce completion.
+- Do not replace generalized production runtime behavior with bespoke per-tool lifecycle orchestration.
+- Photogrammetry is upstream of Blender; Atlas owns canonical Digital Twin identity/state for the soccer-field-focused production pipeline.
