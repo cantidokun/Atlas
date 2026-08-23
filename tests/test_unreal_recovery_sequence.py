@@ -127,3 +127,27 @@ def test_sequence_replacement_rejects_stale_reassessment_receipt_before_transpor
         assert str(exc) == "authorization receipt does not match the exact Unreal task plan"
     else:
         raise AssertionError("stale recovery authorization must not authorize replacement execution")
+
+
+def test_sequence_replacement_rejects_assessment_operation_name_tampering():
+    assessment = UnrealRecoverySequenceAssessment((
+        type("Step", (), {"operation_index": 2, "operation_name": "set_actor_scale", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})(),
+    ))
+    try:
+        build_replacement_plan(_plan(), assessment)
+    except ValueError as exc:
+        assert str(exc) == "assessment operation name does not match the source plan"
+    else:
+        raise AssertionError("recovery assessment must remain bound to its source operation")
+
+
+def test_sequence_replacement_rejects_assessment_entity_scope_tampering():
+    assessment = UnrealRecoverySequenceAssessment((
+        type("Step", (), {"operation_index": 2, "operation_name": "set_actor_rotation", "entity_ids": ("OTHER_ACTOR",), "disposition": "replacement_required", "reason": "fresh state differs"})(),
+    ))
+    try:
+        build_replacement_plan(_plan(), assessment)
+    except ValueError as exc:
+        assert str(exc) == "assessment entity_ids do not match the source plan"
+    else:
+        raise AssertionError("recovery assessment must preserve source operation entity scope")
