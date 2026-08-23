@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isclose
 from typing import Mapping, Sequence
 
 from action_plan import ActionSpec
@@ -14,18 +15,29 @@ class TransformTarget:
     rotation_degrees: tuple[float, float, float]
 
 
+def _matches(current: Sequence[float], target: Sequence[float], tolerance: float) -> bool:
+    return len(current) == len(target) and all(
+        isclose(float(actual), float(expected), rel_tol=0.0, abs_tol=tolerance)
+        for actual, expected in zip(current, target)
+    )
+
+
 def plan_transform_correction(
     evidence: Mapping[str, Mapping[str, Sequence[float]]],
     targets: Sequence[TransformTarget],
     file_name: str,
+    tolerance: float = 1e-4,
 ) -> list[ActionSpec]:
     """Return exactly the next necessary mutation, or no action when converged."""
+    if tolerance < 0:
+        raise ValueError("tolerance must be non-negative")
+
     for target in targets:
         current = evidence.get(target.object_name)
         if current is None:
             raise RuntimeError(f"missing transform evidence for {target.object_name}")
 
-        if list(current["location"]) != list(target.location):
+        if not _matches(current["location"], target.location, tolerance):
             return [ActionSpec(
                 tool="move_object",
                 arguments={
@@ -37,7 +49,7 @@ def plan_transform_correction(
                 requires_success=True,
             )]
 
-        if list(current["rotation"]) != list(target.rotation_degrees):
+        if not _matches(current["rotation"], target.rotation_degrees, tolerance):
             return [ActionSpec(
                 tool="set_object_rotation",
                 arguments={
