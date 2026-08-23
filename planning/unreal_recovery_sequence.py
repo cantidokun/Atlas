@@ -59,17 +59,23 @@ def _write_steps(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure):
 
 def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure) -> UnrealTaskPlan:
     """Build a read-only plan covering every relevant write through the failure boundary."""
-    operations = tuple(
-        UnrealOperation(
-            capability=capability,
-            kind=UnrealOperationKind.READ,
-            name=inspect_name,
-            arguments={"entity_ids": tuple(operation.entity_ids)},
-            entity_ids=tuple(operation.entity_ids),
+    seen = set()
+    operations = []
+    for _, operation, capability, inspect_name, _, _ in _write_steps(plan, failure):
+        key = (inspect_name, tuple(operation.entity_ids))
+        if key in seen:
+            continue
+        seen.add(key)
+        operations.append(
+            UnrealOperation(
+                capability=capability,
+                kind=UnrealOperationKind.READ,
+                name=inspect_name,
+                arguments={"entity_ids": tuple(operation.entity_ids)},
+                entity_ids=tuple(operation.entity_ids),
+            )
         )
-        for _, operation, capability, inspect_name, _, _ in _write_steps(plan, failure)
-    )
-    return UnrealTaskPlan(f"{plan.intent_id}:reassess-sequence", operations)
+    return UnrealTaskPlan(f"{plan.intent_id}:reassess-sequence", tuple(operations))
 
 
 def _verify(step, evidence):
@@ -91,41 +97,27 @@ def _verify(step, evidence):
         raise ValueError(f"unsupported recovery verifier for '{operation.name}'")
 
 
-def assess_reassessment_sequence(
-    plan: UnrealTaskPlan,
-    failure: UnrealPlanExecutionFailure,
-    result: UnrealPlanExecutionResult,
-) -> UnrealRecoverySequenceAssessment:
+def assess_reassessment_sequence(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure, result: UnrealPlanExecutionResult) -> UnrealRecoverySequenceAssessment:
     """Classify every relevant prior write using fresh evidence in plan order."""
     if not isinstance(result, UnrealPlanExecutionResult):
         raise TypeError("result must be a UnrealPlanExecutionResult instance")
     steps = _write_steps(plan, failure)
     if not result.success:
-        return UnrealRecoverySequenceAssessment(tuple(
-            UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment did not complete")
-            for index, operation, *_ in steps
-        ))
+        return UnrealRecoverySequenceAssessment(tuple(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment did not complete") for index, operation, *_ in steps))
 
     evidence_by_operation = {}
     for evidence in result.evidence_ledger:
-        evidence_by_operation.setdefault(evidence.operation_name, []).append(evidence)
-    evidence_cursor = {}
+        evidence_by_operation.setdefault((evidence.operation_name, tuple(evidence.entity_ids)), []).append(evidence)
 
     assessments = []
     for step in steps:
         index, operation, _, inspect_name, _, _ = step
-        cursor = evidence_cursor.get(inspect_name, 0)
-        evidence_list = evidence_by_operation.get(inspect_name, [])
-        evidence_cursor[inspect_name] = cursor + 1
-        if cursor >= len(evidence_list):
+        evidence_list = evidence_by_operation.get((inspect_name, tuple(operation.entity_ids)), [])
+        if not evidence_list:
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment contains no matching evidence"))
             continue
-        evidence = evidence_list[cursor]
-        if tuple(evidence.entity_ids) != tuple(operation.entity_ids):
-            assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment evidence targets a different entity scope"))
-            continue
         try:
-            _verify(step, evidence)
+            _verify(step, evidence_list[-1])
         except (TypeError, ValueError):
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "replacement_required", "fresh Unreal state does not match the requested state"))
         else:
@@ -163,25 +155,15 @@ def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySeque
     return UnrealTaskPlan(f"{plan.intent_id}:recovery-sequence-replacement", tuple(operations))
 
 
-def issue_replacement_authorization(
-    replacement_plan: UnrealTaskPlan,
-    authorization_id: str,
-) -> UnrealPlanAuthorization:
+def issue_replacement_authorization(replacement_plan: UnrealTaskPlan, authorization_id: str) -> UnrealPlanAuthorization:
     """Issue a new immutable receipt for an exact recovery replacement plan."""
     return UnrealPlanAuthorization.issue(replacement_plan, authorization_id)
 
 
-def execute_replacement_authorized(
-    executor: UnrealPlanExecutor,
-    replacement_plan: UnrealTaskPlan,
-    authorization: UnrealPlanAuthorization,
-) -> UnrealPlanExecutionResult:
+def execute_replacement_authorized(executor: UnrealPlanExecutor, replacement_plan: UnrealTaskPlan, authorization: UnrealPlanAuthorization) -> UnrealPlanExecutionResult:
     """Execute only through the exact plan-bound authorization boundary."""
     if not isinstance(executor, UnrealPlanExecutor):
         raise TypeError("executor must be a UnrealPlanExecutor instance")
     if not isinstance(authorization, UnrealPlanAuthorization):
         raise TypeError("authorization must be a UnrealPlanAuthorization instance")
-    try:
-        return executor.execute_authorized(replacement_plan, authorization)
-    except UnrealPlanExecutionError:
-        raise
+    return executor.execute_authorized(replacement_plan, authorization)
