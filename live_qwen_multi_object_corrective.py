@@ -10,12 +10,11 @@ from planning.multi_step_corrective_executor import MultiStepCorrectiveExecutor
 from planning.transform_correction_plan import TransformTarget, plan_transform_correction
 from tools.blender_transform import inspect_object_transform, set_object_rotation
 from tools.blender import move_object
-from tools.blender_test_fixture import create_test_object, set_test_transform
+from tools.blender_test_fixture import set_test_transform
 
 FILE_NAME = "marker_task_INCORRECT.blend"
-COLLECTION = "Atlas_Test"
-OBJECT_A = "Atlas_Correction_A"
-OBJECT_B = "Atlas_Correction_B"
+OBJECT_A = "Goal_Left_post"
+OBJECT_B = "Goal_Right_Post"
 TARGETS = (
     TransformTarget(OBJECT_A, (1.0, 0.0, 0.0), (0.0, 0.0, 45.0)),
     TransformTarget(OBJECT_B, (-1.0, 0.0, 0.0), (0.0, 0.0, -45.0)),
@@ -23,20 +22,14 @@ TARGETS = (
 TARGET = {t.object_name: {"location": list(t.location), "rotation": list(t.rotation_degrees)} for t in TARGETS}
 
 
-def _ensure_object(name: str) -> None:
-    result = create_test_object(FILE_NAME, name)
-    if result.get("status") not in {"created", "already_exists"}:
-        raise RuntimeError(f"failed to establish test fixture {name}: {result}")
-
-
 def establish_fixture() -> None:
-    _ensure_object(OBJECT_A)
-    _ensure_object(OBJECT_B)
     for name in (OBJECT_A, OBJECT_B):
         result = set_test_transform(FILE_NAME, name, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
         if result.get("status") != "ok":
             raise RuntimeError(f"failed to reset fixture {name}: {result}")
-    set_test_transform(FILE_NAME, OBJECT_B, TARGET[OBJECT_B]["location"], TARGET[OBJECT_B]["rotation"])
+    result = set_test_transform(FILE_NAME, OBJECT_B, TARGET[OBJECT_B]["location"], TARGET[OBJECT_B]["rotation"])
+    if result.get("status") != "ok":
+        raise RuntimeError(f"failed to establish target state for {OBJECT_B}: {result}")
 
 
 def observe() -> dict[str, Any]:
@@ -62,7 +55,7 @@ def make_executor() -> MultiStepCorrectiveExecutor:
         else:
             raise RuntimeError(f"unexpected live corrective tool: {tool}")
         status = raw.get("status")
-        return {"ok": status in {"ok", "already_at_location", "already_rotated"}, "state": str(status), "details": dict(raw)}
+        return {"ok": status in {"ok", "moved", "already_at_location", "already_rotated"}, "state": str(status), "details": dict(raw)}
     return MultiStepCorrectiveExecutor(BlenderExecutionBoundary(execute), observe, plan, "live:multi-object-corrective")
 
 
