@@ -23,14 +23,6 @@ TARGET = {target.object_name: {"location": list(target.location), "rotation": li
 
 
 def _ensure_object(name: str) -> None:
-    if name == "Atlas_Marker":
-        result = create_empty_marker(FILE_NAME, COLLECTION, name)
-        if result.get("status") not in {"created", "already_exists"}:
-            raise RuntimeError(f"failed to establish {name}: {result}")
-        return
-    # Atlas's safe marker capability intentionally only permits Atlas_Marker.
-    # Reuse that capability to create the deterministic fixture object, then
-    # rename it through the controlled object tool surface.
     from tools.blender_object import rename_object
     existing = inspect_object_transform(FILE_NAME, name)
     if existing.get("status") == "ok":
@@ -39,7 +31,7 @@ def _ensure_object(name: str) -> None:
     if marker.get("status") not in {"created", "already_exists"}:
         raise RuntimeError(f"failed to establish fixture source for {name}: {marker}")
     renamed = rename_object(FILE_NAME, "Atlas_Marker", name)
-    if renamed.get("status") not in {"ok", "already_renamed"}:
+    if renamed.get("status") not in {"renamed", "already_named"}:
         raise RuntimeError(f"failed to establish {name}: {renamed}")
 
 
