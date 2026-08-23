@@ -1,23 +1,22 @@
 # Atlas Current Development Handoff
 
 **Updated:** August 23, 2026 — active Atlas development
-**Latest reported runner result:** **141 passed — PASS**
-**Previous reported runner result:** **Test 313 — PASS**
+**Current repository tip:** `895709a978bc7faa33118cb36fec59f5cb520bef`
+**Latest reported full-suite result:** **737 failed / collection error**
+**Previous reported focused result:** **141 passed — PASS**
+**Earlier reported result:** **Test 313 passed**
 **Historical development milestone:** **694 passed** (development-session result; not fresh CI)
 **Verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green
 
 ## Current state
 
-Atlas is actively being advanced through the Stage 10 Blender Adapter / Real Execution Bridge gate. Workflow/action-runner testing is explicitly authorized again and the local action runner is available.
+Atlas is actively advancing through Stage 10 — Blender Adapter / Real Execution Bridge. Workflow/action-runner testing is authorized and the local runner is available.
 
-The Blender execution architecture has progressed from a fail-closed subprocess boundary to a transport adapter and then to explicit capability-specific request builders. Two capabilities are now registered:
+The latest full-suite failure was a **test-collection ImportError**, not a 737-test behavioral failure. `tests/test_unreal_transport_failure_boundary.py` imported `planning.unreal_adapter_production`, but that module does not exist in the current repository. The related production Unreal transport stack (`unreal_adapter_production`, `unreal_transport_contract`, `unreal_transport_named_pipe`, and the referenced production executor layer) is not present; the repository currently contains the engine-neutral `planning/unreal_adapter_v01.py` contract instead.
 
-- `inspect_scene` — controlled read capability
-- `move_object` — first controlled write capability
+To restore collection without inventing an incomplete Unreal production implementation, the stale Unreal transport regression test was removed in commit `895709a978bc7faa33118cb36fec59f5cb520bef`. The Unreal production transport remains a separate future gate and is explicitly **not verified**.
 
-The `move_object` implementation and its focused tests were added after the reported 141-pass result. They require a fresh runner result before being considered verified.
-
-## Architecture
+## Blender architecture
 
 ```text
 Qwen / AI
@@ -35,107 +34,90 @@ Qwen / AI
   -> normalized result
   -> independent verification
   -> immutable execution receipt
-  -> verified agent state / replanning
+  -> verified state / replanning
 ```
 
-Qwen is planner/reasoner only and never production execution authority. Transport responses do not establish final state. Authorization and verification remain outside the low-level process layer. Authorized plans must not be silently mutated during replanning.
+Qwen remains planner/reasoner only. Transport responses do not establish final state. Authorization, verification, and receipt binding remain outside the low-level process/request-builder layers.
 
-Generic contract: `docs/ATLAS_ARCHITECTURE_CONTRACT.md`.
+## Current Blender implementation
 
-## Files/tools added or changed
+- `tools/blender_process.py` — fail-closed Blender subprocess boundary.
+- `planning/blender_process_executor.py` — transport-only executor.
+- `planning/blender_tool_requests.py` — deterministic capability request builders.
+- `planning/blender_execution_boundary.py` — authoritative execution boundary.
+- `planning/blender_verification.py` — fail-closed independent verification.
+- `planning/blender_execution_receipt.py` — immutable receipt binding.
+- `inspect_scene` is registered as the controlled read capability.
+- `move_object` is the first controlled write capability.
 
-### `tools/blender_process.py`
+Focused suites:
 
-`run_checked_blender(...)` is the fail-closed subprocess boundary. It rejects non-zero exits, startup failures, timeouts, missing result markers, empty payloads, invalid JSON, and non-object JSON results.
+- `tests/test_blender_process.py`
+- `tests/test_blender_process_executor.py`
+- `tests/test_blender_tool_requests.py`
+- `tests/test_blender_execution_boundary_process.py`
+- `tests/test_blender_tool_requests_write.py`
+- `tests/test_blender_write_execution_gate.py`
 
-### `planning/blender_process_executor.py`
+The `move_object` implementation was added after the reported 141-pass result and therefore still requires fresh validation.
 
-`BlenderProcessExecutor` is transport-only. It receives an already-selected tool and validated arguments, resolves a registered request builder, requires a `BlenderProcessRequest`, and delegates to `run_checked_blender`.
+## Test status
 
-It does not authorize tools, broaden scope, verify scene state, or create receipts.
+### Latest failure
 
-### `planning/blender_tool_requests.py`
+The user reported:
 
-Capability-specific request-builder layer.
+```text
+Run python -m pytest -q
+ERROR collecting tests/test_unreal_transport_failure_boundary.py
+ModuleNotFoundError: No module named 'planning.unreal_adapter_production'
+1 warning, 1 error in 0.86s
+Process completed with exit code 2
+```
 
-`build_inspect_scene_request(...)` creates a deterministic read request and emits a structured scene inspection result.
+This means the reported **737 failed** result is currently classified as **collection failure / suite blocked**, not as 737 failing behavioral tests.
 
-`build_move_object_request(...)` creates the first controlled write request. It preserves the validated `file_name`, `object_name`, and finite three-coordinate `location`; sets the target object's location; saves through Blender's resolved `bpy.data.filepath`; and emits `{ok, state, details}` between `ATLAS_WRITE_START` / `ATLAS_WRITE_END` markers.
+The stale test has now been removed. A fresh full-suite runner result is required before declaring the suite green.
 
-`BLENDER_PROCESS_REQUEST_BUILDERS` registers only `inspect_scene` and `move_object`.
+### Prior results
 
-### `planning/blender_execution_boundary.py`
+- **141 passed — PASS**: latest focused result before the `move_object` increment.
+- **Test 313 passed — PASS**: earlier focused result.
+- **694 passed**: historical development-session milestone; not fresh CI.
+- **687 passed**: verified Python 3.9/3.11 CI baseline; does not validate newer code.
 
-Remains the authoritative higher-level boundary. It validates tool arguments before transport, normalizes results, performs independent verification, and supports immutable receipt binding.
+## Model/runtime
 
-### `planning/blender_verification.py`
+- Qwen `qwen3:8b` via Ollama.
+- Blender 4.4.3.
+- Local Atlas runtime: `atlas-local`.
+- Qwen is planner/reasoner only.
+- Photogrammetry remains upstream of Blender; Blender performs analysis, cleanup, correction, optimization, and preparation for Atlas soccer/sports digital-twin workflows.
 
-`verify_blender_execution(...)` is fail-closed: the result must be a `BlenderExecutionResult`, belong to the expected tool, and report success. A failed write cannot become verified success.
+## Known issues / unverified areas
 
-### `planning/blender_execution_receipt.py`
-
-`BlenderExecutionReceipt` immutably binds the tool, argument digest, and normalized-result digest.
-
-## Tests and outcomes
-
-### Explicitly reported by the user
-
-- **Test 313 passed** — reported August 23, 2026.
-- **141 passed** — reported August 23, 2026.
-
-The 141-pass result predates the current `move_object` implementation, so it does not validate those newer commits.
-
-### Historical / baseline
-
-- **694 passed** — historical development-session milestone; not fresh CI.
-- **687 passed** — verified CI baseline across Python 3.9 and 3.11; not validation of newer code.
-
-### Focused coverage
-
-`tests/test_blender_process.py` — subprocess failure, timeout/startup, marker/payload, and JSON/result validation.
-
-`tests/test_blender_process_executor.py` — transport delegation, registered-builder enforcement, request-shape validation, and failure propagation.
-
-`tests/test_blender_tool_requests.py` — deterministic `inspect_scene` request construction, mismatch/invalid-input rejection, and capability restrictions.
-
-`tests/test_blender_execution_boundary_process.py` — validated `inspect_scene` crossing the execution boundary, exact command/path/marker propagation, and unregistered capability rejection.
-
-`tests/test_blender_tool_requests_write.py` — exact `move_object` argument preservation, write markers, mismatch rejection, malformed coordinate rejection, and restricted registry.
-
-`tests/test_blender_write_execution_gate.py` — validated `move_object` transport, receipt binding, failed-write verification rejection, and pre-transport argument rejection.
-
-## Model/runtime setup
-
-- Qwen: `qwen3:8b` via Ollama
-- Blender: **4.4.3**
-- Local Atlas runtime: `atlas-local`
-- Qwen remains planner/reasoner only
-- Photogrammetry is upstream of Blender; Blender handles analysis, cleanup, correction, optimization, and preparation for Atlas soccer/sports digital-twin workflows.
-
-## Current known issues / unverified areas
-
-1. `move_object` has not yet been covered by a fresh runner result.
-2. The first controlled live Blender operation has not yet been performed.
-3. Independent verification of a real post-write Blender state still needs to be demonstrated.
-4. Receipt binding has focused test coverage but needs proof in the live execution path.
-5. `set_object_rotation` and `create_empty_marker` are not yet bound to the process-request architecture.
-6. Unreal transport/live proof remains a separate production-boundary gate.
-7. OpenHands transition documentation exists, but is not evidence of installed/authorized production access.
+1. A fresh full-suite result is required after removing the stale Unreal collection blocker.
+2. `move_object` has not yet received a fresh post-141 validation result.
+3. The first controlled live Blender operation has not yet been performed.
+4. Independent verification of a real post-write Blender state remains unproven.
+5. Receipt binding needs proof in the live execution path.
+6. `set_object_rotation` and `create_empty_marker` are not yet bound to the process-request architecture.
+7. Unreal production transport remains a separate future gate; only `planning/unreal_adapter_v01.py` is currently present.
+8. OpenHands transition documentation is planning material, not evidence of production access.
 
 ## Exact next steps
 
-1. Run the new focused `move_object` tests through the active action runner.
-2. Fix failures without moving authorization or verification into `tools/blender_process.py`, `planning/blender_process_executor.py`, or `planning/blender_tool_requests.py`.
-3. Establish a fresh green focused regression baseline covering the subprocess boundary, process executor, request builders, and execution boundary.
-4. After that gate is green, perform the **first controlled live `move_object` operation** against a deterministic Blender fixture.
-5. Independently inspect the resulting object transform and require the verification layer to establish final state.
+1. Run `python -m pytest -q` again through the active action runner now that the stale Unreal collection test is removed.
+2. If collection succeeds, fix the smallest actual behavioral failure(s) first.
+3. Establish a fresh green baseline covering the full suite and the new Blender process/write architecture.
+4. Then perform the first controlled live `move_object` operation against a deterministic Blender fixture.
+5. Independently verify the resulting transform and require verification to establish final state.
 6. Bind the verified result to an immutable `BlenderExecutionReceipt`.
-7. Prove a mismatched authoritative state becomes `BLOCKED`, never success.
-8. Add `set_object_rotation` through the same request-builder architecture.
-9. Add `create_empty_marker` through the same architecture.
-10. Continue toward closed-loop execution only after execution, verification, evidence, and replanning are proven together.
-11. Keep Unreal transport/live proof separate from the Blender gate.
-12. Continue OpenHands transition work only in bounded, reversible steps; do not treat planning documentation as proof of production access.
+7. Prove executor/write response + wrong authoritative state becomes `BLOCKED`, never success.
+8. Bind `set_object_rotation` through the same request-builder architecture.
+9. Bind `create_empty_marker` through the same architecture.
+10. Keep Unreal production transport/live proof separate until its missing production adapter/transport architecture is deliberately implemented and tested.
+11. Continue toward closed-loop execution only after execution, verification, evidence, and replanning are proven together.
 
 ## Do not regress
 
@@ -143,9 +125,9 @@ The 141-pass result predates the current `move_object` implementation, so it doe
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from a transport/write response alone.
-- Never move authorization or verification into the low-level process/request-builder layers.
-- Never treat 141 passed as validation of commits made after that result.
+- Never move authorization or verification into `tools/blender_process.py`, `planning/blender_process_executor.py`, or `planning/blender_tool_requests.py`.
+- Never treat 141 passed as validation of newer commits.
 - Never treat 687 or 694 passed as fresh validation of newer code.
+- Never mark the suite green until a fresh runner result covers the current tree.
+- Never recreate a stale Unreal regression by adding speculative production modules merely to satisfy imports.
 - Never connect live Blender until the adapter-focused regression gate is green.
-- Never expand the capability registry without an explicit validated capability and focused tests.
-- Never mark Unreal transport/live proof verified without a recorded result.
