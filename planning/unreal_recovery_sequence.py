@@ -46,8 +46,8 @@ _WRITE_DEFINITIONS = {
     "set_actor_location": (UnrealCapability.MODIFY_ACTOR, "inspect_target_actors", "verify_actor_location", "location"),
     "set_actor_rotation": (UnrealCapability.MODIFY_ACTOR, "inspect_target_actors", "verify_actor_rotation", "rotation"),
     "set_actor_scale": (UnrealCapability.MODIFY_ACTOR, "inspect_target_actors", "verify_actor_scale", "scale"),
-    "apply_material_variant": (UnrealCapability.MATERIAL, "inspect_material_state", "verify_material_variant", "material_variant"),
-    "apply_niagara_variant": (UnrealCapability.NIAGARA, "inspect_niagara_state", "verify_niagara_variant", "niagara_variant"),
+    "apply_material_variant": (UnrealCapability.MATERIAL, "inspect_material_state", "verify_material_variant", "variant"),
+    "apply_niagara_variant": (UnrealCapability.NIAGARA, "inspect_niagara_state", "verify_niagara_variant", "variant"),
 }
 
 _INSPECTION_CAPABILITIES = {
@@ -95,11 +95,21 @@ def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFa
     return UnrealTaskPlan(f"{plan.intent_id}:reassess-sequence", tuple(operations))
 
 
-def _verify(step, evidence):
+def _expected_verifier_state(step):
     _, operation, _, _, _, argument_key = step
     expected = operation.arguments.get(argument_key)
+    if operation.name in {"apply_material_variant", "apply_niagara_variant"}:
+        if not isinstance(expected, str) or not expected.strip():
+            raise ValueError(f"write operation '{operation.name}' has no recoverable variant")
+        return {"name": expected.strip()}
     if not isinstance(expected, Mapping):
         raise ValueError(f"write operation '{operation.name}' has no recoverable target state")
+    return expected
+
+
+def _verify(step, evidence):
+    _, operation, _, _, _, _ = step
+    expected = _expected_verifier_state(step)
     if operation.name == "set_actor_location":
         verify_actor_location(evidence, expected)
     elif operation.name == "set_actor_rotation":
@@ -177,8 +187,10 @@ def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySeque
         verify_args = {"entity_ids": tuple(operation.entity_ids)}
         if operation.name in {"set_actor_location", "set_actor_rotation", "set_actor_scale"}:
             verify_args["expected_" + argument_key] = dict(operation.arguments[argument_key])
-        else:
-            verify_args[argument_key] = dict(operation.arguments[argument_key])
+        elif operation.name == "apply_material_variant":
+            verify_args["expected_material_variant"] = {"name": operation.arguments[argument_key]}
+        elif operation.name == "apply_niagara_variant":
+            verify_args["expected_niagara_variant"] = {"name": operation.arguments[argument_key]}
         operations.extend((
             UnrealOperation(operation.capability, UnrealOperationKind.WRITE, operation.name, dict(operation.arguments), tuple(operation.entity_ids)),
             UnrealOperation(operation.capability, UnrealOperationKind.VERIFY, verify_name, verify_args, tuple(operation.entity_ids)),
