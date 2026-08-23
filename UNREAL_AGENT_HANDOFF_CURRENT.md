@@ -1,83 +1,59 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 22, 2026 — actor-rotation semantic verification
-**Current focus:** Controlled actor transform expansion — rotation proof boundary
-**Current branch:** `feat/unreal-rotation-semantic-verification`
-**Current state:** actor-rotation planning, tool-schema validation, transport execution, and post-write semantic verification are implemented in the development branch.
+**Updated:** August 22, 2026 — composite production verification evidence
+**Current focus:** Controlled composite actor production — transform + material + Niagara verification
+**Current branch:** `feat/unreal-composite-production-operation`
+**Current state:** composite planning, capability validation, production transport execution, and independent post-write semantic verification are implemented. The focused composite Python gate is green at 19 tests on the latest user-run revision; the real-Unreal gate is the remaining proof boundary.
 
 ## Latest completed milestone
 
-PR #33 (`Fix planning runtime proposal revalidation`) is merged into `feat/unreal-production-actor-write`. Issue #32 is closed. The local planning-runtime regression gate is green:
+The composite production path now decomposes a single production intent into deterministic, capability-validated operations:
 
 ```text
-Planning runtime boundary suite: 13 passed
-Qwen planning runtime suite:     5 passed
-Total:                           18 passed
-```
-
-The fix preserves the provider-neutral trust boundary by revalidating provider-built proposals before authorization.
-
-## Current rotation boundary
-
-Actor rotation now has the complete deterministic planning shape:
-
-```text
-READ inspect_target_actors
+READ  inspect_target_actors
+WRITE set_actor_location
+VERIFY verify_actor_location
 WRITE set_actor_rotation
-VERIFY verify_target_actor_mapping
+VERIFY verify_actor_rotation
+WRITE set_actor_scale
+VERIFY verify_actor_scale
+READ  inspect_material_state
+WRITE apply_material_variant
+VERIFY verify_material_variant
+READ  inspect_niagara_state
+WRITE apply_niagara_variant
+VERIFY verify_niagara_variant
 ```
 
-The Python Unreal tool schema strictly admits:
+Each write is immediately followed by a semantic verification boundary. Transform verification compares fresh Unreal observations against the requested location/rotation/scale; material and Niagara verification compare the observed variant names.
 
-```text
-entity_ids
-authorization_id
-rotation:
-  pitch
-  yaw
-  roll
-```
+## Verification evidence contract
 
-The new semantic verification boundary proves that the fresh Unreal observation actually matches the requested rotation rather than merely accepting a successful transport response.
+`UnrealAdapterProduction` deliberately emits evidence with `verified=False`. `UnrealPlanExecutor` now flips a VERIFY evidence record to `verified=True` only after Atlas-side semantic verification succeeds. A verification failure therefore remains a hard execution failure rather than being represented as successful evidence.
 
-`planning/unreal_state_verifier.py` now exposes:
+Focused regression coverage now includes:
 
-```python
-verify_actor_rotation(evidence, expected_rotation)
-```
+- semantic transform verification;
+- material and Niagara variant verification;
+- immediate write/verify execution boundaries;
+- composite planner capability validation;
+- composite verification evidence marked verified only after independent proof.
 
-`UnrealPlanExecutor` applies that verifier immediately after every actor-rotation write/verify pair.
+## Immediate testing gate
 
-Focused regression coverage was added for:
-
-- matching rotation with tolerance;
-- per-axis rotation mismatch;
-- missing rotation evidence;
-- malformed expected rotation shape;
-- executor success only when post-write rotation matches;
-- executor failure when Unreal reports a different post-write rotation.
-
-## Immediate verification gate
-
-Run the focused Python gate first:
+Run the focused composite suite:
 
 ```powershell
-python -m pytest tests/test_unreal_state_verifier_rotation.py tests/test_unreal_rotation_executor_verification.py -q
+python -m pytest tests/test_unreal_verification_evidence_contract.py tests/test_unreal_composite_verification_evidence.py tests/test_unreal_transform_verification_planner.py tests/test_unreal_composite_operation.py tests/test_unreal_plan_executor.py tests/test_unreal_tool_schema.py -q
 ```
 
-Then run the existing actor-rotation boundary tests:
+Then run the real Unreal gate:
 
 ```powershell
-python -m pytest tests/test_unreal_actor_rotation_tool_schema.py tests/test_unreal_actor_rotation_execution.py -q
+python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 ```
 
-If those are green, the remaining proof gate is the real Unreal integration:
-
-```powershell
-python -m pytest tests/test_unreal_actor_rotation_real_integration.py -vv -s
-```
-
-The real integration test mutates `FIELD_SURFACE`, verifies the requested rotation through fresh Unreal evidence, and restores the original rotation in `finally`.
+The real integration mutates `FIELD_SURFACE`, proves all five post-write verification boundaries against fresh Unreal evidence, and restores the original transform/material/Niagara state in `finally`.
 
 ## Architectural invariants
 
@@ -87,6 +63,7 @@ The real integration test mutates `FIELD_SURFACE`, verifies the requested rotati
 - Unreal adapter executes.
 - Unreal provides evidence.
 - Atlas verifies semantic state independently.
+- Verification evidence is marked verified only after independent proof.
 - Failures require fresh evidence and explicit recovery.
 - Replacement mutations require explicit plan-bound authorization.
 - The Unreal Agent must never become a second autonomous authority separate from Atlas.
