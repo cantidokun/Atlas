@@ -1,4 +1,5 @@
 import json
+import subprocess
 
 import pytest
 
@@ -67,14 +68,14 @@ def test_checked_blender_rejects_missing_end_marker(monkeypatch):
 
 def test_checked_blender_rejects_timeout(monkeypatch):
     def raise_timeout(*args, **kwargs):
-        raise TimeoutError("runner timeout")
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=60)
 
     monkeypatch.setattr(
         "tools.blender_process.subprocess.run",
         raise_timeout,
     )
 
-    with pytest.raises(TimeoutError, match="runner timeout"):
+    with pytest.raises(RuntimeError, match="timed out"):
         run_checked_blender("blender", "scene.blend", "", "ATLAS_START", "ATLAS_END")
 
 
