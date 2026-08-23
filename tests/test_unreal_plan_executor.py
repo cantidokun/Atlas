@@ -131,7 +131,9 @@ def test_executor_verifies_actor_location_after_write():
 
     assert result.success is True
     assert len(result.evidence_ledger) == 2
-    assert [request.operation_name for request in transport.requests] == ["set_actor_location", "verify_actor_location"]
+    assert [e.operation_name for e in result.evidence_ledger] == ["set_actor_location", "verify_actor_location"]
+    assert [request.operation_name for request in transport.requests] == ["set_actor_location", "inspect_target_actors"]
+    assert result.evidence_ledger[1].verified is True
 
 
 def test_executor_rejects_post_write_location_mismatch():
