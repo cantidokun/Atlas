@@ -12,7 +12,7 @@ class BlenderExecutor(Protocol):
 
 
 class BlenderExecutionBoundary:
-    """Validate, execute, verify, and optionally receipt-bind Blender calls."""
+    """Validate, execute, verify, and receipt-bind Blender calls."""
 
     def __init__(self, executor: BlenderExecutor):
         self._executor = executor
@@ -39,3 +39,17 @@ class BlenderExecutionBoundary:
         normalized = verify_blender_execution(normalize_blender_result(tool, result), tool)
         receipt = BlenderExecutionReceipt.create(tool, validated, normalized)
         return normalized, receipt
+
+    def execute_authorized_replan(self, replan: Any, current_evidence: Any):
+        """Execute one corrective action only after replan authorization is revalidated."""
+        from action_plan import ActionSpec
+
+        actions = getattr(replan, "actions", None)
+        authorization = getattr(replan, "authorization", None)
+        if not isinstance(actions, list) or len(actions) != 1 or not isinstance(actions[0], ActionSpec):
+            raise RuntimeError("authorized corrective execution requires exactly one ActionSpec")
+        if authorization is None or not authorization.matches(current_evidence, actions):
+            raise RuntimeError("corrective replan authorization is stale or invalid")
+
+        action = actions[0]
+        return self.execute_with_receipt(action.tool, action.arguments)

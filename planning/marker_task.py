@@ -16,6 +16,9 @@ def marker_target_evaluator() -> TargetStateEvaluator:
             "marker_exists",
             lambda evidence: any(
                 obj.get("name") == MARKER_OBJECT
+                for obj in evidence.get("scene", {}).get("objects", evidence.get("objects", []))
+            ) if isinstance(evidence.get("scene"), dict) else any(
+                obj.get("name") == MARKER_OBJECT
                 for obj in evidence.get("objects", [])
             ),
         ),
@@ -23,8 +26,15 @@ def marker_target_evaluator() -> TargetStateEvaluator:
             "marker_type_empty",
             lambda evidence: any(
                 obj.get("name") == MARKER_OBJECT and obj.get("type") == "EMPTY"
+                for obj in evidence.get("scene", {}).get("objects", evidence.get("objects", []))
+            ) if isinstance(evidence.get("scene"), dict) else any(
+                obj.get("name") == MARKER_OBJECT and obj.get("type") == "EMPTY"
                 for obj in evidence.get("objects", [])
             ),
+        ),
+        StateInvariant(
+            "marker_in_atlas_collection",
+            lambda evidence: MARKER_COLLECTION in evidence.get("collections", []),
         ),
     ])
 
@@ -46,10 +56,11 @@ def marker_task_definition(file_name: str) -> AtlasTaskDefinition:
     return AtlasTaskDefinition(
         name="marker_creation",
         evidence=(
+            EvidenceRequest("inspect_scene", {"file_name": file_name}, "inspect_scene"),
             EvidenceRequest(
-                "inspect_scene",
-                {"file_name": file_name},
-                "inspect_scene",
+                "inspect_object_collections",
+                {"file_name": file_name, "object_name": MARKER_OBJECT},
+                "inspect marker collection membership",
             ),
         ),
         actions=(marker_create_action(file_name),),

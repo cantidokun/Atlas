@@ -1,7 +1,7 @@
 """Declarative task definition shared by Atlas production-task adapters."""
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from action_plan import ActionSpec
 from planning.evidence_plan import EvidenceRequest
@@ -16,7 +16,7 @@ class AtlasTaskDefinition:
     evidence: Tuple[EvidenceRequest, ...]
     actions: Tuple[ActionSpec, ...]
     evaluator: TargetStateEvaluator
-    allowed_action_tools: Set[str]
+    allowed_action_tools: FrozenSet[str]
     allow_writes: bool = False
     verify_after_action: bool = True
     metadata: Optional[Dict[str, Any]] = None
@@ -28,10 +28,12 @@ class AtlasTaskDefinition:
             raise ValueError("task must define at least one evidence request")
         if not self.actions:
             raise ValueError("task must define at least one action")
-        if not self.allowed_action_tools:
+        allowed = frozenset(self.allowed_action_tools)
+        if not allowed:
             raise ValueError("task must define allowed action tools")
+        object.__setattr__(self, "allowed_action_tools", allowed)
         action_tools = {action.tool for action in self.actions}
-        unknown = action_tools - set(self.allowed_action_tools)
+        unknown = action_tools - allowed
         if unknown:
             raise ValueError(f"actions use unauthorized tools: {sorted(unknown)}")
 

@@ -1,0 +1,45 @@
+name: Live Blender Interrupted Recovery Regression
+
+on:
+  push:
+    branches: [feat/blender-adapter-work]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-live-interrupted-recovery
+  cancel-in-progress: true
+
+jobs:
+  interrupted-recovery:
+    name: live interrupted Blender recovery
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    steps:
+      - name: Check out triggering Atlas revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+      - name: Provision deterministic interrupted-recovery fixture
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_object_move_fixtures.py"
+      - name: Phase 1 - mutate before checkpoint boundary
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_interrupted_sequence.py --case 'interrupt-after-move'"
+      - name: Phase 2 - new process recovers from durable checkpoint
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_qwen_interrupted_sequence.py --case 'resume'"
