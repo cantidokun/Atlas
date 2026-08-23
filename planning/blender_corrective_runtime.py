@@ -1,13 +1,16 @@
 """Runtime adapter for reusable corrective tasks on the protected Blender executor."""
 from __future__ import annotations
 
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Optional, Sequence, Union
 
 from action_plan import ActionSpec
 from planning.autonomous_corrective_task import AutonomousCorrectiveTask, CorrectiveTaskResult
 from planning.blender_autonomous_executor import BlenderAutonomousExecutor
 
-Executor = BlenderAutonomousExecutor | Callable[[str, dict[str, Any]], dict[str, Any]]
+Executor = Union[
+    BlenderAutonomousExecutor,
+    Callable[[str, dict[str, Any]], dict[str, Any]],
+]
 
 
 class BlenderCorrectiveRuntime:
@@ -18,7 +21,7 @@ class BlenderCorrectiveRuntime:
         observe: Callable[[], Any],
         plan: Callable[[Any], Sequence[ActionSpec]],
         authorization_id: str,
-        executor: Executor | None = None,
+        executor: Optional[Executor] = None,
     ) -> None:
         self.executor = executor or BlenderAutonomousExecutor()
         self.task = AutonomousCorrectiveTask(
