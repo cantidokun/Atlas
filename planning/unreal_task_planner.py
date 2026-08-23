@@ -41,7 +41,7 @@ class UnrealTaskPlanner:
         if not plans: raise ValueError("plans must contain at least one UnrealTaskPlan")
         operations=[]
         for index, plan in enumerate(plans):
-            if not isinstance(plan, UnrealTaskPlan): raise TypeError(f"plans[{index}] must be an UnrealTaskPlan instance")
+            if not isinstance(plan, UnrealTaskPlan): raise TypeError(f"plans[{index}] must be a UnrealTaskPlan instance")
             if plan.intent_id != intent.intent_id: raise ValueError("all composed plans must use the same intent_id as the supplied intent")
             operations.extend(plan.operations)
         return UnrealTaskPlan(intent.intent_id, tuple(operations))
@@ -78,31 +78,33 @@ class UnrealAgentPlanBuilder:
         for raw in composite.ordered_operations():
             name=raw["name"]
             ids=tuple(raw.get("entity_ids", composite.entity_ids))
-            capability={"set_actor_location":UnrealCapability.MODIFY_ACTOR,"set_actor_rotation":UnrealCapability.MODIFY_ACTOR,"set_actor_scale":UnrealCapability.MODIFY_ACTOR,"apply_material_variant":UnrealCapability.MATERIAL,"apply_niagara_variant":UnrealCapability.NIAGARA}[name]
             arguments=dict(raw.get("arguments", {}))
             for field in ("location", "rotation", "scale", "material_variant", "niagara_variant", "variant"):
                 if field in raw and field not in arguments: arguments[field]=raw[field]
-            arguments["entity_ids"]=ids
             if name == "set_actor_location":
-                arguments={"entity_ids": ids, "location": self._validate_location(arguments["location"])}
+                normalized=self._validate_location(arguments["location"])
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"location":normalized}))
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_location",ids,{"expected_location":normalized}))
             elif name == "set_actor_rotation":
-                arguments={"entity_ids": ids, "rotation": self._validate_rotation(arguments["rotation"])}
+                normalized=self._validate_rotation(arguments["rotation"])
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"rotation":normalized}))
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_rotation",ids,{"expected_rotation":normalized}))
             elif name == "set_actor_scale":
-                arguments={"entity_ids": ids, "scale": self._validate_scale(arguments["scale"])}
+                normalized=self._validate_scale(arguments["scale"])
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"scale":normalized}))
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_scale",ids,{"expected_scale":normalized}))
             elif name == "apply_material_variant":
                 variant=arguments.get("material_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
                 normalized=self._validate_named_variant(variant,"material_variant")
-                arguments={"entity_ids": ids, "material_variant": normalized}
                 operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.READ,"inspect_material_state",ids))
+                operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.WRITE,name,ids,{"material_variant":normalized}))
+                operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.VERIFY,"verify_material_variant",ids,{"material_variant":normalized}))
             elif name == "apply_niagara_variant":
                 variant=arguments.get("niagara_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
                 normalized=self._validate_named_variant(variant,"niagara_variant")
-                arguments={"entity_ids": ids, "niagara_variant": normalized}
                 operations.append(self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids))
-            operations.append(self._operation(capability,UnrealOperationKind.WRITE,name,ids,arguments))
-            if name == "apply_material_variant": operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.VERIFY,"verify_material_variant",ids,{"material_variant":arguments["material_variant"]}))
-            elif name == "apply_niagara_variant": operations.append(self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"niagara_variant":arguments["niagara_variant"]}))
-            else: operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+                operations.append(self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.WRITE,name,ids,{"niagara_variant":normalized}))
+                operations.append(self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"niagara_variant":normalized}))
         return tuple(operations)
     def for_inspection(self, intent):
         ids=self._require_targets(intent); return (self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", ids), self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", ids))
@@ -113,16 +115,16 @@ class UnrealAgentPlanBuilder:
         ids=self._require_targets(intent); variant=self._validate_named_variant(niagara_variant,"niagara_variant")
         return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.WRITE,"apply_niagara_variant",ids,{"niagara_variant":variant}),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"niagara_variant":variant}))
     def for_actor_location_write(self,intent,location):
-        ids=self._require_targets(intent); location=self._validate_location(location); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_location",ids,{"location":location}),self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+        ids=self._require_targets(intent); location=self._validate_location(location); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_location",ids,{"location":location}),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_location",ids,{"expected_location":location}))
     def for_actor_rotation_write(self,intent,rotation):
-        ids=self._require_targets(intent); rotation=self._validate_rotation(rotation); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_rotation",ids,{"rotation":rotation}),self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+        ids=self._require_targets(intent); rotation=self._validate_rotation(rotation); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_rotation",ids,{"rotation":rotation}),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_rotation",ids,{"expected_rotation":rotation}))
     def for_actor_scale_write(self,intent,scale):
-        ids=self._require_targets(intent); scale=self._validate_scale(scale); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_scale",ids,{"scale":scale}),self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+        ids=self._require_targets(intent); scale=self._validate_scale(scale); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_scale",ids,{"scale":scale}),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_scale",ids,{"expected_scale":scale}))
     def for_actor_location_sequence(self,intent,locations):
         ids=self._require_targets(intent)
         if isinstance(locations,(str,bytes)) or not isinstance(locations,Sequence): raise TypeError("locations must be a sequence of mappings")
         if not locations: raise ValueError("locations must contain at least one location")
         operations=[self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids)]
         for location in locations:
-            location=self._validate_location(location); operations.extend((self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_location",ids,{"location":location}),self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids)))
+            location=self._validate_location(location); operations.extend((self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_location",ids,{"location":location}),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_location",ids,{"expected_location":location})))
         return tuple(operations)
