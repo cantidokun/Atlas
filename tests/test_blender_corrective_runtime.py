@@ -6,12 +6,13 @@ class FakeExecutor:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, tool, arguments):
-        self.calls.append((tool, arguments))
-        return {"ok": True, "state": "ok", "details": {}}
+    def execute_authorized_replan(self, authorized_step, fresh_evidence):
+        action = authorized_step.actions[0]
+        self.calls.append((action.tool, action.arguments, fresh_evidence))
+        return {"ok": True, "state": "ok"}, {"tool": action.tool}
 
 
-def test_blender_corrective_runtime_converges_through_executor():
+def test_blender_corrective_runtime_converges_through_authorized_executor():
     state = {"value": 0}
     executor = FakeExecutor()
 
@@ -21,7 +22,9 @@ def test_blender_corrective_runtime_converges_through_executor():
     def plan(evidence):
         if evidence["value"] >= 2:
             return []
-        return [ActionSpec(tool="set_value", arguments={"value": evidence["value"] + 1})]
+        next_value = evidence["value"] + 1
+        state["value"] = next_value
+        return [ActionSpec(tool="set_value", arguments={"value": next_value})]
 
     runtime = BlenderCorrectiveRuntime(observe, plan, "test:blender-runtime", executor=executor)
     result = runtime.run(max_steps=4)
