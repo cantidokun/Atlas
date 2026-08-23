@@ -1,3 +1,4 @@
+from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_agent import UnrealCapability, UnrealOperationKind
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import (
@@ -21,6 +22,11 @@ def _failure():
             "expected_location": {"x": 10.0, "y": 20.0, "z": 30.0},
         },
     )
+
+
+class NoTransport:
+    def send(self, request):
+        raise AssertionError("transport must not be reached when authorization is stale")
 
 
 def test_replacement_plan_reconstructs_a_fresh_location_write_and_verification():
@@ -65,7 +71,7 @@ def test_replacement_plan_rejects_non_replacement_dispositions():
         raise AssertionError("replacement plan must not be created for an already-applied disposition")
 
 
-def test_replacement_execution_requires_a_fresh_authorization_receipt_for_the_new_plan():
+def test_replacement_execution_rejects_stale_reassessment_authorization_before_transport():
     failure = _failure()
     assessment = UnrealRecoveryAssessment(
         "replacement_required",
@@ -75,24 +81,17 @@ def test_replacement_execution_requires_a_fresh_authorization_receipt_for_the_ne
     )
     replacement = failure.replacement_plan(assessment)
     stale = UnrealPlanAuthorization.issue(failure.reassessment_plan(), "stale-reassessment-auth")
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(NoTransport()))
 
-    class NoTransportAdapter:
-        pass
-
-    # The executor must reject the stale receipt before any adapter execution.
     try:
-        UnrealPlanExecutor(NoTransportAdapter()).execute_authorized(replacement, stale)
-    except TypeError:
-        # Adapter type validation is expected before authorization dispatch in this construction.
-        pass
-
-    # Verify the authorization boundary directly against the replacement plan.
-    fresh = UnrealPlanAuthorization.issue(replacement, "fresh-replacement-auth")
-    assert fresh.matches(replacement)
-    assert not stale.matches(replacement)
+        executor.execute_authorized(replacement, stale)
+    except UnrealPlanExecutionError as exc:
+        assert str(exc) == "authorization receipt does not match the exact Unreal task plan"
+    else:
+        raise AssertionError("replacement execution must reject the stale reassessment authorization")
 
 
-def test_replacement_plan_cannot_change_failed_entity_scope():
+def test_replacement_plan_requires_failed_entity_scope():
     failure = _failure()
     assessment = UnrealRecoveryAssessment(
         "replacement_required",
