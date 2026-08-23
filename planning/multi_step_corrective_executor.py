@@ -1,10 +1,17 @@
 """Execute dependent corrective steps through the protected Blender boundary."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, List, Tuple
 
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.multi_step_corrective_recovery import CorrectiveStep, MultiStepCorrectiveRecovery
+
+
+@dataclass(frozen=True)
+class _AuthorizedStep:
+    actions: list
+    authorization: Any
 
 
 class MultiStepCorrectiveExecutor:
@@ -29,6 +36,7 @@ class MultiStepCorrectiveExecutor:
                 return receipts
             fresh_evidence = self.observe()
             self.recovery.validate_step(step, fresh_evidence)
-            result, receipt = self.boundary.execute_authorized_replan(step, fresh_evidence)
+            authorized = _AuthorizedStep(actions=[step.action], authorization=step.authorization)
+            result, receipt = self.boundary.execute_authorized_replan(authorized, fresh_evidence)
             receipts.append((result, receipt))
         raise RuntimeError("multi-step corrective recovery exceeded step budget")
