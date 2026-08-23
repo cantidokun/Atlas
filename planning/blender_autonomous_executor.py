@@ -33,36 +33,31 @@ class BlenderAutonomousExecutor:
         return self._last_receipt
 
     def capability_for(self, tool: str):
-        """Return the declared capability for a Blender tool or fail closed."""
         try:
             return self._command_registry.resolve(tool)
         except CommandRegistryError as exc:
             raise ValueError(str(exc)) from exc
 
     def __call__(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute one autonomous action through capability and execution boundaries."""
         self.capability_for(tool)
         normalized, receipt = self._boundary.execute_with_receipt(tool, arguments)
         self._last_result = normalized
         self._last_receipt = receipt
-        return {
-            "ok": normalized.ok,
-            "state": normalized.state,
-            "details": dict(normalized.details),
-        }
+        return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
 
     def execute_authorized_replan(self, authorized_step: Any, fresh_evidence: Any):
-        """Execute one already-authorized corrective step through the same protected boundary."""
+        """Execute one authorized corrective step through the protected boundary."""
         actions = getattr(authorized_step, "actions", None)
         if not isinstance(actions, list) or len(actions) != 1:
             raise RuntimeError("authorized corrective execution requires exactly one ActionSpec")
         action = actions[0]
         self.capability_for(action.tool)
-        self._boundary.execute_authorized_replan(authorized_step, fresh_evidence)
-        return self._last_result, self._last_receipt
+        normalized, receipt = self._boundary.execute_authorized_replan(authorized_step, fresh_evidence)
+        self._last_result = normalized
+        self._last_receipt = receipt
+        return normalized, receipt
 
     def receipt_matches_last_execution(self, tool: str, arguments: Dict[str, Any]) -> bool:
-        """Confirm the retained receipt still binds the supplied request."""
         if self._last_result is None or self._last_receipt is None:
             return False
         return self._last_receipt.matches(tool, arguments, self._last_result)
