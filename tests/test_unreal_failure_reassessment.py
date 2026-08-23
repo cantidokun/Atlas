@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
-from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
-from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor, UnrealPlanExecutionFailure
-from planning.unreal_task_planner import UnrealTaskPlan
+from planning.unreal_agent import UnrealCapability, UnrealOperationKind
+from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutor
 from planning.unreal_transport_contract import UnrealTransportResponse
 
 
@@ -56,7 +55,7 @@ def test_failure_reassessment_plan_is_read_only_and_targets_failed_entities():
     assert all(operation.entity_ids == ("FIELD_SURFACE",) for operation in plan.operations)
 
 
-def test_failure_reassessment_plan_requires_explicit_authorization_before_execution():
+def test_failure_reassessment_returns_fresh_but_unverified_evidence():
     failure = _failure()
     plan = failure.reassessment_plan()
     transport = RecordingTransport({
@@ -82,7 +81,8 @@ def test_failure_reassessment_plan_requires_explicit_authorization_before_execut
         "inspect_target_actors",
         "verify_target_actor_mapping",
     ]
-    assert all(e.verified for e in result.evidence_ledger)
+    assert all(not e.verified for e in result.evidence_ledger)
+    assert result.evidence_ledger[-1].observed_state["FIELD_SURFACE"]["location"]["x"] == 11.0
 
 
 def test_failure_reassessment_plan_does_not_replay_failed_mutation():
