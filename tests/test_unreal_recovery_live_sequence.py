@@ -16,6 +16,7 @@ from planning.unreal_recovery_sequence import (
     assess_reassessment_sequence,
     build_reassessment_plan,
     build_replacement_plan,
+    execute_recovery_sequence,
     issue_replacement_authorization,
     execute_replacement_authorized,
 )
@@ -116,16 +117,19 @@ def _plan():
     return UnrealTaskPlan("composite-live-recovery", operations)
 
 
-def test_production_executor_recovery_sequence_replaces_only_failed_write():
+def _failed_execution():
     transport = StatefulRecoveryTransport()
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport, "recovery-sequence-test"))
     plan = _plan()
     authorization = UnrealPlanAuthorization.issue(plan, "composite-original-auth")
-
     with pytest.raises(UnrealPlanExecutionError) as exc_info:
         executor.execute_authorized(plan, authorization)
+    return transport, executor, plan, exc_info.value.failure
 
-    failure = exc_info.value.failure
+
+def test_production_executor_recovery_sequence_replaces_only_failed_write():
+    transport, executor, plan, failure = _failed_execution()
+
     assert failure is not None
     assert failure.operation_index == 2
     assert failure.operation_name == "set_actor_rotation"
@@ -161,6 +165,41 @@ def test_production_executor_recovery_sequence_replaces_only_failed_write():
     ]
     assert result.evidence_ledger[-1].verified is True
     assert transport.state[ENTITY_ID]["location"] == {"x": 10.0, "y": 20.0, "z": 30.0}
+    assert transport.state[ENTITY_ID]["rotation"] == {"pitch": 0.0, "yaw": 45.0, "roll": 0.0}
+    assert transport.requests[-2].authorization_id == "replacement-auth"
+    assert transport.requests[-1].authorization_id == "replacement-auth"
+
+
+def test_recovery_coordinator_requires_replacement_authorization_before_any_replacement_write():
+    transport, executor, plan, failure = _failed_execution()
+    reassessment = build_reassessment_plan(plan, failure)
+    reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
+
+    with pytest.raises(ValueError, match="separate replacement authorization"):
+        execute_recovery_sequence(executor, plan, failure, reassessment_auth)
+
+    assert [request.operation_name for request in transport.requests] == [
+        "inspect_target_actors",
+        "verify_actor_location",
+        "inspect_target_actors",
+    ]
+
+
+def test_recovery_coordinator_executes_only_the_new_authorized_replacement_plan():
+    transport, executor, plan, failure = _failed_execution()
+    reassessment = build_reassessment_plan(plan, failure)
+    reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
+    reassessment_result = executor.execute_authorized(reassessment, reassessment_auth)
+    assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
+    replacement = build_replacement_plan(plan, assessment)
+    replacement_auth = issue_replacement_authorization(replacement, "replacement-auth")
+
+    result = execute_recovery_sequence(executor, plan, failure, reassessment_auth, replacement_auth)
+
+    assert result.assessment.disposition == "replacement_required"
+    assert result.replacement_plan == replacement
+    assert result.replacement_result is not None
+    assert result.replacement_result.success is True
     assert transport.state[ENTITY_ID]["rotation"] == {"pitch": 0.0, "yaw": 45.0, "roll": 0.0}
     assert transport.requests[-2].authorization_id == "replacement-auth"
     assert transport.requests[-1].authorization_id == "replacement-auth"
