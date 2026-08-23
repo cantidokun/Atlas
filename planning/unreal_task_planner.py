@@ -1,25 +1,19 @@
-"""Fail-closed Unreal task decomposition.
-
-This layer converts an Atlas-owned production intent into a deterministic,
-ordered proposal. It does not authorize or execute the proposal.
-"""
+"""Fail-closed Unreal task decomposition."""
 
 from dataclasses import dataclass
 from typing import Mapping, Sequence, Tuple
 
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
 from planning.unreal_capability_registry import UnrealCapabilityRegistry
-
+from planning.unreal_composite_operation import CompositeActorProductionOperation
 
 @dataclass(frozen=True)
 class UnrealTaskPlan:
     intent_id: str
     operations: Tuple[UnrealOperation, ...]
-
     def __post_init__(self) -> None:
         if not isinstance(self.intent_id, str) or not self.intent_id.strip(): raise ValueError("UnrealTaskPlan intent_id must be a non-empty string")
         if not self.operations: raise ValueError("UnrealTaskPlan must contain at least one operation")
-
 
 class UnrealTaskPlanner:
     def __init__(self, capabilities=None): self.capabilities = capabilities or UnrealCapabilityRegistry()
@@ -36,6 +30,24 @@ class UnrealTaskPlanner:
     def plan_actor_rotation_write(self, intent, rotation): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_rotation_write(intent, rotation))
     def plan_actor_scale_write(self, intent, scale): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_scale_write(intent, scale))
     def plan_actor_location_sequence(self, intent, locations): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
+    def plan_composite_actor_production(self, intent: UnrealTaskIntent, composite: CompositeActorProductionOperation) -> UnrealTaskPlan:
+        self._validate_intent(intent)
+        if not isinstance(composite, CompositeActorProductionOperation): raise TypeError("composite must be a CompositeActorProductionOperation")
+        if tuple(intent.target_entity_ids) != composite.entity_ids: raise ValueError("composite entity_ids must exactly match intent target_entity_ids")
+        operations = []
+        for raw in composite.ordered_operations():
+            name = raw["name"]
+            ids = tuple(raw.get("entity_ids", composite.entity_ids))
+            capability, kind = {
+                "set_actor_location": (UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE),
+                "set_actor_rotation": (UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE),
+                "set_actor_scale": (UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE),
+                "apply_material_variant": (UnrealCapability.MATERIAL, UnrealOperationKind.WRITE),
+                "apply_niagara_variant": (UnrealCapability.NIAGARA, UnrealOperationKind.WRITE),
+            }[name]
+            arguments = dict(raw.get("arguments", {})); arguments["entity_ids"] = ids
+            operations.append(self._operation(capability, kind, name, ids, arguments))
+        return UnrealTaskPlan(intent.intent_id, tuple(operations))
     def compose_plans(self, intent, plans):
         self._validate_intent(intent)
         if isinstance(plans, (str, bytes)) or not isinstance(plans, Sequence): raise TypeError("plans must be a sequence of UnrealTaskPlan instances")
@@ -46,7 +58,6 @@ class UnrealTaskPlanner:
             if plan.intent_id != intent.intent_id: raise ValueError("all composed plans must use the same intent_id as the supplied intent")
             operations.extend(plan.operations)
         return UnrealTaskPlan(intent.intent_id, tuple(operations))
-
 
 class UnrealAgentPlanBuilder:
     def __init__(self, capabilities): self.capabilities = capabilities
@@ -79,10 +90,10 @@ class UnrealAgentPlanBuilder:
         ids=self._require_targets(intent); return (self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", ids), self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", ids))
     def for_material_variant(self, intent, material_variant):
         ids=self._require_targets(intent); variant=self._validate_named_variant(material_variant,"material_variant")
-        return (self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ,"inspect_target_actors",ids), self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.READ,"inspect_material_state",ids), self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.WRITE,"apply_material_variant",ids,{"material_variant":variant}), self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.VERIFY,"verify_material_variant",ids,{"material_variant":variant}))
+        return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.READ,"inspect_material_state",ids),self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.WRITE,"apply_material_variant",ids,{"material_variant":variant}),self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.VERIFY,"verify_material_variant",ids,{"material_variant":variant}))
     def for_niagara_variant(self, intent, niagara_variant):
         ids=self._require_targets(intent); variant=self._validate_named_variant(niagara_variant,"niagara_variant")
-        return (self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ,"inspect_target_actors",ids), self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids), self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.WRITE,"apply_niagara_variant",ids,{"niagara_variant":variant}), self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"niagara_variant":variant}))
+        return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.WRITE,"apply_niagara_variant",ids,{"niagara_variant":variant}),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"niagara_variant":variant}))
     def for_actor_location_write(self,intent,location):
         ids=self._require_targets(intent); location=self._validate_location(location); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_location",ids,{"location":location}),self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
     def for_actor_rotation_write(self,intent,rotation):
