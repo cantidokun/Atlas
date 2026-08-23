@@ -28,7 +28,7 @@ class MixedDomainRecoveryTransport:
     def send(self, request):
         self.requests.append(request)
         name = request.operation_name
-        if name in {"inspect_target_actors", "inspect_material_state", "inspect_niagara_state", "verify_actor_location", "verify_material_variant", "verify_niagara_variant"}:
+        if name in {"inspect_target_actors", "inspect_material_state", "inspect_niagara_state"}:
             return self._response(request)
         if name == "set_actor_location":
             self.state[ENTITY_ID]["location"] = dict(request.arguments["location"])
@@ -42,7 +42,7 @@ class MixedDomainRecoveryTransport:
                 return self._response(request, False, "deterministic Niagara failure")
             self.state[ENTITY_ID]["niagara"] = {"variant": dict(request.arguments["niagara_variant"])}
             return self._response(request)
-        return self._response(request, False, f"unsupported fixture operation: {name}")
+        return self._response(request, False, f"unsupported operation: {name}")
 
     def _response(self, request, success=True, error=""):
         return UnrealTransportResponse(request_id=request.request_id, operation_name=request.operation_name, entity_ids=request.entity_ids, success=success, observed_state={ENTITY_ID: dict(self.state[ENTITY_ID])}, error=error, source="mixed-domain-recovery-transport")
@@ -87,6 +87,9 @@ def test_mixed_domain_failure_reassesses_all_prior_domains_and_replaces_only_unr
 
     replacement = build_replacement_plan(plan, assessment)
     assert [op.name for op in replacement.operations] == ["apply_niagara_variant", "verify_niagara_variant"]
+    assert replacement.operations[0].arguments["niagara_variant"] == {"name": "goal_burst"}
+    assert replacement.operations[1].arguments["niagara_variant"] == {"name": "goal_burst"}
+
     baseline = len(transport.requests)
     with pytest.raises(ValueError, match="separate replacement authorization"):
         execute_recovery_sequence(executor, plan, failure, reassessment_auth)
