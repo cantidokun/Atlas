@@ -7,6 +7,8 @@ from action_plan import ActionSpec
 from planning.autonomous_corrective_task import AutonomousCorrectiveTask, CorrectiveTaskResult
 from planning.blender_autonomous_executor import BlenderAutonomousExecutor
 
+Executor = BlenderAutonomousExecutor | Callable[[str, dict[str, Any]], dict[str, Any]]
+
 
 class BlenderCorrectiveRuntime:
     """Run an authorized corrective planner using the production Blender executor."""
@@ -16,7 +18,7 @@ class BlenderCorrectiveRuntime:
         observe: Callable[[], Any],
         plan: Callable[[Any], Sequence[ActionSpec]],
         authorization_id: str,
-        executor: BlenderAutonomousExecutor | None = None,
+        executor: Executor | None = None,
     ) -> None:
         self.executor = executor or BlenderAutonomousExecutor()
         self.task = AutonomousCorrectiveTask(
