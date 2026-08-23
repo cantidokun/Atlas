@@ -1,9 +1,9 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 23, 2026 — semantic verifier binding boundary
-**Current focus:** Multi-operation production execution with failure containment
+**Updated:** August 23, 2026 — explicit failure reassessment boundary
+**Current focus:** Multi-operation production execution with failure containment and recovery coordination
 **Current branch:** `feat/unreal-composite-production-operation`
-**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, and semantic write-to-verifier binding are implemented.
+**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, and explicit failure reassessment planning are implemented.
 
 ## Latest completed milestone
 
@@ -45,7 +45,20 @@ A same-entity verification is therefore not sufficient by itself. A plan cannot 
 
 These checks are deliberately executor-side defense-in-depth. Planner-generated plans remain validated by the planner; the executor remains the final execution boundary.
 
-## Failure containment invariants
+## Failure containment and recovery boundary
+
+`UnrealPlanExecutionFailure` preserves the failed operation, target entities, operation arguments, completed evidence, and completed operation arguments.
+
+The failure object now exposes `reassessment_plan()`. This produces a fresh, read-only Unreal inspection plan for the failed operation's entity scope:
+
+```text
+READ  inspect_target_actors
+VERIFY verify_target_actor_mapping
+```
+
+The reassessment plan deliberately contains **no WRITE operations** and does not replay the failed mutation. It is a coordination boundary: recovery must execute the fresh-state reassessment explicitly, then construct and authorize any replacement mutation separately.
+
+Recovery invariants:
 
 - A malformed later operation cannot cause an earlier real-Unreal mutation.
 - Every write requires an immediate verification operation.
@@ -53,6 +66,7 @@ These checks are deliberately executor-side defense-in-depth. Planner-generated 
 - Verification requires fresh evidence and independent Atlas-side semantic proof.
 - Runtime transport failures stop execution immediately.
 - Completed evidence and operation arguments remain available through `UnrealPlanExecutionFailure` for recovery coordination.
+- Recovery reassessment is read-only and scoped to the failed operation's entities.
 - Recovery must reassess fresh Unreal state and must not silently retry a failed mutation.
 - Replacement mutations require explicit authorization.
 
@@ -61,13 +75,7 @@ These checks are deliberately executor-side defense-in-depth. Planner-generated 
 After implementation changes, run the focused Unreal regression suite:
 
 ```powershell
-python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_transform_verification_planner.py tests/test_unreal_composite_operation.py tests/test_unreal_tool_schema.py -q
-```
-
-Also include authorization regression coverage when validating the broader Python Unreal boundary:
-
-```powershell
-python -m pytest tests/test_unreal_plan_authorization.py -q
+python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_transform_verification_planner.py tests/test_unreal_composite_operation.py tests/test_unreal_tool_schema.py tests/test_unreal_plan_authorization.py tests/test_unreal_failure_reassessment.py -q
 ```
 
 Then run the real Unreal composite gate:
@@ -76,7 +84,7 @@ Then run the real Unreal composite gate:
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 ```
 
-The real integration remains the engine-dependent proof boundary. The semantic verifier binding change itself is Python-side and should be established by the focused suites before another live Unreal run.
+The real integration remains the engine-dependent proof boundary. The failure reassessment boundary itself is Python-side and should be established by the focused suites before another live Unreal run.
 
 ## Architectural invariants
 
@@ -88,6 +96,7 @@ The real integration remains the engine-dependent proof boundary. The semantic v
 - Atlas verifies semantic state independently.
 - Verification evidence is marked verified only after independent proof.
 - Failures require fresh evidence and explicit recovery.
+- Recovery reassessment is read-only and never an implicit retry.
 - Replacement mutations require explicit plan-bound authorization.
 - The Unreal Agent must never become a second autonomous authority separate from Atlas.
 - Keep development isolated from the action/workflow runner.
