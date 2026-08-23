@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, List, Tuple
 
 from planning.blender_execution_boundary import BlenderExecutionBoundary
-from planning.multi_step_corrective_recovery import CorrectiveStep, MultiStepCorrectiveRecovery
+from planning.multi_step_corrective_recovery import MultiStepCorrectiveRecovery
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,8 @@ class MultiStepCorrectiveExecutor:
         self.observe = observe
 
     def execute_all(self, max_steps: int = 16) -> List[Tuple[Any, Any]]:
+        if max_steps < 1:
+            raise ValueError("max_steps must be at least 1")
         receipts: List[Tuple[Any, Any]] = []
         for _ in range(max_steps):
             step = self.recovery.next_step()
@@ -39,4 +41,4 @@ class MultiStepCorrectiveExecutor:
             authorized = _AuthorizedStep(actions=[step.action], authorization=step.authorization)
             result, receipt = self.boundary.execute_authorized_replan(authorized, fresh_evidence)
             receipts.append((result, receipt))
-        raise RuntimeError("multi-step corrective recovery exceeded step budget")
+        return receipts
