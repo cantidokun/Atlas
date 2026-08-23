@@ -22,10 +22,25 @@ TARGETS = (
 TARGET = {target.object_name: {"location": list(target.location), "rotation": list(target.rotation_degrees)} for target in TARGETS}
 
 
-def _ensure_marker(name: str) -> None:
-    result = create_empty_marker(FILE_NAME, COLLECTION, name)
-    if result.get("status") not in {"created", "already_exists"}:
-        raise RuntimeError(f"failed to establish {name}: {result}")
+def _ensure_object(name: str) -> None:
+    if name == "Atlas_Marker":
+        result = create_empty_marker(FILE_NAME, COLLECTION, name)
+        if result.get("status") not in {"created", "already_exists"}:
+            raise RuntimeError(f"failed to establish {name}: {result}")
+        return
+    # Atlas's safe marker capability intentionally only permits Atlas_Marker.
+    # Reuse that capability to create the deterministic fixture object, then
+    # rename it through the controlled object tool surface.
+    from tools.blender_object import rename_object
+    existing = inspect_object_transform(FILE_NAME, name)
+    if existing.get("status") == "ok":
+        return
+    marker = create_empty_marker(FILE_NAME, COLLECTION, "Atlas_Marker")
+    if marker.get("status") not in {"created", "already_exists"}:
+        raise RuntimeError(f"failed to establish fixture source for {name}: {marker}")
+    renamed = rename_object(FILE_NAME, "Atlas_Marker", name)
+    if renamed.get("status") not in {"ok", "already_renamed"}:
+        raise RuntimeError(f"failed to establish {name}: {renamed}")
 
 
 def _set_transform(name: str, location: list[float], rotation: list[float]) -> None:
@@ -38,8 +53,8 @@ def _set_transform(name: str, location: list[float], rotation: list[float]) -> N
 
 
 def establish_fixture() -> None:
-    _ensure_marker(OBJECT_A)
-    _ensure_marker(OBJECT_B)
+    _ensure_object(OBJECT_A)
+    _ensure_object(OBJECT_B)
     _set_transform(OBJECT_A, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
     _set_transform(OBJECT_B, TARGET[OBJECT_B]["location"], TARGET[OBJECT_B]["rotation"])
 
@@ -50,10 +65,7 @@ def observe() -> dict[str, Any]:
         evidence = inspect_object_transform(FILE_NAME, name)
         if evidence.get("status") != "ok":
             raise RuntimeError(f"fresh inspection failed for {name}: {evidence}")
-        result[name] = {
-            "location": [float(value) for value in evidence["location"]],
-            "rotation": [float(value) for value in evidence["rotation_degrees"]],
-        }
+        result[name] = {"location": [float(value) for value in evidence["location"]], "rotation": [float(value) for value in evidence["rotation_degrees"]]}
     return result
 
 
