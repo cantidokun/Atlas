@@ -1,33 +1,15 @@
 """Production Unreal adapter with pluggable transport.
 
 This adapter replaces the stub ``UnrealAdapterV01`` for real Unreal
-communication.  It does **not** modify or import the v01 adapter.
-
-Design invariants
------------------
-- The adapter never sets ``verified=True`` on evidence — Atlas verifies
-  independently.
-- Authorization IDs are transmitted, never issued, by this layer.
-- The transport is pluggable via the ``UnrealTransport`` protocol so that
-  tests can inject an in-memory implementation.
-- Every response is correlated to its originating request before evidence is
-  constructed.
-- Semantic VERIFY operations may be fulfilled by a read-only transport
-  observation when the process boundary does not expose a distinct VERIFY
-  command. Atlas still records the evidence against the original VERIFY
-  operation and performs semantic verification independently.
+communication. It does not own authorization or verification.
 """
 
 import uuid
-from typing import Any, Dict, Mapping, Optional, Protocol
+from typing import Any, Mapping, Optional, Protocol
 
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind, UnrealCapability
 from planning.unreal_evidence_contract import UnrealEvidence
-from planning.unreal_transport_contract import (
-    UnrealTransportRequest,
-    UnrealTransportResponse,
-    validate_response_correlation,
-)
+from planning.unreal_transport_contract import UnrealTransportRequest, UnrealTransportResponse, validate_response_correlation
 from planning.unreal_transport_named_pipe import NamedPipeTransportError
 
 try:
@@ -38,11 +20,8 @@ except ImportError:
 
 
 class UnrealTransport(Protocol):
-    """Process-boundary transport between Atlas and the Unreal Editor."""
-
     def send(self, request: UnrealTransportRequest) -> UnrealTransportResponse:
-        """Send a validated request and return a validated response."""
-        ...  # pragma: no cover
+        ...
 
 
 class UnrealAdapterError(RuntimeError):
@@ -50,12 +29,6 @@ class UnrealAdapterError(RuntimeError):
 
 
 class UnrealAdapterProduction:
-    """Execute authorized Unreal operations via a pluggable transport.
-
-    The adapter is stateless — each call is independent.  State tracking
-    (plan progress, evidence ledger) belongs to the caller.
-    """
-
     def __init__(self, transport: UnrealTransport, source_tag: str = "atlas-adapter") -> None:
         if not isinstance(source_tag, str) or not source_tag.strip():
             raise ValueError("source_tag must be a non-empty string")
@@ -68,7 +41,6 @@ class UnrealAdapterProduction:
 
     @staticmethod
     def _to_evidence(response: UnrealTransportResponse, operation_name: Optional[str] = None) -> UnrealEvidence:
-        """Convert correlated transport response to engine-neutral evidence."""
         return UnrealEvidence(
             operation_name=operation_name or response.operation_name,
             entity_ids=response.entity_ids,
@@ -77,11 +49,7 @@ class UnrealAdapterProduction:
             verified=False,
         )
 
-    def _build_request(
-        self,
-        operation: UnrealOperation,
-        authorization_id: str,
-    ) -> UnrealTransportRequest:
+    def _build_request(self, operation: UnrealOperation, authorization_id: str) -> UnrealTransportRequest:
         if not isinstance(authorization_id, str) or not authorization_id.strip():
             raise UnrealAdapterError("authorization_id is required for every transport request")
         return UnrealTransportRequest(
@@ -94,13 +62,7 @@ class UnrealAdapterProduction:
             authorization_id=authorization_id.strip(),
         )
 
-    def _execute(
-        self,
-        operation: UnrealOperation,
-        authorization_id: str,
-        *,
-        evidence_operation_name: Optional[str] = None,
-    ) -> UnrealEvidence:
+    def _execute(self, operation: UnrealOperation, authorization_id: str, *, evidence_operation_name: Optional[str] = None) -> UnrealEvidence:
         request = self._build_request(operation, authorization_id)
         try:
             response = self._transport.send(request)
@@ -113,72 +75,45 @@ class UnrealAdapterProduction:
         if not response.success:
             raise UnrealAdapterError(
                 f"Unreal operation '{operation.name}' (kind={operation.kind.value}, "
-                f"entity_ids={list(operation.entity_ids)}, auth_id={authorization_id}) "
-                f"failed: {response.error}"
+                f"entity_ids={list(operation.entity_ids)}, auth_id={authorization_id}) failed: {response.error}"
             )
         return self._to_evidence(response, evidence_operation_name)
 
     def inspect(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence:
-        """Execute a READ operation and return unverified evidence."""
         if operation.kind is not UnrealOperationKind.READ:
             raise UnrealAdapterError("inspect accepts READ operations only")
         return self._execute(operation, authorization_id)
 
     def apply_authorized(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence:
-        """Execute a WRITE operation and return unverified evidence."""
         if operation.kind is not UnrealOperationKind.WRITE:
             raise UnrealAdapterError("apply_authorized accepts WRITE operations only")
         return self._execute(operation, authorization_id)
 
     def verify(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence:
-        """Collect fresh read evidence for a semantic VERIFY operation.
-
-        The current Unreal transport exposes read operations as the concrete
-        observation boundary. Actor verification maps to actor inspection and
-        material verification maps to material-state inspection while Atlas
-        preserves the original semantic VERIFY operation in the evidence.
-        """
         if operation.kind is not UnrealOperationKind.VERIFY:
             raise UnrealAdapterError("verify accepts VERIFY operations only")
 
-        if operation.name == "verify_target_actor_mapping":
+        read_mapping = {
+            "verify_target_actor_mapping": (UnrealCapability.INSPECT_ACTOR, "inspect_target_actors"),
+            "verify_material_variant": (UnrealCapability.MATERIAL, "inspect_material_state"),
+            "verify_niagara_variant": (UnrealCapability.NIAGARA, "inspect_niagara_state"),
+        }
+        if operation.name in read_mapping:
+            capability, operation_name = read_mapping[operation.name]
             transport_operation = UnrealOperation(
-                capability=UnrealCapability.INSPECT_ACTOR,
+                capability=capability,
                 kind=UnrealOperationKind.READ,
-                name="inspect_target_actors",
+                name=operation_name,
                 arguments={"entity_ids": tuple(operation.entity_ids)},
                 entity_ids=tuple(operation.entity_ids),
             )
-            return self._execute(
-                transport_operation,
-                authorization_id,
-                evidence_operation_name=operation.name,
-            )
-
-        if operation.name == "verify_material_variant":
-            transport_operation = UnrealOperation(
-                capability=UnrealCapability.MATERIAL,
-                kind=UnrealOperationKind.READ,
-                name="inspect_material_state",
-                arguments={"entity_ids": tuple(operation.entity_ids)},
-                entity_ids=tuple(operation.entity_ids),
-            )
-            return self._execute(
-                transport_operation,
-                authorization_id,
-                evidence_operation_name=operation.name,
-            )
+            return self._execute(transport_operation, authorization_id, evidence_operation_name=operation.name)
 
         return self._execute(operation, authorization_id)
 
 
 def create_production_adapter(source_tag: str = "atlas-adapter-production") -> UnrealAdapterProduction:
-    """Create a production adapter with Windows named pipe transport."""
     if not NAMED_PIPE_AVAILABLE:
-        raise RuntimeError(
-            "Named pipe transport not available. "
-            "This requires Windows and the pywin32 package."
-        )
-
+        raise RuntimeError("Named pipe transport not available. This requires Windows and the pywin32 package.")
     transport = create_named_pipe_transport()
     return UnrealAdapterProduction(transport, source_tag)
