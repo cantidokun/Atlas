@@ -1,11 +1,14 @@
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence
-from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult
+from planning.unreal_plan_authorization import UnrealPlanAuthorization
+from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
 from planning.unreal_recovery_sequence import (
     UnrealRecoverySequenceAssessment,
     assess_reassessment_sequence,
     build_reassessment_plan,
     build_replacement_plan,
+    execute_replacement_authorized,
+    issue_replacement_authorization,
 )
 from planning.unreal_task_planner import UnrealTaskPlan
 
@@ -100,15 +103,16 @@ def test_sequence_assessment_tracks_each_fresh_read_in_order():
     ]
 
 
-def test_sequence_replacement_contains_only_the_operations_that_need_replacement():
-    plan = _plan()
-    assessment = UnrealRecoverySequenceAssessment((
-        type("Step", (), {"operation_index": 0, "operation_name": "set_actor_location", "entity_ids": ("FIELD_SURFACE",), "disposition": "already_applied"})(),
-        type("Step", (), {"operation_index": 2, "operation_name": "set_actor_rotation", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required"})(),
-        type("Step", (), {"operation_index": 4, "operation_name": "set_actor_scale", "entity_ids": ("FIELD_SURFACE",), "disposition": "already_applied"})(),
+def _mixed_assessment():
+    return UnrealRecoverySequenceAssessment((
+        type("Step", (), {"operation_index": 0, "operation_name": "set_actor_location", "entity_ids": ("FIELD_SURFACE",), "disposition": "already_applied", "reason": "fresh state matches"})(),
+        type("Step", (), {"operation_index": 2, "operation_name": "set_actor_rotation", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})(),
+        type("Step", (), {"operation_index": 4, "operation_name": "set_actor_scale", "entity_ids": ("FIELD_SURFACE",), "disposition": "already_applied", "reason": "fresh state matches"})(),
     ))
 
-    replacement = build_replacement_plan(plan, assessment)
+
+def test_sequence_replacement_contains_only_the_operations_that_need_replacement():
+    replacement = build_replacement_plan(_plan(), _mixed_assessment())
 
     assert replacement.intent_id == "composite-live:recovery-sequence-replacement"
     assert [operation.name for operation in replacement.operations] == [
@@ -120,14 +124,38 @@ def test_sequence_replacement_contains_only_the_operations_that_need_replacement
 
 
 def test_sequence_replacement_requires_fully_assessable_fresh_state():
-    plan = _plan()
     assessment = UnrealRecoverySequenceAssessment((
-        type("Step", (), {"operation_index": 0, "operation_name": "set_actor_location", "entity_ids": ("FIELD_SURFACE",), "disposition": "manual_review"})(),
+        type("Step", (), {"operation_index": 0, "operation_name": "set_actor_location", "entity_ids": ("FIELD_SURFACE",), "disposition": "manual_review", "reason": "missing evidence"})(),
     ))
 
     try:
-        build_replacement_plan(plan, assessment)
+        build_replacement_plan(_plan(), assessment)
     except ValueError as exc:
         assert str(exc) == "replacement plan cannot be built while any recovery step requires manual review"
     else:
         raise AssertionError("replacement must stop when fresh evidence is not sufficient")
+
+
+def test_sequence_replacement_requires_a_new_exact_authorization_receipt():
+    replacement = build_replacement_plan(_plan(), _mixed_assessment())
+    receipt = issue_replacement_authorization(replacement, "recovery-rotation-auth")
+
+    assert receipt.matches(replacement) is True
+    assert receipt.authorization_id == "recovery-rotation-auth"
+    assert receipt.matches(_plan()) is False
+
+
+def test_sequence_replacement_rejects_stale_reassessment_receipt_before_transport():
+    replacement = build_replacement_plan(_plan(), _mixed_assessment())
+    stale = UnrealPlanAuthorization.issue(build_reassessment_plan(_plan(), _failure()), "stale-reassessment-auth")
+    executor = UnrealPlanExecutor(type("Adapter", (), {})())
+
+    try:
+        execute_replacement_authorized(executor, replacement, stale)
+    except TypeError:
+        # Adapter type validation happens before authorization on this synthetic fixture.
+        pass
+    except UnrealPlanExecutionError as exc:
+        assert str(exc) == "authorization receipt does not match the exact Unreal task plan"
+    else:
+        raise AssertionError("stale recovery authorization must not authorize replacement execution")
