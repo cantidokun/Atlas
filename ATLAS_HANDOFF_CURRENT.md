@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 23, 2026 — 01:42 EDT  
-**Current repository HEAD:** `876464a3ffa44c24baf9c8cd9953ef4a840fe928` (`docs: refresh canonical Atlas handoff with OpenHands transition state`)  
+**Updated:** August 23, 2026 — 04:45 EDT  
+**Current repository HEAD:** `589d6d46b504409dfd8551586299cabe20cada5d` (`docs: refresh canonical Atlas handoff with latest OpenHands transition state`)  
 **Latest implementation commit:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
-**Previous implementation/documentation transition commit:** `362a3bcb3fec54c34697b461f2436e89c809dd3f` (`docs: add OpenHands transition guide`)  
+**Latest documentation/transition commit:** `589d6d46b504409dfd8551586299cabe20cada5d`  
 **Latest recorded development test milestone:** **694 passed** (conversation/runtime report); this is not fresh GitHub Actions verification.  
 **Previously recorded verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas development session.
@@ -12,7 +12,7 @@
 
 Atlas remains actively under development. **Workflow/action-runner testing is paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue.
 
-Since the previous handoff, the repository added and incorporated `docs/OPENHANDS_TRANSITION_GUIDE.md` in commit `362a3bcb3fec54c34697b461f2436e89c809dd3f`, followed by handoff/documentation refresh commit `876464a3ffa44c24baf9c8cd9953ef4a840fe928`. No newer implementation commit has been identified after `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`; the later commits are documentation/handoff updates. Do not treat the 687-pass CI baseline as validation for code added after that baseline, and do not treat the 694-pass development report as GitHub Actions verification without an actual authorized runner result.
+Since the previous handoff, the repository added and incorporated `docs/OPENHANDS_TRANSITION_GUIDE.md` in commit `362a3bcb3fec54c34697b461f2436e89c809dd3f`, followed by handoff/documentation refreshes through `589d6d46b504409dfd8551586299cabe20cada5d`. No newer implementation commit has been identified after `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`; the later commits are documentation/handoff updates. Do not treat the 687-pass CI baseline as validation for code added after that baseline, and do not treat the 694-pass development report as GitHub Actions verification without an actual authorized runner result.
 
 ## Architecture
 
