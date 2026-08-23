@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
-from planning.unreal_agent import UnrealOperationKind
+from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_capability_registry import UnrealCapabilityRegistry
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_material_verifier import verify_material_variant
@@ -29,6 +29,36 @@ class UnrealPlanExecutionFailure:
     def __post_init__(self):
         object.__setattr__(self, "operation_arguments", {} if self.operation_arguments is None else dict(self.operation_arguments))
         object.__setattr__(self, "completed_operation_arguments", tuple(dict(a) for a in self.completed_operation_arguments))
+        object.__setattr__(self, "operation_entity_ids", tuple(self.operation_entity_ids))
+
+    def reassessment_plan(self) -> UnrealTaskPlan:
+        """Create a read-only, fresh-state plan for explicit recovery coordination.
+
+        This plan deliberately contains no mutation. A recovery coordinator must
+        reassess current Unreal state before proposing any replacement mutation.
+        The returned plan still requires a separate authorization receipt before
+        execution through ``execute_authorized``.
+        """
+        if not self.operation_entity_ids:
+            raise ValueError("failure must contain operation_entity_ids for recovery reassessment")
+        entity_ids = tuple(self.operation_entity_ids)
+        operations = (
+            UnrealOperation(
+                capability=UnrealCapability.INSPECT_ACTOR,
+                kind=UnrealOperationKind.READ,
+                name="inspect_target_actors",
+                arguments={"entity_ids": entity_ids},
+                entity_ids=entity_ids,
+            ),
+            UnrealOperation(
+                capability=UnrealCapability.INSPECT_ACTOR,
+                kind=UnrealOperationKind.VERIFY,
+                name="verify_target_actor_mapping",
+                arguments={"entity_ids": entity_ids},
+                entity_ids=entity_ids,
+            ),
+        )
+        return UnrealTaskPlan(f"{self.intent_id}:reassess", operations)
 
 
 class UnrealPlanExecutionError(RuntimeError):
