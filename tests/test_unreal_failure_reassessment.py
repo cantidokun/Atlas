@@ -121,6 +121,51 @@ def test_failure_reassessment_discards_stale_completed_verification_state():
     assert all(e.source != "previous-execution" for e in result.evidence_ledger)
 
 
+def test_failure_reassessment_classifies_mismatched_fresh_state_as_replacement_required():
+    failure = _failure()
+    transport = RecordingTransport({
+        "FIELD_SURFACE": {
+            "entity_id": "FIELD_SURFACE",
+            "actor_name": "FieldSurface",
+            "actor_class": "Actor",
+            "location": {"x": 11.0, "y": 20.0, "z": 30.0},
+            "rotation": {"pitch": 0, "yaw": 0, "roll": 0},
+            "scale": {"x": 1, "y": 1, "z": 1},
+        }
+    })
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+
+    assessment = failure.assess_reassessment(
+        executor.execute(failure.reassessment_plan(), "recovery-reassessment-auth")
+    )
+
+    assert assessment.disposition == "replacement_required"
+    assert assessment.operation_name == "verify_actor_location"
+    assert assessment.entity_ids == ("FIELD_SURFACE",)
+
+
+def test_failure_reassessment_classifies_matching_fresh_state_as_already_applied():
+    failure = _failure()
+    transport = RecordingTransport({
+        "FIELD_SURFACE": {
+            "entity_id": "FIELD_SURFACE",
+            "actor_name": "FieldSurface",
+            "actor_class": "Actor",
+            "location": {"x": 10.0, "y": 20.0, "z": 30.0},
+            "rotation": {"pitch": 0, "yaw": 0, "roll": 0},
+            "scale": {"x": 1, "y": 1, "z": 1},
+        }
+    })
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+
+    assessment = failure.assess_reassessment(
+        executor.execute(failure.reassessment_plan(), "recovery-reassessment-auth")
+    )
+
+    assert assessment.disposition == "already_applied"
+    assert assessment.reason.startswith("fresh Unreal state already matches")
+
+
 def test_failure_reassessment_plan_does_not_replay_failed_mutation():
     plan = _failure().reassessment_plan()
 
