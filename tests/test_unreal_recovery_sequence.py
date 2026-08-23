@@ -43,8 +43,7 @@ def _material_evidence():
 
 
 def test_reassessment_plan_uses_one_read_per_state_domain():
-    plan = _plan()
-    reassessment = build_reassessment_plan(plan, _failure())
+    reassessment = build_reassessment_plan(_plan(), _failure())
     assert [operation.name for operation in reassessment.operations] == ["inspect_target_actors", "inspect_material_state"]
     assert [operation.capability for operation in reassessment.operations] == [UnrealCapability.MODIFY_ACTOR, UnrealCapability.MATERIAL]
     assert all(operation.kind is UnrealOperationKind.READ for operation in reassessment.operations)
@@ -62,9 +61,9 @@ def test_sequence_assessment_classifies_transform_and_material_domains_independe
 
 
 def test_sequence_replacement_rebuilds_only_mismatched_material_domain():
-    assessment = UnrealRecoverySequenceAssessment((
-        *[type("Step", (), {"operation_index": index, "operation_name": name, "entity_ids": ("FIELD_SURFACE",), "disposition": "already_applied", "reason": "fresh state matches"})() for index, name in ((0, "set_actor_location"), (2, "set_actor_rotation"), (4, "set_actor_scale")),],
-        type("Step", (), {"operation_index": 7, "operation_name": "apply_material_variant", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})(),
+    assessment = UnrealRecoverySequenceAssessment(tuple(
+        [type("Step", (), {"operation_index": index, "operation_name": name, "entity_ids": ("FIELD_SURFACE",), "disposition": "already_applied", "reason": "fresh state matches"})() for index, name in ((0, "set_actor_location"), (2, "set_actor_rotation"), (4, "set_actor_scale"))]
+        + [type("Step", (), {"operation_index": 7, "operation_name": "apply_material_variant", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})()]
     ))
     replacement = build_replacement_plan(_plan(), assessment)
     assert [operation.name for operation in replacement.operations] == ["apply_material_variant", "verify_material_variant"]
@@ -72,7 +71,8 @@ def test_sequence_replacement_rebuilds_only_mismatched_material_domain():
 
 
 def test_sequence_replacement_requires_new_authorization():
-    replacement = build_replacement_plan(_plan(), UnrealRecoverySequenceAssessment((type("Step", (), {"operation_index": 7, "operation_name": "apply_material_variant", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})(),)))
+    assessment = UnrealRecoverySequenceAssessment((type("Step", (), {"operation_index": 7, "operation_name": "apply_material_variant", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})(),))
+    replacement = build_replacement_plan(_plan(), assessment)
     receipt = issue_replacement_authorization(replacement, "material-recovery-auth")
     assert receipt.matches(replacement)
     stale = UnrealPlanAuthorization.issue(build_reassessment_plan(_plan(), _failure()), "stale-reassessment-auth")
