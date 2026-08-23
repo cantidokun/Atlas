@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
-from planning.unreal_agent import UnrealOperation, UnrealOperationKind
+from planning.unreal_agent import UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_material_verifier import verify_material_variant
 from planning.unreal_niagara_verifier import verify_niagara_variant
@@ -74,6 +74,21 @@ class UnrealPlanExecutor:
                     f"Write operation {index} ('{operation.name}') and verification must target the same entities"
                 )
 
+    @staticmethod
+    def _verification_expectation(write_operation):
+        arguments = write_operation.arguments
+        if write_operation.name == "set_actor_location":
+            return {"location": dict(arguments["location"])}
+        if write_operation.name == "set_actor_rotation":
+            return {"rotation": dict(arguments["rotation"])}
+        if write_operation.name == "set_actor_scale":
+            return {"scale": dict(arguments["scale"])}
+        if write_operation.name == "apply_material_variant":
+            return {"material_variant": dict(arguments["material_variant"])}
+        if write_operation.name == "apply_niagara_variant":
+            return {"niagara_variant": dict(arguments["niagara_variant"])}
+        return {}
+
     def _execute_one(
         self,
         operation,
@@ -117,21 +132,6 @@ class UnrealPlanExecutor:
     def _failure_context(operation):
         return dict(operation.arguments)
 
-    @staticmethod
-    def _verification_expectation(write_operation):
-        arguments = write_operation.arguments
-        if write_operation.name == "set_actor_location":
-            return {"location": dict(arguments["location"])}
-        if write_operation.name == "set_actor_rotation":
-            return {"rotation": dict(arguments["rotation"])}
-        if write_operation.name == "set_actor_scale":
-            return {"scale": dict(arguments["scale"])}
-        if write_operation.name == "apply_material_variant":
-            return {"material_variant": dict(arguments["material_variant"])}
-        if write_operation.name == "apply_niagara_variant":
-            return {"niagara_variant": dict(arguments["niagara_variant"])}
-        return {}
-
     def execute_authorized(self, plan, authorization):
         if not isinstance(authorization, UnrealPlanAuthorization):
             raise TypeError("authorization must be an UnrealPlanAuthorization instance")
@@ -148,27 +148,25 @@ class UnrealPlanExecutor:
 
         ledger = []
         completed = []
-        expected = {}
 
         for index, operation in enumerate(plan.operations):
-            if operation.kind is UnrealOperationKind.WRITE:
-                expected = self._verification_expectation(operation)
-            elif operation.kind is UnrealOperationKind.VERIFY:
-                # Expectations belong only to the write immediately preceding this verifier.
-                # Any non-write READ boundary clears the pending expectation.
-                pass
-            else:
-                expected = {}
+            expected = {}
+            if operation.kind is UnrealOperationKind.VERIFY:
+                if index == 0 or plan.operations[index - 1].kind is not UnrealOperationKind.WRITE:
+                    raise UnrealPlanExecutionError(
+                        f"Verify operation {index} ('{operation.name}') must immediately follow a write"
+                    )
+                expected = self._verification_expectation(plan.operations[index - 1])
 
             try:
                 evidence = self._execute_one(
                     operation,
                     authorization_id,
-                    expected_location=expected.get("location") if operation.kind is UnrealOperationKind.VERIFY else None,
-                    expected_rotation=expected.get("rotation") if operation.kind is UnrealOperationKind.VERIFY else None,
-                    expected_scale=expected.get("scale") if operation.kind is UnrealOperationKind.VERIFY else None,
-                    expected_material_variant=expected.get("material_variant") if operation.kind is UnrealOperationKind.VERIFY else None,
-                    expected_niagara_variant=expected.get("niagara_variant") if operation.kind is UnrealOperationKind.VERIFY else None,
+                    expected_location=expected.get("location"),
+                    expected_rotation=expected.get("rotation"),
+                    expected_scale=expected.get("scale"),
+                    expected_material_variant=expected.get("material_variant"),
+                    expected_niagara_variant=expected.get("niagara_variant"),
                 )
             except (UnrealAdapterError, ValueError, TypeError) as exc:
                 message = f"Operation {index} ('{operation.name}') failed: {exc}"
@@ -199,8 +197,5 @@ class UnrealPlanExecutor:
 
             ledger.append(evidence)
             completed.append(self._failure_context(operation))
-
-            if operation.kind is UnrealOperationKind.VERIFY:
-                expected = {}
 
         return UnrealPlanExecutionResult(plan.intent_id, tuple(ledger), True)
