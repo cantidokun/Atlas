@@ -16,6 +16,16 @@ from planning.unreal_tool_schema import validate_unreal_tool_call
 
 
 @dataclass(frozen=True)
+class UnrealRecoveryAssessment:
+    """Fresh-state recovery disposition derived from a reassessment result."""
+
+    disposition: str
+    operation_name: str
+    entity_ids: Tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True)
 class UnrealPlanExecutionFailure:
     intent_id: str
     operation_index: int
@@ -53,6 +63,71 @@ class UnrealPlanExecutionFailure:
             ),
         )
         return UnrealTaskPlan(f"{self.intent_id}:reassess", operations)
+
+    def assess_reassessment(self, result: "UnrealPlanExecutionResult") -> UnrealRecoveryAssessment:
+        """Classify fresh state without authorizing or replaying a mutation."""
+        if not isinstance(result, UnrealPlanExecutionResult):
+            raise TypeError("result must be a UnrealPlanExecutionResult instance")
+        if not result.success or not result.evidence_ledger:
+            return UnrealRecoveryAssessment(
+                "manual_review", self.operation_name, tuple(self.operation_entity_ids),
+                "fresh reassessment did not produce usable evidence",
+            )
+
+        evidence = result.evidence_ledger[-1]
+        expected = self._recovery_expectation()
+        if not expected:
+            return UnrealRecoveryAssessment(
+                "manual_review", self.operation_name, tuple(self.operation_entity_ids),
+                "failed operation has no supported recovery-state comparator",
+            )
+
+        probe = evidence
+        try:
+            if "location" in expected:
+                probe = verify_actor_location(probe, expected["location"])
+            elif "rotation" in expected:
+                probe = verify_actor_rotation(probe, expected["rotation"])
+            elif "scale" in expected:
+                probe = verify_actor_scale(probe, expected["scale"])
+            elif "material_variant" in expected:
+                probe = verify_material_variant(probe, expected["material_variant"])
+            elif "niagara_variant" in expected:
+                probe = verify_niagara_variant(probe, expected["niagara_variant"])
+        except (TypeError, ValueError):
+            return UnrealRecoveryAssessment(
+                "replacement_required", self.operation_name, tuple(self.operation_entity_ids),
+                "fresh Unreal state does not match the failed operation's requested state",
+            )
+
+        return UnrealRecoveryAssessment(
+            "already_applied", self.operation_name, tuple(self.operation_entity_ids),
+            "fresh Unreal state already matches the failed operation's requested state",
+        )
+
+    def _recovery_expectation(self):
+        arguments = self.operation_arguments
+        if self.operation_name == "set_actor_location":
+            return {"location": arguments.get("location")}
+        if self.operation_name == "verify_actor_location":
+            return {"location": arguments.get("expected_location")}
+        if self.operation_name == "set_actor_rotation":
+            return {"rotation": arguments.get("rotation")}
+        if self.operation_name == "verify_actor_rotation":
+            return {"rotation": arguments.get("expected_rotation")}
+        if self.operation_name == "set_actor_scale":
+            return {"scale": arguments.get("scale")}
+        if self.operation_name == "verify_actor_scale":
+            return {"scale": arguments.get("expected_scale")}
+        if self.operation_name == "apply_material_variant":
+            return {"material_variant": arguments.get("material_variant")}
+        if self.operation_name == "verify_material_variant":
+            return {"material_variant": arguments.get("expected_material_variant")}
+        if self.operation_name == "apply_niagara_variant":
+            return {"niagara_variant": arguments.get("niagara_variant")}
+        if self.operation_name == "verify_niagara_variant":
+            return {"niagara_variant": arguments.get("expected_niagara_variant")}
+        return {}
 
 
 class UnrealPlanExecutionError(RuntimeError):
