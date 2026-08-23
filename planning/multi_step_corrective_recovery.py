@@ -24,8 +24,8 @@ class MultiStepCorrectiveRecovery:
         self.plan = plan
         self.authorization_id = authorization_id
 
-    def prepare(self) -> List[CorrectiveStep]:
-        evidence = self.observe()
+    def prepare(self, evidence: Any | None = None) -> List[CorrectiveStep]:
+        evidence = self.observe() if evidence is None else evidence
         actions = list(self.plan(evidence))
         if not actions:
             return []
@@ -39,6 +39,6 @@ class MultiStepCorrectiveRecovery:
         if not step.authorization.matches(fresh_evidence, [step.action]):
             raise RuntimeError("corrective step authorization is stale; re-observation required")
 
-    def next_step(self) -> CorrectiveStep | None:
-        steps = self.prepare()
+    def next_step(self, evidence: Any | None = None) -> CorrectiveStep | None:
+        steps = self.prepare(evidence)
         return steps[0] if steps else None
