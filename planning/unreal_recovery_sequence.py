@@ -6,7 +6,8 @@ from typing import Mapping, Tuple
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_material_verifier import verify_material_variant
 from planning.unreal_niagara_verifier import verify_niagara_variant
-from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult
+from planning.unreal_plan_authorization import UnrealPlanAuthorization
+from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
 from planning.unreal_task_planner import UnrealTaskPlan
 
@@ -132,10 +133,7 @@ def assess_reassessment_sequence(
     return UnrealRecoverySequenceAssessment(tuple(assessments))
 
 
-def build_replacement_plan(
-    plan: UnrealTaskPlan,
-    assessment: UnrealRecoverySequenceAssessment,
-) -> UnrealTaskPlan:
+def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySequenceAssessment) -> UnrealTaskPlan:
     """Build a new ordered mutation plan for only the steps requiring replacement."""
     if not isinstance(assessment, UnrealRecoverySequenceAssessment):
         raise TypeError("assessment must be a UnrealRecoverySequenceAssessment instance")
@@ -163,3 +161,27 @@ def build_replacement_plan(
             UnrealOperation(operation.capability, UnrealOperationKind.VERIFY, verify_name, verify_args, tuple(operation.entity_ids)),
         ))
     return UnrealTaskPlan(f"{plan.intent_id}:recovery-sequence-replacement", tuple(operations))
+
+
+def issue_replacement_authorization(
+    replacement_plan: UnrealTaskPlan,
+    authorization_id: str,
+) -> UnrealPlanAuthorization:
+    """Issue a new immutable receipt for an exact recovery replacement plan."""
+    return UnrealPlanAuthorization.issue(replacement_plan, authorization_id)
+
+
+def execute_replacement_authorized(
+    executor: UnrealPlanExecutor,
+    replacement_plan: UnrealTaskPlan,
+    authorization: UnrealPlanAuthorization,
+) -> UnrealPlanExecutionResult:
+    """Execute only through the exact plan-bound authorization boundary."""
+    if not isinstance(executor, UnrealPlanExecutor):
+        raise TypeError("executor must be a UnrealPlanExecutor instance")
+    if not isinstance(authorization, UnrealPlanAuthorization):
+        raise TypeError("authorization must be a UnrealPlanAuthorization instance")
+    try:
+        return executor.execute_authorized(replacement_plan, authorization)
+    except UnrealPlanExecutionError:
+        raise
