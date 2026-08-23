@@ -1,19 +1,11 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 23, 2026 — mixed-domain recovery gate complete; live recovery-sequence gate added
-**Current focus:** Real-Unreal validation of the explicit multi-operation recovery sequence without weakening the Named Pipe boundary
+**Updated:** August 23, 2026 — live recovery sequence gate
+**Current focus:** Multi-operation production execution with failure containment, fresh-state recovery, and explicitly authorized replacement mutations
 **Current branch:** `feat/unreal-composite-production-operation`
-**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment, recovery disposition, plan-bound replacement execution, an explicit end-to-end recovery coordinator, and heterogeneous material/Niagara recovery coverage are implemented and tested.
+**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment, recovery disposition, plan-bound replacement execution, an explicit end-to-end recovery coordinator, heterogeneous material/Niagara recovery coverage, and a live-Unreal recovery-sequence gate are implemented and tested.
 
 ## Latest completed milestone
-
-The deterministic heterogeneous and mixed-domain recovery gate is green:
-
-```text
-python -m pytest tests/test_unreal_recovery_mixed_domain.py tests/test_unreal_recovery_heterogeneous_domains.py tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py -q
-
-38 passed
-```
 
 The composite production path decomposes a single production intent into deterministic, capability-validated operations:
 
@@ -59,7 +51,7 @@ A same-entity verification is therefore not sufficient by itself. A plan cannot 
 
 The failure object exposes `reassessment_plan()`, producing a fresh, read-only Unreal inspection plan for the failed operation's entity scope. Recovery reassessment deliberately contains no WRITE operations and does not replay the failed mutation.
 
-The recovery sequence layer supports the complete multi-write control loop:
+The recovery sequence layer now supports the complete multi-write control loop:
 
 ```text
 Production failure
@@ -83,7 +75,7 @@ Verified recovery completion
 
 `execute_recovery_sequence()` is the explicit coordinator for that control loop. It requires an authorization receipt for the fresh reassessment and **never creates a replacement authorization itself**. If replacement is required, a separately issued authorization bound to the newly constructed replacement plan must be supplied. If recovery is already applied or requires manual review, a replacement authorization is rejected rather than silently consumed.
 
-## Heterogeneous and mixed-domain recovery coverage
+## Heterogeneous recovery coverage
 
 Recovery now handles the same semantics across the non-transform production domains already supported by the composite path:
 
@@ -93,65 +85,29 @@ Transform write
 Material variant write
       ↓
 Niagara variant write
-      ↓
-Mixed-domain failure/recovery
 ```
 
-The recovery sequence correctly maps composite `variant` write arguments into the verifier-specific semantic contracts:
+The recovery sequence maps material and Niagara write arguments to the canonical capability schema and preserves domain-specific semantic verification on replacement.
+
+Focused deterministic tests prove that a material failure can reassess a previously applied transform and replace only the material mutation, while a Niagara failure can reassess both earlier domains and replace only Niagara. Mixed-domain coverage additionally proves that already-applied domains remain untouched while only the unresolved replacement is authorized and executed.
+
+## Live Unreal recovery gate — PASS
+
+The new engine-dependent recovery-sequence test has passed against the real Unreal transport:
 
 ```text
-apply_material_variant -> {"name": <variant>} -> verify_material_variant
-apply_niagara_variant   -> {"name": <variant>} -> verify_niagara_variant
+python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
+
+1 passed
 ```
 
-The deterministic gate proves that a failure after multiple heterogeneous writes reassesses every relevant prior state domain, leaves already-applied domains untouched, and authorizes replacement only for the unresolved domain.
+The live gate proves that the new recovery sequence can reassess the actual `FIELD_SURFACE` Actor state over the Windows Named Pipe after a simulated post-write failure without retrying the prior mutation. The test restores the original Actor state in a `finally` block.
 
-## Real Unreal recovery boundary
-
-A new integration test has been added:
-
-```text
-tests/test_unreal_recovery_sequence_real_integration.py
-```
-
-It uses the actual production adapter and Windows Named Pipe transport to:
-
-1. read the live `FIELD_SURFACE` actor;
-2. apply a real location mutation;
-3. model a post-write verification failure using the captured execution context;
-4. build the new recovery-sequence reassessment plan;
-5. read fresh state from the live Unreal Editor;
-6. classify the prior write as `already_applied`;
-7. restore the original live state.
-
-This deliberately proves the **new recovery-sequence layer** against real Unreal without inventing a transport-side failure mechanism or weakening the Named Pipe boundary. It does not yet claim that a real engine-side write failure has been induced.
-
-The existing real coordinator integration test remains useful as a lower-level regression for the same no-retry principle.
-
-## Verified recovery contract
-
-The deterministic recovery gates cover:
-
-- read-only reassessment planning
-- failed-entity scope preservation
-- fresh reassessment evidence
-- explicit per-operation recovery disposition
-- `already_applied` detection
-- `replacement_required` detection
-- `manual_review` for unusable evidence
-- replacement-only plan reconstruction
-- rejection of invalid replacement dispositions
-- rejection of mismatched recovery entity scope
-- rejection of stale plan authorization before transport
-- coordinator refusal to replace without a separate replacement authorization
-- coordinator execution only through the newly authorized replacement plan
-- material variant recovery
-- Niagara variant recovery
-- mixed-domain no-replay behavior
+This is the first live proof for the new multi-operation recovery-sequence layer. It does **not** yet prove a live heterogeneous material/Niagara failure because the current real Unreal harness does not expose a deterministic failure-injection surface for those operations.
 
 ## Real Unreal integration gate
 
-The complete composite production test has passed against the live Unreal transport:
+The engine-dependent composite production test has also passed against the live Unreal transport:
 
 ```text
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
@@ -159,13 +115,7 @@ python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 1 passed
 ```
 
-The new real recovery-sequence gate is now the next engine-dependent proof:
-
-```powershell
-python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
-```
-
-A successful run will establish the new recovery sequence against live Unreal state. A skipped run because the Editor/pipe is unavailable is environmental, not a code failure.
+This remains the current full composite apply/verify/restore proof boundary.
 
 ## Recovery invariants
 
@@ -194,41 +144,36 @@ After implementation changes, run:
 python -m pytest tests/test_unreal_recovery_mixed_domain.py tests/test_unreal_recovery_heterogeneous_domains.py tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py -q
 ```
 
-Then run:
+Then run both live gates:
 
 ```powershell
 python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
-```
-
-And retain the existing composite real-Unreal regression:
-
-```powershell
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 ```
 
 ## Next development boundary
 
-The immediate next gate is the new real-Unreal recovery-sequence integration test. If it passes, the next engineering question is whether the Unreal harness can expose a deterministic **real engine-side failure after one or more successful writes** without modifying the Named Pipe protocol or introducing test-only production behavior. If that can be done cleanly, add that integration coverage. If not, preserve the existing real live-state reassessment proof and move to the next production capability rather than weakening the execution boundary.
-
-The progression is now:
+The next target is the **real-Unreal heterogeneous recovery boundary**. Before adding more Python-only recovery logic, extend the disposable Unreal validation harness only enough to create a deterministic, authorized failure condition for one heterogeneous operation while preserving the Named Pipe protocol and Atlas authorization boundary. Then prove:
 
 ```text
-Transform recovery
+live composite failure
        ↓
-Material recovery
+real fresh reassessment
        ↓
-Niagara recovery
+per-domain disposition
        ↓
-Mixed-domain failure/recovery       ✓
+replacement-only plan
        ↓
-Real-Unreal recovery reassessment   ← NEXT GATE
+new exact authorization
        ↓
-Real engine-side failure recovery   ← only if safely supportable
+live replacement
        ↓
-Next Unreal production capability
+independent verification
+       ↓
+restore original state
 ```
 
-Do not broaden into Blender development for this work. Do not modify the action/workflow runner. Do not weaken the Named Pipe boundary or fail-closed authorization model.
+Do not fake the failure in Python and call that a real Unreal test. Do not change the Named Pipe wire protocol. Do not broaden into Blender development for this work. Do not modify the action/workflow runner.
 
 ## Architectural invariants
 
