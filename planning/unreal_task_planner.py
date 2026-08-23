@@ -84,15 +84,15 @@ class UnrealAgentPlanBuilder:
             if name == "set_actor_location":
                 normalized=self._validate_location(arguments["location"])
                 operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"location":normalized}))
-                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_location",ids,{"expected_location":normalized}))
             elif name == "set_actor_rotation":
                 normalized=self._validate_rotation(arguments["rotation"])
                 operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"rotation":normalized}))
-                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_rotation",ids,{"expected_rotation":normalized}))
             elif name == "set_actor_scale":
                 normalized=self._validate_scale(arguments["scale"])
                 operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"scale":normalized}))
-                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+                operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_scale",ids,{"expected_scale":normalized}))
             elif name == "apply_material_variant":
                 variant=arguments.get("material_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
                 normalized=self._validate_named_variant(variant,"material_variant")
@@ -113,7 +113,7 @@ class UnrealAgentPlanBuilder:
         return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.READ,"inspect_material_state",ids),self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.WRITE,"apply_material_variant",ids,{"material_variant":variant}),self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.VERIFY,"verify_material_variant",ids,{"material_variant":variant}))
     def for_niagara_variant(self, intent, niagara_variant):
         ids=self._require_targets(intent); variant=self._validate_named_variant(niagara_variant,"niagara_variant")
-        return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.WRITE,"apply_niagara_variant",ids,{"niagara_variant":variant}),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"niagara_variant":variant}))
+        return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.WRITE,"apply_niagara_variant",ids,{"niagara_variant":variant}),self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"material_variant":variant}))
     def for_actor_location_write(self,intent,location):
         ids=self._require_targets(intent); location=self._validate_location(location); return (self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.READ,"inspect_target_actors",ids),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,"set_actor_location",ids,{"location":location}),self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.VERIFY,"verify_actor_location",ids,{"expected_location":location}))
     def for_actor_rotation_write(self,intent,rotation):
