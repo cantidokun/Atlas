@@ -58,7 +58,19 @@ class UnrealPlanExecutor:
     }
 
     @staticmethod
-    def _validate_execution_shape(plan):
+    def _expected_verifier(write_operation):
+        """Return the exact semantic verifier required for one write."""
+        mapping = {
+            "set_actor_location": "verify_actor_location",
+            "set_actor_rotation": "verify_actor_rotation",
+            "set_actor_scale": "verify_actor_scale",
+            "apply_material_variant": "verify_material_variant",
+            "apply_niagara_variant": "verify_niagara_variant",
+        }
+        return mapping.get(write_operation.name)
+
+    @classmethod
+    def _validate_execution_shape(cls, plan):
         for index, operation in enumerate(plan.operations):
             if operation.kind is not UnrealOperationKind.WRITE:
                 continue
@@ -74,6 +86,11 @@ class UnrealPlanExecutor:
             if tuple(verification.entity_ids) != tuple(operation.entity_ids):
                 raise UnrealPlanExecutionError(
                     f"Write operation {index} ('{operation.name}') and verification must target the same entities"
+                )
+            expected_verifier = cls._expected_verifier(operation)
+            if expected_verifier is not None and verification.name != expected_verifier:
+                raise UnrealPlanExecutionError(
+                    f"Write operation {index} ('{operation.name}') must be followed by '{expected_verifier}', not '{verification.name}'"
                 )
 
     @staticmethod
