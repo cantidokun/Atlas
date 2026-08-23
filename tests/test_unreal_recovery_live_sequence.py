@@ -180,7 +180,9 @@ def test_recovery_coordinator_requires_replacement_authorization_before_any_repl
 
     assert [request.operation_name for request in transport.requests] == [
         "inspect_target_actors",
+        "set_actor_location",
         "verify_actor_location",
+        "set_actor_rotation",
         "inspect_target_actors",
     ]
 
