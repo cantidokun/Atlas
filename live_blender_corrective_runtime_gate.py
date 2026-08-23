@@ -7,9 +7,8 @@ from typing import Any
 
 from planning.blender_corrective_runtime import BlenderCorrectiveRuntime
 from planning.transform_correction_plan import TransformTarget, plan_transform_correction
-from tools.blender import move_object
 from tools.blender_test_fixture import set_test_transform
-from tools.blender_transform import inspect_object_transform, set_object_rotation
+from tools.blender_transform import inspect_object_transform
 
 FILE_NAME = "marker_task_INCORRECT.blend"
 OBJECT_A = "Goal_Left_post"
@@ -26,18 +25,18 @@ def establish_fixture() -> None:
         result = set_test_transform(FILE_NAME, name, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
         if result.get("status") != "ok":
             raise RuntimeError(f"fixture reset failed for {name}: {result}")
-    result = set_test_transform(FILE_NAME, OBJECT_B, TARGET[OBJECT_B]["location"], TARGET[OBJECT_B]["rotation"])
-    if result.get("status") != "ok":
-        raise RuntimeError(f"fixture setup failed for {OBJECT_B}: {result}")
 
 
-def observe() -> dict[str, Any]:
+def _observe_raw() -> dict[str, Any]:
     result: dict[str, Any] = {}
     for name in (OBJECT_A, OBJECT_B):
         evidence = inspect_object_transform(FILE_NAME, name)
         if evidence.get("status") != "ok":
             raise RuntimeError(f"inspection failed for {name}: {evidence}")
-        result[name] = {"location": [float(v) for v in evidence["location"]], "rotation": [float(v) for v in evidence["rotation_degrees"]]}
+        result[name] = {
+            "location": [float(v) for v in evidence["location"]],
+            "rotation": [float(v) for v in evidence["rotation_degrees"]],
+        }
     return result
 
 
@@ -57,25 +56,30 @@ def main() -> None:
     args = parser.parse_args()
     establish_fixture()
 
+    observation_count = 0
+    injected = False
+
+    def observe() -> dict[str, Any]:
+        nonlocal observation_count, injected
+        observation_count += 1
+        if args.inject_external_change and observation_count == 3 and not injected:
+            inject_external_change()
+            injected = True
+        return _observe_raw()
+
     runtime = BlenderCorrectiveRuntime(observe, plan, "live:generalized-corrective-runtime")
-    first = runtime.run(max_steps=2)
-    if not first.converged:
-        raise RuntimeError("generalized runtime failed to converge first phase")
-    if len(first.receipts) != 2:
-        raise RuntimeError(f"expected two first-phase receipts, got {len(first.receipts)}")
+    result = runtime.run(max_steps=8)
+    if not result.converged:
+        raise RuntimeError("generalized runtime failed to converge")
+    if args.inject_external_change and not injected:
+        raise RuntimeError("external interruption was not injected")
 
-    if args.inject_external_change:
-        inject_external_change()
-
-    second = runtime.run(max_steps=8)
-    if not second.converged:
-        raise RuntimeError("generalized runtime failed to recover after external change")
-    final = observe()
+    final = _observe_raw()
     if plan(final):
         raise RuntimeError(f"independent final verification failed: {final}")
 
     print("ATLAS GENERALIZED BLENDER CORRECTIVE RUNTIME GATE: PASS")
-    print(json.dumps({"first_receipts": len(first.receipts), "second_receipts": len(second.receipts), "external_change_injected": args.inject_external_change, "final_state": final}, indent=2))
+    print(json.dumps({"receipts": len(result.receipts), "external_change_injected": injected, "observations": observation_count, "final_state": final}, indent=2))
 
 
 if __name__ == "__main__":
