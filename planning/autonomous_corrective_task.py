@@ -6,7 +6,6 @@ from typing import Any, Callable, List, Sequence, Tuple
 
 from action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
-from planning.corrective_receipt_guard import require_bound_receipt
 from planning.multi_step_corrective_recovery import CorrectiveStep, MultiStepCorrectiveRecovery
 
 
@@ -34,12 +33,11 @@ class AutonomousCorrectiveTask:
         self.plan = plan
 
     def _execute_step(self, step: CorrectiveStep, fresh_evidence: Any) -> Any:
-        envelope = AuthorizedCorrectiveStep(
-            actions=[step.action],
-            authorization=step.authorization,
-        )
-        _, receipt = self.boundary.execute_authorized_replan(envelope, fresh_evidence)
-        return require_bound_receipt(self.boundary, step.action.tool, step.action.arguments) if hasattr(self.boundary, "receipt_matches_last_execution") else receipt
+        envelope = AuthorizedCorrectiveStep(actions=[step.action], authorization=step.authorization)
+        normalized, receipt = self.boundary.execute_authorized_replan(envelope, fresh_evidence)
+        if not receipt.matches(step.action.tool, step.action.arguments, normalized):
+            raise RuntimeError("corrective execution receipt does not bind the requested action")
+        return receipt
 
     def run(self, max_steps: int = 16) -> CorrectiveTaskResult:
         if max_steps < 1:
