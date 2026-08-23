@@ -15,15 +15,9 @@ class _AuthorizedStep:
 
 
 class MultiStepCorrectiveExecutor:
-    """Run one freshly authorized corrective step at a time."""
+    """Run freshly authorized corrective steps with an explicit execution budget."""
 
-    def __init__(
-        self,
-        boundary: BlenderExecutionBoundary,
-        observe: Callable[[], Any],
-        plan: Callable[[Any], list],
-        authorization_id: str,
-    ):
+    def __init__(self, boundary: BlenderExecutionBoundary, observe: Callable[[], Any], plan: Callable[[Any], list], authorization_id: str):
         self.boundary = boundary
         self.recovery = MultiStepCorrectiveRecovery(observe, plan, authorization_id)
         self.observe = observe
@@ -41,4 +35,6 @@ class MultiStepCorrectiveExecutor:
             authorized = _AuthorizedStep(actions=[step.action], authorization=step.authorization)
             result, receipt = self.boundary.execute_authorized_replan(authorized, fresh_evidence)
             receipts.append((result, receipt))
+            if len(receipts) >= max_steps:
+                return receipts
         return receipts
