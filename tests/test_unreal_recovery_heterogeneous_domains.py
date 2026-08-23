@@ -23,7 +23,10 @@ class HeterogeneousRecoveryTransport:
     def send(self, request):
         self.requests.append(request)
         name = request.operation_name
-        if name in {"inspect_target_actors", "inspect_material_state", "inspect_niagara_state"}:
+        if name in {"inspect_target_actors", "inspect_material_state", "inspect_niagara_state", "verify_actor_location", "verify_material_variant", "verify_niagara_variant"}:
+            return self._response(request)
+        if name == "set_actor_location":
+            self.state[ENTITY_ID]["location"] = dict(request.arguments["location"])
             return self._response(request)
         if name == "apply_material_variant":
             if self.fail_operation == name and not self.failed:
@@ -36,8 +39,6 @@ class HeterogeneousRecoveryTransport:
                 self.failed = True
                 return self._response(request, False, "injected Niagara failure")
             self.state[ENTITY_ID]["niagara"] = {"variant": dict(request.arguments["niagara_variant"])}
-            return self._response(request)
-        if name in {"verify_material_variant", "verify_niagara_variant"}:
             return self._response(request)
         return self._response(request, False, f"unsupported operation: {name}")
 
@@ -78,7 +79,8 @@ def test_material_failure_reassesses_mixed_state_and_replaces_only_material():
     assert [step.disposition for step in assessment.steps] == ["already_applied", "replacement_required"]
     replacement = build_replacement_plan(plan, assessment)
     assert [op.name for op in replacement.operations] == ["apply_material_variant", "verify_material_variant"]
-    assert replacement.operations[1].arguments["expected_material_variant"] == {"name": "liquid_surface"}
+    assert replacement.operations[0].arguments["material_variant"] == {"name": "liquid_surface"}
+    assert replacement.operations[1].arguments["material_variant"] == {"name": "liquid_surface"}
     replacement_auth = issue_replacement_authorization(replacement, "material-replacement-auth")
     result = execute_recovery_sequence(executor, plan, failure, reassessment_auth, replacement_auth)
     assert result.replacement_result is not None
@@ -97,7 +99,8 @@ def test_niagara_failure_reassesses_prior_material_write_and_replaces_only_niaga
     assert [step.disposition for step in assessment.steps] == ["already_applied", "already_applied", "replacement_required"]
     replacement = build_replacement_plan(plan, assessment)
     assert [op.name for op in replacement.operations] == ["apply_niagara_variant", "verify_niagara_variant"]
-    assert replacement.operations[1].arguments["expected_niagara_variant"] == {"name": "goal_burst"}
+    assert replacement.operations[0].arguments["niagara_variant"] == {"name": "goal_burst"}
+    assert replacement.operations[1].arguments["niagara_variant"] == {"name": "goal_burst"}
     replacement_auth = issue_replacement_authorization(replacement, "niagara-replacement-auth")
     result = execute_recovery_sequence(executor, plan, failure, reassessment_auth, replacement_auth)
     assert result.replacement_result is not None
