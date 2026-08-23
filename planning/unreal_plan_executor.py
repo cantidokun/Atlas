@@ -7,6 +7,7 @@ from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAd
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_material_verifier import verify_material_variant
+from planning.unreal_niagara_verifier import verify_niagara_variant
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
 from planning.unreal_task_planner import UnrealTaskPlan
@@ -53,11 +54,7 @@ class UnrealPlanExecutor:
             raise TypeError("adapter must be a UnrealAdapterProduction instance")
         self._adapter = adapter
 
-    _DISPATCH = {
-        UnrealOperationKind.READ: "inspect",
-        UnrealOperationKind.WRITE: "apply_authorized",
-        UnrealOperationKind.VERIFY: "verify",
-    }
+    _DISPATCH = {UnrealOperationKind.READ: "inspect", UnrealOperationKind.WRITE: "apply_authorized", UnrealOperationKind.VERIFY: "verify"}
 
     @staticmethod
     def _validate_execution_shape(plan: UnrealTaskPlan) -> None:
@@ -72,15 +69,7 @@ class UnrealPlanExecutor:
             if tuple(verification.entity_ids) != tuple(operation.entity_ids):
                 raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') and verification must target the same entities")
 
-    def _execute_one(
-        self,
-        operation: UnrealOperation,
-        authorization_id: str,
-        expected_location: Optional[dict] = None,
-        expected_rotation: Optional[dict] = None,
-        expected_scale: Optional[dict] = None,
-        expected_material_variant: Optional[dict] = None,
-    ) -> UnrealEvidence:
+    def _execute_one(self, operation, authorization_id, expected_location=None, expected_rotation=None, expected_scale=None, expected_material_variant=None, expected_niagara_variant=None):
         arguments = dict(operation.arguments)
         arguments["entity_ids"] = tuple(operation.entity_ids)
         arguments["authorization_id"] = authorization_id
@@ -95,10 +84,11 @@ class UnrealPlanExecutor:
             if expected_rotation is not None: verify_actor_rotation(evidence, expected_rotation)
             if expected_scale is not None: verify_actor_scale(evidence, expected_scale)
             if expected_material_variant is not None: verify_material_variant(evidence, expected_material_variant)
+            if expected_niagara_variant is not None: verify_niagara_variant(evidence, expected_niagara_variant)
         return evidence
 
     @staticmethod
-    def _failure_context(operation: UnrealOperation) -> Mapping[str, Any]:
+    def _failure_context(operation):
         return dict(operation.arguments)
 
     def execute_authorized(self, plan: UnrealTaskPlan, authorization: UnrealPlanAuthorization) -> UnrealPlanExecutionResult:
@@ -114,35 +104,27 @@ class UnrealPlanExecutor:
         self._validate_execution_shape(plan)
         ledger: List[UnrealEvidence] = []
         completed_operation_arguments: List[Mapping[str, Any]] = []
-        expected_location: Optional[dict] = None
-        expected_rotation: Optional[dict] = None
-        expected_scale: Optional[dict] = None
-        expected_material_variant: Optional[dict] = None
+        expected_location = expected_rotation = expected_scale = expected_material_variant = expected_niagara_variant = None
 
         for index, operation in enumerate(plan.operations):
-            if operation.name == "set_actor_location": expected_location, expected_rotation, expected_scale, expected_material_variant = dict(operation.arguments["location"]), None, None, None
-            elif operation.name == "set_actor_rotation": expected_location, expected_rotation, expected_scale, expected_material_variant = None, dict(operation.arguments["rotation"]), None, None
-            elif operation.name == "set_actor_scale": expected_location, expected_rotation, expected_scale, expected_material_variant = None, None, dict(operation.arguments["scale"]), None
-            elif operation.name == "apply_material_variant": expected_location, expected_rotation, expected_scale, expected_material_variant = None, None, None, dict(operation.arguments["material_variant"])
+            if operation.name == "set_actor_location": expected_location, expected_rotation, expected_scale, expected_material_variant, expected_niagara_variant = dict(operation.arguments["location"]), None, None, None, None
+            elif operation.name == "set_actor_rotation": expected_location, expected_rotation, expected_scale, expected_material_variant, expected_niagara_variant = None, dict(operation.arguments["rotation"]), None, None, None
+            elif operation.name == "set_actor_scale": expected_location, expected_rotation, expected_scale, expected_material_variant, expected_niagara_variant = None, None, dict(operation.arguments["scale"]), None, None
+            elif operation.name == "apply_material_variant": expected_location, expected_rotation, expected_scale, expected_material_variant, expected_niagara_variant = None, None, None, dict(operation.arguments["material_variant"]), None
+            elif operation.name == "apply_niagara_variant": expected_location, expected_rotation, expected_scale, expected_material_variant, expected_niagara_variant = None, None, None, None, dict(operation.arguments["niagara_variant"])
             try:
-                evidence = self._execute_one(
-                    operation,
-                    authorization_id,
+                evidence = self._execute_one(operation, authorization_id,
                     expected_location if operation.kind is UnrealOperationKind.VERIFY else None,
                     expected_rotation if operation.kind is UnrealOperationKind.VERIFY else None,
                     expected_scale if operation.kind is UnrealOperationKind.VERIFY else None,
                     expected_material_variant if operation.kind is UnrealOperationKind.VERIFY else None,
-                )
+                    expected_niagara_variant if operation.kind is UnrealOperationKind.VERIFY else None)
             except UnrealAdapterError as exc:
                 message = f"Operation {index} ('{operation.name}') failed: {exc}"
                 failure = UnrealPlanExecutionFailure(plan.intent_id, index, operation.name, tuple(ledger), message, tuple(operation.entity_ids), self._failure_context(operation), tuple(completed_operation_arguments))
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
-            except ValueError as exc:
+            except (ValueError, TypeError) as exc:
                 message = f"Evidence/tool validation failed for operation {index} ('{operation.name}'): {exc}"
-                failure = UnrealPlanExecutionFailure(plan.intent_id, index, operation.name, tuple(ledger), message, tuple(operation.entity_ids), self._failure_context(operation), tuple(completed_operation_arguments))
-                raise UnrealPlanExecutionError(message, failure=failure) from exc
-            except TypeError as exc:
-                message = f"Tool argument validation failed for operation {index} ('{operation.name}'): {exc}"
                 failure = UnrealPlanExecutionFailure(plan.intent_id, index, operation.name, tuple(ledger), message, tuple(operation.entity_ids), self._failure_context(operation), tuple(completed_operation_arguments))
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except Exception as exc:
