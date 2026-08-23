@@ -1,212 +1,164 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 23, 2026 — current development session  
-**Current repository HEAD:** `23661b5309c6d650538c5a7926ade1df5be48fe1` (`Correct Blender timeout failure-boundary coverage`)  
-**Previous implementation commit:** `158fe3bdd82f99f6759a4a3756d693335682e52d` (`Add fail-closed Blender subprocess boundary`)  
-**Latest prior implementation:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
-**Latest recorded development test milestone before this session:** **694 passed**; this is a development-session result, not fresh CI verification.  
-**Previously verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green.  
-**Purpose:** canonical resume point for the next Atlas development session.
+**Updated:** August 23, 2026 — active runner development session
+**Current repository HEAD:** `1e6c073a6760a800036a07a1ec48487e29a3fc5b`
+**Latest subprocess boundary:** `158fe3bdd82f99f6759a4a3756d693335682e52d`
+**Latest subprocess test correction:** `23661b5309c6d650538c5a7926ade1df5be48fe1`
+**Latest process-executor adapter:** `e9dca99382515db0ddafcbe7ff8cdd4d1f6ba755`
+**Latest process-executor tests:** `1e6c073a6760a800036a07a1ec48487e29a3fc5b`
+**Latest reported runner result:** **Test 313 — PASS**
+**Historical development milestone:** **694 passed** (development-session result)
+**Verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green
 
 ## Current state
 
-Atlas remains actively under development. The user has now explicitly authorized workflow/action-runner testing again and has confirmed the local action runner is running. Future workflow validation may therefore proceed when needed. Do not retroactively claim any new CI result until an actual runner/workflow result is observed.
+The user has explicitly re-authorized workflow/action-runner testing and confirmed the local action runner is running. Atlas development is therefore proceeding through the Stage 10 Blender Adapter / Real Execution Bridge gate.
 
-This session made the first coherent implementation increment against the Stage 10 Blender subprocess boundary:
-
-1. Added `tools/blender_process.py` with a fail-closed `run_checked_blender(...)` subprocess boundary.
-2. Expanded `tests/test_blender_process.py` to cover non-zero exits, invalid JSON, non-object JSON, missing end markers, subprocess timeouts, and valid structured results.
-3. Corrected the timeout test to exercise `subprocess.TimeoutExpired` and require Atlas to normalize it to `RuntimeError`.
-
-No fresh CI/test result has been observed yet for these new commits. The 687-pass CI baseline therefore remains the last verified CI result, and the 694-pass development result remains historical session evidence only.
+The latest work adds a transport-only `BlenderProcessExecutor` beneath the existing `BlenderExecutionBoundary`. It deliberately does not own authorization, capability validation, verification, or receipt creation.
 
 ## Architecture
 
 ```text
 Qwen / AI
-  ↓ reason + propose
-structured task reasoning
-  ↓
-Task Intent
-  ↓
-capability + argument validation
-  ↓
-ActionPlan
-  ↓
-explicit authorization
-  ↓
-controlled execution boundary / adapter
-  ↓
-immutable execution receipt
-  ↓
-independent fresh verification
-  ↓
-verified agent state / evidence
-  ↓
-replan if objective remains unsatisfied
+  -> structured task reasoning
+  -> Task Intent
+  -> capability + argument validation
+  -> ActionPlan
+  -> explicit authorization
+  -> BlenderExecutionBoundary
+  -> BlenderProcessExecutor
+  -> fail-closed Blender subprocess
+  -> normalized result
+  -> independent verification
+  -> immutable execution receipt
+  -> verified agent state / replanning
 ```
 
-Qwen is never execution authority. A production-tool response is never sufficient to establish final state. The established architecture includes evidence/action plans, target-state evaluation, verification plans, authorization and replan gates, deterministic futures, recovery, runtime integrity, audit trail, immutable receipts, task runtime policy, declarative task definitions, controlled adapters, and transport failure boundaries. The generic contract is `docs/ATLAS_ARCHITECTURE_CONTRACT.md`.
+Qwen is never execution authority. Production-tool responses are never sufficient to establish final state. Authorized plans are never silently mutated during replanning.
+
+Generic contract: `docs/ATLAS_ARCHITECTURE_CONTRACT.md`.
 
 ### Declarative runtime
 
-- `planning/task_definition.py` — `AtlasTaskDefinition`; validates task identity, evidence/actions, tool allowlists, write policy, verification policy, and metadata.
-- `planning/task_runtime.py` — `build_orchestrator(task)`, `validate_task_runtime(task)`, `prepare_task_runtime(task)`; validates before evidence or writes and bridges into `ConditionalPlanningOrchestrator`.
+- `planning/task_definition.py` — `AtlasTaskDefinition`.
+- `planning/task_runtime.py` — runtime validation/build/prepare bridge.
+- `planning/blender_tool_schema.py` — Blender capability/argument validation.
+- `planning/blender_execution_boundary.py` — validation, execution, normalization, verification, receipt binding.
+- `planning/blender_execution_receipt.py` — immutable execution receipts.
+- `planning/blender_result_contract.py` — structured result normalization.
+- `planning/blender_verification.py` — independent verification.
 
-### Replanning
+### Model/runtime
 
-Replanning consumes verified production observations. It either stops on verified satisfaction or emits a new task intent through the normal planning/authorization path. An authorized plan is never silently mutated.
+- Qwen `qwen3:8b` via Ollama.
+- Blender 4.4.3.
+- Local Atlas runtime: `atlas-local`.
+- Qwen remains planner/reasoner only.
 
-### Qwen contract
+Photogrammetry is upstream of Blender; Blender handles analysis, cleanup, correction, optimization, and preparation for Atlas soccer/sports digital-twin workflows.
 
-Structured Qwen output is constrained before executable intent formation. Current recorded coverage rejects malformed confidence, empty objective/observation/action/evidence fields, non-object action arguments, and unknown Blender tools. The latest recorded correction aligns the Qwen reasoning test with the canonical Blender rotation schema using `rotation_degrees` and required file/object fields.
+## Current Blender transport implementation
 
-## Model/runtime
+### `tools/blender_process.py`
 
-- Reasoning model: **Qwen `qwen3:8b` via Ollama**
-- Blender target: **Blender 4.4.3**
-- Local Atlas runtime: **`atlas-local`**
-- Qwen remains planner/reasoner only; it cannot become an arbitrary Python execution channel through a production adapter.
+`run_checked_blender(...)` is a fail-closed process boundary. It provides:
 
-Photogrammetry remains upstream of Blender: dedicated photogrammetry software creates the initial reconstruction; Blender performs analysis, cleanup, correction, optimization, and preparation. Atlas remains focused on soccer/sports digital-twin production workflows.
-
-## Tests and verification status
-
-### Historical verified baselines
-
-- **687 passed**, Python 3.9 and 3.11 green — last verified CI baseline.
-- **694 passed** — latest recorded development-session milestone before this implementation session; not fresh GitHub Actions verification.
-
-### Blender subprocess boundary — current implementation
-
-Commit `158fe3bdd82f99f6759a4a3756d693335682e52d` adds `tools/blender_process.py` with:
-
-- deterministic Blender subprocess invocation;
+- deterministic `--background` / `--python-expr` invocation;
 - non-zero exit rejection;
-- stderr/stdout diagnostic preservation on process failure;
+- stderr/stdout diagnostic preservation;
 - timeout normalization;
-- start/end marker extraction;
-- empty-payload rejection;
-- JSON decoding with fail-closed errors;
-- JSON-object-only result enforcement;
-- `OSError` startup failure normalization.
+- startup `OSError` normalization;
+- required start/end marker extraction;
+- empty payload rejection;
+- invalid JSON rejection;
+- JSON-object-only result enforcement.
 
-Commit `23661b5309c6d650538c5a7926ade1df5be48fe1` expands `tests/test_blender_process.py` with focused coverage for:
+### `planning/blender_process_executor.py`
 
-- non-zero process exit;
-- invalid JSON;
-- JSON arrays rejected when an object is required;
-- missing end marker;
-- `subprocess.TimeoutExpired` normalized to `RuntimeError`;
-- valid structured JSON object acceptance.
+`BlenderProcessExecutor` is the new transport adapter. It maps an already-selected tool to a `BlenderProcessRequest`, then delegates exclusively to `run_checked_blender`. It copies the arguments before passing them to the request builder and rejects unknown tools or invalid builder results.
 
-**Status:** implementation and tests are committed, but no fresh workflow/CI result has yet been observed. This is the immediate validation target now that the action runner is available.
+It does **not** authorize tools, broaden capability scope, perform verification, or create receipts.
 
-### Unreal transport boundary hardening
+### Tests
 
-Commit `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` adds `tests/test_unreal_transport_failure_boundary.py`, covering timeout/disconnect wrapping at `UnrealAdapterError`, original-cause preservation, propagation to `UnrealPlanExecutionError`, and preservation of operation index/name, entity IDs, and transport error context.
+`tests/test_blender_process.py` covers non-zero exits, invalid JSON, JSON-array rejection, missing end markers, timeouts, and valid structured results.
 
-**Status:** no fresh result claimed for this post-687 coverage.
+`tests/test_blender_process_executor.py` covers:
+
+- validated request propagation to the transport;
+- unknown-tool rejection;
+- invalid request-builder result rejection;
+- argument-copy isolation.
+
+**Test 313 — PASS** is the latest user-reported runner result. Do not infer that every subsequent commit is covered by Test 313; fresh results are required for the new process-executor commits.
+
+## Existing production bridge
+
+`planning/blender_execution_boundary.py` remains the authoritative higher-level boundary. It already validates the tool call, executes through an injected executor, normalizes the result, independently verifies it, and can bind an immutable receipt.
+
+`planning/blender_autonomous_executor.py` adapts the verified boundary to the autonomous `ToolExecutor` API while retaining the last verified result and receipt.
+
+The correct integration direction is therefore:
+
+```text
+validated/authorized Atlas action
+  -> BlenderExecutionBoundary
+  -> BlenderProcessExecutor
+  -> run_checked_blender
+```
+
+Do not create a second authorization or verification path.
 
 ## Current development gate
 
 ### Stage 10 — Blender Adapter / Real Execution Bridge
 
-**PRIMARY GATE — NOW IN ACTIVE IMPLEMENTATION/VALIDATION**
+**ACTIVE PRIMARY GATE**
 
-The target is the controlled adapter that maps an already-authorized Atlas action into a real Blender execution request and maps structured Blender response/evidence back into Atlas. Required properties:
+Required properties:
 
 - capability restrictions remain enforced;
 - exact validated arguments are preserved;
 - adapter cannot expand authorization scope;
-- execution is deterministic and observable;
-- process/transport failures surface as failures, not success payloads;
-- structured responses are normalized and validated;
-- verification remains independent;
+- subprocess failures become failures, never success payloads;
 - malformed/ambiguous responses fail closed;
-- evidence returns to agent state/replanning;
-- Qwen cannot use the adapter as arbitrary Python.
+- structured responses are normalized;
+- independent verification remains outside the process transport;
+- immutable receipts bind successful verified execution;
+- Qwen cannot use the adapter as arbitrary Python execution.
 
-The new `tools/blender_process.py` is the low-level process boundary for this gate. It does not replace `planning/blender_execution_boundary.py`; higher-level authorization, normalization, verification, and receipt binding remain above it.
+## Current exact next steps
 
-Do not add a parallel execution architecture. Reuse the existing planning, authorization, receipt, verification, and state machinery.
+1. Validate `planning/blender_process_executor.py` and `tests/test_blender_process_executor.py` through the active runner.
+2. Fix any focused failures without changing the authorization/verification architecture.
+3. Wire one real validated Blender capability into `BlenderProcessExecutor` using a request builder that preserves the exact validated arguments.
+4. Add adapter-level tests proving the argument contract, fail-closed process behavior, and receipt/verification boundary.
+5. Run the authorized regression suite and establish a fresh green baseline.
+6. Only after that, perform the first controlled live Blender operation with independent verification.
+7. Expand to rotation and marker operations only after their individual proof gates pass.
+8. Continue toward closed-loop autonomous Blender execution only after execution, verification, evidence, and replanning are proven together.
+9. Keep Unreal transport/live proof as a separate production-boundary gate.
+10. Continue OpenHands transition work only in bounded, reversible steps; `docs/OPENHANDS_TRANSITION_GUIDE.md` is planning documentation, not proof of installed/authorized production access.
 
-The Unreal regression is complementary production-boundary hardening and does not complete the Blender gate.
+## Unreal boundary
+
+`planning/unreal_adapter_production.py`, `planning/unreal_agent.py`, `planning/unreal_plan_executor.py`, `planning/unreal_task_planner.py`, `planning/unreal_transport_contract.py`, and `planning/unreal_transport_named_pipe.py` remain separate from the Blender gate.
+
+`tests/test_unreal_transport_failure_boundary.py` covers timeout/disconnect normalization, cause preservation, executor context, operation identity, and transport error context. No new result is claimed for that post-687 coverage unless explicitly reported.
 
 ## OpenHands transition
 
-`docs/OPENHANDS_TRANSITION_GUIDE.md` remains the planned transition guide for moving from the ChatGPT/GitHub/local-machine workflow toward an OpenHands-assisted local development workflow.
-
-Important transition rules:
-
-- Keep **Atlas-Unreal-Aider** and the **Blender Agent** as separate repositories.
-- Planned workspace: `C:\Atlas-Development\` with independent repositories.
-- Historical Atlas-Unreal-Aider checkout: `C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider`; verify the actual path before transition.
-- Start OpenHands in a disposable workspace before connecting the production Atlas checkout.
-- First Atlas access should be read-only; verify branch and working-tree state before edits.
-- Use progressive access: source access → build/test access → Unreal access → broader production execution.
-- Preserve repository boundaries, C++ interoperability, language-neutral contracts, authorization/runtime boundaries, test integrity, issue-driven development, incremental changes, and human control of high-impact operations.
-- The transition guide is planning/documentation only; it is not evidence that OpenHands, WSL, Docker, or broader production access has been installed, tested, or authorized.
-
-## Concrete files/tools
-
-Blender/planning/runtime:
-
-- `planning/task_definition.py`
-- `planning/task_runtime.py`
-- `planning/blender_tool_schema.py`
-- `planning/blender_execution_boundary.py`
-- `planning/blender_execution_receipt.py`
-- `planning/blender_result_contract.py`
-- `planning/blender_verification.py`
-- `tools/blender.py`
-- `tools/blender_transform.py`
-- `tools/blender_process.py` **(new current implementation)**
-- `tests/test_blender_process.py` **(expanded current regression suite)**
-- `docs/ATLAS_ARCHITECTURE_CONTRACT.md`
-- `docs/OPENHANDS_TRANSITION_GUIDE.md`
-- `ATLAS_HANDOFF_CURRENT.md`
-
-Established flow: `BlenderTaskIntent` → `ActionPlan` → `ConditionalPlanningOrchestrator` → authorization/replan gates → `BlenderExecutionBoundary` → low-level Blender process boundary → normalized result → independent verification → immutable receipt → agent state/replanning.
-
-Unreal boundary:
-
-- `planning/unreal_adapter_production.py`
-- `planning/unreal_agent.py`
-- `planning/unreal_plan_executor.py`
-- `planning/unreal_task_planner.py`
-- `planning/unreal_transport_contract.py`
-- `planning/unreal_transport_named_pipe.py`
-- `tests/test_unreal_transport_failure_boundary.py`
-
-The Unreal test `FailingTransport` is local test infrastructure, not live Unreal proof.
-
-## Current active work
-
-1. Validate the new Blender subprocess boundary and its focused regression suite through the now-running action runner.
-2. If failures occur, fix the smallest boundary defect and rerun the focused gate.
-3. Integrate `tools/blender_process.run_checked_blender` beneath the existing controlled Blender adapter without moving authorization into the subprocess layer.
-4. Add adapter-level tests proving validated arguments are preserved and process failures cannot become successful execution receipts.
-5. Establish a fresh green regression baseline after the integration.
-6. Only then prepare the first controlled live Blender operation with independent verification.
-7. Expand from the first live operation into rotation/marker and closed-loop autonomous Blender behavior only after their specific proof gates pass.
-8. Keep Unreal live transport proof as a separate gate.
-9. Continue OpenHands transition work only in bounded, reversible steps.
-
-## Regression requirements
-
-Preserve/extend coverage for zero-write already-satisfied tasks; exact authorized ordering; mandatory post-write verification; verification failure → `BLOCKED`; action failure → recovery gate; receipt mismatches; malformed/wrong executor results; continuation identity; authorized/unauthorized replanning; malformed Qwen reasoning; unknown Blender tools; adapter authorization bypass; validated-argument preservation; executor-result normalization; subprocess non-zero exits; timeout; startup failure; missing markers; malformed/non-object JSON; Blender fail-closed behavior; Unreal timeout/disconnect → adapter failure; and Unreal transport failure retaining executor operation context.
+`docs/OPENHANDS_TRANSITION_GUIDE.md` remains the transition plan. Keep `Atlas-Unreal-Aider` and `Blender-Agent` as separate repositories; use disposable validation before production access; progress from source -> build/test -> Unreal -> broader production execution; preserve C++ interoperability through language-neutral contracts; and retain human approval for high-impact operations.
 
 ## Do not regress
 
-- Never give Qwen direct production-tool execution authority.
+- Never give Qwen direct production execution authority.
 - Never automatically retry failed writes.
-- Never silently mutate an authorized plan during replanning.
-- Never declare completion from a write/transport response alone.
-- Never make goalpost-specific behavior the generic architecture.
+- Never silently mutate an authorized plan.
+- Never declare completion from a transport/write response alone.
+- Never move authorization or verification into `tools/blender_process.py` or `planning/blender_process_executor.py`.
+- Never treat Test 313 as validation of commits made after that test unless the runner actually reports them.
 - Never treat 687 passed as validation of newer code.
-- Never treat 694 passed as fresh GitHub Actions verification without an actual runner result.
-- Never connect live Blender until adapter-focused tests and the authorized regression gate are green.
-- Never mark `tools/blender_process.py` complete as a production integration merely because its isolated tests pass; adapter integration and independent verification are still required.
-- Never mark `tests/test_unreal_transport_failure_boundary.py` verified until its focused result is recorded.
-- Never treat the OpenHands transition guide as evidence that OpenHands or production access is already installed, tested, or authorized.
+- Never treat 694 passed as fresh CI verification.
+- Never connect live Blender until the adapter-focused regression gate is green.
+- Never mark the Unreal transport test verified without a recorded result.
