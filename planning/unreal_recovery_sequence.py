@@ -1,7 +1,7 @@
 """Fresh-state coordination for failed multi-operation Unreal plans."""
 
 from dataclasses import dataclass
-from typing import Mapping, Tuple
+from typing import Mapping, Optional, Tuple
 
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_material_verifier import verify_material_variant
@@ -38,8 +38,8 @@ class UnrealRecoverySequenceAssessment:
 class UnrealRecoverySequenceResult:
     reassessment_result: UnrealPlanExecutionResult
     assessment: UnrealRecoverySequenceAssessment
-    replacement_plan: UnrealTaskPlan | None = None
-    replacement_result: UnrealPlanExecutionResult | None = None
+    replacement_plan: Optional[UnrealTaskPlan] = None
+    replacement_result: Optional[UnrealPlanExecutionResult] = None
 
 
 _WRITE_DEFINITIONS = {
@@ -205,7 +205,7 @@ def execute_recovery_sequence(
     plan: UnrealTaskPlan,
     failure: UnrealPlanExecutionFailure,
     reassessment_authorization: UnrealPlanAuthorization,
-    replacement_authorization: UnrealPlanAuthorization | None = None,
+    replacement_authorization: Optional[UnrealPlanAuthorization] = None,
 ) -> UnrealRecoverySequenceResult:
     """Execute the explicit recovery loop without ever authorizing a mutation implicitly.
 
