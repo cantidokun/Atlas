@@ -91,7 +91,6 @@ def test_process_executor_copies_arguments_before_builder_receives_them():
     )
     original = {"file_name": "scene.blend"}
 
-    monkeypatch = None
     executor("inspect_scene", original)
 
     assert original == {"file_name": "scene.blend"}
