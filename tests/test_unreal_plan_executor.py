@@ -273,3 +273,48 @@ def test_executor_wraps_unexpected_exception_with_failure_boundary():
     }
     assert failure.completed_evidence == ()
     assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+def test_executor_preflights_entire_plan_before_any_transport_mutation():
+    transport = RecordingTransport({"FIELD_SURFACE": {"location": {"x": 10, "y": 20, "z": 30}}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    malformed_scale = UnrealOperation(
+        capability=UnrealCapability.MODIFY_ACTOR,
+        kind=UnrealOperationKind.WRITE,
+        name="set_actor_scale",
+        arguments={
+            "entity_ids": ("FIELD_SURFACE",),
+            "scale": {"x": 1.1, "y": 1.1},
+        },
+        entity_ids=("FIELD_SURFACE",),
+    )
+    plan = UnrealTaskPlan(
+        "preflight-later-operation",
+        (
+            UnrealOperation(
+                capability=UnrealCapability.INSPECT_ACTOR,
+                kind=UnrealOperationKind.READ,
+                name="inspect_target_actors",
+                arguments={"entity_ids": ("FIELD_SURFACE",)},
+                entity_ids=("FIELD_SURFACE",),
+            ),
+            _location_operation({"x": 10.0, "y": 20.0, "z": 30.0}),
+            _verify_operation(),
+            malformed_scale,
+            UnrealOperation(
+                capability=UnrealCapability.MODIFY_ACTOR,
+                kind=UnrealOperationKind.VERIFY,
+                name="verify_actor_scale",
+                arguments={
+                    "entity_ids": ("FIELD_SURFACE",),
+                    "expected_scale": {"x": 1.1, "y": 1.1, "z": 1.1},
+                },
+                entity_ids=("FIELD_SURFACE",),
+            ),
+        ),
+    )
+
+    with pytest.raises(UnrealPlanExecutionError, match="failed preflight"):
+        executor.execute(plan, "auth-preflight-001")
+
+    assert transport.requests == []
