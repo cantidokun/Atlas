@@ -34,36 +34,7 @@ class UnrealTaskPlanner:
         self._validate_intent(intent)
         if not isinstance(composite, CompositeActorProductionOperation): raise TypeError("composite must be a CompositeActorProductionOperation")
         if tuple(intent.target_entity_ids) != composite.entity_ids: raise ValueError("composite entity_ids must exactly match intent target_entity_ids")
-        operations = [self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", composite.entity_ids)]
-        for raw in composite.ordered_operations():
-            name = raw["name"]
-            ids = tuple(raw.get("entity_ids", composite.entity_ids))
-            capability = {
-                "set_actor_location": UnrealCapability.MODIFY_ACTOR,
-                "set_actor_rotation": UnrealCapability.MODIFY_ACTOR,
-                "set_actor_scale": UnrealCapability.MODIFY_ACTOR,
-                "apply_material_variant": UnrealCapability.MATERIAL,
-                "apply_niagara_variant": UnrealCapability.NIAGARA,
-            }[name]
-            arguments = dict(raw.get("arguments", {})); arguments["entity_ids"] = ids
-            if name == "apply_material_variant":
-                variant = arguments.get("material_variant", arguments.get("variant"))
-                if isinstance(variant, str): variant = {"name": variant}
-                arguments["material_variant"] = self._validate_named_variant(variant, "material_variant")
-                operations.append(self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.READ, "inspect_material_state", ids))
-                operations.append(self._operation(capability, UnrealOperationKind.WRITE, name, ids, arguments))
-                operations.append(self._operation(UnrealCapability.MATERIAL, UnrealOperationKind.VERIFY, "verify_material_variant", ids, {"material_variant": arguments["material_variant"]}))
-            elif name == "apply_niagara_variant":
-                variant = arguments.get("niagara_variant", arguments.get("variant"))
-                if isinstance(variant, str): variant = {"name": variant}
-                arguments["niagara_variant"] = self._validate_named_variant(variant, "niagara_variant")
-                operations.append(self._operation(UnrealCapability.NIAGARA, UnrealOperationKind.READ, "inspect_niagara_state", ids))
-                operations.append(self._operation(capability, UnrealOperationKind.WRITE, name, ids, arguments))
-                operations.append(self._operation(UnrealCapability.NIAGARA, UnrealOperationKind.VERIFY, "verify_niagara_variant", ids, {"niagara_variant": arguments["niagara_variant"]}))
-            else:
-                operations.append(self._operation(capability, UnrealOperationKind.WRITE, name, ids, arguments))
-                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", ids))
-        return UnrealTaskPlan(intent.intent_id, tuple(operations))
+        return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_composite_actor_production(intent, composite))
     def compose_plans(self, intent, plans):
         self._validate_intent(intent)
         if isinstance(plans, (str, bytes)) or not isinstance(plans, Sequence): raise TypeError("plans must be a sequence of UnrealTaskPlan instances")
@@ -102,6 +73,35 @@ class UnrealAgentPlanBuilder:
         operation_arguments={"entity_ids": entity_ids}
         if arguments: operation_arguments.update(arguments)
         return self.capabilities.validate_operation(UnrealOperation(capability=capability, kind=kind, name=name, arguments=operation_arguments, entity_ids=entity_ids))
+    def for_composite_actor_production(self, intent, composite):
+        operations=[self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", composite.entity_ids)]
+        for raw in composite.ordered_operations():
+            name=raw["name"]
+            ids=tuple(raw.get("entity_ids", composite.entity_ids))
+            capability={"set_actor_location":UnrealCapability.MODIFY_ACTOR,"set_actor_rotation":UnrealCapability.MODIFY_ACTOR,"set_actor_scale":UnrealCapability.MODIFY_ACTOR,"apply_material_variant":UnrealCapability.MATERIAL,"apply_niagara_variant":UnrealCapability.NIAGARA}[name]
+            arguments=dict(raw.get("arguments", {}))
+            for field in ("location", "rotation", "scale", "material_variant", "niagara_variant", "variant"):
+                if field in raw and field not in arguments: arguments[field]=raw[field]
+            arguments["entity_ids"]=ids
+            if name == "set_actor_location":
+                arguments["location"]=self._validate_location(arguments["location"])
+            elif name == "set_actor_rotation":
+                arguments["rotation"]=self._validate_rotation(arguments["rotation"])
+            elif name == "set_actor_scale":
+                arguments["scale"]=self._validate_scale(arguments["scale"])
+            elif name == "apply_material_variant":
+                variant=arguments.get("material_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
+                arguments["material_variant"]=self._validate_named_variant(variant,"material_variant")
+                operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.READ,"inspect_material_state",ids))
+            elif name == "apply_niagara_variant":
+                variant=arguments.get("niagara_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
+                arguments["niagara_variant"]=self._validate_named_variant(variant,"niagara_variant")
+                operations.append(self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids))
+            operations.append(self._operation(capability,UnrealOperationKind.WRITE,name,ids,arguments))
+            if name == "apply_material_variant": operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.VERIFY,"verify_material_variant",ids,{"material_variant":arguments["material_variant"]}))
+            elif name == "apply_niagara_variant": operations.append(self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.VERIFY,"verify_niagara_variant",ids,{"niagara_variant":arguments["niagara_variant"]}))
+            else: operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
+        return tuple(operations)
     def for_inspection(self, intent):
         ids=self._require_targets(intent); return (self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", ids), self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.VERIFY, "verify_target_actor_mapping", ids))
     def for_material_variant(self, intent, material_variant):
