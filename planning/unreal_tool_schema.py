@@ -65,7 +65,8 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
         if tool == tool_name:
             value = snapshot[field]
             if not isinstance(value, dict) or set(value.keys()) != axes:
-                raise ValueError(f"{field} must contain exactly {', '.join(sorted(axes))}")
+                label = "x, y, and z" if field in {"location", "scale"} else "pitch, yaw, and roll"
+                raise ValueError(f"{field} must contain exactly {label}")
             if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in value.values()):
                 raise TypeError(message)
             snapshot[field] = dict(value)
