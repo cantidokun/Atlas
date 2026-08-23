@@ -23,30 +23,31 @@ const int32 FAtlasTransportServer::MaxMessageSize = 1024 * 1024;
 namespace
 {
     const FString MaterialVariantTagPrefix = TEXT("atlas_material_variant:");
+    const FString NiagaraVariantTagPrefix = TEXT("atlas_niagara_variant:");
 
-    FString GetMaterialVariantName(const AActor* Actor)
+    FString GetTaggedVariantName(const AActor* Actor, const FString& Prefix)
     {
         if (!Actor) return TEXT("default");
         for (const FName& Tag : Actor->Tags)
         {
             const FString TagString = Tag.ToString();
-            if (TagString.StartsWith(MaterialVariantTagPrefix))
+            if (TagString.StartsWith(Prefix))
             {
-                const FString Name = TagString.Mid(MaterialVariantTagPrefix.Len());
+                const FString Name = TagString.Mid(Prefix.Len());
                 if (!Name.TrimStartAndEnd().IsEmpty()) return Name;
             }
         }
         return TEXT("default");
     }
 
-    void SetMaterialVariantName(AActor* Actor, const FString& VariantName)
+    void SetTaggedVariantName(AActor* Actor, const FString& Prefix, const FString& VariantName)
     {
         if (!Actor) return;
         for (int32 Index = Actor->Tags.Num() - 1; Index >= 0; --Index)
         {
-            if (Actor->Tags[Index].ToString().StartsWith(MaterialVariantTagPrefix)) Actor->Tags.RemoveAt(Index);
+            if (Actor->Tags[Index].ToString().StartsWith(Prefix)) Actor->Tags.RemoveAt(Index);
         }
-        Actor->Tags.Add(FName(*(MaterialVariantTagPrefix + VariantName)));
+        Actor->Tags.Add(FName(*(Prefix + VariantName)));
         Actor->MarkPackageDirty();
     }
 }
@@ -103,12 +104,8 @@ uint32 FAtlasTransportServer::Run()
                 else
                 {
                     FTransportResponse ErrorResponse;
-                    ErrorResponse.RequestId = Request.RequestId;
-                    ErrorResponse.OperationName = Request.OperationName;
-                    ErrorResponse.EntityIds = Request.EntityIds;
-                    ErrorResponse.bSuccess = false;
-                    ErrorResponse.Error = ValidationError;
-                    ErrorResponse.Source = TEXT("unreal-editor-atlas-transport");
+                    ErrorResponse.RequestId = Request.RequestId; ErrorResponse.OperationName = Request.OperationName; ErrorResponse.EntityIds = Request.EntityIds;
+                    ErrorResponse.bSuccess = false; ErrorResponse.Error = ValidationError; ErrorResponse.Source = TEXT("unreal-editor-atlas-transport");
                     WriteResponse(SerializeResponse(ErrorResponse));
                 }
             }
@@ -193,7 +190,8 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
 
 FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Response)
 {
-    TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject); JsonObject->SetStringField(TEXT("request_id"), Response.RequestId); JsonObject->SetStringField(TEXT("operation_name"), Response.OperationName); JsonObject->SetBoolField(TEXT("success"), Response.bSuccess); JsonObject->SetStringField(TEXT("error"), Response.Error); JsonObject->SetStringField(TEXT("source"), Response.Source);
+    TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
+    JsonObject->SetStringField(TEXT("request_id"), Response.RequestId); JsonObject->SetStringField(TEXT("operation_name"), Response.OperationName); JsonObject->SetBoolField(TEXT("success"), Response.bSuccess); JsonObject->SetStringField(TEXT("error"), Response.Error); JsonObject->SetStringField(TEXT("source"), Response.Source);
     TArray<TSharedPtr<FJsonValue>> EntityIdsArray; for (const FString& EntityId : Response.EntityIds) EntityIdsArray.Add(MakeShareable(new FJsonValueString(EntityId))); JsonObject->SetArrayField(TEXT("entity_ids"), EntityIdsArray);
     if (Response.ObservedState.IsValid()) JsonObject->SetObjectField(TEXT("observed_state"), Response.ObservedState); else JsonObject->SetObjectField(TEXT("observed_state"), MakeShareable(new FJsonObject));
     FString OutputString; TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString); FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer); return OutputString;
@@ -209,165 +207,127 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
     TArray<FString> ArgumentEntityIds; if (!Request.Arguments->TryGetStringArrayField(TEXT("entity_ids"), ArgumentEntityIds)) { OutError = TEXT("arguments.entity_ids must be an array of strings"); return false; }
     if (ArgumentEntityIds.Num() != Request.EntityIds.Num()) { OutError = TEXT("arguments.entity_ids must match entity_ids"); return false; }
     for (int32 Index = 0; Index < Request.EntityIds.Num(); ++Index) if (ArgumentEntityIds[Index] != Request.EntityIds[Index]) { OutError = TEXT("arguments.entity_ids must match entity_ids"); return false; }
-
     if (Request.OperationName == TEXT("inspect_target_actors")) { if (Request.Capability != TEXT("inspect_actor") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_target_actors requires inspect_actor/read"); return false; } return true; }
     if (Request.OperationName == TEXT("set_actor_location"))
     {
         if (Request.Capability != TEXT("modify_actor") || Request.Kind != TEXT("write")) { OutError = TEXT("set_actor_location requires modify_actor/write"); return false; }
         if (Request.EntityIds.Num() != 1) { OutError = TEXT("set_actor_location requires exactly one entity_id"); return false; }
-        const TSharedPtr<FJsonObject>* LocationObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("location"), LocationObject) || LocationObject == nullptr || !LocationObject->IsValid()) { OutError = TEXT("arguments.location must be an object"); return false; }
-        double X = 0.0, Y = 0.0, Z = 0.0; if (!(*LocationObject)->TryGetNumberField(TEXT("x"), X) || !(*LocationObject)->TryGetNumberField(TEXT("y"), Y) || !(*LocationObject)->TryGetNumberField(TEXT("z"), Z)) { OutError = TEXT("arguments.location must contain numeric x, y, and z"); return false; }
-        return true;
+        const TSharedPtr<FJsonObject>* O=nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("location"),O)||!O||!O->IsValid()){OutError=TEXT("arguments.location must be an object");return false;} double X=0,Y=0,Z=0; if(!(*O)->TryGetNumberField(TEXT("x"),X)||!(*O)->TryGetNumberField(TEXT("y"),Y)||!(*O)->TryGetNumberField(TEXT("z"),Z)){OutError=TEXT("arguments.location must contain numeric x, y, and z");return false;} return true;
     }
     if (Request.OperationName == TEXT("set_actor_rotation"))
     {
         if (Request.Capability != TEXT("modify_actor") || Request.Kind != TEXT("write")) { OutError = TEXT("set_actor_rotation requires modify_actor/write"); return false; }
         if (Request.EntityIds.Num() != 1) { OutError = TEXT("set_actor_rotation requires exactly one entity_id"); return false; }
-        const TSharedPtr<FJsonObject>* RotationObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("rotation"), RotationObject) || RotationObject == nullptr || !RotationObject->IsValid()) { OutError = TEXT("arguments.rotation must be an object"); return false; }
-        double Pitch = 0.0, Yaw = 0.0, Roll = 0.0; if (!(*RotationObject)->TryGetNumberField(TEXT("pitch"), Pitch) || !(*RotationObject)->TryGetNumberField(TEXT("yaw"), Yaw) || !(*RotationObject)->TryGetNumberField(TEXT("roll"), Roll)) { OutError = TEXT("arguments.rotation must contain numeric pitch, yaw, and roll"); return false; }
-        return true;
+        const TSharedPtr<FJsonObject>* O=nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("rotation"),O)||!O||!O->IsValid()){OutError=TEXT("arguments.rotation must be an object");return false;} double A=0,B=0,C=0; if(!(*O)->TryGetNumberField(TEXT("pitch"),A)||!(*O)->TryGetNumberField(TEXT("yaw"),B)||!(*O)->TryGetNumberField(TEXT("roll"),C)){OutError=TEXT("arguments.rotation must contain numeric pitch, yaw, and roll");return false;} return true;
     }
     if (Request.OperationName == TEXT("set_actor_scale"))
     {
         if (Request.Capability != TEXT("modify_actor") || Request.Kind != TEXT("write")) { OutError = TEXT("set_actor_scale requires modify_actor/write"); return false; }
         if (Request.EntityIds.Num() != 1) { OutError = TEXT("set_actor_scale requires exactly one entity_id"); return false; }
-        const TSharedPtr<FJsonObject>* ScaleObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("scale"), ScaleObject) || ScaleObject == nullptr || !ScaleObject->IsValid()) { OutError = TEXT("arguments.scale must be an object"); return false; }
-        double X = 0.0, Y = 0.0, Z = 0.0; if (!(*ScaleObject)->TryGetNumberField(TEXT("x"), X) || !(*ScaleObject)->TryGetNumberField(TEXT("y"), Y) || !(*ScaleObject)->TryGetNumberField(TEXT("z"), Z)) { OutError = TEXT("arguments.scale must contain numeric x, y, and z"); return false; }
-        return true;
+        const TSharedPtr<FJsonObject>* O=nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("scale"),O)||!O||!O->IsValid()){OutError=TEXT("arguments.scale must be an object");return false;} double X=0,Y=0,Z=0; if(!(*O)->TryGetNumberField(TEXT("x"),X)||!(*O)->TryGetNumberField(TEXT("y"),Y)||!(*O)->TryGetNumberField(TEXT("z"),Z)){OutError=TEXT("arguments.scale must contain numeric x, y, and z");return false;} return true;
     }
     if (Request.OperationName == TEXT("inspect_material_state")) { if (Request.Capability != TEXT("material") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_material_state requires material/read"); return false; } return true; }
     if (Request.OperationName == TEXT("apply_material_variant"))
     {
         if (Request.Capability != TEXT("material") || Request.Kind != TEXT("write")) { OutError = TEXT("apply_material_variant requires material/write"); return false; }
-        const TSharedPtr<FJsonObject>* VariantObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("material_variant"), VariantObject) || VariantObject == nullptr || !VariantObject->IsValid()) { OutError = TEXT("arguments.material_variant must be an object"); return false; }
-        FString VariantName; if (!(*VariantObject)->TryGetStringField(TEXT("name"), VariantName) || VariantName.TrimStartAndEnd().IsEmpty()) { OutError = TEXT("arguments.material_variant.name must be a non-empty string"); return false; }
-        return true;
+        const TSharedPtr<FJsonObject>* O=nullptr; if(!Request.Arguments->TryGetObjectField(TEXT("material_variant"),O)||!O||!O->IsValid()){OutError=TEXT("arguments.material_variant must be an object");return false;} FString Name; if(!(*O)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){OutError=TEXT("arguments.material_variant.name must be a non-empty string");return false;} return true;
+    }
+    if (Request.OperationName == TEXT("inspect_niagara_state")) { if (Request.Capability != TEXT("niagara") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_niagara_state requires niagara/read"); return false; } return true; }
+    if (Request.OperationName == TEXT("apply_niagara_variant"))
+    {
+        if (Request.Capability != TEXT("niagara") || Request.Kind != TEXT("write")) { OutError = TEXT("apply_niagara_variant requires niagara/write"); return false; }
+        const TSharedPtr<FJsonObject>* O=nullptr; if(!Request.Arguments->TryGetObjectField(TEXT("niagara_variant"),O)||!O||!O->IsValid()){OutError=TEXT("arguments.niagara_variant must be an object");return false;} FString Name; if(!(*O)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){OutError=TEXT("arguments.niagara_variant.name must be a non-empty string");return false;} return true;
     }
     OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName); return false;
 }
 
 bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
 {
-    OutResponse.RequestId = Request.RequestId; OutResponse.OperationName = Request.OperationName; OutResponse.EntityIds = Request.EntityIds; OutResponse.Source = TEXT("unreal-editor-atlas-transport");
-    if (Request.OperationName == TEXT("inspect_target_actors") || Request.OperationName == TEXT("set_actor_location") || Request.OperationName == TEXT("set_actor_rotation") || Request.OperationName == TEXT("set_actor_scale") || Request.OperationName == TEXT("inspect_material_state") || Request.OperationName == TEXT("apply_material_variant"))
-    {
-        TSharedPtr<FGameThreadExecutionState> SharedState = MakeShareable(new FGameThreadExecutionState()); SharedState->Request = Request; SharedState->Response.RequestId = Request.RequestId; SharedState->Response.OperationName = Request.OperationName; SharedState->Response.EntityIds = Request.EntityIds; SharedState->Response.Source = TEXT("unreal-editor-atlas-transport");
-        AsyncTask(ENamedThreads::GameThread, [SharedState]() { FAtlasTransportServer::ExecuteOnGameThread(SharedState); });
-        const uint32 TimeoutMs = 5000; const bool bEventTriggered = SharedState->CompletionEvent->Wait(TimeoutMs);
-        if (bStopRequested) { SharedState->bCancelled = true; OutResponse.bSuccess = false; OutResponse.Error = TEXT("Operation cancelled during shutdown"); return false; }
-        if (!bEventTriggered) { SharedState->bCancelled = true; OutResponse.bSuccess = false; OutResponse.Error = TEXT("Operation timed out"); return false; }
-        OutResponse = SharedState->Response; return SharedState->bSuccess;
-    }
-    OutResponse.bSuccess = false; OutResponse.Error = FString::Printf(TEXT("Unsupported operation: %s"), *Request.OperationName); return false;
+    OutResponse.RequestId=Request.RequestId; OutResponse.OperationName=Request.OperationName; OutResponse.EntityIds=Request.EntityIds; OutResponse.Source=TEXT("unreal-editor-atlas-transport");
+    const bool bSupported = Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant");
+    if (!bSupported) { OutResponse.bSuccess=false; OutResponse.Error=FString::Printf(TEXT("Unsupported operation: %s"),*Request.OperationName); return false; }
+    TSharedPtr<FGameThreadExecutionState> SharedState=MakeShareable(new FGameThreadExecutionState()); SharedState->Request=Request; SharedState->Response.RequestId=Request.RequestId; SharedState->Response.OperationName=Request.OperationName; SharedState->Response.EntityIds=Request.EntityIds; SharedState->Response.Source=TEXT("unreal-editor-atlas-transport");
+    AsyncTask(ENamedThreads::GameThread,[SharedState](){FAtlasTransportServer::ExecuteOnGameThread(SharedState);});
+    const bool bEventTriggered=SharedState->CompletionEvent->Wait(5000);
+    if (bStopRequested) { SharedState->bCancelled=true; OutResponse.bSuccess=false; OutResponse.Error=TEXT("Operation cancelled during shutdown"); return false; }
+    if (!bEventTriggered) { SharedState->bCancelled=true; OutResponse.bSuccess=false; OutResponse.Error=TEXT("Operation timed out"); return false; }
+    OutResponse=SharedState->Response; return SharedState->bSuccess;
 }
 
-void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState)
+void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> S)
 {
-    if (SharedState->bCancelled) { SharedState->Response.bSuccess = false; SharedState->Response.Error = TEXT("Operation cancelled before execution"); SharedState->bSuccess = false; SharedState->bCompleted = true; SharedState->CompletionEvent->Trigger(); return; }
-    if (!IsInGameThread()) { SharedState->Response.bSuccess = false; SharedState->Response.Error = TEXT("ExecuteOnGameThread must be called on game thread"); SharedState->bSuccess = false; SharedState->bCompleted = true; SharedState->CompletionEvent->Trigger(); return; }
-    if (!GEngine || IsEngineExitRequested()) { SharedState->Response.bSuccess = false; SharedState->Response.Error = TEXT("Engine shutting down"); SharedState->bSuccess = false; SharedState->bCompleted = true; SharedState->CompletionEvent->Trigger(); return; }
-
-    bool bTaskSuccess = false;
-    if (SharedState->Request.OperationName == TEXT("inspect_target_actors")) bTaskSuccess = InspectTargetActors(SharedState->Request.EntityIds, SharedState->ObservedState, SharedState->Error);
-    else if (SharedState->Request.OperationName == TEXT("set_actor_location")) bTaskSuccess = SetActorLocation(SharedState->Request, SharedState->ObservedState, SharedState->Error);
-    else if (SharedState->Request.OperationName == TEXT("set_actor_rotation")) bTaskSuccess = SetActorRotation(SharedState->Request, SharedState->ObservedState, SharedState->Error);
-    else if (SharedState->Request.OperationName == TEXT("set_actor_scale")) bTaskSuccess = SetActorScale(SharedState->Request, SharedState->ObservedState, SharedState->Error);
-    else if (SharedState->Request.OperationName == TEXT("inspect_material_state")) bTaskSuccess = InspectMaterialState(SharedState->Request.EntityIds, SharedState->ObservedState, SharedState->Error);
-    else if (SharedState->Request.OperationName == TEXT("apply_material_variant")) bTaskSuccess = ApplyMaterialVariant(SharedState->Request, SharedState->ObservedState, SharedState->Error);
-    else SharedState->Error = FString::Printf(TEXT("Unsupported operation: %s"), *SharedState->Request.OperationName);
-
-    if (bTaskSuccess && SharedState->Error.IsEmpty()) { SharedState->Response.bSuccess = true; SharedState->Response.ObservedState = SharedState->ObservedState; SharedState->bSuccess = true; }
-    else { SharedState->Response.bSuccess = false; SharedState->Response.Error = SharedState->Error.IsEmpty() ? TEXT("Unknown error during Unreal operation") : SharedState->Error; SharedState->bSuccess = false; }
-    SharedState->bCompleted = true; SharedState->CompletionEvent->Trigger();
+    if (S->bCancelled) { S->Response.bSuccess=false; S->Response.Error=TEXT("Operation cancelled before execution"); S->bSuccess=false; S->bCompleted=true; S->CompletionEvent->Trigger(); return; }
+    if (!IsInGameThread()) { S->Response.bSuccess=false; S->Response.Error=TEXT("ExecuteOnGameThread must be called on game thread"); S->bSuccess=false; S->bCompleted=true; S->CompletionEvent->Trigger(); return; }
+    if (!GEngine || IsEngineExitRequested()) { S->Response.bSuccess=false; S->Response.Error=TEXT("Engine shutting down"); S->bSuccess=false; S->bCompleted=true; S->CompletionEvent->Trigger(); return; }
+    bool bTaskSuccess=false;
+    if(S->Request.OperationName==TEXT("inspect_target_actors")) bTaskSuccess=InspectTargetActors(S->Request.EntityIds,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("set_actor_location")) bTaskSuccess=SetActorLocation(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("set_actor_rotation")) bTaskSuccess=SetActorRotation(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("set_actor_scale")) bTaskSuccess=SetActorScale(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("inspect_material_state")) bTaskSuccess=InspectMaterialState(S->Request.EntityIds,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("apply_material_variant")) bTaskSuccess=ApplyMaterialVariant(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("inspect_niagara_state")) bTaskSuccess=InspectNiagaraState(S->Request.EntityIds,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("apply_niagara_variant")) bTaskSuccess=ApplyNiagaraVariant(S->Request,S->ObservedState,S->Error);
+    else S->Error=FString::Printf(TEXT("Unsupported operation: %s"),*S->Request.OperationName);
+    if(bTaskSuccess&&S->Error.IsEmpty()){S->Response.bSuccess=true;S->Response.ObservedState=S->ObservedState;S->bSuccess=true;}else{S->Response.bSuccess=false;S->Response.Error=S->Error.IsEmpty()?TEXT("Unknown error during Unreal operation"):S->Error;S->bSuccess=false;}
+    S->bCompleted=true; S->CompletionEvent->Trigger();
 }
 
-bool FAtlasTransportServer::SetActorLocation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+bool FAtlasTransportServer::SetActorLocation(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if (!IsInGameThread() || !GEngine || IsEngineExitRequested()) { OutError = TEXT("Engine unavailable or operation is not on the game thread"); return false; }
-    if (Request.EntityIds.Num() != 1 || !Request.Arguments.IsValid()) { OutError = TEXT("set_actor_location requires exactly one entity_id and valid arguments"); return false; }
-    const TSharedPtr<FJsonObject>* LocationObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("location"), LocationObject) || LocationObject == nullptr || !LocationObject->IsValid()) { OutError = TEXT("arguments.location must be an object"); return false; }
-    double X = 0.0, Y = 0.0, Z = 0.0; if (!(*LocationObject)->TryGetNumberField(TEXT("x"), X) || !(*LocationObject)->TryGetNumberField(TEXT("y"), Y) || !(*LocationObject)->TryGetNumberField(TEXT("z"), Z)) { OutError = TEXT("arguments.location must contain numeric x, y, and z"); return false; }
-    AActor* Actor = FindActorByEntityId(Request.EntityIds[0]); if (!Actor || !IsValid(Actor)) { OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *Request.EntityIds[0]); return false; }
-    Actor->SetActorLocation(FVector(static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z)), false, nullptr, ETeleportType::TeleportPhysics);
-    return InspectTargetActors(Request.EntityIds, OutObservedState, OutError);
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_location requires exactly one entity_id and valid arguments");return false;}
+    const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("location"),P)||!P||!P->IsValid()){E=TEXT("arguments.location must be an object");return false;} double X=0,Y=0,Z=0; if(!(*P)->TryGetNumberField(TEXT("x"),X)||!(*P)->TryGetNumberField(TEXT("y"),Y)||!(*P)->TryGetNumberField(TEXT("z"),Z)){E=TEXT("arguments.location must contain numeric x, y, and z");return false;} AActor* A=FindActorByEntityId(R.EntityIds[0]); if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} A->SetActorLocation(FVector((float)X,(float)Y,(float)Z),false,nullptr,ETeleportType::TeleportPhysics); return InspectTargetActors(R.EntityIds,O,E);
 }
 
-bool FAtlasTransportServer::SetActorRotation(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+bool FAtlasTransportServer::SetActorRotation(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if (!IsInGameThread() || !GEngine || IsEngineExitRequested()) { OutError = TEXT("Engine unavailable or operation is not on the game thread"); return false; }
-    if (Request.EntityIds.Num() != 1 || !Request.Arguments.IsValid()) { OutError = TEXT("set_actor_rotation requires exactly one entity_id and valid arguments"); return false; }
-    const TSharedPtr<FJsonObject>* RotationObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("rotation"), RotationObject) || RotationObject == nullptr || !RotationObject->IsValid()) { OutError = TEXT("arguments.rotation must be an object"); return false; }
-    double Pitch = 0.0, Yaw = 0.0, Roll = 0.0; if (!(*RotationObject)->TryGetNumberField(TEXT("pitch"), Pitch) || !(*RotationObject)->TryGetNumberField(TEXT("yaw"), Yaw) || !(*RotationObject)->TryGetNumberField(TEXT("roll"), Roll)) { OutError = TEXT("arguments.rotation must contain numeric pitch, yaw, and roll"); return false; }
-    AActor* Actor = FindActorByEntityId(Request.EntityIds[0]); if (!Actor || !IsValid(Actor)) { OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *Request.EntityIds[0]); return false; }
-    Actor->SetActorRotation(FRotator(static_cast<float>(Pitch), static_cast<float>(Yaw), static_cast<float>(Roll)));
-    return InspectTargetActors(Request.EntityIds, OutObservedState, OutError);
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_rotation requires exactly one entity_id and valid arguments");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("rotation"),P)||!P||!P->IsValid()){E=TEXT("arguments.rotation must be an object");return false;} double A=0,B=0,C=0; if(!(*P)->TryGetNumberField(TEXT("pitch"),A)||!(*P)->TryGetNumberField(TEXT("yaw"),B)||!(*P)->TryGetNumberField(TEXT("roll"),C)){E=TEXT("arguments.rotation must contain numeric pitch, yaw, and roll");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorRotation(FRotator((float)A,(float)B,(float)C)); return InspectTargetActors(R.EntityIds,O,E);
 }
 
-bool FAtlasTransportServer::SetActorScale(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+bool FAtlasTransportServer::SetActorScale(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if (!IsInGameThread() || !GEngine || IsEngineExitRequested()) { OutError = TEXT("Engine unavailable or operation is not on the game thread"); return false; }
-    if (Request.EntityIds.Num() != 1 || !Request.Arguments.IsValid()) { OutError = TEXT("set_actor_scale requires exactly one entity_id and valid arguments"); return false; }
-    const TSharedPtr<FJsonObject>* ScaleObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("scale"), ScaleObject) || ScaleObject == nullptr || !ScaleObject->IsValid()) { OutError = TEXT("arguments.scale must be an object"); return false; }
-    double X = 0.0, Y = 0.0, Z = 0.0; if (!(*ScaleObject)->TryGetNumberField(TEXT("x"), X) || !(*ScaleObject)->TryGetNumberField(TEXT("y"), Y) || !(*ScaleObject)->TryGetNumberField(TEXT("z"), Z)) { OutError = TEXT("arguments.scale must contain numeric x, y, and z"); return false; }
-    AActor* Actor = FindActorByEntityId(Request.EntityIds[0]); if (!Actor || !IsValid(Actor)) { OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *Request.EntityIds[0]); return false; }
-    Actor->SetActorScale3D(FVector(static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z)));
-    return InspectTargetActors(Request.EntityIds, OutObservedState, OutError);
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_scale requires exactly one entity_id and valid arguments");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("scale"),P)||!P||!P->IsValid()){E=TEXT("arguments.scale must be an object");return false;} double X=0,Y=0,Z=0; if(!(*P)->TryGetNumberField(TEXT("x"),X)||!(*P)->TryGetNumberField(TEXT("y"),Y)||!(*P)->TryGetNumberField(TEXT("z"),Z)){E=TEXT("arguments.scale must contain numeric x, y, and z");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorScale3D(FVector((float)X,(float)Y,(float)Z)); return InspectTargetActors(R.EntityIds,O,E);
 }
 
-bool FAtlasTransportServer::InspectMaterialState(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+bool FAtlasTransportServer::InspectMaterialState(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if (!IsInGameThread() || !GEngine || IsEngineExitRequested()) { OutError = TEXT("Engine unavailable or operation is not on the game thread"); return false; }
-    if (EntityIds.Num() == 0) { OutError = TEXT("inspect_material_state requires at least one entity_id"); return false; }
-    TSharedPtr<FJsonObject> ObservedState = MakeShareable(new FJsonObject);
-    for (const FString& EntityId : EntityIds)
-    {
-        AActor* Actor = FindActorByEntityId(EntityId); if (!Actor || !IsValid(Actor)) { OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *EntityId); return false; }
-        TSharedPtr<FJsonObject> MaterialState; if (!BuildMaterialVariantState(Actor, MaterialState, OutError)) return false;
-        TSharedPtr<FJsonObject> ActorData = MakeShareable(new FJsonObject); ActorData->SetStringField(TEXT("entity_id"), EntityId); ActorData->SetObjectField(TEXT("material"), MaterialState); ObservedState->SetObjectField(EntityId, ActorData);
-    }
-    OutObservedState = ObservedState; return true;
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(IDs.Num()==0){E=TEXT("inspect_material_state requires at least one entity_id");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
+    for(const FString& ID:IDs){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;} TSharedPtr<FJsonObject> M; if(!BuildMaterialVariantState(A,M,E))return false; TSharedPtr<FJsonObject>D=MakeShareable(new FJsonObject);D->SetStringField(TEXT("entity_id"),ID);D->SetObjectField(TEXT("material"),M);State->SetObjectField(ID,D);} O=State;return true;
 }
 
-bool FAtlasTransportServer::ApplyMaterialVariant(const FTransportRequest& Request, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+bool FAtlasTransportServer::ApplyMaterialVariant(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if (!IsInGameThread() || !GEngine || IsEngineExitRequested()) { OutError = TEXT("Engine unavailable or operation is not on the game thread"); return false; }
-    if (!Request.Arguments.IsValid() || Request.EntityIds.Num() == 0) { OutError = TEXT("apply_material_variant requires valid arguments and target entity_ids"); return false; }
-    const TSharedPtr<FJsonObject>* VariantObject = nullptr; if (!Request.Arguments->TryGetObjectField(TEXT("material_variant"), VariantObject) || VariantObject == nullptr || !VariantObject->IsValid()) { OutError = TEXT("arguments.material_variant must be an object"); return false; }
-    FString VariantName; if (!(*VariantObject)->TryGetStringField(TEXT("name"), VariantName) || VariantName.TrimStartAndEnd().IsEmpty()) { OutError = TEXT("arguments.material_variant.name must be a non-empty string"); return false; }
-    for (const FString& EntityId : Request.EntityIds) { AActor* Actor = FindActorByEntityId(EntityId); if (!Actor || !IsValid(Actor)) { OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *EntityId); return false; } SetMaterialVariantName(Actor, VariantName); }
-    return InspectMaterialState(Request.EntityIds, OutObservedState, OutError);
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(!R.Arguments.IsValid()||R.EntityIds.Num()==0){E=TEXT("apply_material_variant requires valid arguments and target entity_ids");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("material_variant"),P)||!P||!P->IsValid()){E=TEXT("arguments.material_variant must be an object");return false;} FString Name; if(!(*P)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){E=TEXT("arguments.material_variant.name must be a non-empty string");return false;} for(const FString& ID:R.EntityIds){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;}SetTaggedVariantName(A,MaterialVariantTagPrefix,Name);} return InspectMaterialState(R.EntityIds,O,E);
 }
 
-bool FAtlasTransportServer::BuildMaterialVariantState(AActor* Actor, TSharedPtr<FJsonObject>& OutMaterialState, FString& OutError)
+bool FAtlasTransportServer::BuildMaterialVariantState(AActor* A,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if (!Actor || !IsValid(Actor)) { OutError = TEXT("Cannot inspect material state for invalid actor"); return false; }
-    TSharedPtr<FJsonObject> Variant = MakeShareable(new FJsonObject); Variant->SetStringField(TEXT("name"), GetMaterialVariantName(Actor)); OutMaterialState = MakeShareable(new FJsonObject); OutMaterialState->SetObjectField(TEXT("variant"), Variant); return true;
+    if(!A||!IsValid(A)){E=TEXT("Cannot inspect material state for invalid actor");return false;} TSharedPtr<FJsonObject> V=MakeShareable(new FJsonObject);V->SetStringField(TEXT("name"),GetTaggedVariantName(A,MaterialVariantTagPrefix));O=MakeShareable(new FJsonObject);O->SetObjectField(TEXT("variant"),V);return true;
 }
 
-bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& EntityIds, TSharedPtr<FJsonObject>& OutObservedState, FString& OutError)
+bool FAtlasTransportServer::InspectNiagaraState(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if (!IsInGameThread() || !GEngine || IsEngineExitRequested()) { OutError = TEXT("Engine unavailable or operation is not on the game thread"); return false; }
-    UWorld* World = nullptr; if (GEngine->GetWorldContexts().Num() > 0) World = GEngine->GetWorldContexts()[0].World();
-    if (!World || !IsValid(World)) { OutError = TEXT("No valid world found"); return false; }
-    TSharedPtr<FJsonObject> ObservedState = MakeShareable(new FJsonObject);
-    for (const FString& EntityId : EntityIds)
-    {
-        AActor* Actor = FindActorByEntityId(EntityId); if (!Actor || !IsValid(Actor)) { OutError = FString::Printf(TEXT("Actor not found for entity_id: %s"), *EntityId); return false; }
-        TSharedPtr<FJsonObject> ActorData = MakeShareable(new FJsonObject); ActorData->SetStringField(TEXT("entity_id"), EntityId); ActorData->SetStringField(TEXT("actor_name"), Actor->GetName()); ActorData->SetStringField(TEXT("actor_class"), Actor->GetClass()->GetName());
-        const FVector Location = Actor->GetActorLocation(); TSharedPtr<FJsonObject> LocationObj = MakeShareable(new FJsonObject); LocationObj->SetNumberField(TEXT("x"), Location.X); LocationObj->SetNumberField(TEXT("y"), Location.Y); LocationObj->SetNumberField(TEXT("z"), Location.Z); ActorData->SetObjectField(TEXT("location"), LocationObj);
-        const FRotator Rotation = Actor->GetActorRotation(); TSharedPtr<FJsonObject> RotationObj = MakeShareable(new FJsonObject); RotationObj->SetNumberField(TEXT("pitch"), Rotation.Pitch); RotationObj->SetNumberField(TEXT("yaw"), Rotation.Yaw); RotationObj->SetNumberField(TEXT("roll"), Rotation.Roll); ActorData->SetObjectField(TEXT("rotation"), RotationObj);
-        const FVector Scale = Actor->GetActorScale3D(); TSharedPtr<FJsonObject> ScaleObj = MakeShareable(new FJsonObject); ScaleObj->SetNumberField(TEXT("x"), Scale.X); ScaleObj->SetNumberField(TEXT("y"), Scale.Y); ScaleObj->SetNumberField(TEXT("z"), Scale.Z); ActorData->SetObjectField(TEXT("scale"), ScaleObj);
-        ObservedState->SetObjectField(EntityId, ActorData);
-    }
-    OutObservedState = ObservedState; return true;
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(IDs.Num()==0){E=TEXT("inspect_niagara_state requires at least one entity_id");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
+    for(const FString& ID:IDs){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;} TSharedPtr<FJsonObject>N; if(!BuildNiagaraVariantState(A,N,E))return false; TSharedPtr<FJsonObject>D=MakeShareable(new FJsonObject);D->SetStringField(TEXT("entity_id"),ID);D->SetObjectField(TEXT("niagara"),N);State->SetObjectField(ID,D);} O=State;return true;
+}
+
+bool FAtlasTransportServer::ApplyNiagaraVariant(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(!R.Arguments.IsValid()||R.EntityIds.Num()==0){E=TEXT("apply_niagara_variant requires valid arguments and target entity_ids");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("niagara_variant"),P)||!P||!P->IsValid()){E=TEXT("arguments.niagara_variant must be an object");return false;} FString Name; if(!(*P)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){E=TEXT("arguments.niagara_variant.name must be a non-empty string");return false;} for(const FString& ID:R.EntityIds){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;}SetTaggedVariantName(A,NiagaraVariantTagPrefix,Name);} return InspectNiagaraState(R.EntityIds,O,E);
+}
+
+bool FAtlasTransportServer::BuildNiagaraVariantState(AActor* A,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(!A||!IsValid(A)){E=TEXT("Cannot inspect Niagara state for invalid actor");return false;} TSharedPtr<FJsonObject> V=MakeShareable(new FJsonObject);V->SetStringField(TEXT("name"),GetTaggedVariantName(A,NiagaraVariantTagPrefix));O=MakeShareable(new FJsonObject);O->SetObjectField(TEXT("variant"),V);return true;
+}
+
+bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World)){E=TEXT("No valid world found");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
+    for(const FString& ID:IDs){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;} TSharedPtr<FJsonObject>D=MakeShareable(new FJsonObject);D->SetStringField(TEXT("entity_id"),ID);D->SetStringField(TEXT("actor_name"),A->GetName());D->SetStringField(TEXT("actor_class"),A->GetClass()->GetName()); FVector L=A->GetActorLocation();TSharedPtr<FJsonObject>LO=MakeShareable(new FJsonObject);LO->SetNumberField(TEXT("x"),L.X);LO->SetNumberField(TEXT("y"),L.Y);LO->SetNumberField(TEXT("z"),L.Z);D->SetObjectField(TEXT("location"),LO); FRotator R=A->GetActorRotation();TSharedPtr<FJsonObject>RO=MakeShareable(new FJsonObject);RO->SetNumberField(TEXT("pitch"),R.Pitch);RO->SetNumberField(TEXT("yaw"),R.Yaw);RO->SetNumberField(TEXT("roll"),R.Roll);D->SetObjectField(TEXT("rotation"),RO); FVector S=A->GetActorScale3D();TSharedPtr<FJsonObject>SO=MakeShareable(new FJsonObject);SO->SetNumberField(TEXT("x"),S.X);SO->SetNumberField(TEXT("y"),S.Y);SO->SetNumberField(TEXT("z"),S.Z);D->SetObjectField(TEXT("scale"),SO);State->SetObjectField(ID,D);} O=State;return true;
 }
 
 AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
 {
-    if (!IsInGameThread() || !GEngine || IsEngineExitRequested()) return nullptr;
-    UWorld* World = nullptr; if (GEngine->GetWorldContexts().Num() > 0) World = GEngine->GetWorldContexts()[0].World();
-    if (!World || !IsValid(World)) return nullptr;
-    const FString TagToFind = FString::Printf(TEXT("atlas_entity:%s"), *EntityId);
-    for (TActorIterator<AActor> ActorItr(World); ActorItr; ++ActorItr) { AActor* Actor = *ActorItr; if (Actor && IsValid(Actor) && Actor->Tags.Contains(FName(*TagToFind))) return Actor; }
-    return nullptr;
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested())return nullptr; UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World))return nullptr; const FString TagToFind=FString::Printf(TEXT("atlas_entity:%s"),*EntityId); for(TActorIterator<AActor> ActorItr(World);ActorItr;++ActorItr){AActor* Actor=*ActorItr;if(Actor&&IsValid(Actor)&&Actor->Tags.Contains(FName(*TagToFind)))return Actor;} return nullptr;
 }
