@@ -24,6 +24,7 @@ namespace
 {
     const FString MaterialVariantTagPrefix = TEXT("atlas_material_variant:");
     const FString NiagaraVariantTagPrefix = TEXT("atlas_niagara_variant:");
+    const FString HeterogeneousNiagaraFailureAuthorization = TEXT("real-heterogeneous-recovery-failure-auth");
 
     FString GetTaggedVariantName(const AActor* Actor, const FString& Prefix)
     {
@@ -281,12 +282,12 @@ bool FAtlasTransportServer::SetActorLocation(const FTransportRequest& R,TSharedP
 
 bool FAtlasTransportServer::SetActorRotation(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_rotation requires exactly one entity_id and valid arguments");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("rotation"),P)||!P||!P->IsValid()){E=TEXT("arguments.rotation must be an object");return false;} double A=0,B=0,C=0; if(!(*P)->TryGetNumberField(TEXT("pitch"),A)||!(*P)->TryGetNumberField(TEXT("yaw"),B)||!(*P)->TryGetNumberField(TEXT("roll"),C)){E=TEXT("arguments.rotation must contain numeric pitch, yaw, and roll");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorRotation(FRotator((float)A,(float)B,(float)C)); return InspectTargetActors(R.EntityIds,O,E);
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_rotation requires exactly one entity_id");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("rotation"),P)||!P||!P->IsValid()){E=TEXT("arguments.rotation must be an object");return false;} double A=0,B=0,C=0; if(!(*P)->TryGetNumberField(TEXT("pitch"),A)||!(*P)->TryGetNumberField(TEXT("yaw"),B)||!(*P)->TryGetNumberField(TEXT("roll"),C)){E=TEXT("arguments.rotation must contain numeric pitch, yaw, and roll");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorRotation(FRotator((float)A,(float)B,(float)C)); return InspectTargetActors(R.EntityIds,O,E);
 }
 
 bool FAtlasTransportServer::SetActorScale(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_scale requires exactly one entity_id and valid arguments");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("scale"),P)||!P||!P->IsValid()){E=TEXT("arguments.scale must be an object");return false;} double X=0,Y=0,Z=0; if(!(*P)->TryGetNumberField(TEXT("x"),X)||!(*P)->TryGetNumberField(TEXT("y"),Y)||!(*P)->TryGetNumberField(TEXT("z"),Z)){E=TEXT("arguments.scale must contain numeric x, y, and z");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorScale3D(FVector((float)X,(float)Y,(float)Z)); return InspectTargetActors(R.EntityIds,O,E);
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_scale requires exactly one entity_id");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("scale"),P)||!P||!P->IsValid()){E=TEXT("arguments.scale must be an object");return false;} double X=0,Y=0,Z=0; if(!(*P)->TryGetNumberField(TEXT("x"),X)||!(*P)->TryGetNumberField(TEXT("y"),Y)||!(*P)->TryGetNumberField(TEXT("z"),Z)){E=TEXT("arguments.scale must contain numeric x, y, and z");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorScale3D(FVector((float)X,(float)Y,(float)Z)); return InspectTargetActors(R.EntityIds,O,E);
 }
 
 bool FAtlasTransportServer::InspectMaterialState(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
@@ -313,7 +314,13 @@ bool FAtlasTransportServer::InspectNiagaraState(const TArray<FString>& IDs,TShar
 
 bool FAtlasTransportServer::ApplyNiagaraVariant(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
 {
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(!R.Arguments.IsValid()||R.EntityIds.Num()==0){E=TEXT("apply_niagara_variant requires valid arguments and target entity_ids");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("niagara_variant"),P)||!P||!P->IsValid()){E=TEXT("arguments.niagara_variant must be an object");return false;} FString Name; if(!(*P)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){E=TEXT("arguments.niagara_variant.name must be a non-empty string");return false;} for(const FString& ID:R.EntityIds){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;}SetTaggedVariantName(A,NiagaraVariantTagPrefix,Name);} return InspectNiagaraState(R.EntityIds,O,E);
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(!R.Arguments.IsValid()||R.EntityIds.Num()==0){E=TEXT("apply_niagara_variant requires valid arguments and target entity_ids");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("niagara_variant"),P)||!P||!P->IsValid()){E=TEXT("arguments.niagara_variant must be an object");return false;} FString Name; if(!(*P)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){E=TEXT("arguments.niagara_variant.name must be a non-empty string");return false;}
+    if (R.AuthorizationId == HeterogeneousNiagaraFailureAuthorization)
+    {
+        E = TEXT("deterministic heterogeneous recovery failure injected by Unreal validation harness");
+        return false;
+    }
+    for(const FString& ID:R.EntityIds){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;}SetTaggedVariantName(A,NiagaraVariantTagPrefix,Name);} return InspectNiagaraState(R.EntityIds,O,E);
 }
 
 bool FAtlasTransportServer::BuildNiagaraVariantState(AActor* A,TSharedPtr<FJsonObject>& O,FString& E)
