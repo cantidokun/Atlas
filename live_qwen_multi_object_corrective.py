@@ -5,20 +5,26 @@ import argparse
 import json
 from typing import Any
 
-from action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.multi_step_corrective_executor import MultiStepCorrectiveExecutor
-from tools.blender import create_empty_marker, inspect_object_transform
-from tools.blender import move_object
+from planning.transform_correction_plan import TransformTarget, plan_transform_correction
+from tools.blender import create_empty_marker, inspect_object_transform, move_object
 from tools.blender_transform import set_object_rotation
 
 FILE_NAME = "marker_task_INCORRECT.blend"
 COLLECTION = "Atlas_Test"
 OBJECT_A = "Atlas_Correction_A"
 OBJECT_B = "Atlas_Correction_B"
+TARGETS = (
+    TransformTarget(OBJECT_A, (1.0, 0.0, 0.0), (0.0, 0.0, 45.0)),
+    TransformTarget(OBJECT_B, (-1.0, 0.0, 0.0), (0.0, 0.0, -45.0)),
+)
 TARGET = {
-    OBJECT_A: {"location": [1.0, 0.0, 0.0], "rotation": [0.0, 0.0, 45.0]},
-    OBJECT_B: {"location": [-1.0, 0.0, 0.0], "rotation": [0.0, 0.0, -45.0]},
+    target.object_name: {
+        "location": list(target.location),
+        "rotation": list(target.rotation_degrees),
+    }
+    for target in TARGETS
 }
 
 
@@ -57,32 +63,8 @@ def observe() -> dict[str, Any]:
     return result
 
 
-def plan(evidence: dict[str, Any]) -> list[ActionSpec]:
-    for name in (OBJECT_A, OBJECT_B):
-        target = TARGET[name]
-        if evidence[name]["location"] != target["location"]:
-            return [ActionSpec(
-                tool="move_object",
-                arguments={
-                    "file_name": FILE_NAME,
-                    "object_name": name,
-                    "location": target["location"],
-                },
-                name=f"move {name} to target",
-                requires_success=True,
-            )]
-        if evidence[name]["rotation"] != target["rotation"]:
-            return [ActionSpec(
-                tool="set_object_rotation",
-                arguments={
-                    "file_name": FILE_NAME,
-                    "object_name": name,
-                    "rotation_degrees": target["rotation"],
-                },
-                name=f"rotate {name} to target",
-                requires_success=True,
-            )]
-    return []
+def plan(evidence: dict[str, Any]):
+    return plan_transform_correction(evidence, TARGETS, FILE_NAME)
 
 
 def make_executor() -> MultiStepCorrectiveExecutor:
