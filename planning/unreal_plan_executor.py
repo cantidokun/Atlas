@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
-from planning.unreal_agent import UnrealCapability, UnrealOperationKind
+from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_capability_registry import UnrealCapabilityRegistry
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_material_verifier import verify_material_variant
