@@ -55,7 +55,17 @@ DEFAULT_UNREAL_CAPABILITIES = (
             UnrealOperationKind.VERIFY: frozenset({"entity_ids", "material_variant"}),
         },
     ),
-    UnrealCapabilitySpec(UnrealCapability.NIAGARA, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("niagara_state",), "Inspect, modify, or verify Niagara VFX state."),
+    UnrealCapabilitySpec(
+        UnrealCapability.NIAGARA,
+        frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
+        ("niagara_state",),
+        "Inspect, modify, or verify Niagara VFX state.",
+        argument_keys_by_kind={
+            UnrealOperationKind.READ: frozenset({"entity_ids"}),
+            UnrealOperationKind.WRITE: frozenset({"entity_ids", "niagara_variant"}),
+            UnrealOperationKind.VERIFY: frozenset({"entity_ids", "niagara_variant"}),
+        },
+    ),
     UnrealCapabilitySpec(UnrealCapability.BLUEPRINT, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("blueprint_state",), "Inspect, modify, or verify Blueprint state."),
     UnrealCapabilitySpec(UnrealCapability.SEQUENCER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("sequencer_state",), "Inspect, modify, or verify Sequencer state."),
     UnrealCapabilitySpec(UnrealCapability.RENDER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("render_state",), "Configure or verify controlled Unreal rendering operations."),
@@ -108,12 +118,13 @@ class UnrealCapabilityRegistry:
             if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in vector.values()):
                 raise TypeError(error)
 
-        if operation.capability is UnrealCapability.MATERIAL and operation.kind in {UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}:
-            variant = arguments.get("material_variant")
+        if operation.capability in {UnrealCapability.MATERIAL, UnrealCapability.NIAGARA} and operation.kind in {UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}:
+            key = "material_variant" if operation.capability is UnrealCapability.MATERIAL else "niagara_variant"
+            variant = arguments.get(key)
             if not isinstance(variant, Mapping) or set(variant.keys()) != {"name"}:
-                raise ValueError("material_variant must contain exactly name")
+                raise ValueError(f"{key} must contain exactly name")
             if not isinstance(variant["name"], str) or not variant["name"].strip():
-                raise ValueError("material_variant.name must be a non-empty string")
+                raise ValueError(f"{key}.name must be a non-empty string")
 
         return operation
 
