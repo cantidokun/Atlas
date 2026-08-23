@@ -1,10 +1,4 @@
-"""Deterministic end-to-end recovery gate using the production executor and adapter.
-
-This is not a real-Unreal transport test. It uses a stateful transport fixture so
-failure timing and fresh-state observations remain deterministic while exercising
-the same executor, adapter, authorization, reassessment, disposition, and
-replacement boundaries used by the live Named Pipe path.
-"""
+"""Deterministic end-to-end recovery gate using the production executor and adapter."""
 
 import pytest
 
@@ -28,8 +22,6 @@ ENTITY_ID = "FIELD_SURFACE"
 
 
 class StatefulRecoveryTransport:
-    """Small production-shaped transport with one deterministic injected failure."""
-
     def __init__(self):
         self.state = {
             ENTITY_ID: {
@@ -48,27 +40,17 @@ class StatefulRecoveryTransport:
         self.requests.append(request)
         if request.operation_name == "inspect_target_actors":
             return self._response(request, True)
-
         if request.operation_name == "set_actor_location":
             self.state[ENTITY_ID]["location"] = dict(request.arguments["location"])
             return self._response(request, True)
-
         if request.operation_name == "set_actor_rotation":
             if self.fail_rotation_once:
                 self.fail_rotation_once = False
                 return self._response(request, False, "deterministic injected rotation failure")
             self.state[ENTITY_ID]["rotation"] = dict(request.arguments["rotation"])
             return self._response(request, True)
-
-        if request.operation_name == "verify_actor_location":
+        if request.operation_name in {"verify_actor_location", "verify_actor_rotation", "verify_target_actor_mapping"}:
             return self._response(request, True)
-
-        if request.operation_name == "verify_actor_rotation":
-            return self._response(request, True)
-
-        if request.operation_name == "verify_target_actor_mapping":
-            return self._response(request, True)
-
         return self._response(request, False, f"unsupported fixture operation: {request.operation_name}")
 
     def _response(self, request, success, error=""):
@@ -84,37 +66,12 @@ class StatefulRecoveryTransport:
 
 
 def _plan():
-    operations = (
-        UnrealOperation(
-            UnrealCapability.MODIFY_ACTOR,
-            UnrealOperationKind.WRITE,
-            "set_actor_location",
-            {"entity_ids": (ENTITY_ID,), "location": {"x": 10.0, "y": 20.0, "z": 30.0}},
-            (ENTITY_ID,),
-        ),
-        UnrealOperation(
-            UnrealCapability.MODIFY_ACTOR,
-            UnrealOperationKind.VERIFY,
-            "verify_actor_location",
-            {"entity_ids": (ENTITY_ID,), "expected_location": {"x": 10.0, "y": 20.0, "z": 30.0}},
-            (ENTITY_ID,),
-        ),
-        UnrealOperation(
-            UnrealCapability.MODIFY_ACTOR,
-            UnrealOperationKind.WRITE,
-            "set_actor_rotation",
-            {"entity_ids": (ENTITY_ID,), "rotation": {"pitch": 0.0, "yaw": 45.0, "roll": 0.0}},
-            (ENTITY_ID,),
-        ),
-        UnrealOperation(
-            UnrealCapability.MODIFY_ACTOR,
-            UnrealOperationKind.VERIFY,
-            "verify_actor_rotation",
-            {"entity_ids": (ENTITY_ID,), "expected_rotation": {"pitch": 0.0, "yaw": 45.0, "roll": 0.0}},
-            (ENTITY_ID,),
-        ),
-    )
-    return UnrealTaskPlan("composite-live-recovery", operations)
+    return UnrealTaskPlan("composite-live-recovery", (
+        UnrealOperation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE, "set_actor_location", {"entity_ids": (ENTITY_ID,), "location": {"x": 10.0, "y": 20.0, "z": 30.0}}, (ENTITY_ID,)),
+        UnrealOperation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.VERIFY, "verify_actor_location", {"entity_ids": (ENTITY_ID,), "expected_location": {"x": 10.0, "y": 20.0, "z": 30.0}}, (ENTITY_ID,)),
+        UnrealOperation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE, "set_actor_rotation", {"entity_ids": (ENTITY_ID,), "rotation": {"pitch": 0.0, "yaw": 45.0, "roll": 0.0}}, (ENTITY_ID,)),
+        UnrealOperation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.VERIFY, "verify_actor_rotation", {"entity_ids": (ENTITY_ID,), "expected_rotation": {"pitch": 0.0, "yaw": 45.0, "roll": 0.0}}, (ENTITY_ID,)),
+    ))
 
 
 def _failed_execution():
@@ -129,7 +86,6 @@ def _failed_execution():
 
 def test_production_executor_recovery_sequence_replaces_only_failed_write():
     transport, executor, plan, failure = _failed_execution()
-
     assert failure is not None
     assert failure.operation_index == 2
     assert failure.operation_name == "set_actor_rotation"
@@ -140,29 +96,15 @@ def test_production_executor_recovery_sequence_replaces_only_failed_write():
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
     reassessment_result = executor.execute_authorized(reassessment, reassessment_auth)
     assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
-
-    assert [step.operation_name for step in assessment.steps] == [
-        "set_actor_location",
-        "set_actor_rotation",
-    ]
-    assert [step.disposition for step in assessment.steps] == [
-        "already_applied",
-        "replacement_required",
-    ]
+    assert [step.operation_name for step in assessment.steps] == ["set_actor_location", "set_actor_rotation"]
+    assert [step.disposition for step in assessment.steps] == ["already_applied", "replacement_required"]
 
     replacement = build_replacement_plan(plan, assessment)
-    assert [operation.name for operation in replacement.operations] == [
-        "set_actor_rotation",
-        "verify_actor_rotation",
-    ]
+    assert [operation.name for operation in replacement.operations] == ["set_actor_rotation", "verify_actor_rotation"]
     replacement_auth = issue_replacement_authorization(replacement, "replacement-auth")
     result = execute_replacement_authorized(executor, replacement, replacement_auth)
-
     assert result.success is True
-    assert [e.operation_name for e in result.evidence_ledger] == [
-        "set_actor_rotation",
-        "verify_actor_rotation",
-    ]
+    assert [e.operation_name for e in result.evidence_ledger] == ["set_actor_rotation", "verify_actor_rotation"]
     assert result.evidence_ledger[-1].verified is True
     assert transport.state[ENTITY_ID]["location"] == {"x": 10.0, "y": 20.0, "z": 30.0}
     assert transport.state[ENTITY_ID]["rotation"] == {"pitch": 0.0, "yaw": 45.0, "roll": 0.0}
@@ -174,17 +116,13 @@ def test_recovery_coordinator_requires_replacement_authorization_before_any_repl
     transport, executor, plan, failure = _failed_execution()
     reassessment = build_reassessment_plan(plan, failure)
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
+    baseline = len(transport.requests)
 
     with pytest.raises(ValueError, match="separate replacement authorization"):
         execute_recovery_sequence(executor, plan, failure, reassessment_auth)
 
-    assert [request.operation_name for request in transport.requests] == [
-        "inspect_target_actors",
-        "set_actor_location",
-        "verify_actor_location",
-        "set_actor_rotation",
-        "inspect_target_actors",
-    ]
+    assert [request.operation_name for request in transport.requests[baseline:]] == ["inspect_target_actors"]
+    assert all(request.operation_name != "set_actor_rotation" for request in transport.requests[baseline:])
 
 
 def test_recovery_coordinator_executes_only_the_new_authorized_replacement_plan():
@@ -197,7 +135,6 @@ def test_recovery_coordinator_executes_only_the_new_authorized_replacement_plan(
     replacement_auth = issue_replacement_authorization(replacement, "replacement-auth")
 
     result = execute_recovery_sequence(executor, plan, failure, reassessment_auth, replacement_auth)
-
     assert result.assessment.disposition == "replacement_required"
     assert result.replacement_plan == replacement
     assert result.replacement_result is not None
