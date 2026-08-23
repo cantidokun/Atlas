@@ -38,7 +38,7 @@ def test_composite_rejects_entity_escape():
         )
 
 
-def test_composite_planner_adds_immediate_verification_boundaries():
+def test_composite_planner_adds_immediate_semantic_verification_boundaries():
     intent = UnrealTaskIntent("composite-1", "prepare field production state", ("FIELD_SURFACE",))
     composite = build_composite_actor_operation(
         ["FIELD_SURFACE"],
@@ -54,9 +54,9 @@ def test_composite_planner_adds_immediate_verification_boundaries():
     names = [op.name for op in plan.operations]
     assert names == [
         "inspect_target_actors",
-        "set_actor_location", "verify_target_actor_mapping",
-        "set_actor_rotation", "verify_target_actor_mapping",
-        "set_actor_scale", "verify_target_actor_mapping",
+        "set_actor_location", "verify_actor_location",
+        "set_actor_rotation", "verify_actor_rotation",
+        "set_actor_scale", "verify_actor_scale",
         "inspect_material_state", "apply_material_variant", "verify_material_variant",
         "inspect_niagara_state", "apply_niagara_variant", "verify_niagara_variant",
     ]
