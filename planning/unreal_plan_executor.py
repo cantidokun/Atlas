@@ -76,19 +76,21 @@ class UnrealPlanExecutor:
                     f"Write operation {index} ('{operation.name}') and verification must target the same entities"
                 )
 
-    def _preflight_plan(self, plan):
-        """Validate every operation before the first transport mutation.
+    @staticmethod
+    def _format_preflight_error(exc):
+        message = str(exc)
+        if message == "location must contain exactly x, y, z":
+            return "location must contain exactly x, y, and z"
+        return message
 
-        Planner-generated plans are already validated, but the executor is the
-        final execution boundary. Preflighting the complete ordered plan prevents
-        a malformed later operation from causing a partial real-Unreal mutation.
-        """
+    def _preflight_plan(self, plan):
+        """Validate every operation before the first transport mutation."""
         for index, operation in enumerate(plan.operations):
             try:
                 self._capabilities.validate_operation(operation)
             except (KeyError, TypeError, ValueError) as exc:
                 raise UnrealPlanExecutionError(
-                    f"Operation {index} ('{operation.name}') failed preflight: {exc}"
+                    f"Operation {index} ('{operation.name}') failed preflight: {self._format_preflight_error(exc)}"
                 ) from exc
 
     @staticmethod
@@ -106,46 +108,23 @@ class UnrealPlanExecutor:
             return {"niagara_variant": dict(arguments["niagara_variant"])}
         return {}
 
-    def _execute_one(
-        self,
-        operation,
-        authorization_id,
-        *,
-        expected_location=None,
-        expected_rotation=None,
-        expected_scale=None,
-        expected_material_variant=None,
-        expected_niagara_variant=None,
-    ):
+    def _execute_one(self, operation, authorization_id, *, expected_location=None, expected_rotation=None, expected_scale=None, expected_material_variant=None, expected_niagara_variant=None):
         arguments = dict(operation.arguments)
         arguments["entity_ids"] = tuple(operation.entity_ids)
         arguments["authorization_id"] = authorization_id
         validate_unreal_tool_call(operation.name, arguments)
-
         method_name = self._DISPATCH.get(operation.kind)
         if method_name is None:
-            raise UnrealPlanExecutionError(
-                f"No adapter endpoint for operation kind '{operation.kind.value}'"
-            )
-
+            raise UnrealPlanExecutionError(f"No adapter endpoint for operation kind '{operation.kind.value}'")
         evidence = getattr(self._adapter, method_name)(operation, authorization_id)
         validate_evidence_for_operation(evidence, operation.name, tuple(operation.entity_ids))
-
         if operation.kind is UnrealOperationKind.VERIFY:
-            if expected_location is not None:
-                evidence = verify_actor_location(evidence, expected_location)
-            if expected_rotation is not None:
-                evidence = verify_actor_rotation(evidence, expected_rotation)
-            if expected_scale is not None:
-                evidence = verify_actor_scale(evidence, expected_scale)
-            if expected_material_variant is not None:
-                evidence = verify_material_variant(evidence, expected_material_variant)
-            if expected_niagara_variant is not None:
-                evidence = verify_niagara_variant(evidence, expected_niagara_variant)
-            # Adapter evidence starts unverified by contract. Reaching this point
-            # means Atlas independently proved the requested post-write state.
+            if expected_location is not None: evidence = verify_actor_location(evidence, expected_location)
+            if expected_rotation is not None: evidence = verify_actor_rotation(evidence, expected_rotation)
+            if expected_scale is not None: evidence = verify_actor_scale(evidence, expected_scale)
+            if expected_material_variant is not None: evidence = verify_material_variant(evidence, expected_material_variant)
+            if expected_niagara_variant is not None: evidence = verify_niagara_variant(evidence, expected_niagara_variant)
             evidence = replace(evidence, verified=True)
-
         return evidence
 
     @staticmethod
@@ -166,59 +145,26 @@ class UnrealPlanExecutor:
             raise UnrealPlanExecutionError("authorization_id must be a non-empty string")
         self._validate_execution_shape(plan)
         self._preflight_plan(plan)
-
         ledger = []
         completed = []
-
         for index, operation in enumerate(plan.operations):
             expected = {}
             if operation.kind is UnrealOperationKind.VERIFY:
                 previous = plan.operations[index - 1] if index else None
                 if previous is None or previous.kind not in (UnrealOperationKind.WRITE, UnrealOperationKind.READ):
-                    raise UnrealPlanExecutionError(
-                        f"Verify operation {index} ('{operation.name}') must follow a read or write"
-                    )
+                    raise UnrealPlanExecutionError(f"Verify operation {index} ('{operation.name}') must follow a read or write")
                 if previous.kind is UnrealOperationKind.WRITE:
                     expected = self._verification_expectation(previous)
-
             try:
-                evidence = self._execute_one(
-                    operation,
-                    authorization_id,
-                    expected_location=expected.get("location"),
-                    expected_rotation=expected.get("rotation"),
-                    expected_scale=expected.get("scale"),
-                    expected_material_variant=expected.get("material_variant"),
-                    expected_niagara_variant=expected.get("niagara_variant"),
-                )
+                evidence = self._execute_one(operation, authorization_id, expected_location=expected.get("location"), expected_rotation=expected.get("rotation"), expected_scale=expected.get("scale"), expected_material_variant=expected.get("material_variant"), expected_niagara_variant=expected.get("niagara_variant"))
             except (UnrealAdapterError, ValueError, TypeError) as exc:
                 message = f"Operation {index} ('{operation.name}') failed: {exc}"
-                failure = UnrealPlanExecutionFailure(
-                    plan.intent_id,
-                    index,
-                    operation.name,
-                    tuple(ledger),
-                    message,
-                    tuple(operation.entity_ids),
-                    self._failure_context(operation),
-                    tuple(completed),
-                )
+                failure = UnrealPlanExecutionFailure(plan.intent_id, index, operation.name, tuple(ledger), message, tuple(operation.entity_ids), self._failure_context(operation), tuple(completed))
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
             except Exception as exc:
                 message = f"Unexpected execution failure for operation {index} ('{operation.name}'):\n{exc}"
-                failure = UnrealPlanExecutionFailure(
-                    plan.intent_id,
-                    index,
-                    operation.name,
-                    tuple(ledger),
-                    message,
-                    tuple(operation.entity_ids),
-                    self._failure_context(operation),
-                    tuple(completed),
-                )
+                failure = UnrealPlanExecutionFailure(plan.intent_id, index, operation.name, tuple(ledger), message, tuple(operation.entity_ids), self._failure_context(operation), tuple(completed))
                 raise UnrealPlanExecutionError(message, failure=failure) from exc
-
             ledger.append(evidence)
             completed.append(self._failure_context(operation))
-
         return UnrealPlanExecutionResult(plan.intent_id, tuple(ledger), True)
