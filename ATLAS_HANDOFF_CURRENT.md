@@ -1,98 +1,146 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 22, 2026 02:00 EDT  
-**Branch:** `feat/blender-adapter-work`  
+**Updated:** August 23, 2026 12:41 AM EDT  
+**Branch:** `feat/replan-race-gate`  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
 ## Current position
 
-**MAJOR MILESTONE PASSED: generalized Blender task-execution architecture.**
+**MAJOR MILESTONE PASSED: generalized Blender corrective runtime live interruption/replanning proof.**
 
-Atlas has now proven two materially different live Blender mutations and migrated both onto the shared `TaskRuntimeSession` lifecycle:
+Atlas has now proven the generalized production corrective runtime against real Windows/Blender execution. The live gate completed with an externally injected scene-state change and independently verified convergence.
 
-1. **Object rotation** — authorized rotation, persistence, fresh independent transform inspection, invariant verification, receipt validation, and `COMPLETE`.
-2. **Marker creation** — absence evidence, conditional authorized creation, persistence, fresh scene inspection, independent collection-membership verification, receipt validation, and `COMPLETE`.
-
-The shared lifecycle is now:
+Live result:
 
 ```text
-initial evidence
- -> target evaluation
- -> explicit authorization
- -> deterministic action
- -> fresh post-action evidence
- -> independent verification
- -> receipt/completion
+ATLAS GENERALIZED BLENDER CORRECTIVE RUNTIME GATE: PASS
+receipts = 4
+external_change_injected = true
 ```
 
-Task-specific definitions declare evidence, actions, invariants, permitted tools, write policy, and verification policy. The runtime owns lifecycle sequencing and fail-closed completion.
-
-## Current regression status
-
-The latest focused/regression result reported from the runner is **104 passed** after adding the third operation's declarative task coverage.
-
-This is current development/test evidence, but **the third movement task has not yet been proven in live Windows/Blender execution**. Do not infer live success from the 104-test result.
-
-## Third live gate: object movement
-
-The next materially important gate is the existing `move_object` capability through the generalized runtime.
-
-Task contract:
+Final independently observed state:
 
 ```text
 Goal_Left_post
-location = [1.0, 2.0, 0.0]
+location = [1.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 45.0]
+
+Goal_Right_post
+location = [-1.0, 0.0, 0.0]
+rotation = [0.0, 0.0, -45.0]
 ```
 
-Files:
+## What the milestone proves
 
-- `planning/object_move_task.py`
-- `planning/task_runtime.py`
-- canonical Blender movement capability/tool implementation
+The generalized runtime can now:
 
-Required live proof:
+1. acquire fresh Blender world evidence;
+2. plan a corrective action from that evidence;
+3. obtain explicit authorization;
+4. execute through the protected Blender capability boundary;
+5. retain an execution receipt bound to the executed action;
+6. observe the world again after execution;
+7. tolerate an externally injected scene-state change;
+8. replan from fresh evidence rather than stale assumptions;
+9. reauthorize and execute the required correction;
+10. independently verify final Blender state before completion.
 
-1. already-correct fixture produces zero writes;
-2. incorrect fixture produces one authorized movement;
-3. Blender saves the `.blend`;
-4. fresh independent `inspect_object_transform` evidence proves the target location;
-5. receipt matches the authorized execution;
-6. runtime reaches `COMPLETE`.
+The proven control loop is:
 
-A failed or unverifiable post-action inspection must produce `BLOCKED`, never completion.
+```text
+fresh evidence
+ -> plan
+ -> authorize
+ -> execute
+ -> receipt
+ -> fresh evidence
+ -> external interruption
+ -> replan
+ -> reauthorize
+ -> execute
+ -> fresh evidence
+ -> independent verification
+ -> COMPLETE
+```
 
-## Generic runtime milestone
+This proof is materially stronger than the earlier specialized multi-step corrective demo because the generalized production corrective runtime itself now handles interruption/replanning against live Blender.
 
-`TaskRuntimeSession` now centralizes:
+## Architecture now in place
 
-- initial evidence acquisition;
-- target evaluation;
-- authorization;
-- action execution;
-- fresh post-action evidence acquisition;
-- independent post-action verification;
-- finalization/completion.
+The protected path is:
 
-Rotation and marker live paths have been migrated onto this lifecycle. The next objective is to prove that adding movement requires only a task definition and does not require rebuilding lifecycle orchestration.
+```text
+Qwen / agent proposal
+        -> Atlas validation
+        -> fresh evidence
+        -> corrective planning
+        -> explicit authorization
+        -> BlenderAutonomousExecutor
+        -> BlenderExecutionBoundary
+        -> BlenderToolAdapter / authorized capability
+        -> normalized result
+        -> immutable execution receipt
+        -> fresh independent evidence
+        -> verification / replan
+        -> completion or conservative recovery
+```
 
-## Authority and verification boundary
+Important invariants:
 
-- `controller/blender_capabilities.py` defines authorized capability names.
-- `planning/blender_tool_schema.py` validates admitted arguments.
-- `planning/blender_tool_adapter.py` dispatches authorized capabilities.
-- `planning/blender_execution_boundary.py` owns result normalization.
-- `planning/blender_execution_receipt.py` binds validated request to verified result.
-- `planning/blender_verification.py` owns independent verification primitives.
-- `planning/task_runtime.py` owns generic task lifecycle sequencing.
+- Qwen never receives direct Blender execution authority.
+- Only explicitly admitted Blender capabilities can execute.
+- Corrective planning uses fresh state.
+- Receipts must bind to the exact executed action/result.
+- Missing, stale, or unbound receipts fail closed.
+- Result normalization is centralized at the execution boundary.
+- Exhausting the corrective step budget is not success.
+- Failed or unverifiable final verification cannot produce completion.
 
-Qwen proposes; Atlas validates, authorizes, executes, tracks, and verifies. Blender is an execution target, never an authority.
+## Live Blender proof achieved so far
 
-## Verification discipline
+### Rotation
 
-Historical CI/live results are not proof of current-branch behavior unless explicitly associated with the current commit/workflow. Focused tests are useful regression evidence; live Blender claims require the actual Windows/Blender runner result.
+Authorized rotation of `Atlas_Rotation_Candidate`, persistence, fresh independent transform inspection, invariant verification, and receipt validation.
 
-## After the movement gate
+### Marker creation
 
-If movement passes live, the next milestone is **three-operation generalized live Blender proof** followed by continuation/resume and production-facing multi-task composition. Do not add bespoke lifecycle orchestration for individual tools; extend the declarative task contract and shared runtime instead.
+Conditional authorized creation of `Atlas_Marker`, persistence, fresh scene inspection, independent collection-membership verification, and receipt validation.
 
-Digital Twin identity/revision, photogrammetry intake, and Unreal production remain later stages. Photogrammetry is upstream of Blender; Atlas owns canonical Digital Twin identity/state.
+### Generalized corrective recovery
+
+Two authorized goalpost objects were driven to target location/rotation state. An external scene change was injected during the generalized runtime. The runtime detected the changed state through fresh evidence, replanned, executed corrective actions, and reached independently verified final convergence with four receipts.
+
+## Current development target
+
+The next major objective is **production-facing reusable autonomous Blender task composition**.
+
+Do not return to bespoke lifecycle orchestration for individual tools. Extend the declarative task contract and generalized runtime.
+
+Priority sequence:
+
+1. reusable multi-operation task composition;
+2. continuation/resume after interruption or partial completion;
+3. stronger task identity and execution-session state;
+4. broader authorized Blender operations using the same verification/receipt boundary;
+5. Digital Twin identity/revision and photogrammetry intake contracts;
+6. later Unreal production workflows.
+
+Photogrammetry remains upstream of Blender. Atlas owns canonical Digital Twin identity/state for the soccer-field-focused production pipeline.
+
+## Testing / verification discipline
+
+The live generalized gate above is actual Windows/Blender output and is therefore the authoritative proof of this milestone.
+
+Do not represent historical CI or focused test counts as live proof unless the result is explicitly associated with the current commit/workflow. Workflow/action-runner testing remains paused unless explicitly authorized.
+
+## Resume instructions
+
+Start from branch:
+
+```text
+feat/replan-race-gate
+```
+
+First inspect the generalized corrective runtime and its live gate. Continue toward reusable production task composition rather than creating another specialized corrective executor.
+
+The next meaningful milestone is a **multi-operation production task composition proof** that preserves the same authorization, receipt, fresh-observation, independent-verification, and interruption-recovery guarantees demonstrated by the live gate.
