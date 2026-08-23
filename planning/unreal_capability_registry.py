@@ -30,7 +30,13 @@ class UnrealCapabilitySpec:
 DEFAULT_UNREAL_CAPABILITIES = (
     UnrealCapabilitySpec(UnrealCapability.INSPECT_WORLD, frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}), ("world_state",), "Inspect or verify Unreal world/level state."),
     UnrealCapabilitySpec(UnrealCapability.INSPECT_ACTOR, frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}), ("actor_state",), "Inspect or verify an Unreal Actor representation."),
-    UnrealCapabilitySpec(UnrealCapability.MODIFY_ACTOR, frozenset({UnrealOperationKind.WRITE}), ("actor_state",), "Modify an already-authorized Unreal Actor representation.", argument_keys=frozenset({"entity_ids", "location"}), alternative_argument_keys_by_kind={UnrealOperationKind.WRITE: (frozenset({"entity_ids", "rotation"}), frozenset({"entity_ids", "scale"}))}),
+    UnrealCapabilitySpec(UnrealCapability.MODIFY_ACTOR, frozenset({UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("actor_state",), "Modify or verify an already-authorized Unreal Actor representation.", argument_keys_by_kind={
+        UnrealOperationKind.WRITE: frozenset({"entity_ids", "location"}),
+        UnrealOperationKind.VERIFY: frozenset({"entity_ids", "expected_location"}),
+    }, alternative_argument_keys_by_kind={
+        UnrealOperationKind.WRITE: (frozenset({"entity_ids", "rotation"}), frozenset({"entity_ids", "scale"})),
+        UnrealOperationKind.VERIFY: (frozenset({"entity_ids", "expected_rotation"}), frozenset({"entity_ids", "expected_scale"})),
+    }),
     UnrealCapabilitySpec(UnrealCapability.INSPECT_ASSET, frozenset({UnrealOperationKind.READ, UnrealOperationKind.VERIFY}), ("asset_state",), "Inspect or verify an Unreal asset representation."),
     UnrealCapabilitySpec(UnrealCapability.MODIFY_ASSET, frozenset({UnrealOperationKind.WRITE}), ("asset_state",), "Modify an already-authorized Unreal asset representation."),
     UnrealCapabilitySpec(UnrealCapability.MATERIAL, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("material_state",), "Inspect, modify, or verify material state.", argument_keys_by_kind={UnrealOperationKind.READ: frozenset({"entity_ids"}), UnrealOperationKind.WRITE: frozenset({"entity_ids", "material_variant"}), UnrealOperationKind.VERIFY: frozenset({"entity_ids", "material_variant"})}),
@@ -74,11 +80,18 @@ class UnrealCapabilityRegistry:
         if normalized != tuple(operation.entity_ids):
             raise ValueError("Unreal operation entity_ids must match its argument payload")
         if operation.capability is UnrealCapability.MODIFY_ACTOR:
-            if "location" in arguments: vector, axes, label, error = arguments["location"], {"x", "y", "z"}, "location", "location coordinates must be numeric"
-            elif "rotation" in arguments: vector, axes, label, error = arguments["rotation"], {"pitch", "yaw", "roll"}, "rotation", "rotation angles must be numeric"
-            else: vector, axes, label, error = arguments["scale"], {"x", "y", "z"}, "scale", "scale components must be numeric"
-            if not isinstance(vector, Mapping) or set(vector.keys()) != axes: raise ValueError(f"{label} must contain exactly {', '.join(sorted(axes))}")
-            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in vector.values()): raise TypeError(error)
+            vector_key = next((key for key in ("location", "rotation", "scale", "expected_location", "expected_rotation", "expected_scale") if key in arguments), None)
+            if vector_key is None:
+                raise ValueError("modify_actor operation requires a transform argument")
+            vector = arguments[vector_key]
+            if vector_key in {"location", "scale", "expected_location", "expected_scale"}:
+                axes, label, error = {"x", "y", "z"}, vector_key, "transform components must be numeric"
+            else:
+                axes, label, error = {"pitch", "yaw", "roll"}, vector_key, "rotation angles must be numeric"
+            if not isinstance(vector, Mapping) or set(vector.keys()) != axes:
+                raise ValueError(f"{label} must contain exactly {', '.join(sorted(axes))}")
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in vector.values()):
+                raise TypeError(error)
         if operation.capability in {UnrealCapability.MATERIAL, UnrealCapability.NIAGARA} and operation.kind in {UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}:
             field = "material_variant" if operation.capability is UnrealCapability.MATERIAL else "niagara_variant"
             variant = arguments.get(field)
