@@ -55,22 +55,23 @@ def _evidence(location, rotation, scale):
     )
 
 
-def test_reassessment_plan_covers_all_writes_through_failure_and_is_read_only():
+def test_reassessment_plan_deduplicates_fresh_actor_state_domain():
     reassessment = build_reassessment_plan(_plan(), _failure())
     assert reassessment.intent_id == "composite-live:reassess-sequence"
-    assert [operation.name for operation in reassessment.operations] == ["inspect_target_actors", "inspect_target_actors", "inspect_target_actors"]
+    assert [operation.name for operation in reassessment.operations] == ["inspect_target_actors"]
     assert all(operation.kind is UnrealOperationKind.READ for operation in reassessment.operations)
     assert all(operation.capability is UnrealCapability.MODIFY_ACTOR for operation in reassessment.operations)
+    assert all(operation.entity_ids == ("FIELD_SURFACE",) for operation in reassessment.operations)
 
 
 def test_sequence_assessment_tracks_each_fresh_read_in_order():
     result = UnrealPlanExecutionResult(
         "composite-live:reassess-sequence",
-        (
-            _evidence({"x": 10.0, "y": 20.0, "z": 30.0}, {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}, {"x": 1.0, "y": 1.0, "z": 1.0}),
-            _evidence({"x": 10.0, "y": 20.0, "z": 30.0}, {"pitch": 0.0, "yaw": 0.0, "roll": 5.0}, {"x": 1.0, "y": 1.0, "z": 1.0}),
-            _evidence({"x": 10.0, "y": 20.0, "z": 30.0}, {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}, {"x": 1.1, "y": 1.1, "z": 1.1}),
-        ),
+        (_evidence(
+            {"x": 10.0, "y": 20.0, "z": 30.0},
+            {"pitch": 0.0, "yaw": 0.0, "roll": 5.0},
+            {"x": 1.1, "y": 1.1, "z": 1.1},
+        ),),
         True,
     )
     assessment = assess_reassessment_sequence(_plan(), _failure(), result)
