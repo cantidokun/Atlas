@@ -1,9 +1,9 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 23, 2026 — recovery replacement and live composite gate
+**Updated:** August 23, 2026 — explicit recovery-sequence coordinator
 **Current focus:** Multi-operation production execution with failure containment, fresh-state recovery, and explicitly authorized replacement mutations
 **Current branch:** `feat/unreal-composite-production-operation`
-**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment, recovery disposition, and plan-bound replacement execution are implemented and tested.
+**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment, recovery disposition, plan-bound replacement execution, and an explicit end-to-end recovery coordinator are implemented and tested.
 
 ## Latest completed milestone
 
@@ -27,7 +27,7 @@ VERIFY verify_niagara_variant
 
 Each write is immediately followed by a semantic verification boundary. Transform verification compares fresh Unreal observations against the requested location/rotation/scale; material and Niagara verification compare the observed variant names.
 
-The complete composite production path has now passed against the real Unreal transport, including application, independent verification, and restoration of the original state.
+The complete composite production path has passed against the real Unreal transport, including application, independent verification, and restoration of the original state.
 
 ## Execution-containment boundaries
 
@@ -49,56 +49,55 @@ A same-entity verification is therefore not sufficient by itself. A plan cannot 
 
 `UnrealPlanExecutionFailure` preserves the failed operation, target entities, operation arguments, completed evidence, and completed operation arguments.
 
-The failure object exposes `reassessment_plan()`, producing a fresh, read-only Unreal inspection plan for the failed operation's entity scope:
+The failure object exposes `reassessment_plan()`, producing a fresh, read-only Unreal inspection plan for the failed operation's entity scope. Recovery reassessment deliberately contains no WRITE operations and does not replay the failed mutation.
+
+The recovery sequence layer now supports the complete multi-write control loop:
 
 ```text
-READ  inspect_target_actors
-VERIFY verify_target_actor_mapping
+Production failure
+       ↓
+Fresh read-only reassessment
+       ↓
+Per-operation disposition
+       ↓
+Replacement-only plan
+       ↓
+Separate replacement authorization
+       ↓
+Ordered Unreal execution
+       ↓
+Immediate semantic verification
+       ↓
+Verified recovery completion
 ```
 
-The reassessment plan deliberately contains no WRITE operations and does not replay the failed mutation. Recovery must execute the fresh-state reassessment explicitly, then construct and authorize any replacement mutation separately.
+`build_reassessment_plan()` covers every supported write through the failure boundary while deduplicating equivalent state-domain reads. `assess_reassessment_sequence()` classifies each relevant write as `already_applied`, `replacement_required`, or `manual_review`. `build_replacement_plan()` emits only the writes requiring replacement, preserving their original order and semantic verifiers.
 
-The failure object also exposes `assess_reassessment(result)`. This compares the latest reassessment evidence against the failed operation's requested state and returns an explicit recovery disposition without authorizing or executing a mutation:
-
-```text
-already_applied       fresh state already matches the requested state
-replacement_required  fresh state differs from the requested state
-manual_review          no safe comparator or usable reassessment evidence
-```
-
-For a `replacement_required` disposition, `replacement_plan(assessment)` reconstructs a fresh mutation-plus-verification plan using the failed operation's entity scope and requested target state. The replacement plan has a new recovery intent identity and must be authorized independently; a stale reassessment authorization cannot authorize the replacement.
+`execute_recovery_sequence()` is now the explicit coordinator for that control loop. It requires an authorization receipt for the fresh reassessment and **never creates a replacement authorization itself**. If replacement is required, a separately issued authorization bound to the newly constructed replacement plan must be supplied. If recovery is already applied or requires manual review, a replacement authorization is rejected rather than silently consumed.
 
 ## Verified recovery contract
 
-The focused recovery/reassessment/replacement gate now passes:
+The deterministic live-sequence recovery gate now covers both the lower-level recovery primitives and the explicit coordinator. The latest focused gate must be run locally after pulling the current branch.
 
-```text
-28 passed in 0.23s
-```
-
-This covers:
+The recovery contract covers:
 
 - read-only reassessment planning
 - failed-entity scope preservation
-- fresh but unverified reassessment evidence
-- explicit recovery disposition
+- fresh reassessment evidence
+- explicit per-operation recovery disposition
 - `already_applied` detection
 - `replacement_required` detection
 - `manual_review` for unusable evidence
-- replacement plan reconstruction
+- replacement-only plan reconstruction
 - rejection of invalid replacement dispositions
 - rejection of mismatched recovery entity scope
 - rejection of stale plan authorization before transport
-
-The broader focused Unreal regression gate subsequently passes:
-
-```text
-33 passed in 0.30s
-```
+- coordinator refusal to replace without a separate replacement authorization
+- coordinator execution only through the newly authorized replacement plan
 
 ## Real Unreal integration gate
 
-The engine-dependent composite production test has also passed against the live Unreal transport:
+The engine-dependent composite production test has passed against the live Unreal transport:
 
 ```text
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
@@ -116,20 +115,22 @@ This is the current real-Unreal proof boundary. The test exercises the productio
 - Verification requires fresh evidence and independent Atlas-side semantic proof.
 - Runtime transport failures stop execution immediately.
 - Completed evidence and operation arguments remain available through `UnrealPlanExecutionFailure` for recovery coordination.
-- Recovery reassessment is read-only and scoped to the failed operation's entities.
+- Recovery reassessment is read-only and scoped to the relevant failed-plan entities.
 - Recovery must reassess fresh Unreal state and must not silently retry a failed mutation.
 - Recovery disposition is derived only from fresh reassessment evidence.
-- `assess_reassessment()` never authorizes or executes a mutation.
+- Assessment never authorizes or executes a mutation.
 - `already_applied` must not trigger an unnecessary replacement mutation.
 - `replacement_required` produces a new plan that requires explicit authorization.
+- The coordinator never creates replacement authorization implicitly.
 - Replacement execution is plan-bound; stale reassessment authorization is rejected before transport.
+- Manual review cannot be converted into an automatic replacement.
 
 ## Testing gate
 
-After implementation changes, run the focused Unreal regression suite:
+After implementation changes, run:
 
 ```powershell
-python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_transform_verification_planner.py tests/test_unreal_composite_operation.py tests/test_unreal_tool_schema.py tests/test_unreal_plan_authorization.py tests/test_unreal_failure_reassessment.py tests/test_unreal_recovery_replacement.py -q
+python -m pytest tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py -q
 ```
 
 Then run the real Unreal composite gate:
@@ -138,30 +139,24 @@ Then run the real Unreal composite gate:
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 ```
 
-The focused recovery/replacement tests currently pass 28/28, the broader focused Unreal regression gate has passed 33/33, and the real Unreal composite gate has passed 1/1.
+The previous focused recovery/replacement gate passed 33/33, and the real Unreal composite gate passed 1/1. The new coordinator tests require a fresh local gate run.
 
 ## Next development boundary
 
-The next target is to extend the recovery contract beyond a single transform replacement while preserving the same fail-closed architecture. The implementation should remain entirely within the Unreal Agent boundary and should continue to prioritize solving established issues rather than deferring them.
+The next target is to exercise the recovery coordinator across the **non-transform production domains already supported by the composite plan**: material and Niagara variants. The goal is not to add breadth for its own sake, but to prove that the same fail-closed recovery semantics work across heterogeneous Unreal state domains.
 
-The next work should preserve this control loop:
+The next progression should be:
 
 ```text
-Production failure
+Transform recovery
        ↓
-Fresh read-only reassessment
+Material recovery
        ↓
-Explicit recovery disposition
+Niagara recovery
        ↓
-New plan if replacement is required
+Mixed-domain failure/recovery
        ↓
-Independent authorization
-       ↓
-Ordered Unreal execution
-       ↓
-Immediate semantic verification
-       ↓
-Verified recovery completion
+Real-Unreal recovery integration gate
 ```
 
 Do not broaden into Blender development for this work. Do not modify the action/workflow runner. Do not weaken the Named Pipe boundary or fail-closed authorization model.
