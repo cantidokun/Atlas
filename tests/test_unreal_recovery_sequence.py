@@ -60,19 +60,26 @@ def test_sequence_assessment_classifies_transform_and_material_domains_independe
     assert by_name["apply_material_variant"].disposition == "replacement_required"
 
 
-def test_sequence_replacement_rebuilds_only_mismatched_material_domain():
-    assessment = UnrealRecoverySequenceAssessment(tuple(
-        [type("Step", (), {"operation_index": index, "operation_name": name, "entity_ids": ("FIELD_SURFACE",), "disposition": "already_applied", "reason": "fresh state matches"})() for index, name in ((0, "set_actor_location"), (2, "set_actor_rotation"), (4, "set_actor_scale"))]
-        + [type("Step", (), {"operation_index": 7, "operation_name": "apply_material_variant", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})()]
+def _assessment_for_material():
+    return UnrealRecoverySequenceAssessment(tuple(
+        type("Step", (), {"operation_index": index, "operation_name": name, "entity_ids": ("FIELD_SURFACE",), "disposition": disposition, "reason": "fresh state classification"})()
+        for index, name, disposition in (
+            (0, "set_actor_location", "already_applied"),
+            (2, "set_actor_rotation", "already_applied"),
+            (4, "set_actor_scale", "already_applied"),
+            (7, "apply_material_variant", "replacement_required"),
+        )
     ))
-    replacement = build_replacement_plan(_plan(), assessment)
+
+
+def test_sequence_replacement_rebuilds_only_mismatched_material_domain():
+    replacement = build_replacement_plan(_plan(), _assessment_for_material())
     assert [operation.name for operation in replacement.operations] == ["apply_material_variant", "verify_material_variant"]
     assert replacement.operations[0].arguments["material_variant"] == {"name": "liquid_surface"}
 
 
 def test_sequence_replacement_requires_new_authorization():
-    assessment = UnrealRecoverySequenceAssessment((type("Step", (), {"operation_index": 7, "operation_name": "apply_material_variant", "entity_ids": ("FIELD_SURFACE",), "disposition": "replacement_required", "reason": "fresh state differs"})(),))
-    replacement = build_replacement_plan(_plan(), assessment)
+    replacement = build_replacement_plan(_plan(), _assessment_for_material())
     receipt = issue_replacement_authorization(replacement, "material-recovery-auth")
     assert receipt.matches(replacement)
     stale = UnrealPlanAuthorization.issue(build_reassessment_plan(_plan(), _failure()), "stale-reassessment-auth")
