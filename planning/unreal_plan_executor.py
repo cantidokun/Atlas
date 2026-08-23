@@ -139,11 +139,13 @@ class UnrealPlanExecutor:
 
     @staticmethod
     def _is_semantically_verified(operation, evidence):
-        if operation.name in {"verify_actor_location", "verify_actor_rotation", "verify_actor_scale", "verify_material_variant", "verify_niagara_variant"}:
-            return True
-        if operation.name == "verify_target_actor_mapping":
-            return bool(evidence.observed_state)
-        return False
+        return operation.name in {
+            "verify_actor_location",
+            "verify_actor_rotation",
+            "verify_actor_scale",
+            "verify_material_variant",
+            "verify_niagara_variant",
+        }
 
     def _execute_one(self, operation, authorization_id, *, expected_location=None, expected_rotation=None, expected_scale=None, expected_material_variant=None, expected_niagara_variant=None):
         arguments = dict(operation.arguments)
