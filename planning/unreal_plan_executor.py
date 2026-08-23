@@ -152,11 +152,13 @@ class UnrealPlanExecutor:
         for index, operation in enumerate(plan.operations):
             expected = {}
             if operation.kind is UnrealOperationKind.VERIFY:
-                if index == 0 or plan.operations[index - 1].kind is not UnrealOperationKind.WRITE:
+                previous = plan.operations[index - 1] if index else None
+                if previous is None or previous.kind not in (UnrealOperationKind.WRITE, UnrealOperationKind.READ):
                     raise UnrealPlanExecutionError(
-                        f"Verify operation {index} ('{operation.name}') must immediately follow a write"
+                        f"Verify operation {index} ('{operation.name}') must follow a read or write"
                     )
-                expected = self._verification_expectation(plan.operations[index - 1])
+                if previous.kind is UnrealOperationKind.WRITE:
+                    expected = self._verification_expectation(previous)
 
             try:
                 evidence = self._execute_one(
