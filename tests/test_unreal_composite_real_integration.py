@@ -84,9 +84,9 @@ def test_real_unreal_composite_production_applies_verifies_and_restores():
         assert result.success is True
         assert [e.operation_name for e in result.evidence_ledger] == [
             "inspect_target_actors",
-            "set_actor_location", "verify_target_actor_mapping",
-            "set_actor_rotation", "verify_target_actor_mapping",
-            "set_actor_scale", "verify_target_actor_mapping",
+            "set_actor_location", "verify_actor_location",
+            "set_actor_rotation", "verify_actor_rotation",
+            "set_actor_scale", "verify_actor_scale",
             "inspect_material_state", "apply_material_variant", "verify_material_variant",
             "inspect_niagara_state", "apply_niagara_variant", "verify_niagara_variant",
         ]
