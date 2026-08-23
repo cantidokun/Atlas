@@ -3,10 +3,10 @@
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapterProduction
-from planning.unreal_agent import UnrealTaskIntent
+from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
 from planning.unreal_composite_operation import build_composite_actor_operation
 from planning.unreal_plan_executor import UnrealPlanExecutor
-from planning.unreal_task_planner import UnrealTaskPlanner
+from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_transport_named_pipe import NamedPipeTransportError, create_named_pipe_transport
 
 TARGET_ENTITY_ID = "FIELD_SURFACE"
@@ -27,6 +27,17 @@ def _variant(state, key):
     return dict(value)
 
 
+def _read_variant_plan(intent_id, capability, operation_name):
+    operation = UnrealOperation(
+        capability=capability,
+        kind=UnrealOperationKind.READ,
+        name=operation_name,
+        arguments={"entity_ids": (TARGET_ENTITY_ID,)},
+        entity_ids=(TARGET_ENTITY_ID,),
+    )
+    return UnrealTaskPlan(intent_id, (operation,))
+
+
 def test_real_unreal_composite_production_applies_verifies_and_restores():
     """Prove the complete composite planner/executor path against real Unreal."""
     transport = create_named_pipe_transport()
@@ -41,24 +52,16 @@ def test_real_unreal_composite_production_applies_verifies_and_restores():
         original_scale = dict(original_state["scale"])
 
         material_original = executor.execute(
-            planner.plan_material_variant(_intent("composite-original-material"), {"name": "__atlas_probe_material__"}),
+            _read_variant_plan("composite-original-material", UnrealCapability.MATERIAL, "inspect_material_state"),
             "composite-original-material-auth",
         )
-        original_material = _variant(_state(material_original.evidence_ledger[1]), "material")
-        executor.execute(
-            planner.plan_material_variant(_intent("composite-restore-material-probe"), original_material),
-            "composite-restore-material-probe-auth",
-        )
+        original_material = _variant(_state(material_original.evidence_ledger[0]), "material")
 
         niagara_original = executor.execute(
-            planner.plan_niagara_variant(_intent("composite-original-niagara"), {"name": "__atlas_probe_niagara__"}),
+            _read_variant_plan("composite-original-niagara", UnrealCapability.NIAGARA, "inspect_niagara_state"),
             "composite-original-niagara-auth",
         )
-        original_niagara = _variant(_state(niagara_original.evidence_ledger[1]), "niagara")
-        executor.execute(
-            planner.plan_niagara_variant(_intent("composite-restore-niagara-probe"), original_niagara),
-            "composite-restore-niagara-probe-auth",
-        )
+        original_niagara = _variant(_state(niagara_original.evidence_ledger[0]), "niagara")
     except (UnrealAdapterError, NamedPipeTransportError) as exc:
         pytest.skip(f"Unreal composite fixture unavailable: {exc}")
 
