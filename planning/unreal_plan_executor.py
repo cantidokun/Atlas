@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
-from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
+from planning.unreal_agent import UnrealCapability, UnrealOperationKind
 from planning.unreal_capability_registry import UnrealCapabilityRegistry
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_material_verifier import verify_material_variant
@@ -32,13 +32,7 @@ class UnrealPlanExecutionFailure:
         object.__setattr__(self, "operation_entity_ids", tuple(self.operation_entity_ids))
 
     def reassessment_plan(self) -> UnrealTaskPlan:
-        """Create a read-only, fresh-state plan for explicit recovery coordination.
-
-        This plan deliberately contains no mutation. A recovery coordinator must
-        reassess current Unreal state before proposing any replacement mutation.
-        The returned plan still requires a separate authorization receipt before
-        execution through ``execute_authorized``.
-        """
+        """Create a read-only, fresh-state plan for explicit recovery coordination."""
         if not self.operation_entity_ids:
             raise ValueError("failure must contain operation_entity_ids for recovery reassessment")
         entity_ids = tuple(self.operation_entity_ids)
@@ -89,7 +83,6 @@ class UnrealPlanExecutor:
 
     @staticmethod
     def _expected_verifier(write_operation):
-        """Return the exact semantic verifier required for one write."""
         mapping = {
             "set_actor_location": "verify_actor_location",
             "set_actor_rotation": "verify_actor_rotation",
@@ -105,23 +98,15 @@ class UnrealPlanExecutor:
             if operation.kind is not UnrealOperationKind.WRITE:
                 continue
             if index + 1 >= len(plan.operations):
-                raise UnrealPlanExecutionError(
-                    f"Write operation {index} ('{operation.name}') must be followed by verification"
-                )
+                raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be followed by verification")
             verification = plan.operations[index + 1]
             if verification.kind is not UnrealOperationKind.VERIFY:
-                raise UnrealPlanExecutionError(
-                    f"Write operation {index} ('{operation.name}') must be immediately followed by verification"
-                )
+                raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be immediately followed by verification")
             if tuple(verification.entity_ids) != tuple(operation.entity_ids):
-                raise UnrealPlanExecutionError(
-                    f"Write operation {index} ('{operation.name}') and verification must target the same entities"
-                )
+                raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') and verification must target the same entities")
             expected_verifier = cls._expected_verifier(operation)
             if expected_verifier is not None and verification.name != expected_verifier:
-                raise UnrealPlanExecutionError(
-                    f"Write operation {index} ('{operation.name}') must be followed by '{expected_verifier}', not '{verification.name}'"
-                )
+                raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be followed by '{expected_verifier}', not '{verification.name}'")
 
     @staticmethod
     def _format_preflight_error(exc):
@@ -131,14 +116,11 @@ class UnrealPlanExecutor:
         return message
 
     def _preflight_plan(self, plan):
-        """Validate every operation before the first transport mutation."""
         for index, operation in enumerate(plan.operations):
             try:
                 self._capabilities.validate_operation(operation)
             except (KeyError, TypeError, ValueError) as exc:
-                raise UnrealPlanExecutionError(
-                    f"Operation {index} ('{operation.name}') failed preflight: {self._format_preflight_error(exc)}"
-                ) from exc
+                raise UnrealPlanExecutionError(f"Operation {index} ('{operation.name}') failed preflight: {self._format_preflight_error(exc)}") from exc
 
     @staticmethod
     def _verification_expectation(write_operation):
@@ -154,6 +136,14 @@ class UnrealPlanExecutor:
         if write_operation.name == "apply_niagara_variant":
             return {"niagara_variant": dict(arguments["niagara_variant"])}
         return {}
+
+    @staticmethod
+    def _is_semantically_verified(operation, evidence):
+        if operation.name in {"verify_actor_location", "verify_actor_rotation", "verify_actor_scale", "verify_material_variant", "verify_niagara_variant"}:
+            return True
+        if operation.name == "verify_target_actor_mapping":
+            return bool(evidence.observed_state)
+        return False
 
     def _execute_one(self, operation, authorization_id, *, expected_location=None, expected_rotation=None, expected_scale=None, expected_material_variant=None, expected_niagara_variant=None):
         arguments = dict(operation.arguments)
@@ -171,7 +161,8 @@ class UnrealPlanExecutor:
             if expected_scale is not None: evidence = verify_actor_scale(evidence, expected_scale)
             if expected_material_variant is not None: evidence = verify_material_variant(evidence, expected_material_variant)
             if expected_niagara_variant is not None: evidence = verify_niagara_variant(evidence, expected_niagara_variant)
-            evidence = replace(evidence, verified=True)
+            if self._is_semantically_verified(operation, evidence):
+                evidence = replace(evidence, verified=True)
         return evidence
 
     @staticmethod
