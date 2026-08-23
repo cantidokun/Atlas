@@ -58,11 +58,24 @@ def make_executor() -> MultiStepCorrectiveExecutor:
     )
 
 
+def establish_precondition() -> None:
+    """Make the controlled fixture deterministically require one correction."""
+    current = observe()
+    if current["marker_present"]:
+        deletion = delete_object(FILE_NAME, MARKER_OBJECT)
+        if deletion.get("status") != "ok":
+            raise RuntimeError(f"Failed to establish missing-marker precondition: {deletion}")
+    current = observe()
+    if current["marker_present"]:
+        raise RuntimeError(f"Live gate precondition was not established: {current}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--inject-external-change", action="store_true")
     args = parser.parse_args()
 
+    establish_precondition()
     executor = make_executor()
     first = executor.execute_all(max_steps=1)
     if not first:
