@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from planning.blender_corrective_runtime import BlenderCorrectiveRuntime
+from planning.corrective_runtime_observer import CorrectiveRuntimeObserver
 from planning.transform_correction_plan import TransformTarget, plan_transform_correction
 from tools.blender_test_fixture import set_test_transform
 from tools.blender_transform import inspect_object_transform
@@ -56,17 +57,17 @@ def main() -> None:
     args = parser.parse_args()
     establish_fixture()
 
-    observation_count = 0
     injected = False
 
-    def observe() -> dict[str, Any]:
-        nonlocal observation_count, injected
-        observation_count += 1
-        if args.inject_external_change and observation_count == 3 and not injected:
+    def on_observation(step: int, _evidence: Any) -> None:
+        nonlocal injected
+        # Step 1 is the first fresh observation after the first corrective
+        # execution. The mutation therefore occurs between real task steps.
+        if args.inject_external_change and step == 1 and not injected:
             inject_external_change()
             injected = True
-        return _observe_raw()
 
+    observe = CorrectiveRuntimeObserver(_observe_raw, on_observation)
     runtime = BlenderCorrectiveRuntime(observe, plan, "live:generalized-corrective-runtime")
     result = runtime.run(max_steps=8)
     if not result.converged:
@@ -79,7 +80,7 @@ def main() -> None:
         raise RuntimeError(f"independent final verification failed: {final}")
 
     print("ATLAS GENERALIZED BLENDER CORRECTIVE RUNTIME GATE: PASS")
-    print(json.dumps({"receipts": len(result.receipts), "external_change_injected": injected, "observations": observation_count, "final_state": final}, indent=2))
+    print(json.dumps({"receipts": len(result.receipts), "external_change_injected": injected, "final_state": final}, indent=2))
 
 
 if __name__ == "__main__":
