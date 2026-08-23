@@ -5,6 +5,7 @@ from typing import Any, Mapping, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
 from planning.unreal_agent import UnrealOperationKind
+from planning.unreal_capability_registry import UnrealCapabilityRegistry
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_material_verifier import verify_material_variant
 from planning.unreal_niagara_verifier import verify_niagara_variant
@@ -48,6 +49,7 @@ class UnrealPlanExecutor:
         if not isinstance(adapter, UnrealAdapterProduction):
             raise TypeError("adapter must be a UnrealAdapterProduction instance")
         self._adapter = adapter
+        self._capabilities = UnrealCapabilityRegistry()
 
     _DISPATCH = {
         UnrealOperationKind.READ: "inspect",
@@ -73,6 +75,21 @@ class UnrealPlanExecutor:
                 raise UnrealPlanExecutionError(
                     f"Write operation {index} ('{operation.name}') and verification must target the same entities"
                 )
+
+    def _preflight_plan(self, plan):
+        """Validate every operation before the first transport mutation.
+
+        Planner-generated plans are already validated, but the executor is the
+        final execution boundary. Preflighting the complete ordered plan prevents
+        a malformed later operation from causing a partial real-Unreal mutation.
+        """
+        for index, operation in enumerate(plan.operations):
+            try:
+                self._capabilities.validate_operation(operation)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise UnrealPlanExecutionError(
+                    f"Operation {index} ('{operation.name}') failed preflight: {exc}"
+                ) from exc
 
     @staticmethod
     def _verification_expectation(write_operation):
@@ -137,7 +154,7 @@ class UnrealPlanExecutor:
 
     def execute_authorized(self, plan, authorization):
         if not isinstance(authorization, UnrealPlanAuthorization):
-            raise TypeError("authorization must be an UnrealPlanAuthorization instance")
+            raise TypeError("authorization must be a UnrealPlanAuthorization instance")
         if not authorization.matches(plan):
             raise UnrealPlanExecutionError("authorization receipt does not match the exact Unreal task plan")
         return self.execute(plan, authorization.authorization_id)
@@ -148,6 +165,7 @@ class UnrealPlanExecutor:
         if not isinstance(authorization_id, str) or not authorization_id.strip():
             raise UnrealPlanExecutionError("authorization_id must be a non-empty string")
         self._validate_execution_shape(plan)
+        self._preflight_plan(plan)
 
         ledger = []
         completed = []
