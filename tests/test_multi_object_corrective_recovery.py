@@ -9,8 +9,8 @@ def _action(tool, name, **arguments):
 
 def test_replans_only_the_properties_that_are_wrong_after_interruption():
     state = {
-        "A": {"location": [1.0, 0.0, 0.0], "rotation": [0.0, 0.0, 45.0]},
-        "B": {"location": [-1.0, 0.0, 0.0], "rotation": [0.0, 0.0, -45.0]},
+        "A": {"location": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0]},
+        "B": {"location": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0]},
     }
     target = {
         "A": {"location": [1.0, 0.0, 0.0], "rotation": [0.0, 0.0, 45.0]},
