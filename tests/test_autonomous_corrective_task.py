@@ -35,7 +35,7 @@ def test_task_fails_closed_on_budget_without_claiming_convergence():
         return dict(state)
 
     def plan(evidence):
-        return [ActionSpec(tool="set_value", arguments={"value": 1})]
+        return [ActionSpec(tool="set_value", arguments={"value": evidence["value"] + 1})]
 
     def execute(tool, arguments):
         state["value"] = arguments["value"]
@@ -46,5 +46,5 @@ def test_task_fails_closed_on_budget_without_claiming_convergence():
     )
     result = task.run(max_steps=1)
 
-    assert result.converged is True
+    assert result.converged is False
     assert len(result.receipts) == 1
