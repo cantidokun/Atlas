@@ -1,9 +1,9 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 23, 2026 — explicit failure reassessment boundary
+**Updated:** August 23, 2026 — fresh-state recovery disposition
 **Current focus:** Multi-operation production execution with failure containment and recovery coordination
 **Current branch:** `feat/unreal-composite-production-operation`
-**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, and explicit failure reassessment planning are implemented.
+**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment planning, and fresh-state recovery disposition are implemented.
 
 ## Latest completed milestone
 
@@ -29,7 +29,7 @@ Each write is immediately followed by a semantic verification boundary. Transfor
 
 ## Execution-containment boundaries
 
-`UnrealPlanExecutor` now preflights **every operation in the complete ordered plan before the first transport call** using the central `UnrealCapabilityRegistry` operation contract.
+`UnrealPlanExecutor` preflights **every operation in the complete ordered plan before the first transport call** using the central `UnrealCapabilityRegistry` operation contract.
 
 The executor also binds each supported production write to its required semantic verifier before execution:
 
@@ -41,24 +41,32 @@ apply_material_variant   -> verify_material_variant
 apply_niagara_variant    -> verify_niagara_variant
 ```
 
-A same-entity verification is therefore not sufficient by itself. A plan cannot substitute a semantically unrelated verifier for the mutation it claims to prove. This closes a second plan-integrity gap at the executor boundary.
-
-These checks are deliberately executor-side defense-in-depth. Planner-generated plans remain validated by the planner; the executor remains the final execution boundary.
+A same-entity verification is therefore not sufficient by itself. A plan cannot substitute a semantically unrelated verifier for the mutation it claims to prove. These checks are executor-side defense-in-depth; planner-generated plans remain validated by the planner.
 
 ## Failure containment and recovery boundary
 
 `UnrealPlanExecutionFailure` preserves the failed operation, target entities, operation arguments, completed evidence, and completed operation arguments.
 
-The failure object now exposes `reassessment_plan()`. This produces a fresh, read-only Unreal inspection plan for the failed operation's entity scope:
+The failure object exposes `reassessment_plan()`, producing a fresh, read-only Unreal inspection plan for the failed operation's entity scope:
 
 ```text
 READ  inspect_target_actors
 VERIFY verify_target_actor_mapping
 ```
 
-The reassessment plan deliberately contains **no WRITE operations** and does not replay the failed mutation. It is a coordination boundary: recovery must execute the fresh-state reassessment explicitly, then construct and authorize any replacement mutation separately.
+The reassessment plan deliberately contains **no WRITE operations** and does not replay the failed mutation. Recovery must execute the fresh-state reassessment explicitly, then construct and authorize any replacement mutation separately.
 
-Recovery invariants:
+The failure object now also exposes `assess_reassessment(result)`. This compares the latest reassessment evidence against the failed operation's requested state and returns an explicit recovery disposition without authorizing or executing a mutation:
+
+```text
+already_applied       fresh state already matches the requested state
+replacement_required  fresh state differs from the requested state
+manual_review          no safe comparator or usable reassessment evidence
+```
+
+This closes the next recovery-coordination gap: the system can distinguish a mutation that actually took effect despite a later verification failure from a state that still requires an explicitly authorized replacement operation.
+
+## Recovery invariants
 
 - A malformed later operation cannot cause an earlier real-Unreal mutation.
 - Every write requires an immediate verification operation.
@@ -68,7 +76,9 @@ Recovery invariants:
 - Completed evidence and operation arguments remain available through `UnrealPlanExecutionFailure` for recovery coordination.
 - Recovery reassessment is read-only and scoped to the failed operation's entities.
 - Recovery must reassess fresh Unreal state and must not silently retry a failed mutation.
+- Recovery disposition is derived only from fresh reassessment evidence.
 - Replacement mutations require explicit authorization.
+- `assess_reassessment()` never authorizes or executes a mutation.
 
 ## Testing gate
 
@@ -84,7 +94,7 @@ Then run the real Unreal composite gate:
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
 ```
 
-The real integration remains the engine-dependent proof boundary. The failure reassessment boundary itself is Python-side and should be established by the focused suites before another live Unreal run.
+The real integration remains the engine-dependent proof boundary. The fresh-state recovery disposition is Python-side and should be established by the focused suites before another live Unreal run.
 
 ## Architectural invariants
 
@@ -97,6 +107,7 @@ The real integration remains the engine-dependent proof boundary. The failure re
 - Verification evidence is marked verified only after independent proof.
 - Failures require fresh evidence and explicit recovery.
 - Recovery reassessment is read-only and never an implicit retry.
+- Recovery disposition is informational/coordination state, not authorization.
 - Replacement mutations require explicit plan-bound authorization.
 - The Unreal Agent must never become a second autonomous authority separate from Atlas.
 - Keep development isolated from the action/workflow runner.
