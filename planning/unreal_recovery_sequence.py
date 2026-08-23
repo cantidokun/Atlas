@@ -1,16 +1,12 @@
 """Fresh-state coordination for failed multi-operation Unreal plans."""
 
 from dataclasses import dataclass
-from typing import Dict, Mapping, Tuple
+from typing import Mapping, Tuple
 
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_material_verifier import verify_material_variant
 from planning.unreal_niagara_verifier import verify_niagara_variant
-from planning.unreal_plan_executor import (
-    UnrealPlanExecutionFailure,
-    UnrealPlanExecutionResult,
-    UnrealRecoveryAssessment,
-)
+from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
 from planning.unreal_task_planner import UnrealTaskPlan
 
@@ -51,9 +47,7 @@ def _write_steps(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure):
     for index, operation in enumerate(plan.operations):
         if index > failure.operation_index:
             break
-        if operation.kind is not UnrealOperationKind.WRITE:
-            continue
-        if operation.name not in _WRITE_DEFINITIONS:
+        if operation.kind is not UnrealOperationKind.WRITE or operation.name not in _WRITE_DEFINITIONS:
             continue
         capability, inspect_name, verify_name, argument_key = _WRITE_DEFINITIONS[operation.name]
         steps.append((index, operation, capability, inspect_name, verify_name, argument_key))
@@ -64,7 +58,6 @@ def _write_steps(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure):
 
 def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure) -> UnrealTaskPlan:
     """Build a read-only plan covering every relevant write through the failure boundary."""
-    steps = _write_steps(plan, failure)
     operations = tuple(
         UnrealOperation(
             capability=capability,
@@ -73,7 +66,7 @@ def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFa
             arguments={"entity_ids": tuple(operation.entity_ids)},
             entity_ids=tuple(operation.entity_ids),
         )
-        for _, operation, capability, inspect_name, _, _ in steps
+        for _, operation, capability, inspect_name, _, _ in _write_steps(plan, failure)
     )
     return UnrealTaskPlan(f"{plan.intent_id}:reassess-sequence", operations)
 
@@ -105,10 +98,11 @@ def assess_reassessment_sequence(
     """Classify every relevant prior write using fresh evidence only."""
     if not isinstance(result, UnrealPlanExecutionResult):
         raise TypeError("result must be a UnrealPlanExecutionResult instance")
+    steps = _write_steps(plan, failure)
     if not result.success:
         return UnrealRecoverySequenceAssessment(tuple(
             UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment did not complete")
-            for index, operation, *_ in _write_steps(plan, failure)
+            for index, operation, *_ in steps
         ))
 
     evidence_by_operation = {}
@@ -116,14 +110,17 @@ def assess_reassessment_sequence(
         evidence_by_operation.setdefault(evidence.operation_name, []).append(evidence)
 
     assessments = []
-    for index, operation, _, inspect_name, _, _ in _write_steps(plan, failure):
-        evidence_list = evidence_by_operation.get(inspect_name, [])
-        matching = [e for e in evidence_list if tuple(e.entity_ids) == tuple(operation.entity_ids)]
+    for step in steps:
+        index, operation, _, inspect_name, _, _ = step
+        matching = [
+            evidence for evidence in evidence_by_operation.get(inspect_name, [])
+            if tuple(evidence.entity_ids) == tuple(operation.entity_ids)
+        ]
         if not matching:
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "manual_review", "fresh reassessment contains no matching evidence"))
             continue
         try:
-            _verify((index, operation, *_WRITE_DEFINITIONS[operation.name]), matching[-1])
+            _verify(step, matching[-1])
         except (TypeError, ValueError):
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "replacement_required", "fresh Unreal state does not match the requested state"))
         else:
@@ -138,20 +135,20 @@ def build_replacement_plan(
     """Build a new ordered mutation plan for only the steps requiring replacement."""
     if not isinstance(assessment, UnrealRecoverySequenceAssessment):
         raise TypeError("assessment must be a UnrealRecoverySequenceAssessment instance")
-    replacement_indices = {step.operation_index for step in assessment.steps if step.disposition == "replacement_required"}
-    if not replacement_indices:
-        raise ValueError("replacement plan requires at least one replacement_required step")
     if any(step.disposition not in {"already_applied", "replacement_required", "manual_review"} for step in assessment.steps):
         raise ValueError("assessment contains an invalid recovery disposition")
     if any(step.disposition == "manual_review" for step in assessment.steps):
         raise ValueError("replacement plan cannot be built while any recovery step requires manual review")
+    replacement_indices = {step.operation_index for step in assessment.steps if step.disposition == "replacement_required"}
+    if not replacement_indices:
+        raise ValueError("replacement plan requires at least one replacement_required step")
 
     operations = []
     for index in sorted(replacement_indices):
         operation = plan.operations[index]
-        if operation.kind is not UnrealOperationKind.WRITE:
-            raise ValueError("recovery replacement assessment must reference write operations")
-        _, _, _, verify_name, argument_key = _WRITE_DEFINITIONS[operation.name]
+        if operation.kind is not UnrealOperationKind.WRITE or operation.name not in _WRITE_DEFINITIONS:
+            raise ValueError("recovery replacement assessment must reference supported write operations")
+        _, _, verify_name, argument_key = _WRITE_DEFINITIONS[operation.name]
         verify_args = {"entity_ids": tuple(operation.entity_ids)}
         if operation.name in {"set_actor_location", "set_actor_rotation", "set_actor_scale"}:
             verify_args["expected_" + argument_key] = dict(operation.arguments[argument_key])
