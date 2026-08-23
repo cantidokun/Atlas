@@ -8,8 +8,9 @@ from typing import Any
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.multi_step_corrective_executor import MultiStepCorrectiveExecutor
 from planning.transform_correction_plan import TransformTarget, plan_transform_correction
-from tools.blender import create_empty_marker, move_object
 from tools.blender_transform import inspect_object_transform, set_object_rotation
+from tools.blender import move_object
+from tools.blender_test_fixture import create_test_object, set_test_transform
 
 FILE_NAME = "marker_task_INCORRECT.blend"
 COLLECTION = "Atlas_Test"
@@ -19,36 +20,23 @@ TARGETS = (
     TransformTarget(OBJECT_A, (1.0, 0.0, 0.0), (0.0, 0.0, 45.0)),
     TransformTarget(OBJECT_B, (-1.0, 0.0, 0.0), (0.0, 0.0, -45.0)),
 )
-TARGET = {target.object_name: {"location": list(target.location), "rotation": list(target.rotation_degrees)} for target in TARGETS}
+TARGET = {t.object_name: {"location": list(t.location), "rotation": list(t.rotation_degrees)} for t in TARGETS}
 
 
 def _ensure_object(name: str) -> None:
-    from tools.blender_object import rename_object
-    existing = inspect_object_transform(FILE_NAME, name)
-    if existing.get("status") == "ok":
-        return
-    marker = create_empty_marker(FILE_NAME, COLLECTION, "Atlas_Marker")
-    if marker.get("status") not in {"created", "already_exists"}:
-        raise RuntimeError(f"failed to establish fixture source for {name}: {marker}")
-    renamed = rename_object(FILE_NAME, "Atlas_Marker", name)
-    if renamed.get("status") not in {"renamed", "already_named"}:
-        raise RuntimeError(f"failed to establish {name}: {renamed}")
-
-
-def _set_transform(name: str, location: list[float], rotation: list[float]) -> None:
-    moved = move_object(FILE_NAME, name, location)
-    if moved.get("status") not in {"ok", "already_at_location"}:
-        raise RuntimeError(f"failed to set location for {name}: {moved}")
-    rotated = set_object_rotation(FILE_NAME, name, rotation)
-    if rotated.get("status") not in {"ok", "already_rotated"}:
-        raise RuntimeError(f"failed to set rotation for {name}: {rotated}")
+    result = create_test_object(FILE_NAME, name)
+    if result.get("status") not in {"created", "already_exists"}:
+        raise RuntimeError(f"failed to establish test fixture {name}: {result}")
 
 
 def establish_fixture() -> None:
     _ensure_object(OBJECT_A)
     _ensure_object(OBJECT_B)
-    _set_transform(OBJECT_A, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
-    _set_transform(OBJECT_B, TARGET[OBJECT_B]["location"], TARGET[OBJECT_B]["rotation"])
+    for name in (OBJECT_A, OBJECT_B):
+        result = set_test_transform(FILE_NAME, name, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+        if result.get("status") != "ok":
+            raise RuntimeError(f"failed to reset fixture {name}: {result}")
+    set_test_transform(FILE_NAME, OBJECT_B, TARGET[OBJECT_B]["location"], TARGET[OBJECT_B]["rotation"])
 
 
 def observe() -> dict[str, Any]:
@@ -57,7 +45,7 @@ def observe() -> dict[str, Any]:
         evidence = inspect_object_transform(FILE_NAME, name)
         if evidence.get("status") != "ok":
             raise RuntimeError(f"fresh inspection failed for {name}: {evidence}")
-        result[name] = {"location": [float(value) for value in evidence["location"]], "rotation": [float(value) for value in evidence["rotation_degrees"]]}
+        result[name] = {"location": [float(v) for v in evidence["location"]], "rotation": [float(v) for v in evidence["rotation_degrees"]]}
     return result
 
 
@@ -75,17 +63,13 @@ def make_executor() -> MultiStepCorrectiveExecutor:
             raise RuntimeError(f"unexpected live corrective tool: {tool}")
         status = raw.get("status")
         return {"ok": status in {"ok", "already_at_location", "already_rotated"}, "state": str(status), "details": dict(raw)}
-
     return MultiStepCorrectiveExecutor(BlenderExecutionBoundary(execute), observe, plan, "live:multi-object-corrective")
 
 
 def inject_external_change() -> None:
-    moved = move_object(FILE_NAME, OBJECT_B, [99.0, 0.0, 0.0])
-    if moved.get("status") not in {"ok", "already_at_location"}:
-        raise RuntimeError(f"external location mutation failed: {moved}")
-    rotated = set_object_rotation(FILE_NAME, OBJECT_B, [0.0, 0.0, 99.0])
-    if rotated.get("status") not in {"ok", "already_rotated"}:
-        raise RuntimeError(f"external rotation mutation failed: {rotated}")
+    result = set_test_transform(FILE_NAME, OBJECT_B, [99.0, 0.0, 0.0], [0.0, 0.0, 99.0])
+    if result.get("status") != "ok":
+        raise RuntimeError(f"external fixture mutation failed: {result}")
 
 
 def main() -> None:
