@@ -84,18 +84,20 @@ class UnrealAgentPlanBuilder:
                 if field in raw and field not in arguments: arguments[field]=raw[field]
             arguments["entity_ids"]=ids
             if name == "set_actor_location":
-                arguments["location"]=self._validate_location(arguments["location"])
+                arguments={"entity_ids": ids, "location": self._validate_location(arguments["location"])}
             elif name == "set_actor_rotation":
-                arguments["rotation"]=self._validate_rotation(arguments["rotation"])
+                arguments={"entity_ids": ids, "rotation": self._validate_rotation(arguments["rotation"])}
             elif name == "set_actor_scale":
-                arguments["scale"]=self._validate_scale(arguments["scale"])
+                arguments={"entity_ids": ids, "scale": self._validate_scale(arguments["scale"])}
             elif name == "apply_material_variant":
                 variant=arguments.get("material_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
-                arguments["material_variant"]=self._validate_named_variant(variant,"material_variant")
+                normalized=self._validate_named_variant(variant,"material_variant")
+                arguments={"entity_ids": ids, "material_variant": normalized}
                 operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.READ,"inspect_material_state",ids))
             elif name == "apply_niagara_variant":
                 variant=arguments.get("niagara_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
-                arguments["niagara_variant"]=self._validate_named_variant(variant,"niagara_variant")
+                normalized=self._validate_named_variant(variant,"niagara_variant")
+                arguments={"entity_ids": ids, "niagara_variant": normalized}
                 operations.append(self._operation(UnrealCapability.NIAGARA,UnrealOperationKind.READ,"inspect_niagara_state",ids))
             operations.append(self._operation(capability,UnrealOperationKind.WRITE,name,ids,arguments))
             if name == "apply_material_variant": operations.append(self._operation(UnrealCapability.MATERIAL,UnrealOperationKind.VERIFY,"verify_material_variant",ids,{"material_variant":arguments["material_variant"]}))
