@@ -53,6 +53,9 @@ class UnrealAdapterProduction:
         if operation.kind is not UnrealOperationKind.VERIFY: raise UnrealAdapterError("verify accepts VERIFY operations only")
         read_map={
             "verify_target_actor_mapping": (UnrealCapability.INSPECT_ACTOR,"inspect_target_actors"),
+            "verify_actor_location": (UnrealCapability.INSPECT_ACTOR,"inspect_target_actors"),
+            "verify_actor_rotation": (UnrealCapability.INSPECT_ACTOR,"inspect_target_actors"),
+            "verify_actor_scale": (UnrealCapability.INSPECT_ACTOR,"inspect_target_actors"),
             "verify_material_variant": (UnrealCapability.MATERIAL,"inspect_material_state"),
             "verify_niagara_variant": (UnrealCapability.NIAGARA,"inspect_niagara_state"),
         }
