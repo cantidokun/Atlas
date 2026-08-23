@@ -23,7 +23,7 @@ def _state(evidence):
 def _variant(state, key):
     value = state.get(key, {}).get("variant")
     if not isinstance(value, dict):
-        pytest.skip(f"Unreal FIELD_SURFACE fixture does not expose {key}.variant in live evidence")
+        raise AssertionError(f"Unreal FIELD_SURFACE evidence missing {key}.variant")
     return dict(value)
 
 
@@ -39,8 +39,26 @@ def test_real_unreal_composite_production_applies_verifies_and_restores():
         original_location = dict(original_state["location"])
         original_rotation = dict(original_state["rotation"])
         original_scale = dict(original_state["scale"])
-        original_material = _variant(original_state, "material")
-        original_niagara = _variant(original_state, "niagara")
+
+        material_original = executor.execute(
+            planner.plan_material_variant(_intent("composite-original-material"), {"name": "__atlas_probe_material__"}),
+            "composite-original-material-auth",
+        )
+        original_material = _variant(_state(material_original.evidence_ledger[1]), "material")
+        executor.execute(
+            planner.plan_material_variant(_intent("composite-restore-material-probe"), original_material),
+            "composite-restore-material-probe-auth",
+        )
+
+        niagara_original = executor.execute(
+            planner.plan_niagara_variant(_intent("composite-original-niagara"), {"name": "__atlas_probe_niagara__"}),
+            "composite-original-niagara-auth",
+        )
+        original_niagara = _variant(_state(niagara_original.evidence_ledger[1]), "niagara")
+        executor.execute(
+            planner.plan_niagara_variant(_intent("composite-restore-niagara-probe"), original_niagara),
+            "composite-restore-niagara-probe-auth",
+        )
     except (UnrealAdapterError, NamedPipeTransportError) as exc:
         pytest.skip(f"Unreal composite fixture unavailable: {exc}")
 
