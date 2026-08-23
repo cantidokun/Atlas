@@ -45,7 +45,7 @@ def _material_evidence():
 def test_reassessment_plan_uses_one_read_per_state_domain():
     reassessment = build_reassessment_plan(_plan(), _failure())
     assert [operation.name for operation in reassessment.operations] == ["inspect_target_actors", "inspect_material_state"]
-    assert [operation.capability for operation in reassessment.operations] == [UnrealCapability.MODIFY_ACTOR, UnrealCapability.MATERIAL]
+    assert [operation.capability for operation in reassessment.operations] == [UnrealCapability.INSPECT_ACTOR, UnrealCapability.MATERIAL]
     assert all(operation.kind is UnrealOperationKind.READ for operation in reassessment.operations)
 
 
