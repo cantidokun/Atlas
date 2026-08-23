@@ -7,7 +7,7 @@ from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOpera
 from planning.unreal_material_verifier import verify_material_variant
 from planning.unreal_niagara_verifier import verify_niagara_variant
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutionError, UnrealPlanExecutor
+from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
 from planning.unreal_task_planner import UnrealTaskPlan
 
@@ -32,6 +32,14 @@ class UnrealRecoverySequenceAssessment:
         if any(step.disposition == "replacement_required" for step in self.steps):
             return "replacement_required"
         return "already_applied"
+
+
+@dataclass(frozen=True)
+class UnrealRecoverySequenceResult:
+    reassessment_result: UnrealPlanExecutionResult
+    assessment: UnrealRecoverySequenceAssessment
+    replacement_plan: UnrealTaskPlan | None = None
+    replacement_result: UnrealPlanExecutionResult | None = None
 
 
 _WRITE_DEFINITIONS = {
@@ -190,3 +198,49 @@ def execute_replacement_authorized(executor: UnrealPlanExecutor, replacement_pla
     if not isinstance(authorization, UnrealPlanAuthorization):
         raise TypeError("authorization must be a UnrealPlanAuthorization instance")
     return executor.execute_authorized(replacement_plan, authorization)
+
+
+def execute_recovery_sequence(
+    executor: UnrealPlanExecutor,
+    plan: UnrealTaskPlan,
+    failure: UnrealPlanExecutionFailure,
+    reassessment_authorization: UnrealPlanAuthorization,
+    replacement_authorization: UnrealPlanAuthorization | None = None,
+) -> UnrealRecoverySequenceResult:
+    """Execute the explicit recovery loop without ever authorizing a mutation implicitly.
+
+    The reassessment receipt is required for the fresh read-only plan. If fresh
+    state requires replacement, a separately issued authorization bound to the
+    newly constructed replacement plan must be supplied. No replacement receipt
+    is created inside this coordinator.
+    """
+    if not isinstance(executor, UnrealPlanExecutor):
+        raise TypeError("executor must be a UnrealPlanExecutor instance")
+    if not isinstance(plan, UnrealTaskPlan):
+        raise TypeError("plan must be a UnrealTaskPlan instance")
+    if not isinstance(failure, UnrealPlanExecutionFailure):
+        raise TypeError("failure must be a UnrealPlanExecutionFailure instance")
+    if not isinstance(reassessment_authorization, UnrealPlanAuthorization):
+        raise TypeError("reassessment_authorization must be a UnrealPlanAuthorization instance")
+    if replacement_authorization is not None and not isinstance(replacement_authorization, UnrealPlanAuthorization):
+        raise TypeError("replacement_authorization must be a UnrealPlanAuthorization instance or None")
+
+    reassessment_plan = build_reassessment_plan(plan, failure)
+    reassessment_result = executor.execute_authorized(reassessment_plan, reassessment_authorization)
+    assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
+
+    if assessment.disposition == "manual_review":
+        if replacement_authorization is not None:
+            raise ValueError("replacement authorization must not be supplied for manual review")
+        return UnrealRecoverySequenceResult(reassessment_result, assessment)
+
+    if assessment.disposition == "already_applied":
+        if replacement_authorization is not None:
+            raise ValueError("replacement authorization must not be supplied when recovery is already applied")
+        return UnrealRecoverySequenceResult(reassessment_result, assessment)
+
+    replacement_plan = build_replacement_plan(plan, assessment)
+    if replacement_authorization is None:
+        raise ValueError("replacement_required recovery requires a separate replacement authorization")
+    replacement_result = execute_replacement_authorized(executor, replacement_plan, replacement_authorization)
+    return UnrealRecoverySequenceResult(reassessment_result, assessment, replacement_plan, replacement_result)
