@@ -84,15 +84,15 @@ class UnrealAgentPlanBuilder:
             if name == "set_actor_location":
                 normalized=self._validate_location(arguments["location"])
                 operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"location":normalized}))
-                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids,{"expected_location":normalized}))
+                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
             elif name == "set_actor_rotation":
                 normalized=self._validate_rotation(arguments["rotation"])
                 operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"rotation":normalized}))
-                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids,{"expected_rotation":normalized}))
+                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
             elif name == "set_actor_scale":
                 normalized=self._validate_scale(arguments["scale"])
                 operations.append(self._operation(UnrealCapability.MODIFY_ACTOR,UnrealOperationKind.WRITE,name,ids,{"scale":normalized}))
-                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids,{"expected_scale":normalized}))
+                operations.append(self._operation(UnrealCapability.INSPECT_ACTOR,UnrealOperationKind.VERIFY,"verify_target_actor_mapping",ids))
             elif name == "apply_material_variant":
                 variant=arguments.get("material_variant", arguments.get("variant")); variant={"name":variant} if isinstance(variant,str) else variant
                 normalized=self._validate_named_variant(variant,"material_variant")
