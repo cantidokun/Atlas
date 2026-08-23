@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 22, 2026 — 19:39 EDT  
-**Current repository HEAD:** `7f35673d6881729b4a55265e6e6fe073a0b45b99` (`docs: refresh canonical Atlas handoff at 16:43 EDT`)  
+**Updated:** August 22, 2026 — 22:44 EDT  
+**Current repository HEAD:** `362a3bcb3fec54c34697b461f2436e89c809dd3f` (`docs: add OpenHands transition guide`)  
 **Latest implementation commit:** `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`)  
-**Previous handoff commit:** `7f35673d6881729b4a55265e6e6fe073a0b45b99` (`docs: refresh canonical Atlas handoff at 16:43 EDT`)  
+**Previous handoff commit:** `3a74c3c88f4e67ae0c2427236eb729f2f9b515c3` (`docs: refresh canonical Atlas handoff at 19:39 EDT`)  
 **Latest recorded development test milestone:** **694 passed** (conversation/runtime report); this is not fresh GitHub Actions verification.  
 **Previously recorded verified CI baseline:** **687 passed**, Python 3.9 and 3.11 green.  
 **Purpose:** canonical resume point for the next Atlas development session.
@@ -12,7 +12,7 @@
 
 Atlas remains actively under development. **Workflow/action-runner testing is paused by explicit user instruction and must not be triggered, rerun, or approved until the user explicitly authorizes it.** Offline-safe development may continue.
 
-No newer implementation commit has been identified after `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`; subsequent commits are handoff/documentation refreshes. Do not treat the 687-pass CI baseline as validation for code added after that baseline, and do not treat the 694-pass development report as GitHub Actions verification without an actual authorized runner result.
+A new documentation-only commit `362a3bcb3fec54c34697b461f2436e89c809dd3f` adds `docs/OPENHANDS_TRANSITION_GUIDE.md`. No newer implementation commit has been identified after `6e0c2c1e894615b47934cb17b7d7e66712e75f3c`; subsequent commits are handoff/documentation updates. Do not treat the 687-pass CI baseline as validation for code added after that baseline, and do not treat the 694-pass development report as GitHub Actions verification without an actual authorized runner result.
 
 ## Architecture
 
@@ -114,6 +114,26 @@ Do not add a parallel execution architecture; reuse the existing planning, autho
 
 The Unreal regression is complementary production-boundary hardening and does not complete the Blender gate.
 
+## OpenHands transition
+
+`docs/OPENHANDS_TRANSITION_GUIDE.md` is the current planned transition guide for moving from the ChatGPT/GitHub/local-machine workflow toward an OpenHands-assisted local development workflow.
+
+Important transition rules:
+
+- Keep **Atlas-Unreal-Aider** and the **Blender Agent** as separate repositories; do not merge them to enable agent coordination.
+- The planned workspace is `C:\Atlas-Development\` with independent `Atlas-Unreal-Aider\` and `Blender-Agent\` repositories.
+- The historical Atlas-Unreal-Aider checkout is `C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider`; verify the actual path before transition.
+- Start OpenHands in a disposable workspace before connecting the production Atlas checkout.
+- The guide recommends WSL 2 + Docker Desktop with WSL integration and an OpenHands installation verified against current official documentation at transition time.
+- First Atlas access should be read-only; verify branch and working-tree state before edits.
+- OpenHands operating rules preserve repository boundaries, C++ interoperability, language-neutral contracts, authorization/runtime boundaries, test integrity, issue-driven development, incremental changes, and human control of high-impact operations.
+- Use progressive access: source access → build/test access → Unreal access → broader production execution.
+- Do not weaken Docker/WSL isolation merely to make Unreal access convenient.
+- The intended autonomous loop is inspect → determine next work → implement → test → diagnose → fix → retest → document → commit → continue, while preserving human approval for major architecture, destructive operations, production access, and significant cross-system changes.
+- The guide explicitly keeps Python-first/hybrid development viable for future C++ replacement of performance-sensitive components through language-neutral contracts.
+
+This transition guide is documentation/planning only; it does not mean OpenHands, WSL, Docker, or broader production access has been installed or authorized.
+
 ## Concrete files/tools
 
 Blender/planning/runtime:
@@ -127,6 +147,7 @@ Blender/planning/runtime:
 - `tools/blender_transform.py`
 - `tests/test_blender_process.py`
 - `docs/ATLAS_ARCHITECTURE_CONTRACT.md`
+- `docs/OPENHANDS_TRANSITION_GUIDE.md`
 - `ATLAS_HANDOFF_CURRENT.md`
 
 Established flow: `BlenderTaskIntent` → `ActionPlan` → `ConditionalPlanningOrchestrator` → authorization/replan gates → execution receipt → independent verification → Qwen structured reasoning.
@@ -143,6 +164,13 @@ Unreal boundary:
 
 The Unreal test `FailingTransport` is local test infrastructure, not live Unreal proof.
 
+OpenHands/local environment planning:
+
+- `docs/OPENHANDS_TRANSITION_GUIDE.md`
+- Target separate repositories: `Atlas-Unreal-Aider` and `Blender-Agent`
+- Planned disposable validation workspace: `C:\Atlas-OpenHands-Test`
+- Planned shared development root: `C:\Atlas-Development\`
+
 ## Offline-safe work while runner testing is paused
 
 - Reconcile/implement the missing `tools.blender_process.run_checked_blender` import surface.
@@ -152,6 +180,7 @@ The Unreal test `FailingTransport` is local test infrastructure, not live Unreal
 - Validate runtime policy, continuation/recovery identity, and static architecture invariants.
 - Add focused unit tests that do not invoke workflow/action-runner infrastructure.
 - Improve diagnostics and documentation.
+- Prepare the OpenHands transition only in bounded, reversible steps; start with disposable workspace validation rather than production Atlas/Unreal access.
 
 Do not weaken authorization/verification or introduce a parallel execution path merely to avoid the runner.
 
@@ -191,6 +220,7 @@ Preserve/extend coverage for zero-write already-satisfied tasks; exact authorize
 10. Prove one live Blender operation with independent verification.
 11. Expand toward rotation/marker and closed-loop autonomous Blender behavior only after their specific proof gates pass.
 12. Treat Unreal live transport/connection proof as a separate gate; the named-pipe tests are regression coverage, not live proof.
+13. When beginning the OpenHands transition, first validate WSL/Docker/OpenHands in a disposable workspace, then perform read-only Atlas inspection before granting write/build/Unreal capabilities.
 
 ## Do not regress
 
@@ -205,3 +235,4 @@ Preserve/extend coverage for zero-write already-satisfied tasks; exact authorize
 - Never connect live Blender until adapter-focused tests and authorized regression gates are green.
 - Never mark `tests/test_blender_process.py` complete until its `tools.blender_process` dependency is confirmed and a result is recorded.
 - Never mark `tests/test_unreal_transport_failure_boundary.py` verified until its focused result is recorded.
+- Never treat the OpenHands transition guide as evidence that OpenHands or production access is already installed, tested, or authorized.
