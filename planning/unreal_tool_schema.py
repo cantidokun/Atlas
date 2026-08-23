@@ -19,8 +19,11 @@ UNREAL_TOOL_SCHEMAS = {
     "apply_niagara_variant": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "niagara_variant": dict}),
     "verify_niagara_variant": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "niagara_variant": dict}),
     "set_actor_location": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "location": dict}),
+    "verify_actor_location": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "expected_location": dict}),
     "set_actor_rotation": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "rotation": dict}),
+    "verify_actor_rotation": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "expected_rotation": dict}),
     "set_actor_scale": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "scale": dict}),
+    "verify_actor_scale": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "expected_scale": dict}),
 }
 
 
@@ -59,13 +62,16 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
             snapshot[field] = {"name": value["name"].strip()}
     for tool_name, field, axes, message in (
         ("set_actor_location", "location", {"x", "y", "z"}, "location coordinates must be numeric"),
+        ("verify_actor_location", "expected_location", {"x", "y", "z"}, "expected location coordinates must be numeric"),
         ("set_actor_rotation", "rotation", {"pitch", "yaw", "roll"}, "rotation angles must be numeric"),
+        ("verify_actor_rotation", "expected_rotation", {"pitch", "yaw", "roll"}, "expected rotation angles must be numeric"),
         ("set_actor_scale", "scale", {"x", "y", "z"}, "scale components must be numeric"),
+        ("verify_actor_scale", "expected_scale", {"x", "y", "z"}, "expected scale components must be numeric"),
     ):
         if tool == tool_name:
             value = snapshot[field]
             if not isinstance(value, dict) or set(value.keys()) != axes:
-                label = "x, y, and z" if field in {"location", "scale"} else "pitch, yaw, and roll"
+                label = "x, y, and z" if field in {"location", "expected_location", "scale", "expected_scale"} else "pitch, yaw, and roll"
                 raise ValueError(f"{field} must contain exactly {label}")
             if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in value.values()):
                 raise TypeError(message)
