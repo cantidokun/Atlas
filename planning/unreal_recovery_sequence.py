@@ -131,6 +131,20 @@ def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySeque
         raise TypeError("assessment must be a UnrealRecoverySequenceAssessment instance")
     if any(step.disposition not in {"already_applied", "replacement_required", "manual_review"} for step in assessment.steps):
         raise ValueError("assessment contains an invalid recovery disposition")
+
+    seen_indices = set()
+    for step in assessment.steps:
+        if step.operation_index in seen_indices:
+            raise ValueError("assessment contains duplicate operation indices")
+        seen_indices.add(step.operation_index)
+        if step.operation_index < 0 or step.operation_index >= len(plan.operations):
+            raise ValueError("assessment operation index is outside the source plan")
+        source_operation = plan.operations[step.operation_index]
+        if source_operation.name != step.operation_name:
+            raise ValueError("assessment operation name does not match the source plan")
+        if tuple(source_operation.entity_ids) != tuple(step.entity_ids):
+            raise ValueError("assessment entity_ids do not match the source plan")
+
     if any(step.disposition == "manual_review" for step in assessment.steps):
         raise ValueError("replacement plan cannot be built while any recovery step requires manual review")
     replacement_indices = {step.operation_index for step in assessment.steps if step.disposition == "replacement_required"}
