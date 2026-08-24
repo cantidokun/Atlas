@@ -10,6 +10,7 @@ from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlan
 from planning.unreal_recovery_sequence import (
     assess_reassessment_sequence,
     build_reassessment_plan,
+    build_replacement_plan,
     execute_recovery_sequence,
     issue_replacement_authorization,
 )
@@ -191,9 +192,6 @@ def test_real_unreal_sequencer_recovery_replaces_only_mismatched_live_range():
             )
             assert _sequencer_state(write_result.evidence_ledger[2]) == target_state
 
-            # Simulate an external post-write mutation. Recovery must reassess the
-            # live Unreal state and rebuild the replacement rather than retrying the
-            # original write blindly.
             mismatch_plan = planner.plan_sequencer_playback_range(
                 _intent("real-sequencer-replacement-mismatch"),
                 mismatched_state["start_frame"],
@@ -211,13 +209,6 @@ def test_real_unreal_sequencer_recovery_replaces_only_mismatched_live_range():
                 reassessment,
                 "real-sequencer-replacement-reassessment-auth",
             )
-            replacement_probe = execute_recovery_sequence(
-                executor,
-                write_plan,
-                failure,
-                reassessment_authorization,
-                replacement_authorization=None,
-            ) if False else None
 
             reassessment_result = executor.execute_authorized(
                 reassessment,
@@ -231,9 +222,6 @@ def test_real_unreal_sequencer_recovery_replaces_only_mismatched_live_range():
             assert assessment.disposition == "replacement_required"
             assert assessment.steps[0].disposition == "replacement_required"
 
-            # The replacement must be authorized against the newly rebuilt plan,
-            # not against the original failed plan.
-            from planning.unreal_recovery_sequence import build_replacement_plan
             replacement_plan = build_replacement_plan(write_plan, assessment)
             replacement_authorization = issue_replacement_authorization(
                 replacement_plan,
@@ -246,6 +234,7 @@ def test_real_unreal_sequencer_recovery_replaces_only_mismatched_live_range():
                 reassessment_authorization,
                 replacement_authorization,
             )
+
             assert recovery.assessment.disposition == "replacement_required"
             assert recovery.replacement_plan is not None
             assert recovery.replacement_result is not None
