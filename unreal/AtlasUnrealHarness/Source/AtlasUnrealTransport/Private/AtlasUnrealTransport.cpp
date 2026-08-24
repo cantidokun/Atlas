@@ -8,6 +8,7 @@
 #include "MovieScene.h"
 #include "Modules/ModuleManager.h"
 #include "GameFramework/Actor.h"
+#include "Editor.h"
 
 DEFINE_LOG_CATEGORY(LogAtlasTransport);
 
@@ -17,6 +18,32 @@ namespace
     const FName SequencerFixtureActorName(TEXT("AtlasSequencerFixture"));
     constexpr int32 DefaultSequencerStartFrame = 0;
     constexpr int32 DefaultSequencerEndFrame = 100;
+
+    UWorld* GetActiveEditorWorld()
+    {
+        if (GEditor)
+        {
+            UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+            if (EditorWorld && IsValid(EditorWorld))
+            {
+                return EditorWorld;
+            }
+        }
+
+        if (GEngine)
+        {
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                UWorld* Candidate = Context.World();
+                if (Candidate && IsValid(Candidate))
+                {
+                    return Candidate;
+                }
+            }
+        }
+
+        return nullptr;
+    }
 }
 
 void FAtlasUnrealTransportModule::StartupModule()
@@ -50,17 +77,7 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
         return true;
     }
 
-    UWorld* World = nullptr;
-    for (const FWorldContext& Context : GEngine->GetWorldContexts())
-    {
-        UWorld* Candidate = Context.World();
-        if (Candidate && IsValid(Candidate))
-        {
-            World = Candidate;
-            break;
-        }
-    }
-
+    UWorld* World = GetActiveEditorWorld();
     if (!World)
     {
         return true;
@@ -148,8 +165,6 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
         return true;
     }
 
-    // Normalize the deterministic fixture range on every successful startup.
-    // This makes hot reloads and editor restarts converge to the same baseline.
     MovieScene->SetPlaybackRange(
         TRange<FFrameNumber>(
             FFrameNumber(DefaultSequencerStartFrame),
