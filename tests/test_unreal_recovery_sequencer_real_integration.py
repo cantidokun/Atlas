@@ -5,8 +5,14 @@ import pytest
 from planning.unreal_adapter_production import create_production_adapter
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
 from planning.unreal_evidence_contract import UnrealEvidence
+from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutor
-from planning.unreal_recovery_sequence import assess_reassessment_sequence, build_reassessment_plan
+from planning.unreal_recovery_sequence import (
+    assess_reassessment_sequence,
+    build_reassessment_plan,
+    execute_recovery_sequence,
+    issue_replacement_authorization,
+)
 from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_transport_named_pipe import NamedPipeTransportError
 
@@ -138,6 +144,122 @@ def test_real_unreal_sequencer_recovery_reassesses_live_state_without_retrying_w
             restore_result = executor.execute(
                 restore_plan,
                 "real-sequencer-recovery-restore-auth",
+            )
+            assert restore_result.success is True
+            assert _sequencer_state(restore_result.evidence_ledger[2]) == original_state
+
+    except NamedPipeTransportError as exc:
+        message = str(exc).lower()
+        if "not available" in message or "pipe not found" in message:
+            pytest.skip("Unreal Editor transport is unavailable")
+        if "not found" in message:
+            pytest.skip("A valid Level Sequence actor is not present in the Unreal fixture")
+        raise
+
+
+def test_real_unreal_sequencer_recovery_replaces_only_mismatched_live_range():
+    """Exercise fresh-state mismatch detection and separately authorized replacement."""
+    try:
+        adapter = create_production_adapter("sequencer-recovery-replacement-integration")
+        executor = UnrealPlanExecutor(adapter)
+        planner = UnrealTaskPlanner()
+
+        original_result = executor.execute(
+            _inspection_plan(_intent("real-sequencer-replacement-original")),
+            "real-sequencer-replacement-original-auth",
+        )
+        original_state = _sequencer_state(original_result.evidence_ledger[0])
+
+        target_state = {
+            "start_frame": original_state["start_frame"] + 10,
+            "end_frame": original_state["end_frame"] + 10,
+        }
+        mismatched_state = {
+            "start_frame": original_state["start_frame"] + 20,
+            "end_frame": original_state["end_frame"] + 20,
+        }
+
+        try:
+            write_plan = planner.plan_sequencer_playback_range(
+                _intent("real-sequencer-replacement-write"),
+                target_state["start_frame"],
+                target_state["end_frame"],
+            )
+            write_result = executor.execute(
+                write_plan,
+                "real-sequencer-replacement-write-auth",
+            )
+            assert _sequencer_state(write_result.evidence_ledger[2]) == target_state
+
+            # Simulate an external post-write mutation. Recovery must reassess the
+            # live Unreal state and rebuild the replacement rather than retrying the
+            # original write blindly.
+            mismatch_plan = planner.plan_sequencer_playback_range(
+                _intent("real-sequencer-replacement-mismatch"),
+                mismatched_state["start_frame"],
+                mismatched_state["end_frame"],
+            )
+            mismatch_result = executor.execute(
+                mismatch_plan,
+                "real-sequencer-replacement-mismatch-auth",
+            )
+            assert _sequencer_state(mismatch_result.evidence_ledger[2]) == mismatched_state
+
+            failure = _post_write_failure(target_state)
+            reassessment = build_reassessment_plan(write_plan, failure)
+            reassessment_authorization = UnrealPlanAuthorization.issue(
+                reassessment,
+                "real-sequencer-replacement-reassessment-auth",
+            )
+            replacement_probe = execute_recovery_sequence(
+                executor,
+                write_plan,
+                failure,
+                reassessment_authorization,
+                replacement_authorization=None,
+            ) if False else None
+
+            reassessment_result = executor.execute_authorized(
+                reassessment,
+                reassessment_authorization,
+            )
+            assessment = assess_reassessment_sequence(
+                write_plan,
+                failure,
+                reassessment_result,
+            )
+            assert assessment.disposition == "replacement_required"
+            assert assessment.steps[0].disposition == "replacement_required"
+
+            # The replacement must be authorized against the newly rebuilt plan,
+            # not against the original failed plan.
+            from planning.unreal_recovery_sequence import build_replacement_plan
+            replacement_plan = build_replacement_plan(write_plan, assessment)
+            replacement_authorization = issue_replacement_authorization(
+                replacement_plan,
+                "real-sequencer-replacement-authorized-auth",
+            )
+            recovery = execute_recovery_sequence(
+                executor,
+                write_plan,
+                failure,
+                reassessment_authorization,
+                replacement_authorization,
+            )
+            assert recovery.assessment.disposition == "replacement_required"
+            assert recovery.replacement_plan is not None
+            assert recovery.replacement_result is not None
+            assert recovery.replacement_result.success is True
+            assert _sequencer_state(recovery.replacement_result.evidence_ledger[1]) == target_state
+        finally:
+            restore_plan = planner.plan_sequencer_playback_range(
+                _intent("real-sequencer-replacement-restore"),
+                original_state["start_frame"],
+                original_state["end_frame"],
+            )
+            restore_result = executor.execute(
+                restore_plan,
+                "real-sequencer-replacement-restore-auth",
             )
             assert restore_result.success is True
             assert _sequencer_state(restore_result.evidence_ledger[2]) == original_state
