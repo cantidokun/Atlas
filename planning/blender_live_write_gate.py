@@ -27,6 +27,10 @@ class BlenderLiveWriteGate:
             return BlenderLiveWriteOutcome.blocked({"receipt_authorized": True, "result": result}, "No authoritative Blender verifier is configured")
         try:
             verified, verification = self._verifier(action, receipt)
+            if not isinstance(verified, bool):
+                raise TypeError("authoritative verifier must return a bool verification result")
+            if not isinstance(verification, Mapping):
+                raise TypeError("authoritative verifier must return a mapping of verification details")
             verification = dict(verification)
         except Exception as exc:
             return BlenderLiveWriteOutcome.blocked(
