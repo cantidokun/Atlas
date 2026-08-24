@@ -373,6 +373,12 @@ def test_matching_replacement_authorization_allows_execution():
                 "unreal-editor-atlas-transport",
             ),
             UnrealEvidence(
+                "inspect_material_state",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
+            UnrealEvidence(
                 "verify_material_variant",
                 ENTITY_IDS,
                 {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
@@ -435,6 +441,12 @@ def test_successful_recovery_contains_replacement_plan_and_result():
             ),
             UnrealEvidence(
                 "apply_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
+            UnrealEvidence(
+                "inspect_material_state",
                 ENTITY_IDS,
                 {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
                 "unreal-editor-atlas-transport",
@@ -515,6 +527,12 @@ def test_replacement_result_contains_sequencer_write_then_verify():
             ),
             UnrealEvidence(
                 "apply_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
+            UnrealEvidence(
+                "inspect_material_state",
                 ENTITY_IDS,
                 {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
                 "unreal-editor-atlas-transport",
