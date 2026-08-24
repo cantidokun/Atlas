@@ -2,10 +2,9 @@ import pytest
 
 from planning.recovery_receipt import RecoveryReceipt
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
-from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
-from planning.unreal_recovery_sequence import UnrealRecoverySequenceAssessment, UnrealRecoverySequenceResult, UnrealRecoveryStepAssessment
+from planning.unreal_recovery_sequence import UnrealRecoverySequenceAssessment, UnrealRecoveryStepAssessment
 from planning.unreal_recovery_workflow import execute_receipt_bound_recovery_sequence
 from planning.unreal_task_planner import UnrealTaskPlan
 
@@ -47,6 +46,21 @@ def _failure():
     )
 
 
+def _valid_plan(intent_id):
+    return UnrealTaskPlan(
+        intent_id,
+        (
+            UnrealOperation(
+                UnrealCapability.SEQUENCER,
+                UnrealOperationKind.READ,
+                "inspect_sequencer_state",
+                {"entity_ids": ENTITY_IDS},
+                ENTITY_IDS,
+            ),
+        ),
+    )
+
+
 def _executor(monkeypatch):
     executor = object.__new__(UnrealPlanExecutor)
     calls = []
@@ -70,8 +84,8 @@ def test_receipt_bound_workflow_executes_replacement_only_after_receipt_check(mo
 
     source = _source_plan()
     failure = _failure()
-    reassessment = UnrealTaskPlan("reassessment", ())
-    replacement = UnrealTaskPlan("replacement", ())
+    reassessment = _valid_plan("reassessment")
+    replacement = _valid_plan("replacement")
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
     replacement_auth = UnrealPlanAuthorization.issue(replacement, "replacement-auth")
     receipt = RecoveryReceipt("evidence-1", replacement_auth.plan_digest, "authorization-1")
@@ -113,7 +127,7 @@ def test_receipt_bound_workflow_does_not_mutate_when_reassessment_says_already_a
 
     source = _source_plan()
     failure = _failure()
-    reassessment = UnrealTaskPlan("reassessment", ())
+    reassessment = _valid_plan("reassessment")
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
     executor, calls = _executor(monkeypatch)
     monkeypatch.setattr(workflow, "build_reassessment_plan", lambda *_: reassessment)
@@ -140,8 +154,8 @@ def test_receipt_bound_workflow_rejects_stale_receipt_before_replacement(monkeyp
 
     source = _source_plan()
     failure = _failure()
-    reassessment = UnrealTaskPlan("reassessment", ())
-    replacement = UnrealTaskPlan("replacement", ())
+    reassessment = _valid_plan("reassessment")
+    replacement = _valid_plan("replacement")
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
     replacement_auth = UnrealPlanAuthorization.issue(replacement, "replacement-auth")
     stale_receipt = RecoveryReceipt("old-evidence", replacement_auth.plan_digest, "authorization-1")
