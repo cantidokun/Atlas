@@ -477,7 +477,7 @@ def test_successful_recovery_contains_replacement_plan_and_result():
     )
     
     # Vérifie que le résultat contient le plan et le résultat de remplacement
-    assert result.replacement_plan is replacement_plan
+    assert result.replacement_plan == replacement_plan
     assert result.replacement_result is replacement_result
     assert result.replacement_result.success
     assert result.assessment.disposition == "replacement_required"
