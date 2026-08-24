@@ -1,7 +1,7 @@
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
+from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor, UnrealPlanExecutionError
 from planning.unreal_recovery_sequence import (
     assess_reassessment_sequence, 
     build_reassessment_plan, 
@@ -60,7 +60,7 @@ def _sequencer_evidence(start_frame, end_frame):
     return UnrealEvidence(
         "inspect_sequencer_state",
         ENTITY_IDS,
-        {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": start_frame, "end_frame": end_frame}}},
+        {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"playback_range": {"start_frame": start_frame, "end_frame": end_frame}}}},
         "unreal-editor-atlas-transport",
     )
 
@@ -308,9 +308,9 @@ def test_replacement_required_with_wrong_authorization_fails_closed():
     # Doit lever une exception car l'autorisation ne correspond pas au plan de remplacement
     try:
         execute_recovery_sequence(executor, plan, failure, reassessment_authorization, wrong_authorization)
-        assert False, "Expected ValueError for mismatched replacement authorization"
-    except ValueError as e:
-        assert "authorization does not match the plan operations" in str(e)
+        assert False, "Expected UnrealPlanExecutionError for mismatched replacement authorization"
+    except UnrealPlanExecutionError as e:
+        assert "authorization receipt does not match the exact Unreal task plan" in str(e)
 
 
 def test_matching_replacement_authorization_allows_execution():
@@ -335,14 +335,24 @@ def test_matching_replacement_authorization_allows_execution():
     replacement_result = UnrealPlanExecutionResult(
         replacement_plan.intent_id,
         (
-            _sequencer_evidence(10, 110),  # État final correct
+            UnrealEvidence(
+                "set_sequencer_playback_range",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"playback_range": {"start_frame": 10, "end_frame": 110}}}},
+                "unreal-editor-atlas-transport",
+            ),
             UnrealEvidence(
                 "verify_sequencer_playback_range",
                 ENTITY_IDS,
-                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 10, "end_frame": 110}}},
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"playback_range": {"start_frame": 10, "end_frame": 110}}}},
                 "unreal-editor-atlas-transport",
             ),
-            _material_evidence("liquid_surface"),
+            UnrealEvidence(
+                "apply_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
             UnrealEvidence(
                 "verify_material_variant",
                 ENTITY_IDS,
@@ -392,14 +402,24 @@ def test_successful_recovery_contains_replacement_plan_and_result():
     replacement_result = UnrealPlanExecutionResult(
         replacement_plan.intent_id,
         (
-            _sequencer_evidence(10, 110),
+            UnrealEvidence(
+                "set_sequencer_playback_range",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"playback_range": {"start_frame": 10, "end_frame": 110}}}},
+                "unreal-editor-atlas-transport",
+            ),
             UnrealEvidence(
                 "verify_sequencer_playback_range",
                 ENTITY_IDS,
-                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 10, "end_frame": 110}}},
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"playback_range": {"start_frame": 10, "end_frame": 110}}}},
                 "unreal-editor-atlas-transport",
             ),
-            _material_evidence("liquid_surface"),
+            UnrealEvidence(
+                "apply_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
             UnrealEvidence(
                 "verify_material_variant",
                 ENTITY_IDS,
@@ -465,13 +485,13 @@ def test_replacement_result_contains_sequencer_write_then_verify():
             UnrealEvidence(
                 "set_sequencer_playback_range",
                 ENTITY_IDS,
-                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 10, "end_frame": 110}}},
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"playback_range": {"start_frame": 10, "end_frame": 110}}}},
                 "unreal-editor-atlas-transport",
             ),
             UnrealEvidence(
                 "verify_sequencer_playback_range",
                 ENTITY_IDS,
-                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 10, "end_frame": 110}}},
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"playback_range": {"start_frame": 10, "end_frame": 110}}}},
                 "unreal-editor-atlas-transport",
             ),
             UnrealEvidence(
@@ -511,10 +531,10 @@ def test_replacement_result_contains_sequencer_write_then_verify():
     write_evidence = sequencer_evidence[0]
     verify_evidence = sequencer_evidence[1]
     
-    assert write_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["start_frame"] == 10
-    assert write_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["end_frame"] == 110
-    assert verify_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["start_frame"] == 10
-    assert verify_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["end_frame"] == 110
+    assert write_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["playback_range"]["start_frame"] == 10
+    assert write_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["playback_range"]["end_frame"] == 110
+    assert verify_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["playback_range"]["start_frame"] == 10
+    assert verify_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["playback_range"]["end_frame"] == 110
 
 
 def test_actor_scale_recovery_replacement_preserves_scale_operation_capability():
