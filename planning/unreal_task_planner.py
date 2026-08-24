@@ -30,6 +30,9 @@ class UnrealTaskPlanner:
     def plan_actor_rotation_write(self, intent, rotation): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_rotation_write(intent, rotation))
     def plan_actor_scale_write(self, intent, scale): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_scale_write(intent, scale))
     def plan_actor_location_sequence(self, intent, locations): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
+    def plan_sequencer_playback_range(self, intent, start_frame, end_frame):
+        self._validate_intent(intent)
+        return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_sequencer_playback_range(intent, start_frame, end_frame))
     def plan_composite_actor_production(self, intent: UnrealTaskIntent, composite: CompositeActorProductionOperation) -> UnrealTaskPlan:
         self._validate_intent(intent)
         if not isinstance(composite, CompositeActorProductionOperation): raise TypeError("composite must be a CompositeActorProductionOperation")
@@ -68,11 +71,25 @@ class UnrealAgentPlanBuilder:
         if set(value.keys()) != {"name"}: raise ValueError(f"{field} must contain exactly name")
         if not isinstance(value["name"], str) or not value["name"].strip(): raise ValueError(f"{field}.name must be a non-empty string")
         return {"name": value["name"].strip()}
+    @staticmethod
+    def _validate_frame(value, name):
+        if isinstance(value, bool) or not isinstance(value, int): raise TypeError(f"{name} must be an integer")
+        return value
     def _operation(self, capability, kind, name, entity_ids, arguments=None):
         self.capabilities.validate(capability, kind)
         operation_arguments={"entity_ids": entity_ids}
         if arguments: operation_arguments.update(arguments)
         return self.capabilities.validate_operation(UnrealOperation(capability=capability, kind=kind, name=name, arguments=operation_arguments, entity_ids=entity_ids))
+    def for_sequencer_playback_range(self, intent, start_frame, end_frame):
+        ids=self._require_targets(intent)
+        start_frame=self._validate_frame(start_frame,"start_frame")
+        end_frame=self._validate_frame(end_frame,"end_frame")
+        if start_frame > end_frame: raise ValueError("start_frame must not exceed end_frame")
+        return (
+            self._operation(UnrealCapability.SEQUENCER,UnrealOperationKind.READ,"inspect_sequencer_state",ids),
+            self._operation(UnrealCapability.SEQUENCER,UnrealOperationKind.WRITE,"set_sequencer_playback_range",ids,{"start_frame":start_frame,"end_frame":end_frame}),
+            self._operation(UnrealCapability.SEQUENCER,UnrealOperationKind.VERIFY,"verify_sequencer_playback_range",ids,{"expected_start_frame":start_frame,"expected_end_frame":end_frame}),
+        )
     def for_composite_actor_production(self, intent, composite):
         operations=[self._operation(UnrealCapability.INSPECT_ACTOR, UnrealOperationKind.READ, "inspect_target_actors", composite.entity_ids)]
         for raw in composite.ordered_operations():
