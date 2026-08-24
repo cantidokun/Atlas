@@ -123,7 +123,7 @@ class UnrealPlanExecutionFailure:
             normalized = dict(scale)
             ops = (
                 UnrealOperation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.WRITE, "set_actor_scale", {"entity_ids": ids, "scale": normalized}, ids),
-                UnrealOperation(UnrealOperationKind.VERIFY if False else UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.VERIFY, "verify_actor_scale", {"entity_ids": ids, "expected_scale": normalized}, ids),
+                UnrealOperation(UnrealCapability.MODIFY_ACTOR, UnrealOperationKind.VERIFY, "verify_actor_scale", {"entity_ids": ids, "expected_scale": normalized}, ids),
             )
         elif self.operation_name in {"apply_material_variant", "verify_material_variant"}:
             variant = args.get("material_variant", args.get("expected_material_variant"))
