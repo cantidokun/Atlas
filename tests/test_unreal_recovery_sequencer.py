@@ -180,6 +180,7 @@ class _TestUnrealTransport:
     
     def __init__(self):
         self._responses = {}
+        self._current_plan_id = None
     
     def set_response(self, plan_intent_id, result):
         """Configure la réponse pour un plan donné."""
@@ -190,23 +191,49 @@ class _TestUnrealTransport:
         if not isinstance(request, UnrealTransportRequest):
             raise TypeError("request must be an UnrealTransportRequest instance")
         
-        # Trouve la réponse basée sur l'intent_id du plan dans la requête
-        # Pour les requêtes individuelles, on utilise le request_id ou on cherche par plan
+        # Trouve la réponse configurée en cherchant par nom d'opération et entités
         result = None
         for plan_id, stored_result in self._responses.items():
-            if plan_id in request.request_id or request.request_id.startswith(plan_id):
-                result = stored_result
+            # Cherche une evidence correspondante dans le résultat stocké
+            for evidence in stored_result.evidence_ledger:
+                if (evidence.operation_name == request.operation_name and 
+                    tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+                    result = stored_result
+                    self._current_plan_id = plan_id
+                    break
+            if result:
                 break
         
         if result is None:
-            result = UnrealPlanExecutionResult("unknown", (), False)
+            # Retourne une réponse d'échec par défaut
+            return UnrealTransportResponse(
+                request_id=request.request_id,
+                operation_name=request.operation_name,
+                entity_ids=request.entity_ids,
+                success=False,
+                observed_state={},
+                error="No configured response found",
+                source="test-unreal-transport"
+            )
+        
+        # Trouve l'evidence spécifique pour cette opération
+        matching_evidence = None
+        for evidence in result.evidence_ledger:
+            if (evidence.operation_name == request.operation_name and 
+                tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+                matching_evidence = evidence
+                break
+        
+        if matching_evidence is None:
+            # Utilise la première evidence comme fallback
+            matching_evidence = result.evidence_ledger[0] if result.evidence_ledger else None
         
         return UnrealTransportResponse(
             request_id=request.request_id,
             operation_name=request.operation_name,
             entity_ids=request.entity_ids,
             success=result.success,
-            observed_state=result.evidence_ledger[0].observed_state if result.evidence_ledger else {},
+            observed_state=matching_evidence.observed_state if matching_evidence else {},
             error="",
             source="test-unreal-transport"
         )
