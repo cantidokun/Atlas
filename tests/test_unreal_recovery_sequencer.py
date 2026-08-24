@@ -1,12 +1,7 @@
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult
-from planning.unreal_recovery_sequence import (
-    UnrealRecoverySequenceAssessment,
-    assess_reassessment_sequence,
-    build_reassessment_plan,
-    build_replacement_plan,
-)
+from planning.unreal_recovery_sequence import assess_reassessment_sequence, build_reassessment_plan, build_replacement_plan
 from planning.unreal_task_planner import UnrealTaskPlan
 
 
@@ -61,27 +56,25 @@ def _sequencer_evidence(start_frame, end_frame):
     )
 
 
+def _material_evidence(name):
+    return UnrealEvidence(
+        "inspect_material_state",
+        ENTITY_IDS,
+        {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": name}}}},
+        "unreal-editor-atlas-transport",
+    )
+
+
 def test_reassessment_plan_includes_sequencer_read():
     reassessment = build_reassessment_plan(_plan(), _failure())
-    assert [operation.name for operation in reassessment.operations] == [
-        "inspect_sequencer_state",
-        "inspect_material_state",
-    ]
+    assert [operation.name for operation in reassessment.operations] == ["inspect_sequencer_state", "inspect_material_state"]
     assert all(operation.kind is UnrealOperationKind.READ for operation in reassessment.operations)
 
 
 def test_sequencer_recovery_marks_matching_range_already_applied():
     result = UnrealPlanExecutionResult(
         "sequencer-recovery:reassess-sequence",
-        (
-            _sequencer_evidence(10, 110),
-            UnrealEvidence(
-                "inspect_material_state",
-                ENTITY_IDS,
-                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "wet_surface"}}}},
-                "unreal-editor-atlas-transport",
-            ),
-        ),
+        (_sequencer_evidence(10, 110), _material_evidence("wet_surface")),
         True,
     )
     assessment = assess_reassessment_sequence(_plan(), _failure(), result)
@@ -93,31 +86,15 @@ def test_sequencer_recovery_marks_matching_range_already_applied():
 def test_sequencer_recovery_rebuilds_only_mismatched_range():
     result = UnrealPlanExecutionResult(
         "sequencer-recovery:reassess-sequence",
-        (
-            _sequencer_evidence(0, 100),
-            UnrealEvidence(
-                "inspect_material_state",
-                ENTITY_IDS,
-                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
-                "unreal-editor-atlas-transport",
-            ),
-        ),
+        (_sequencer_evidence(0, 100), _material_evidence("liquid_surface")),
         True,
     )
     assessment = assess_reassessment_sequence(_plan(), _failure(), result)
     assert assessment.disposition == "replacement_required"
-    replacement = build_replacement_plan(
-        _plan(),
-        UnrealRecoverySequenceAssessment(tuple(
-            step if step.operation_name == "set_sequencer_playback_range" else step
-            for step in assessment.steps
-        )),
-    )
+    replacement = build_replacement_plan(_plan(), assessment)
     assert [operation.name for operation in replacement.operations] == [
         "set_sequencer_playback_range",
         "verify_sequencer_playback_range",
-        "apply_material_variant",
-        "verify_material_variant",
     ]
     assert replacement.operations[0].arguments["start_frame"] == 10
     assert replacement.operations[0].arguments["end_frame"] == 110
