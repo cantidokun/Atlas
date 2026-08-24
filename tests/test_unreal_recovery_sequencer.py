@@ -11,6 +11,7 @@ from planning.unreal_recovery_sequence import (
 )
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_transport_contract import UnrealTransportRequest, UnrealTransportResponse
+from planning.unreal_adapter_production import UnrealAdapterProduction
 
 
 ENTITY_IDS = ("FIELD_SURFACE",)
@@ -196,7 +197,8 @@ class _TestUnrealTransport:
 def _create_test_executor():
     """Crée un executor compatible UnrealPlanExecutor pour les tests."""
     transport = _TestUnrealTransport()
-    return UnrealPlanExecutor(transport)
+    adapter = UnrealAdapterProduction(transport)
+    return UnrealPlanExecutor(adapter)
 
 
 def test_replacement_required_without_authorization_fails_closed():
@@ -211,7 +213,7 @@ def test_replacement_required_without_authorization_fails_closed():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.adapter.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -238,7 +240,7 @@ def test_replacement_required_with_wrong_authorization_fails_closed():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.adapter.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -277,7 +279,7 @@ def test_matching_replacement_authorization_allows_execution():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.adapter.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     # Construit le plan de remplacement et son autorisation
     assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
@@ -304,7 +306,7 @@ def test_matching_replacement_authorization_allows_execution():
         ),
         True,
     )
-    executor.transport.set_response(replacement_plan.intent_id, replacement_result)
+    executor.adapter.transport.set_response(replacement_plan.intent_id, replacement_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -334,7 +336,7 @@ def test_successful_recovery_contains_replacement_plan_and_result():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.adapter.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     # Construit le plan de remplacement et son autorisation
     assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
@@ -361,7 +363,7 @@ def test_successful_recovery_contains_replacement_plan_and_result():
         ),
         True,
     )
-    executor.transport.set_response(replacement_plan.intent_id, replacement_result)
+    executor.adapter.transport.set_response(replacement_plan.intent_id, replacement_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -392,7 +394,7 @@ def test_replacement_result_contains_sequencer_write_then_verify():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.adapter.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     # Construit le plan de remplacement et son autorisation
     assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
@@ -441,7 +443,7 @@ def test_replacement_result_contains_sequencer_write_then_verify():
         ),
         True,
     )
-    executor.transport.set_response(replacement_plan.intent_id, replacement_result)
+    executor.adapter.transport.set_response(replacement_plan.intent_id, replacement_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
