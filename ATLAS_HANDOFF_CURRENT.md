@@ -3,13 +3,12 @@
 **Updated:** August 24, 2026 — current resume checkpoint  
 **Branch:** `feat/replan-race-gate`  
 **Latest documented code commit:** `f9b6ca5710dbc4724775c7ee75ba3fef83597e08`  
-**Latest documentation commit:** `81df3d320bebf7738e6fdc9eb856177fcde27844`  
 **Current work:** authorization-bound Blender live-write path and independent authoritative verification  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
 ## Current session state
 
-Atlas remains in the authorization-bound Blender live-write development phase. The latest implementation changes are not yet runner-validated. The previous session ended after documenting the work; no new test result has been established since then.
+Atlas remains in the authorization-bound Blender live-write development phase. The latest implementation changes are not yet runner-validated. No new test result has been established since the last documented checkpoint.
 
 The target controlled write contract is:
 
