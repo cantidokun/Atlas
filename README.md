@@ -64,7 +64,7 @@ fresh world evidence
 
 The next production gate is being built around a shared authorization-bound Blender write path rather than bespoke lifecycle orchestration for individual tools.
 
-The current architecture is:
+Current target architecture:
 
 ```text
 ActionSpec
@@ -78,7 +78,7 @@ ActionSpec
  -> VERIFIED / BLOCKED
 ```
 
-The current implementation includes:
+Current implementation includes:
 
 - `planning/blender_capability_catalog.py` — explicit read/write capability classification and fail-closed unknown capabilities.
 - `planning/blender_write_authorization.py` — exact-action authorization for scene-writing capabilities.
@@ -88,17 +88,17 @@ The current implementation includes:
 - `planning/blender_execution_receipt.py` — immutable receipt with optional authorization binding.
 - `planning/blender_execution_boundary.py` — raw, verified, receipt-bound, authorized-write, and corrective-replan execution APIs.
 
-The live object-rotation path has also been brought under the shared authorization-bound write architecture. The newest changes are **implementation milestones only and are not yet runner-validated**.
+The live object-rotation path has also been moved onto the shared authorization-bound architecture. The newest implementation changes remain **not runner-validated**.
 
 ## Validation discipline
 
-The latest complete reported full-suite result is:
+The latest complete reported full-suite result remains:
 
 ```text
 589 passed / 18 failed
 ```
 
-This is **not a green branch baseline**. The newer capability, authorization, live-write, and authoritative-verification changes have not yet received a reported runner result.
+This is **not** a green branch baseline. No newer runner result has superseded it.
 
 Earlier verified results include:
 
@@ -108,7 +108,7 @@ Earlier verified results include:
 
 Live Blender claims must be backed by actual Windows/Blender runner output. Historical results describe the commits on which they were actually observed.
 
-## Current next milestone
+## Resume gate
 
 The next coding step is to integrate `planning/blender_live_verification.py` into `BlenderLiveWriteGate` so that `VERIFIED` requires authoritative final-state confirmation, not merely successful executor output and receipt binding.
 
@@ -161,8 +161,6 @@ Photogrammetry remains upstream of Blender. Atlas is exclusively concerned with 
 
 See `ATLAS_HANDOFF_CURRENT.md` for the authoritative resume point and `DEVELOPMENT_LOG.md` for chronological progress.
 
-## End-of-session state
+## Current checkpoint
 
-Development of the Blender agent is paused for the night. The latest implementation commits have been documented in `ATLAS_HANDOFF_CURRENT.md`.
-
-When development resumes, **do not automatically run workflow tests**. First review the handoff, then run the focused/newest tests only when explicitly requested, followed by the full suite.
+The current handoff records the exact architecture, files, known issues, validation baseline, runtime setup, and resume sequence. No new test result is claimed by this documentation update.
