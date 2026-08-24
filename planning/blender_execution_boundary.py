@@ -5,6 +5,7 @@ from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_result_contract import BlenderExecutionResult, normalize_blender_result
 from planning.blender_tool_schema import validate_blender_tool_call
 from planning.blender_verification import verify_blender_execution
+from planning.replan_authorization import ReplanAuthorization
 
 
 class BlenderExecutor(Protocol):
@@ -41,14 +42,16 @@ class BlenderExecutionBoundary:
         return normalized, receipt
 
     def execute_authorized_replan(self, replan: Any, current_evidence: Any):
-        """Execute one corrective action only after replan authorization is revalidated."""
+        """Execute one corrective action only after fresh-evidence-bound authorization is revalidated."""
         from action_plan import ActionSpec
 
         actions = getattr(replan, "actions", None)
         authorization = getattr(replan, "authorization", None)
         if not isinstance(actions, list) or len(actions) != 1 or not isinstance(actions[0], ActionSpec):
             raise RuntimeError("authorized corrective execution requires exactly one ActionSpec")
-        if authorization is None or not authorization.matches(current_evidence, actions):
+        if not isinstance(authorization, ReplanAuthorization):
+            raise RuntimeError("corrective replan requires ReplanAuthorization")
+        if not authorization.matches(current_evidence, actions):
             raise RuntimeError("corrective replan authorization is stale or invalid")
 
         action = actions[0]
