@@ -192,7 +192,7 @@ def test_actor_scale_recovery_replacement_preserves_scale_operation_capability()
             UnrealEvidence(
                 "inspect_target_actors",
                 ENTITY_IDS,
-                {"FIELD_SURFACE": {"entity_id": ENTITY_ID, "scale": {"x": 1.0, "y": 1.0, "z": 1.0}}},
+                {"FIELD_SURFACE": {"entity_id": ENTITY_IDS[0], "scale": {"x": 1.0, "y": 1.0, "z": 1.0}}},
                 "unreal-editor-atlas-transport",
             ),
         ),
