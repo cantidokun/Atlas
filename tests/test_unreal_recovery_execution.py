@@ -34,10 +34,6 @@ def _replacement_plan():
     )
 
 
-class _ExecutorSpy:
-    pass
-
-
 def _executor(monkeypatch):
     from planning.unreal_plan_executor import UnrealPlanExecutor
 
@@ -48,7 +44,7 @@ def _executor(monkeypatch):
         calls.append((plan, authorization))
         return "executed"
 
-    monkeypatch.setattr(executor, "execute_authorized", execute_authorized.__get__(executor, UnrealPlanExecutor))
+    monkeypatch.setattr(executor, "execute_authorized", execute_authorized)
     return executor, calls
 
 
