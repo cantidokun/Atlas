@@ -3,10 +3,15 @@
 import pytest
 
 from planning.unreal_adapter_production import create_production_adapter
-from planning.unreal_agent import UnrealTaskIntent
+from planning.unreal_agent import (
+    UnrealCapability,
+    UnrealOperation,
+    UnrealOperationKind,
+    UnrealTaskIntent,
+)
 from planning.unreal_plan_executor import UnrealPlanExecutor
+from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_transport_named_pipe import NamedPipeTransportError
-from planning.unreal_task_planner import UnrealTaskPlanner
 
 
 pytestmark = pytest.mark.integration
@@ -22,6 +27,17 @@ def _intent(intent_id: str) -> UnrealTaskIntent:
     )
 
 
+def _inspection_plan(intent):
+    operation = UnrealOperation(
+        capability=UnrealCapability.SEQUENCER,
+        kind=UnrealOperationKind.READ,
+        name="inspect_sequencer_state",
+        arguments={"entity_ids": (ENTITY_ID,)},
+        entity_ids=(ENTITY_ID,),
+    )
+    return UnrealTaskPlan(intent.intent_id, (operation,))
+
+
 def _sequencer_state(evidence):
     state = evidence.observed_state[ENTITY_ID]
     return dict(state["sequencer"])
@@ -35,11 +51,7 @@ def test_real_unreal_sequencer_playback_range_round_trip():
         planner = UnrealTaskPlanner()
 
         original = executor.execute(
-            planner.plan_sequencer_playback_range(
-                _intent("real-sequencer-original"),
-                0,
-                1,
-            ),
+            _inspection_plan(_intent("real-sequencer-original")),
             "real-sequencer-original-auth",
         )
         original_state = _sequencer_state(original.evidence_ledger[0])
