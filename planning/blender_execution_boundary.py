@@ -55,8 +55,14 @@ class BlenderExecutionBoundary:
             raise TypeError("authorization must be BlenderWriteAuthorization")
         if not authorization.matches(action):
             raise RuntimeError("Blender write authorization is stale or invalid")
-        capability = authorization.tool
-        return self.execute_with_receipt(capability, action.arguments)
+        result, _ = self.execute_with_receipt(action.tool, action.arguments)
+        receipt = BlenderExecutionReceipt.create_authorized(
+            action.tool,
+            action.arguments,
+            result,
+            authorization.authorization_id,
+        )
+        return result, receipt
 
     def execute_authorized_replan(self, replan: Any, current_evidence: Any):
         """Execute one corrective action only after fresh-evidence-bound authorization is revalidated."""
