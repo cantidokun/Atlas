@@ -80,8 +80,12 @@ def _assessment(disposition):
     ))
 
 
-def _receipt(evidence_digest, replacement_auth, authorization_digest="authorization-1"):
-    return RecoveryReceipt(evidence_digest, replacement_auth.plan_digest, authorization_digest)
+def _receipt(evidence_digest, replacement_auth):
+    return RecoveryReceipt(
+        evidence_digest,
+        replacement_auth.plan_digest,
+        replacement_auth.authorization_digest,
+    )
 
 
 def test_receipt_bound_workflow_executes_replacement_only_after_receipt_check(monkeypatch):
@@ -116,7 +120,7 @@ def test_receipt_bound_workflow_executes_replacement_only_after_receipt_check(mo
         replacement_auth,
         receipt,
         evidence_digest=evidence_digest,
-        authorization_digest="authorization-1",
+        authorization_digest=replacement_auth.authorization_digest,
     )
 
     assert result.replacement_result is not None
@@ -126,6 +130,38 @@ def test_receipt_bound_workflow_executes_replacement_only_after_receipt_check(mo
     assert replacement_calls[0][0][1] is replacement
     assert replacement_calls[0][0][2] is replacement_auth
     assert replacement_calls[0][0][3] is receipt
+    assert replacement_calls[0][1]["authorization_digest"] == replacement_auth.authorization_digest
+
+
+def test_receipt_bound_workflow_rejects_caller_supplied_authorization_identity(monkeypatch):
+    import planning.unreal_recovery_workflow as workflow
+
+    source = _source_plan()
+    failure = _failure()
+    reassessment = _valid_plan("reassessment")
+    replacement = _valid_plan("replacement")
+    reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
+    replacement_auth = UnrealPlanAuthorization.issue(replacement, "replacement-auth")
+    evidence_digest = digest_evidence_ledger(())
+    receipt = _receipt(evidence_digest, replacement_auth)
+    executor, calls = _executor(monkeypatch)
+    monkeypatch.setattr(workflow, "build_reassessment_plan", lambda *_: reassessment)
+    monkeypatch.setattr(workflow, "assess_reassessment_sequence", lambda *_: _assessment("replacement_required"))
+    monkeypatch.setattr(workflow, "build_replacement_plan", lambda *_: replacement)
+
+    with pytest.raises(RuntimeError, match="authorization identity"):
+        execute_receipt_bound_recovery_sequence(
+            executor,
+            source,
+            failure,
+            reassessment_auth,
+            replacement_auth,
+            receipt,
+            evidence_digest=evidence_digest,
+            authorization_digest="caller-invented",
+        )
+
+    assert calls == [(reassessment, reassessment_auth)]
 
 
 def test_receipt_bound_workflow_does_not_mutate_when_reassessment_says_already_applied(monkeypatch):
@@ -166,7 +202,7 @@ def test_receipt_bound_workflow_rejects_stale_receipt_before_replacement(monkeyp
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
     replacement_auth = UnrealPlanAuthorization.issue(replacement, "replacement-auth")
     fresh_evidence_digest = digest_evidence_ledger(())
-    stale_receipt = RecoveryReceipt("old-evidence", replacement_auth.plan_digest, "authorization-1")
+    stale_receipt = RecoveryReceipt("old-evidence", replacement_auth.plan_digest, replacement_auth.authorization_digest)
     executor, calls = _executor(monkeypatch)
 
     monkeypatch.setattr(workflow, "build_reassessment_plan", lambda *_: reassessment)
@@ -182,7 +218,7 @@ def test_receipt_bound_workflow_rejects_stale_receipt_before_replacement(monkeyp
             replacement_auth,
             stale_receipt,
             evidence_digest=fresh_evidence_digest,
-            authorization_digest="authorization-1",
+            authorization_digest=replacement_auth.authorization_digest,
         )
 
     assert calls == [(reassessment, reassessment_auth)]
