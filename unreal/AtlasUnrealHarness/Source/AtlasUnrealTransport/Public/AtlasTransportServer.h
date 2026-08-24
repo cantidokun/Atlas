@@ -44,5 +44,8 @@ private:
     static bool InspectNiagaraState(const TArray<FString>& EntityIds,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool ApplyNiagaraVariant(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool BuildNiagaraVariantState(AActor* Actor,TSharedPtr<FJsonObject>& OutNiagaraState,FString& OutError);
+    static bool InspectSequencerState(const TArray<FString>& EntityIds,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool SetSequencerPlaybackRange(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool FindSequencerPlaybackRange(int32& OutStartFrame, int32& OutEndFrame, FString& OutError);
     static AActor* FindActorByEntityId(const FString& EntityId);
 };
