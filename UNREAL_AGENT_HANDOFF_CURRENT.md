@@ -1,6 +1,6 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 24, 2026 — Sequencer recovery hardening
+**Updated:** August 24, 2026 — live Sequencer recovery reassessment gate PASS
 **Current focus:** Multi-operation production execution with failure containment, fresh-state recovery, and explicitly authorized replacement mutations
 **Current branch:** `feat/unreal-composite-production-operation`
 
@@ -22,6 +22,8 @@ The Unreal production boundary now has:
 - heterogeneous material/Niagara recovery coverage;
 - Sequencer playback-range production planning and verification;
 - deterministic Sequencer recovery reassessment/replacement coverage;
+- a live Unreal Sequencer playback-range gate;
+- a live Unreal Sequencer recovery reassessment gate;
 - a live Unreal recovery-sequence gate;
 - a live Unreal heterogeneous Niagara recovery gate.
 
@@ -94,13 +96,23 @@ It proves that:
 - a mismatched playback range produces a replacement-only Sequencer write/verify plan;
 - replacement arguments preserve the exact requested frame range.
 
-A live Sequencer recovery reassessment gate has also been added:
+The live Sequencer recovery reassessment gate now passes:
 
 ```text
 python -m pytest tests/test_unreal_recovery_sequencer_real_integration.py -vv -s
+
+1 passed
 ```
 
 This gate deliberately simulates only the post-write verification failure in the test's recovery model, then obtains fresh Sequencer state from live Unreal. It verifies that an already-applied range is not retried and restores the original range afterward. It does not introduce a new production failure-injection path or change the Named Pipe protocol.
+
+The live Sequencer production round-trip gate also passes:
+
+```text
+python -m pytest tests/test_unreal_sequencer_real_integration.py -vv -s
+
+1 passed
+```
 
 ## Live heterogeneous recovery gate — PASS
 
@@ -167,6 +179,7 @@ python -m pytest tests/test_unreal_recovery_sequencer.py tests/test_unreal_recov
 Then run the live integration gates independently when Unreal is running:
 
 ```powershell
+python -m pytest tests/test_unreal_sequencer_real_integration.py -vv -s
 python -m pytest tests/test_unreal_recovery_sequencer_real_integration.py -vv -s
 python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
 python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
@@ -175,12 +188,12 @@ python -m pytest tests/test_unreal_heterogeneous_recovery_real_integration.py -v
 
 ## Next development boundary
 
-The real-Unreal heterogeneous recovery boundary is green and Sequencer recovery is now covered deterministically plus by a live reassessment gate. The next target remains **recovery hardening and broader production-domain coverage**.
+The real-Unreal heterogeneous recovery boundary is green, the Sequencer production round-trip is green, and Sequencer recovery is now covered deterministically plus by a live reassessment gate. The next target remains **recovery hardening and broader production-domain coverage**.
 
 Priorities:
 
 1. Preserve the live heterogeneous recovery test as a permanent regression boundary.
-2. Preserve the live Sequencer recovery reassessment gate as a permanent regression boundary.
+2. Preserve the live Sequencer production and recovery gates as permanent regression boundaries.
 3. Keep failure injection narrowly scoped to the disposable validation harness and isolated from ordinary production authorization paths.
 4. Expand live recovery coverage to additional supported domains only when the harness can provide deterministic, non-invasive failure injection.
 5. Preserve the exact recovery sequence: fresh reassessment → disposition → replacement-only plan → separate authorization → live replacement → independent verification.
