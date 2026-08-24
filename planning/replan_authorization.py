@@ -6,6 +6,8 @@ from typing import Any, Dict, List
 
 from action_plan import ActionSpec
 
+_SHA256_HEX_LENGTH = 64
+
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
@@ -20,6 +22,15 @@ def _action_payload(action: ActionSpec) -> Dict[str, Any]:
     }
 
 
+def _validate_digest(name: str, value: str) -> None:
+    if not isinstance(value, str) or len(value) != _SHA256_HEX_LENGTH:
+        raise ValueError(f"{name} must be a SHA-256 hex digest.")
+    try:
+        int(value, 16)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a SHA-256 hex digest.") from exc
+
+
 @dataclass(frozen=True)
 class ReplanAuthorization:
     """Immutable proof that a replacement action list crossed authorization."""
@@ -27,6 +38,12 @@ class ReplanAuthorization:
     evidence_digest: str
     actions_digest: str
     authorization_id: str
+
+    def __post_init__(self) -> None:
+        _validate_digest("evidence_digest", self.evidence_digest)
+        _validate_digest("actions_digest", self.actions_digest)
+        if not isinstance(self.authorization_id, str) or not self.authorization_id.strip():
+            raise ValueError("authorization_id must be a non-empty string.")
 
     @classmethod
     def issue(cls, evidence: Any, actions: List[ActionSpec], authorization_id: str) -> "ReplanAuthorization":
