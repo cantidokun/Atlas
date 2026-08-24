@@ -10,6 +10,7 @@ from planning.unreal_recovery_sequence import (
     issue_replacement_authorization
 )
 from planning.unreal_task_planner import UnrealTaskPlan
+from planning.unreal_transport_contract import UnrealTransportRequest, UnrealTransportResponse
 
 
 ENTITY_IDS = ("FIELD_SURFACE",)
@@ -173,8 +174,8 @@ def test_composite_recovery_replaces_only_the_mismatched_prior_write():
     assert replacement.operations[0].arguments["location"] == {"x": 100.0, "y": 200.0, "z": 300.0}
 
 
-class _TestUnrealExecutor:
-    """Déterministe test executor pour les tests de récupération."""
+class _TestUnrealTransport:
+    """Transport déterministe pour les tests de récupération."""
     
     def __init__(self):
         self._responses = {}
@@ -183,25 +184,26 @@ class _TestUnrealExecutor:
         """Configure la réponse pour un plan donné."""
         self._responses[plan_intent_id] = result
     
-    def execute_authorized(self, plan, authorization):
-        """Exécute un plan autorisé avec des réponses prédéfinies."""
-        if not isinstance(plan, UnrealTaskPlan):
-            raise TypeError("plan must be a UnrealTaskPlan instance")
-        if not isinstance(authorization, UnrealPlanAuthorization):
-            raise TypeError("authorization must be a UnrealPlanAuthorization instance")
+    def send_request(self, request):
+        """Simule l'envoi d'une requête avec des réponses prédéfinies."""
+        if not isinstance(request, UnrealTransportRequest):
+            raise TypeError("request must be an UnrealTransportRequest instance")
         
-        # Valide que l'autorisation correspond au plan
-        if not authorization.matches(plan.operations):
-            raise ValueError("authorization does not match the plan operations")
-        
-        return self._responses.get(plan.intent_id, UnrealPlanExecutionResult(plan.intent_id, (), False))
+        result = self._responses.get(request.plan.intent_id, UnrealPlanExecutionResult(request.plan.intent_id, (), False))
+        return UnrealTransportResponse(request.plan.intent_id, result.evidence_ledger, result.success, None)
+
+
+def _create_test_executor():
+    """Crée un executor compatible UnrealPlanExecutor pour les tests."""
+    transport = _TestUnrealTransport()
+    return UnrealPlanExecutor(transport)
 
 
 def test_replacement_required_without_authorization_fails_closed():
     """Une récupération Sequencer nécessitant un remplacement SANS autorisation doit échouer fermé."""
     plan = _plan()
     failure = _failure()
-    executor = _TestUnrealExecutor()
+    executor = _create_test_executor()
     
     # Configure la réponse de réévaluation montrant un état non concordant
     reassessment_result = UnrealPlanExecutionResult(
@@ -209,7 +211,7 @@ def test_replacement_required_without_authorization_fails_closed():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -228,7 +230,7 @@ def test_replacement_required_with_wrong_authorization_fails_closed():
     """Une récupération Sequencer avec une autorisation pour un plan DIFFÉRENT doit échouer fermé."""
     plan = _plan()
     failure = _failure()
-    executor = _TestUnrealExecutor()
+    executor = _create_test_executor()
     
     # Configure la réponse de réévaluation montrant un état non concordant
     reassessment_result = UnrealPlanExecutionResult(
@@ -236,7 +238,7 @@ def test_replacement_required_with_wrong_authorization_fails_closed():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -267,7 +269,7 @@ def test_matching_replacement_authorization_allows_execution():
     """Une autorisation de remplacement correctement liée au plan doit permettre l'exécution Sequencer."""
     plan = _plan()
     failure = _failure()
-    executor = _TestUnrealExecutor()
+    executor = _create_test_executor()
     
     # Configure la réponse de réévaluation montrant un état non concordant
     reassessment_result = UnrealPlanExecutionResult(
@@ -275,7 +277,7 @@ def test_matching_replacement_authorization_allows_execution():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     # Construit le plan de remplacement et son autorisation
     assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
@@ -292,10 +294,17 @@ def test_matching_replacement_authorization_allows_execution():
                 {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 10, "end_frame": 110}}},
                 "unreal-editor-atlas-transport",
             ),
+            _material_evidence("liquid_surface"),
+            UnrealEvidence(
+                "verify_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
         ),
         True,
     )
-    executor.set_response(replacement_plan.intent_id, replacement_result)
+    executor.transport.set_response(replacement_plan.intent_id, replacement_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -317,7 +326,7 @@ def test_successful_recovery_contains_replacement_plan_and_result():
     """Le résultat de récupération réussie doit contenir le plan de remplacement et le résultat réussi."""
     plan = _plan()
     failure = _failure()
-    executor = _TestUnrealExecutor()
+    executor = _create_test_executor()
     
     # Configure la réponse de réévaluation montrant un état non concordant
     reassessment_result = UnrealPlanExecutionResult(
@@ -325,7 +334,7 @@ def test_successful_recovery_contains_replacement_plan_and_result():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     # Construit le plan de remplacement et son autorisation
     assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
@@ -342,10 +351,17 @@ def test_successful_recovery_contains_replacement_plan_and_result():
                 {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 10, "end_frame": 110}}},
                 "unreal-editor-atlas-transport",
             ),
+            _material_evidence("liquid_surface"),
+            UnrealEvidence(
+                "verify_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
         ),
         True,
     )
-    executor.set_response(replacement_plan.intent_id, replacement_result)
+    executor.transport.set_response(replacement_plan.intent_id, replacement_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -368,7 +384,7 @@ def test_replacement_result_contains_sequencer_write_then_verify():
     """Le résultat de remplacement doit contenir l'écriture Sequencer suivie immédiatement par verify_sequencer_playback_range."""
     plan = _plan()
     failure = _failure()
-    executor = _TestUnrealExecutor()
+    executor = _create_test_executor()
     
     # Configure la réponse de réévaluation montrant un état non concordant
     reassessment_result = UnrealPlanExecutionResult(
@@ -376,20 +392,25 @@ def test_replacement_result_contains_sequencer_write_then_verify():
         (_sequencer_evidence(0, 100), _material_evidence("wet_surface")),
         True,
     )
-    executor.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
+    executor.transport.set_response("sequencer-recovery:reassess-sequence", reassessment_result)
     
     # Construit le plan de remplacement et son autorisation
     assessment = assess_reassessment_sequence(plan, failure, reassessment_result)
     replacement_plan = build_replacement_plan(plan, assessment)
     
-    # Vérifie la structure du plan de remplacement
-    assert len(replacement_plan.operations) == 2
-    assert replacement_plan.operations[0].name == "set_sequencer_playback_range"
-    assert replacement_plan.operations[0].kind is UnrealOperationKind.WRITE
-    assert replacement_plan.operations[1].name == "verify_sequencer_playback_range"
-    assert replacement_plan.operations[1].kind is UnrealOperationKind.VERIFY
+    # Vérifie que le plan de remplacement contient les opérations Sequencer dans l'ordre correct
+    sequencer_ops = [op for op in replacement_plan.operations if op.capability == UnrealCapability.SEQUENCER]
+    assert len(sequencer_ops) == 2
+    assert sequencer_ops[0].name == "set_sequencer_playback_range"
+    assert sequencer_ops[0].kind is UnrealOperationKind.WRITE
+    assert sequencer_ops[1].name == "verify_sequencer_playback_range"
+    assert sequencer_ops[1].kind is UnrealOperationKind.VERIFY
     
-    # Configure la réponse de remplacement avec les bonnes opérations
+    # Vérifie que les opérations Sequencer sont consécutives dans le plan
+    sequencer_indices = [i for i, op in enumerate(replacement_plan.operations) if op.capability == UnrealCapability.SEQUENCER]
+    assert sequencer_indices[1] == sequencer_indices[0] + 1, "Sequencer WRITE and VERIFY must be consecutive"
+    
+    # Configure la réponse de remplacement avec toutes les opérations nécessaires
     replacement_result = UnrealPlanExecutionResult(
         replacement_plan.intent_id,
         (
@@ -405,10 +426,22 @@ def test_replacement_result_contains_sequencer_write_then_verify():
                 {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 10, "end_frame": 110}}},
                 "unreal-editor-atlas-transport",
             ),
+            UnrealEvidence(
+                "apply_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
+            UnrealEvidence(
+                "verify_material_variant",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "material": {"variant": {"name": "liquid_surface"}}}},
+                "unreal-editor-atlas-transport",
+            ),
         ),
         True,
     )
-    executor.set_response(replacement_plan.intent_id, replacement_result)
+    executor.transport.set_response(replacement_plan.intent_id, replacement_result)
     
     reassessment_authorization = UnrealPlanAuthorization.issue(
         build_reassessment_plan(plan, failure), 
@@ -420,14 +453,15 @@ def test_replacement_result_contains_sequencer_write_then_verify():
         executor, plan, failure, reassessment_authorization, replacement_authorization
     )
     
-    # Vérifie que le résultat de remplacement contient les bonnes opérations dans l'ordre
-    assert len(result.replacement_result.evidence_ledger) == 2
-    assert result.replacement_result.evidence_ledger[0].operation_name == "set_sequencer_playback_range"
-    assert result.replacement_result.evidence_ledger[1].operation_name == "verify_sequencer_playback_range"
+    # Vérifie que le résultat de remplacement contient les opérations Sequencer dans l'ordre
+    sequencer_evidence = [ev for ev in result.replacement_result.evidence_ledger if "sequencer" in ev.operation_name]
+    assert len(sequencer_evidence) == 2
+    assert sequencer_evidence[0].operation_name == "set_sequencer_playback_range"
+    assert sequencer_evidence[1].operation_name == "verify_sequencer_playback_range"
     
     # Vérifie les paramètres corrects
-    write_evidence = result.replacement_result.evidence_ledger[0]
-    verify_evidence = result.replacement_result.evidence_ledger[1]
+    write_evidence = sequencer_evidence[0]
+    verify_evidence = sequencer_evidence[1]
     
     assert write_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["start_frame"] == 10
     assert write_evidence.observed_state["FIELD_SURFACE"]["sequencer"]["end_frame"] == 110
@@ -447,7 +481,7 @@ def test_actor_scale_recovery_replacement_preserves_scale_operation_capability()
     ))
     failure = UnrealPlanExecutionFailure(
         "scale-recovery",
-        1,
+        0,  # Corrigé: index 0 pour la première (et seule) opération
         "set_actor_scale",
         (),
         "simulated post-write failure",
