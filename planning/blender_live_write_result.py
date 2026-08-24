@@ -14,6 +14,8 @@ class BlenderLiveWriteOutcome:
 
     @classmethod
     def verified(cls, receipt: BlenderExecutionReceipt, verification: Mapping[str, Any]):
+        if not isinstance(receipt, BlenderExecutionReceipt):
+            raise TypeError("verified outcome requires a BlenderExecutionReceipt")
         return cls("VERIFIED", receipt, dict(verification), None)
 
     @classmethod
