@@ -1,7 +1,7 @@
 """Live Qwen Blender task: conditionally rotate an explicit object."""
 import argparse
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -78,6 +78,19 @@ def _reduce_rotation_evidence(evidence_results: List[Dict[str, Any]]) -> Dict[st
     return dict(evidence_results[-1])
 
 
+def _verify_rotation(action: Any, receipt: Any) -> Tuple[bool, Dict[str, Any]]:
+    observed = inspect_object_transform(
+        file_name=action.arguments["file_name"],
+        object_name=action.arguments["object_name"],
+    )
+    target = [float(value) for value in action.arguments["rotation_degrees"]]
+    observed_rotation = observed.get("rotation_degrees")
+    if observed.get("status") != "ok" or not isinstance(observed_rotation, list) or len(observed_rotation) != 3:
+        return False, {"authoritative": observed}
+    matches = all(abs(float(observed_rotation[index]) - target[index]) <= 1e-5 for index in range(3))
+    return matches, {"authoritative": observed, "rotation_matches": matches}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
@@ -100,7 +113,7 @@ def main() -> None:
         return {"ok": status in {"ok", "already_rotated"}, "state": str(status or "unknown"), "details": dict(raw)}
 
     action_boundary = BlenderExecutionBoundary(blender_action)
-    live_gate = BlenderLiveWriteGate(action_boundary)
+    live_gate = BlenderLiveWriteGate(action_boundary, verifier=_verify_rotation)
     capture: Dict[str, Any] = {}
 
     def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
