@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from planning.blender_result_contract import BlenderExecutionResult
 
@@ -18,6 +18,7 @@ class BlenderExecutionReceipt:
     tool: str
     arguments_digest: str
     result_digest: str
+    authorization_digest: Optional[str] = None
 
     @classmethod
     def create(cls, tool: str, arguments: Mapping[str, Any], result: BlenderExecutionResult):
@@ -36,6 +37,24 @@ class BlenderExecutionReceipt:
             "details": result.details,
         }))
 
+    @classmethod
+    def create_authorized(
+        cls,
+        tool: str,
+        arguments: Mapping[str, Any],
+        result: BlenderExecutionResult,
+        authorization_id: str,
+    ):
+        if not isinstance(authorization_id, str) or not authorization_id.strip():
+            raise ValueError("authorization_id must be a non-empty string")
+        receipt = cls.create(tool, arguments, result)
+        return cls(
+            receipt.tool,
+            receipt.arguments_digest,
+            receipt.result_digest,
+            _digest(authorization_id),
+        )
+
     def matches(self, tool: str, arguments: Mapping[str, Any], result: BlenderExecutionResult) -> bool:
         if not isinstance(result, BlenderExecutionResult):
             return False
@@ -50,3 +69,8 @@ class BlenderExecutionReceipt:
                 "details": result.details,
             }) == self.result_digest
         )
+
+    def matches_authorization(self, authorization_id: str) -> bool:
+        if self.authorization_digest is None:
+            return False
+        return _digest(authorization_id) == self.authorization_digest
