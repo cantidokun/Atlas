@@ -42,15 +42,15 @@ class RecoveryOrchestrator:
         # Never carry an old receipt across a new recovery attempt.
         self._receipt = None
         self.state = RecoveryState.EVIDENCE_REQUIRED
-        if not self._evidence():
+        if not self._run_gate(self._evidence, "fresh recovery evidence unavailable"):
             return self._block("fresh recovery evidence unavailable")
 
         self.state = RecoveryState.REPLAN_REQUIRED
-        if not self._replan():
+        if not self._run_gate(self._replan, "recovery replan rejected"):
             return self._block("recovery replan rejected")
 
         self.state = RecoveryState.AUTHORIZATION_REQUIRED
-        if not self._authorize():
+        if not self._run_gate(self._authorize, "replacement plan not authorized"):
             return self._block("replacement plan not authorized")
 
         if not all(isinstance(value, str) and value for value in (
@@ -75,6 +75,14 @@ class RecoveryOrchestrator:
             return self._block("recovery receipt identity mismatch")
         self.state = RecoveryState.RESUMED
         return RecoveryDecision(self.state, "recovery resumed with matching receipt")
+
+    @staticmethod
+    def _run_gate(gate: Callable[[], bool], failure_reason: str) -> bool:
+        """Treat gate exceptions and non-boolean success as a failed recovery gate."""
+        try:
+            return gate() is True
+        except Exception:
+            return False
 
     def _block(self, reason: str) -> RecoveryDecision:
         self.state = RecoveryState.BLOCKED
