@@ -1,6 +1,6 @@
 import pytest
 
-from action_plan import ActionSpec
+from planning.action_plan import ActionSpec
 from planning.blender_write_authorization import BlenderWriteAuthorization
 
 
