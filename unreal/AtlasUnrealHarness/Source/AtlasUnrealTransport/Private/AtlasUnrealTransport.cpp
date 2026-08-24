@@ -16,6 +16,7 @@ namespace
 {
     const FName SequencerFixtureTag(TEXT("atlas_sequencer_fixture"));
     const FName SequencerFixtureActorName(TEXT("AtlasSequencerFixture"));
+    const FName SequencerFixtureSequenceName(TEXT("AtlasSequencerFixtureSequence"));
     constexpr int32 DefaultSequencerStartFrame = 0;
     constexpr int32 DefaultSequencerEndFrame = 100;
 
@@ -62,12 +63,13 @@ void FAtlasUnrealTransportModule::StartupModule()
         UE_LOG(LogAtlasTransport, Log, TEXT("Atlas transport server started successfully"));
     }
 
-    // The transport module may load before the editor has finished constructing
-    // its active world. Keep retrying until actors are initialized, then create
-    // the deterministic fixture. Sequencer inspection itself remains read-only.
+    // The module can load before the editor world exists. Keep this ticker alive
+    // until a valid editor world is available and the fixture is fully usable.
+    // Once created, the ticker stops; the fixture is intentionally deterministic
+    // and transient so it does not modify the user's level asset.
     SequencerFixtureTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FAtlasUnrealTransportModule::EnsureSequencerFixture),
-        0.25f);
+        0.10f);
 }
 
 bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
@@ -83,17 +85,12 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
         return true;
     }
 
-    // Do not attempt to spawn actors while the world is still being initialized.
-    // The ticker will invoke us again once the editor world is ready.
-    if (!World->AreActorsInitialized())
-    {
-        return true;
-    }
-
+    // Do not gate fixture creation on AreActorsInitialized(). In editor worlds
+    // that state can remain transitional while the world is nevertheless safe
+    // for this transient actor to be created. The next ticker pass is sufficient
+    // to handle a world that is still genuinely unavailable.
     ALevelSequenceActor* FixtureActor = nullptr;
 
-    // Reuse an existing fixture when possible. This also repairs a stale fixture
-    // actor that survived a hot reload but lost its transient sequence object.
     for (TActorIterator<ALevelSequenceActor> It(World); It; ++It)
     {
         ALevelSequenceActor* ExistingActor = *It;
@@ -137,7 +134,7 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
     {
         Sequence = NewObject<ULevelSequence>(
             FixtureActor,
-            TEXT("AtlasSequencerFixtureSequence"),
+            SequencerFixtureSequenceName,
             RF_Transient);
 
         if (!Sequence)
@@ -152,6 +149,23 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
 
         Sequence->Initialize();
         FixtureActor->SetSequence(Sequence);
+    }
+
+    // Explicitly verify the actor retained the sequence. This prevents a race
+    // or lifecycle edge case from producing a fixture actor that looks valid but
+    // cannot be discovered by the transport server.
+    if (FixtureActor->GetSequence() != Sequence)
+    {
+        FixtureActor->SetSequence(Sequence);
+        if (FixtureActor->GetSequence() != Sequence)
+        {
+            UE_LOG(
+                LogAtlasTransport,
+                Warning,
+                TEXT("Atlas Sequencer fixture actor could not retain its sequence in world '%s'; will retry"),
+                *World->GetName());
+            return true;
+        }
     }
 
     UMovieScene* MovieScene = Sequence->GetMovieScene();
@@ -176,8 +190,9 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
     UE_LOG(
         LogAtlasTransport,
         Log,
-        TEXT("Atlas Sequencer fixture ready in world '%s' with playback range %d-%d"),
+        TEXT("Atlas Sequencer fixture ready in world '%s' with actor '%s' and playback range %d-%d"),
         *World->GetName(),
+        *FixtureActor->GetName(),
         DefaultSequencerStartFrame,
         DefaultSequencerEndFrame);
 
