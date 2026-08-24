@@ -147,10 +147,20 @@ def _verify(step, evidence):
     elif operation.name == "apply_niagara_variant":
         verify_niagara_variant(evidence, expected)
     elif operation.name == "set_sequencer_playback_range":
-        observed = {
-            "start_frame": int(evidence.observed_state[step[1].entity_ids[0]]["sequencer"]["start_frame"]),
-            "end_frame": int(evidence.observed_state[step[1].entity_ids[0]]["sequencer"]["end_frame"]),
-        }
+        sequencer_state = evidence.observed_state[step[1].entity_ids[0]]["sequencer"]
+        if "playback_range" in sequencer_state:
+            # Format établi: sequencer.playback_range.{start_frame,end_frame}
+            playback_range = sequencer_state["playback_range"]
+            observed = {
+                "start_frame": int(playback_range["start_frame"]),
+                "end_frame": int(playback_range["end_frame"]),
+            }
+        else:
+            # Format alternatif: sequencer.{start_frame,end_frame}
+            observed = {
+                "start_frame": int(sequencer_state["start_frame"]),
+                "end_frame": int(sequencer_state["end_frame"]),
+            }
         if observed != expected:
             raise ValueError("fresh Unreal Sequencer state does not match the requested playback range")
     else:
