@@ -7,6 +7,9 @@ import requests
 
 from audit_trail import AuditTrail
 from planning.blender_execution_boundary import BlenderExecutionBoundary
+from planning.blender_live_write_gate import BlenderLiveWriteGate
+from planning.blender_live_write_result import BlenderLiveWriteOutcome
+from planning.blender_write_authorization import BlenderWriteAuthorization
 from planning.object_rotation_task import TARGET_OBJECT, TARGET_ROTATION, object_rotation_task_definition
 from planning.task_runtime import TaskRuntimeSession
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
@@ -98,14 +101,25 @@ def main() -> None:
         return {"ok": status in {"ok", "already_rotated"}, "state": str(status or "unknown"), "details": dict(raw)}
 
     action_boundary = BlenderExecutionBoundary(blender_action)
+    live_gate = BlenderLiveWriteGate(action_boundary)
     capture: Dict[str, Any] = {}
 
     def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if tool == "inspect_object_transform":
             return inspect_object_transform(**arguments)
-        normalized, receipt = action_boundary.execute_with_receipt(tool, arguments)
-        capture["normalized"] = normalized
-        capture["receipt"] = receipt
+        if tool != "set_object_rotation":
+            raise RuntimeError(f"Unexpected rotation action: {tool}")
+        action = definition.actions[0]
+        if action.tool != tool or dict(action.arguments) != dict(arguments):
+            raise RuntimeError("Rotation action does not match the declarative task definition")
+        blender_authorization = BlenderWriteAuthorization.issue(action, capture["authorization_id"])
+        outcome = live_gate.execute(action, blender_authorization)
+        capture["outcome"] = outcome
+        if outcome.status == "BLOCKED":
+            raise RuntimeError(outcome.reason or "Authorized Blender write was blocked")
+        capture["normalized"] = outcome.receipt.result
+        capture["receipt"] = outcome.receipt
+        normalized = outcome.receipt.result
         return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
 
     session = TaskRuntimeSession(definition, execute, _reduce_rotation_evidence)
@@ -117,6 +131,7 @@ def main() -> None:
     if not state.satisfied:
         authorize_task_plan(proposal, evidence_complete=True, allowed_action_tools=definition.allowed_action_tools, allow_writes=definition.allow_writes)
         authorization = session.authorize(f"live:object-rotation:{args.case}")
+        capture["authorization_id"] = authorization.authorization_id
         audit.record_authorization(True, action_count=len(definition.actions), authorization_id=authorization.authorization_id)
         result = session.execute_authorized_action()
         action = definition.actions[0]
