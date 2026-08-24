@@ -8,7 +8,6 @@ import requests
 from audit_trail import AuditTrail
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_live_write_gate import BlenderLiveWriteGate
-from planning.blender_live_write_result import BlenderLiveWriteOutcome
 from planning.blender_write_authorization import BlenderWriteAuthorization
 from planning.object_rotation_task import TARGET_OBJECT, TARGET_ROTATION, object_rotation_task_definition
 from planning.task_runtime import TaskRuntimeSession
@@ -117,9 +116,9 @@ def main() -> None:
         capture["outcome"] = outcome
         if outcome.status == "BLOCKED":
             raise RuntimeError(outcome.reason or "Authorized Blender write was blocked")
-        capture["normalized"] = outcome.receipt.result
+        normalized = outcome.verification["result"]
+        capture["normalized"] = normalized
         capture["receipt"] = outcome.receipt
-        normalized = outcome.receipt.result
         return {"ok": normalized.ok, "state": normalized.state, "details": dict(normalized.details)}
 
     session = TaskRuntimeSession(definition, execute, _reduce_rotation_evidence)
