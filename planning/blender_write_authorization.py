@@ -1,8 +1,8 @@
 """Explicit authorization gate for Blender scene-writing capabilities."""
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from action_plan import ActionSpec
+from planning.action_plan import ActionSpec
 from planning.action_authorization import ActionAuthorization
 from planning.blender_capability_catalog import get_blender_capability
 
