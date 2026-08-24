@@ -35,9 +35,9 @@ void FAtlasUnrealTransportModule::StartupModule()
         UE_LOG(LogAtlasTransport, Log, TEXT("Atlas transport server started successfully"));
     }
 
-    // The transport module can load before the editor has established its active
-    // world. Defer fixture creation until a valid world exists so Sequencer
-    // inspection remains a read-only operation and never creates missing state.
+    // The transport module may load before the editor has finished constructing
+    // its active world. Keep retrying until actors are initialized, then create
+    // the deterministic fixture. Sequencer inspection itself remains read-only.
     SequencerFixtureTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FAtlasUnrealTransportModule::EnsureSequencerFixture),
         0.25f);
@@ -45,12 +45,7 @@ void FAtlasUnrealTransportModule::StartupModule()
 
 bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
 {
-    if (!IsInGameThread())
-    {
-        return true;
-    }
-
-    if (!GEngine || IsEngineExitRequested())
+    if (!IsInGameThread() || !GEngine || IsEngineExitRequested())
     {
         return true;
     }
@@ -58,9 +53,10 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
     UWorld* World = nullptr;
     for (const FWorldContext& Context : GEngine->GetWorldContexts())
     {
-        if (Context.World() && IsValid(Context.World()))
+        UWorld* Candidate = Context.World();
+        if (Candidate && IsValid(Candidate))
         {
-            World = Context.World();
+            World = Candidate;
             break;
         }
     }
@@ -70,71 +66,102 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
         return true;
     }
 
+    // Do not attempt to spawn actors while the world is still being initialized.
+    // The ticker will invoke us again once the editor world is ready.
+    if (!World->AreActorsInitialized())
+    {
+        return true;
+    }
+
+    ALevelSequenceActor* FixtureActor = nullptr;
+
+    // Reuse an existing fixture when possible. This also repairs a stale fixture
+    // actor that survived a hot reload but lost its transient sequence object.
     for (TActorIterator<ALevelSequenceActor> It(World); It; ++It)
     {
         ALevelSequenceActor* ExistingActor = *It;
-        if (ExistingActor && IsValid(ExistingActor) && ExistingActor->ActorHasTag(SequencerFixtureTag) && ExistingActor->GetSequence())
+        if (ExistingActor &&
+            IsValid(ExistingActor) &&
+            ExistingActor->ActorHasTag(SequencerFixtureTag))
         {
-            ULevelSequence* ExistingSequence = ExistingActor->GetSequence();
-            if (ExistingSequence && ExistingSequence->GetMovieScene())
-            {
-                return false;
-            }
+            FixtureActor = ExistingActor;
+            break;
         }
     }
 
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.Name = SequencerFixtureActorName;
-    SpawnParams.NameMode = FActorSpawnParameters::ESpawnActorNameMode::Requested;
-    SpawnParams.ObjectFlags |= RF_Transient;
-
-    ALevelSequenceActor* SequenceActor = World->SpawnActor<ALevelSequenceActor>(
-        ALevelSequenceActor::StaticClass(),
-        FTransform::Identity,
-        SpawnParams);
-
-    if (!SequenceActor)
+    if (!FixtureActor)
     {
-        UE_LOG(LogAtlasTransport, Warning, TEXT("Unable to create Atlas Sequencer fixture actor; will retry"));
-        return true;
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.Name = SequencerFixtureActorName;
+        SpawnParams.NameMode = FActorSpawnParameters::ESpawnActorNameMode::Requested;
+        SpawnParams.ObjectFlags |= RF_Transient;
+
+        FixtureActor = World->SpawnActor<ALevelSequenceActor>(
+            ALevelSequenceActor::StaticClass(),
+            FTransform::Identity,
+            SpawnParams);
+
+        if (!FixtureActor)
+        {
+            UE_LOG(
+                LogAtlasTransport,
+                Warning,
+                TEXT("Unable to create Atlas Sequencer fixture actor in world '%s'; will retry"),
+                *World->GetName());
+            return true;
+        }
+
+        FixtureActor->Tags.AddUnique(SequencerFixtureTag);
+        FixtureActor->SetActorLabel(TEXT("Atlas Sequencer Fixture"));
     }
 
-    SequenceActor->Tags.AddUnique(SequencerFixtureTag);
-    SequenceActor->SetActorLabel(TEXT("Atlas Sequencer Fixture"));
-
-    ULevelSequence* Sequence = NewObject<ULevelSequence>(
-        SequenceActor,
-        TEXT("AtlasSequencerFixtureSequence"),
-        RF_Transient);
-
+    ULevelSequence* Sequence = FixtureActor->GetSequence();
     if (!Sequence)
     {
-        SequenceActor->Destroy();
-        UE_LOG(LogAtlasTransport, Warning, TEXT("Unable to create Atlas Sequencer fixture sequence; will retry"));
-        return true;
+        Sequence = NewObject<ULevelSequence>(
+            FixtureActor,
+            TEXT("AtlasSequencerFixtureSequence"),
+            RF_Transient);
+
+        if (!Sequence)
+        {
+            UE_LOG(
+                LogAtlasTransport,
+                Warning,
+                TEXT("Unable to create Atlas Sequencer fixture sequence in world '%s'; will retry"),
+                *World->GetName());
+            return true;
+        }
+
+        Sequence->Initialize();
+        FixtureActor->SetSequence(Sequence);
     }
 
-    Sequence->Initialize();
     UMovieScene* MovieScene = Sequence->GetMovieScene();
     if (!MovieScene)
     {
-        SequenceActor->Destroy();
-        UE_LOG(LogAtlasTransport, Warning, TEXT("Unable to initialize Atlas Sequencer fixture MovieScene; will retry"));
+        UE_LOG(
+            LogAtlasTransport,
+            Warning,
+            TEXT("Atlas Sequencer fixture has no MovieScene in world '%s'; will retry"),
+            *World->GetName());
         return true;
     }
 
+    // Normalize the deterministic fixture range on every successful startup.
+    // This makes hot reloads and editor restarts converge to the same baseline.
     MovieScene->SetPlaybackRange(
         TRange<FFrameNumber>(
             FFrameNumber(DefaultSequencerStartFrame),
             FFrameNumber(DefaultSequencerEndFrame)));
 
-    SequenceActor->SetSequence(Sequence);
-    SequenceActor->MarkPackageDirty();
+    FixtureActor->SetSequence(Sequence);
+    FixtureActor->MarkPackageDirty();
 
     UE_LOG(
         LogAtlasTransport,
         Log,
-        TEXT("Created deterministic Atlas Sequencer fixture in world '%s' with playback range %d-%d"),
+        TEXT("Atlas Sequencer fixture ready in world '%s' with playback range %d-%d"),
         *World->GetName(),
         DefaultSequencerStartFrame,
         DefaultSequencerEndFrame);
