@@ -19,9 +19,9 @@ Qwen never receives direct Blender execution authority.
 
 ## Current Blender Agent status
 
-**MAJOR MILESTONE PASSED: generalized Blender corrective runtime live interruption/replanning proof.**
+**PROVEN MAJOR MILESTONE: generalized Blender corrective runtime live interruption/replanning proof.**
 
-Atlas has now proven that the generalized production corrective runtime can execute against real Blender, retain execution receipts, recover from an externally injected scene-state change, replan from fresh evidence, and independently verify final convergence.
+Atlas has proven that the generalized production corrective runtime can execute against real Blender, retain execution receipts, recover from an externally injected scene-state change, replan from fresh evidence, and independently verify final convergence.
 
 The live gate reported:
 
@@ -60,30 +60,67 @@ fresh world evidence
  -> completion
 ```
 
-## Proven live Blender behavior
+## Current development increment: authorization-bound live writes
 
-Atlas now has live proof for:
+The next production gate is being built around a shared authorization-bound Blender write path rather than bespoke lifecycle orchestration for individual tools.
 
-1. **Object rotation** — authorized mutation, persistence, fresh independent inspection, invariant verification, and receipt validation.
-2. **Marker creation** — conditional authorized creation, persistence, fresh scene inspection, independent membership verification, and receipt validation.
-3. **Generalized corrective recovery** — real Blender execution across multiple properties, injected external scene change, fresh-state replanning, protected corrective execution, receipt retention, and final independent convergence.
+The current architecture is:
 
-The generalized corrective runtime is no longer dependent on the earlier specialized multi-step corrective demo.
+```text
+ActionSpec
+ -> capability admission
+ -> exact BlenderWriteAuthorization
+ -> BlenderLiveWriteGate
+ -> BlenderExecutionBoundary
+ -> normalized verified result
+ -> authorization-bound immutable receipt
+ -> independent authoritative verification
+ -> VERIFIED / BLOCKED
+```
 
-## Next development gate
+The current implementation includes:
 
-The next objective is to turn this proven generalized corrective runtime into a reusable production-facing autonomous Blender task runtime capable of composing different authorized operations while preserving:
+- `planning/blender_capability_catalog.py` — explicit read/write capability classification and fail-closed unknown capabilities.
+- `planning/blender_write_authorization.py` — exact-action authorization for scene-writing capabilities.
+- `planning/blender_live_write_gate.py` — final authorization-bound write choke point.
+- `planning/blender_live_write_result.py` — explicit `VERIFIED` versus `BLOCKED` outcome contract.
+- `planning/blender_live_verification.py` — independent authoritative post-write verification helper.
+- `planning/blender_execution_receipt.py` — immutable receipt with optional authorization binding.
+- `planning/blender_execution_boundary.py` — raw, verified, receipt-bound, authorized-write, and corrective-replan execution APIs.
 
-- fresh observation before each decision;
-- explicit authorization;
-- capability restrictions;
-- exact action/receipt binding;
-- normalized execution results;
-- independent post-action verification;
-- fail-closed completion and step budgets;
-- interruption recovery and continuation/resume.
+The live object-rotation path has also been brought under the shared authorization-bound write architecture. The newest changes are **implementation milestones only and are not yet runner-validated**.
 
-Do not rebuild lifecycle orchestration for individual tools. Extend the declarative task contract and shared runtime.
+## Validation discipline
+
+The latest complete reported full-suite result is:
+
+```text
+589 passed / 18 failed
+```
+
+This is **not a green branch baseline**. The newer capability, authorization, live-write, and authoritative-verification changes have not yet received a reported runner result.
+
+Earlier verified results include:
+
+- **Test 313 passed** — earlier action-runner validation.
+- **141 passed** — earlier focused suite baseline.
+- Generalized Windows/Blender corrective-runtime gate: **PASS**, with 4 receipts and an injected external scene change followed by successful fresh-state replanning and recovery.
+
+Live Blender claims must be backed by actual Windows/Blender runner output. Historical results describe the commits on which they were actually observed.
+
+## Current next milestone
+
+The next coding step is to integrate `planning/blender_live_verification.py` into `BlenderLiveWriteGate` so that `VERIFIED` requires authoritative final-state confirmation, not merely successful executor output and receipt binding.
+
+Then prove, in order:
+
+1. authorized `move_object` -> actual Blender subprocess;
+2. authoritative state matches -> `VERIFIED` + authorization-bound receipt;
+3. executor reports success but authoritative state disagrees -> `BLOCKED`;
+4. `BLOCKED` produces no receipt and prevents subsequent writes;
+5. only then generalize the shared path to the remaining admitted write capabilities.
+
+Do not weaken verification or create per-tool lifecycle orchestration to make tests pass.
 
 ## Authority and verification boundary
 
@@ -102,17 +139,30 @@ Qwen proposal
  -> completion or conservative recovery
 ```
 
-## Verification discipline
+## Proven live Blender behavior
 
-Historical CI/live results describe earlier commits unless explicitly associated with the current branch/commit. Focused tests are regression evidence; live Blender claims require actual Windows/Blender runner output.
+The generalized corrective runtime has live proof for:
+
+1. **Object rotation** — authorized mutation, persistence, fresh independent inspection, invariant verification, and receipt validation.
+2. **Marker creation** — conditional authorized creation, persistence, fresh scene inspection, independent membership verification, and receipt validation.
+3. **Generalized corrective recovery** — real Blender execution across multiple properties, injected external scene change, fresh-state replanning, protected corrective execution, receipt retention, and final independent convergence.
+
+These historical live proofs do not imply that the newest authorization/live-write branch is currently green.
 
 ## Development path
 
-1. generalize the proven corrective runtime into reusable production task composition;
-2. implement continuation/resume across multi-task Blender operations;
-3. advance Digital Twin identity/revision and photogrammetry intake contracts;
-4. later integrate Unreal production workflows.
+1. complete the authorization-bound live-write proof and adversarial `BLOCKED` proof;
+2. generalize the proven corrective runtime into reusable production task composition;
+3. implement continuation/resume across multi-task Blender operations;
+4. advance Digital Twin identity/revision and photogrammetry intake contracts;
+5. later integrate Unreal production workflows.
 
 Photogrammetry remains upstream of Blender. Atlas is exclusively concerned with soccer-field-related digital twins; Blender receives the upstream reconstruction for analysis, cleanup, correction, and preparation.
 
 See `ATLAS_HANDOFF_CURRENT.md` for the authoritative resume point and `DEVELOPMENT_LOG.md` for chronological progress.
+
+## End-of-session state
+
+Development of the Blender agent is paused for the night. The latest implementation commits have been documented in `ATLAS_HANDOFF_CURRENT.md`.
+
+When development resumes, **do not automatically run workflow tests**. First review the handoff, then run the focused/newest tests only when explicitly requested, followed by the full suite.
