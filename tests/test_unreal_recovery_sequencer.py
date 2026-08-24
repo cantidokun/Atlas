@@ -185,13 +185,31 @@ class _TestUnrealTransport:
         """Configure la réponse pour un plan donné."""
         self._responses[plan_intent_id] = result
     
-    def send_request(self, request):
+    def send(self, request):
         """Simule l'envoi d'une requête avec des réponses prédéfinies."""
         if not isinstance(request, UnrealTransportRequest):
             raise TypeError("request must be an UnrealTransportRequest instance")
         
-        result = self._responses.get(request.plan.intent_id, UnrealPlanExecutionResult(request.plan.intent_id, (), False))
-        return UnrealTransportResponse(request.plan.intent_id, result.evidence_ledger, result.success, None)
+        # Trouve la réponse basée sur l'intent_id du plan dans la requête
+        # Pour les requêtes individuelles, on utilise le request_id ou on cherche par plan
+        result = None
+        for plan_id, stored_result in self._responses.items():
+            if plan_id in request.request_id or request.request_id.startswith(plan_id):
+                result = stored_result
+                break
+        
+        if result is None:
+            result = UnrealPlanExecutionResult("unknown", (), False)
+        
+        return UnrealTransportResponse(
+            request_id=request.request_id,
+            operation_name=request.operation_name,
+            entity_ids=request.entity_ids,
+            success=result.success,
+            observed_state=result.evidence_ledger[0].observed_state if result.evidence_ledger else {},
+            error="",
+            source="test-unreal-transport"
+        )
 
 
 def _create_test_executor():
