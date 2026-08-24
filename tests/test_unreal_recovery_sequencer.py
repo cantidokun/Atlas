@@ -164,3 +164,49 @@ def test_composite_recovery_replaces_only_the_mismatched_prior_write():
         "verify_actor_location",
     ]
     assert replacement.operations[0].arguments["location"] == {"x": 100.0, "y": 200.0, "z": 300.0}
+
+
+def test_actor_scale_recovery_replacement_preserves_scale_operation_capability():
+    plan = UnrealTaskPlan("scale-recovery", (
+        UnrealOperation(
+            UnrealCapability.MODIFY_ACTOR,
+            UnrealOperationKind.WRITE,
+            "set_actor_scale",
+            {"entity_ids": ENTITY_IDS, "scale": {"x": 2.0, "y": 3.0, "z": 4.0}},
+            ENTITY_IDS,
+        ),
+    ))
+    failure = UnrealPlanExecutionFailure(
+        "scale-recovery",
+        1,
+        "set_actor_scale",
+        (),
+        "simulated post-write failure",
+        ENTITY_IDS,
+        {"entity_ids": ENTITY_IDS, "scale": {"x": 2.0, "y": 3.0, "z": 4.0}},
+        (),
+    )
+    result = UnrealPlanExecutionResult(
+        "scale-recovery:reassess-sequence",
+        (
+            UnrealEvidence(
+                "inspect_target_actors",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": ENTITY_ID, "scale": {"x": 1.0, "y": 1.0, "z": 1.0}}},
+                "unreal-editor-atlas-transport",
+            ),
+        ),
+        True,
+    )
+
+    assessment = assess_reassessment_sequence(plan, failure, result)
+    assert assessment.disposition == "replacement_required"
+    replacement = build_replacement_plan(plan, assessment)
+    assert [operation.name for operation in replacement.operations] == [
+        "set_actor_scale",
+        "verify_actor_scale",
+    ]
+    assert replacement.operations[0].capability is UnrealCapability.MODIFY_ACTOR
+    assert replacement.operations[1].capability is UnrealCapability.MODIFY_ACTOR
+    assert replacement.operations[0].arguments["scale"] == {"x": 2.0, "y": 3.0, "z": 4.0}
+    assert replacement.operations[1].arguments["expected_scale"] == {"x": 2.0, "y": 3.0, "z": 4.0}
