@@ -428,7 +428,7 @@ bool FAtlasTransportServer::SetSequencerPlaybackRange(const FTransportRequest& R
     {
         ALevelSequenceActor* SequenceActor=*It; if(!SequenceActor||!IsValid(SequenceActor)||!SequenceActor->GetSequence()) continue;
         ULevelSequence* Sequence=SequenceActor->GetSequence(); UMovieScene* MovieScene=Sequence->GetMovieScene(); if(!MovieScene) continue;
-        MovieScene->Modify(); MovieScene->SetPlaybackRange(StartFrame,EndFrame); return InspectSequencerState(R.EntityIds,O,E);
+        MovieScene->Modify(); MovieScene->SetPlaybackRange(StartFrame,EndFrame - StartFrame); return InspectSequencerState(R.EntityIds,O,E);
     }
     E=TEXT("No Level Sequence actor with a valid sequence found in the active Unreal editor world"); return false;
 }
