@@ -13,6 +13,7 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Async/Async.h"
 #include "Engine/GameViewportClient.h"
+#include "Editor.h"
 
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -53,6 +54,32 @@ namespace
         }
         Actor->Tags.Add(FName(*(Prefix + VariantName)));
         Actor->MarkPackageDirty();
+    }
+
+    UWorld* GetActiveEditorWorld()
+    {
+        if (GEditor)
+        {
+            UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+            if (EditorWorld && IsValid(EditorWorld))
+            {
+                return EditorWorld;
+            }
+        }
+
+        if (GEngine)
+        {
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                UWorld* Candidate = Context.World();
+                if (Candidate && IsValid(Candidate))
+                {
+                    return Candidate;
+                }
+            }
+        }
+
+        return nullptr;
     }
 }
 
@@ -250,7 +277,6 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
     if (Request.OperationName == TEXT("set_sequencer_playback_range"))
     {
         if (Request.Capability != TEXT("sequencer") || Request.Kind != TEXT("write")) { OutError = TEXT("set_sequencer_playback_range requires sequencer/write"); return false; }
-        const TSharedPtr<FJsonObject>* Start=nullptr; const TSharedPtr<FJsonObject>* End=nullptr;
         double StartFrame=0, EndFrame=0;
         if(!Request.Arguments->TryGetNumberField(TEXT("start_frame"),StartFrame)||!Request.Arguments->TryGetNumberField(TEXT("end_frame"),EndFrame)){OutError=TEXT("start_frame and end_frame must be numeric");return false;}
         if(FMath::RoundToInt(StartFrame)!=StartFrame||FMath::RoundToInt(EndFrame)!=EndFrame){OutError=TEXT("start_frame and end_frame must be integers");return false;}
@@ -302,65 +328,11 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     S->bCompleted=true; S->CompletionEvent->Trigger();
 }
 
-bool FAtlasTransportServer::SetActorLocation(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_location requires exactly one entity_id and valid arguments");return false;}
-    const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("location"),P)||!P||!P->IsValid()){E=TEXT("arguments.location must be an object");return false;} double X=0,Y=0,Z=0; if(!(*P)->TryGetNumberField(TEXT("x"),X)||!(*P)->TryGetNumberField(TEXT("y"),Y)||!(*P)->TryGetNumberField(TEXT("z"),Z)){E=TEXT("arguments.location must contain numeric x, y, and z");return false;} AActor* A=FindActorByEntityId(R.EntityIds[0]); if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} A->SetActorLocation(FVector((float)X,(float)Y,(float)Z),false,nullptr,ETeleportType::TeleportPhysics); return InspectTargetActors(R.EntityIds,O,E);
-}
-
-bool FAtlasTransportServer::SetActorRotation(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_rotation requires exactly one entity_id");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("rotation"),P)||!P||!P->IsValid()){E=TEXT("arguments.rotation must be an object");return false;} double A=0,B=0,C=0; if(!(*P)->TryGetNumberField(TEXT("pitch"),A)||!(*P)->TryGetNumberField(TEXT("yaw"),B)||!(*P)->TryGetNumberField(TEXT("roll"),C)){E=TEXT("arguments.rotation must contain numeric pitch, yaw, and roll");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorRotation(FRotator((float)A,(float)B,(float)C)); return InspectTargetActors(R.EntityIds,O,E);
-}
-
-bool FAtlasTransportServer::SetActorScale(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(R.EntityIds.Num()!=1||!R.Arguments.IsValid()){E=TEXT("set_actor_scale requires exactly one entity_id");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("scale"),P)||!P||!P->IsValid()){E=TEXT("arguments.scale must be an object");return false;} double X=0,Y=0,Z=0; if(!(*P)->TryGetNumberField(TEXT("x"),X)||!(*P)->TryGetNumberField(TEXT("y"),Y)||!(*P)->TryGetNumberField(TEXT("z"),Z)){E=TEXT("arguments.scale must contain numeric x, y, and z");return false;} AActor* Actor=FindActorByEntityId(R.EntityIds[0]); if(!Actor||!IsValid(Actor)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*R.EntityIds[0]);return false;} Actor->SetActorScale3D(FVector((float)X,(float)Y,(float)Z)); return InspectTargetActors(R.EntityIds,O,E);
-}
-
-bool FAtlasTransportServer::InspectMaterialState(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(IDs.Num()==0){E=TEXT("inspect_material_state requires at least one entity_id");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
-    for(const FString& ID:IDs){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;} TSharedPtr<FJsonObject> M; if(!BuildMaterialVariantState(A,M,E))return false; TSharedPtr<FJsonObject>D=MakeShareable(new FJsonObject);D->SetStringField(TEXT("entity_id"),ID);D->SetObjectField(TEXT("material"),M);State->SetObjectField(ID,D);} O=State;return true;
-}
-
-bool FAtlasTransportServer::ApplyMaterialVariant(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(!R.Arguments.IsValid()||R.EntityIds.Num()==0){E=TEXT("apply_material_variant requires valid arguments and target entity_ids");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("material_variant"),P)||!P||!P->IsValid()){E=TEXT("arguments.material_variant must be an object");return false;} FString Name; if(!(*P)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){E=TEXT("arguments.material_variant.name must be a non-empty string");return false;} for(const FString& ID:R.EntityIds){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;}SetTaggedVariantName(A,MaterialVariantTagPrefix,Name);} return InspectMaterialState(R.EntityIds,O,E);
-}
-
-bool FAtlasTransportServer::BuildMaterialVariantState(AActor* A,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!A||!IsValid(A)){E=TEXT("Cannot inspect material state for invalid actor");return false;} TSharedPtr<FJsonObject> V=MakeShareable(new FJsonObject);V->SetStringField(TEXT("name"),GetTaggedVariantName(A,MaterialVariantTagPrefix));O=MakeShareable(new FJsonObject);O->SetObjectField(TEXT("variant"),V);return true;
-}
-
-bool FAtlasTransportServer::InspectNiagaraState(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(IDs.Num()==0){E=TEXT("inspect_niagara_state requires at least one entity_id");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
-    for(const FString& ID:IDs){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;} TSharedPtr<FJsonObject>N; if(!BuildNiagaraVariantState(A,N,E))return false; TSharedPtr<FJsonObject>D=MakeShareable(new FJsonObject);D->SetStringField(TEXT("entity_id"),ID);D->SetObjectField(TEXT("niagara"),N);State->SetObjectField(ID,D);} O=State;return true;
-}
-
-bool FAtlasTransportServer::ApplyNiagaraVariant(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} if(!R.Arguments.IsValid()||R.EntityIds.Num()==0){E=TEXT("apply_niagara_variant requires valid arguments and target entity_ids");return false;} const TSharedPtr<FJsonObject>* P=nullptr; if(!R.Arguments->TryGetObjectField(TEXT("niagara_variant"),P)||!P||!P->IsValid()){E=TEXT("arguments.niagara_variant must be an object");return false;} FString Name; if(!(*P)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){E=TEXT("arguments.niagara_variant.name must be a non-empty string");return false;}
-    if (R.AuthorizationId == HeterogeneousNiagaraFailureAuthorization)
-    {
-        E = TEXT("deterministic heterogeneous recovery failure injected by Unreal validation harness");
-        return false;
-    }
-    for(const FString& ID:R.EntityIds){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;}SetTaggedVariantName(A,NiagaraVariantTagPrefix,Name);} return InspectNiagaraState(R.EntityIds,O,E);
-}
-
-bool FAtlasTransportServer::BuildNiagaraVariantState(AActor* A,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!A||!IsValid(A)){E=TEXT("Cannot inspect Niagara state for invalid actor");return false;} TSharedPtr<FJsonObject> V=MakeShareable(new FJsonObject);V->SetStringField(TEXT("name"),GetTaggedVariantName(A,NiagaraVariantTagPrefix));O=MakeShareable(new FJsonObject);O->SetObjectField(TEXT("variant"),V);return true;
-}
-
 bool FAtlasTransportServer::FindSequencerPlaybackRange(int32& OutStartFrame, int32& OutEndFrame, FString& OutError)
 {
     if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){OutError=TEXT("Engine unavailable or operation is not on the game thread");return false;}
-    UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World();
-    if(!World||!IsValid(World)){OutError=TEXT("No valid world found");return false;}
+    UWorld* World=GetActiveEditorWorld();
+    if(!World||!IsValid(World)){OutError=TEXT("No valid active editor world found");return false;}
     for(TActorIterator<ALevelSequenceActor> It(World); It; ++It)
     {
         ALevelSequenceActor* SequenceActor=*It;
@@ -378,7 +350,7 @@ bool FAtlasTransportServer::FindSequencerPlaybackRange(int32& OutStartFrame, int
         OutEndFrame=PlaybackRange.GetUpperBoundValue().Value;
         return true;
     }
-    OutError=TEXT("No Level Sequence actor with a valid sequence found in the active Unreal world"); return false;
+    OutError=TEXT("No Level Sequence actor with a valid sequence found in the active Unreal editor world"); return false;
 }
 
 bool FAtlasTransportServer::InspectSequencerState(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
@@ -396,23 +368,12 @@ bool FAtlasTransportServer::SetSequencerPlaybackRange(const FTransportRequest& R
     double StartFrameValue=0,EndFrameValue=0; if(!R.Arguments->TryGetNumberField(TEXT("start_frame"),StartFrameValue)||!R.Arguments->TryGetNumberField(TEXT("end_frame"),EndFrameValue)){E=TEXT("start_frame and end_frame must be numeric");return false;}
     if(FMath::RoundToInt(StartFrameValue)!=StartFrameValue||FMath::RoundToInt(EndFrameValue)!=EndFrameValue){E=TEXT("start_frame and end_frame must be integers");return false;}
     const int32 StartFrame=FMath::RoundToInt(StartFrameValue); const int32 EndFrame=FMath::RoundToInt(EndFrameValue); if(StartFrame>EndFrame){E=TEXT("Sequencer start frame must not exceed end frame");return false;}
-    UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World)){E=TEXT("No valid world found");return false;}
+    UWorld* World=GetActiveEditorWorld(); if(!World||!IsValid(World)){E=TEXT("No valid active editor world found");return false;}
     for(TActorIterator<ALevelSequenceActor> It(World); It; ++It)
     {
         ALevelSequenceActor* SequenceActor=*It; if(!SequenceActor||!IsValid(SequenceActor)||!SequenceActor->GetSequence()) continue;
         ULevelSequence* Sequence=SequenceActor->GetSequence(); UMovieScene* MovieScene=Sequence->GetMovieScene(); if(!MovieScene) continue;
         MovieScene->Modify(); MovieScene->SetPlaybackRange(StartFrame,EndFrame); return InspectSequencerState(R.EntityIds,O,E);
     }
-    E=TEXT("No Level Sequence actor with a valid sequence found in the active Unreal world"); return false;
-}
-
-bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World)){E=TEXT("No valid world found");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
-    for(const FString& ID:IDs){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;} TSharedPtr<FJsonObject>D=MakeShareable(new FJsonObject);D->SetStringField(TEXT("entity_id"),ID);D->SetStringField(TEXT("actor_name"),A->GetName());D->SetStringField(TEXT("actor_class"),A->GetClass()->GetName()); FVector L=A->GetActorLocation();TSharedPtr<FJsonObject>LO=MakeShareable(new FJsonObject);LO->SetNumberField(TEXT("x"),L.X);LO->SetNumberField(TEXT("y"),L.Y);LO->SetNumberField(TEXT("z"),L.Z);D->SetObjectField(TEXT("location"),LO); FRotator R=A->GetActorRotation();TSharedPtr<FJsonObject>RO=MakeShareable(new FJsonObject);RO->SetNumberField(TEXT("pitch"),R.Pitch);RO->SetNumberField(TEXT("yaw"),R.Yaw);RO->SetNumberField(TEXT("roll"),R.Roll);D->SetObjectField(TEXT("rotation"),RO); FVector S=A->GetActorScale3D();TSharedPtr<FJsonObject>SO=MakeShareable(new FJsonObject);SO->SetNumberField(TEXT("x"),S.X);SO->SetNumberField(TEXT("y"),S.Y);SO->SetNumberField(TEXT("z"),S.Z);D->SetObjectField(TEXT("scale"),SO);State->SetObjectField(ID,D);} O=State;return true;
-}
-
-AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
-{
-    if(!IsInGameThread()||!GEngine||IsEngineExitRequested())return nullptr; UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World))return nullptr; const FString TagToFind=FString::Printf(TEXT("atlas_entity:%s"),*EntityId); for(TActorIterator<AActor> ActorItr(World);ActorItr;++ActorItr){AActor* Actor=*ActorItr;if(Actor&&IsValid(Actor)&&Actor->Tags.Contains(FName(*TagToFind)))return Actor;} return nullptr;
+    E=TEXT("No Level Sequence actor with a valid sequence found in the active Unreal editor world"); return false;
 }
