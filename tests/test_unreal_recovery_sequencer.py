@@ -478,8 +478,33 @@ def test_successful_recovery_contains_replacement_plan_and_result():
     
     # Vérifie que le résultat contient le plan et le résultat de remplacement
     assert result.replacement_plan == replacement_plan
-    assert result.replacement_result == replacement_result
+    
+    # Vérifie les propriétés du résultat de remplacement
+    assert result.replacement_result is not None
     assert result.replacement_result.success
+    assert result.replacement_result.intent_id == replacement_plan.intent_id
+    
+    # Vérifie que les opérations Sequencer ont été exécutées
+    sequencer_evidence = [ev for ev in result.replacement_result.evidence_ledger if "sequencer" in ev.operation_name]
+    assert len(sequencer_evidence) == 2
+    assert sequencer_evidence[0].operation_name == "set_sequencer_playback_range"
+    assert sequencer_evidence[1].operation_name == "verify_sequencer_playback_range"
+    assert sequencer_evidence[1].verified is True
+    
+    # Vérifie que les opérations Material ont été exécutées
+    material_evidence = [ev for ev in result.replacement_result.evidence_ledger if "material" in ev.operation_name]
+    assert len(material_evidence) == 1
+    assert material_evidence[0].operation_name == "verify_material_variant"
+    assert material_evidence[0].verified is True
+    
+    # Vérifie que l'état final correspond aux valeurs attendues
+    sequencer_state = sequencer_evidence[1].observed_state["FIELD_SURFACE"]["sequencer"]["playback_range"]
+    assert sequencer_state["start_frame"] == 10
+    assert sequencer_state["end_frame"] == 110
+    
+    material_state = material_evidence[0].observed_state["FIELD_SURFACE"]["material"]["variant"]
+    assert material_state["name"] == "liquid_surface"
+    
     assert result.assessment.disposition == "replacement_required"
 
 
