@@ -90,3 +90,33 @@ def test_sequence_replacement_requires_new_authorization():
         assert str(exc) == "authorization receipt does not match the exact Unreal task plan"
     else:
         raise AssertionError("stale reassessment authorization must not reach transport")
+
+
+def test_reassessment_rejects_failure_from_a_different_intent():
+    failure = UnrealPlanExecutionFailure("different-intent", 8, "verify_material_variant", (), "verification failed", ("FIELD_SURFACE",), {"entity_ids": ("FIELD_SURFACE",)}, ())
+    try:
+        build_reassessment_plan(_plan(), failure)
+    except ValueError as exc:
+        assert str(exc) == "recovery failure intent_id does not match the source Unreal task plan"
+    else:
+        raise AssertionError("recovery must reject a failure from another intent")
+
+
+def test_reassessment_rejects_failure_with_mismatched_operation_name():
+    failure = UnrealPlanExecutionFailure("composite-live", 8, "set_actor_location", (), "verification failed", ("FIELD_SURFACE",), {"entity_ids": ("FIELD_SURFACE",)}, ())
+    try:
+        build_reassessment_plan(_plan(), failure)
+    except ValueError as exc:
+        assert str(exc) == "recovery failure operation_name does not match the source Unreal task plan"
+    else:
+        raise AssertionError("recovery must reject a failure whose operation identity is forged")
+
+
+def test_reassessment_rejects_failure_with_mismatched_entities():
+    failure = UnrealPlanExecutionFailure("composite-live", 8, "verify_material_variant", (), "verification failed", ("OTHER_ENTITY",), {"entity_ids": ("OTHER_ENTITY",)}, ())
+    try:
+        build_reassessment_plan(_plan(), failure)
+    except ValueError as exc:
+        assert str(exc) == "recovery failure entity_ids do not match the source Unreal task plan"
+    else:
+        raise AssertionError("recovery must reject a failure whose entity identity is forged")
