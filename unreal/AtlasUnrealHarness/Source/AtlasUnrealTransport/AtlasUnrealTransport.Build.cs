@@ -13,7 +13,9 @@ public class AtlasUnrealTransport : ModuleRules
             "UnrealEd",
             "EditorStyle",
             "EditorWidgets",
-            "ToolMenus"
+            "ToolMenus",
+            "LevelSequence",
+            "MovieScene"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[] {
