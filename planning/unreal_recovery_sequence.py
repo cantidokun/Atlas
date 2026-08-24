@@ -59,7 +59,22 @@ _INSPECTION_CAPABILITIES = {
 }
 
 
+def _validate_failure_binding(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure) -> None:
+    """Require the failure identity to bind to the exact source plan operation."""
+    if failure.intent_id != plan.intent_id:
+        raise ValueError("recovery failure intent_id does not match the source Unreal task plan")
+    if failure.operation_index < 0 or failure.operation_index >= len(plan.operations):
+        raise ValueError("recovery failure operation_index is outside the source Unreal task plan")
+
+    operation = plan.operations[failure.operation_index]
+    if operation.name != failure.operation_name:
+        raise ValueError("recovery failure operation_name does not match the source Unreal task plan")
+    if tuple(operation.entity_ids) != tuple(failure.operation_entity_ids):
+        raise ValueError("recovery failure entity_ids do not match the source Unreal task plan")
+
+
 def _write_steps(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure):
+    _validate_failure_binding(plan, failure)
     steps = []
     for index, operation in enumerate(plan.operations):
         if index > failure.operation_index:
