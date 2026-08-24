@@ -1,13 +1,29 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 23, 2026 — live recovery sequence gate
+**Updated:** August 24, 2026 — live heterogeneous recovery gate
 **Current focus:** Multi-operation production execution with failure containment, fresh-state recovery, and explicitly authorized replacement mutations
 **Current branch:** `feat/unreal-composite-production-operation`
-**Current state:** composite planning, capability validation, production transport execution, independent post-write semantic verification, full-plan executor preflight, semantic write-to-verifier binding, explicit failure reassessment, recovery disposition, plan-bound replacement execution, an explicit end-to-end recovery coordinator, heterogeneous material/Niagara recovery coverage, and a live-Unreal recovery-sequence gate are implemented and tested.
 
-## Latest completed milestone
+## Current state
 
-The composite production path decomposes a single production intent into deterministic, capability-validated operations:
+The Unreal production boundary now has:
+
+- deterministic composite planning;
+- central capability validation;
+- full-plan executor preflight before transport;
+- semantic write-to-verifier binding;
+- production Windows Named Pipe execution;
+- independent post-write semantic verification;
+- explicit failure reassessment;
+- per-operation recovery disposition;
+- replacement-only plan construction;
+- separate plan-bound replacement authorization;
+- an explicit end-to-end recovery coordinator;
+- heterogeneous material/Niagara recovery coverage;
+- a live Unreal recovery-sequence gate;
+- a live Unreal heterogeneous Niagara recovery gate.
+
+## Composite production sequence
 
 ```text
 READ  inspect_target_actors
@@ -25,33 +41,9 @@ WRITE apply_niagara_variant
 VERIFY verify_niagara_variant
 ```
 
-Each write is immediately followed by a semantic verification boundary. Transform verification compares fresh Unreal observations against the requested location/rotation/scale; material and Niagara verification compare the observed variant names.
+Every supported production write is immediately followed by its matching semantic verifier.
 
-The complete composite production path has passed against the real Unreal transport, including application, independent verification, and restoration of the original state.
-
-## Execution-containment boundaries
-
-`UnrealPlanExecutor` preflights every operation in the complete ordered plan before the first transport call using the central `UnrealCapabilityRegistry` operation contract.
-
-The executor also binds each supported production write to its required semantic verifier before execution:
-
-```text
-set_actor_location       -> verify_actor_location
-set_actor_rotation       -> verify_actor_rotation
-set_actor_scale          -> verify_actor_scale
-apply_material_variant   -> verify_material_variant
-apply_niagara_variant    -> verify_niagara_variant
-```
-
-A same-entity verification is therefore not sufficient by itself. A plan cannot substitute a semantically unrelated verifier for the mutation it claims to prove. These checks are executor-side defense-in-depth; planner-generated plans remain validated by the planner.
-
-## Failure containment and recovery boundary
-
-`UnrealPlanExecutionFailure` preserves the failed operation, target entities, operation arguments, completed evidence, and completed operation arguments.
-
-The failure object exposes `reassessment_plan()`, producing a fresh, read-only Unreal inspection plan for the failed operation's entity scope. Recovery reassessment deliberately contains no WRITE operations and does not replay the failed mutation.
-
-The recovery sequence layer now supports the complete multi-write control loop:
+## Recovery sequence
 
 ```text
 Production failure
@@ -71,89 +63,27 @@ Immediate semantic verification
 Verified recovery completion
 ```
 
-`build_reassessment_plan()` covers every supported write through the failure boundary while deduplicating equivalent state-domain reads. `assess_reassessment_sequence()` classifies each relevant write as `already_applied`, `replacement_required`, or `manual_review`. `build_replacement_plan()` emits only the writes requiring replacement, preserving their original order and semantic verifiers.
+Recovery reassessment is read-only and never silently retries the failed mutation. `already_applied` operations are not replaced; `replacement_required` operations produce a new plan that requires separate authorization; `manual_review` cannot be converted into an automatic mutation.
 
-`execute_recovery_sequence()` is the explicit coordinator for that control loop. It requires an authorization receipt for the fresh reassessment and **never creates a replacement authorization itself**. If replacement is required, a separately issued authorization bound to the newly constructed replacement plan must be supplied. If recovery is already applied or requires manual review, a replacement authorization is rejected rather than silently consumed.
+## Live heterogeneous recovery gate — PASS
 
-## Heterogeneous recovery coverage
-
-Recovery now handles the same semantics across the non-transform production domains already supported by the composite path:
+The disposable Unreal harness now provides a narrowly scoped deterministic failure condition for the Niagara write operation. It is activated only by the dedicated integration-test authorization:
 
 ```text
-Transform write
-      ↓
-Material variant write
-      ↓
-Niagara variant write
+real-heterogeneous-recovery-failure-auth
 ```
 
-The recovery sequence maps material and Niagara write arguments to the canonical capability schema and preserves domain-specific semantic verification on replacement.
+The harness rejects `apply_niagara_variant` before changing Niagara state when that authorization is presented. Normal Niagara writes use their ordinary authorization identifiers and are unaffected. The existing Named Pipe JSON wire protocol is unchanged.
 
-Focused deterministic tests prove that a material failure can reassess a previously applied transform and replace only the material mutation, while a Niagara failure can reassess both earlier domains and replace only Niagara. Mixed-domain coverage additionally proves that already-applied domains remain untouched while only the unresolved replacement is authorized and executed.
-
-## Live Unreal recovery gate — PASS
-
-The new engine-dependent recovery-sequence test has passed against the real Unreal transport:
+The live gate passed:
 
 ```text
-python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
+python -m pytest tests/test_unreal_heterogeneous_recovery_real_integration.py -vv -s
 
 1 passed
 ```
 
-The live gate proves that the new recovery sequence can reassess the actual `FIELD_SURFACE` Actor state over the Windows Named Pipe after a simulated post-write failure without retrying the prior mutation. The test restores the original Actor state in a `finally` block.
-
-This is the first live proof for the new multi-operation recovery-sequence layer. It does **not** yet prove a live heterogeneous material/Niagara failure because the current real Unreal harness does not expose a deterministic failure-injection surface for those operations.
-
-## Real Unreal integration gate
-
-The engine-dependent composite production test has also passed against the live Unreal transport:
-
-```text
-python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
-
-1 passed
-```
-
-This remains the current full composite apply/verify/restore proof boundary.
-
-## Recovery invariants
-
-- A malformed later operation cannot cause an earlier real-Unreal mutation.
-- Every write requires an immediate verification operation.
-- Every supported production write requires its matching semantic verifier.
-- Verification requires fresh evidence and independent Atlas-side semantic proof.
-- Runtime transport failures stop execution immediately.
-- Completed evidence and operation arguments remain available through `UnrealPlanExecutionFailure` for recovery coordination.
-- Recovery reassessment is read-only and scoped to the relevant failed-plan entities.
-- Recovery must reassess fresh Unreal state and must not silently retry a failed mutation.
-- Recovery disposition is derived only from fresh reassessment evidence.
-- Assessment never authorizes or executes a mutation.
-- `already_applied` must not trigger an unnecessary replacement mutation.
-- `replacement_required` produces a new plan that requires explicit authorization.
-- The coordinator never creates replacement authorization implicitly.
-- Replacement execution is plan-bound; stale reassessment authorization is rejected before transport.
-- Manual review cannot be converted into an automatic replacement.
-- Material and Niagara replacement verification must use their domain-specific semantic evidence contracts.
-
-## Testing gate
-
-After implementation changes, run:
-
-```powershell
-python -m pytest tests/test_unreal_recovery_mixed_domain.py tests/test_unreal_recovery_heterogeneous_domains.py tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py -q
-```
-
-Then run both live gates:
-
-```powershell
-python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
-python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
-```
-
-## Next development boundary
-
-The next target is the **real-Unreal heterogeneous recovery boundary**. Before adding more Python-only recovery logic, extend the disposable Unreal validation harness only enough to create a deterministic, authorized failure condition for one heterogeneous operation while preserving the Named Pipe protocol and Atlas authorization boundary. Then prove:
+It proves:
 
 ```text
 live composite failure
@@ -166,14 +96,59 @@ replacement-only plan
        ↓
 new exact authorization
        ↓
-live replacement
+live Niagara replacement
        ↓
 independent verification
        ↓
 restore original state
 ```
 
-Do not fake the failure in Python and call that a real Unreal test. Do not change the Named Pipe wire protocol. Do not broaden into Blender development for this work. Do not modify the action/workflow runner.
+The test also proves that earlier transform and material writes survive the failed Niagara operation and are not unnecessarily replaced.
+
+## Other live gates
+
+The live recovery sequence gate passes:
+
+```text
+python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
+```
+
+The live composite production gate passes:
+
+```text
+python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
+```
+
+The focused deterministic recovery suite, including mixed-domain and heterogeneous-domain coverage, has passed at the current gate.
+
+## Current regression gate
+
+Run:
+
+```powershell
+python -m pytest tests/test_unreal_recovery_mixed_domain.py tests/test_unreal_recovery_heterogeneous_domains.py tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py tests/test_unreal_recovery_sequence_real_integration.py tests/test_unreal_heterogeneous_recovery_real_integration.py -q
+```
+
+Then run the live integration gates independently when Unreal is running:
+
+```powershell
+python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
+python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
+python -m pytest tests/test_unreal_heterogeneous_recovery_real_integration.py -vv -s
+```
+
+## Next development boundary
+
+The real-Unreal heterogeneous recovery boundary is now green. The next target is **recovery hardening and broader production-domain coverage**.
+
+Priorities:
+
+1. Preserve the live heterogeneous recovery test as a permanent regression boundary.
+2. Keep failure injection narrowly scoped to the disposable validation harness and isolated from ordinary production authorization paths.
+3. Expand live recovery coverage to additional supported domains only when the harness can provide deterministic, non-invasive failure injection.
+4. Preserve the exact recovery sequence: fresh reassessment → disposition → replacement-only plan → separate authorization → live replacement → independent verification.
+5. Keep the Named Pipe wire protocol unchanged.
+6. Keep Unreal development isolated from Blender and the action/workflow runner.
 
 ## Architectural invariants
 
@@ -189,9 +164,9 @@ Do not fake the failure in Python and call that a real Unreal test. Do not chang
 - Recovery disposition is informational/coordination state, not authorization.
 - Replacement mutations require explicit plan-bound authorization.
 - The Unreal Agent must never become a second autonomous authority separate from Atlas.
-- Keep development isolated from the action/workflow runner.
 - Do not weaken fail-closed validation.
 - Preserve stateless Unreal adapter behavior.
 - Preserve independent evidence verification.
 - Do not change the existing Named Pipe wire protocol.
 - Keep Unreal and Blender development isolated.
+- Do not modify the action/workflow runner.
