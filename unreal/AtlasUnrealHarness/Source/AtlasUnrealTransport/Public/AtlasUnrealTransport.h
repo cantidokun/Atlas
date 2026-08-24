@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "Modules/ModuleInterface.h"
 #include "Modules/ModuleManager.h"
 
@@ -13,5 +14,8 @@ public:
     virtual void ShutdownModule() override;
 
 private:
-    class FAtlasTransportServer* TransportServer;
+    bool EnsureSequencerFixture(float DeltaTime);
+
+    class FAtlasTransportServer* TransportServer = nullptr;
+    FTSTicker::FDelegateHandle SequencerFixtureTickerHandle;
 };
