@@ -48,12 +48,14 @@ _WRITE_DEFINITIONS = {
     "set_actor_scale": (UnrealCapability.MODIFY_ACTOR, "inspect_target_actors", "verify_actor_scale", "scale"),
     "apply_material_variant": (UnrealCapability.MATERIAL, "inspect_material_state", "verify_material_variant", "material_variant"),
     "apply_niagara_variant": (UnrealCapability.NIAGARA, "inspect_niagara_state", "verify_niagara_variant", "niagara_variant"),
+    "set_sequencer_playback_range": (UnrealCapability.SEQUENCER, "inspect_sequencer_state", "verify_sequencer_playback_range", "sequencer_playback_range"),
 }
 
 _INSPECTION_CAPABILITIES = {
     "inspect_target_actors": UnrealCapability.INSPECT_ACTOR,
     "inspect_material_state": UnrealCapability.MATERIAL,
     "inspect_niagara_state": UnrealCapability.NIAGARA,
+    "inspect_sequencer_state": UnrealCapability.SEQUENCER,
 }
 
 
@@ -97,6 +99,15 @@ def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFa
 
 def _expected_verifier_state(step):
     _, operation, _, _, _, argument_key = step
+    if operation.name == "set_sequencer_playback_range":
+        start_frame = operation.arguments.get("start_frame")
+        end_frame = operation.arguments.get("end_frame")
+        if isinstance(start_frame, bool) or not isinstance(start_frame, int):
+            raise ValueError("set_sequencer_playback_range has no recoverable integer start_frame")
+        if isinstance(end_frame, bool) or not isinstance(end_frame, int):
+            raise ValueError("set_sequencer_playback_range has no recoverable integer end_frame")
+        return {"start_frame": start_frame, "end_frame": end_frame}
+
     expected = operation.arguments.get(argument_key)
     if operation.name in {"apply_material_variant", "apply_niagara_variant"}:
         if not isinstance(expected, Mapping) or set(expected.keys()) != {"name"}:
@@ -120,6 +131,13 @@ def _verify(step, evidence):
         verify_material_variant(evidence, expected)
     elif operation.name == "apply_niagara_variant":
         verify_niagara_variant(evidence, expected)
+    elif operation.name == "set_sequencer_playback_range":
+        observed = {
+            "start_frame": int(evidence.observed_state[step[1].entity_ids[0]]["sequencer"]["start_frame"]),
+            "end_frame": int(evidence.observed_state[step[1].entity_ids[0]]["sequencer"]["end_frame"]),
+        }
+        if observed != expected:
+            raise ValueError("fresh Unreal Sequencer state does not match the requested playback range")
     else:
         raise ValueError(f"unsupported recovery verifier for '{operation.name}'")
 
@@ -145,7 +163,7 @@ def assess_reassessment_sequence(plan: UnrealTaskPlan, failure: UnrealPlanExecut
             continue
         try:
             _verify(step, evidence_list[-1])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, KeyError, IndexError):
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "replacement_required", "fresh Unreal state does not match the requested state"))
         else:
             assessments.append(UnrealRecoveryStepAssessment(index, operation.name, tuple(operation.entity_ids), "already_applied", "fresh Unreal state matches the requested state"))
@@ -191,6 +209,9 @@ def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySeque
             verify_args["material_variant"] = dict(operation.arguments[argument_key])
         elif operation.name == "apply_niagara_variant":
             verify_args["niagara_variant"] = dict(operation.arguments[argument_key])
+        elif operation.name == "set_sequencer_playback_range":
+            verify_args["expected_start_frame"] = int(operation.arguments["start_frame"])
+            verify_args["expected_end_frame"] = int(operation.arguments["end_frame"])
         operations.extend((
             UnrealOperation(operation.capability, UnrealOperationKind.WRITE, operation.name, dict(operation.arguments), tuple(operation.entity_ids)),
             UnrealOperation(operation.capability, UnrealOperationKind.VERIFY, verify_name, verify_args, tuple(operation.entity_ids)),
