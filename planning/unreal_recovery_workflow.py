@@ -16,6 +16,40 @@ from planning.unreal_recovery_sequence import (
 from planning.unreal_task_planner import UnrealTaskPlan
 
 
+def build_recovery_receipt(
+    reassessment_result: UnrealPlanExecutionResult,
+    replacement_plan: UnrealTaskPlan,
+    authorization_digest: str,
+) -> RecoveryReceipt:
+    """Construct the immutable receipt from the actual recovery artifacts.
+
+    This is the canonical handoff between reassessment and replacement
+    authorization. The evidence digest is derived from the reassessment
+    ledger and the plan digest is derived from the exact replacement plan,
+    rather than being supplied independently by the caller.
+    """
+    if not isinstance(reassessment_result, UnrealPlanExecutionResult):
+        raise TypeError("reassessment_result must be a UnrealPlanExecutionResult instance")
+    if not isinstance(replacement_plan, UnrealTaskPlan):
+        raise TypeError("replacement_plan must be a UnrealTaskPlan instance")
+    if not isinstance(authorization_digest, str) or not authorization_digest.strip():
+        raise ValueError("authorization_digest must be a non-empty string")
+
+    if not reassessment_result.success:
+        raise ValueError("cannot issue a recovery receipt from unsuccessful reassessment")
+
+    evidence_digest = digest_evidence_ledger(reassessment_result.evidence_ledger)
+    replacement_authorization = UnrealPlanAuthorization.issue(
+        replacement_plan,
+        "recovery-receipt-plan-identity",
+    )
+    return RecoveryReceipt(
+        evidence_digest,
+        replacement_authorization.plan_digest,
+        authorization_digest.strip(),
+    )
+
+
 def execute_receipt_bound_recovery_sequence(
     executor: UnrealPlanExecutor,
     plan: UnrealTaskPlan,
