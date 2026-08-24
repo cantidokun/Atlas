@@ -23,6 +23,11 @@ class BlenderLiveWriteGate:
         result, receipt = self._boundary.execute_authorized_write(action, authorization)
         if not receipt.matches_authorization(authorization.authorization_id):
             return BlenderLiveWriteOutcome.blocked({"receipt_authorized": False}, "Blender write receipt is not bound to authorization")
+        if not result.ok:
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": True, "result": result},
+                "Blender executor did not establish a successful write",
+            )
         if self._verifier is None:
             return BlenderLiveWriteOutcome.blocked({"receipt_authorized": True, "result": result}, "No authoritative Blender verifier is configured")
         try:
