@@ -3,6 +3,7 @@
 from typing import Optional
 
 from planning.recovery_receipt import RecoveryReceipt
+from planning.unreal_evidence_digest import digest_evidence_ledger
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
 from planning.unreal_recovery_execution import resume_replacement
@@ -32,6 +33,10 @@ def execute_receipt_bound_recovery_sequence(
     replacement is never executed merely because the assessment says it is
     needed: the exact replacement plan must additionally match the separate
     Unreal authorization and the immutable recovery receipt.
+
+    The supplied evidence identity must match the canonical digest of the
+    freshly reassessed evidence ledger. This prevents a caller from presenting
+    a stale or caller-invented evidence identity as fresh recovery evidence.
     """
     if not isinstance(executor, UnrealPlanExecutor):
         raise TypeError("executor must be a UnrealPlanExecutor instance")
@@ -51,6 +56,11 @@ def execute_receipt_bound_recovery_sequence(
         reassessment_plan,
         reassessment_authorization,
     )
+
+    fresh_evidence_digest = digest_evidence_ledger(reassessment_result.evidence_ledger)
+    if evidence_digest != fresh_evidence_digest:
+        raise RuntimeError("recovery receipt evidence identity does not match fresh reassessment evidence")
+
     assessment = assess_reassessment_sequence(
         plan,
         failure,
