@@ -163,4 +163,4 @@ See `ATLAS_HANDOFF_CURRENT.md` for the authoritative resume point and `DEVELOPME
 
 ## Current checkpoint
 
-The handoff records the exact architecture, files, known issues, validation baseline, runtime setup, and resume sequence. This documentation refresh adds no new test result or live execution claim.
+The handoff has been refreshed to preserve the current architecture, concrete files and tests, validation baseline, runtime setup, known issues, and exact resume sequence. This documentation refresh adds no new test result or live execution claim.
