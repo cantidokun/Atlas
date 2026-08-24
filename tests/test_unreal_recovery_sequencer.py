@@ -180,11 +180,16 @@ class _TestUnrealTransport:
     
     def __init__(self):
         self._responses = {}
+        self._auth_responses = {}
         self._current_authorization_id = None
     
     def set_response(self, plan_intent_id, result):
         """Configure la réponse pour un plan donné."""
         self._responses[plan_intent_id] = result
+    
+    def set_response_for_auth(self, authorization_id, result):
+        """Configure la réponse pour un authorization_id spécifique."""
+        self._auth_responses[authorization_id] = result
     
     def send(self, request):
         """Simule l'envoi d'une requête avec des réponses prédéfinies."""
@@ -194,31 +199,24 @@ class _TestUnrealTransport:
         # Utilise l'authorization_id pour déterminer le contexte d'exécution
         self._current_authorization_id = request.authorization_id
         
-        # Trouve la réponse configurée en priorisant par authorization_id
+        # D'abord, cherche une réponse configurée explicitement pour cet authorization_id
         result = None
-        matching_plan_id = None
-        
-        # D'abord, cherche une correspondance exacte par authorization_id
-        for plan_id, stored_result in self._responses.items():
-            if request.authorization_id in plan_id or plan_id.endswith(request.authorization_id.replace("test-", "")):
-                # Vérifie si cette réponse contient l'opération demandée
-                for evidence in stored_result.evidence_ledger:
-                    if (evidence.operation_name == request.operation_name and 
-                        tuple(evidence.entity_ids) == tuple(request.entity_ids)):
-                        result = stored_result
-                        matching_plan_id = plan_id
-                        break
-                if result:
+        if request.authorization_id in self._auth_responses:
+            auth_result = self._auth_responses[request.authorization_id]
+            # Vérifie si cette réponse contient l'opération demandée
+            for evidence in auth_result.evidence_ledger:
+                if (evidence.operation_name == request.operation_name and 
+                    tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+                    result = auth_result
                     break
         
-        # Si pas de correspondance par authorization_id, utilise la logique originale
+        # Si pas de correspondance par authorization_id, utilise la logique plan_intent_id existante
         if result is None:
             for plan_id, stored_result in self._responses.items():
                 for evidence in stored_result.evidence_ledger:
                     if (evidence.operation_name == request.operation_name and 
                         tuple(evidence.entity_ids) == tuple(request.entity_ids)):
                         result = stored_result
-                        matching_plan_id = plan_id
                         break
                 if result:
                     break
@@ -395,6 +393,9 @@ def test_matching_replacement_authorization_allows_execution():
     )
     replacement_authorization = issue_replacement_authorization(replacement_plan, "test-replace-auth")
     
+    # Configure la réponse de remplacement pour l'authorization_id spécifique
+    transport.set_response_for_auth("test-replace-auth", replacement_result)
+    
     # Doit s'exécuter avec succès
     result = execute_recovery_sequence(
         executor, plan, failure, reassessment_authorization, replacement_authorization
@@ -467,6 +468,9 @@ def test_successful_recovery_contains_replacement_plan_and_result():
         "test-reassess-auth"
     )
     replacement_authorization = issue_replacement_authorization(replacement_plan, "test-replace-auth")
+    
+    # Configure la réponse de remplacement pour l'authorization_id spécifique
+    transport.set_response_for_auth("test-replace-auth", replacement_result)
     
     result = execute_recovery_sequence(
         executor, plan, failure, reassessment_authorization, replacement_authorization
@@ -553,6 +557,9 @@ def test_replacement_result_contains_sequencer_write_then_verify():
         "test-reassess-auth"
     )
     replacement_authorization = issue_replacement_authorization(replacement_plan, "test-replace-auth")
+    
+    # Configure la réponse de remplacement pour l'authorization_id spécifique
+    transport.set_response_for_auth("test-replace-auth", replacement_result)
     
     result = execute_recovery_sequence(
         executor, plan, failure, reassessment_authorization, replacement_authorization
