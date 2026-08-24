@@ -1,15 +1,27 @@
 """Final pre-live gate for one authorized Blender write."""
+from typing import Any, Callable, Mapping, Optional, Tuple
+
 from planning.action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_live_write_result import BlenderLiveWriteOutcome
 from planning.blender_write_authorization import BlenderWriteAuthorization
 
 
-class BlenderLiveWriteGate:
-    """Execute exactly one authorization-bound Blender write."""
+AuthoritativeVerifier = Callable[
+    [ActionSpec, Any], Tuple[bool, Mapping[str, Any]]
+]
 
-    def __init__(self, boundary: BlenderExecutionBoundary) -> None:
+
+class BlenderLiveWriteGate:
+    """Execute one authorization-bound Blender write and verify authoritative state."""
+
+    def __init__(
+        self,
+        boundary: BlenderExecutionBoundary,
+        verifier: Optional[AuthoritativeVerifier] = None,
+    ) -> None:
         self._boundary = boundary
+        self._verifier = verifier
 
     def execute(
         self,
@@ -24,7 +36,18 @@ class BlenderLiveWriteGate:
                 {"receipt_authorized": False},
                 "Blender write receipt is not bound to authorization",
             )
+        if self._verifier is None:
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": True, "result": result},
+                "No authoritative Blender verifier is configured",
+            )
+        verified, verification = self._verifier(action, receipt)
+        if not verified:
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": True, "result": result, **dict(verification)},
+                "Authoritative Blender state did not verify the requested write",
+            )
         return BlenderLiveWriteOutcome.verified(
             receipt,
-            {"receipt_authorized": True, "result": result},
+            {"receipt_authorized": True, "result": result, **dict(verification)},
         )
