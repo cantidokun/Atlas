@@ -42,7 +42,11 @@ DEFAULT_UNREAL_CAPABILITIES = (
     UnrealCapabilitySpec(UnrealCapability.MATERIAL, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("material_state",), "Inspect, modify, or verify material state.", argument_keys_by_kind={UnrealOperationKind.READ: frozenset({"entity_ids"}), UnrealOperationKind.WRITE: frozenset({"entity_ids", "material_variant"}), UnrealOperationKind.VERIFY: frozenset({"entity_ids", "material_variant"})}),
     UnrealCapabilitySpec(UnrealCapability.NIAGARA, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("niagara_state",), "Inspect, modify, or verify Niagara VFX state.", argument_keys_by_kind={UnrealOperationKind.READ: frozenset({"entity_ids"}), UnrealOperationKind.WRITE: frozenset({"entity_ids", "niagara_variant"}), UnrealOperationKind.VERIFY: frozenset({"entity_ids", "niagara_variant"})}),
     UnrealCapabilitySpec(UnrealCapability.BLUEPRINT, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("blueprint_state",), "Inspect, modify, or verify Blueprint state."),
-    UnrealCapabilitySpec(UnrealCapability.SEQUENCER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("sequencer_state",), "Inspect, modify, or verify Sequencer state."),
+    UnrealCapabilitySpec(UnrealCapability.SEQUENCER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("sequencer_state",), "Inspect, modify, or verify Sequencer state.", argument_keys_by_kind={
+        UnrealOperationKind.READ: frozenset({"entity_ids"}),
+        UnrealOperationKind.WRITE: frozenset({"entity_ids", "start_frame", "end_frame"}),
+        UnrealOperationKind.VERIFY: frozenset({"entity_ids", "expected_start_frame", "expected_end_frame"}),
+    }),
     UnrealCapabilitySpec(UnrealCapability.RENDER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("render_state",), "Configure or verify controlled Unreal rendering operations."),
 )
 
@@ -97,6 +101,16 @@ class UnrealCapabilityRegistry:
             variant = arguments.get(field)
             if not isinstance(variant, Mapping) or set(variant.keys()) != {"name"}: raise ValueError(f"{field} must contain exactly name")
             if not isinstance(variant["name"], str) or not variant["name"].strip(): raise ValueError(f"{field}.name must be a non-empty string")
+        if operation.capability is UnrealCapability.SEQUENCER and operation.kind in {UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}:
+            start_key = "start_frame" if operation.kind is UnrealOperationKind.WRITE else "expected_start_frame"
+            end_key = "end_frame" if operation.kind is UnrealOperationKind.WRITE else "expected_end_frame"
+            start_frame, end_frame = arguments[start_key], arguments[end_key]
+            if isinstance(start_frame, bool) or not isinstance(start_frame, int):
+                raise TypeError(f"{start_key} must be an integer")
+            if isinstance(end_frame, bool) or not isinstance(end_frame, int):
+                raise TypeError(f"{end_key} must be an integer")
+            if start_frame > end_frame:
+                raise ValueError("Sequencer start frame must not exceed end frame")
         return operation
 
     def all(self):
