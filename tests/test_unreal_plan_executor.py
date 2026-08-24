@@ -277,3 +277,83 @@ def test_executor_preflights_entire_plan_before_any_transport_mutation():
         executor.execute(plan, "auth-preflight-001")
 
     assert transport.requests == []
+
+
+def _sequencer_operation(start_frame, end_frame):
+    return UnrealOperation(
+        capability=UnrealCapability.SEQUENCER,
+        kind=UnrealOperationKind.WRITE,
+        name="set_sequencer_playback_range",
+        arguments={"entity_ids": ("SEQUENCER_1",), "start_frame": start_frame, "end_frame": end_frame},
+        entity_ids=("SEQUENCER_1",),
+    )
+
+
+def _verify_sequencer_operation(expected_start=None, expected_end=None):
+    expected_start = 10 if expected_start is None else expected_start
+    expected_end = 100 if expected_end is None else expected_end
+    return UnrealOperation(
+        capability=UnrealCapability.SEQUENCER,
+        kind=UnrealOperationKind.VERIFY,
+        name="verify_sequencer_playback_range",
+        arguments={"entity_ids": ("SEQUENCER_1",), "expected_start_frame": expected_start, "expected_end_frame": expected_end},
+        entity_ids=("SEQUENCER_1",),
+    )
+
+
+def test_executor_valid_sequencer_write_verify_passes():
+    transport = RecordingTransport({"SEQUENCER_1": {"sequencer": {"playback_range": {"start_frame": 10, "end_frame": 100}}}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan("sequencer-write", (_sequencer_operation(10, 100), _verify_sequencer_operation(10, 100)))
+
+    result = executor.execute(plan, "auth-sequencer-001")
+
+    assert result.success is True
+    assert len(result.evidence_ledger) == 2
+    assert result.evidence_ledger[1].verified is True
+    assert transport.requests[0].arguments["start_frame"] == 10
+    assert transport.requests[0].arguments["end_frame"] == 100
+
+
+def test_executor_rejects_wrong_sequencer_verifier_before_transport():
+    transport = RecordingTransport({})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    wrong_verifier = UnrealOperation(
+        capability=UnrealCapability.MODIFY_ACTOR,
+        kind=UnrealOperationKind.VERIFY,
+        name="verify_actor_location",
+        arguments={"entity_ids": ("SEQUENCER_1",), "expected_location": {"x": 0.0, "y": 0.0, "z": 0.0}},
+        entity_ids=("SEQUENCER_1",),
+    )
+    plan = UnrealTaskPlan("sequencer-wrong-verifier", (_sequencer_operation(10, 100), wrong_verifier))
+
+    with pytest.raises(UnrealPlanExecutionError, match="must be followed by 'verify_sequencer_playback_range'"):
+        executor.execute(plan, "auth-sequencer-002")
+
+    assert transport.requests == []
+
+
+def test_executor_rejects_sequencer_playback_range_mismatch():
+    requested_start, requested_end = 10, 100
+    observed_start, observed_end = 5, 90
+    transport = RecordingTransport({"SEQUENCER_1": {"sequencer": {"playback_range": {"start_frame": observed_start, "end_frame": observed_end}}}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan("sequencer-mismatch", (_sequencer_operation(requested_start, requested_end), _verify_sequencer_operation(requested_start, requested_end)))
+
+    with pytest.raises(UnrealPlanExecutionError, match="does not match expected"):
+        executor.execute(plan, "auth-sequencer-003")
+
+    assert len(transport.requests) == 2
+
+
+def test_executor_marks_successful_sequencer_verification_as_verified():
+    transport = RecordingTransport({"SEQUENCER_1": {"sequencer": {"playback_range": {"start_frame": 20, "end_frame": 200}}}})
+    executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
+    plan = UnrealTaskPlan("sequencer-verify-only", (_verify_sequencer_operation(20, 200),))
+
+    result = executor.execute(plan, "auth-sequencer-004")
+
+    assert result.success is True
+    assert len(result.evidence_ledger) == 1
+    assert result.evidence_ledger[0].verified is True
+    assert result.evidence_ledger[0].operation_name == "verify_sequencer_playback_range"

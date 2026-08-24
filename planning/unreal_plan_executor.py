@@ -11,6 +11,7 @@ from planning.unreal_material_verifier import verify_material_variant
 from planning.unreal_niagara_verifier import verify_niagara_variant
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
+from planning.unreal_sequencer_verifier import verify_sequencer_playback_range
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_tool_schema import validate_unreal_tool_call
 
@@ -80,6 +81,7 @@ class UnrealPlanExecutionFailure:
             elif "scale" in expected: verify_actor_scale(evidence, expected["scale"])
             elif "material_variant" in expected: verify_material_variant(evidence, expected["material_variant"])
             elif "niagara_variant" in expected: verify_niagara_variant(evidence, expected["niagara_variant"])
+            elif "start_frame" in expected and "end_frame" in expected: verify_sequencer_playback_range(evidence, expected["start_frame"], expected["end_frame"])
         except (TypeError, ValueError):
             return UnrealRecoveryAssessment("replacement_required", self.operation_name, tuple(self.operation_entity_ids), "fresh Unreal state does not match the failed operation's requested state")
         return UnrealRecoveryAssessment("already_applied", self.operation_name, tuple(self.operation_entity_ids), "fresh Unreal state already matches the failed operation's requested state")
@@ -141,6 +143,15 @@ class UnrealPlanExecutionFailure:
                 UnrealOperation(UnrealCapability.NIAGARA, UnrealOperationKind.WRITE, "apply_niagara_variant", {"entity_ids": ids, "niagara_variant": normalized}, ids),
                 UnrealOperation(UnrealCapability.NIAGARA, UnrealOperationKind.VERIFY, "verify_niagara_variant", {"entity_ids": ids, "niagara_variant": normalized}, ids),
             )
+        elif self.operation_name in {"set_sequencer_playback_range", "verify_sequencer_playback_range"}:
+            start_frame = args.get("start_frame", args.get("expected_start_frame"))
+            end_frame = args.get("end_frame", args.get("expected_end_frame"))
+            if start_frame is None or end_frame is None:
+                raise ValueError("failed sequencer operation does not contain recoverable start_frame and end_frame")
+            ops = (
+                UnrealOperation(UnrealCapability.SEQUENCER, UnrealOperationKind.WRITE, "set_sequencer_playback_range", {"entity_ids": ids, "start_frame": start_frame, "end_frame": end_frame}, ids),
+                UnrealOperation(UnrealCapability.SEQUENCER, UnrealOperationKind.VERIFY, "verify_sequencer_playback_range", {"entity_ids": ids, "expected_start_frame": start_frame, "expected_end_frame": end_frame}, ids),
+            )
         else:
             raise ValueError(f"unsupported recovery replacement operation: {self.operation_name}")
         return UnrealTaskPlan(f"{self.intent_id}:recovery-replacement", ops)
@@ -157,6 +168,8 @@ class UnrealPlanExecutionFailure:
         if self.operation_name == "verify_material_variant": return {"material_variant": arguments.get("expected_material_variant")}
         if self.operation_name == "apply_niagara_variant": return {"niagara_variant": arguments.get("niagara_variant")}
         if self.operation_name == "verify_niagara_variant": return {"niagara_variant": arguments.get("expected_niagara_variant")}
+        if self.operation_name == "set_sequencer_playback_range": return {"start_frame": arguments.get("start_frame"), "end_frame": arguments.get("end_frame")}
+        if self.operation_name == "verify_sequencer_playback_range": return {"start_frame": arguments.get("expected_start_frame"), "end_frame": arguments.get("expected_end_frame")}
         return {}
 
 
@@ -181,7 +194,7 @@ class UnrealPlanExecutor:
     _DISPATCH = {UnrealOperationKind.READ: "inspect", UnrealOperationKind.WRITE: "apply_authorized", UnrealOperationKind.VERIFY: "verify"}
     @staticmethod
     def _expected_verifier(write_operation):
-        return {"set_actor_location":"verify_actor_location","set_actor_rotation":"verify_actor_rotation","set_actor_scale":"verify_actor_scale","apply_material_variant":"verify_material_variant","apply_niagara_variant":"verify_niagara_variant"}.get(write_operation.name)
+        return {"set_actor_location":"verify_actor_location","set_actor_rotation":"verify_actor_rotation","set_actor_scale":"verify_actor_scale","apply_material_variant":"verify_material_variant","apply_niagara_variant":"verify_niagara_variant","set_sequencer_playback_range":"verify_sequencer_playback_range"}.get(write_operation.name)
     @classmethod
     def _validate_execution_shape(cls, plan):
         for index, operation in enumerate(plan.operations):
@@ -208,10 +221,11 @@ class UnrealPlanExecutor:
         if write_operation.name=="set_actor_scale": return {"scale":dict(a["scale"])}
         if write_operation.name=="apply_material_variant": return {"material_variant":dict(a["material_variant"])}
         if write_operation.name=="apply_niagara_variant": return {"niagara_variant":dict(a["niagara_variant"])}
+        if write_operation.name=="set_sequencer_playback_range": return {"start_frame":a["start_frame"],"end_frame":a["end_frame"]}
         return {}
     @staticmethod
-    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant"}
-    def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None):
+    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range"}
+    def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None,expected_start_frame=None,expected_end_frame=None):
         arguments=dict(operation.arguments); arguments["entity_ids"]=tuple(operation.entity_ids); arguments["authorization_id"]=authorization_id; validate_unreal_tool_call(operation.name,arguments)
         method_name=self._DISPATCH[operation.kind]; evidence=getattr(self._adapter,method_name)(operation,authorization_id); validate_evidence_for_operation(evidence,operation.name,tuple(operation.entity_ids))
         if operation.kind is UnrealOperationKind.VERIFY:
@@ -220,6 +234,7 @@ class UnrealPlanExecutor:
             if expected_scale is not None: evidence=verify_actor_scale(evidence,expected_scale)
             if expected_material_variant is not None: evidence=verify_material_variant(evidence,expected_material_variant)
             if expected_niagara_variant is not None: evidence=verify_niagara_variant(evidence,expected_niagara_variant)
+            if expected_start_frame is not None and expected_end_frame is not None: evidence=verify_sequencer_playback_range(evidence,expected_start_frame,expected_end_frame)
             if self._is_semantically_verified(operation,evidence): evidence=replace(evidence,verified=True)
         return evidence
     @staticmethod
@@ -238,7 +253,7 @@ class UnrealPlanExecutor:
                 previous=plan.operations[index-1] if index else None
                 if previous is None or previous.kind not in (UnrealOperationKind.WRITE,UnrealOperationKind.READ): raise UnrealPlanExecutionError(f"Verify operation {index} ('{operation.name}') must follow a read or write")
                 if previous.kind is UnrealOperationKind.WRITE: expected=self._verification_expectation(previous)
-            try: evidence=self._execute_one(operation,authorization_id,expected_location=expected.get("location"),expected_rotation=expected.get("rotation"),expected_scale=expected.get("scale"),expected_material_variant=expected.get("material_variant"),expected_niagara_variant=expected.get("niagara_variant"))
+            try: evidence=self._execute_one(operation,authorization_id,expected_location=expected.get("location"),expected_rotation=expected.get("rotation"),expected_scale=expected.get("scale"),expected_material_variant=expected.get("material_variant"),expected_niagara_variant=expected.get("niagara_variant"),expected_start_frame=expected.get("start_frame"),expected_end_frame=expected.get("end_frame"))
             except (UnrealAdapterError,ValueError,TypeError) as exc:
                 message=f"Operation {index} ('{operation.name}') failed: {exc}"; failure=UnrealPlanExecutionFailure(plan.intent_id,index,operation.name,tuple(ledger),message,tuple(operation.entity_ids),self._failure_context(operation),tuple(completed)); raise UnrealPlanExecutionError(message,failure=failure) from exc
             except Exception as exc:
