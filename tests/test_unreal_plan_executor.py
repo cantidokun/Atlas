@@ -349,11 +349,11 @@ def test_executor_rejects_sequencer_playback_range_mismatch():
 def test_executor_marks_successful_sequencer_verification_as_verified():
     transport = RecordingTransport({"SEQUENCER_1": {"sequencer": {"playback_range": {"start_frame": 20, "end_frame": 200}}}})
     executor = UnrealPlanExecutor(UnrealAdapterProduction(transport))
-    plan = UnrealTaskPlan("sequencer-verify-only", (_verify_sequencer_operation(20, 200),))
+    plan = UnrealTaskPlan("sequencer-write-verify", (_sequencer_operation(20, 200), _verify_sequencer_operation(20, 200)))
 
     result = executor.execute(plan, "auth-sequencer-004")
 
     assert result.success is True
-    assert len(result.evidence_ledger) == 1
-    assert result.evidence_ledger[0].verified is True
-    assert result.evidence_ledger[0].operation_name == "verify_sequencer_playback_range"
+    assert len(result.evidence_ledger) == 2
+    assert result.evidence_ledger[1].verified is True
+    assert result.evidence_ledger[1].operation_name == "verify_sequencer_playback_range"
