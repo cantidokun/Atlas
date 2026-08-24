@@ -2,6 +2,7 @@ import pytest
 
 from planning.recovery_receipt import RecoveryReceipt
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
+from planning.unreal_evidence_digest import digest_evidence_ledger
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
 from planning.unreal_recovery_sequence import UnrealRecoverySequenceAssessment, UnrealRecoveryStepAssessment
@@ -79,6 +80,10 @@ def _assessment(disposition):
     ))
 
 
+def _receipt(evidence_digest, replacement_auth, authorization_digest="authorization-1"):
+    return RecoveryReceipt(evidence_digest, replacement_auth.plan_digest, authorization_digest)
+
+
 def test_receipt_bound_workflow_executes_replacement_only_after_receipt_check(monkeypatch):
     import planning.unreal_recovery_workflow as workflow
 
@@ -88,7 +93,8 @@ def test_receipt_bound_workflow_executes_replacement_only_after_receipt_check(mo
     replacement = _valid_plan("replacement")
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
     replacement_auth = UnrealPlanAuthorization.issue(replacement, "replacement-auth")
-    receipt = RecoveryReceipt("evidence-1", replacement_auth.plan_digest, "authorization-1")
+    evidence_digest = digest_evidence_ledger(())
+    receipt = _receipt(evidence_digest, replacement_auth)
     executor, calls = _executor(monkeypatch)
     replacement_calls = []
 
@@ -109,7 +115,7 @@ def test_receipt_bound_workflow_executes_replacement_only_after_receipt_check(mo
         reassessment_auth,
         replacement_auth,
         receipt,
-        evidence_digest="evidence-1",
+        evidence_digest=evidence_digest,
         authorization_digest="authorization-1",
     )
 
@@ -132,6 +138,7 @@ def test_receipt_bound_workflow_does_not_mutate_when_reassessment_says_already_a
     executor, calls = _executor(monkeypatch)
     monkeypatch.setattr(workflow, "build_reassessment_plan", lambda *_: reassessment)
     monkeypatch.setattr(workflow, "assess_reassessment_sequence", lambda *_: _assessment("already_applied"))
+    evidence_digest = digest_evidence_ledger(())
 
     result = execute_receipt_bound_recovery_sequence(
         executor,
@@ -139,8 +146,8 @@ def test_receipt_bound_workflow_does_not_mutate_when_reassessment_says_already_a
         failure,
         reassessment_auth,
         None,
-        RecoveryReceipt("evidence-1", "unused-plan", "authorization-1"),
-        evidence_digest="evidence-1",
+        RecoveryReceipt(evidence_digest, "unused-plan", "authorization-1"),
+        evidence_digest=evidence_digest,
         authorization_digest="authorization-1",
     )
 
@@ -158,6 +165,7 @@ def test_receipt_bound_workflow_rejects_stale_receipt_before_replacement(monkeyp
     replacement = _valid_plan("replacement")
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
     replacement_auth = UnrealPlanAuthorization.issue(replacement, "replacement-auth")
+    fresh_evidence_digest = digest_evidence_ledger(())
     stale_receipt = RecoveryReceipt("old-evidence", replacement_auth.plan_digest, "authorization-1")
     executor, calls = _executor(monkeypatch)
 
@@ -173,7 +181,32 @@ def test_receipt_bound_workflow_rejects_stale_receipt_before_replacement(monkeyp
             reassessment_auth,
             replacement_auth,
             stale_receipt,
-            evidence_digest="fresh-evidence",
+            evidence_digest=fresh_evidence_digest,
+            authorization_digest="authorization-1",
+        )
+
+    assert calls == [(reassessment, reassessment_auth)]
+
+
+def test_receipt_bound_workflow_rejects_caller_supplied_stale_evidence_digest(monkeypatch):
+    import planning.unreal_recovery_workflow as workflow
+
+    source = _source_plan()
+    failure = _failure()
+    reassessment = _valid_plan("reassessment")
+    reassessment_auth = UnrealPlanAuthorization.issue(reassessment, "reassessment-auth")
+    executor, calls = _executor(monkeypatch)
+    monkeypatch.setattr(workflow, "build_reassessment_plan", lambda *_: reassessment)
+
+    with pytest.raises(RuntimeError, match="fresh reassessment evidence"):
+        execute_receipt_bound_recovery_sequence(
+            executor,
+            source,
+            failure,
+            reassessment_auth,
+            None,
+            RecoveryReceipt("stale", "unused-plan", "authorization-1"),
+            evidence_digest="stale",
             authorization_digest="authorization-1",
         )
 
