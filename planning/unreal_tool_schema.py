@@ -24,6 +24,9 @@ UNREAL_TOOL_SCHEMAS = {
     "verify_actor_rotation": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "expected_rotation": dict}),
     "set_actor_scale": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "scale": dict}),
     "verify_actor_scale": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "expected_scale": dict}),
+    "inspect_sequencer_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
+    "set_sequencer_playback_range": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "start_frame": int, "end_frame": int}),
+    "verify_sequencer_playback_range": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "expected_start_frame": int, "expected_end_frame": int}),
 }
 
 
@@ -76,4 +79,15 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
             if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in value.values()):
                 raise TypeError(message)
             snapshot[field] = dict(value)
+    if tool in {"set_sequencer_playback_range", "verify_sequencer_playback_range"}:
+        start_key = "start_frame" if tool == "set_sequencer_playback_range" else "expected_start_frame"
+        end_key = "end_frame" if tool == "set_sequencer_playback_range" else "expected_end_frame"
+        start_frame = snapshot[start_key]
+        end_frame = snapshot[end_key]
+        if isinstance(start_frame, bool) or not isinstance(start_frame, int):
+            raise TypeError(f"{start_key} must be an integer")
+        if isinstance(end_frame, bool) or not isinstance(end_frame, int):
+            raise TypeError(f"{end_key} must be an integer")
+        if start_frame > end_frame:
+            raise ValueError("Sequencer start frame must not exceed end frame")
     return snapshot
