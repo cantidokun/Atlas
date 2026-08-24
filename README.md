@@ -31,38 +31,9 @@ receipts = 4
 external_change_injected = true
 ```
 
-Final independently observed state:
-
-```text
-Goal_Left_post
-location = [1.0, 0.0, 0.0]
-rotation = [0.0, 0.0, 45.0]
-
-Goal_Right_post
-location = [-1.0, 0.0, 0.0]
-rotation = [0.0, 0.0, -45.0]
-```
-
-The generalized lifecycle is:
-
-```text
-fresh world evidence
- -> corrective planning
- -> explicit authorization
- -> protected Blender execution
- -> normalized result + immutable receipt
- -> fresh observation
- -> external change / interruption
- -> fresh replanning
- -> reauthorization
- -> corrective execution
- -> independent final verification
- -> completion
-```
-
 ## Current development increment: authorization-bound live writes
 
-The next production gate is being built around a shared authorization-bound Blender write path rather than bespoke lifecycle orchestration for individual tools.
+The next production gate is a shared authorization-bound Blender write path rather than bespoke lifecycle orchestration for individual tools.
 
 Current target architecture:
 
@@ -78,6 +49,8 @@ ActionSpec
  -> VERIFIED / BLOCKED
 ```
 
+The live gate now fails closed when authoritative verification is missing, mismatches, or raises an exception. A verifier failure cannot trigger an implicit second write.
+
 Current implementation includes:
 
 - `planning/blender_capability_catalog.py` — explicit read/write capability classification and fail-closed unknown capabilities.
@@ -87,8 +60,9 @@ Current implementation includes:
 - `planning/blender_live_verification.py` — independent authoritative post-write verification helper.
 - `planning/blender_execution_receipt.py` — immutable receipt with optional authorization binding.
 - `planning/blender_execution_boundary.py` — raw, verified, receipt-bound, authorized-write, and corrective-replan execution APIs.
+- `live_blender_write_gate_rotation.py` — direct normal/adversarial live rotation probe.
 
-The live object-rotation path has also been moved onto the shared authorization-bound architecture. The newest implementation changes remain **not runner-validated**.
+The live object-rotation path is on the shared authorization-bound architecture. The newest implementation changes remain **not runner-validated**.
 
 ## Validation discipline
 
@@ -106,18 +80,16 @@ Earlier verified results include:
 - **141 passed** — earlier focused suite baseline.
 - Generalized Windows/Blender corrective-runtime gate: **PASS**, with 4 receipts and an injected external scene change followed by successful fresh-state replanning and recovery.
 
-Live Blender claims must be backed by actual Windows/Blender runner output. Historical results describe the commits on which they were actually observed.
+Live Blender claims must be backed by actual Windows/Blender runner output.
 
-## Resume gate
+## Current milestone target
 
-The next coding step is to integrate `planning/blender_live_verification.py` into `BlenderLiveWriteGate` so that `VERIFIED` requires authoritative final-state confirmation, not merely successful executor output and receipt binding.
+The architecture is now ready for runner validation of the complete controlled-write proof:
 
-Then prove, in order:
-
-1. authorized `move_object` -> actual Blender subprocess;
+1. authorized `move_object` / rotation -> actual Blender subprocess;
 2. authoritative state matches -> `VERIFIED` + authorization-bound receipt;
 3. executor reports success but authoritative state disagrees -> `BLOCKED`;
-4. `BLOCKED` produces no receipt and prevents subsequent writes;
+4. `BLOCKED` produces no successful receipt and prevents a second write;
 5. only then generalize the shared path to the remaining admitted write capabilities.
 
 Do not weaken verification or create per-tool lifecycle orchestration to make tests pass.
@@ -163,4 +135,6 @@ See `ATLAS_HANDOFF_CURRENT.md` for the authoritative resume point and `DEVELOPME
 
 ## Current checkpoint
 
-The handoff has been refreshed to preserve the current architecture, concrete files and tests, validation baseline, runtime setup, known issues, and exact resume sequence. This documentation refresh adds no new test result or live execution claim.
+**Working branch: `feat/replan-race-gate`**
+
+The newest authorization/live-write implementation and verifier-failure regression coverage are committed on this branch. They remain unvalidated by the active local runner until the runner reports results.
