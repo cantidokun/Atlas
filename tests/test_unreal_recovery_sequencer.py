@@ -100,3 +100,67 @@ def test_sequencer_recovery_rebuilds_only_mismatched_range():
     assert replacement.operations[0].arguments["end_frame"] == 110
     assert replacement.operations[1].arguments["expected_start_frame"] == 10
     assert replacement.operations[1].arguments["expected_end_frame"] == 110
+
+
+def test_composite_recovery_replaces_only_the_mismatched_prior_write():
+    plan = UnrealTaskPlan("mixed-recovery", (
+        UnrealOperation(
+            UnrealCapability.SEQUENCER,
+            UnrealOperationKind.WRITE,
+            "set_sequencer_playback_range",
+            {"entity_ids": ENTITY_IDS, "start_frame": 20, "end_frame": 120},
+            ENTITY_IDS,
+        ),
+        UnrealOperation(
+            UnrealCapability.MODIFY_ACTOR,
+            UnrealOperationKind.WRITE,
+            "set_actor_location",
+            {"entity_ids": ENTITY_IDS, "location": {"x": 100.0, "y": 200.0, "z": 300.0}},
+            ENTITY_IDS,
+        ),
+        UnrealOperation(
+            UnrealCapability.MODIFY_ACTOR,
+            UnrealOperationKind.VERIFY,
+            "verify_actor_location",
+            {"entity_ids": ENTITY_IDS, "expected_location": {"x": 100.0, "y": 200.0, "z": 300.0}},
+            ENTITY_IDS,
+        ),
+    ))
+    failure = UnrealPlanExecutionFailure(
+        "mixed-recovery",
+        2,
+        "verify_actor_location",
+        (),
+        "simulated post-write failure",
+        ENTITY_IDS,
+        {"entity_ids": ENTITY_IDS, "expected_location": {"x": 100.0, "y": 200.0, "z": 300.0}},
+        (),
+    )
+    result = UnrealPlanExecutionResult(
+        "mixed-recovery:reassess-sequence",
+        (
+            UnrealEvidence(
+                "inspect_sequencer_state",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "sequencer": {"start_frame": 20, "end_frame": 120}}},
+                "unreal-editor-atlas-transport",
+            ),
+            UnrealEvidence(
+                "inspect_target_actors",
+                ENTITY_IDS,
+                {"FIELD_SURFACE": {"entity_id": "FIELD_SURFACE", "location": {"x": 0.0, "y": 0.0, "z": 0.0}}},
+                "unreal-editor-atlas-transport",
+            ),
+        ),
+        True,
+    )
+
+    assessment = assess_reassessment_sequence(plan, failure, result)
+    assert [step.disposition for step in assessment.steps] == ["already_applied", "replacement_required"]
+
+    replacement = build_replacement_plan(plan, assessment)
+    assert [operation.name for operation in replacement.operations] == [
+        "set_actor_location",
+        "verify_actor_location",
+    ]
+    assert replacement.operations[0].arguments["location"] == {"x": 100.0, "y": 200.0, "z": 300.0}
