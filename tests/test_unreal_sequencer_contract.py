@@ -1,6 +1,6 @@
 import pytest
 
-from planning.unreal_agent import UnrealCapability, UnrealOperationKind, UnrealTaskIntent
+from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
 from planning.unreal_capability_registry import UnrealCapabilityRegistry
 from planning.unreal_task_planner import UnrealTaskPlanner
 
@@ -66,7 +66,7 @@ def test_sequencer_registry_rejects_malformed_write_and_verify_payloads():
 
     with pytest.raises(ValueError, match="capability schema"):
         registry.validate_operation(
-            __import__("planning.unreal_agent", fromlist=["UnrealOperation"]).UnrealOperation(
+            UnrealOperation(
                 capability=UnrealCapability.SEQUENCER,
                 kind=UnrealOperationKind.WRITE,
                 name="set_sequencer_playback_range",
@@ -77,7 +77,7 @@ def test_sequencer_registry_rejects_malformed_write_and_verify_payloads():
 
     with pytest.raises(TypeError, match="expected_start_frame must be an integer"):
         registry.validate_operation(
-            __import__("planning.unreal_agent", fromlist=["UnrealOperation"]).UnrealOperation(
+            UnrealOperation(
                 capability=UnrealCapability.SEQUENCER,
                 kind=UnrealOperationKind.VERIFY,
                 name="verify_sequencer_playback_range",
