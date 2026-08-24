@@ -180,7 +180,7 @@ class _TestUnrealTransport:
     
     def __init__(self):
         self._responses = {}
-        self._current_plan_id = None
+        self._current_authorization_id = None
     
     def set_response(self, plan_intent_id, result):
         """Configure la réponse pour un plan donné."""
@@ -191,18 +191,37 @@ class _TestUnrealTransport:
         if not isinstance(request, UnrealTransportRequest):
             raise TypeError("request must be an UnrealTransportRequest instance")
         
-        # Trouve la réponse configurée en cherchant par nom d'opération et entités
+        # Utilise l'authorization_id pour déterminer le contexte d'exécution
+        self._current_authorization_id = request.authorization_id
+        
+        # Trouve la réponse configurée en priorisant par authorization_id
         result = None
+        matching_plan_id = None
+        
+        # D'abord, cherche une correspondance exacte par authorization_id
         for plan_id, stored_result in self._responses.items():
-            # Cherche une evidence correspondante dans le résultat stocké
-            for evidence in stored_result.evidence_ledger:
-                if (evidence.operation_name == request.operation_name and 
-                    tuple(evidence.entity_ids) == tuple(request.entity_ids)):
-                    result = stored_result
-                    self._current_plan_id = plan_id
+            if request.authorization_id in plan_id or plan_id.endswith(request.authorization_id.replace("test-", "")):
+                # Vérifie si cette réponse contient l'opération demandée
+                for evidence in stored_result.evidence_ledger:
+                    if (evidence.operation_name == request.operation_name and 
+                        tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+                        result = stored_result
+                        matching_plan_id = plan_id
+                        break
+                if result:
                     break
-            if result:
-                break
+        
+        # Si pas de correspondance par authorization_id, utilise la logique originale
+        if result is None:
+            for plan_id, stored_result in self._responses.items():
+                for evidence in stored_result.evidence_ledger:
+                    if (evidence.operation_name == request.operation_name and 
+                        tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+                        result = stored_result
+                        matching_plan_id = plan_id
+                        break
+                if result:
+                    break
         
         if result is None:
             # Retourne une réponse d'échec par défaut
