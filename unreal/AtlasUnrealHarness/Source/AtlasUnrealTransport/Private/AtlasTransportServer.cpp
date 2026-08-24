@@ -6,6 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "MovieScene.h"
 #include "LevelSequence.h"
+#include "LevelSequenceActor.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -368,10 +369,14 @@ bool FAtlasTransportServer::FindSequencerPlaybackRange(int32& OutStartFrame, int
         if(!Sequence->GetMovieScene()) continue;
         UMovieScene* MovieScene=Sequence->GetMovieScene();
         const TRange<FFrameNumber> PlaybackRange=MovieScene->GetPlaybackRange();
-        const TOptional<int32> Lower=PlaybackRange.GetLowerBound().GetValue().IsOpen() ? TOptional<int32>() : TOptional<int32>(PlaybackRange.GetLowerBoundValue().Value);
-        const TOptional<int32> Upper=PlaybackRange.GetUpperBound().GetValue().IsOpen() ? TOptional<int32>() : TOptional<int32>(PlaybackRange.GetUpperBoundValue().Value);
-        if(!Lower.IsSet()||!Upper.IsSet()){OutError=TEXT("Sequencer playback range is open-ended");return false;}
-        OutStartFrame=Lower.GetValue(); OutEndFrame=Upper.GetValue(); return true;
+        if(!PlaybackRange.HasLowerBound() || !PlaybackRange.HasUpperBound())
+        {
+            OutError=TEXT("Sequencer playback range is open-ended");
+            return false;
+        }
+        OutStartFrame=PlaybackRange.GetLowerBoundValue().Value;
+        OutEndFrame=PlaybackRange.GetUpperBoundValue().Value;
+        return true;
     }
     OutError=TEXT("No Level Sequence actor with a valid sequence found in the active Unreal world"); return false;
 }
