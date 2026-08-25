@@ -27,6 +27,11 @@ def make_orchestrator():
     )
 
 
+def acquire_scene_evidence(orchestrator, snapshot):
+    orchestrator.acquire_next_evidence(lambda tool, args: snapshot)
+    orchestrator.acquire_next_evidence(lambda tool, args: snapshot)
+
+
 def scene(with_marker=False, collection=MARKER_COLLECTION):
     objects = [{"name": "Goal_Left_post", "type": "MESH"}]
     if with_marker:
@@ -39,7 +44,7 @@ def scene(with_marker=False, collection=MARKER_COLLECTION):
 
 def test_marker_already_correct_skips_action_but_still_requires_fresh_verification():
     orchestrator = make_orchestrator()
-    orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=True))
+    acquire_scene_evidence(orchestrator, scene(with_marker=True))
     result = orchestrator.evaluate_target_state(scene(with_marker=True))
 
     assert result.satisfied
@@ -56,7 +61,7 @@ def test_marker_already_correct_skips_action_but_still_requires_fresh_verificati
 
 def test_marker_missing_requires_explicit_authorization_then_action_and_fresh_verification():
     orchestrator = make_orchestrator()
-    orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=False))
+    acquire_scene_evidence(orchestrator, scene(with_marker=False))
     result = orchestrator.evaluate_target_state(scene(with_marker=False))
 
     assert not result.satisfied
@@ -81,7 +86,7 @@ def test_marker_missing_requires_explicit_authorization_then_action_and_fresh_ve
 
 def test_marker_wrong_collection_blocks_completion():
     orchestrator = make_orchestrator()
-    orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=True, collection="Other"))
+    acquire_scene_evidence(orchestrator, scene(with_marker=True, collection="Other"))
     result = orchestrator.evaluate_target_state(scene(with_marker=True, collection="Other"))
 
     assert not result.satisfied
@@ -90,7 +95,7 @@ def test_marker_wrong_collection_blocks_completion():
 
 def test_marker_failed_verification_blocks_completion():
     orchestrator = make_orchestrator()
-    orchestrator.acquire_next_evidence(lambda tool, args: scene(with_marker=False))
+    acquire_scene_evidence(orchestrator, scene(with_marker=False))
     orchestrator.evaluate_target_state(scene(with_marker=False))
     orchestrator.authorize_execution("marker-create-002")
     orchestrator.execute_next_action(lambda tool, args: {"status": "created"})
