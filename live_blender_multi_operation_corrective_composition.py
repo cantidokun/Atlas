@@ -68,7 +68,7 @@ def _execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError(f"live composition probe does not permit {tool}")
     status = raw.get("status")
     return {
-        "ok": status in {"moved", "already_moved", "ok", "already_rotated"},
+        "ok": status in {"moved", "already_moved", "rotated", "already_rotated", "ok"},
         "state": str(status or "unknown"),
         "details": dict(raw),
     }
@@ -144,8 +144,7 @@ def main() -> None:
     # Operation 1: use the same controlled mutation path as the live write probes,
     # followed by independent authoritative verification for this composition.
     first_authorization = BlenderWriteAuthorization.issue(move, "live:multi-operation:first")
-    validated_move = move.arguments.copy()
-    first_raw = _execute(move.tool, validated_move)
+    first_raw = _execute(move.tool, move.arguments.copy())
     first_result = normalize_blender_result(move.tool, first_raw)
     if not first_result.ok:
         raise SystemExit(f"LIVE COMPOSITION FAILED: first mutation did not execute: {first_result}")
