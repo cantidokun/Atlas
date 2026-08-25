@@ -1,19 +1,21 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 25, 2026 — full offline suite green / generalized live-write milestone  
+**Updated:** August 25, 2026 — end-of-night green baseline  
 **Branch:** `feat/replan-race-gate`  
 **Current work:** authorization-bound Blender live-write path, authoritative verification, and reusable corrective runtime  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
-## Current milestone — FULL OFFLINE SUITE GREEN
+## End-of-night milestone — FULL OFFLINE SUITE GREEN
 
-The complete Atlas Python test suite now passes:
+Development is stopping for the night at a clean verified checkpoint.
+
+The complete Atlas Python test suite passes:
 
 ```text
 652 passed in 1.26s
 ```
 
-This is a fresh run after the corrective-runtime, receipt, authorization, result-normalization, marker, and multi-step compatibility fixes. The prior `622 passed / 30 failed` and `649 passed / 3 failed` results are superseded.
+This is a fresh run after the corrective-runtime, receipt, authorization, result-normalization, marker, and multi-step compatibility fixes. Previous `622 passed / 30 failed` and `649 passed / 3 failed` results are superseded.
 
 Atlas has also demonstrated the generalized Blender live-write gate against five real Blender-backed mutation capabilities. Every capability has both a legitimate authoritative-success proof and an adversarial authoritative-mismatch proof.
 
@@ -42,7 +44,7 @@ The adversarial probes establish that an executor-success signal is not sufficie
 
 ## Corrective-runtime milestone
 
-The reusable corrective runtime has now passed its focused regression clusters and the complete offline suite. The focused clusters reached:
+The reusable corrective runtime has passed its focused regression clusters and the complete offline suite. The focused clusters reached:
 
 ```text
 receipt / authorization / live-verification cluster: 12 passed
@@ -109,7 +111,7 @@ Each has now produced both required live outcomes: legitimate `VERIFIED` and adv
 
 ## Current validation state
 
-Verified in this development session:
+Verified before stopping development:
 
 ```text
 FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
@@ -118,24 +120,23 @@ FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
 
 The live proofs are separate from the offline suite. The full suite being green does not by itself constitute a new live Blender proof; the five live capability results above remain the explicitly observed live evidence.
 
-## Next milestone
+## Next session — exact resume point
 
-With the offline suite green and five generalized live write capabilities proven, the next development target is **production-facing multi-operation corrective composition**.
+Do not reopen the completed authorization, receipt, result-normalization, or corrective-runtime work unless new evidence requires it.
 
-The immediate sequence is:
+The next development milestone is **production-facing multi-operation corrective composition**:
 
-1. Run/confirm the current branch is synchronized locally.
-2. Build a production-facing multi-operation task that composes already-proven capabilities through the generalized corrective runtime rather than bespoke per-tool orchestration.
-3. Demonstrate fresh observation and authorization separately for each mutation in the composed task.
-4. Demonstrate that an interruption/world change between operations forces fresh replanning and prevents stale authorization from executing.
-5. Demonstrate a composed task ending in authoritative `VERIFIED` completion.
-6. Demonstrate a composed task ending `BLOCKED` when authoritative final state disagrees, with no receipt exposed as success.
-7. Preserve the zero-second-write invariant on mismatch.
-8. Then move to continuation/resume integrity across interrupted production tasks.
+1. Confirm the local branch is synchronized and clean.
+2. Compose multiple already-proven Blender capabilities through the generalized corrective runtime rather than bespoke per-tool lifecycle code.
+3. Demonstrate fresh observation and exact authorization separately for each mutation.
+4. Inject a world change between operations and prove stale authorization cannot execute.
+5. Replan from fresh evidence and continue through protected execution.
+6. Demonstrate authoritative final `VERIFIED` completion for the composed task.
+7. Demonstrate adversarial final-state disagreement producing `BLOCKED` with no successful receipt.
+8. Preserve the zero-second-write invariant on authoritative mismatch.
+9. Only after that, move into continuation/resume integrity across interrupted production tasks.
 
-Do not skip directly to continuation/resume before the multi-operation production composition has an explicit end-to-end proof.
-
-## Exact next command
+### First command next session
 
 From:
 
@@ -149,7 +150,7 @@ run:
 git status --short --branch
 ```
 
-Then continue development on `feat/replan-race-gate` from the clean 652-test baseline.
+Then continue on `feat/replan-race-gate` from the clean 652-test baseline.
 
 ## Architectural constraints
 
