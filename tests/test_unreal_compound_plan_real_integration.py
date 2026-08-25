@@ -80,7 +80,7 @@ def test_real_unreal_compound_plan_executes_subplans_in_order_and_restores():
             "verify_target_actor_mapping",
             "inspect_target_actors",
             "set_actor_location",
-            "verify_target_actor_mapping",
+            "verify_actor_location",
         ]
         # The first two evidence entries belong to the inspection sub-plan.
         # The location-write sub-plan then contributes its pre-write read,
