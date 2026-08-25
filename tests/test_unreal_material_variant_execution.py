@@ -72,7 +72,7 @@ def test_material_variant_planner_rejects_missing_or_empty_variant():
     planner = UnrealTaskPlanner()
     with pytest.raises(TypeError, match="material_variant must be a mapping"):
         planner.plan_material_variant(_intent(), None)
-    with pytest.raises(ValueError, match="at least one setting"):
+    with pytest.raises(ValueError, match="material_variant must contain exactly name"):
         planner.plan_material_variant(_intent(), {})
 
 
