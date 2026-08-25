@@ -6,6 +6,7 @@ from planning.recovery_receipt import RecoveryReceipt
 from planning.unreal_adapter_production import create_production_adapter
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
 from planning.unreal_evidence_contract import UnrealEvidence
+from planning.unreal_evidence_digest import digest_evidence_ledger
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutor
 from planning.unreal_recovery_sequence import (
@@ -14,7 +15,10 @@ from planning.unreal_recovery_sequence import (
     build_replacement_plan,
     issue_replacement_authorization,
 )
-from planning.unreal_recovery_workflow import execute_receipt_bound_recovery_sequence
+from planning.unreal_recovery_workflow import (
+    build_recovery_receipt,
+    execute_receipt_bound_recovery_sequence,
+)
 from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_transport_named_pipe import NamedPipeTransportError
 
@@ -153,11 +157,13 @@ def test_real_receipt_bound_recovery_workflow_executes_authorized_replacement():
                 replacement_plan,
                 "real-receipt-bound-replacement-auth",
             )
-            receipt = RecoveryReceipt(
-                "real-fresh-evidence",
-                replacement_authorization.plan_digest,
-                "real-recovery-authorization",
+            receipt = build_recovery_receipt(
+                reassessment_result,
+                replacement_plan,
+                replacement_authorization,
             )
+            evidence_digest = digest_evidence_ledger(reassessment_result.evidence_ledger)
+            authorization_digest = replacement_authorization.authorization_digest
 
             recovery = execute_receipt_bound_recovery_sequence(
                 executor,
@@ -166,8 +172,8 @@ def test_real_receipt_bound_recovery_workflow_executes_authorized_replacement():
                 reassessment_authorization,
                 replacement_authorization,
                 receipt,
-                evidence_digest="real-fresh-evidence",
-                authorization_digest="real-recovery-authorization",
+                evidence_digest=evidence_digest,
+                authorization_digest=authorization_digest,
             )
 
             assert recovery.assessment.disposition == "replacement_required"
