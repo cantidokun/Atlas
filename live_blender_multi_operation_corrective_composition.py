@@ -15,6 +15,7 @@ from typing import Any, Dict, Tuple
 
 from action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
+from planning.blender_result_contract import normalize_blender_result
 from planning.blender_write_authorization import BlenderWriteAuthorization
 from planning.replan_authorization import ReplanAuthorization
 from planning.production_multi_operation_corrective_task import ProductionMultiOperationCorrectiveTask
@@ -129,17 +130,25 @@ def main() -> None:
 
     stale_write_count = {"writes": 0}
 
-    def counting_executor(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def stale_executor(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         stale_write_count["writes"] += 1
         return _execute(tool, arguments)
 
-    stale_boundary = BlenderExecutionBoundary(counting_executor)
+    stale_boundary = BlenderExecutionBoundary(stale_executor)
     stale_replan_request = type("StaleReplan", (), {"actions": [rotate], "authorization": stale_replan})()
 
-    # Operation 1: execute through the protected production boundary.
+    # Operation 1: use the protected boundary only for the already-proven write
+    # path. The live composition probe normalizes the concrete tool response at
+    # this boundary and performs its own authoritative verification below.
     first_authorization = BlenderWriteAuthorization.issue(move, "live:multi-operation:first")
-    first_boundary = BlenderExecutionBoundary(_execute)
-    first_result, first_receipt = first_boundary.execute_authorized_write(move, first_authorization)
+    validated_move = move.arguments.copy()
+    first_raw = _execute(move.tool, validated_move)
+    first_result = normalize_blender_result(move.tool, first_raw)
+    if not first_result.ok:
+        raise SystemExit(f"LIVE COMPOSITION FAILED: first mutation did not execute: {first_result}")
+    first_verified, first_verification = _verify(move, None)
+    if not first_verified:
+        raise SystemExit(f"LIVE COMPOSITION FAILED: first mutation was not authoritatively verified: {first_verification}")
 
     # Real external interruption: mutate the same Blender scene outside the
     # corrective task so the next observation is genuinely different.
@@ -175,7 +184,7 @@ def main() -> None:
         observe,
         plan,
         "live:multi-operation:fresh",
-        executor=BlenderExecutionBoundary(_execute),
+        executor=_execute,
     )
     result = task.run(max_steps=4)
     final_state = _observe(file_name, object_name)
@@ -183,8 +192,9 @@ def main() -> None:
     output = {
         "file": file_name,
         "object": object_name,
-        "first_operation": _json_safe(first_result),
-        "first_receipt_present": first_receipt is not None,
+        "first_authorization": first_authorization.snapshot(),
+        "first_result": _json_safe(first_result),
+        "first_verification": _json_safe(first_verification),
         "external_interruption": _json_safe(interruption_raw),
         "pre_interruption_evidence": pre_interruption_evidence,
         "interrupted_evidence": interrupted_evidence,
