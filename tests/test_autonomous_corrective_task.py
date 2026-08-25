@@ -1,6 +1,6 @@
 from action_plan import ActionSpec
 from planning.autonomous_corrective_task import AutonomousCorrectiveTask
-from planning.blender_execution_boundary import BlenderExecutionBoundary
+from planning.corrective_execution_boundary import CorrectiveExecutionBoundary
 
 
 def test_task_converges_through_fresh_replanning():
@@ -19,7 +19,7 @@ def test_task_converges_through_fresh_replanning():
         return {"status": "ok", "state": "ok"}
 
     task = AutonomousCorrectiveTask(
-        BlenderExecutionBoundary(execute), observe, plan, "test:corrective-task"
+        CorrectiveExecutionBoundary(execute), observe, plan, "test:corrective-task"
     )
     result = task.run(max_steps=4)
 
@@ -42,7 +42,7 @@ def test_task_fails_closed_on_budget_without_claiming_convergence():
         return {"status": "ok", "state": "ok"}
 
     task = AutonomousCorrectiveTask(
-        BlenderExecutionBoundary(execute), observe, plan, "test:budget"
+        CorrectiveExecutionBoundary(execute), observe, plan, "test:budget"
     )
     result = task.run(max_steps=1)
 
