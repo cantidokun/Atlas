@@ -1,3 +1,4 @@
+from action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_live_write_gate import BlenderLiveWriteGate
