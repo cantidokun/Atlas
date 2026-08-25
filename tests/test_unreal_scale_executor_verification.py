@@ -68,5 +68,5 @@ def test_executor_fails_when_post_write_scale_does_not_match_target():
             "scale-fail-auth",
         )
 
-    assert exc_info.value.failure.operation_name == "verify_target_actor_mapping"
+    assert exc_info.value.failure.operation_name == "verify_actor_scale"
     assert len(exc_info.value.failure.completed_evidence) == 2
