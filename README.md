@@ -19,45 +19,68 @@ Qwen never receives direct Blender execution authority.
 
 ## Current Blender Agent status
 
-**PROVEN MILESTONE: full offline suite green + generalized authorization-bound live-write gate proven across five Blender mutation capabilities.**
+**PROVEN MILESTONE: generalized authorization-bound live writes, live multi-operation composition, and live interruption/resume recovery are proven.**
 
-The complete Atlas Python test suite now passes:
+The latest completed full offline suite is:
 
 ```text
-652 passed in 1.26s
+660 passed in 1.49s
 ```
 
-This is a fresh result after the corrective-runtime, authorization, receipt, result-normalization, marker, and multi-step compatibility work. Previous `622 passed / 30 failed` and `649 passed / 3 failed` results are superseded.
+This result predates the final authorization-bound corrective-replan receipt fix. A fresh full-suite run is required before treating 660 as the post-fix baseline.
 
-The shared live-write gate has also been proven against five real Blender-backed mutation capabilities, with both legitimate authoritative-success and adversarial authoritative-mismatch outcomes:
+The shared live-write gate has been proven against five real Blender-backed mutation capabilities, with both legitimate authoritative-success and adversarial authoritative-mismatch outcomes:
 
 | Capability | Legitimate live proof | Adversarial live proof |
 | --- | --- | --- |
-| `rotate_object` | `VERIFIED` | `BLOCKED` |
+| `set_object_rotation` | `VERIFIED` | `BLOCKED` |
 | `move_object` | `VERIFIED` | `BLOCKED` |
 | `delete_object` | `VERIFIED` | `BLOCKED` |
 | `create_empty_marker` | `VERIFIED` | `BLOCKED` |
 | `move_object_to_collection` | `VERIFIED` | `BLOCKED` |
 
-The demonstrated production flow is:
+## Live multi-operation composition
+
+The actual Blender runner proved:
 
 ```text
-ActionSpec
- -> capability admission
- -> exact BlenderWriteAuthorization
- -> BlenderLiveWriteGate
- -> BlenderExecutionBoundary
- -> normalized result
- -> authorization-bound immutable receipt
- -> fresh authoritative final-state verification
- -> VERIFIED / BLOCKED
+ATLAS BLENDER LIVE MULTI-OPERATION COMPOSITION: PASS
+ATLAS BLENDER LIVE STALE AUTHORIZATION ZERO-WRITE GATE: PASS
 ```
 
-An executor-success signal is not sufficient when authoritative evidence disagrees with the requested final state. The gate fails closed as `BLOCKED`, does not expose a successful receipt, and does not perform an implicit second write.
+This demonstrates a real authorized mutation, external world interruption, stale authorization rejection with zero writes, fresh re-observation/replanning, replacement mutation, and authoritative final verification.
+
+## Live continuation / resume
+
+The actual Blender runner now also proves:
+
+```text
+ATLAS BLENDER LIVE CONTINUATION STALE-STATE ZERO-WRITE GATE: PASS
+ATLAS BLENDER LIVE CONTINUATION RESUME: PASS
+```
+
+The live continuation proof covers:
+
+```text
+Blender observation V1
+ -> authorized first mutation
+ -> receipt-bound checkpoint
+ -> external Blender interruption
+ -> fresh observation V2
+ -> stale continuation rejected
+ -> zero stale writes
+ -> fresh ReplanAuthorization
+ -> remaining mutation
+ -> authorization-bound resumed receipt
+ -> authoritative final verification
+ -> PASS
+```
+
+During this proof, a real defect was found and corrected: corrective-replan execution initially returned a generic receipt without authorization binding. `BlenderExecutionBoundary.execute_authorized_replan()` now creates an authorization-bound `BlenderExecutionReceipt`, preserving the same receipt-binding invariant already enforced for ordinary authorized writes.
 
 ## Corrective runtime
 
-The generalized corrective runtime now has a clean separation between:
+The generalized corrective runtime has a clean separation between:
 
 - strict production Blender execution through `BlenderExecutionBoundary`;
 - generic/in-memory corrective executors through the generic corrective execution boundary.
@@ -75,10 +98,12 @@ Key production boundaries include:
 - `planning/blender_live_write_gate.py` — final authorization-bound write choke point.
 - `planning/blender_live_write_result.py` — explicit `VERIFIED` versus `BLOCKED` outcome contract.
 - `planning/blender_live_verification.py` — independent authoritative post-write verification.
-- `planning/blender_execution_receipt.py` — immutable receipt with optional authorization binding.
+- `planning/blender_execution_receipt.py` — immutable receipt with authorization binding for protected writes.
 - `planning/blender_execution_boundary.py` — raw, verified, receipt-bound, authorized-write, and corrective-replan execution APIs.
 - `planning/blender_tool_adapter.py` — legacy-result normalization boundary; strict result contracts remain structured.
 - `planning/replan_authorization.py` — immutable corrective authorization bound to fresh evidence and the exact replacement action list.
+- `planning/continuation_resume.py` — fail-closed continuation checkpoint and fresh-resume authorization.
+- `planning/resumable_corrective_task.py` — production resume boundary that never replays saved authorization.
 
 Direct live probes include:
 
@@ -87,43 +112,38 @@ Direct live probes include:
 - `live_blender_write_gate_delete.py`
 - `live_blender_write_gate_marker.py`
 - `live_blender_write_gate_collection.py`
+- `live_blender_multi_operation_corrective_composition.py`
+- `live_blender_continuation_resume.py`
 
 ## Validation discipline
 
-The current verified offline baseline is:
+The last completed full offline suite is:
 
 ```text
-FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
+FULL OFFLINE PYTEST SUITE: 660 passed, 0 failed
 ```
 
-The live Blender results are separate evidence. The green offline suite does not itself constitute a live Blender proof; the five capability results above are explicitly backed by observed runner output.
+Because the final corrective-replan receipt-binding fix landed afterward, this number must not be represented as current post-fix validation until the suite is rerun.
 
-Focused verified clusters from the same development increment include:
+Live evidence is separate and is backed by actual Windows/Blender runner output. The latest live continuation evidence is explicitly:
 
 ```text
-receipt / authorization / live-verification: 12 passed
-corrective-runtime: 6 passed
-final adapter/runtime compatibility: 6 passed
+ATLAS BLENDER LIVE CONTINUATION STALE-STATE ZERO-WRITE GATE: PASS
+ATLAS BLENDER LIVE CONTINUATION RESUME: PASS
 ```
-
-Live claims must continue to be backed by actual Windows/Blender runner output.
 
 ## Next development milestone
 
-With the complete offline suite green and five generalized live write capabilities proven, the next target is **production-facing multi-operation corrective composition**.
+The major Blender execution/recovery proof chain is now substantially complete. The next target is **durable production-task and Digital Twin state**, beginning with a fresh full offline suite after the final receipt-binding fix.
 
-The sequence is:
+Sequence:
 
-1. Compose multiple already-proven Blender capabilities through the generalized corrective runtime rather than bespoke per-tool lifecycle code.
-2. Demonstrate fresh observation and exact authorization separately for each mutation.
-3. Inject a world change between operations and prove stale authorization cannot execute.
-4. Replan from fresh evidence and continue through protected execution.
-5. Demonstrate authoritative final `VERIFIED` completion for the composed task.
-6. Demonstrate adversarial final-state disagreement producing `BLOCKED` with no successful receipt.
-7. Preserve the zero-second-write invariant on authoritative mismatch.
-8. Then move into continuation/resume integrity across interrupted production tasks.
-
-Do not skip directly to continuation/resume before the multi-operation production composition has an explicit end-to-end proof.
+1. Run `python -m pytest -q` and establish a fresh post-fix baseline.
+2. Preserve the live continuation/resume evidence and its zero-write invariant.
+3. Formalize durable production-task identity, revision, checkpoint, and receipt persistence without weakening fresh-observation requirements.
+4. Introduce Digital Twin identity/revision contracts for the soccer-field-focused production pipeline.
+5. Define photogrammetry intake as an upstream reconstruction contract into the canonical Digital Twin.
+6. Later integrate broader production workflows while preserving the same authorization, receipt, verification, and fail-closed boundaries.
 
 ## Authority and verification boundary
 
@@ -136,29 +156,39 @@ Qwen proposal
  -> explicit authorization
  -> deterministic capability execution
  -> normalized result
- -> immutable execution receipt
+ -> immutable authorization-bound execution receipt
  -> fresh independent evidence
  -> target verification / replan
+ -> continuation checkpoint when interrupted
+ -> fresh resume authorization
  -> completion or conservative recovery
 ```
 
 ## Development path
 
-1. production-facing multi-operation corrective composition;
-2. continuation/resume across multi-task Blender operations;
-3. Digital Twin identity/revision and photogrammetry intake contracts;
+1. fresh post-fix full-suite validation;
+2. durable production-task/checkpoint and Digital Twin identity/revision contracts;
+3. photogrammetry intake contracts;
 4. later Unreal production workflows.
 
 Photogrammetry remains upstream of Blender. Atlas is exclusively concerned with soccer-field-related digital twins; Blender receives the upstream reconstruction for analysis, cleanup, correction, and preparation.
 
 See `ATLAS_HANDOFF_CURRENT.md` for the authoritative resume point and `DEVELOPMENT_LOG.md` for chronological progress.
 
-## End-of-night checkpoint
+## Current checkpoint
 
 **Working branch: `feat/replan-race-gate`**
 
-**Offline suite: 652 passed, 0 failed.**
+**Last full offline suite: 660 passed, 0 failed — pre-final receipt-binding fix.**
 
 **Live generalized write gate: 5 capabilities proven with legitimate `VERIFIED` and adversarial `BLOCKED` outcomes.**
 
-Development is intentionally stopping at this milestone. The next session should begin with the production-facing multi-operation composition milestone described above, not by reopening already-green authorization, receipt, or corrective-runtime work unless new evidence requires it.
+**Live multi-operation composition: PASS.**
+
+**Live stale-authorization zero-write gate: PASS.**
+
+**Live continuation stale-state zero-write gate: PASS.**
+
+**Live continuation/resume: PASS.**
+
+The next session should begin with a fresh full offline suite, then move into durable production-task and Digital Twin state rather than reopening already-proven live authorization/recovery work unless new evidence requires it.
