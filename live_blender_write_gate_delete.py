@@ -9,7 +9,7 @@ from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_live_write_gate import BlenderLiveWriteGate
 from planning.blender_write_authorization import BlenderWriteAuthorization
 from planning.object_delete_task import TARGET_OBJECT
-from tools.blender import delete_object
+from tools.blender_delete import delete_object
 from tools.blender_transform import inspect_object_transform
 
 FILE_BY_CASE = {
@@ -41,7 +41,7 @@ def _execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     raw = delete_object(**arguments)
     status = raw.get("status")
     return {
-        "ok": status in {"deleted", "already_deleted"},
+        "ok": status in {"ok", "already_absent"},
         "state": str(status or "unknown"),
         "details": dict(raw),
     }
@@ -52,7 +52,7 @@ def _verifier(action: ActionSpec, receipt: Any) -> Tuple[bool, Dict[str, Any]]:
         file_name=action.arguments["file_name"],
         object_name=action.arguments["object_name"],
     )
-    deleted = observed.get("status") == "not_found"
+    deleted = observed.get("status") in {"not_found", "already_absent"}
     return deleted, {"authoritative": observed, "object_deleted": deleted}
 
 
