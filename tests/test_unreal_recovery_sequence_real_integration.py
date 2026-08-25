@@ -31,9 +31,9 @@ def _location(evidence):
     return dict(evidence.observed_state[ENTITY_ID]["location"])
 
 
-def _post_write_failure(target_location):
+def _post_write_failure(intent_id, target_location):
     return UnrealPlanExecutionFailure(
-        intent_id="real-recovery-sequence",
+        intent_id=intent_id,
         operation_index=2,
         operation_name="verify_actor_location",
         completed_evidence=(
@@ -88,7 +88,7 @@ def test_real_unreal_recovery_sequence_reassesses_live_state_without_retrying_wr
             write_result = executor.execute(write_plan, "real-recovery-sequence-write-auth")
             assert write_result.success is True
 
-            failure = _post_write_failure(target_location)
+            failure = _post_write_failure(write_plan.intent_id, target_location)
             reassessment = build_reassessment_plan(write_plan, failure)
             reassessment_result = executor.execute(
                 reassessment,
