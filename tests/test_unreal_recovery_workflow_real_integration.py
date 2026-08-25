@@ -48,9 +48,9 @@ def _sequencer_state(evidence):
     return {"start_frame": int(state["start_frame"]), "end_frame": int(state["end_frame"])}
 
 
-def _post_write_failure(target_state):
+def _post_write_failure(target_state, intent_id):
     return UnrealPlanExecutionFailure(
-        intent_id="real-receipt-bound-recovery",
+        intent_id=intent_id,
         operation_index=2,
         operation_name="verify_sequencer_playback_range",
         completed_evidence=(
@@ -131,7 +131,7 @@ def test_real_receipt_bound_recovery_workflow_executes_authorized_replacement():
             )
             assert _sequencer_state(mismatch_result.evidence_ledger[2]) == mismatched_state
 
-            failure = _post_write_failure(target_state)
+            failure = _post_write_failure(target_state, write_plan.intent_id)
             reassessment_plan = build_reassessment_plan(write_plan, failure)
             reassessment_authorization = UnrealPlanAuthorization.issue(
                 reassessment_plan,
