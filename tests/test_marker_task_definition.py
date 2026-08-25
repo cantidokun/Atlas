@@ -11,7 +11,7 @@ from planning.task_runtime import prepare_task_runtime
 def test_marker_task_definition_is_declarative_and_write_verified():
     task = marker_task_definition("marker.blend")
     assert task.name == "marker_creation"
-    assert len(task.evidence) == 1
+    assert len(task.evidence) == 2
     assert len(task.actions) == 1
     assert task.allowed_action_tools == {"create_empty_marker"}
     assert task.allow_writes is True
@@ -25,10 +25,14 @@ def test_marker_task_definition_is_declarative_and_write_verified():
 
 
 def test_marker_task_definition_carries_only_task_specific_data():
-    task = marker_task_definition("marker.blend")
-    assert task.evidence[0].tool == "inspect_scene"
-    assert task.evidence[0].arguments == {"file_name": "marker.blend"}
-    assert task.metadata == {"domain": "blender", "operation": "marker_creation"}
+    assert marker_task_definition("marker.blend").evidence[0].tool == "inspect_scene"
+    assert marker_task_definition("marker.blend").evidence[0].arguments == {"file_name": "marker.blend"}
+    assert marker_task_definition("marker.blend").evidence[1].tool == "inspect_object_collections"
+    assert marker_task_definition("marker.blend").evidence[1].arguments == {
+        "file_name": "marker.blend",
+        "object_name": MARKER_OBJECT,
+    }
+    assert marker_task_definition("marker.blend").metadata == {"domain": "blender", "operation": "marker_creation"}
 
 
 def test_marker_task_definition_runtime_rejects_write_without_verification():
