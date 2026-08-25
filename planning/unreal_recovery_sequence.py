@@ -167,6 +167,17 @@ def _verify(step, evidence):
         raise ValueError(f"unsupported recovery verifier for '{operation.name}'")
 
 
+def _store_evidence(evidence_by_operation, evidence):
+    entity_ids = tuple(evidence.entity_ids)
+    keys = [(evidence.operation_name, entity_ids)]
+    if evidence.operation_name == "verify_sequencer_playback_range":
+        keys.append(("inspect_sequencer_state", entity_ids))
+    elif evidence.operation_name == "inspect_sequencer_state":
+        keys.append(("verify_sequencer_playback_range", entity_ids))
+    for key in keys:
+        evidence_by_operation.setdefault(key, []).append(evidence)
+
+
 def assess_reassessment_sequence(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure, result: UnrealPlanExecutionResult) -> UnrealRecoverySequenceAssessment:
     """Classify every relevant prior write using fresh evidence in plan order."""
     if not isinstance(result, UnrealPlanExecutionResult):
@@ -177,7 +188,7 @@ def assess_reassessment_sequence(plan: UnrealTaskPlan, failure: UnrealPlanExecut
 
     evidence_by_operation = {}
     for evidence in result.evidence_ledger:
-        evidence_by_operation.setdefault((evidence.operation_name, tuple(evidence.entity_ids)), []).append(evidence)
+        _store_evidence(evidence_by_operation, evidence)
 
     assessments = []
     for step in steps:
