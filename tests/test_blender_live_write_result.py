@@ -4,7 +4,7 @@ from planning.blender_live_write_result import BlenderLiveWriteOutcome
 
 
 def test_verified_outcome_requires_receipt():
-    with pytest.raises(AttributeError):
+    with pytest.raises(TypeError, match="verified outcome requires a BlenderExecutionReceipt"):
         BlenderLiveWriteOutcome.verified(None, {"ok": True})
 
 
