@@ -22,7 +22,10 @@ class BlenderWriteAuthorization:
         if not isinstance(authorization_id, str) or not authorization_id.strip():
             raise ValueError("authorization_id must be a non-empty string")
         normalized_authorization_id = authorization_id.strip()
-        capability = get_blender_capability(action.tool)
+        try:
+            capability = get_blender_capability(action.tool)
+        except ValueError as exc:
+            raise ValueError(f"Unknown Blender capability: {action.tool}") from exc
         if not capability.writes_scene:
             raise ValueError("BlenderWriteAuthorization requires a scene-writing capability")
         if not capability.requires_verification:
