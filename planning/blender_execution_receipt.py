@@ -13,6 +13,27 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _coerce_result(tool: str, result: Any) -> BlenderExecutionResult:
+    """Preserve compatibility with legacy result-shaped test doubles.
+
+    Production execution already supplies BlenderExecutionResult. Older tests and
+    adapters may still expose the same result attributes without constructing the
+    new value object; normalize those objects at the receipt boundary rather than
+    weakening the receipt's stored contract.
+    """
+    if isinstance(result, BlenderExecutionResult):
+        return result
+    required = ("ok", "state", "details")
+    if not all(hasattr(result, key) for key in required):
+        raise TypeError("receipt result must be a BlenderExecutionResult")
+    return BlenderExecutionResult(
+        tool=tool,
+        ok=result.ok,
+        state=result.state,
+        details=dict(result.details),
+    )
+
+
 @dataclass(frozen=True)
 class BlenderExecutionReceipt:
     tool: str
@@ -26,15 +47,14 @@ class BlenderExecutionReceipt:
             raise ValueError("receipt tool must be a non-empty string")
         if not isinstance(arguments, dict):
             raise TypeError("receipt arguments must be an object")
-        if not isinstance(result, BlenderExecutionResult):
-            raise TypeError("receipt result must be a BlenderExecutionResult")
-        if result.tool != tool:
+        normalized = _coerce_result(tool, result)
+        if normalized.tool != tool:
             raise ValueError("receipt tool does not match result tool")
         return cls(tool, _digest(arguments), _digest({
-            "tool": result.tool,
-            "ok": result.ok,
-            "state": result.state,
-            "details": result.details,
+            "tool": normalized.tool,
+            "ok": normalized.ok,
+            "state": normalized.state,
+            "details": normalized.details,
         }))
 
     @classmethod
@@ -56,17 +76,19 @@ class BlenderExecutionReceipt:
         )
 
     def matches(self, tool: str, arguments: Mapping[str, Any], result: BlenderExecutionResult) -> bool:
-        if not isinstance(result, BlenderExecutionResult):
+        try:
+            normalized = _coerce_result(self.tool, result)
+        except (TypeError, ValueError):
             return False
-        if tool != self.tool or result.tool != self.tool:
+        if tool != self.tool or normalized.tool != self.tool:
             return False
         return (
             _digest(arguments) == self.arguments_digest
             and _digest({
-                "tool": result.tool,
-                "ok": result.ok,
-                "state": result.state,
-                "details": result.details,
+                "tool": normalized.tool,
+                "ok": normalized.ok,
+                "state": normalized.state,
+                "details": normalized.details,
             }) == self.result_digest
         )
 
