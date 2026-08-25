@@ -14,10 +14,15 @@ def test_multi_step_executor_reobserves_before_each_mutation():
     def observe():
         return dict(state)
 
+    def execute(tool, args):
+        writes.append((tool, args))
+        state["step"] += 1
+        return {"status": "created"}
+
     def plan(evidence):
         return [_action("one")] if evidence["step"] == 0 else []
 
-    boundary = BlenderExecutionBoundary(lambda tool, args: writes.append((tool, args)) or {"status":"created"})
+    boundary = BlenderExecutionBoundary(execute)
     executor = MultiStepCorrectiveExecutor(boundary, observe, plan, "multi-exec")
     receipts = executor.execute_all()
     assert len(receipts) == 1
@@ -30,10 +35,10 @@ def test_stale_step_never_reaches_blender():
     observations = []
 
     def observe():
+        if len(observations) == 1:
+            state["revision"] = 2
         value = dict(state)
         observations.append(value)
-        if len(observations) == 2:
-            state["revision"] = 2
         return value
 
     def plan(evidence):
