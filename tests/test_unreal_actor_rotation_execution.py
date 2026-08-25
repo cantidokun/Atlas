@@ -53,7 +53,7 @@ def test_actor_rotation_plan_has_read_write_verify_shape_and_payload():
     assert [operation.name for operation in plan.operations] == [
         "inspect_target_actors",
         "set_actor_rotation",
-        "verify_target_actor_mapping",
+        "verify_actor_rotation",
     ]
     assert plan.operations[1].capability is UnrealCapability.MODIFY_ACTOR
     assert plan.operations[1].arguments["rotation"] == _rotation()
@@ -63,7 +63,7 @@ def test_actor_rotation_planner_rejects_invalid_payloads():
     planner = UnrealTaskPlanner()
     with pytest.raises(TypeError, match="rotation must be a mapping"):
         planner.plan_actor_rotation_write(_intent(), None)
-    with pytest.raises(ValueError, match="exactly pitch, yaw, and roll"):
+    with pytest.raises(ValueError, match="exactly pitch, yaw, roll"):
         planner.plan_actor_rotation_write(_intent(), {"pitch": 1.0})
     with pytest.raises(TypeError, match="rotation angles must be numeric"):
         planner.plan_actor_rotation_write(_intent(), {"pitch": True, "yaw": 2.0, "roll": 3.0})
@@ -80,7 +80,7 @@ def test_actor_rotation_executor_preserves_order_and_authorization():
     assert [e.operation_name for e in result.evidence_ledger] == [
         "inspect_target_actors",
         "set_actor_rotation",
-        "verify_target_actor_mapping",
+        "verify_actor_rotation",
     ]
     assert [request.operation_name for request in transport.requests] == [
         "inspect_target_actors",
