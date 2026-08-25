@@ -8,12 +8,15 @@
 #include "MovieScene.h"
 #include "Modules/ModuleManager.h"
 #include "GameFramework/Actor.h"
+#include "Components/SceneComponent.h"
 #include "Editor.h"
 
 DEFINE_LOG_CATEGORY(LogAtlasTransport);
 
 namespace
 {
+    const FName FieldFixtureTag(TEXT("atlas_entity:FIELD_SURFACE"));
+    const FName FieldFixtureActorName(TEXT("AtlasFieldSurfaceFixture"));
     const FName SequencerFixtureTag(TEXT("atlas_sequencer_fixture"));
     const FName SequencerFixtureActorName(TEXT("AtlasSequencerFixture"));
     const FName SequencerFixtureSequenceName(TEXT("AtlasSequencerFixtureSequence"));
@@ -64,9 +67,8 @@ void FAtlasUnrealTransportModule::StartupModule()
     }
 
     // The module can load before the editor world exists. Keep this ticker alive
-    // until a valid editor world is available and the fixture is fully usable.
-    // Once created, the ticker stops; the fixture is intentionally deterministic
-    // and transient so it does not modify the user's level asset.
+    // until a valid editor world is available and all deterministic fixtures are
+    // fully usable. The fixtures are transient and do not modify the user's level asset.
     SequencerFixtureTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FAtlasUnrealTransportModule::EnsureSequencerFixture),
         0.10f);
@@ -85,10 +87,72 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
         return true;
     }
 
-    // Do not gate fixture creation on AreActorsInitialized(). In editor worlds
-    // that state can remain transitional while the world is nevertheless safe
-    // for this transient actor to be created. The next ticker pass is sufficient
-    // to handle a world that is still genuinely unavailable.
+    // Create the deterministic transform fixture used by the live production
+    // integration gates. Reuse an existing tagged actor if the fixture already exists.
+    AActor* FieldFixtureActor = nullptr;
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        AActor* ExistingActor = *It;
+        if (ExistingActor && IsValid(ExistingActor) && ExistingActor->ActorHasTag(FieldFixtureTag))
+        {
+            FieldFixtureActor = ExistingActor;
+            break;
+        }
+    }
+
+    if (!FieldFixtureActor)
+    {
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.Name = FieldFixtureActorName;
+        SpawnParams.NameMode = FActorSpawnParameters::ESpawnActorNameMode::Requested;
+        SpawnParams.ObjectFlags |= RF_Transient;
+
+        FieldFixtureActor = World->SpawnActor<AActor>(
+            AActor::StaticClass(),
+            FTransform::Identity,
+            SpawnParams);
+
+        if (!FieldFixtureActor)
+        {
+            UE_LOG(
+                LogAtlasTransport,
+                Warning,
+                TEXT("Unable to create Atlas FIELD_SURFACE fixture actor in world '%s'; will retry"),
+                *World->GetName());
+            return true;
+        }
+
+        USceneComponent* RootComponent = NewObject<USceneComponent>(
+            FieldFixtureActor,
+            TEXT("AtlasFieldSurfaceFixtureRoot"));
+        if (!RootComponent)
+        {
+            FieldFixtureActor->Destroy();
+            UE_LOG(
+                LogAtlasTransport,
+                Warning,
+                TEXT("Unable to create Atlas FIELD_SURFACE fixture root component in world '%s'; will retry"),
+                *World->GetName());
+            return true;
+        }
+
+        FieldFixtureActor->SetRootComponent(RootComponent);
+        RootComponent->RegisterComponent();
+        FieldFixtureActor->Tags.AddUnique(FieldFixtureTag);
+        FieldFixtureActor->SetActorLabel(TEXT("Atlas Field Surface Fixture"));
+    }
+
+    if (!FieldFixtureActor->HasValidRootComponent())
+    {
+        UE_LOG(
+            LogAtlasTransport,
+            Warning,
+            TEXT("Atlas FIELD_SURFACE fixture actor has no valid root component in world '%s'; will retry"),
+            *World->GetName());
+        return true;
+    }
+
+    // Create or reuse the deterministic Sequencer fixture used by the live gates.
     ALevelSequenceActor* FixtureActor = nullptr;
 
     for (TActorIterator<ALevelSequenceActor> It(World); It; ++It)
@@ -151,9 +215,6 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
         FixtureActor->SetSequence(Sequence);
     }
 
-    // Explicitly verify the actor retained the sequence. This prevents a race
-    // or lifecycle edge case from producing a fixture actor that looks valid but
-    // cannot be discovered by the transport server.
     if (FixtureActor->GetSequence() != Sequence)
     {
         FixtureActor->SetSequence(Sequence);
@@ -190,8 +251,9 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
     UE_LOG(
         LogAtlasTransport,
         Log,
-        TEXT("Atlas Sequencer fixture ready in world '%s' with actor '%s' and playback range %d-%d"),
+        TEXT("Atlas Unreal fixtures ready in world '%s': field actor '%s', sequencer actor '%s', playback range %d-%d"),
         *World->GetName(),
+        *FieldFixtureActor->GetName(),
         *FixtureActor->GetName(),
         DefaultSequencerStartFrame,
         DefaultSequencerEndFrame);
