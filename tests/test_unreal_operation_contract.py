@@ -9,7 +9,10 @@ def payload(**overrides):
         "capability": "material",
         "kind": "write",
         "name": "apply_material_variant",
-        "arguments": {"entity_ids": ["FIELD_SURFACE"]},
+        "arguments": {
+            "entity_ids": ["FIELD_SURFACE"],
+            "material_variant": {"name": "liquid_surface"},
+        },
         "entity_ids": ["FIELD_SURFACE"],
     }
     value.update(overrides)
