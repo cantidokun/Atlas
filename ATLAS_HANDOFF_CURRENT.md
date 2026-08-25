@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 25, 2026 — current development checkpoint refresh  
+**Updated:** August 25, 2026 — current development checkpoint  
 **Branch:** `feat/replan-race-gate`  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
@@ -14,7 +14,7 @@ FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
 
 This fresh result superseded the earlier `622 passed / 30 failed` and `649 passed / 3 failed` results. No newer full-suite result has been established in the current checkpoint.
 
-The same development increment also established live Blender-backed evidence for five mutation capabilities, each with a legitimate authoritative-success result and an adversarial authoritative-mismatch result:
+The same development increment established live Blender-backed evidence for five mutation capabilities, each with a legitimate authoritative-success result and an adversarial authoritative-mismatch result:
 
 | Capability | Legitimate live proof | Adversarial live proof |
 | --- | --- | --- |
