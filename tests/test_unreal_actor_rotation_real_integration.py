@@ -55,7 +55,7 @@ def test_real_unreal_actor_rotation_applies_verifies_and_restores():
         assert [evidence.operation_name for evidence in result.evidence_ledger] == [
             "inspect_target_actors",
             "set_actor_rotation",
-            "verify_target_actor_mapping",
+            "verify_actor_rotation",
         ]
         assert _rotation(result.evidence_ledger[1]) == pytest.approx(target_rotation)
         assert _rotation(result.evidence_ledger[2]) == pytest.approx(target_rotation)
