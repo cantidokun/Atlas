@@ -24,7 +24,11 @@ def test_adapter_dispatches_without_reinterpreting_result():
     adapter = BlenderToolAdapter({"move_object": move_object})
     arguments = {"object_name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]}
 
-    assert adapter("move_object", arguments) is raw
+    normalized = adapter("move_object", arguments)
+    assert normalized is not raw
+    assert normalized.ok is True
+    assert normalized.state == "moved"
+    assert normalized.details == {"object_name": "Goal_Left_post"}
     assert calls == [arguments]
     assert adapter.supported_tools == ("move_object",)
 
