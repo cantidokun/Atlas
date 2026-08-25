@@ -105,7 +105,7 @@ def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFa
                 capability=inspection_capability,
                 kind=UnrealOperationKind.READ,
                 name=inspect_name,
-                arguments={"entity_ids": tuple(operation.entity_ids)},
+                arguments={},
                 entity_ids=tuple(operation.entity_ids),
             )
         )
@@ -233,7 +233,7 @@ def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySeque
         if operation.kind is not UnrealOperationKind.WRITE or operation.name not in _WRITE_DEFINITIONS:
             raise ValueError("recovery replacement assessment must reference supported write operations")
         _, _, verify_name, argument_key = _WRITE_DEFINITIONS[operation.name]
-        verify_args = {"entity_ids": tuple(operation.entity_ids)}
+        verify_args = {}
         if operation.name in {"set_actor_location", "set_actor_rotation", "set_actor_scale"}:
             verify_args["expected_" + argument_key] = dict(operation.arguments[argument_key])
         elif operation.name == "apply_material_variant":
@@ -243,8 +243,10 @@ def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySeque
         elif operation.name == "set_sequencer_playback_range":
             verify_args["expected_start_frame"] = int(operation.arguments["start_frame"])
             verify_args["expected_end_frame"] = int(operation.arguments["end_frame"])
+
+        write_arguments = {key: value for key, value in operation.arguments.items() if key != "entity_ids"}
         operations.extend((
-            UnrealOperation(operation.capability, UnrealOperationKind.WRITE, operation.name, dict(operation.arguments), tuple(operation.entity_ids)),
+            UnrealOperation(operation.capability, UnrealOperationKind.WRITE, operation.name, write_arguments, tuple(operation.entity_ids)),
             UnrealOperation(operation.capability, UnrealOperationKind.VERIFY, verify_name, verify_args, tuple(operation.entity_ids)),
         ))
     return UnrealTaskPlan(f"{plan.intent_id}:recovery-sequence-replacement", tuple(operations))
