@@ -169,13 +169,8 @@ def _verify(step, evidence):
 
 def _store_evidence(evidence_by_operation, evidence):
     entity_ids = tuple(evidence.entity_ids)
-    keys = [(evidence.operation_name, entity_ids)]
-    if evidence.operation_name == "verify_sequencer_playback_range":
-        keys.append(("inspect_sequencer_state", entity_ids))
-    elif evidence.operation_name == "inspect_sequencer_state":
-        keys.append(("verify_sequencer_playback_range", entity_ids))
-    for key in keys:
-        evidence_by_operation.setdefault(key, []).append(evidence)
+    key = (evidence.operation_name, entity_ids)
+    evidence_by_operation.setdefault(key, []).append(evidence)
 
 
 def assess_reassessment_sequence(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFailure, result: UnrealPlanExecutionResult) -> UnrealRecoverySequenceAssessment:

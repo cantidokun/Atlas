@@ -45,10 +45,7 @@ class UnrealAdapterProduction:
         return self._to_evidence(response,evidence_operation_name)
     def inspect(self, operation, authorization_id):
         if operation.kind is not UnrealOperationKind.READ: raise UnrealAdapterError("inspect accepts READ operations only")
-        evidence_operation_name = None
-        if operation.name == "inspect_sequencer_state":
-            evidence_operation_name = "verify_sequencer_playback_range"
-        return self._execute(operation,authorization_id,evidence_operation_name=evidence_operation_name)
+        return self._execute(operation,authorization_id)
     def apply_authorized(self, operation, authorization_id):
         if operation.kind is not UnrealOperationKind.WRITE: raise UnrealAdapterError("apply_authorized accepts WRITE operations only")
         return self._execute(operation,authorization_id)
