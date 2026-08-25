@@ -62,7 +62,7 @@ def test_real_unreal_plan_executor_location_write_and_restore():
             assert len(result.evidence_ledger) == 3
             assert result.evidence_ledger[0].operation_name == "inspect_target_actors"
             assert result.evidence_ledger[1].operation_name == "set_actor_location"
-            assert result.evidence_ledger[2].operation_name == "verify_target_actor_mapping"
+            assert result.evidence_ledger[2].operation_name == "verify_actor_location"
             assert _location(result.evidence_ledger[2]) == pytest.approx(target_location)
         finally:
             restore_plan = planner.plan_actor_location_write(
