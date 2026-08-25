@@ -3,19 +3,19 @@ from planning.blender_corrective_runtime import BlenderCorrectiveRuntime
 
 
 class InterruptingExecutor:
-    def __init__(self):
+    def __init__(self, world):
         self.calls = 0
-        self.state = 0
+        self.world = world
 
     def __call__(self, tool, arguments):
         self.calls += 1
-        self.state = arguments["value"]
-        return {"ok": True, "state": "ok", "details": {"value": self.state}}
+        self.world["value"] = arguments["value"]
+        return {"ok": True, "state": "ok", "details": {"value": self.world["value"]}}
 
 
 def test_runtime_replans_after_world_changes_between_steps():
-    executor = InterruptingExecutor()
     world = {"value": 0}
+    executor = InterruptingExecutor(world)
 
     def observe():
         return {"value": world["value"]}
@@ -27,7 +27,8 @@ def test_runtime_replans_after_world_changes_between_steps():
 
     runtime = BlenderCorrectiveRuntime(observe, plan, "test:interruption", executor=executor)
     first = runtime.run(max_steps=1)
-    assert first.converged
+    assert first.converged is False
+    assert world["value"] == 1
 
     # Simulate an external world mutation after the first run.
     world["value"] = -10
