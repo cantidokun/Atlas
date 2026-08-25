@@ -52,7 +52,7 @@ def _verifier(action: ActionSpec, receipt: Any) -> Tuple[bool, Dict[str, Any]]:
         file_name=action.arguments["file_name"],
         object_name=action.arguments["object_name"],
     )
-    deleted = observed.get("status") in {"not_found", "already_absent"}
+    deleted = observed.get("status") == "object_not_found"
     return deleted, {"authoritative": observed, "object_deleted": deleted}
 
 
@@ -64,7 +64,7 @@ def _mismatch_verifier(action: ActionSpec, receipt: Any) -> Tuple[bool, Dict[str
     wrong_expectation = observed.get("status") == "ok"
     return wrong_expectation, {
         "authoritative": observed,
-        "expected_by_adversarial_verifier": "not_found",
+        "expected_by_adversarial_verifier": "object_not_found",
         "object_deleted": False,
     }
 
