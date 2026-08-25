@@ -182,6 +182,7 @@ class _TestUnrealTransport:
         self._responses = {}
         self._auth_responses = {}
         self._current_authorization_id = None
+        self._state = {}
     
     def set_response(self, plan_intent_id, result):
         """Configure la réponse pour un plan donné."""
@@ -199,6 +200,63 @@ class _TestUnrealTransport:
         # Utilise l'authorization_id pour déterminer le contexte d'exécution
         self._current_authorization_id = request.authorization_id
         
+        # Stateful handling for sequencer writes and reads in this test transport.
+        # The production adapter maps verify_sequencer_playback_range to
+        # inspect_sequencer_state. Successful writes must update the local state
+        # before that subsequent read, so the fresh verifier observes the new
+        # playback range instead of replaying a stale configured response.
+        if request.operation_name == "set_sequencer_playback_range":
+            start_frame = request.arguments.get("start_frame")
+            end_frame = request.arguments.get("end_frame")
+            if start_frame is None or end_frame is None:
+                return UnrealTransportResponse(
+                    request_id=request.request_id,
+                    operation_name=request.operation_name,
+                    entity_ids=request.entity_ids,
+                    success=False,
+                    error="missing playback_range",
+                    observed_state={},
+                    source="test-unreal-transport",
+                )
+            for entity_id in request.entity_ids:
+                self._state[entity_id] = {
+                    "sequencer": {
+                        "playback_range": {
+                            "start_frame": start_frame,
+                            "end_frame": end_frame,
+                        }
+                    }
+                }
+            observed_state = {
+                entity_id: dict(self._state[entity_id])
+                for entity_id in request.entity_ids
+            }
+            return UnrealTransportResponse(
+                request_id=request.request_id,
+                operation_name=request.operation_name,
+                entity_ids=request.entity_ids,
+                success=True,
+                error="",
+                observed_state=observed_state,
+                source="test-unreal-transport",
+            )
+
+        if request.operation_name == "inspect_sequencer_state":
+            if all(entity_id in self._state for entity_id in request.entity_ids):
+                observed_state = {
+                    entity_id: dict(self._state[entity_id])
+                    for entity_id in request.entity_ids
+                }
+                return UnrealTransportResponse(
+                    request_id=request.request_id,
+                    operation_name=request.operation_name,
+                    entity_ids=request.entity_ids,
+                    success=True,
+                    error="",
+                    observed_state=observed_state,
+                    source="test-unreal-transport",
+                )
+
         def _evidence_matches(evidence, req_op, req_entity_ids):
             return (evidence.operation_name == req_op and
                     tuple(evidence.entity_ids) == tuple(req_entity_ids))
