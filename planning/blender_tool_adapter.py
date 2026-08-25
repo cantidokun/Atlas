@@ -34,6 +34,11 @@ class BlenderToolAdapter:
     def supported_tools(self):
         return tuple(sorted(self._tools))
 
+    @staticmethod
+    def _normalize_result(result: Dict[str, Any]) -> BlenderExecutionResult:
+        """Preserve the historical helper while using the canonical normalizer."""
+        return normalize_blender_result("adapter", result)
+
     def __call__(self, tool: str, arguments: Dict[str, Any]) -> BlenderExecutionResult:
         """Dispatch one already-authorized call without altering its payload."""
         if not isinstance(tool, str) or not tool.strip():
