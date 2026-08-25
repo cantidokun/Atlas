@@ -32,6 +32,29 @@ def _location(evidence):
     return dict(evidence.observed_state[ENTITY_ID]["location"])
 
 
+def _post_write_failure(intent_id, target_location):
+    from planning.unreal_evidence_contract import UnrealEvidence
+    from planning.unreal_plan_executor import UnrealPlanExecutionFailure
+    return UnrealPlanExecutionFailure(
+        intent_id=intent_id,
+        operation_index=2,
+        operation_name="set_actor_location",
+        completed_evidence=(
+            UnrealEvidence(
+                "inspect_target_actors",
+                (ENTITY_ID,),
+                {ENTITY_ID: {"entity_id": ENTITY_ID, "location": dict(target_location)}},
+                "real-authorized-replacement-test",
+                False,
+            ),
+        ),
+        error="simulated post-write failure",
+        operation_entity_ids=(ENTITY_ID,),
+        operation_arguments={"entity_ids": (ENTITY_ID,), "location": dict(target_location)},
+        completed_operation_arguments=({"entity_ids": (ENTITY_ID,)},),
+    )
+
+
 class FailOnceAfterSecondWriteTransport:
     """Real transport that loses the second write response exactly once."""
 
@@ -127,7 +150,6 @@ def test_real_unreal_recovery_to_explicit_authorized_replacement():
                 "replacement-authorized-auth",
             )
 
-            # A changed replacement plan must fail before reaching Unreal.
             changed_plan = planner.plan_actor_location_write(
                 _intent("replacement-authorized-plan"),
                 {
@@ -144,19 +166,13 @@ def test_real_unreal_recovery_to_explicit_authorized_replacement():
                 executor.execute_authorized(changed_plan, authorization)
             assert len(transport.requests) == request_count_before_rejection
 
-            # Only the exact, explicitly authorized replacement may mutate.
-            # A location-write plan deliberately performs a fresh inspection
-            # before the write and a read-only transport observation for the
-            # semantic verification after it. The evidence retains the
-            # semantic VERIFY operation name even though the wire operation is
-            # inspect_target_actors.
             replacement_result = executor.execute_authorized(
                 replacement_plan,
                 authorization,
             )
             assert replacement_result.success is True
             assert len(replacement_result.evidence_ledger) == 3
-            assert replacement_result.evidence_ledger[2].operation_name == "verify_target_actor_mapping"
+            assert replacement_result.evidence_ledger[2].operation_name == "verify_actor_location"
             assert _location(replacement_result.evidence_ledger[2]) == pytest.approx(
                 replacement_location
             )
