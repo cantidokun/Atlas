@@ -73,6 +73,82 @@ def test_composes_two_verified_write_capabilities_through_one_runtime():
     assert len(result.receipts) == 2
 
 
+def test_composition_replans_after_world_interruption_between_operations():
+    from planning.blender_execution_receipt import BlenderExecutionReceipt
+
+    state = {"location": [0, 0, 0], "rotation": [0, 0, 0]}
+
+    class InterruptingExecutor:
+        def __init__(self):
+            self.calls = []
+            self.authorizations = []
+
+        def execute_authorized_replan(self, replan, evidence):
+            action = replan.actions[0]
+            self.calls.append(action.tool)
+            self.authorizations.append(replan.authorization)
+            if action.tool == "move_object":
+                state["location"] = list(action.arguments["location"])
+                # Simulate an external world change before the next operation.
+                state["rotation"] = [99, 98, 97]
+            elif action.tool == "set_object_rotation":
+                state["rotation"] = list(action.arguments["rotation"])
+            result = {
+                "ok": True,
+                "state": "applied",
+                "details": dict(action.arguments),
+            }
+            return result, None
+
+    executor = InterruptingExecutor()
+
+    def observe():
+        return {
+            "location": list(state["location"]),
+            "rotation": list(state["rotation"]),
+        }
+
+    def plan(evidence):
+        if evidence["location"] != [1, 2, 3]:
+            return [
+                ActionSpec(
+                    tool="move_object",
+                    arguments={
+                        "file_name": "scene.blend",
+                        "object_name": "Cube",
+                        "location": [1, 2, 3],
+                    },
+                )
+            ]
+        if evidence["rotation"] != [10, 20, 30]:
+            return [
+                ActionSpec(
+                    tool="set_object_rotation",
+                    arguments={
+                        "file_name": "scene.blend",
+                        "object_name": "Cube",
+                        "rotation": [10, 20, 30],
+                    },
+                )
+            ]
+        return []
+
+    task = ProductionMultiOperationCorrectiveTask(
+        observe,
+        plan,
+        "test:production-interruption",
+        executor=executor,
+    )
+    result = task.run(max_steps=4)
+
+    assert result.converged
+    assert executor.calls == ["move_object", "set_object_rotation"]
+    assert len(executor.authorizations) == 2
+    assert executor.authorizations[0].evidence_digest != executor.authorizations[1].evidence_digest
+    assert state == {"location": [1, 2, 3], "rotation": [10, 20, 30]}
+    assert len(result.receipts) == 2
+
+
 def test_composition_rejects_non_production_test_capabilities():
     state = {"value": 0}
 
