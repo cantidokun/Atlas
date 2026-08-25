@@ -91,6 +91,10 @@ def _build_executor(transport: InMemoryTransport) -> UnrealPlanExecutor:
     return UnrealPlanExecutor(adapter)
 
 
+def _material_variant():
+    return {"name": "liquid_surface"}
+
+
 # ---------------------------------------------------------------------------
 # Inspection plan round-trip
 # ---------------------------------------------------------------------------
@@ -144,7 +148,7 @@ class TestMaterialVariantRoundTrip:
         planner = UnrealTaskPlanner()
 
         intent = _make_intent()
-        task_plan = planner.plan_material_variant(intent)
+        task_plan = planner.plan_material_variant(intent, _material_variant())
 
         # Expect: inspect_actor READ, material READ, material WRITE, material VERIFY
         assert len(task_plan.operations) == 4
@@ -159,7 +163,7 @@ class TestMaterialVariantRoundTrip:
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
 
-        task_plan = planner.plan_material_variant(_make_intent())
+        task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
         executor.execute(task_plan, authorization_id="auth-011")
 
         expected_kinds = [op.kind.value for op in task_plan.operations]
@@ -172,7 +176,7 @@ class TestMaterialVariantRoundTrip:
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
 
-        task_plan = planner.plan_material_variant(_make_intent(targets=targets))
+        task_plan = planner.plan_material_variant(_make_intent(targets=targets), _material_variant())
         result = executor.execute(task_plan, authorization_id="auth-012")
 
         for evidence in result.evidence_ledger:
@@ -199,7 +203,7 @@ class TestTransportFailureClosed:
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
 
-        task_plan = planner.plan_material_variant(_make_intent())
+        task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
         assert len(task_plan.operations) == 4
 
         with pytest.raises(UnrealPlanExecutionError):
@@ -213,7 +217,7 @@ class TestTransportFailureClosed:
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
 
-        task_plan = planner.plan_material_variant(_make_intent())
+        task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
 
         with pytest.raises(UnrealPlanExecutionError):
             executor.execute(task_plan, authorization_id="auth-022")
@@ -241,7 +245,7 @@ class TestEvidenceCorrelation:
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
 
-        task_plan = planner.plan_material_variant(_make_intent())
+        task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
         result = executor.execute(task_plan, authorization_id="auth-031")
 
         for op, ev in zip(task_plan.operations, result.evidence_ledger):
@@ -269,7 +273,7 @@ class TestVerifiedFalseInvariant:
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
 
-        task_plan = planner.plan_material_variant(_make_intent())
+        task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
         result = executor.execute(task_plan, authorization_id="auth-041")
 
         for evidence in result.evidence_ledger:
@@ -325,7 +329,7 @@ class TestActionPlanAuthorizationRoundTrip:
         planner = UnrealTaskPlanner()
 
         intent = _make_intent()
-        task_plan = planner.plan_material_variant(intent)
+        task_plan = planner.plan_material_variant(intent, _material_variant())
 
         action_plan = ActionPlan(actions=self._action_specs_from_plan(task_plan))
         auth = action_plan.authorize_with_id("auth-101")
@@ -343,7 +347,7 @@ class TestActionPlanAuthorizationRoundTrip:
         from planning.action_plan import ActionPlan
 
         planner = UnrealTaskPlanner()
-        task_plan = planner.plan_material_variant(_make_intent())
+        task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
 
         specs = self._action_specs_from_plan(task_plan)
         auth_a = ActionPlan(actions=list(specs)).authorize_with_id("auth-102")
@@ -463,11 +467,6 @@ class TestExecutorValidation:
             assert evidence.verified is False  # Always unverified from transport
 
             transport_req = transport.requests[i]
-            expected_transport_operation = (
-                "inspect_target_actors"
-                if operation.name == "verify_target_actor_mapping"
-                else operation.name
-            )
-            assert transport_req.operation_name == expected_transport_operation
+            assert transport_req.operation_name == operation.name
             assert tuple(transport_req.entity_ids) == tuple(evidence.entity_ids)
             assert transport_req.authorization_id == "auth-consistency"
