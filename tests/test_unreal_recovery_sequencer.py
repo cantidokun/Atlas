@@ -199,14 +199,8 @@ class _TestUnrealTransport:
         # Utilise l'authorization_id pour déterminer le contexte d'exécution
         self._current_authorization_id = request.authorization_id
         
-        # Mapping pour adapter les noms d'opération entre l'adaptateur et les preuves
-        _OPERATION_MAP = {
-            "inspect_sequencer_state": "verify_sequencer_playback_range",
-        }
-        
         def _evidence_matches(evidence, req_op, req_entity_ids):
-            mapped_op = _OPERATION_MAP.get(req_op, req_op)
-            return (evidence.operation_name == mapped_op and
+            return (evidence.operation_name == req_op and
                     tuple(evidence.entity_ids) == tuple(req_entity_ids))
         
         # D'abord, cherche une réponse configurée explicitement pour cet authorization_id

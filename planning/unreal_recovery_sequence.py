@@ -105,7 +105,7 @@ def build_reassessment_plan(plan: UnrealTaskPlan, failure: UnrealPlanExecutionFa
                 capability=inspection_capability,
                 kind=UnrealOperationKind.READ,
                 name=inspect_name,
-                arguments={},
+                arguments={"entity_ids": tuple(operation.entity_ids)},
                 entity_ids=tuple(operation.entity_ids),
             )
         )
@@ -244,7 +244,11 @@ def build_replacement_plan(plan: UnrealTaskPlan, assessment: UnrealRecoverySeque
             verify_args["expected_start_frame"] = int(operation.arguments["start_frame"])
             verify_args["expected_end_frame"] = int(operation.arguments["end_frame"])
 
-        write_arguments = {key: value for key, value in operation.arguments.items() if key != "entity_ids"}
+        verify_args["entity_ids"] = tuple(operation.entity_ids)
+        write_arguments = {"entity_ids": tuple(operation.entity_ids)}
+        for key, value in operation.arguments.items():
+            if key != "entity_ids":
+                write_arguments[key] = value
         operations.extend((
             UnrealOperation(operation.capability, UnrealOperationKind.WRITE, operation.name, write_arguments, tuple(operation.entity_ids)),
             UnrealOperation(operation.capability, UnrealOperationKind.VERIFY, verify_name, verify_args, tuple(operation.entity_ids)),
