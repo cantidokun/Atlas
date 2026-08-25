@@ -23,6 +23,17 @@ def test_empty_authorization_identity_is_rejected():
         arguments={"object_name": "Cube", "location": [1, 2, 3]},
     )
 
-    # A write authorization without an identity cannot safely bind a receipt.
     with pytest.raises((ValueError, TypeError)):
         BlenderWriteAuthorization.issue(action, "")
+
+
+def test_authorization_identity_is_normalized_before_receipt_binding():
+    action = ActionSpec(
+        tool="move_object",
+        arguments={"object_name": "Cube", "location": [1, 2, 3]},
+    )
+
+    authorization = BlenderWriteAuthorization.issue(action, "  auth-123  ")
+
+    assert authorization.authorization_id == "auth-123"
+    assert authorization.action_authorization.authorization_id == "auth-123"
