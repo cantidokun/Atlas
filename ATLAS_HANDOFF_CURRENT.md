@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 25, 2026 — current development checkpoint  
+**Updated:** August 25, 2026 — current development checkpoint refresh  
 **Branch:** `feat/replan-race-gate`  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
@@ -142,9 +142,7 @@ Multi-step corrective execution explicitly re-observes before each mutation and 
 
 Synthetic corrective tests may use `set_value`; this is deliberately not a production Blender capability.
 
-## Files and tools added/changed in the current increment
-
-Core production files currently central to the milestone:
+## Files and tools central to the current increment
 
 ```text
 planning/blender_capability_catalog.py
@@ -169,11 +167,11 @@ live_blender_write_gate_marker.py
 live_blender_write_gate_collection.py
 ```
 
-Focused validation files include the receipt/authorization/live-gate tests, corrective-runtime tests, adapter/result-contract tests, marker conditional/declarative tests, and multi-step corrective executor tests that were cleared during this development increment.
+Focused validation files include the receipt/authorization/live-gate tests, corrective-runtime tests, adapter/result-contract tests, marker conditional/declarative tests, and multi-step corrective executor tests cleared during this development increment.
 
 ## Test history and completed validation
 
-The development increment progressed through these authoritative results:
+Authoritative progression during the development increment:
 
 ```text
 622 passed / 30 failed
@@ -181,14 +179,14 @@ The development increment progressed through these authoritative results:
 652 passed / 0 failed
 ```
 
-The final result above was:
+Final full-suite command and result:
 
-```text
+```powershell
 python -m pytest -q
 652 passed in 1.26s
 ```
 
-Focused clusters cleared during the increment included:
+Focused clusters cleared during the increment:
 
 ```text
 receipt / authorization / live-verification: 12 passed
@@ -202,9 +200,9 @@ The live Blender evidence separately established legitimate `VERIFIED` and adver
 
 ## Current model/runtime setup
 
-The current execution architecture is Python-first at the Atlas orchestration layer, with Blender as the controlled production execution target. The model/agent side proposes actions; Atlas owns validation, capability admission, authorization, execution boundaries, receipts, authoritative verification, and recovery.
+The current architecture is Python-first at the Atlas orchestration layer, with Blender as the controlled production execution target. The model/agent side proposes actions; Atlas owns validation, capability admission, authorization, execution boundaries, receipts, authoritative verification, and recovery.
 
-Current documented runtime environment from the development session:
+Documented runtime environment from the development session:
 
 ```text
 OS / shell: Windows PowerShell
@@ -214,13 +212,13 @@ Python test runner: python -m pytest
 Blender: controlled external execution target through the Atlas Blender boundary/runner
 ```
 
-No additional model-version or hardware claim is recorded here unless it has been explicitly established by runner output.
+No additional model-version, hardware, or benchmark claim is recorded unless explicitly established by runner output.
 
-## Known issues / constraints
+## Current known issues / remaining proof requirements
 
 No offline pytest failures remain at the latest reported baseline.
 
-The following are still development requirements rather than completed milestones:
+The following remain development requirements rather than completed milestones:
 
 - The five live capability proofs are not a substitute for end-to-end proof of arbitrary multi-operation production composition.
 - A green offline suite does not itself prove a live Blender execution path.
