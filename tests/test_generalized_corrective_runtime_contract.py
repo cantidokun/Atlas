@@ -3,18 +3,20 @@ from planning.blender_corrective_runtime import BlenderCorrectiveRuntime
 
 
 class RecordingExecutor:
-    def __init__(self):
+    def __init__(self, state):
         self.calls = []
+        self.state = state
 
     def __call__(self, tool, arguments):
-        self.calls.append((tool, arguments))
+        self.calls.append((tool, dict(arguments)))
+        self.state["value"] = arguments["value"]
         return {"ok": True, "state": "ok", "details": {"tool": tool}}
 
 
 def test_runtime_replans_from_fresh_state_after_each_receipt():
     state = {"value": 0}
     observations = []
-    executor = RecordingExecutor()
+    executor = RecordingExecutor(state)
 
     def observe():
         snapshot = dict(state)
