@@ -51,9 +51,9 @@ def _actor_state(evidence):
     return evidence.observed_state[ENTITY_ID]
 
 
-def _post_write_failure(target_location, target_scale):
+def _post_write_failure(intent_id, target_location, target_scale):
     return UnrealPlanExecutionFailure(
-        intent_id="real-composite-recovery",
+        intent_id=intent_id,
         operation_index=4,
         operation_name="verify_actor_scale",
         completed_evidence=(
@@ -141,7 +141,7 @@ def test_real_unreal_composite_recovery_replaces_only_mismatched_prior_write():
         )
         assert mismatch_result.success is True
 
-        failure = _post_write_failure(target_location, target_scale)
+        failure = _post_write_failure(write_plan.intent_id, target_location, target_scale)
         reassessment_plan = build_reassessment_plan(write_plan, failure)
         reassessment_authorization = UnrealPlanAuthorization.issue(
             reassessment_plan,
