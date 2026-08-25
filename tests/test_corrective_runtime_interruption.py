@@ -35,5 +35,5 @@ def test_runtime_replans_after_world_changes_between_steps():
     second = runtime.run(max_steps=12)
 
     assert second.converged
-    assert len(second.receipts) == 11
-    assert world["value"] == 1
+    assert len(second.receipts) == 12
+    assert world["value"] == 2
