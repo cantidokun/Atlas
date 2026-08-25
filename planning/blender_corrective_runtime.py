@@ -10,6 +10,7 @@ from planning.corrective_execution_boundary import CorrectiveExecutionBoundary
 
 Executor = Union[
     BlenderAutonomousExecutor,
+    BlenderExecutionBoundary,
     Callable[[str, dict[str, Any]], dict[str, Any]],
 ]
 
@@ -32,8 +33,15 @@ class BlenderCorrectiveRuntime:
             boundary = raw_executor._boundary
         elif callable(raw_executor):
             boundary = CorrectiveExecutionBoundary(raw_executor)
+        elif hasattr(raw_executor, "execute_authorized_replan") and callable(raw_executor.execute_authorized_replan):
+            # Explicitly injected corrective executors already expose the protected
+            # replan protocol. Do not reinterpret them as Blender tool capabilities.
+            boundary = raw_executor
         else:
-            raise TypeError("executor must be BlenderAutonomousExecutor, BlenderExecutionBoundary, or callable")
+            raise TypeError(
+                "executor must be BlenderAutonomousExecutor, BlenderExecutionBoundary, "
+                "authorized corrective executor, or callable"
+            )
         self.task = AutonomousCorrectiveTask(
             boundary,
             observe,
