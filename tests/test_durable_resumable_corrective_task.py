@@ -30,14 +30,21 @@ def _checkpoint(revision, evidence):
 def test_fresh_evidence_issues_new_resume_authorization():
     revision = _revision()
     checkpoint = _checkpoint(revision, {"revision": "r1", "location": [0, 0, 0]})
+    fresh = {"revision": "r1", "location": [1, 0, 0]}
+    actions = [ActionSpec(tool="move_object", arguments={"file_name": "scene.blend", "object_name": "Goal_Left_post", "location": [2, 0, 0]})]
     task = DurableResumableCorrectiveTask(
         checkpoint,
         revision,
-        lambda: {"revision": "r1", "location": [1, 0, 0]},
-        lambda evidence: [ActionSpec(tool="move_object", arguments={"file_name": "scene.blend", "object_name": "Goal_Left_post", "location": [2, 0, 0]})],
+        lambda: fresh,
+        lambda evidence: actions,
     )
-    authorization = task.issue_resume_authorization({"revision": "r1", "location": [1, 0, 0]})
-    assert authorization.authorization_id != checkpoint.authorization_id
+    authorization = task.issue_resume_authorization(fresh)
+    # The authorization id is the continuation lineage identifier. A fresh
+    # authorization is distinguished by its evidence/action binding, not by
+    # changing that lineage identifier.
+    assert authorization.authorization_id == checkpoint.authorization_id
+    assert authorization.matches(fresh, actions)
+    assert authorization.evidence_digest != checkpoint.evidence_digest
 
 
 def test_stale_evidence_cannot_issue_resume_authorization():
