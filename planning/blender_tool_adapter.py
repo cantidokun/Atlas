@@ -35,9 +35,27 @@ class BlenderToolAdapter:
         return tuple(sorted(self._tools))
 
     @staticmethod
-    def _normalize_result(result: Dict[str, Any]) -> BlenderExecutionResult:
-        """Preserve the historical helper while using the canonical normalizer."""
-        return normalize_blender_result("adapter", result)
+    def _normalize_result(result: Dict[str, Any]) -> Dict[str, Any]:
+        """Preserve the historical dict helper used by adapter contract tests.
+
+        The public adapter dispatch path returns the canonical
+        ``BlenderExecutionResult``. This compatibility helper intentionally
+        retains its historical mapping contract for callers that use it
+        directly.
+        """
+        if not isinstance(result, dict):
+            raise TypeError("Blender adapter result must be an object")
+        if "ok" in result:
+            if not isinstance(result["ok"], bool):
+                raise TypeError("Blender result ok must be boolean")
+            if "state" not in result:
+                raise ValueError("Blender result missing required field: state")
+            if "details" not in result:
+                result["details"] = {}
+            if not isinstance(result["details"], dict):
+                raise TypeError("Blender result details must be an object")
+            return result
+        return normalize_blender_result("adapter", result).__dict__.copy()
 
     def __call__(self, tool: str, arguments: Dict[str, Any]) -> BlenderExecutionResult:
         """Dispatch one already-authorized call without altering its payload."""
