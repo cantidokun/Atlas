@@ -6,13 +6,13 @@
 
 ## Current verified milestone
 
-The latest authoritative local validation reported in the development session is:
+The latest authoritative local validation reported in the development session remains:
 
 ```text
 FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
 ```
 
-This fresh result superseded the earlier `622 passed / 30 failed` and `649 passed / 3 failed` results. No newer full-suite result has been established in the current checkpoint.
+No newer full-suite result has been established since that run. The `652 passed / 0 failed` result supersedes the earlier `622 passed / 30 failed` and `649 passed / 3 failed` results.
 
 The same development increment established live Blender-backed evidence for five mutation capabilities, each with a legitimate authoritative-success result and an adversarial authoritative-mismatch result:
 
