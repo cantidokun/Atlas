@@ -84,6 +84,21 @@ def _observe(file_name: str, object_name: str) -> Dict[str, Any]:
     }
 
 
+def _vector_matches(actual: Any, expected: Any, tolerance: float = 1e-5) -> bool:
+    return (
+        isinstance(actual, list)
+        and isinstance(expected, list)
+        and len(actual) == len(expected) == 3
+        and all(abs(float(actual[i]) - float(expected[i])) <= tolerance for i in range(3))
+    )
+
+
+def _state_matches(state: Dict[str, Any], target_location: list[float], target_rotation: list[float]) -> bool:
+    return _vector_matches(state.get("location"), target_location) and _vector_matches(
+        state.get("rotation_degrees"), target_rotation
+    )
+
+
 def _verify(action: ActionSpec, _receipt: Any) -> Tuple[bool, Dict[str, Any]]:
     observed = inspect_object_transform(
         file_name=action.arguments["file_name"],
@@ -101,9 +116,7 @@ def _verify(action: ActionSpec, _receipt: Any) -> Tuple[bool, Dict[str, Any]]:
         key = "rotation_degrees"
     else:
         return False, {"unsupported_tool": action.tool}
-    matches = isinstance(actual, list) and len(actual) == 3 and all(
-        abs(float(actual[i]) - expected[i]) <= 1e-5 for i in range(3)
-    )
+    matches = _vector_matches(actual, expected)
     return matches, {"authoritative": observed, f"{key}_matches": matches}
 
 
@@ -141,8 +154,6 @@ def main() -> None:
     stale_boundary = BlenderExecutionBoundary(stale_executor)
     stale_replan_request = type("StaleReplan", (), {"actions": [rotate], "authorization": stale_replan})()
 
-    # Operation 1: use the same controlled mutation path as the live write probes,
-    # followed by independent authoritative verification for this composition.
     first_authorization = BlenderWriteAuthorization.issue(move, "live:multi-operation:first")
     first_raw = _execute(move.tool, move.arguments.copy())
     first_result = normalize_blender_result(move.tool, first_raw)
@@ -152,8 +163,6 @@ def main() -> None:
     if not first_verified:
         raise SystemExit(f"LIVE COMPOSITION FAILED: first mutation was not authoritatively verified: {first_verification}")
 
-    # Real external interruption: mutate the same Blender scene outside the
-    # corrective task so the next observation is genuinely different.
     interruption_raw = set_object_rotation(
         file_name=file_name,
         object_name=object_name,
@@ -169,16 +178,14 @@ def main() -> None:
         stale_rejected = True
         stale_error = str(exc)
 
-    # Fresh production composition: the generalized runtime observes the
-    # interrupted world and authorizes the replacement operation against it.
     def observe() -> Dict[str, Any]:
         return _observe(file_name, object_name)
 
     def plan(evidence: Dict[str, Any]):
         actions = []
-        if evidence["location"] != target_location:
+        if not _vector_matches(evidence.get("location"), target_location):
             actions.append(move)
-        if evidence["rotation_degrees"] != target_rotation:
+        if not _vector_matches(evidence.get("rotation_degrees"), target_rotation):
             actions.append(rotate)
         return actions
 
@@ -205,6 +212,10 @@ def main() -> None:
         "stale_executor_writes": stale_write_count["writes"],
         "fresh_runtime_converged": bool(result.converged),
         "fresh_runtime_receipts": len(result.receipts),
+        "fresh_runtime_final_evidence": _json_safe(result.final_evidence),
+        "fresh_runtime_planned_actions_at_final": [
+            {"tool": action.tool, "arguments": action.arguments} for action in plan(result.final_evidence)
+        ],
         "final_state": final_state,
         "target_location": target_location,
         "target_rotation": target_rotation,
@@ -219,7 +230,7 @@ def main() -> None:
         raise SystemExit("LIVE COMPOSITION FAILED: stale authorization was not blocked with zero writes")
     if not result.converged:
         raise SystemExit("LIVE COMPOSITION FAILED: fresh corrective runtime did not converge")
-    if final_state["location"] != target_location or final_state["rotation_degrees"] != target_rotation:
+    if not _state_matches(final_state, target_location, target_rotation):
         raise SystemExit("LIVE COMPOSITION FAILED: final authoritative state is incorrect")
     if len(result.receipts) < 1:
         raise SystemExit("LIVE COMPOSITION FAILED: fresh corrective execution produced no receipt")
