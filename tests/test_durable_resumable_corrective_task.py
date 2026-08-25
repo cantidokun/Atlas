@@ -1,13 +1,23 @@
 from planning.action_plan import ActionSpec
-from planning.digital_twin_identity import DigitalTwinIdentity
+from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_revision import RevisionKind, create_revision
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
 
 
-def _revision():
-    identity = DigitalTwinIdentity(twin_id="twin-soccer-1", name="field", anchors=("A", "B"))
-    return create_revision(identity, "r1", 1, RevisionKind.RECONSTRUCTION)
+def _identity(twin_id="twin-soccer-1"):
+    return DigitalTwinIdentity(
+        twin_id=twin_id,
+        entity_type="field",
+        anchors=(
+            IdentityAnchor("test", "anchor_a", "A"),
+            IdentityAnchor("test", "anchor_b", "B"),
+        ),
+    )
+
+
+def _revision(twin_id="twin-soccer-1"):
+    return create_revision(_identity(twin_id), "r1", 1, RevisionKind.RECONSTRUCTION)
 
 
 def _checkpoint(revision, evidence):
@@ -47,8 +57,7 @@ def test_stale_evidence_cannot_issue_resume_authorization():
 
 def test_checkpoint_must_match_canonical_revision():
     revision = _revision()
-    other_identity = DigitalTwinIdentity(twin_id="other", name="field", anchors=("A", "B"))
-    other_revision = create_revision(other_identity, "r1", 1, RevisionKind.RECONSTRUCTION)
+    other_revision = _revision("other")
     checkpoint = _checkpoint(revision, {"state": 1})
     try:
         DurableResumableCorrectiveTask(checkpoint, other_revision, lambda: {}, lambda _: [])
