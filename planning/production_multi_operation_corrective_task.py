@@ -38,7 +38,13 @@ class ProductionMultiOperationCorrectiveTask:
         for action in actions:
             if not isinstance(action, ActionSpec):
                 raise TypeError("production corrective plans must contain ActionSpec values")
-            capability = get_blender_capability(action.tool)
+            try:
+                capability = get_blender_capability(action.tool)
+            except ValueError as exc:
+                raise ValueError(
+                    "production corrective composition requires a verified Blender write capability: "
+                    f"{action.tool}"
+                ) from exc
             if not capability.writes_scene or not capability.requires_verification:
                 raise ValueError(
                     f"production corrective composition requires a verified Blender write capability: {action.tool}"
