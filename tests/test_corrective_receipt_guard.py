@@ -36,6 +36,6 @@ def test_guard_rejects_missing_receipt():
     try:
         require_bound_receipt(FakeExecutor(receipt=False), "move_object", {})
     except RuntimeError as exc:
-        assert "without a receipt" in str(exc)
+        assert "does not bind the requested action" in str(exc)
     else:
         raise AssertionError("missing receipt was accepted")
