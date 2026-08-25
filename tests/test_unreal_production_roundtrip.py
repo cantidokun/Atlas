@@ -228,7 +228,10 @@ class TestMaterialVariantRoundTrip:
         task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
         executor.execute(task_plan, authorization_id="auth-011")
 
-        expected_kinds = [op.kind.value for op in task_plan.operations]
+        expected_kinds = [
+            "read" if op.kind is UnrealOperationKind.VERIFY else op.kind.value
+            for op in task_plan.operations
+        ]
         actual_kinds = [req.kind for req in transport.requests]
         assert actual_kinds == expected_kinds
 
