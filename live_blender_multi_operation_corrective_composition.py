@@ -23,6 +23,10 @@ from tools.blender import move_object
 from tools.blender_transform import inspect_object_transform, set_object_rotation
 
 
+DEFAULT_FILE = "object_move_INCORRECT.blend"
+DEFAULT_OBJECT = "Goal_Left_post"
+
+
 def _json_safe(value: Any) -> Any:
     if is_dataclass(value):
         return _json_safe(asdict(value))
@@ -105,8 +109,8 @@ def _verify(action: ActionSpec, _receipt: Any) -> Tuple[bool, Dict[str, Any]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--file", default="atlas_live_mutation.blend")
-    parser.add_argument("--object", default="Cube")
+    parser.add_argument("--file", default=DEFAULT_FILE)
+    parser.add_argument("--object", default=DEFAULT_OBJECT)
     parser.add_argument("--location", nargs=3, type=float, default=[1.0, 2.0, 3.0])
     parser.add_argument("--rotation", nargs=3, type=float, default=[10.0, 20.0, 30.0])
     parser.add_argument("--interrupted-rotation", nargs=3, type=float, default=[91.0, 92.0, 93.0])
@@ -137,9 +141,8 @@ def main() -> None:
     stale_boundary = BlenderExecutionBoundary(stale_executor)
     stale_replan_request = type("StaleReplan", (), {"actions": [rotate], "authorization": stale_replan})()
 
-    # Operation 1: use the protected boundary only for the already-proven write
-    # path. The live composition probe normalizes the concrete tool response at
-    # this boundary and performs its own authoritative verification below.
+    # Operation 1: use the same controlled mutation path as the live write probes,
+    # followed by independent authoritative verification for this composition.
     first_authorization = BlenderWriteAuthorization.issue(move, "live:multi-operation:first")
     validated_move = move.arguments.copy()
     first_raw = _execute(move.tool, validated_move)
@@ -211,6 +214,8 @@ def main() -> None:
     print("ATLAS BLENDER LIVE MULTI-OPERATION CORRECTIVE COMPOSITION")
     print(json.dumps(output, indent=2))
 
+    if not first_authorization.matches(move):
+        raise SystemExit("LIVE COMPOSITION FAILED: first write authorization is invalid")
     if not stale_rejected or stale_write_count["writes"] != 0:
         raise SystemExit("LIVE COMPOSITION FAILED: stale authorization was not blocked with zero writes")
     if not result.converged:
