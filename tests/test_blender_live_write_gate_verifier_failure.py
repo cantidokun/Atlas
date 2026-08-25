@@ -1,13 +1,7 @@
-from planning.action_plan import ActionSpec
+from action_plan import ActionSpec
+from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_live_write_gate import BlenderLiveWriteGate
 from planning.blender_write_authorization import BlenderWriteAuthorization
-
-
-class _Receipt:
-    authorization_id = "auth"
-
-    def matches_authorization(self, authorization_id):
-        return True
 
 
 class _Boundary:
@@ -16,7 +10,14 @@ class _Boundary:
 
     def execute_authorized_write(self, action, authorization):
         self.calls += 1
-        return {"ok": True}, _Receipt()
+        result = type("Result", (), {"tool": action.tool, "ok": True, "state": "ok", "details": {}})()
+        receipt = BlenderExecutionReceipt.create_authorized(
+            action.tool,
+            action.arguments,
+            result,
+            authorization.authorization_id,
+        )
+        return result, receipt
 
 
 def _action():
@@ -40,5 +41,5 @@ def test_verifier_exception_fails_closed_without_retry():
     assert outcome.status == "BLOCKED"
     assert outcome.receipt is None
     assert not outcome.is_verified
-    assert outcome.details["verification_error"] == "RuntimeError"
+    assert outcome.verification["verification_error"] == "RuntimeError"
     assert boundary.calls == 1
