@@ -44,41 +44,51 @@ class InMemoryTransport:
         self._fail_at_index = fail_at_index
         self._error_message = error_message
         self.requests: List[UnrealTransportRequest] = []
+        self._state = {}
 
-    @staticmethod
-    def _observed_state(request: UnrealTransportRequest):
+    def _observed_state(self, request: UnrealTransportRequest):
         state = {
             "echo_capability": request.capability,
             "echo_kind": request.kind,
         }
         for entity_id in request.entity_ids:
-            entity_state = {}
+            entity_state = dict(self._state.get(entity_id, {}))
             args = request.arguments
-            if request.operation_name in {"set_actor_location", "verify_actor_location", "inspect_target_actors"}:
-                location = args.get("location", args.get("expected_location"))
+
+            # A write mutates the fixture's semantic state. Subsequent reads
+            # and verifies must observe that state rather than echoing the
+            # verification request's expected value.
+            if request.operation_name == "set_actor_location":
+                location = args.get("location")
                 if isinstance(location, dict):
                     entity_state["location"] = dict(location)
-            if request.operation_name in {"set_actor_rotation", "verify_actor_rotation", "inspect_target_actors"}:
-                rotation = args.get("rotation", args.get("expected_rotation"))
+            elif request.operation_name == "set_actor_rotation":
+                rotation = args.get("rotation")
                 if isinstance(rotation, dict):
                     entity_state["rotation"] = dict(rotation)
-            if request.operation_name in {"set_actor_scale", "verify_actor_scale", "inspect_target_actors"}:
-                scale = args.get("scale", args.get("expected_scale"))
+            elif request.operation_name == "set_actor_scale":
+                scale = args.get("scale")
                 if isinstance(scale, dict):
                     entity_state["scale"] = dict(scale)
-            if request.operation_name in {"apply_material_variant", "verify_material_variant", "inspect_material_state"}:
-                variant = args.get("material_variant", args.get("expected_material_variant"))
+            elif request.operation_name == "apply_material_variant":
+                variant = args.get("material_variant")
                 if isinstance(variant, dict):
                     entity_state["material"] = {"variant": dict(variant)}
-            if request.operation_name in {"apply_niagara_variant", "verify_niagara_variant", "inspect_niagara_state"}:
-                variant = args.get("niagara_variant", args.get("expected_niagara_variant"))
+            elif request.operation_name == "apply_niagara_variant":
+                variant = args.get("niagara_variant")
                 if isinstance(variant, dict):
                     entity_state["niagara"] = {"variant": dict(variant)}
-            if request.operation_name in {"set_sequencer_playback_range", "verify_sequencer_playback_range", "inspect_sequencer_state"}:
-                start_frame = args.get("start_frame", args.get("expected_start_frame"))
-                end_frame = args.get("end_frame", args.get("expected_end_frame"))
+            elif request.operation_name == "set_sequencer_playback_range":
+                start_frame = args.get("start_frame")
+                end_frame = args.get("end_frame")
                 if start_frame is not None and end_frame is not None:
-                    entity_state["sequencer"] = {"playback_range": {"start_frame": start_frame, "end_frame": end_frame}}
+                    entity_state["sequencer"] = {
+                        "playback_range": {
+                            "start_frame": start_frame,
+                            "end_frame": end_frame,
+                        }
+                    }
+
             if entity_state:
                 state[entity_id] = entity_state
         return state
@@ -99,13 +109,30 @@ class InMemoryTransport:
                 source="in-memory-test",
             )
 
+        observed_state = self._observed_state(request)
+
+        # Persist only successful writes. Verification and inspection requests
+        # are read-only and therefore leave the fixture state untouched.
+        if request.operation_name in {
+            "set_actor_location",
+            "set_actor_rotation",
+            "set_actor_scale",
+            "apply_material_variant",
+            "apply_niagara_variant",
+            "set_sequencer_playback_range",
+        }:
+            for entity_id in request.entity_ids:
+                entity_state = observed_state.get(entity_id)
+                if entity_state:
+                    self._state[entity_id] = dict(entity_state)
+
         return UnrealTransportResponse(
             request_id=request.request_id,
             operation_name=request.operation_name,
             entity_ids=request.entity_ids,
             success=True,
             error="",
-            observed_state=self._observed_state(request),
+            observed_state=observed_state,
             source="in-memory-test",
         )
 
@@ -487,6 +514,11 @@ class TestExecutorValidation:
             assert evidence.verified is False
 
             transport_req = transport.requests[i]
-            assert transport_req.operation_name == operation.name
+            expected_transport_operation = (
+                "inspect_target_actors"
+                if operation.name == "verify_target_actor_mapping"
+                else operation.name
+            )
+            assert transport_req.operation_name == expected_transport_operation
             assert tuple(transport_req.entity_ids) == tuple(evidence.entity_ids)
             assert transport_req.authorization_id == "auth-consistency"
