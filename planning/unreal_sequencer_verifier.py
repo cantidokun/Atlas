@@ -37,13 +37,22 @@ def verify_sequencer_playback_range(
             raise UnrealStateVerificationError(
                 f"verification state for entity '{entity_id}' is missing sequencer"
             )
+
         playback_range = sequencer_state.get("playback_range")
-        if not isinstance(playback_range, Mapping):
-            raise UnrealStateVerificationError(
-                f"verification state for entity '{entity_id}' is missing sequencer playback_range"
-            )
-        actual_start = playback_range.get("start_frame")
-        actual_end = playback_range.get("end_frame")
+        if isinstance(playback_range, Mapping):
+            actual_start = playback_range.get("start_frame")
+            actual_end = playback_range.get("end_frame")
+        else:
+            # The live Unreal transport currently returns start/end directly
+            # under "sequencer". Accept that wire representation while keeping
+            # the canonical nested playback_range form as the preferred shape.
+            actual_start = sequencer_state.get("start_frame")
+            actual_end = sequencer_state.get("end_frame")
+            if actual_start is None or actual_end is None:
+                raise UnrealStateVerificationError(
+                    f"verification state for entity '{entity_id}' is missing sequencer playback_range"
+                )
+
         if actual_start != expected_start_frame or actual_end != expected_end_frame:
             raise UnrealStateVerificationError(
                 f"entity '{entity_id}' sequencer playback_range=({actual_start!r}, {actual_end!r}) "
