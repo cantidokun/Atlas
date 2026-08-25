@@ -66,9 +66,9 @@ def test_real_unreal_location_sequence_executes_in_order_and_restores():
             assert [evidence.operation_name for evidence in result.evidence_ledger] == [
                 "inspect_target_actors",
                 "set_actor_location",
-                "verify_target_actor_mapping",
+                "verify_actor_location",
                 "set_actor_location",
-                "verify_target_actor_mapping",
+                "verify_actor_location",
             ]
             assert _location(result.evidence_ledger[2]) == pytest.approx(first_location)
             assert _location(result.evidence_ledger[4]) == pytest.approx(second_location)
