@@ -1,5 +1,4 @@
 from action_plan import ActionSpec
-from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.corrective_runtime_adapter import CorrectiveRuntimeAdapter
 
 
@@ -19,7 +18,7 @@ def test_runtime_adapter_reaches_convergence():
         return {"status": "ok", "state": "ok"}
 
     adapter = CorrectiveRuntimeAdapter(
-        BlenderExecutionBoundary(execute), observe, plan, "test:runtime-adapter"
+        execute, observe, plan, "test:runtime-adapter"
     )
     result = adapter.run(max_steps=4)
 
