@@ -107,7 +107,7 @@ def test_compound_authorized_execution_propagates_one_receipt_id_to_every_operat
         "verify_target_actor_mapping",
         "inspect_target_actors",
         "set_actor_location",
-        "verify_target_actor_mapping",
+        "verify_actor_location",
     ]
     assert [request.operation_name for request in transport.requests] == [
         "inspect_target_actors",
