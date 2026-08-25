@@ -74,8 +74,6 @@ def test_composes_two_verified_write_capabilities_through_one_runtime():
 
 
 def test_composition_replans_after_world_interruption_between_operations():
-    from planning.blender_execution_receipt import BlenderExecutionReceipt
-
     state = {"location": [0, 0, 0], "rotation": [0, 0, 0]}
 
     class InterruptingExecutor:
@@ -89,7 +87,6 @@ def test_composition_replans_after_world_interruption_between_operations():
             self.authorizations.append(replan.authorization)
             if action.tool == "move_object":
                 state["location"] = list(action.arguments["location"])
-                # Simulate an external world change before the next operation.
                 state["rotation"] = [99, 98, 97]
             elif action.tool == "set_object_rotation":
                 state["rotation"] = list(action.arguments["rotation"])
@@ -171,3 +168,37 @@ def test_composition_rejects_non_production_test_capabilities():
         assert "verified Blender write capability" in str(exc)
     else:
         raise AssertionError("synthetic set_value must not enter production composition")
+
+
+def test_composition_rejects_stale_authorization_with_zero_writes():
+    from planning.blender_execution_boundary import BlenderExecutionBoundary
+    from planning.replan_authorization import ReplanAuthorization
+
+    writes = []
+    boundary = BlenderExecutionBoundary(
+        lambda tool, arguments: writes.append((tool, dict(arguments))) or {
+            "status": "applied",
+            "details": dict(arguments),
+        }
+    )
+    evidence_v1 = {"location": [0, 0, 0], "rotation": [0, 0, 0]}
+    evidence_v2 = {"location": [1, 2, 3], "rotation": [99, 98, 97]}
+    action = ActionSpec(
+        tool="set_object_rotation",
+        arguments={
+            "file_name": "scene.blend",
+            "object_name": "Cube",
+            "rotation": [10, 20, 30],
+        },
+    )
+    authorization_v1 = ReplanAuthorization.issue(evidence_v1, [action], "test:stale-composition")
+    replan = type("Replan", (), {"actions": [action], "authorization": authorization_v1})()
+
+    try:
+        boundary.execute_authorized_replan(replan, evidence_v2)
+    except RuntimeError as exc:
+        assert "stale" in str(exc)
+    else:
+        raise AssertionError("stale production composition authorization unexpectedly executed")
+
+    assert writes == []
