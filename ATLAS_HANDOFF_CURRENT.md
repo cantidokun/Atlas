@@ -1,30 +1,32 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 25, 2026 — live multi-operation composition + continuation/resume checkpoint  
+**Updated:** August 25, 2026 — live continuation/resume proven  
 **Branch:** `feat/replan-race-gate`  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
 ## Current verified milestone
 
-The latest authoritative local validation remains:
+The latest completed offline baseline before the newest live-resume boundary fix remains:
 
 ```text
-FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
+FULL OFFLINE PYTEST SUITE: 660 passed, 0 failed
 ```
 
-No newer full-suite result has been established since that run. The `652 passed / 0 failed` result supersedes the earlier `622 passed / 30 failed` and `649 passed / 3 failed` results.
+The 660-test run includes the continuation/resume contract and resumable runtime changes, but it predates the final authorization-bound receipt fix in `BlenderExecutionBoundary.execute_authorized_replan()`. A fresh full-suite run is therefore still required before claiming a current post-fix full-suite result.
 
-The same development increment established live Blender-backed evidence for five mutation capabilities, each with a legitimate authoritative-success result and an adversarial authoritative-mismatch result:
+## Live mutation validation
+
+The following live Blender-backed mutation capabilities have legitimate authoritative-success and adversarial mismatch evidence:
 
 | Capability | Legitimate live proof | Adversarial live proof |
 | --- | --- | --- |
-| `rotate_object` | `VERIFIED` | `BLOCKED` |
+| `set_object_rotation` | `VERIFIED` | `BLOCKED` |
 | `move_object` | `VERIFIED` | `BLOCKED` |
 | `delete_object` | `VERIFIED` | `BLOCKED` |
 | `create_empty_marker` | `VERIFIED` | `BLOCKED` |
 | `move_object_to_collection` | `VERIFIED` | `BLOCKED` |
 
-## Newest completed milestone — LIVE MULTI-OPERATION COMPOSITION
+## Live multi-operation composition — PROVEN
 
 The real Blender runner produced:
 
@@ -33,78 +35,45 @@ ATLAS BLENDER LIVE MULTI-OPERATION COMPOSITION: PASS
 ATLAS BLENDER LIVE STALE AUTHORIZATION ZERO-WRITE GATE: PASS
 ```
 
-This is now an explicitly live-proven production-composition milestone, separate from the offline suite.
+This proves a fresh observation → authorized mutation → external world interruption → stale authorization rejection with zero writes → fresh observation/replan → replacement mutation → authoritative final verification cycle against actual Blender state.
 
-The live composition proof demonstrated:
+## Live continuation / resume — PROVEN
+
+The real Blender runner now produced:
 
 ```text
-fresh Blender observation
- -> first production mutation
- -> real external Blender state interruption
- -> stale corrective authorization presented
- -> stale authorization rejected before mutation
+ATLAS BLENDER LIVE CONTINUATION STALE-STATE ZERO-WRITE GATE: PASS
+ATLAS BLENDER LIVE CONTINUATION RESUME: PASS
+```
+
+The proof covers:
+
+```text
+real Blender observation V1
+ -> authorized first mutation
+ -> receipt-bound checkpoint
+ -> real external Blender interruption
+ -> fresh authoritative observation V2
+ -> stale continuation authorization rejected
  -> stale executor writes: 0
- -> fresh observation
- -> new corrective authorization
- -> replacement mutation
- -> fresh authoritative final-state verification
+ -> fresh ReplanAuthorization issued
+ -> remaining mutation executed
+ -> resumed receipt bound to fresh authorization
+ -> fresh authoritative final verification
  -> PASS
 ```
 
-The live probe is `live_blender_multi_operation_corrective_composition.py`.
+A real defect was exposed during this proof: `execute_authorized_replan()` initially returned a generic receipt without authorization binding. That was corrected so corrective-replan execution now creates an authorization-bound `BlenderExecutionReceipt`, matching the ordinary authorized-write boundary.
 
-The probe uses the supported live production fixture by default:
+## Continuation architecture
 
-```text
-file: object_move_INCORRECT.blend
-object: Goal_Left_post
-```
+`planning/continuation_resume.py` stores task identity, completed actions, last observed evidence, and authorization identity. It deliberately does **not** replay the saved authorization during resume.
 
-Do not interpret earlier failed runs of this probe as production failures. They exposed harness/fixture issues that were corrected before the final PASS. The final two PASS lines above are the authoritative live evidence.
+`planning/resumable_corrective_task.py` provides the production resume boundary: fresh observation is required, remaining work is recomputed, and a new authorization is issued before protected execution.
 
-## Production composition architecture
-
-`planning/production_multi_operation_corrective_task.py` is the thin production-facing composition boundary. It delegates lifecycle behavior to the generalized corrective runtime and only adds the production constraint that every emitted action must be an admitted, verification-required Blender scene-writing capability.
-
-It does not introduce bespoke per-tool lifecycle orchestration.
-
-Synthetic composition tests now cover:
-
-```text
-3 passed — basic production composition, interruption/replanning, capability admission
-4 passed — including explicit stale-authorization zero-write rejection
-```
-
-Synthetic `set_value` remains deliberately absent from the production Blender capability catalog.
-
-## Continuation / resume milestone — CONTRACT IMPLEMENTED, NOT YET LIVE-PROVEN
-
-The first reusable continuation state contract is now implemented:
-
-`planning/continuation_resume.py`
-
-It stores task identity, completed actions, last observed evidence, and the authorization identity. It deliberately does **not** reuse the saved authorization during resume.
-
-Resume behavior is:
-
-```text
-saved continuation state
- -> fresh authoritative evidence required
- -> issue new ReplanAuthorization for remaining actions
- -> execute only against fresh evidence
-```
-
-The focused continuation contract tests are green:
-
-```text
-2 passed
-```
-
-This is currently **offline-contract evidence only**. A real interrupted Blender continuation/resume proof has not yet been executed and must not be claimed as live-proven.
+The live probe is `live_blender_continuation_resume.py`.
 
 ## Current architecture
-
-Atlas uses a protected proposal-to-execution pipeline:
 
 ```text
 Qwen / AI proposal
@@ -117,6 +86,7 @@ Qwen / AI proposal
  -> immutable authorization-bound receipt
  -> fresh authoritative observation
  -> VERIFIED / BLOCKED or corrective replan
+ -> continuation checkpoint / fresh resume authorization when interrupted
 ```
 
 Qwen never receives direct Blender execution authority. Blender is an execution target, not the authority that decides completion.
@@ -135,7 +105,7 @@ Qwen never receives direct Blender execution authority. Blender is an execution 
 
 ### Execution boundary
 
-`planning/blender_execution_boundary.py` provides distinct raw, verified, receipt-bound, authorization-bound-write, and corrective-replan execution APIs. Production Blender execution remains behind the strict boundary.
+`planning/blender_execution_boundary.py` provides raw, verified, receipt-bound, authorization-bound-write, and corrective-replan execution APIs. Both authorized writes and authorized replans now produce receipts bound to the authorization identity.
 
 ### Result normalization
 
@@ -160,14 +130,25 @@ Multi-step corrective execution re-observes before each mutation and prevents st
 Verified:
 
 ```text
-FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
-Continuation contract: 2 passed
+FULL OFFLINE PYTEST SUITE: 660 passed, 0 failed  (pre-final receipt-binding fix)
 Live write gate: 5 capabilities with VERIFIED + BLOCKED evidence
 Live multi-operation composition: PASS
 Live stale-authorization zero-write gate: PASS
+Live continuation stale-state zero-write gate: PASS
+Live continuation/resume: PASS
 ```
 
-The full offline suite has not been rerun after adding the continuation contract and live composition harness changes. Therefore, do not claim `652 passed` as validation of those newest changes; it remains the last completed full-suite baseline.
+Not yet freshly verified after the final receipt-binding fix:
+
+```text
+FULL OFFLINE PYTEST SUITE
+```
+
+The next validation command is therefore:
+
+```powershell
+python -m pytest -q
+```
 
 ## Current model/runtime setup
 
@@ -181,15 +162,11 @@ Blender: controlled external execution target through the Atlas Blender runner
 
 ## Exact next steps to resume development
 
-1. Run the continuation contract tests again if needed and then run a **fresh full suite** because new continuation code was added after the last 652-test run.
-2. Build a production continuation/resume coordinator around `ContinuationState` without allowing saved authorization replay.
-3. Simulate interruption after a real completed operation while retaining its receipt/continuation state.
-4. Re-observe Blender from a fresh process on resume.
-5. Prove the old continuation state cannot directly authorize the remaining mutation against changed evidence.
-6. Issue a fresh `ReplanAuthorization` from resume evidence and execute the remaining mutation through the protected Blender boundary.
-7. Add the real Windows/Blender interrupted-resume probe.
-8. Prove adversarial stale/mismatched continuation produces `BLOCKED` with zero writes.
-9. Only after live continuation/resume is proven should the next architecture increment be Digital Twin identity/revision and production-task persistence.
+1. Run the full offline suite after the authorization-bound corrective-replan receipt fix.
+2. If green, inspect the complete diff and ensure no unrelated changes entered the branch.
+3. Update README/documentation with the now-proven live continuation/resume milestone.
+4. Preserve the live evidence and fixtures; do not weaken the zero-write or receipt-binding assertions.
+5. Only after this validation/documentation checkpoint should the next architecture increment begin: Digital Twin identity/revision and durable production-task persistence.
 
 ### First command
 
@@ -197,7 +174,11 @@ Blender: controlled external execution target through the Atlas Blender runner
 git status --short --branch
 ```
 
-Then validate the current branch from the cleanest available state.
+Then:
+
+```powershell
+python -m pytest -q
+```
 
 ## Architectural constraints
 
@@ -206,7 +187,7 @@ Then validate the current branch from the cleanest available state.
 - Corrective planning uses fresh world state.
 - `ReplanAuthorization` must match fresh evidence and the exact replacement action list.
 - Ordinary scene writes must match an exact `BlenderWriteAuthorization`.
-- Receipts bind the exact executed action/result and, for authorized writes, authorization identity.
+- Receipts bind the exact executed action/result and, for authorized writes and replans, authorization identity.
 - Missing, stale, changed, or unbound authorization fails closed.
 - Strict verified execution accepts only the structured Blender result contract.
 - Legacy result normalization belongs at `BlenderToolAdapter`.
