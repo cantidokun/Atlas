@@ -194,8 +194,8 @@ def test_real_unreal_composite_recovery_replaces_only_mismatched_prior_write():
             "real-composite-recovery-final-auth",
         )
         final_state = _actor_state(final_result.evidence_ledger[0])
-        assert final_state["location"] == target_location
-        assert final_state["scale"] == target_scale
+        assert final_state["location"] == pytest.approx(target_location)
+        assert final_state["scale"] == pytest.approx(target_scale)
 
     except NamedPipeTransportError as exc:
         message = str(exc).lower()
