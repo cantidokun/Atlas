@@ -1,6 +1,7 @@
 """Direct live probe for the authorization-bound Blender rotation write gate."""
 import argparse
 import json
+from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, Tuple
 
 from planning.action_plan import ActionSpec
@@ -15,6 +16,17 @@ FILE_BY_CASE = {
     "incorrect": "object_rotation_INCORRECT.blend",
     "correct": "object_rotation_CORRECT.blend",
 }
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert structured runtime results into JSON-safe probe output."""
+    if is_dataclass(value):
+        return _json_safe(asdict(value))
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _action(file_name: str) -> ActionSpec:
@@ -99,7 +111,7 @@ def main() -> None:
         "adversarial": args.adversarial,
         "status": outcome.status,
         "reason": outcome.reason,
-        "verification": dict(outcome.verification),
+        "verification": _json_safe(outcome.verification),
         "receipt_present": outcome.receipt is not None,
     }, indent=2))
 
