@@ -58,6 +58,7 @@ class UnrealAdapterProduction:
             "verify_actor_scale": (UnrealCapability.INSPECT_ACTOR,"inspect_target_actors"),
             "verify_material_variant": (UnrealCapability.MATERIAL,"inspect_material_state"),
             "verify_niagara_variant": (UnrealCapability.NIAGARA,"inspect_niagara_state"),
+            "verify_sequencer_playback_range": (UnrealCapability.SEQUENCER,"inspect_sequencer_state"),
         }
         mapped=read_map.get(operation.name)
         if mapped:
