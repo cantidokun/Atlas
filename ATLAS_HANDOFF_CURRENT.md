@@ -12,7 +12,7 @@ The latest authoritative local validation reported in the development session is
 FULL OFFLINE PYTEST SUITE: 652 passed, 0 failed
 ```
 
-This fresh result superseded the earlier `622 passed / 30 failed` and `649 passed / 3 failed` results.
+This fresh result superseded the earlier `622 passed / 30 failed` and `649 passed / 3 failed` results. No newer full-suite result has been established in the current checkpoint.
 
 The same development increment also established live Blender-backed evidence for five mutation capabilities, each with a legitimate authoritative-success result and an adversarial authoritative-mismatch result:
 
@@ -196,7 +196,7 @@ adapter/runtime compatibility: 6 passed
 
 The final three adapter result-contract failures were resolved by preserving the historical `_normalize_result()` compatibility helper while keeping canonical adapter dispatch on `BlenderExecutionResult`.
 
-The live Blender evidence separately established legitimate `VERIFIED` and adversarial `BLOCKED` outcomes for the five capabilities listed above.
+The live Blender evidence separately established legitimate `VERIFIED` and adversarial `BLOCKED` outcomes for the five capabilities above.
 
 ## Current model/runtime setup
 
