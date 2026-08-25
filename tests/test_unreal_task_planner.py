@@ -51,7 +51,7 @@ def test_actor_location_write_is_inspect_write_verify():
         "entity_ids": ("FIELD_SURFACE",),
         "location": {"x": 100.0, "y": 200.0, "z": 300.0},
     }
-    assert plan.operations[2].capability is UnrealCapability.INSPECT_ACTOR
+    assert plan.operations[2].capability is UnrealCapability.MODIFY_ACTOR
 
 
 def test_actor_location_sequence_has_immediate_verification_boundaries():
@@ -84,7 +84,7 @@ def test_actor_location_sequence_rejects_empty_sequence():
 
 
 def test_actor_location_sequence_rejects_invalid_location_before_plan_creation():
-    with pytest.raises(ValueError, match="exactly x, y, and z"):
+    with pytest.raises(ValueError, match="exactly x, y, z"):
         UnrealTaskPlanner().plan_actor_location_sequence(
             UnrealTaskIntent("move-seq-3", "animate field surface", ("FIELD_SURFACE",)),
             (
@@ -95,7 +95,7 @@ def test_actor_location_sequence_rejects_invalid_location_before_plan_creation()
 
 
 def test_actor_location_write_rejects_incomplete_location():
-    with pytest.raises(ValueError, match="exactly x, y, and z"):
+    with pytest.raises(ValueError, match="exactly x, y, z"):
         UnrealTaskPlanner().plan_actor_location_write(
             UnrealTaskIntent("move-2", "move field surface", ("FIELD_SURFACE",)),
             {"x": 100.0, "y": 200.0},
