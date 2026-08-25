@@ -3,17 +3,19 @@ from planning.blender_corrective_runtime import BlenderCorrectiveRuntime
 
 
 class RecordingExecutor:
-    def __init__(self):
+    def __init__(self, state):
         self.calls = []
+        self.state = state
 
     def __call__(self, tool, arguments):
         self.calls.append((tool, dict(arguments)))
+        self.state["value"] = arguments["value"]
         return {"ok": True, "state": "ok", "details": dict(arguments)}
 
 
 def test_corrective_runtime_preserves_action_sequence():
     state = {"value": 0}
-    executor = RecordingExecutor()
+    executor = RecordingExecutor(state)
 
     def observe():
         return {"value": state["value"]}
