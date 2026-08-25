@@ -99,7 +99,7 @@ def test_real_unreal_compound_plan_requires_exact_authorization_and_restores():
             "verify_target_actor_mapping",
             "inspect_target_actors",
             "set_actor_location",
-            "verify_target_actor_mapping",
+            "verify_actor_location",
         ]
         assert _location(result.evidence_ledger[2]) == pytest.approx(original_location)
         assert _location(result.evidence_ledger[3]) == pytest.approx(target_location)
