@@ -199,14 +199,23 @@ class _TestUnrealTransport:
         # Utilise l'authorization_id pour déterminer le contexte d'exécution
         self._current_authorization_id = request.authorization_id
         
+        # Mapping pour adapter les noms d'opération entre l'adaptateur et les preuves
+        _OPERATION_MAP = {
+            "inspect_sequencer_state": "verify_sequencer_playback_range",
+        }
+        
+        def _evidence_matches(evidence, req_op, req_entity_ids):
+            mapped_op = _OPERATION_MAP.get(req_op, req_op)
+            return (evidence.operation_name == mapped_op and
+                    tuple(evidence.entity_ids) == tuple(req_entity_ids))
+        
         # D'abord, cherche une réponse configurée explicitement pour cet authorization_id
         result = None
         if request.authorization_id in self._auth_responses:
             auth_result = self._auth_responses[request.authorization_id]
             # Vérifie si cette réponse contient l'opération demandée
             for evidence in auth_result.evidence_ledger:
-                if (evidence.operation_name == request.operation_name and 
-                    tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+                if _evidence_matches(evidence, request.operation_name, request.entity_ids):
                     result = auth_result
                     break
         
@@ -214,8 +223,7 @@ class _TestUnrealTransport:
         if result is None:
             for plan_id, stored_result in self._responses.items():
                 for evidence in stored_result.evidence_ledger:
-                    if (evidence.operation_name == request.operation_name and 
-                        tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+                    if _evidence_matches(evidence, request.operation_name, request.entity_ids):
                         result = stored_result
                         break
                 if result:
@@ -236,8 +244,7 @@ class _TestUnrealTransport:
         # Trouve l'evidence spécifique pour cette opération
         matching_evidence = None
         for evidence in result.evidence_ledger:
-            if (evidence.operation_name == request.operation_name and 
-                tuple(evidence.entity_ids) == tuple(request.entity_ids)):
+            if _evidence_matches(evidence, request.operation_name, request.entity_ids):
                 matching_evidence = evidence
                 break
         
