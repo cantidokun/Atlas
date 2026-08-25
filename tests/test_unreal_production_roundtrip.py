@@ -33,9 +33,10 @@ from planning.unreal_transport_contract import (
 class InMemoryTransport:
     """Deterministic in-memory transport for testing.
 
-    By default every request succeeds with an echo of its own metadata as
-    ``observed_state``.  Callers can inject failures for specific request
-    indices.
+    Successful responses model the semantic state that the production Unreal
+    transport is expected to return. This keeps these tests focused on the
+    adapter/executor contract instead of making semantic verification depend
+    on an echo-only fixture.
     """
 
     def __init__(self, *, fail_at_index: Optional[int] = None, error_message: str = "boom"):
@@ -43,6 +44,44 @@ class InMemoryTransport:
         self._fail_at_index = fail_at_index
         self._error_message = error_message
         self.requests: List[UnrealTransportRequest] = []
+
+    @staticmethod
+    def _observed_state(request: UnrealTransportRequest):
+        state = {
+            "echo_capability": request.capability,
+            "echo_kind": request.kind,
+        }
+        for entity_id in request.entity_ids:
+            entity_state = {}
+            args = request.arguments
+            if request.operation_name in {"set_actor_location", "verify_actor_location", "inspect_target_actors"}:
+                location = args.get("location", args.get("expected_location"))
+                if isinstance(location, dict):
+                    entity_state["location"] = dict(location)
+            if request.operation_name in {"set_actor_rotation", "verify_actor_rotation", "inspect_target_actors"}:
+                rotation = args.get("rotation", args.get("expected_rotation"))
+                if isinstance(rotation, dict):
+                    entity_state["rotation"] = dict(rotation)
+            if request.operation_name in {"set_actor_scale", "verify_actor_scale", "inspect_target_actors"}:
+                scale = args.get("scale", args.get("expected_scale"))
+                if isinstance(scale, dict):
+                    entity_state["scale"] = dict(scale)
+            if request.operation_name in {"apply_material_variant", "verify_material_variant", "inspect_material_state"}:
+                variant = args.get("material_variant", args.get("expected_material_variant"))
+                if isinstance(variant, dict):
+                    entity_state["material"] = {"variant": dict(variant)}
+            if request.operation_name in {"apply_niagara_variant", "verify_niagara_variant", "inspect_niagara_state"}:
+                variant = args.get("niagara_variant", args.get("expected_niagara_variant"))
+                if isinstance(variant, dict):
+                    entity_state["niagara"] = {"variant": dict(variant)}
+            if request.operation_name in {"set_sequencer_playback_range", "verify_sequencer_playback_range", "inspect_sequencer_state"}:
+                start_frame = args.get("start_frame", args.get("expected_start_frame"))
+                end_frame = args.get("end_frame", args.get("expected_end_frame"))
+                if start_frame is not None and end_frame is not None:
+                    entity_state["sequencer"] = {"playback_range": {"start_frame": start_frame, "end_frame": end_frame}}
+            if entity_state:
+                state[entity_id] = entity_state
+        return state
 
     def send(self, request: UnrealTransportRequest) -> UnrealTransportResponse:
         index = self._call_count
@@ -66,10 +105,7 @@ class InMemoryTransport:
             entity_ids=request.entity_ids,
             success=True,
             error="",
-            observed_state={
-                "echo_capability": request.capability,
-                "echo_kind": request.kind,
-            },
+            observed_state=self._observed_state(request),
             source="in-memory-test",
         )
 
@@ -150,7 +186,6 @@ class TestMaterialVariantRoundTrip:
         intent = _make_intent()
         task_plan = planner.plan_material_variant(intent, _material_variant())
 
-        # Expect: inspect_actor READ, material READ, material WRITE, material VERIFY
         assert len(task_plan.operations) == 4
 
         result = executor.execute(task_plan, authorization_id="auth-010")
@@ -209,7 +244,6 @@ class TestTransportFailureClosed:
         with pytest.raises(UnrealPlanExecutionError):
             executor.execute(task_plan, authorization_id="auth-021")
 
-        # Only the first 3 requests were sent (index 0, 1, 2 — failure at 2).
         assert len(transport.requests) == 3
 
     def test_failure_does_not_produce_partial_result(self):
@@ -253,11 +287,11 @@ class TestEvidenceCorrelation:
 
 
 # ---------------------------------------------------------------------------
-# verified=False invariant
+# verified flag invariant
 # ---------------------------------------------------------------------------
 
-class TestVerifiedFalseInvariant:
-    def test_all_evidence_verified_is_false_inspection(self):
+class TestVerifiedFlagInvariant:
+    def test_transport_evidence_is_unverified_before_semantic_verification(self):
         transport = InMemoryTransport()
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
@@ -268,7 +302,7 @@ class TestVerifiedFalseInvariant:
         for evidence in result.evidence_ledger:
             assert evidence.verified is False
 
-    def test_all_evidence_verified_is_false_material_variant(self):
+    def test_material_verification_marks_only_verification_evidence_verified(self):
         transport = InMemoryTransport()
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
@@ -276,8 +310,7 @@ class TestVerifiedFalseInvariant:
         task_plan = planner.plan_material_variant(_make_intent(), _material_variant())
         result = executor.execute(task_plan, authorization_id="auth-041")
 
-        for evidence in result.evidence_ledger:
-            assert evidence.verified is False
+        assert [evidence.verified for evidence in result.evidence_ledger] == [False, False, False, True]
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +321,6 @@ class TestActionPlanAuthorizationRoundTrip:
     """Prove the full chain: intent → planner → ActionPlan → authorize → executor → evidence."""
 
     def _action_specs_from_plan(self, task_plan):
-        """Convert UnrealTaskPlan operations into ActionSpec list for ActionPlan."""
         from planning.action_plan import ActionSpec
         return [
             ActionSpec(
@@ -340,8 +372,7 @@ class TestActionPlanAuthorizationRoundTrip:
 
         assert result.success is True
         assert len(result.evidence_ledger) == 4
-        for evidence in result.evidence_ledger:
-            assert evidence.verified is False
+        assert result.evidence_ledger[-1].verified is True
 
     def test_authorization_digest_is_deterministic(self):
         from planning.action_plan import ActionPlan
@@ -406,10 +437,7 @@ class TestExecutorValidation:
             assert req.authorization_id == "auth-060"
 
     def test_unsupported_operation_handling(self):
-        """Test deterministic handling of unsupported operations at transport boundary."""
         transport = InMemoryTransport()
-        
-        # Create a request that will be rejected by the transport
         unsupported_request = UnrealTransportRequest(
             request_id="req-unsupported",
             operation_name="unsupported_operation",
@@ -419,11 +447,10 @@ class TestExecutorValidation:
             arguments={},
             authorization_id="auth-unsupported"
         )
-        
-        # The transport should return a deterministic error response
+
         response = transport.send(unsupported_request)
-        
-        assert response.success is True  # InMemoryTransport succeeds by default
+
+        assert response.success is True
         assert response.request_id == "req-unsupported"
         assert response.operation_name == "unsupported_operation"
         assert response.entity_ids == ("/Game/TestActor",)
@@ -432,25 +459,20 @@ class TestExecutorValidation:
         assert response.observed_state["echo_capability"] == "unsupported_capability"
 
     def test_transport_request_validation_deterministic(self):
-        """Test that transport request validation is deterministic and complete."""
         from planning.unreal_transport_contract import UnrealTransportRequest
-        
-        # Test validation through the dataclass contract - these should fail deterministically
+
         invalid_cases = [
-            # Empty request_id
             ("", "inspect_target_actors", "inspect_actor", "read", {}, ("/Game/Actor",), "auth-001"),
-            # Empty entity_ids tuple
             ("req-001", "inspect_target_actors", "inspect_actor", "read", {}, (), "auth-001"),
-            # Empty authorization_id
             ("req-001", "inspect_target_actors", "inspect_actor", "read", {}, ("/Game/Actor",), ""),
         ]
-        
+
         for case in invalid_cases:
             with pytest.raises(ValueError):
                 UnrealTransportRequest(*case)
 
     def test_evidence_metadata_consistency(self):
-        """Test that semantic evidence metadata remains consistent through the transport mapping boundary."""
+        """Test semantic evidence metadata through the transport mapping boundary."""
         transport = InMemoryTransport()
         executor = _build_executor(transport)
         planner = UnrealTaskPlanner()
@@ -459,12 +481,10 @@ class TestExecutorValidation:
         task_plan = planner.plan_inspection(intent)
         result = executor.execute(task_plan, authorization_id="auth-consistency")
 
-        # Evidence preserves the semantic operation name; the production adapter
-        # may translate that name to a different concrete transport operation.
         for i, (operation, evidence) in enumerate(zip(task_plan.operations, result.evidence_ledger)):
             assert evidence.operation_name == operation.name
             assert tuple(evidence.entity_ids) == tuple(operation.entity_ids)
-            assert evidence.verified is False  # Always unverified from transport
+            assert evidence.verified is False
 
             transport_req = transport.requests[i]
             assert transport_req.operation_name == operation.name
