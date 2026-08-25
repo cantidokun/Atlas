@@ -19,6 +19,9 @@ class BlenderWriteAuthorization:
     def issue(cls, action: ActionSpec, authorization_id: str) -> "BlenderWriteAuthorization":
         if not isinstance(action, ActionSpec):
             raise TypeError("action must be an ActionSpec")
+        if not isinstance(authorization_id, str) or not authorization_id.strip():
+            raise ValueError("authorization_id must be a non-empty string")
+        normalized_authorization_id = authorization_id.strip()
         capability = get_blender_capability(action.tool)
         if not capability.writes_scene:
             raise ValueError("BlenderWriteAuthorization requires a scene-writing capability")
@@ -26,8 +29,8 @@ class BlenderWriteAuthorization:
             raise ValueError("Blender write capability must require verification")
         return cls(
             tool=action.tool,
-            authorization_id=authorization_id,
-            action_authorization=ActionAuthorization.issue([action], authorization_id),
+            authorization_id=normalized_authorization_id,
+            action_authorization=ActionAuthorization.issue([action], normalized_authorization_id),
         )
 
     def matches(self, action: ActionSpec) -> bool:
