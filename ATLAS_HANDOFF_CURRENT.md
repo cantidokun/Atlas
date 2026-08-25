@@ -1,41 +1,64 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 25, 2026 — live rotation gate milestone  
+**Updated:** August 25, 2026 — generalized live-write and corrective-runtime milestone  
 **Branch:** `feat/replan-race-gate`  
-**Current work:** authorization-bound Blender live-write path and authoritative verification  
+**Current work:** authorization-bound Blender live-write path, authoritative verification, and reusable corrective runtime  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
-## Current session state
+## Current milestone
 
-Atlas remains in active authorization-bound Blender live-write development. The local Windows checkout is synchronized with `origin/feat/replan-race-gate`. The focused live-write/authorization suite passed, and the real Blender rotation probe has now produced both required live outcomes:
+Atlas has now demonstrated the generalized Blender live-write gate against five real Blender-backed mutation capabilities. Every capability has both a legitimate authoritative-success proof and an adversarial authoritative-mismatch proof.
 
-```text
-ATLAS BLENDER LIVE WRITE VERIFIED: PASS
-ATLAS BLENDER LIVE WRITE ADVERSARIAL GATE: PASS
-```
+| Capability | Legitimate live proof | Adversarial live proof |
+| --- | --- | --- |
+| `rotate_object` | `VERIFIED` | `BLOCKED` |
+| `move_object` | `VERIFIED` | `BLOCKED` |
+| `delete_object` | `VERIFIED` | `BLOCKED` |
+| `create_empty_marker` | `VERIFIED` | `BLOCKED` |
+| `move_object_to_collection` | `VERIFIED` | `BLOCKED` |
 
-This is the current milestone: the shared write gate has been exercised against a real Blender process for the rotation capability, both for legitimate authoritative success and for an executor-success/authoritative-mismatch adversarial case.
-
-The controlled write contract is:
+The demonstrated control flow is:
 
 ```text
 capability admission
  -> exact BlenderWriteAuthorization
  -> BlenderLiveWriteGate
  -> BlenderExecutionBoundary
- -> normalized verified result
- -> immutable authorization-bound receipt
+ -> normalized result
+ -> authorization-bound immutable receipt
  -> fresh authoritative final-state verification
  -> VERIFIED / BLOCKED
 ```
 
-## Current implementation
+The adversarial probes establish that an executor-success signal is not sufficient when fresh authoritative evidence contradicts the requested final state. The gate fails closed as `BLOCKED` rather than exposing a successful receipt.
+
+## Corrective-runtime milestone
+
+The reusable corrective runtime has also been brought through its current compatibility boundary without expanding the production Blender capability registry.
+
+The following focused clusters are green on this branch:
+
+```text
+receipt / authorization / live-verification cluster: 12 passed
+corrective-runtime cluster: 6 passed
+```
+
+The corrective runtime now distinguishes:
+
+- strict production Blender execution through `BlenderExecutionBoundary`;
+- generic/in-memory corrective executors through the generic corrective execution boundary.
+
+Synthetic corrective tests may use operations such as `set_value`; `set_value` remains deliberately absent from the production Blender capability catalog. This prevents a test abstraction from becoming an accidental production Blender write capability.
+
+Fresh observation, replanning, exact corrective authorization, execution, receipt binding, and re-observation remain the required corrective lifecycle.
+
+## Current code / architecture
 
 ### Capability and authorization
 
 `planning/blender_capability_catalog.py` provides explicit capability metadata. Registered scene-writing capabilities include `move_object`, `set_object_rotation`, `create_empty_marker`, `create_collection`, `parent_object`, `move_object_to_collection`, `rename_object`, and `delete_object`. Read/inspection capabilities remain separate and unknown capabilities fail closed.
 
-`planning/blender_write_authorization.py` issues exact-action write authorization only for admitted write capabilities requiring verification. Authorization identity is normalized and the same normalized identity is preserved through authorization and receipt binding. Changed action arguments do not match an existing authorization.
+`planning/blender_write_authorization.py` issues exact-action write authorization only for admitted write capabilities requiring verification. Authorization identity is normalized and preserved through authorization and receipt binding. Changed action arguments do not match an existing authorization.
 
 `planning/replan_authorization.py` remains the immutable corrective authorization bound to fresh evidence and the exact replacement action list.
 
@@ -47,112 +70,74 @@ capability admission
 
 `planning/blender_tool_adapter.py` remains the normalization boundary for legacy Blender result shapes such as `status`/`error`. The strict `planning/blender_result_contract.py` must not be weakened to accommodate legacy forms.
 
-### Live write gate and authoritative verification
-
-`planning/blender_live_write_gate.py` is the shared final write choke point. It rejects an action that no longer matches its authorization, requires the execution boundary's normalized result plus receipt, requires the receipt to match authorization, and requires a configured authoritative verifier before returning `VERIFIED`. Verifier exceptions and malformed verifier returns fail closed.
+`planning/blender_live_write_gate.py` is the shared final write choke point. It rejects actions that no longer match authorization, requires normalized execution plus a receipt, requires receipt/authorization binding, and requires authoritative verification before returning `VERIFIED`. Verifier exceptions and malformed verifier returns fail closed.
 
 `planning/blender_live_write_result.py` defines the explicit outcome contract:
 
 - `VERIFIED` — authoritative verification succeeds and an authorization-bound receipt exists.
 - `BLOCKED` — integrity/verification does not establish success; no receipt is exposed by the outcome.
 
-`planning/blender_live_verification.py` provides independent authoritative post-write checking of the requested action against verifier-reported final state.
+`planning/blender_live_verification.py` provides independent authoritative post-write checking.
 
-`live_blender_write_gate_rotation.py` is the direct live rotation probe. It executes `set_object_rotation`, performs fresh `inspect_object_transform` verification in a separate Blender process, and has a deliberate adversarial verifier that requires an impossible target to prove false-success containment.
+### Corrective runtime
 
-`live_qwen_object_rotation.py` has been moved onto the shared authorization-bound live-write architecture.
+The corrective runtime is intentionally generic at its orchestration boundary. Explicitly injected synthetic executors do not need to masquerade as Blender capabilities. Production Blender execution remains protected by the strict Blender capability boundary.
 
-## Tests and results
+The runtime re-observes fresh state before planning and after each authorized mutation. A stale or changed world invalidates the previous corrective authorization; the replacement action list must be authorized against the fresh evidence before execution.
 
-Focused live-write/authorization tests present on the branch include:
+## Live probes
 
-- `tests/test_blender_live_write_gate.py`
-- `tests/test_blender_live_write_gate_outcomes.py`
-- `tests/test_blender_live_write_gate_invariants.py`
-- `tests/test_blender_live_write_gate_no_second_write.py`
-- `tests/test_blender_live_write_gate_executor_failure.py`
-- `tests/test_blender_live_write_gate_authorization_failures.py`
-- `tests/test_blender_live_write_gate_receipt_sanitization.py`
-- `tests/test_blender_live_verification.py`
-- `tests/test_blender_write_authorization_fail_closed.py`
-- `tests/test_blender_write_authorization_identity.py`
+The branch contains direct live probes for:
 
-Current reported focused result:
+- `live_blender_write_gate_rotation.py`
+- `live_blender_write_gate_move.py`
+- `live_blender_write_gate_delete.py`
+- `live_blender_write_gate_marker.py`
+- `live_blender_write_gate_collection.py`
 
-```text
-python -m pytest -q tests/test_blender_live_write_gate.py
-1 passed in 0.13s
+Each has now produced both required live outcomes: legitimate `VERIFIED` and adversarial `BLOCKED`.
 
-Complete focused live-write/authorization suite
-PASSED
-```
+## Current validation state
 
-Current live Blender results:
+Verified in this development session:
 
 ```text
-python live_blender_write_gate_rotation.py --case incorrect --adversarial
-ATLAS BLENDER LIVE WRITE ADVERSARIAL GATE: PASS
-
-python live_blender_write_gate_rotation.py --case incorrect
-ATLAS BLENDER LIVE WRITE VERIFIED: PASS
+12 focused receipt/authorization/live-verification tests: PASS
+6 focused corrective-runtime tests: PASS
+5 Blender capabilities: VERIFIED + adversarial BLOCKED
 ```
 
-The adversarial live result establishes that an executor-success path can be rejected by fresh authoritative state verification and terminate as `BLOCKED` rather than escaping as false success. The normal live result establishes the legitimate rotation path reaches `VERIFIED` with the gate's receipt requirement satisfied.
-
-The latest authoritative complete full-suite baseline remains:
+The full suite was previously measured at:
 
 ```text
-589 passed / 18 failed
+622 passed / 30 failed
 ```
 
-Earlier proven results remain:
+That result is now stale because the subsequent fixes cleared the receipt/live-verification cluster and the corrective-runtime cluster. A fresh full-suite run is therefore the next required validation checkpoint. Do **not** claim the full suite is green until that run is actually performed.
 
-```text
-Test 313 passed
-141 passed
-ATLAS GENERALIZED BLENDER CORRECTIVE RUNTIME GATE: PASS
-receipts = 4
-external_change_injected = true
-```
+## Known remaining work
 
-Do **not** describe the current branch as fully green. The focused suite and live rotation probe are green, but no new full-suite result has superseded the `589 passed / 18 failed` baseline.
+1. Run a fresh `python -m pytest -q` from the synchronized Atlas root and record the new result.
+2. Resolve remaining integration failures without weakening strict Blender capability admission or authoritative verification.
+3. Preserve legacy-result normalization at `BlenderToolAdapter`, not inside the strict result contract.
+4. Reconcile any remaining marker evidence lifecycle/declarative-task expectations if they appear in the fresh suite.
+5. Reconcile any remaining adapter compatibility expectations against the intentional normalized adapter API.
+6. Preserve and expand the explicit zero-second-write invariant for authoritative mismatch in the production live path.
+7. After the full suite is stable, continue reusable multi-operation production task composition and then continuation/resume integrity.
 
-## Runtime / development setup
+## Exact next command
+
+From:
 
 ```text
 C:\Users\Gavin's PC\Desktop\Atlas
-branch: feat/replan-race-gate
-tracking: origin/feat/replan-race-gate
 ```
 
-The local checkout is synchronized to the branch. Focused validation is run from the Atlas repository root with Python/pytest. Live proof runs through the user's Windows machine and actual Blender process. The corrective runtime remains Python 3.9 compatible. Qwen is the proposal layer only and never receives direct Blender execution authority.
+run:
 
-The local checkout contains untracked `.blend` fixtures; leave them untouched unless explicitly required.
-
-## Known issues / unfinished work
-
-1. The focused live-write/authorization suite and real Blender rotation proof are green, but the full suite has not been rerun after the latest changes.
-2. The authorized `move_object` path still needs end-to-end live proof through the same shared gate.
-3. The rotation adversarial proof demonstrates `BLOCKED` after authoritative mismatch, but the next broader integration proof should explicitly instrument and report the zero-second-write invariant for the production path.
-4. Corrective-runtime integration still needs separation from Blender-specific result/receipt assumptions.
-5. Some generic corrective-runtime tests use synthetic results such as `{"status": "created"}`; normalize these at `BlenderToolAdapter`, not by weakening the strict Blender result contract.
-6. Marker evidence completeness is checked too early in several failing paths; fix lifecycle sequencing rather than weakening verification.
-7. Marker task-definition expectations need reconciliation with the intended declarative contract.
-8. One older `BlenderToolAdapter` test expects raw underlying behavior while the current adapter intentionally normalizes legacy results.
-9. `planning.unreal_adapter_production` is absent; the stale importing test was removed. Unreal is not the current blocker.
-10. No new full-suite result has superseded the `589 passed / 18 failed` baseline.
-
-## Exact next steps
-
-1. Run the full suite with `python -m pytest -q` from the synchronized Atlas root and record the actual current result.
-2. Fix any integration regressions before adding further architecture; keep generic corrective-runtime contracts independent of Blender-specific result/receipt assumptions.
-3. Preserve strict result normalization at `BlenderToolAdapter`.
-4. Fix marker evidence sequencing and reconcile marker declarative expectations.
-5. Resolve the older adapter compatibility expectation against the intentional normalized adapter API.
-6. Build the live `move_object` proof through the shared gate: capability admission -> exact authorization -> actual Blender subprocess -> normalized result -> receipt -> authoritative final-state verification -> `VERIFIED`.
-7. Add/execute an explicit production-path zero-second-write invariant for authoritative mismatch, not merely the rotation probe's final `BLOCKED` result.
-8. Generalize the shared live-write path to the remaining admitted write capabilities only after their individual live proofs are established.
-9. Then resume reusable multi-operation production task composition, continuation/resume, stronger task/session identity, broader authorized Blender operations, and later Digital Twin/photogrammetry intake contracts. Unreal production remains later.
+```powershell
+python -m pytest -q
+```
 
 ## Architectural constraints
 
@@ -168,5 +153,6 @@ The local checkout contains untracked `.blend` fixtures; leave them untouched un
 - `VERIFIED` requires authoritative verification and a receipt; `BLOCKED` carries no receipt.
 - Exhausting a corrective step budget is not success.
 - Failed or unverifiable final verification cannot produce completion.
+- Do not add generic test operations such as `set_value` to the production Blender capability catalog.
 - Avoid bespoke per-tool lifecycle orchestration in place of the generalized runtime.
 - Photogrammetry is upstream of Blender; Atlas owns canonical Digital Twin identity/state for the soccer-field-focused production pipeline.
