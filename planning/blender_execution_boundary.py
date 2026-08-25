@@ -76,4 +76,11 @@ class BlenderExecutionBoundary:
             raise RuntimeError("corrective replan authorization is stale or invalid")
 
         action = actions[0]
-        return self.execute_with_receipt(action.tool, action.arguments)
+        result, _ = self.execute_with_receipt(action.tool, action.arguments)
+        receipt = BlenderExecutionReceipt.create_authorized(
+            action.tool,
+            action.arguments,
+            result,
+            authorization.authorization_id,
+        )
+        return result, receipt
