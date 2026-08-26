@@ -1,6 +1,6 @@
 {
   "FileVersion": 3,
-  "EngineAssociation": "",
+  "EngineAssociation": "5.6",
   "Category": "Atlas",
   "Description": "Minimal Unreal Engine validation harness for the Atlas Unreal Agent boundary.",
   "Modules": [
