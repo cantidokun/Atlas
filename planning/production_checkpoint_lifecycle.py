@@ -32,6 +32,8 @@ class ProductionCheckpointLifecycle:
         restored = ProductionTaskCheckpoint.from_snapshot(checkpoint.snapshot(), revision)
         if restored.checkpoint_digest != checkpoint.checkpoint_digest:
             raise ValueError("checkpoint integrity does not match its contents")
+        if checkpoint.parent_checkpoint_digest is not None and parent_checkpoint is None:
+            raise ValueError("checkpoint with parent lineage requires a validated parent checkpoint")
         if parent_checkpoint is not None:
             self.validate_parent_lineage(checkpoint, parent_checkpoint, revision=revision)
         return restored
@@ -55,9 +57,11 @@ class ProductionCheckpointLifecycle:
         return self.validate_checkpoint(checkpoint, canonical).snapshot()
 
     def rehydrate_checkpoint(self, snapshot: Mapping[str, Any], revision: DigitalTwinRevision, parent_checkpoint: Optional[ProductionTaskCheckpoint] = None) -> ProductionTaskCheckpoint:
-        """Reload only against the current registry revision and, when supplied, exact parent lineage."""
+        """Reload only against the current registry revision and exact parent lineage when required."""
         self.registry.require_canonical_revision(revision)
         checkpoint = ProductionTaskCheckpoint.from_snapshot(snapshot, revision)
+        if checkpoint.parent_checkpoint_digest is not None and parent_checkpoint is None:
+            raise ValueError("checkpoint with parent lineage requires a validated parent checkpoint")
         return self.validate_checkpoint(checkpoint, revision, parent_checkpoint=parent_checkpoint)
 
     def validate_parent_lineage(self, checkpoint: ProductionTaskCheckpoint, parent_checkpoint: ProductionTaskCheckpoint, revision: Optional[DigitalTwinRevision] = None) -> ProductionTaskCheckpoint:
