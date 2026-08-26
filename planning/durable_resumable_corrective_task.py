@@ -32,6 +32,8 @@ class DurableResumableCorrectiveTask:
             raise ValueError("checkpoint lifecycle and registry must refer to the same Digital Twin registry")
         if checkpoint_lifecycle is None and registry is not None:
             checkpoint_lifecycle = ProductionCheckpointLifecycle(registry)
+        if checkpoint_lifecycle is None and checkpoint.parent_checkpoint_digest is not None:
+            raise ValueError("checkpoint with parent lineage requires a production checkpoint lifecycle")
         if checkpoint_lifecycle is not None:
             checkpoint = checkpoint_lifecycle.validate_checkpoint(checkpoint, revision)
         elif checkpoint.twin_id != revision.twin_id:
