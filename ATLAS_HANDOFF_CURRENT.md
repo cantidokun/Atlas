@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 26, 2026 — durable checkpoint/resume is live-proven; full offline suite 665 passed  
+**Updated:** August 26, 2026 — canonical registry-aware durable resume race gate covered; full offline suite 678 passed  
 **Branch:** `feat/replan-race-gate`  
 **Purpose:** canonical resume point for Atlas Blender-Agent development.
 
@@ -9,10 +9,10 @@
 Latest completed full offline suite:
 
 ```text
-FULL OFFLINE PYTEST SUITE: 665 passed, 0 failed
+FULL OFFLINE PYTEST SUITE: 678 passed, 0 failed
 ```
 
-This includes the durable checkpoint/resume contract and the corrected durable-resume tests.
+The 678-test baseline includes durable checkpoint rehydration, canonical Digital Twin registry persistence, registry-bound durable resume, and the canonical-revision recheck immediately before fresh resume authorization.
 
 ## Live Blender validation proven
 
@@ -60,18 +60,32 @@ ATLAS BLENDER LIVE DURABLE CHECKPOINT STALE-STATE ZERO-WRITE GATE: PASS
 ATLAS BLENDER LIVE DURABLE CHECKPOINT RESUME: PASS
 ```
 
-The durable live proof established checkpoint integrity after serialization/reload, an external Blender-world interruption, stale authorization rejection with zero writes, fresh evidence, fresh resume authorization, successful resumed mutation, authorization-bound resumed receipt, and authoritative final target verification.
+Live durable-registry resume was exercised after implementation of the persisted canonical registry boundary, but its latest runner result must be treated according to the exact command output from the user's machine. The offline contract and race-gate tests are green; do not infer a live registry PASS unless the live runner explicitly prints it.
 
 ## Durable checkpoint architecture
 
 - `planning/production_task_checkpoint.py` — immutable serializable checkpoint binding a production task to Digital Twin identity/revision, completed actions, evidence digest, authorization lineage, and optional parent checkpoint digest.
-- `planning/durable_resumable_corrective_task.py` — durable checkpoint-to-resume boundary requiring compatible identity/revision, fresh evidence, and fresh resume authorization.
+- `planning/durable_resumable_corrective_task.py` — durable checkpoint-to-resume boundary requiring compatible identity/revision, fresh evidence, fresh resume authorization, and a current canonical revision both at admission and immediately before issuing fresh authorization.
+- `planning/digital_twin_registry.py` — persisted canonical identity/revision registry with integrity-addressed snapshots and fail-closed canonical revision checks.
 - `tests/test_production_task_checkpoint.py` — checkpoint contract coverage.
 - `tests/test_production_task_checkpoint_rehydration.py` — persisted snapshot rehydration and integrity coverage.
 - `tests/test_durable_resumable_corrective_task.py` — durable resume boundary coverage.
+- `tests/test_durable_resume_registry_binding.py` — canonical registry binding and registry-advance race coverage.
+- `tests/test_live_durable_registry_binding.py` — registry reload, stale canonical revision rejection, and snapshot tampering coverage.
 - `live_blender_durable_checkpoint_resume.py` — live Blender checkpoint/reload/interruption/resume proof.
+- `live_blender_durable_registry_resume.py` — live registry-aware durable resume harness; live success status must be based on its actual runner output.
 
 A checkpoint is durable state/audit lineage, **not an execution credential**. Saved authorization is never replayed. Fresh observation must produce fresh authorization before resumed writes.
+
+## Canonical Digital Twin registry
+
+The registry now exposes:
+
+- `canonical_revision(twin_id)` to identify the current canonical revision.
+- `require_canonical_revision(revision)` to fail closed unless revision ID, sequence, and source fingerprint match the current canonical revision.
+- deterministic integrity-addressed `snapshot()` / `from_snapshot()` persistence.
+
+Durable resume checks the registry before planning and again immediately before issuing fresh authorization. This closes the race where the canonical Digital Twin revision could advance during replanning.
 
 ## Existing continuation architecture
 
@@ -106,6 +120,7 @@ Qwen / AI proposal
  -> fresh authoritative observation
  -> VERIFIED / BLOCKED or corrective replan
  -> durable checkpoint when interrupted
+ -> fresh canonical revision check
  -> fresh resume authorization
  -> resumed write
  -> authoritative verification
@@ -143,9 +158,9 @@ No specific Qwen model/version or Blender version is established in the current 
 
 ## Current remaining validation / development gaps
 
-1. The durable checkpoint/resume boundary is now live-proven, so it should not be treated as merely contract-tested.
-2. The next work should consolidate the newly proven durable path into the production-facing task/checkpoint lifecycle rather than creating another parallel resume mechanism.
-3. Digital Twin revision persistence and production workflow integration remain the next substantive architectural boundary.
+1. The canonical registry-aware durable resume **offline race gate is now proven** by the 678-test suite.
+2. The next required validation is to re-run the live registry-aware durable resume harness and record its explicit result; no live registry PASS should be inferred from the offline suite.
+3. Once live registry-aware resume is green, consolidate the registry/checkpoint path into the production-facing task lifecycle rather than creating another parallel resume mechanism.
 4. Preserve all existing live zero-write, receipt-binding, authoritative-verification, and fresh-replan invariants while integrating persistence.
 5. No new capability should be admitted merely to satisfy a test; production capability admission remains explicit.
 
@@ -163,15 +178,21 @@ Confirm the clean offline baseline:
 python -m pytest -q
 ```
 
-The expected current baseline is **665 passed** unless new work has intentionally changed the suite.
+The expected current baseline is **678 passed** unless new work has intentionally changed the suite.
 
-Then continue with the next production boundary:
+Then validate the live registry-aware boundary:
 
-1. Consolidate durable checkpoint persistence with the existing production continuation/resume lifecycle.
-2. Persist canonical Digital Twin revision identity alongside durable task state.
-3. Prove reload against the canonical revision rejects mismatched/tampered state before any write.
-4. Re-run the live durable checkpoint/resume proof after that integration.
-5. Preserve stale-state zero-write and authorization-bound receipt invariants.
-6. Only then expand downstream production workflow integration.
+```powershell
+python live_blender_durable_registry_resume.py
+```
 
-Do not reopen already-proven live authorization, marker, collection, composition, continuation, or durable-resume work unless new evidence requires it. Do not claim a validation result until the corresponding command has actually been run.
+Require these explicit live outputs before claiming the registry-aware live milestone:
+
+```text
+ATLAS BLENDER LIVE REGISTRY STALE-REVISION ZERO-WRITE GATE: PASS
+ATLAS BLENDER LIVE REGISTRY DURABLE RESUME: PASS
+```
+
+Then continue with the production-facing checkpoint lifecycle integration and preserve the canonical revision race gate.
+
+Do not reopen already-proven live authorization, marker, collection, composition, continuation, or durable checkpoint work unless new evidence requires it. Do not claim a validation result until the corresponding command has actually been run.
