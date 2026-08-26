@@ -66,7 +66,9 @@ def get_blender_capability(tool: str) -> BlenderCapability:
     try:
         return BLENDER_CAPABILITIES[tool]
     except KeyError as exc:
-        raise ValueError(f"unsupported Blender capability: {tool}") from exc
+        raise ValueError(
+            f"verified Blender write capability required: unsupported Blender capability: {tool}"
+        ) from exc
 
 
 def require_verified_blender_write(tool: str) -> BlenderCapability:
@@ -79,7 +81,7 @@ def require_verified_blender_write(tool: str) -> BlenderCapability:
     capability = get_blender_capability(tool)
     if not capability.writes_scene or not capability.requires_verification:
         raise ValueError(
-            f"verified Blender write capability required: {tool}"
+            f"verified Blender write capability required: scene-writing capability is not admitted for {tool}"
         )
     return capability
 
