@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
+from planning.production_completion_receipt import ProductionCompletionReceipt
 
 
 class ProductionOperationState(str, Enum):
@@ -25,6 +26,7 @@ class ProductionOperationResult:
     state: ProductionOperationState
     task_result: CorrectiveTaskResult
     reason: str
+    receipt: ProductionCompletionReceipt | None = None
 
     @property
     def completed(self) -> bool:
@@ -46,11 +48,13 @@ class ProductionOperationLifecycle:
         self.task = task
         self.verify_final = verify_final
         self.state = ProductionOperationState.RUNNING
+        self.receipt: ProductionCompletionReceipt | None = None
 
     def run(self, max_steps: int = 16) -> ProductionOperationResult:
         result = self.task.resume(max_steps=max_steps)
         if not result.converged:
             self.state = ProductionOperationState.BLOCKED
+            self.receipt = None
             return ProductionOperationResult(
                 self.state,
                 result,
@@ -60,6 +64,7 @@ class ProductionOperationLifecycle:
             verified = bool(self.verify_final(result.final_evidence))
         except Exception as exc:
             self.state = ProductionOperationState.BLOCKED
+            self.receipt = None
             return ProductionOperationResult(
                 self.state,
                 result,
@@ -67,14 +72,21 @@ class ProductionOperationLifecycle:
             )
         if not verified:
             self.state = ProductionOperationState.BLOCKED
+            self.receipt = None
             return ProductionOperationResult(
                 self.state,
                 result,
                 "authoritative verification rejected final evidence",
             )
+        self.receipt = ProductionCompletionReceipt.create(
+            self.task.checkpoint,
+            self.task.revision,
+            result.final_evidence,
+        )
         self.state = ProductionOperationState.COMPLETED
         return ProductionOperationResult(
             self.state,
             result,
             "authoritative verification accepted final evidence",
+            receipt=self.receipt,
         )
