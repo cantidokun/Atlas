@@ -27,15 +27,23 @@ class DurableResumableCorrectiveTask:
         executor: Any = None,
         registry: Any = None,
         checkpoint_lifecycle: ProductionCheckpointLifecycle | None = None,
+        parent_checkpoint: ProductionTaskCheckpoint | None = None,
     ) -> None:
         if checkpoint_lifecycle is not None and registry is not None and checkpoint_lifecycle.registry is not registry:
             raise ValueError("checkpoint lifecycle and registry must refer to the same Digital Twin registry")
         if checkpoint_lifecycle is None and registry is not None:
             checkpoint_lifecycle = ProductionCheckpointLifecycle(registry)
-        if checkpoint_lifecycle is None and checkpoint.parent_checkpoint_digest is not None:
-            raise ValueError("checkpoint with parent lineage requires a production checkpoint lifecycle")
+        if checkpoint.parent_checkpoint_digest is not None:
+            if checkpoint_lifecycle is None:
+                raise ValueError("checkpoint with parent lineage requires a production checkpoint lifecycle")
+            if parent_checkpoint is None:
+                raise ValueError("checkpoint with parent lineage requires a validated parent checkpoint")
+        elif parent_checkpoint is not None:
+            raise ValueError("parent checkpoint supplied for checkpoint without parent lineage")
         if checkpoint_lifecycle is not None:
-            checkpoint = checkpoint_lifecycle.validate_checkpoint(checkpoint, revision)
+            checkpoint = checkpoint_lifecycle.validate_checkpoint(
+                checkpoint, revision, parent_checkpoint=parent_checkpoint
+            )
         elif checkpoint.twin_id != revision.twin_id:
             raise ValueError("checkpoint belongs to a different Digital Twin")
         elif checkpoint.revision_id != revision.revision_id:
@@ -48,6 +56,7 @@ class DurableResumableCorrectiveTask:
         self.executor = executor
         self.checkpoint_lifecycle = checkpoint_lifecycle
         self.registry = checkpoint_lifecycle.registry if checkpoint_lifecycle is not None else registry
+        self.parent_checkpoint = parent_checkpoint
 
     @staticmethod
     def _require_current_canonical_revision(registry: Any, revision: DigitalTwinRevision) -> None:
