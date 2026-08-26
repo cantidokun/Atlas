@@ -1,10 +1,4 @@
-"""Durable multi-operation production composition.
-
-A sequence persists completed operation receipts and resumes at the first
-unfinished operation. Individual operation completion remains authoritative;
-the sequence can only complete after every operation has its own completion
-receipt.
-"""
+"""Durable multi-operation production composition."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -32,33 +26,27 @@ class DurableProductionSequenceCheckpoint:
     sequence_digest: str
 
     @classmethod
-    def create(
-        cls,
-        receipts: Iterable[ProductionCompletionReceipt],
-        next_operation_index: int,
-    ) -> "DurableProductionSequenceCheckpoint":
+    def create(cls, receipts: Iterable[ProductionCompletionReceipt], next_operation_index: int):
         values = tuple(receipt.snapshot() for receipt in receipts)
+        return cls._from_snapshots(values, next_operation_index)
+
+    @classmethod
+    def _from_snapshots(cls, values: Tuple[dict[str, str], ...], next_operation_index: int):
         if next_operation_index != len(values):
             raise ValueError("next operation index must equal completed receipt count")
         if next_operation_index < 0:
             raise ValueError("next operation index cannot be negative")
-        payload = {
-            "completed_receipts": values,
-            "next_operation_index": next_operation_index,
-        }
+        payload = {"completed_receipts": values, "next_operation_index": next_operation_index}
         return cls(values, next_operation_index, _digest(payload))
 
     def snapshot(self) -> dict[str, Any]:
-        payload = {
-            "completed_receipts": self.completed_receipts,
-            "next_operation_index": self.next_operation_index,
-        }
+        payload = {"completed_receipts": self.completed_receipts, "next_operation_index": self.next_operation_index}
         if _digest(payload) != self.sequence_digest:
             raise ValueError("durable production sequence checkpoint integrity failure")
         return {**payload, "sequence_digest": self.sequence_digest}
 
     @classmethod
-    def rehydrate(cls, snapshot: dict[str, Any]) -> "DurableProductionSequenceCheckpoint":
+    def rehydrate(cls, snapshot: dict[str, Any]):
         if not isinstance(snapshot, dict):
             raise TypeError("sequence snapshot must be a mapping")
         required = {"completed_receipts", "next_operation_index", "sequence_digest"}
@@ -67,10 +55,7 @@ class DurableProductionSequenceCheckpoint:
         receipts = tuple(snapshot["completed_receipts"])
         if not all(isinstance(receipt, dict) for receipt in receipts):
             raise ValueError("invalid completed receipt snapshot")
-        payload = {
-            "completed_receipts": receipts,
-            "next_operation_index": snapshot["next_operation_index"],
-        }
+        payload = {"completed_receipts": receipts, "next_operation_index": snapshot["next_operation_index"]}
         if _digest(payload) != snapshot["sequence_digest"]:
             raise ValueError("durable production sequence checkpoint integrity failure")
         if snapshot["next_operation_index"] != len(receipts):
@@ -93,11 +78,7 @@ class DurableProductionSequenceResult:
 class DurableProductionOperationSequence:
     """Compose production operations with durable interruption/resume state."""
 
-    def __init__(
-        self,
-        operations: Iterable[ProductionOperationLifecycle],
-        checkpoint: DurableProductionSequenceCheckpoint | None = None,
-    ) -> None:
+    def __init__(self, operations: Iterable[ProductionOperationLifecycle], checkpoint=None) -> None:
         values = tuple(operations)
         if not values:
             raise ValueError("operations must contain at least one production operation")
@@ -116,23 +97,20 @@ class DurableProductionOperationSequence:
 
     def run(self, max_steps: int = 16) -> DurableProductionSequenceResult:
         results = []
-        receipts = []
+        receipt_snapshots = self.checkpoint.completed_receipts
         for operation_index in range(self.next_operation_index, len(self.operations)):
             result = self.operations[operation_index].run(max_steps=max_steps)
             results.append(result)
             if result.state is ProductionOperationState.BLOCKED or result.receipt is None:
-                self.checkpoint = DurableProductionSequenceCheckpoint.create(receipts, operation_index)
+                self.checkpoint = DurableProductionSequenceCheckpoint._from_snapshots(receipt_snapshots, operation_index)
                 return DurableProductionSequenceResult(
                     ProductionOperationState.BLOCKED,
                     tuple(results),
                     self.checkpoint,
                     f"durable production sequence blocked at step {operation_index + 1}: {result.reason}",
                 )
-            receipts.append(result.receipt)
-            self.checkpoint = DurableProductionSequenceCheckpoint.create(
-                receipts,
-                operation_index + 1,
-            )
+            receipt_snapshots = receipt_snapshots + (result.receipt.snapshot(),)
+            self.checkpoint = DurableProductionSequenceCheckpoint._from_snapshots(receipt_snapshots, operation_index + 1)
         return DurableProductionSequenceResult(
             ProductionOperationState.COMPLETED,
             tuple(results),
