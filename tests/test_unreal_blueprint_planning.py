@@ -52,7 +52,7 @@ def test_blueprint_registry_requires_compile_status_for_verification():
         entity_ids=(ENTITY_ID,),
     )
 
-    with pytest.raises(ValueError, match="expected_compile_status"):
+    with pytest.raises(ValueError, match="do not match the capability schema"):
         UnrealCapabilityRegistry().validate_operation(operation)
 
 
