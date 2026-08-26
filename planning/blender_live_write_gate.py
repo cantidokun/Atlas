@@ -21,20 +21,31 @@ class BlenderLiveWriteGate:
         if not authorization.matches(action):
             raise ValueError("Blender write authorization does not match action")
         result, receipt = self._boundary.execute_authorized_write(action, authorization)
+
+        # A failed executor result is terminal. Do not require a stronger receipt
+        # contract before reporting the failure, and never invoke authoritative
+        # verification after an unsuccessful write.
+        if not result.ok:
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": False, "result": result},
+                "Blender executor did not establish a successful write",
+            )
+
         if not receipt.matches_authorization(authorization.authorization_id):
-            return BlenderLiveWriteOutcome.blocked({"receipt_authorized": False}, "Blender write receipt is not bound to authorization")
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": False},
+                "Blender write receipt is not bound to authorization",
+            )
         if not receipt.matches(action.tool, action.arguments, result):
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": True, "receipt_matches_execution": False},
                 "Blender write receipt does not bind the requested action and execution result",
             )
-        if not result.ok:
+        if self._verifier is None:
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": True, "receipt_matches_execution": True, "result": result},
-                "Blender executor did not establish a successful write",
+                "No authoritative Blender verifier is configured",
             )
-        if self._verifier is None:
-            return BlenderLiveWriteOutcome.blocked({"receipt_authorized": True, "receipt_matches_execution": True, "result": result}, "No authoritative Blender verifier is configured")
         try:
             verified, verification = self._verifier(action, receipt)
             if not isinstance(verified, bool):
@@ -44,7 +55,12 @@ class BlenderLiveWriteGate:
             verification = dict(verification)
         except Exception as exc:
             return BlenderLiveWriteOutcome.blocked(
-                {"receipt_authorized": True, "receipt_matches_execution": True, "result": result, "verification_error": type(exc).__name__},
+                {
+                    "receipt_authorized": True,
+                    "receipt_matches_execution": True,
+                    "result": result,
+                    "verification_error": type(exc).__name__,
+                },
                 "Authoritative Blender verification failed closed",
             )
         if not verified:
@@ -52,4 +68,7 @@ class BlenderLiveWriteGate:
                 {"receipt_authorized": True, "receipt_matches_execution": True, "result": result, **verification},
                 "Authoritative Blender state did not verify the requested write",
             )
-        return BlenderLiveWriteOutcome.verified(receipt, {"receipt_authorized": True, "receipt_matches_execution": True, "result": result, **verification})
+        return BlenderLiveWriteOutcome.verified(
+            receipt,
+            {"receipt_authorized": True, "receipt_matches_execution": True, "result": result, **verification},
+        )
