@@ -69,5 +69,20 @@ def get_blender_capability(tool: str) -> BlenderCapability:
         raise ValueError(f"unsupported Blender capability: {tool}") from exc
 
 
+def require_verified_blender_write(tool: str) -> BlenderCapability:
+    """Return a capability only when it is an admitted verified scene write.
+
+    This is the single catalog-level gate used by Blender write authorization.
+    Keeping the policy here prevents individual authorization callers from
+    independently deciding what constitutes a production write capability.
+    """
+    capability = get_blender_capability(tool)
+    if not capability.writes_scene or not capability.requires_verification:
+        raise ValueError(
+            f"verified Blender write capability required: {tool}"
+        )
+    return capability
+
+
 def is_blender_write(tool: str) -> bool:
     return get_blender_capability(tool).writes_scene
