@@ -15,7 +15,8 @@ public class AtlasUnrealTransport : ModuleRules
             "EditorWidgets",
             "ToolMenus",
             "LevelSequence",
-            "MovieScene"
+            "MovieScene",
+            "KismetCompiler"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[] {
