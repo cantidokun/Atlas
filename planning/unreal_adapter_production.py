@@ -59,11 +59,15 @@ class UnrealAdapterProduction:
             "verify_material_variant": (UnrealCapability.MATERIAL,"inspect_material_state"),
             "verify_niagara_variant": (UnrealCapability.NIAGARA,"inspect_niagara_state"),
             "verify_sequencer_playback_range": (UnrealCapability.SEQUENCER,"inspect_sequencer_state"),
+            "verify_blueprint_state": (UnrealCapability.BLUEPRINT,"inspect_blueprint_state"),
         }
         mapped=read_map.get(operation.name)
         if mapped:
             capability,name=mapped
-            transport_operation=UnrealOperation(capability=capability,kind=UnrealOperationKind.READ,name=name,arguments={"entity_ids":tuple(operation.entity_ids)},entity_ids=tuple(operation.entity_ids))
+            arguments={"entity_ids":tuple(operation.entity_ids)}
+            if operation.capability is UnrealCapability.BLUEPRINT:
+                arguments["asset_path"] = operation.arguments["asset_path"]
+            transport_operation=UnrealOperation(capability=capability,kind=UnrealOperationKind.READ,name=name,arguments=arguments,entity_ids=tuple(operation.entity_ids))
             return self._execute(transport_operation,authorization_id,evidence_operation_name=operation.name)
         return self._execute(operation,authorization_id)
 
