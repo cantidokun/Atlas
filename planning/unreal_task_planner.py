@@ -35,6 +35,7 @@ class UnrealTaskPlanner:
     def plan_actor_location_sequence(self, intent, locations): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
     def plan_sequencer_playback_range(self, intent, start_frame, end_frame): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_sequencer_playback_range(intent, start_frame, end_frame))
     def plan_blueprint_compile(self, intent, asset_path): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_blueprint_compile(intent, asset_path))
+    def plan_blueprint_metadata_mutation(self, intent, asset_path, metadata_key, metadata_value): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_blueprint_metadata_mutation(intent, asset_path, metadata_key, metadata_value))
     def plan_composite_actor_production(self, intent: UnrealTaskIntent, composite: CompositeActorProductionOperation) -> UnrealTaskPlan:
         self._validate_intent(intent)
         if not isinstance(composite, CompositeActorProductionOperation): raise TypeError("composite must be a CompositeActorProductionOperation")
@@ -83,6 +84,10 @@ class UnrealAgentPlanBuilder:
         if not isinstance(value, str) or not value.strip() or not value.startswith("/"):
             raise ValueError("asset_path must be a non-empty Unreal package path")
         return value.strip()
+    @staticmethod
+    def _validate_blueprint_metadata(value, name):
+        if not isinstance(value, str) or not value.strip(): raise ValueError(f"{name} must be a non-empty string")
+        return value.strip()
     def _operation(self, capability, kind, name, entity_ids, arguments=None):
         self.capabilities.validate(capability, kind)
         operation_arguments={"entity_ids": entity_ids}
@@ -96,6 +101,14 @@ class UnrealAgentPlanBuilder:
         ids=self._require_targets(intent); asset_path=self._validate_asset_path(asset_path)
         return (
             self._operation(UnrealCapability.BLUEPRINT, UnrealOperationKind.READ, "inspect_blueprint_state", ids, {"asset_path": asset_path}),
+            self._operation(UnrealCapability.BLUEPRINT, UnrealOperationKind.WRITE, "compile_blueprint", ids, {"asset_path": asset_path}),
+            self._operation(UnrealCapability.BLUEPRINT, UnrealOperationKind.VERIFY, "verify_blueprint_state", ids, {"asset_path": asset_path, "expected_compile_status": "success"}),
+        )
+    def for_blueprint_metadata_mutation(self, intent, asset_path, metadata_key, metadata_value):
+        ids=self._require_targets(intent); asset_path=self._validate_asset_path(asset_path); metadata_key=self._validate_blueprint_metadata(metadata_key,"metadata_key"); metadata_value=self._validate_blueprint_metadata(metadata_value,"metadata_value")
+        return (
+            self._operation(UnrealCapability.BLUEPRINT, UnrealOperationKind.READ, "inspect_blueprint_state", ids, {"asset_path": asset_path}),
+            self._operation(UnrealCapability.BLUEPRINT, UnrealOperationKind.WRITE, "set_blueprint_metadata", ids, {"asset_path": asset_path, "metadata_key": metadata_key, "metadata_value": metadata_value}),
             self._operation(UnrealCapability.BLUEPRINT, UnrealOperationKind.WRITE, "compile_blueprint", ids, {"asset_path": asset_path}),
             self._operation(UnrealCapability.BLUEPRINT, UnrealOperationKind.VERIFY, "verify_blueprint_state", ids, {"asset_path": asset_path, "expected_compile_status": "success"}),
         )
