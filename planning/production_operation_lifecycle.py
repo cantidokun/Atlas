@@ -1,4 +1,4 @@
-"""Production operation completion boundary.
+"""Production operation completion boundaries.
 
 Executor success and planner convergence are not authoritative completion. A
 production operation reaches COMPLETED only after an explicit authoritative
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, Tuple
 
 from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
@@ -89,4 +89,64 @@ class ProductionOperationLifecycle:
             result,
             "authoritative verification accepted final evidence",
             receipt=self.receipt,
+        )
+
+
+@dataclass(frozen=True)
+class ProductionOperationSequenceResult:
+    state: ProductionOperationState
+    results: Tuple[ProductionOperationResult, ...]
+    reason: str
+
+    @property
+    def completed(self) -> bool:
+        return self.state is ProductionOperationState.COMPLETED
+
+    @property
+    def receipts(self) -> Tuple[ProductionCompletionReceipt, ...]:
+        return tuple(
+            result.receipt
+            for result in self.results
+            if result.receipt is not None
+        )
+
+
+class ProductionOperationSequence:
+    """Run production operations in order and fail closed on the first blocked step.
+
+    Each operation retains its own checkpoint and authoritative completion receipt.
+    The sequence itself is complete only when every operation completes. A blocked
+    operation stops the sequence; successful earlier operations remain represented
+    in ``results`` but do not promote the overall sequence to completion.
+    """
+
+    def __init__(self, operations: Iterable[ProductionOperationLifecycle]) -> None:
+        values = tuple(operations)
+        if not values:
+            raise ValueError("operations must contain at least one production operation")
+        if any(not isinstance(operation, ProductionOperationLifecycle) for operation in values):
+            raise TypeError("operations must contain ProductionOperationLifecycle values")
+        self.operations = values
+        self.state = ProductionOperationState.RUNNING
+        self.results: Tuple[ProductionOperationResult, ...] = ()
+
+    def run(self, max_steps: int = 16) -> ProductionOperationSequenceResult:
+        results = []
+        for operation in self.operations:
+            result = operation.run(max_steps=max_steps)
+            results.append(result)
+            if result.state is ProductionOperationState.BLOCKED:
+                self.results = tuple(results)
+                self.state = ProductionOperationState.BLOCKED
+                return ProductionOperationSequenceResult(
+                    self.state,
+                    self.results,
+                    f"production operation sequence blocked at step {len(results)}: {result.reason}",
+                )
+        self.results = tuple(results)
+        self.state = ProductionOperationState.COMPLETED
+        return ProductionOperationSequenceResult(
+            self.state,
+            self.results,
+            "all production operations completed with authoritative verification",
         )
