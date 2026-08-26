@@ -1,54 +1,61 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 24, 2026 — exact recovery failure binding hardening implemented
-**Current focus:** Multi-operation production execution with failure containment, fresh-state recovery, and explicitly authorized replacement mutations
-**Current branch:** `feat/unreal-composite-production-operation`
+**Updated:** August 26, 2026
+**Branch:** `feat/unreal-composite-production-operation`
 
-## Current state
+## Verified checkpoint before Blueprint work
 
-The Unreal production boundary now has:
-
-- deterministic composite planning;
-- central capability validation;
-- full-plan executor preflight before transport;
-- semantic write-to-verifier binding;
-- production Windows Named Pipe execution;
-- independent post-write semantic verification;
-- explicit failure reassessment;
-- per-operation recovery disposition;
-- replacement-only plan construction;
-- separate plan-bound replacement authorization;
-- an explicit end-to-end recovery coordinator;
-- heterogeneous material/Niagara recovery coverage;
-- Sequencer playback-range production planning and verification;
-- deterministic Sequencer recovery reassessment/replacement coverage;
-- a live Unreal Sequencer playback-range gate;
-- a live Unreal Sequencer recovery reassessment gate;
-- a live Unreal recovery-sequence gate;
-- a live Unreal heterogeneous Niagara recovery gate;
-- exact recovery-failure identity binding to the source plan operation.
-
-## Composite production sequence
+The Unreal recovery/composite development checkpoint passed:
 
 ```text
-READ  inspect_target_actors
-WRITE set_actor_location
-VERIFY verify_actor_location
-WRITE set_actor_rotation
-VERIFY verify_actor_rotation
-WRITE set_actor_scale
-VERIFY verify_actor_scale
-READ  inspect_material_state
-WRITE apply_material_variant
-VERIFY verify_material_variant
-READ  inspect_niagara_state
-WRITE apply_niagara_variant
-VERIFY verify_niagara_variant
+Focused Sequencer recovery:
+10 passed
+
+Live recovery/composite integration gates:
+8 passed
+
+Full repository regression:
+743 passed, 5 skipped
 ```
 
-Every supported production write is immediately followed by its matching semantic verifier.
+The UE 5.6 Unreal harness was associated with the project and the branch was pushed with a clean working tree.
 
-## Sequencer production sequence
+## Completed production boundaries
+
+The Unreal Agent currently has production execution and independent verification for:
+
+- Actor inspection and transforms
+- Material variants
+- Niagara variants
+- Sequencer playback range
+- Composite actor production plans
+- Explicit authorized replacement
+- Fresh-state recovery reassessment
+- Heterogeneous recovery
+- Windows Named Pipe transport
+- Live Unreal integration gates
+
+The recovery architecture is fail-closed:
+
+```text
+failure
+  ↓
+fresh read-only reassessment
+  ↓
+per-operation disposition
+  ↓
+replacement-only plan
+  ↓
+separate plan-bound authorization
+  ↓
+execution
+  ↓
+independent verification
+```
+
+A failed write is never silently retried.
+
+## Sequencer boundary
 
 ```text
 READ  inspect_sequencer_state
@@ -56,188 +63,106 @@ WRITE set_sequencer_playback_range
 VERIFY verify_sequencer_playback_range
 ```
 
-The Sequencer write path is semantically verified against the requested start/end frame range.
+Sequencer production and recovery are covered by deterministic tests and live Unreal gates.
 
-## Recovery sequence
+## Blueprint — CURRENT DEVELOPMENT
 
-```text
-Production failure
-       ↓
-Fresh read-only reassessment
-       ↓
-Per-operation disposition
-       ↓
-Replacement-only plan
-       ↓
-Separate replacement authorization
-       ↓
-Ordered Unreal execution
-       ↓
-Immediate semantic verification
-       ↓
-Verified recovery completion
-```
-
-Recovery reassessment is read-only and never silently retries the failed mutation. `already_applied` operations are not replaced; `replacement_required` operations produce a new plan that requires separate authorization; `manual_review` cannot be converted into an automatic mutation.
-
-## Recovery failure identity hardening — IMPLEMENTED
-
-Recovery reassessment now validates that the reported `UnrealPlanExecutionFailure` is bound to the exact source `UnrealTaskPlan` before any reassessment plan can be constructed.
-
-The binding requires:
-
-- `failure.intent_id` to equal `plan.intent_id`;
-- `failure.operation_index` to reference an existing source operation;
-- `failure.operation_name` to equal the operation at that exact index;
-- `failure.operation_entity_ids` to equal the source operation's entity IDs.
-
-This prevents a mismatched or forged failure record from changing the recovery boundary and causing reassessment of the wrong portion of a production plan.
-
-Focused regression coverage now includes rejection of:
+Blueprint is now the next production capability. The first slice is deliberately narrow:
 
 ```text
-foreign intent failure
-mismatched operation name
-mismatched entity identity
+READ   inspect_blueprint_state
+WRITE  compile_blueprint
+VERIFY verify_blueprint_state
 ```
 
-## Sequencer recovery hardening
+The Python side now contains:
 
-The focused Sequencer recovery suite passes:
+- Blueprint capability argument schemas
+- explicit Unreal asset-path validation
+- Blueprint compile planning
+- production-adapter verification routing
+- independent Blueprint evidence verification
+- focused Blueprint planner/verifier tests
+
+The Unreal transport header now declares the corresponding Blueprint operations, and the transport build dependency includes the Blueprint compiler module.
+
+## Local Blueprint transport migration
+
+The C++ dispatcher still needs to be applied to the local Unreal source because it is the live editor boundary.
+
+A deterministic migration script is committed at:
 
 ```text
-python -m pytest tests/test_unreal_recovery_sequencer.py -vv -s
-
-3 passed
+tools/enable_blueprint_transport.py
 ```
 
-It proves that:
-
-- reassessment includes the required Sequencer read;
-- a matching fresh playback range is classified as `already_applied`;
-- a mismatched playback range produces a replacement-only Sequencer write/verify plan;
-- replacement arguments preserve the exact requested frame range.
-
-The live Sequencer recovery reassessment gate passes:
-
-```text
-python -m pytest tests/test_unreal_recovery_sequencer_real_integration.py -vv -s
-
-2 passed
-```
-
-The live Sequencer production round-trip gate also passes:
-
-```text
-python -m pytest tests/test_unreal_sequencer_real_integration.py -vv -s
-
-1 passed
-```
-
-## Live heterogeneous recovery gate — PASS
-
-The disposable Unreal harness provides a narrowly scoped deterministic failure condition for the Niagara write operation. It is activated only by the dedicated integration-test authorization:
-
-```text
-real-heterogeneous-recovery-failure-auth
-```
-
-The harness rejects `apply_niagara_variant` before changing Niagara state when that authorization is presented. Normal Niagara writes use their ordinary authorization identifiers and are unaffected. The existing Named Pipe JSON wire protocol is unchanged.
-
-The live gate passed:
-
-```text
-python -m pytest tests/test_unreal_heterogeneous_recovery_real_integration.py -vv -s
-
-1 passed
-```
-
-It proves:
-
-```text
-live composite failure
-       ↓
-real fresh reassessment
-       ↓
-per-domain disposition
-       ↓
-replacement-only plan
-       ↓
-new exact authorization
-       ↓
-live Niagara replacement
-       ↓
-independent verification
-       ↓
-restore original state
-```
-
-The test also proves that earlier transform and material writes survive the failed Niagara operation and are not unnecessarily replaced.
-
-## Other live gates
-
-The live recovery sequence gate passes:
-
-```text
-python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
-```
-
-The live composite production gate passes:
-
-```text
-python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
-```
-
-## Current regression gate
-
-Run:
+Run from the repository root after pulling the current branch:
 
 ```powershell
-python -m pytest tests/test_unreal_recovery_sequence.py tests/test_unreal_recovery_sequencer.py tests/test_unreal_recovery_mixed_domain.py tests/test_unreal_recovery_heterogeneous_domains.py tests/test_unreal_recovery_live_sequence.py tests/test_unreal_recovery_replacement.py tests/test_unreal_failure_reassessment.py tests/test_unreal_plan_executor.py tests/test_unreal_plan_authorization.py tests/test_unreal_recovery_sequence_real_integration.py tests/test_unreal_heterogeneous_recovery_real_integration.py -q
+python tools\enable_blueprint_transport.py
 ```
 
-Then run the live integration gates independently when Unreal is running:
+The script is intentionally fail-closed. It edits only known transport anchors and aborts if the dispatcher has drifted rather than guessing.
+
+The implementation uses `UBlueprint::Status` for normalized compilation evidence and `FKismetEditorUtilities::CompileBlueprint` for the editor-side compile operation. Epic documents both APIs in the UE editor/runtime API reference. citeturn1search0turn0search0
+
+## Blueprint validation sequence
+
+After pulling and applying the transport migration:
 
 ```powershell
-python -m pytest tests/test_unreal_sequencer_real_integration.py -vv -s
-python -m pytest tests/test_unreal_recovery_sequencer_real_integration.py -vv -s
-python -m pytest tests/test_unreal_recovery_sequence_real_integration.py -vv -s
-python -m pytest tests/test_unreal_composite_real_integration.py -vv -s
-python -m pytest tests/test_unreal_heterogeneous_recovery_real_integration.py -vv -s
+python -m pytest tests/test_unreal_blueprint.py tests/test_unreal_task_planner.py -q
 ```
 
-## Next development boundary
+Then rebuild/reload the Unreal harness and add/run the live Blueprint integration gate.
 
-The real-Unreal heterogeneous recovery boundary is green, the Sequencer production round-trip is green, Sequencer recovery is covered deterministically plus by a live reassessment gate, and recovery failure identity is now bound to the exact source operation.
+Finally:
 
-Priorities:
+```powershell
+python -m pytest tests -q
+```
 
-1. Preserve the live heterogeneous recovery test as a permanent regression boundary.
-2. Preserve the live Sequencer production and recovery gates as permanent regression boundaries.
-3. Preserve exact failure-to-plan identity binding in every recovery entry point.
-4. Expand live recovery coverage to additional supported domains only when the harness can provide deterministic, non-invasive failure injection.
-5. Preserve the exact recovery sequence: fresh reassessment → disposition → replacement-only plan → separate authorization → live replacement → independent verification.
-6. Keep failure injection narrowly scoped to the disposable validation harness and isolated from ordinary production authorization paths.
-7. Keep the Named Pipe wire protocol unchanged.
-8. Keep Unreal development isolated from Blender and the action/workflow runner.
+The previous **743 passed / 5 skipped** result remains the regression baseline until the Blueprint transport is live and verified.
+
+## Blueprint architectural rule
+
+Compilation is the first Blueprint slice. Do not jump directly to arbitrary graph mutation.
+
+Once compilation is proven end-to-end, expand Blueprint authoring incrementally into:
+
+1. component authoring
+2. variable authoring
+3. node creation
+4. pin/graph connections
+5. controlled graph verification
+6. Blueprint recovery
+
+Each must use the same plan → authorization → execution → evidence → verification boundary.
+
+## Next boundary after Blueprint
+
+Once Blueprint is production-complete, build the Render production boundary:
+
+```text
+READ   inspect_render_state
+WRITE  configure_render
+VERIFY verify_render_state
+```
+
+Movie Render Queue execution should be layered on top only after deterministic render configuration verification exists.
 
 ## Architectural invariants
 
-- Atlas owns the Twin.
-- Unreal Agent reasons/plans.
-- Atlas authorizes.
-- Unreal adapter executes.
+- Atlas owns the canonical Digital Twin.
+- Atlas plans and authorizes.
+- Unreal executes.
 - Unreal provides evidence.
-- Atlas verifies semantic state independently.
-- Verification evidence is marked verified only after independent proof.
-- Failures require fresh evidence and explicit recovery.
-- Recovery reassessment is read-only and never an implicit retry.
-- Recovery disposition is informational/coordination state, not authorization.
-- Replacement mutations require explicit plan-bound authorization.
-- The Unreal Agent must never become a second autonomous authority separate from Atlas.
+- Atlas independently verifies evidence.
+- Verification is never satisfied by echoing requested write arguments.
+- Recovery requires fresh evidence.
+- Replacement requires a new exact authorization.
+- The Unreal Agent does not become a second autonomous authority.
+- Preserve the Named Pipe wire protocol.
+- Keep Unreal isolated from Blender and the action/workflow runner.
 - Do not weaken fail-closed validation.
-- Preserve stateless Unreal adapter behavior.
-- Preserve independent evidence verification.
-- Do not change the existing Named Pipe wire protocol.
-- Keep Unreal and Blender development isolated.
-- Do not modify the action/workflow runner.
+- Preserve language-agnostic subsystem boundaries so performance-critical components can later be replaced incrementally with C++ implementations.
