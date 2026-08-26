@@ -38,7 +38,7 @@ def test_rehydrated_registry_accepts_matching_checkpoint_revision():
 def test_advanced_canonical_revision_rejects_checkpoint_before_resume():
     registry, identity, revision = _registry()
     checkpoint = _checkpoint(revision)
-    advanced = create_revision(identity, "r2", 2, RevisionKind.CLEANUP, source_revision_id="r1")
+    advanced = create_revision(identity, "r2", 2, RevisionKind.CLEANUP, source_revision=revision)
     registry.register_revision(advanced)
     try:
         _task(checkpoint, revision, registry)
