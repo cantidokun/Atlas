@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from planning.action_plan import ActionSpec
 from planning.action_authorization import ActionAuthorization
-from planning.blender_capability_catalog import require_verified_blender_write
+from planning.blender_capability_catalog import get_blender_capability, require_verified_blender_write
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,16 @@ class BlenderWriteAuthorization:
         if not isinstance(authorization_id, str) or not authorization_id.strip():
             raise ValueError("authorization_id must be a non-empty string")
         normalized_authorization_id = authorization_id.strip()
+        try:
+            capability = get_blender_capability(action.tool)
+        except ValueError as exc:
+            raise ValueError(
+                f"verified Blender write capability required: {action.tool}"
+            ) from exc
+        if not capability.writes_scene:
+            raise ValueError(
+                f"scene-writing capability required: {action.tool}"
+            )
         try:
             require_verified_blender_write(action.tool)
         except ValueError as exc:
