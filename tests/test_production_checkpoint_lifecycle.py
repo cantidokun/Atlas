@@ -88,6 +88,25 @@ def test_rehydration_of_current_checkpoint_preserves_checkpoint_integrity():
     assert restored.authorization_id == checkpoint.authorization_id
 
 
+def test_rehydration_rejects_lineage_without_resolved_parent():
+    registry, _, revision = _registry()
+    lifecycle = ProductionCheckpointLifecycle(registry)
+    parent = _checkpoint(lifecycle, revision, authorization_id="auth-parent")
+    child = _checkpoint(lifecycle, revision, authorization_id="auth-child", parent=parent)
+    with pytest.raises(ValueError, match="validated parent checkpoint"):
+        lifecycle.rehydrate_checkpoint(child.snapshot(), revision)
+
+
+def test_rehydration_accepts_lineage_with_exact_resolved_parent():
+    registry, _, revision = _registry()
+    lifecycle = ProductionCheckpointLifecycle(registry)
+    parent = _checkpoint(lifecycle, revision, authorization_id="auth-parent")
+    child = _checkpoint(lifecycle, revision, authorization_id="auth-child", parent=parent)
+    restored = lifecycle.rehydrate_checkpoint(child.snapshot(), revision, parent_checkpoint=parent)
+    assert restored.checkpoint_digest == child.checkpoint_digest
+    assert restored.parent_checkpoint_digest == parent.checkpoint_digest
+
+
 def test_validate_checkpoint_rejects_stale_revision_before_integrity_validation():
     registry, identity, revision = _registry()
     lifecycle = ProductionCheckpointLifecycle(registry)
