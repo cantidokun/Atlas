@@ -24,15 +24,15 @@ class BlenderWriteAuthorization:
         normalized_authorization_id = authorization_id.strip()
 
         # All production Blender writes must pass through the single catalog
-        # policy gate. Preserve the catalog's diagnostic for known read-only
-        # capabilities, while wrapping unknown capabilities with the
-        # authorization-level contract expected by callers.
+        # policy gate. Preserve the established authorization-level contract
+        # while retaining the catalog's diagnostic for unknown capabilities.
         try:
             require_verified_blender_write(action.tool)
         except ValueError as exc:
-            if str(exc).startswith("Unknown Blender capability:"):
+            if str(exc).startswith("unsupported Blender capability:"):
                 raise ValueError(
-                    f"verified Blender write capability required: {exc}"
+                    f"verified Blender write capability required: "
+                    f"Unknown Blender capability: {action.tool}"
                 ) from exc
             raise
 
