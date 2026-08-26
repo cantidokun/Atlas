@@ -45,7 +45,11 @@ def _blueprint_state(evidence):
 
 def _assert_transport_available(exc: Exception) -> None:
     message = str(exc).lower()
-    if "not available" in message or "pipe not found" in message:
+    if (
+        "not available" in message
+        or "pipe not found" in message
+        or "disconnected" in message
+    ):
         pytest.skip("Unreal Editor transport is unavailable")
 
 
