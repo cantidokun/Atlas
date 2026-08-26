@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from action_plan import ActionSpec
 from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
@@ -43,6 +45,21 @@ def test_checkpoint_serialization_rejects_after_canonical_revision_advances():
         assert "current canonical" in str(exc)
     else:
         raise AssertionError("stale checkpoint was serialized after canonical revision advanced")
+
+
+def test_serialization_rejects_tampered_in_memory_checkpoint():
+    registry, _, revision = _registry()
+    lifecycle = ProductionCheckpointLifecycle(registry)
+    checkpoint = lifecycle.create_checkpoint(
+        "task-1", revision, (), {"revision": "r1"}, "auth-1"
+    )
+    tampered = replace(checkpoint, authorization_id="forged-auth")
+    try:
+        lifecycle.serialize_checkpoint(tampered)
+    except ValueError as exc:
+        assert "integrity" in str(exc) or "digest" in str(exc)
+    else:
+        raise AssertionError("tampered checkpoint was serialized")
 
 
 def test_rehydration_requires_current_canonical_revision_before_digest_validation():
