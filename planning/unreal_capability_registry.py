@@ -41,7 +41,11 @@ DEFAULT_UNREAL_CAPABILITIES = (
     UnrealCapabilitySpec(UnrealCapability.MODIFY_ASSET, frozenset({UnrealOperationKind.WRITE}), ("asset_state",), "Modify an already-authorized Unreal asset representation."),
     UnrealCapabilitySpec(UnrealCapability.MATERIAL, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("material_state",), "Inspect, modify, or verify material state.", argument_keys_by_kind={UnrealOperationKind.READ: frozenset({"entity_ids"}), UnrealOperationKind.WRITE: frozenset({"entity_ids", "material_variant"}), UnrealOperationKind.VERIFY: frozenset({"entity_ids", "material_variant"})}),
     UnrealCapabilitySpec(UnrealCapability.NIAGARA, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("niagara_state",), "Inspect, modify, or verify Niagara VFX state.", argument_keys_by_kind={UnrealOperationKind.READ: frozenset({"entity_ids"}), UnrealOperationKind.WRITE: frozenset({"entity_ids", "niagara_variant"}), UnrealOperationKind.VERIFY: frozenset({"entity_ids", "niagara_variant"})}),
-    UnrealCapabilitySpec(UnrealCapability.BLUEPRINT, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("blueprint_state",), "Inspect, modify, or verify Blueprint state."),
+    UnrealCapabilitySpec(UnrealCapability.BLUEPRINT, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("blueprint_state",), "Inspect, compile, or verify an Unreal Blueprint asset.", argument_keys_by_kind={
+        UnrealOperationKind.READ: frozenset({"entity_ids", "asset_path"}),
+        UnrealOperationKind.WRITE: frozenset({"entity_ids", "asset_path"}),
+        UnrealOperationKind.VERIFY: frozenset({"entity_ids", "asset_path", "expected_compile_status"}),
+    }),
     UnrealCapabilitySpec(UnrealCapability.SEQUENCER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("sequencer_state",), "Inspect, modify, or verify Sequencer state.", argument_keys_by_kind={
         UnrealOperationKind.READ: frozenset({"entity_ids"}),
         UnrealOperationKind.WRITE: frozenset({"entity_ids", "start_frame", "end_frame"}),
@@ -101,6 +105,14 @@ class UnrealCapabilityRegistry:
             variant = arguments.get(field)
             if not isinstance(variant, Mapping) or set(variant.keys()) != {"name"}: raise ValueError(f"{field} must contain exactly name")
             if not isinstance(variant["name"], str) or not variant["name"].strip(): raise ValueError(f"{field}.name must be a non-empty string")
+        if operation.capability is UnrealCapability.BLUEPRINT:
+            asset_path = arguments.get("asset_path")
+            if not isinstance(asset_path, str) or not asset_path.strip() or not asset_path.startswith("/"):
+                raise ValueError("Blueprint asset_path must be a non-empty Unreal package path")
+            if operation.kind is UnrealOperationKind.VERIFY:
+                status = arguments.get("expected_compile_status")
+                if not isinstance(status, str) or not status.strip():
+                    raise ValueError("expected_compile_status must be a non-empty string")
         if operation.capability is UnrealCapability.SEQUENCER and operation.kind in {UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}:
             start_key = "start_frame" if operation.kind is UnrealOperationKind.WRITE else "expected_start_frame"
             end_key = "end_frame" if operation.kind is UnrealOperationKind.WRITE else "expected_end_frame"
