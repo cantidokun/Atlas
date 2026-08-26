@@ -30,12 +30,7 @@ def _identity_snapshot(identity: DigitalTwinIdentity) -> dict[str, Any]:
         "twin_id": identity.twin_id,
         "entity_type": identity.entity_type,
         "anchors": [
-            {
-                "namespace": anchor.namespace,
-                "key": anchor.key,
-                "value": anchor.value,
-                "required": anchor.required,
-            }
+            {"namespace": anchor.namespace, "key": anchor.key, "value": anchor.value, "required": anchor.required}
             for anchor in identity.anchors
         ],
     }
@@ -86,12 +81,25 @@ class DigitalTwinRegistry:
     def revisions(self, twin_id: str) -> Tuple[DigitalTwinRevision, ...]:
         return self._revisions.get(twin_id, ())
 
+    def canonical_revision(self, twin_id: str) -> DigitalTwinRevision:
+        """Return the latest registered canonical revision for one Digital Twin."""
+        revisions = self._revisions.get(twin_id, ())
+        if not revisions:
+            raise ValueError("Digital Twin has no canonical revision")
+        return revisions[-1]
+
+    def require_canonical_revision(self, revision: DigitalTwinRevision) -> DigitalTwinRevision:
+        """Fail closed unless ``revision`` is exactly the current canonical revision."""
+        canonical = self.canonical_revision(revision.twin_id)
+        if canonical.revision_id != revision.revision_id:
+            raise ValueError("checkpoint revision is not the current canonical Digital Twin revision")
+        if canonical.sequence != revision.sequence or canonical.source_fingerprint != revision.source_fingerprint:
+            raise ValueError("checkpoint revision does not match canonical Digital Twin revision")
+        return canonical
+
     def snapshot(self) -> dict[str, Any]:
         """Return a deterministic, integrity-addressed registry snapshot."""
-        identities = {
-            twin_id: _identity_snapshot(self._identities[twin_id])
-            for twin_id in sorted(self._identities)
-        }
+        identities = {twin_id: _identity_snapshot(self._identities[twin_id]) for twin_id in sorted(self._identities)}
         revisions = {
             twin_id: [_revision_snapshot(revision) for revision in self._revisions.get(twin_id, ())]
             for twin_id in sorted(self._identities)
@@ -106,11 +114,7 @@ class DigitalTwinRegistry:
             raise TypeError("registry snapshot must be an object")
         if "identities" not in snapshot or "revisions" not in snapshot or "snapshot_digest" not in snapshot:
             raise ValueError("registry snapshot missing required fields")
-
-        payload = {
-            "identities": snapshot["identities"],
-            "revisions": snapshot["revisions"],
-        }
+        payload = {"identities": snapshot["identities"], "revisions": snapshot["revisions"]}
         if str(snapshot["snapshot_digest"]) != _digest(payload):
             raise ValueError("registry snapshot digest does not match its contents")
         if not isinstance(snapshot["identities"], Mapping) or not isinstance(snapshot["revisions"], Mapping):
@@ -122,17 +126,13 @@ class DigitalTwinRegistry:
                 raise TypeError("registry identity must be an object")
             anchors = tuple(
                 IdentityAnchor(
-                    namespace=str(raw.get("namespace", "")),
-                    key=str(raw.get("key", "")),
-                    value=str(raw.get("value", "")),
-                    required=bool(raw.get("required", True)),
-                )
-                for raw in raw_identity.get("anchors", ())
+                    namespace=str(raw.get("namespace", "")), key=str(raw.get("key", "")),
+                    value=str(raw.get("value", "")), required=bool(raw.get("required", True)),
+                ) for raw in raw_identity.get("anchors", ())
             )
             identity = DigitalTwinIdentity(
                 twin_id=str(raw_identity.get("twin_id", twin_id)),
-                entity_type=str(raw_identity.get("entity_type", "")),
-                anchors=anchors,
+                entity_type=str(raw_identity.get("entity_type", "")), anchors=anchors,
             )
             if identity.twin_id != str(twin_id):
                 raise ValueError("registry identity key does not match twin_id")
@@ -151,12 +151,9 @@ class DigitalTwinRegistry:
                 except (KeyError, ValueError) as exc:
                     raise ValueError("registry revision has invalid kind") from exc
                 revision = DigitalTwinRevision(
-                    twin_id=str(raw.get("twin_id", "")),
-                    revision_id=str(raw.get("revision_id", "")),
-                    sequence=int(raw.get("sequence", 0)),
-                    kind=kind,
-                    source_revision_id=raw.get("source_revision_id"),
-                    source_fingerprint=raw.get("source_fingerprint"),
+                    twin_id=str(raw.get("twin_id", "")), revision_id=str(raw.get("revision_id", "")),
+                    sequence=int(raw.get("sequence", 0)), kind=kind,
+                    source_revision_id=raw.get("source_revision_id"), source_fingerprint=raw.get("source_fingerprint"),
                 )
                 if revision.twin_id != twin_id:
                     raise ValueError("registry revision twin_id does not match registry key")
