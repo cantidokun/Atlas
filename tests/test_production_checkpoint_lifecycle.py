@@ -149,7 +149,7 @@ def test_cross_twin_parent_checkpoint_is_rejected():
         lifecycle.validate_checkpoint(child, revision, parent_checkpoint=other_parent)
 
 
-def test_cross_revision_parent_checkpoint_is_rejected():
+def test_cross_revision_parent_checkpoint_is_rejected_at_creation():
     registry, identity, revision = _registry()
     lifecycle = ProductionCheckpointLifecycle(registry)
     parent = _checkpoint(lifecycle, revision, authorization_id="auth-parent")
@@ -158,11 +158,10 @@ def test_cross_revision_parent_checkpoint_is_rejected():
         source_revision_id="r1", source_fingerprint=identity.stable_fingerprint(),
     )
     registry.register_revision(revision2)
-    child = lifecycle.create_checkpoint(
-        "task-1", revision2, (), {"revision": "r2"}, "auth-child", parent_checkpoint=parent
-    )
-    with pytest.raises(ValueError, match="current canonical"):
-        lifecycle.validate_checkpoint(child, revision2, parent_checkpoint=parent)
+    with pytest.raises(ValueError, match="different Digital Twin revision"):
+        lifecycle.create_checkpoint(
+            "task-1", revision2, (), {"revision": "r2"}, "auth-child", parent_checkpoint=parent
+        )
 
 
 def test_arbitrary_parent_digest_cannot_establish_lineage():
