@@ -28,6 +28,7 @@ UNREAL_TOOL_SCHEMAS = {
     "set_sequencer_playback_range": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "start_frame": int, "end_frame": int}),
     "verify_sequencer_playback_range": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "expected_start_frame": int, "expected_end_frame": int}),
     "inspect_blueprint_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "asset_path": str}),
+    "set_blueprint_metadata": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "asset_path": str, "metadata_key": str, "metadata_value": str}),
     "compile_blueprint": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "asset_path": str}),
     "verify_blueprint_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "asset_path": str, "expected_compile_status": str}),
 }
@@ -53,11 +54,17 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
         snapshot["entity_ids"] = tuple(ids)
     if not isinstance(snapshot.get("authorization_id"), str) or not snapshot["authorization_id"].strip():
         raise ValueError("authorization_id must be a non-empty string")
-    if tool in {"inspect_blueprint_state", "compile_blueprint", "verify_blueprint_state"}:
+    if tool in {"inspect_blueprint_state", "set_blueprint_metadata", "compile_blueprint", "verify_blueprint_state"}:
         asset_path = snapshot["asset_path"]
         if not asset_path.strip() or not asset_path.startswith("/"):
             raise ValueError("asset_path must be a non-empty Unreal package path")
         snapshot["asset_path"] = asset_path.strip()
+        if tool == "set_blueprint_metadata":
+            for field in ("metadata_key", "metadata_value"):
+                value = snapshot[field]
+                if not value.strip():
+                    raise ValueError(f"{field} must be a non-empty string")
+                snapshot[field] = value.strip()
         if tool == "verify_blueprint_state":
             status = snapshot["expected_compile_status"]
             if not status.strip():
