@@ -138,7 +138,7 @@ bool FAtlasTransportServer::CompileBlueprint(const FTransportRequest& R,TSharedP
 '''
         text = replace_once(text, implementation_anchor, implementation + implementation_anchor, "Blueprint implementation insertion")
 
-    CPP.write_text(text, encoding="utf-8", newline="\n")
+    CPP.write_text(text, encoding="utf-8")
     print(f"Blueprint transport implementation applied to {CPP}")
 
 
