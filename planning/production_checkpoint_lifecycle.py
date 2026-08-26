@@ -59,11 +59,15 @@ class ProductionCheckpointLifecycle:
         )
 
     def serialize_checkpoint(self, checkpoint: ProductionTaskCheckpoint) -> dict[str, Any]:
+        """Serialize only a current, internally consistent checkpoint."""
+        if not isinstance(checkpoint, ProductionTaskCheckpoint):
+            raise TypeError("checkpoint must be a ProductionTaskCheckpoint")
         canonical = self.registry.canonical_revision(checkpoint.twin_id)
         self.registry.require_canonical_revision(canonical)
         if checkpoint.revision_id != canonical.revision_id:
             raise ValueError("checkpoint revision is not the current canonical Digital Twin revision")
-        return checkpoint.snapshot()
+        validated = self.validate_checkpoint(checkpoint, canonical)
+        return validated.snapshot()
 
     def rehydrate_checkpoint(
         self,
