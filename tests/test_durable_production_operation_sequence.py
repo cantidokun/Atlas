@@ -7,6 +7,7 @@ from planning.durable_production_operation_sequence import (
     DurableProductionSequenceCheckpoint,
 )
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
+from planning.production_completion_receipt import ProductionCompletionReceipt
 from planning.production_operation_lifecycle import ProductionOperationLifecycle, ProductionOperationState
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
 
@@ -102,25 +103,17 @@ def test_checkpoint_rejects_inconsistent_operation_index():
 
 
 def test_sequence_rejects_checkpoint_beyond_operation_count():
-    checkpoint = DurableProductionSequenceCheckpoint.create(
-        (),
-        0,
+    task = _task(CorrectiveTaskResult((), {"step": 1}, True), "task-1")
+    receipt = ProductionCompletionReceipt.create(
+        task.checkpoint,
+        task.revision,
+        {"step": 1},
     )
-    # Construct a valid checkpoint whose index exceeds the sequence size.
-    snapshot = checkpoint.snapshot()
-    snapshot["next_operation_index"] = 1
-    snapshot["sequence_digest"] = __import__("hashlib").sha256(
-        __import__("json").dumps(
-            {"completed_receipts": (), "next_operation_index": 1},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-    rehydrated = DurableProductionSequenceCheckpoint.rehydrate(snapshot)
-    operation = _operation(_task(CorrectiveTaskResult((), {"step": 1}, True), "task-1"))
+    checkpoint = DurableProductionSequenceCheckpoint.create((receipt,), 1)
+    operation = _operation(task)
 
     with pytest.raises(ValueError, match="more completed operations"):
-        DurableProductionOperationSequence((operation,), checkpoint=rehydrated)
+        DurableProductionOperationSequence((operation,), checkpoint=checkpoint)
 
 
 def test_empty_sequence_is_rejected():
