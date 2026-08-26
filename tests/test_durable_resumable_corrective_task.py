@@ -39,9 +39,6 @@ def test_fresh_evidence_issues_new_resume_authorization():
         lambda evidence: actions,
     )
     authorization = task.issue_resume_authorization(fresh)
-    # The authorization id is the continuation lineage identifier. A fresh
-    # authorization is distinguished by its evidence/action binding, not by
-    # changing that lineage identifier.
     assert authorization.authorization_id == checkpoint.authorization_id
     assert authorization.matches(fresh, actions)
     assert authorization.evidence_digest != checkpoint.evidence_digest
@@ -72,3 +69,21 @@ def test_checkpoint_must_match_canonical_revision():
         assert "different Digital Twin" in str(exc)
     else:
         raise AssertionError("checkpoint was accepted for a different Digital Twin")
+
+
+def test_checkpoint_with_parent_lineage_requires_lifecycle_boundary():
+    revision = _revision()
+    checkpoint = ProductionTaskCheckpoint.create(
+        "task-1",
+        revision,
+        (),
+        {"state": 1},
+        "authorization-lineage-1",
+        parent_checkpoint_digest="forged-or-unvalidated-parent",
+    )
+    try:
+        DurableResumableCorrectiveTask(checkpoint, revision, lambda: {"state": 2}, lambda _: [])
+    except ValueError as exc:
+        assert "production checkpoint lifecycle" in str(exc)
+    else:
+        raise AssertionError("durable resume bypassed the checkpoint lineage boundary")
