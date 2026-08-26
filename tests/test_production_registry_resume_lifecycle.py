@@ -15,7 +15,7 @@ def _registry_and_revision():
         twin_id="twin-1",
         revision_id="r1",
         sequence=1,
-        kind=RevisionKind.INITIAL,
+        kind=RevisionKind.RECONSTRUCTION,
         source_revision_id=None,
         source_fingerprint=identity.stable_fingerprint(),
     )
