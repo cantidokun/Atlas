@@ -13,6 +13,7 @@ from planning.blender_write_authorization import BlenderWriteAuthorization
 from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import RevisionKind, create_revision
+from planning.production_checkpoint_lifecycle import ProductionCheckpointLifecycle
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
 from tools.blender import move_object
@@ -100,6 +101,7 @@ def main():
     registry.register_identity(identity)
     revision_v1 = create_revision(identity, "rev:live-001", 1, RevisionKind.RECONSTRUCTION)
     registry.register_revision(revision_v1)
+    lifecycle = ProductionCheckpointLifecycle(registry)
 
     move = ActionSpec(
         tool="move_object",
@@ -112,15 +114,17 @@ def main():
         raise SystemExit("LIVE REGISTRY RESUME FAILED: initial mutation was not authorization-bound")
 
     checkpoint_evidence = _observe(args.file, args.object)
-    checkpoint_v1 = ProductionTaskCheckpoint.create(
+    checkpoint_v1 = lifecycle.create_checkpoint(
         "task:live-registry-resume-v1",
         revision_v1,
         (move,),
         checkpoint_evidence,
         "live-registry-lineage",
     )
+    checkpoint_v1_snapshot = lifecycle.serialize_checkpoint(checkpoint_v1)
     persisted_registry = registry.snapshot()
     reloaded_registry = DigitalTwinRegistry.from_snapshot(persisted_registry)
+    reloaded_lifecycle = ProductionCheckpointLifecycle(reloaded_registry)
 
     revision_v2 = create_revision(
         identity, "rev:live-002", 2, RevisionKind.CORRECTION, source_revision=revision_v1
@@ -135,8 +139,10 @@ def main():
 
     stale_rejected = False
     try:
+        stale_checkpoint = reloaded_lifecycle.rehydrate_checkpoint(checkpoint_v1_snapshot, revision_v1)
+        reloaded_lifecycle.validate_checkpoint(stale_checkpoint, revision_v1)
         DurableResumableCorrectiveTask(
-            checkpoint_v1,
+            stale_checkpoint,
             revision_v1,
             lambda: _observe(args.file, args.object),
             _plan(args.file, args.object, list(args.final_rotation)),
@@ -146,13 +152,17 @@ def main():
     except ValueError as exc:
         stale_rejected = "current canonical" in str(exc) or "canonical Digital Twin revision" in str(exc)
 
-    checkpoint_v2 = ProductionTaskCheckpoint.create(
+    checkpoint_v2 = reloaded_lifecycle.create_checkpoint(
         "task:live-registry-resume-v2",
         revision_v2,
         (move,),
         _observe(args.file, args.object),
         "live-registry-lineage-v2",
     )
+    checkpoint_v2_snapshot = reloaded_lifecycle.serialize_checkpoint(checkpoint_v2)
+    restored_checkpoint_v2 = reloaded_lifecycle.rehydrate_checkpoint(checkpoint_v2_snapshot, revision_v2)
+    restored_checkpoint_v2 = reloaded_lifecycle.validate_checkpoint(restored_checkpoint_v2, revision_v2)
+
     interruption = set_object_rotation(
         file_name=args.file,
         object_name=args.object,
@@ -161,7 +171,7 @@ def main():
     interrupted_evidence = _observe(args.file, args.object)
 
     task = DurableResumableCorrectiveTask(
-        checkpoint_v2,
+        restored_checkpoint_v2,
         revision_v2,
         lambda: _observe(args.file, args.object),
         _plan(args.file, args.object, list(args.final_rotation)),
@@ -185,6 +195,8 @@ def main():
         "registry_snapshot_integrity": checkpoint_integrity,
         "canonical_revision_before_advance": revision_v1.revision_id,
         "canonical_revision_after_advance": reloaded_registry.canonical_revision(revision_v2.twin_id).revision_id,
+        "checkpoint_v1_lifecycle_roundtrip": checkpoint_v1_snapshot == lifecycle.serialize_checkpoint(checkpoint_v1),
+        "checkpoint_v2_lifecycle_roundtrip": checkpoint_v2_snapshot == reloaded_lifecycle.serialize_checkpoint(restored_checkpoint_v2),
         "stale_checkpoint_rejected": stale_rejected,
         "stale_writes": stale_writes["count"],
         "interruption": _json_safe(interruption),
