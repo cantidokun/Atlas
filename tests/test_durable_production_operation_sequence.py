@@ -103,14 +103,23 @@ def test_checkpoint_rejects_inconsistent_operation_index():
 
 
 def test_sequence_rejects_checkpoint_beyond_operation_count():
-    task = _task(CorrectiveTaskResult((), {"step": 1}, True), "task-1")
-    receipt = ProductionCompletionReceipt.create(
-        task.checkpoint,
-        task.revision,
+    first_task = _task(CorrectiveTaskResult((), {"step": 1}, True), "task-1")
+    second_task = _task(CorrectiveTaskResult((), {"step": 2}, True), "task-2")
+    first_receipt = ProductionCompletionReceipt.create(
+        first_task.checkpoint,
+        first_task.revision,
         {"step": 1},
     )
-    checkpoint = DurableProductionSequenceCheckpoint.create((receipt,), 1)
-    operation = _operation(task)
+    second_receipt = ProductionCompletionReceipt.create(
+        second_task.checkpoint,
+        second_task.revision,
+        {"step": 2},
+    )
+    checkpoint = DurableProductionSequenceCheckpoint.create(
+        (first_receipt, second_receipt),
+        2,
+    )
+    operation = _operation(first_task)
 
     with pytest.raises(ValueError, match="more completed operations"):
         DurableProductionOperationSequence((operation,), checkpoint=checkpoint)
