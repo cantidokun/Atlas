@@ -76,3 +76,34 @@ def test_rehydration_of_current_checkpoint_preserves_checkpoint_integrity():
     restored = lifecycle.rehydrate_checkpoint(checkpoint.snapshot(), revision)
     assert restored.checkpoint_digest == checkpoint.checkpoint_digest
     assert restored.authorization_id == checkpoint.authorization_id
+
+
+def test_validate_checkpoint_rejects_stale_revision_before_integrity_validation():
+    registry, identity, revision = _registry()
+    lifecycle = ProductionCheckpointLifecycle(registry)
+    checkpoint = lifecycle.create_checkpoint(
+        "task-1", revision, (), {"revision": "r1"}, "auth-1"
+    )
+    revision2 = DigitalTwinRevision(
+        "twin-1", "r2", 2, RevisionKind.CLEANUP,
+        source_revision_id="r1", source_fingerprint=identity.stable_fingerprint(),
+    )
+    registry.register_revision(revision2)
+    try:
+        lifecycle.validate_checkpoint(checkpoint, revision)
+    except ValueError as exc:
+        assert "current canonical" in str(exc)
+    else:
+        raise AssertionError("stale in-memory checkpoint entered the resume boundary")
+
+
+def test_validate_checkpoint_preserves_immutable_checkpoint_identity():
+    registry, _, revision = _registry()
+    lifecycle = ProductionCheckpointLifecycle(registry)
+    checkpoint = lifecycle.create_checkpoint(
+        "task-1", revision, (), {"revision": "r1"}, "auth-1"
+    )
+    restored = lifecycle.validate_checkpoint(checkpoint, revision)
+    assert restored is not checkpoint
+    assert restored.checkpoint_digest == checkpoint.checkpoint_digest
+    assert restored.authorization_id == checkpoint.authorization_id
