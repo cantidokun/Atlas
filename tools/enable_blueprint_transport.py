@@ -7,7 +7,6 @@ Run from the repository root after pulling the Blueprint contract commits.
 
 from pathlib import Path
 
-
 CPP = Path("unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp")
 
 
@@ -23,15 +22,17 @@ def main() -> None:
         raise SystemExit(f"missing transport source: {CPP}")
     text = CPP.read_text(encoding="utf-8")
 
-    text = replace_once(
-        text,
-        '#include "Editor.h"\n',
-        '#include "Editor.h"\n#include "Engine/Blueprint.h"\n#include "Kismet2/KismetEditorUtilities.h"\n',
-        "Blueprint includes",
-    ) if '#include "Engine/Blueprint.h"' not in text else text
+    if '#include "Engine/Blueprint.h"' not in text:
+        text = replace_once(
+            text,
+            '#include "Editor.h"\n',
+            '#include "Editor.h"\n#include "Engine/Blueprint.h"\n#include "Kismet2/KismetEditorUtilities.h"\n',
+            "Blueprint includes",
+        )
 
-    validation_anchor = '    if (Request.OperationName == TEXT("inspect_sequencer_state"))\n'
-    validation = '''    if (Request.OperationName == TEXT("inspect_blueprint_state"))
+    if 'Request.OperationName == TEXT("inspect_blueprint_state")' not in text:
+        validation_anchor = '    if (Request.OperationName == TEXT("inspect_sequencer_state"))\n'
+        validation = '''    if (Request.OperationName == TEXT("inspect_blueprint_state"))
     {
         if (Request.Capability != TEXT("blueprint") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_blueprint_state requires blueprint/read"); return false; }
         FString AssetPath;
@@ -55,21 +56,24 @@ def main() -> None:
         return true;
     }
 '''
-    text = replace_once(text, validation_anchor, validation + validation_anchor, "Blueprint validation") if 'Request.OperationName == TEXT("inspect_blueprint_state")' not in text else text
+        text = replace_once(text, validation_anchor, validation + validation_anchor, "Blueprint validation")
 
     supported_anchor = 'Request.OperationName==TEXT("verify_sequencer_playback_range");'
-    supported = 'Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state");'
-    text = replace_once(text, supported_anchor, supported, "supported operation list") if 'Request.OperationName==TEXT("inspect_blueprint_state")' not in text else text
+    if 'Request.OperationName==TEXT("inspect_blueprint_state")' not in text[text.find('const bool bSupported'):text.find('const bool bSupported') + 1500]:
+        supported = 'Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state");'
+        text = replace_once(text, supported_anchor, supported, "supported operation list")
 
     dispatch_anchor = '    else if(S->Request.OperationName==TEXT("inspect_sequencer_state")) bTaskSuccess=InspectSequencerState(S->Request.EntityIds,S->ObservedState,S->Error);\n'
-    dispatch = dispatch_anchor + '''    else if(S->Request.OperationName==TEXT("inspect_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
+    if 'else if(S->Request.OperationName==TEXT("compile_blueprint"))' not in text:
+        dispatch = dispatch_anchor + '''    else if(S->Request.OperationName==TEXT("inspect_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("compile_blueprint")) bTaskSuccess=CompileBlueprint(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("verify_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
 '''
-    text = replace_once(text, dispatch_anchor, dispatch, "game-thread Blueprint dispatch") if 'OperationName==TEXT("compile_blueprint")' not in text else text
+        text = replace_once(text, dispatch_anchor, dispatch, "game-thread Blueprint dispatch")
 
-    implementation_anchor = 'AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)\n'
-    implementation = r'''namespace
+    if 'bool FAtlasTransportServer::CompileBlueprint(' not in text:
+        implementation_anchor = 'AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)\n'
+        implementation = '''namespace
 {
     FString BlueprintStatusToString(const UBlueprint* Blueprint)
     {
@@ -132,7 +136,7 @@ bool FAtlasTransportServer::CompileBlueprint(const FTransportRequest& R,TSharedP
 }
 
 '''
-    text = replace_once(text, implementation_anchor, implementation + implementation_anchor, "Blueprint implementation insertion") if 'bool FAtlasTransportServer::CompileBlueprint(' not in text else text
+        text = replace_once(text, implementation_anchor, implementation + implementation_anchor, "Blueprint implementation insertion")
 
     CPP.write_text(text, encoding="utf-8", newline="\n")
     print(f"Blueprint transport implementation applied to {CPP}")
