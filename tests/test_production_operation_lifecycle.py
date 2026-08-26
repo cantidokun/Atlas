@@ -5,6 +5,7 @@ from planning.durable_resumable_corrective_task import DurableResumableCorrectiv
 from planning.production_completion_receipt import ProductionCompletionReceipt
 from planning.production_operation_lifecycle import (
     ProductionOperationLifecycle,
+    ProductionOperationSequence,
     ProductionOperationState,
 )
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
@@ -15,7 +16,7 @@ def _task_result(converged=True, evidence=None):
     return CorrectiveTaskResult((), evidence or {"verified": True}, converged)
 
 
-def _task(result):
+def _task(result, task_id="task-1"):
     revision = DigitalTwinRevision(
         twin_id="twin-1",
         revision_id="r1",
@@ -25,17 +26,22 @@ def _task(result):
         source_fingerprint="fingerprint",
     )
     checkpoint = ProductionTaskCheckpoint.create(
-        "task-1",
+        task_id,
         revision,
         (),
-        {"checkpoint": True},
-        "authorization-1",
+        {"checkpoint": True, "task_id": task_id},
+        f"authorization-{task_id}",
     )
     task = object.__new__(DurableResumableCorrectiveTask)
     task.checkpoint = checkpoint
     task.revision = revision
     task.resume = lambda max_steps=16: result
     return task
+
+
+def _lifecycle(result, verified=True, task_id="task-1"):
+    task = _task(result, task_id=task_id)
+    return ProductionOperationLifecycle(task, lambda evidence: verified)
 
 
 def test_production_operation_does_not_complete_from_executor_convergence_alone():
@@ -82,6 +88,42 @@ def test_rejected_authoritative_state_cannot_create_receipt():
     result = ProductionOperationLifecycle(task, lambda _: False).run()
     assert result.state is ProductionOperationState.BLOCKED
     assert result.receipt is None
+
+
+def test_operation_sequence_completes_only_when_every_operation_is_authoritatively_verified():
+    first = _lifecycle(_task_result(True, {"verified": True}), task_id="task-1")
+    second = _lifecycle(_task_result(True, {"verified": True}), task_id="task-2")
+
+    result = ProductionOperationSequence((first, second)).run()
+
+    assert result.state is ProductionOperationState.COMPLETED
+    assert result.completed
+    assert len(result.results) == 2
+    assert len(result.receipts) == 2
+    assert all(item.receipt is not None for item in result.results)
+
+
+def test_operation_sequence_blocks_at_first_failed_operation_and_does_not_run_later_steps():
+    first = _lifecycle(_task_result(True, {"verified": True}), task_id="task-1")
+    second = _lifecycle(_task_result(True, {"verified": False}), verified=False, task_id="task-2")
+    third = _lifecycle(_task_result(True, {"verified": True}), task_id="task-3")
+
+    result = ProductionOperationSequence((first, second, third)).run()
+
+    assert result.state is ProductionOperationState.BLOCKED
+    assert not result.completed
+    assert len(result.results) == 2
+    assert result.results[0].completed
+    assert result.results[1].state is ProductionOperationState.BLOCKED
+    assert len(result.receipts) == 1
+    assert third.state is ProductionOperationState.RUNNING
+
+
+def test_operation_sequence_rejects_empty_or_invalid_operations():
+    with pytest.raises(ValueError, match="at least one"):
+        ProductionOperationSequence(())
+    with pytest.raises(TypeError, match="ProductionOperationLifecycle"):
+        ProductionOperationSequence((object(),))
 
 
 def test_invalid_constructor_inputs_fail_closed():
