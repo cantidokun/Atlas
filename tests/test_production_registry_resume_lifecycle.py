@@ -4,7 +4,6 @@ from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
 from planning.production_operation_lifecycle import ProductionOperationState
 from planning.production_registry_resume_lifecycle import ProductionRegistryResumeLifecycle
-from planning.production_task_checkpoint import ProductionTaskCheckpoint
 
 
 def _registry_and_revision():
@@ -48,7 +47,7 @@ def _build(registry, revision, checkpoint, observed, verified):
             )
         ],
         verify_final=lambda evidence: verified,
-        executor=lambda replan, current_evidence: ({"ok": True, "state": "ok"}, None),
+        executor=lambda tool, arguments: {"ok": True, "state": "ok"},
     )
 
 
