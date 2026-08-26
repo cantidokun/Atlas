@@ -6,7 +6,7 @@ import pytest
 
 from planning.unreal_adapter_production import create_production_adapter
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind, UnrealTaskIntent
-from planning.unreal_plan_executor import UnrealPlanExecutor
+from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_transport_named_pipe import NamedPipeTransportError
 
@@ -15,6 +15,7 @@ pytestmark = pytest.mark.integration
 
 ENTITY_ID = "ATLAS_BLUEPRINT_TEST"
 ASSET_PATH = os.environ.get("ATLAS_TEST_BLUEPRINT_ASSET", "/Game/AtlasTest/BP_AtlasTest.BP_AtlasTest")
+MISSING_ASSET_PATH = "/Game/AtlasTest/BP_AtlasTest_Missing.BP_AtlasTest_Missing"
 
 
 def _intent(intent_id: str) -> UnrealTaskIntent:
@@ -25,12 +26,12 @@ def _intent(intent_id: str) -> UnrealTaskIntent:
     )
 
 
-def _inspection_plan(intent: UnrealTaskIntent) -> UnrealTaskPlan:
+def _inspection_plan(intent: UnrealTaskIntent, asset_path: str = ASSET_PATH) -> UnrealTaskPlan:
     operation = UnrealOperation(
         capability=UnrealCapability.BLUEPRINT,
         kind=UnrealOperationKind.READ,
         name="inspect_blueprint_state",
-        arguments={"entity_ids": (ENTITY_ID,), "asset_path": ASSET_PATH},
+        arguments={"entity_ids": (ENTITY_ID,), "asset_path": asset_path},
         entity_ids=(ENTITY_ID,),
     )
     return UnrealTaskPlan(intent.intent_id, (operation,))
@@ -82,4 +83,44 @@ def test_real_unreal_blueprint_compile_and_verify():
             pytest.skip(
                 "Set ATLAS_TEST_BLUEPRINT_ASSET to a Blueprint asset available in the Unreal fixture"
             )
+        raise
+    except UnrealPlanExecutionError as exc:
+        message = str(exc).lower()
+        if "not available" in message or "pipe not found" in message:
+            pytest.skip("Unreal Editor transport is unavailable")
+        if "blueprint" in message and ("not found" in message or "asset" in message):
+            pytest.skip(
+                "Set ATLAS_TEST_BLUEPRINT_ASSET to a Blueprint asset available in the Unreal fixture"
+            )
+        raise
+
+
+def test_real_unreal_blueprint_missing_asset_fails_at_production_boundary():
+    """A missing Blueprint must fail through the production boundary with useful context."""
+    try:
+        adapter = create_production_adapter("blueprint-integration-missing-asset")
+        executor = UnrealPlanExecutor(adapter)
+
+        with pytest.raises(UnrealPlanExecutionError) as failure:
+            executor.execute(
+                _inspection_plan(_intent("real-blueprint-missing"), MISSING_ASSET_PATH),
+                "real-blueprint-missing-auth",
+            )
+
+        message = str(failure.value)
+        assert "inspect_blueprint_state" in message
+        assert "Blueprint not found" in message
+        assert MISSING_ASSET_PATH in message
+    except NamedPipeTransportError as exc:
+        message = str(exc).lower()
+        if "not available" in message or "pipe not found" in message:
+            pytest.skip("Unreal Editor transport is unavailable")
+        raise
+    except UnrealPlanExecutionError as exc:
+        message = str(exc).lower()
+        if "not available" in message or "pipe not found" in message:
+            pytest.skip("Unreal Editor transport is unavailable")
+        if "blueprint not found" in message:
+            assert MISSING_ASSET_PATH in str(exc)
+            return
         raise
