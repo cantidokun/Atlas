@@ -75,7 +75,7 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The Python side now contains:
+The Python side contains:
 
 - Blueprint capability argument schemas
 - explicit Unreal asset-path validation
@@ -83,59 +83,78 @@ The Python side now contains:
 - production-adapter verification routing
 - independent Blueprint evidence verification
 - focused Blueprint planner/verifier tests
+- a real Unreal Blueprint integration gate
 
-The Unreal transport header now declares the corresponding Blueprint operations, and the transport build dependency includes the Blueprint compiler module.
+The Unreal transport implements the corresponding Blueprint operations, and the transport build dependency includes the Blueprint compiler module.
 
-## Local Blueprint transport migration
+## Real Blueprint fixture
 
-The C++ dispatcher still needs to be applied to the local Unreal source because it is the live editor boundary.
-
-A deterministic migration script is committed at:
+The Unreal harness now contains a deterministic editor commandlet that creates and saves the real integration fixture:
 
 ```text
-tools/enable_blueprint_transport.py
+/Game/AtlasTest/BP_AtlasTest.BP_AtlasTest
 ```
 
-Run from the repository root after pulling the current branch:
+The resulting `.uasset` is generated under the harness Content tree rather than requiring manual Blueprint authoring in the editor.
+
+The harness builds successfully under UE 5.6, and the live integration gate has passed:
+
+```text
+python -m pytest tests/test_unreal_blueprint_real_integration.py -q
+
+1 passed in 0.76s
+```
+
+This proves the complete production path:
+
+```text
+Python planner/executor
+        ↓
+production adapter
+        ↓
+Named Pipe
+        ↓
+Unreal Blueprint transport
+        ↓
+real UE Blueprint asset
+        ↓
+compile
+        ↓
+evidence
+        ↓
+independent verification
+```
+
+## Blueprint failure-path hardening — IN PROGRESS
+
+The real Blueprint integration suite now also covers the missing-asset boundary. A nonexistent Blueprint must fail through the executor with operation context and the requested asset path rather than being treated as a successful no-op.
+
+The current test change is committed but still needs to be pulled and run against the live UE 5.6 editor/transport.
+
+Validation command:
 
 ```powershell
-python tools\enable_blueprint_transport.py
+python -m pytest tests/test_unreal_blueprint_real_integration.py -q
 ```
 
-The script is intentionally fail-closed. It edits only known transport anchors and aborts if the dispatcher has drifted rather than guessing.
+Expected result after pulling the latest commit and with the fixture/transport available:
 
-The implementation uses `UBlueprint::Status` for normalized compilation evidence and `FKismetEditorUtilities::CompileBlueprint` for the editor-side compile operation. Epic documents both APIs in the UE editor/runtime API reference. citeturn1search0turn0search0
-
-## Blueprint validation sequence
-
-After pulling and applying the transport migration:
-
-```powershell
-python -m pytest tests/test_unreal_blueprint.py tests/test_unreal_task_planner.py -q
+```text
+2 passed
 ```
-
-Then rebuild/reload the Unreal harness and add/run the live Blueprint integration gate.
-
-Finally:
-
-```powershell
-python -m pytest tests -q
-```
-
-The previous **743 passed / 5 skipped** result remains the regression baseline until the Blueprint transport is live and verified.
 
 ## Blueprint architectural rule
 
 Compilation is the first Blueprint slice. Do not jump directly to arbitrary graph mutation.
 
-Once compilation is proven end-to-end, expand Blueprint authoring incrementally into:
+The next development sequence is:
 
-1. component authoring
-2. variable authoring
-3. node creation
-4. pin/graph connections
-5. controlled graph verification
-6. Blueprint recovery
+1. harden missing/invalid asset failure semantics
+2. prove controlled Blueprint mutation through the production boundary
+3. independently verify the mutation
+4. prove Blueprint failure/recovery semantics
+5. freeze the Blueprint production contract
+6. expand authoring incrementally into component authoring, variable authoring, node creation, pin/graph connections, and controlled graph verification
 
 Each must use the same plan → authorization → execution → evidence → verification boundary.
 
