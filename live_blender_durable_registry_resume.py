@@ -65,16 +65,22 @@ def _identity() -> DigitalTwinIdentity:
 
 
 def _plan(file_name: str, object_name: str, rotation: list[float]):
-    return [
-        ActionSpec(
-            tool="set_object_rotation",
-            arguments={
-                "file_name": file_name,
-                "object_name": object_name,
-                "rotation_degrees": list(rotation),
-            },
-        )
-    ]
+    """Plan only when authoritative state is not already at the requested target."""
+    def plan(evidence: dict[str, Any]):
+        current = list(evidence.get("rotation_degrees", ()))
+        if len(current) == 3 and all(abs(float(current[i]) - rotation[i]) <= 1e-5 for i in range(3)):
+            return []
+        return [
+            ActionSpec(
+                tool="set_object_rotation",
+                arguments={
+                    "file_name": file_name,
+                    "object_name": object_name,
+                    "rotation_degrees": list(rotation),
+                },
+            )
+        ]
+    return plan
 
 
 def main():
@@ -116,7 +122,6 @@ def main():
     persisted_registry = registry.snapshot()
     reloaded_registry = DigitalTwinRegistry.from_snapshot(persisted_registry)
 
-    # Advance canonical state after the checkpoint has been persisted.
     revision_v2 = create_revision(
         identity, "rev:live-002", 2, RevisionKind.CORRECTION, source_revision=revision_v1
     )
@@ -134,14 +139,13 @@ def main():
             checkpoint_v1,
             revision_v1,
             lambda: _observe(args.file, args.object),
-            lambda evidence: _plan(args.file, args.object, list(args.final_rotation)),
+            _plan(args.file, args.object, list(args.final_rotation)),
             executor=stale_executor,
             registry=reloaded_registry,
         )
     except ValueError as exc:
         stale_rejected = "current canonical" in str(exc) or "canonical Digital Twin revision" in str(exc)
 
-    # Establish a new checkpoint against the current canonical revision, then interrupt it.
     checkpoint_v2 = ProductionTaskCheckpoint.create(
         "task:live-registry-resume-v2",
         revision_v2,
@@ -160,7 +164,7 @@ def main():
         checkpoint_v2,
         revision_v2,
         lambda: _observe(args.file, args.object),
-        lambda evidence: _plan(args.file, args.object, list(args.final_rotation)),
+        _plan(args.file, args.object, list(args.final_rotation)),
         executor=_execute,
         registry=reloaded_registry,
     )
