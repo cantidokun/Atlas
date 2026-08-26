@@ -25,8 +25,9 @@ class ProductionCheckpointLifecycle:
         self,
         checkpoint: ProductionTaskCheckpoint,
         revision: DigitalTwinRevision,
+        parent_checkpoint: Optional[ProductionTaskCheckpoint] = None,
     ) -> ProductionTaskCheckpoint:
-        """Validate an in-memory checkpoint before it enters a resume boundary."""
+        """Validate a checkpoint before it enters a resume or lineage boundary."""
         if not isinstance(checkpoint, ProductionTaskCheckpoint):
             raise TypeError("checkpoint must be a ProductionTaskCheckpoint")
         self.registry.require_canonical_revision(revision)
@@ -37,6 +38,8 @@ class ProductionCheckpointLifecycle:
         restored = ProductionTaskCheckpoint.from_snapshot(checkpoint.snapshot(), revision)
         if restored.checkpoint_digest != checkpoint.checkpoint_digest:
             raise ValueError("checkpoint integrity does not match its contents")
+        if parent_checkpoint is not None:
+            self.validate_parent_lineage(restored, parent_checkpoint)
         return restored
 
     def create_checkpoint(
@@ -55,8 +58,7 @@ class ProductionCheckpointLifecycle:
             validated_parent = self.validate_checkpoint(parent_checkpoint, revision)
             parent_checkpoint_digest = validated_parent.checkpoint_digest
         elif parent_checkpoint_digest is not None:
-            if not isinstance(parent_checkpoint_digest, str) or not parent_checkpoint_digest.strip():
-                raise ValueError("parent_checkpoint_digest must be a non-empty string when supplied")
+            raise ValueError("parent checkpoint object is required to establish lineage")
         return ProductionTaskCheckpoint.create(
             task_id,
             revision,
@@ -93,11 +95,14 @@ class ProductionCheckpointLifecycle:
         """Require a checkpoint's declared parent to be the exact prior checkpoint."""
         if not isinstance(checkpoint, ProductionTaskCheckpoint):
             raise TypeError("checkpoint must be a ProductionTaskCheckpoint")
-        parent = self.validate_checkpoint(parent_checkpoint, self.registry.canonical_revision(parent_checkpoint.twin_id))
+        if not isinstance(parent_checkpoint, ProductionTaskCheckpoint):
+            raise TypeError("parent checkpoint must be a ProductionTaskCheckpoint")
+        if checkpoint.twin_id != parent_checkpoint.twin_id:
+            raise ValueError("checkpoint parent belongs to a different Digital Twin")
+        if checkpoint.revision_id != parent_checkpoint.revision_id:
+            raise ValueError("checkpoint parent belongs to a different Digital Twin revision")
+        parent_revision = self.registry.canonical_revision(parent_checkpoint.twin_id)
+        parent = self.validate_checkpoint(parent_checkpoint, parent_revision)
         if checkpoint.parent_checkpoint_digest != parent.checkpoint_digest:
             raise ValueError("checkpoint parent lineage does not match the referenced parent checkpoint")
-        if checkpoint.twin_id != parent.twin_id:
-            raise ValueError("checkpoint parent belongs to a different Digital Twin")
-        if checkpoint.revision_id != parent.revision_id:
-            raise ValueError("checkpoint parent belongs to a different Digital Twin revision")
         return parent
