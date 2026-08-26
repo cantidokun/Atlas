@@ -41,10 +41,12 @@ DEFAULT_UNREAL_CAPABILITIES = (
     UnrealCapabilitySpec(UnrealCapability.MODIFY_ASSET, frozenset({UnrealOperationKind.WRITE}), ("asset_state",), "Modify an already-authorized Unreal asset representation."),
     UnrealCapabilitySpec(UnrealCapability.MATERIAL, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("material_state",), "Inspect, modify, or verify material state.", argument_keys_by_kind={UnrealOperationKind.READ: frozenset({"entity_ids"}), UnrealOperationKind.WRITE: frozenset({"entity_ids", "material_variant"}), UnrealOperationKind.VERIFY: frozenset({"entity_ids", "material_variant"})}),
     UnrealCapabilitySpec(UnrealCapability.NIAGARA, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("niagara_state",), "Inspect, modify, or verify Niagara VFX state.", argument_keys_by_kind={UnrealOperationKind.READ: frozenset({"entity_ids"}), UnrealOperationKind.WRITE: frozenset({"entity_ids", "niagara_variant"}), UnrealOperationKind.VERIFY: frozenset({"entity_ids", "niagara_variant"})}),
-    UnrealCapabilitySpec(UnrealCapability.BLUEPRINT, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("blueprint_state",), "Inspect, compile, or verify an Unreal Blueprint asset.", argument_keys_by_kind={
+    UnrealCapabilitySpec(UnrealCapability.BLUEPRINT, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("blueprint_state",), "Inspect, modify, compile, or verify an Unreal Blueprint asset.", argument_keys_by_kind={
         UnrealOperationKind.READ: frozenset({"entity_ids", "asset_path"}),
         UnrealOperationKind.WRITE: frozenset({"entity_ids", "asset_path"}),
         UnrealOperationKind.VERIFY: frozenset({"entity_ids", "asset_path", "expected_compile_status"}),
+    }, alternative_argument_keys_by_kind={
+        UnrealOperationKind.WRITE: (frozenset({"entity_ids", "asset_path", "metadata_key", "metadata_value"}),),
     }),
     UnrealCapabilitySpec(UnrealCapability.SEQUENCER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("sequencer_state",), "Inspect, modify, or verify Sequencer state.", argument_keys_by_kind={
         UnrealOperationKind.READ: frozenset({"entity_ids"}),
@@ -109,6 +111,10 @@ class UnrealCapabilityRegistry:
             asset_path = arguments.get("asset_path")
             if not isinstance(asset_path, str) or not asset_path.strip() or not asset_path.startswith("/"):
                 raise ValueError("Blueprint asset_path must be a non-empty Unreal package path")
+            if operation.kind is UnrealOperationKind.WRITE and "metadata_key" in arguments:
+                for field in ("metadata_key", "metadata_value"):
+                    if not isinstance(arguments.get(field), str) or not arguments[field].strip():
+                        raise ValueError(f"{field} must be a non-empty string")
             if operation.kind is UnrealOperationKind.VERIFY:
                 status = arguments.get("expected_compile_status")
                 if not isinstance(status, str) or not status.strip():
