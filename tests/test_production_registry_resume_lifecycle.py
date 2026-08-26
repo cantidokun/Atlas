@@ -35,19 +35,32 @@ def _checkpoint(registry, revision):
 
 
 def _build(registry, revision, checkpoint, observed, verified):
+    state = dict(observed)
+
+    def observe():
+        return dict(state)
+
+    def executor(tool, arguments):
+        state["location"] = list(arguments["location"])
+        return {"ok": True, "state": "ok"}
+
     return ProductionRegistryResumeLifecycle(
         registry,
         checkpoint.snapshot(),
         revision,
-        observe=lambda: observed,
-        plan=lambda evidence: [
-            ActionSpec(
-                tool="move_object",
-                arguments={"object_name": "Goal_Left_post", "location": [2, 0, 0]},
-            )
-        ],
+        observe=observe,
+        plan=lambda evidence: (
+            []
+            if evidence.get("location") == [2, 0, 0]
+            else [
+                ActionSpec(
+                    tool="move_object",
+                    arguments={"object_name": "Goal_Left_post", "location": [2, 0, 0]},
+                )
+            ]
+        ),
         verify_final=lambda evidence: verified,
-        executor=lambda tool, arguments: {"ok": True, "state": "ok"},
+        executor=executor,
     )
 
 
