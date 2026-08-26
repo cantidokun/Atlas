@@ -55,10 +55,10 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
     if not isinstance(snapshot.get("authorization_id"), str) or not snapshot["authorization_id"].strip():
         raise ValueError("authorization_id must be a non-empty string")
     if tool in {"inspect_blueprint_state", "set_blueprint_metadata", "compile_blueprint", "verify_blueprint_state"}:
-        asset_path = snapshot["asset_path"]
-        if not asset_path.strip() or not asset_path.startswith("/"):
+        asset_path = snapshot["asset_path"].strip()
+        if not asset_path or not asset_path.startswith("/"):
             raise ValueError("asset_path must be a non-empty Unreal package path")
-        snapshot["asset_path"] = asset_path.strip()
+        snapshot["asset_path"] = asset_path
         if tool == "set_blueprint_metadata":
             for field in ("metadata_key", "metadata_value"):
                 value = snapshot[field]
