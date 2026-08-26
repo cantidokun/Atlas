@@ -48,7 +48,7 @@ def _build(registry, revision, checkpoint, observed, verified):
             )
         ],
         verify_final=lambda evidence: verified,
-        executor=lambda action: {"ok": True, "state": "ok"},
+        executor=lambda replan, current_evidence: ({"ok": True, "state": "ok"}, None),
     )
 
 
