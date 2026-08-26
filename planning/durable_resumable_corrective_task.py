@@ -66,6 +66,10 @@ class DurableResumableCorrectiveTask:
         remaining = list(self.plan(fresh))
         if not remaining:
             raise ValueError("durable resume requires at least one remaining action")
+        # Replanning can itself expose a newly advanced canonical revision.
+        # Recheck immediately before issuing fresh authorization so stale
+        # revision state cannot cross the durable resume gate.
+        self._require_current_revision()
 
         authorization = ReplanAuthorization.issue(fresh, remaining, self.checkpoint.authorization_id)
         continuation = ResumableCorrectiveTask(
@@ -84,6 +88,10 @@ class DurableResumableCorrectiveTask:
         remaining = list(self.plan(evidence))
         if not remaining:
             raise ValueError("durable resume requires at least one remaining action")
+        # The planner is untrusted application logic and may observe or trigger
+        # canonical-state changes. Never issue authorization against a revision
+        # that became stale while planning.
+        self._require_current_revision()
         return ReplanAuthorization.issue(evidence, remaining, self.checkpoint.authorization_id)
 
     def _continuation_state(self, evidence: Any):
