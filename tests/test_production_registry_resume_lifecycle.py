@@ -59,7 +59,7 @@ def _build(registry, revision, checkpoint, observed, verified):
                 )
             ]
         ),
-        verify_final=lambda evidence: verified,
+        verify_final=lambda evidence: verified and evidence.get("location") == [2, 0, 0],
         executor=executor,
     )
 
