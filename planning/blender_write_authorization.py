@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from planning.action_plan import ActionSpec
 from planning.action_authorization import ActionAuthorization
-from planning.blender_capability_catalog import get_blender_capability, require_verified_blender_write
+from planning.blender_capability_catalog import require_verified_blender_write
 
 
 @dataclass(frozen=True)
@@ -23,15 +23,18 @@ class BlenderWriteAuthorization:
             raise ValueError("authorization_id must be a non-empty string")
         normalized_authorization_id = authorization_id.strip()
 
-        # Unknown/unregistered capabilities must retain the catalog's explicit
-        # unsupported-capability failure. Known capabilities then receive the
-        # more specific scene-writing/verification policy checks below.
-        capability = get_blender_capability(action.tool)
-        if not capability.writes_scene:
-            raise ValueError(
-                f"scene-writing capability required: {action.tool}"
-            )
-        require_verified_blender_write(action.tool)
+        # All production Blender writes must pass through the single catalog
+        # policy gate. Preserve the catalog's diagnostic for known read-only
+        # capabilities, while wrapping unknown capabilities with the
+        # authorization-level contract expected by callers.
+        try:
+            require_verified_blender_write(action.tool)
+        except ValueError as exc:
+            if str(exc).startswith("Unknown Blender capability:"):
+                raise ValueError(
+                    f"verified Blender write capability required: {exc}"
+                ) from exc
+            raise
 
         return cls(
             tool=action.tool,
