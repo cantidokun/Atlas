@@ -21,6 +21,24 @@ class ProductionCheckpointLifecycle:
             raise TypeError("registry must be a DigitalTwinRegistry")
         self.registry = registry
 
+    def validate_checkpoint(
+        self,
+        checkpoint: ProductionTaskCheckpoint,
+        revision: DigitalTwinRevision,
+    ) -> ProductionTaskCheckpoint:
+        """Validate an in-memory checkpoint before it enters a resume boundary."""
+        if not isinstance(checkpoint, ProductionTaskCheckpoint):
+            raise TypeError("checkpoint must be a ProductionTaskCheckpoint")
+        self.registry.require_canonical_revision(revision)
+        if checkpoint.twin_id != revision.twin_id:
+            raise ValueError("checkpoint belongs to a different Digital Twin")
+        if checkpoint.revision_id != revision.revision_id:
+            raise ValueError("checkpoint belongs to a different Digital Twin revision")
+        restored = ProductionTaskCheckpoint.from_snapshot(checkpoint.snapshot(), revision)
+        if restored.checkpoint_digest != checkpoint.checkpoint_digest:
+            raise ValueError("checkpoint integrity does not match its contents")
+        return restored
+
     def create_checkpoint(
         self,
         task_id: str,
@@ -41,10 +59,8 @@ class ProductionCheckpointLifecycle:
         )
 
     def serialize_checkpoint(self, checkpoint: ProductionTaskCheckpoint) -> dict[str, Any]:
-        self.registry.require_canonical_revision(
-            self.registry.canonical_revision(checkpoint.twin_id)
-        )
         canonical = self.registry.canonical_revision(checkpoint.twin_id)
+        self.registry.require_canonical_revision(canonical)
         if checkpoint.revision_id != canonical.revision_id:
             raise ValueError("checkpoint revision is not the current canonical Digital Twin revision")
         return checkpoint.snapshot()
