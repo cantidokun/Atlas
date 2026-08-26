@@ -11,6 +11,7 @@ from typing import Any, Callable, Sequence
 from action_plan import ActionSpec
 from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
+from planning.production_checkpoint_lifecycle import ProductionCheckpointLifecycle
 from planning.resumable_corrective_task import ResumableCorrectiveTask
 from planning.replan_authorization import ReplanAuthorization
 from planning.digital_twin_revision import DigitalTwinRevision
@@ -25,19 +26,26 @@ class DurableResumableCorrectiveTask:
         plan: Callable[[Any], Sequence[ActionSpec]],
         executor: Any = None,
         registry: Any = None,
+        checkpoint_lifecycle: ProductionCheckpointLifecycle | None = None,
     ) -> None:
-        if checkpoint.twin_id != revision.twin_id:
+        if checkpoint_lifecycle is not None and registry is not None and checkpoint_lifecycle.registry is not registry:
+            raise ValueError("checkpoint lifecycle and registry must refer to the same Digital Twin registry")
+        if checkpoint_lifecycle is None and registry is not None:
+            checkpoint_lifecycle = ProductionCheckpointLifecycle(registry)
+        if checkpoint_lifecycle is not None:
+            checkpoint = checkpoint_lifecycle.validate_checkpoint(checkpoint, revision)
+        elif checkpoint.twin_id != revision.twin_id:
             raise ValueError("checkpoint belongs to a different Digital Twin")
-        if checkpoint.revision_id != revision.revision_id:
+        elif checkpoint.revision_id != revision.revision_id:
             raise ValueError("checkpoint belongs to a different Digital Twin revision")
-        if registry is not None:
-            self._require_current_canonical_revision(registry, revision)
+
         self.checkpoint = checkpoint
         self.revision = revision
         self.observe = observe
         self.plan = plan
         self.executor = executor
-        self.registry = registry
+        self.checkpoint_lifecycle = checkpoint_lifecycle
+        self.registry = checkpoint_lifecycle.registry if checkpoint_lifecycle is not None else registry
 
     @staticmethod
     def _require_current_canonical_revision(registry: Any, revision: DigitalTwinRevision) -> None:
@@ -55,7 +63,9 @@ class DurableResumableCorrectiveTask:
             raise ValueError("checkpoint revision does not match canonical Digital Twin revision")
 
     def _require_current_revision(self) -> None:
-        if self.registry is not None:
+        if self.checkpoint_lifecycle is not None:
+            self.checkpoint_lifecycle.registry.require_canonical_revision(self.revision)
+        elif self.registry is not None:
             self._require_current_canonical_revision(self.registry, self.revision)
 
     def resume(self, max_steps: int = 16) -> CorrectiveTaskResult:
@@ -66,9 +76,6 @@ class DurableResumableCorrectiveTask:
         remaining = list(self.plan(fresh))
         if not remaining:
             raise ValueError("durable resume requires at least one remaining action")
-        # Replanning can itself expose a newly advanced canonical revision.
-        # Recheck immediately before issuing fresh authorization so stale
-        # revision state cannot cross the durable resume gate.
         self._require_current_revision()
 
         authorization = ReplanAuthorization.issue(fresh, remaining, self.checkpoint.authorization_id)
@@ -88,9 +95,6 @@ class DurableResumableCorrectiveTask:
         remaining = list(self.plan(evidence))
         if not remaining:
             raise ValueError("durable resume requires at least one remaining action")
-        # The planner is untrusted application logic and may observe or trigger
-        # canonical-state changes. Never issue authorization against a revision
-        # that became stale while planning.
         self._require_current_revision()
         return ReplanAuthorization.issue(evidence, remaining, self.checkpoint.authorization_id)
 
