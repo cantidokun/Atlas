@@ -18,6 +18,8 @@ public class AtlasUnrealHarness : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
+                "AssetRegistry",
+                "AssetTools",
                 "Json",
                 "JsonUtilities",
                 "UnrealEd"
