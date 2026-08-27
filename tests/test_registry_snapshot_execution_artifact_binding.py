@@ -10,8 +10,7 @@ from planning.durable_production_sequence_rehydration import DurableProductionSe
 
 def _registry():
     identity = DigitalTwinIdentity(
-        "artifact-binding-twin",
-        "reconstruction",
+        "artifact-binding-twin", "reconstruction",
         (IdentityAnchor("source", "capture", "artifact-binding"),),
     )
     registry = DigitalTwinRegistry()
@@ -21,7 +20,6 @@ def _registry():
         source_fingerprint=identity.stable_fingerprint(),
     )
     registry.register_revision(revision)
-    registry.promote_revision(revision)
     return registry, revision
 
 
@@ -35,7 +33,7 @@ def test_registry_snapshot_round_trip_is_stable_for_rehydration():
 def test_registry_snapshot_tampering_fails_closed_before_sequence_rehydration():
     registry, _ = _registry()
     snapshot = registry.snapshot()
-    snapshot["revisions"][0]["revision_id"] = "tampered"
+    snapshot["revisions"]["artifact-binding-twin"][0]["revision_id"] = "tampered"
     with pytest.raises(ValueError, match="snapshot digest"):
         DurableProductionSequenceRehydrator(registry).rehydrate(
             (), snapshot, {"completed_receipts": (), "next_operation_index": 0}
