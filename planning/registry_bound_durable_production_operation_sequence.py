@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 from planning.digital_twin_registry import DigitalTwinRegistry
-from planning.durable_production_operation_sequence import (
-    DurableProductionOperationSequence,
-    DurableProductionSequenceCheckpoint,
-)
+from planning.durable_production_operation_sequence import DurableProductionOperationSequence
 
 
 class RegistryBoundDurableProductionOperationSequence:
-    """Require every sequence receipt to remain on the current canonical revision."""
+    """Require every sequence checkpoint and unfinished operation to bind to the current canonical revision."""
 
     def __init__(self, operations, registry: DigitalTwinRegistry, checkpoint=None):
         if not isinstance(registry, DigitalTwinRegistry):
@@ -21,7 +18,7 @@ class RegistryBoundDurableProductionOperationSequence:
         self._sequence = DurableProductionOperationSequence(values, checkpoint=checkpoint)
         self._validate_registry_binding()
 
-    def _validate_registry_binding(self):
+    def _validate_registry_binding(self) -> None:
         for snapshot in self._sequence.checkpoint.completed_receipts:
             twin_id = snapshot.get("twin_id")
             revision_id = snapshot.get("revision_id")
@@ -29,7 +26,9 @@ class RegistryBoundDurableProductionOperationSequence:
                 raise ValueError("completed receipt is missing canonical revision binding")
             canonical = self.registry.canonical_revision(twin_id)
             if canonical.revision_id != revision_id:
-                raise ValueError("durable sequence checkpoint is bound to a stale Digital Twin revision")
+                raise ValueError(
+                    "durable sequence checkpoint is bound to a stale Digital Twin revision"
+                )
 
         for operation in self._sequence.operations[self._sequence.next_operation_index:]:
             self.registry.require_canonical_revision(operation.task.revision)
