@@ -1,166 +1,173 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 26, 2026
+**Updated:** August 27, 2026
 **Branch:** `feat/unreal-composite-production-operation`
+**Latest pushed Blueprint commit:** `d783ebd` — `Implement Unreal Blueprint production integration`
 
-## Verified checkpoint before Blueprint work
+## Current checkpoint
 
-The Unreal recovery/composite development checkpoint passed:
+Development is paused for the night. The Unreal Blueprint production boundary is actively being hardened and is **not yet green**.
 
-```text
-Focused Sequencer recovery:
-10 passed
+The important distinction at this checkpoint is that the real Blueprint mutation now executes successfully. The remaining failure is in the evidence shape returned after the mutation, not in the transport write itself.
 
-Live recovery/composite integration gates:
-8 passed
+## Verified repository state
 
-Full repository regression:
-743 passed, 5 skipped
-```
-
-The UE 5.6 Unreal harness was associated with the project and the branch was pushed with a clean working tree.
-
-## Completed production boundaries
-
-The Unreal Agent currently has production execution and independent verification for:
-
-- Actor inspection and transforms
-- Material variants
-- Niagara variants
-- Sequencer playback range
-- Composite actor production plans
-- Explicit authorized replacement
-- Fresh-state recovery reassessment
-- Heterogeneous recovery
-- Windows Named Pipe transport
-- Live Unreal integration gates
-
-The recovery architecture is fail-closed:
+The broader Atlas regression checkpoint reached:
 
 ```text
-failure
-  ↓
-fresh read-only reassessment
-  ↓
-per-operation disposition
-  ↓
-replacement-only plan
-  ↓
-separate plan-bound authorization
-  ↓
-execution
-  ↓
-independent verification
+735 passed
 ```
 
-A failed write is never silently retried.
-
-## Sequencer boundary
+The dedicated real Blueprint integration suite currently reports:
 
 ```text
-READ  inspect_sequencer_state
-WRITE set_sequencer_playback_range
-VERIFY verify_sequencer_playback_range
+1 failed, 2 passed
 ```
 
-Sequencer production and recovery are covered by deterministic tests and live Unreal gates.
+The remaining failure is:
 
-## Blueprint — CURRENT DEVELOPMENT
+```text
+test_real_unreal_blueprint_metadata_mutation_persists_after_compile
+```
 
-Blueprint is now the next production capability. The first slice is deliberately narrow:
+The failure is:
+
+```text
+KeyError: 'metadata'
+```
+
+Specifically, the production mutation succeeds and the executor returns `result.success is True`, but the Blueprint state evidence at `evidence_ledger[1]` does not yet contain the expected `metadata` object.
+
+## What was completed tonight
+
+The Blueprint production path now includes:
 
 ```text
 READ   inspect_blueprint_state
+WRITE  set_blueprint_metadata
 WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The Python side contains:
+The planner produces the controlled metadata mutation sequence and the executor's execution-shape validation has been adjusted so the Blueprint mutation/compile sequence can execute through the intended production boundary.
 
-- Blueprint capability argument schemas
-- explicit Unreal asset-path validation
-- Blueprint compile planning
-- production-adapter verification routing
-- independent Blueprint evidence verification
-- focused Blueprint planner/verifier tests
-- a real Unreal Blueprint integration gate
+The real Unreal transport now recognizes and executes `set_blueprint_metadata`.
 
-The Unreal transport implements the corresponding Blueprint operations, and the transport build dependency includes the Blueprint compiler module.
-
-## Real Blueprint fixture
-
-The Unreal harness now contains a deterministic editor commandlet that creates and saves the real integration fixture:
+The deterministic fixture is committed:
 
 ```text
 /Game/AtlasTest/BP_AtlasTest.BP_AtlasTest
 ```
 
-The resulting `.uasset` is generated under the harness Content tree rather than requiring manual Blueprint authoring in the editor.
-
-The harness builds successfully under UE 5.6, and the live integration gate has passed:
+Repository asset:
 
 ```text
-python -m pytest tests/test_unreal_blueprint_real_integration.py -q
-
-1 passed in 0.76s
+unreal/AtlasUnrealHarness/Content/AtlasTest/BP_AtlasTest.uasset
 ```
 
-This proves the complete production path:
+The UE 5.6 harness was rebuilt successfully after adding the required metadata/save-package implementation dependencies.
+
+## Exact remaining fix
+
+`BuildBlueprintState()` in:
 
 ```text
-Python planner/executor
-        ↓
-production adapter
-        ↓
-Named Pipe
-        ↓
-Unreal Blueprint transport
-        ↓
-real UE Blueprint asset
-        ↓
-compile
-        ↓
-evidence
-        ↓
-independent verification
+unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp
 ```
 
-## Blueprint failure-path hardening — IN PROGRESS
+must serialize Blueprint metadata into the observed state.
 
-The real Blueprint integration suite now also covers the missing-asset boundary. A nonexistent Blueprint must fail through the executor with operation context and the requested asset path rather than being treated as a successful no-op.
+The intended evidence shape is:
 
-The current test change is committed but still needs to be pulled and run against the live UE 5.6 editor/transport.
+```json
+{
+  "asset_path": "/Game/AtlasTest/BP_AtlasTest.BP_AtlasTest",
+  "blueprint_name": "BP_AtlasTest",
+  "compile_status": "success",
+  "is_up_to_date": true,
+  "generated_class": "...",
+  "metadata": {
+    "AtlasMutation": "production-boundary-1"
+  }
+}
+```
 
-Validation command:
+The source already includes the metadata dependency. The next session should verify that the committed implementation actually populates the `metadata` JSON object from the Blueprint's metadata map, rebuild the harness, and rerun the real integration suite.
+
+## Next commands
+
+From `Atlas-Unreal-Aider`:
+
+```powershell
+git pull --ff-only origin feat/unreal-composite-production-operation
+```
+
+Confirm Unreal is running:
+
+```powershell
+Get-Process UnrealEditor -ErrorAction SilentlyContinue |
+    Select-Object ProcessName,Id,Path
+```
+
+Build:
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" `
+  AtlasUnrealHarnessEditor `
+  Win64 `
+  Development `
+  -Project="$PWD\unreal\AtlasUnrealHarness\AtlasUnrealHarness.uproject" `
+  -WaitMutex `
+  -architecture=x64
+```
+
+Run the focused suite:
 
 ```powershell
 python -m pytest tests/test_unreal_blueprint_real_integration.py -q
 ```
 
-Expected result after pulling the latest commit and with the fixture/transport available:
+Target:
 
 ```text
-2 passed
+3 passed
 ```
 
-## Blueprint architectural rule
+After that, run the complete Python regression suite before declaring the Blueprint boundary green.
 
-Compilation is the first Blueprint slice. Do not jump directly to arbitrary graph mutation.
+## Architectural rule
 
-The next development sequence is:
+Do not expand into arbitrary Blueprint graph authoring until the narrow metadata/compile production boundary is completely green.
 
-1. harden missing/invalid asset failure semantics
-2. prove controlled Blueprint mutation through the production boundary
-3. independently verify the mutation
-4. prove Blueprint failure/recovery semantics
-5. freeze the Blueprint production contract
-6. expand authoring incrementally into component authoring, variable authoring, node creation, pin/graph connections, and controlled graph verification
+The intended progression remains:
 
-Each must use the same plan → authorization → execution → evidence → verification boundary.
+1. prove Blueprint inspection
+2. prove controlled metadata mutation
+3. prove compilation
+4. independently verify persisted metadata and compile state
+5. prove failure/recovery semantics
+6. freeze the Blueprint production contract
+7. expand incrementally into component/variable/node/pin authoring
 
-## Next boundary after Blueprint
+Every capability must preserve:
 
-Once Blueprint is production-complete, build the Render production boundary:
+```text
+plan
+ ↓
+authorization
+ ↓
+production execution
+ ↓
+fresh evidence
+ ↓
+independent verification
+```
+
+A successful write is never proof of the resulting state.
+
+## Next major production boundary
+
+After Blueprint is production-complete, the next major boundary is Render:
 
 ```text
 READ   inspect_render_state
