@@ -77,6 +77,25 @@ def test_rehydrator_rejects_tampered_sequence_checkpoint():
         )
 
 
+def test_rehydrator_rejects_registry_snapshot_stale_against_current_registry_before_write():
+    registry, identity, revision = _registry()
+    persisted_snapshot = registry.snapshot()
+    registry.register_revision(
+        DigitalTwinRevision(
+            "twin-1", "r2", 2, RevisionKind.CORRECTION, "r1",
+            identity.stable_fingerprint(),
+        )
+    )
+    writes = []
+    operation = _operation("task-1", revision, writes)
+    checkpoint = DurableProductionSequenceCheckpoint.create((), 0)
+    with pytest.raises(ValueError, match="does not match current canonical registry"):
+        DurableProductionSequenceRehydrator(registry).rehydrate(
+            (operation,), persisted_snapshot, checkpoint.snapshot()
+        )
+    assert writes == []
+
+
 def test_rehydrated_sequence_resumes_from_checkpoint_position():
     registry, _, revision = _registry()
     initial_writes = []
