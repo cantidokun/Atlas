@@ -26,9 +26,7 @@ class RegistryBoundDurableProductionOperationSequence:
                 raise ValueError("completed receipt is missing canonical revision binding")
             canonical = self.registry.canonical_revision(twin_id)
             if canonical.revision_id != revision_id:
-                raise ValueError(
-                    "durable sequence checkpoint is bound to a stale Digital Twin revision"
-                )
+                raise ValueError("durable sequence checkpoint is bound to a stale Digital Twin revision")
 
         for operation in self._sequence.operations[self._sequence.next_operation_index:]:
             self.registry.require_canonical_revision(operation.task.revision)
