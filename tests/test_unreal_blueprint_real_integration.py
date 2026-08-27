@@ -114,18 +114,16 @@ def test_real_unreal_blueprint_missing_asset_fails_at_production_boundary():
     try:
         adapter = create_production_adapter("blueprint-integration-missing-asset")
         executor = UnrealPlanExecutor(adapter)
-        with pytest.raises(UnrealPlanExecutionError) as failure:
+        try:
             executor.execute(_inspection_plan(_intent("real-blueprint-missing"), MISSING_ASSET_PATH), "real-blueprint-missing-auth")
-        message = str(failure.value)
-        assert "inspect_blueprint_state" in message
-        assert "Blueprint not found" in message
-        assert MISSING_ASSET_PATH in message
+        except (NamedPipeTransportError, UnrealPlanExecutionError) as exc:
+            _assert_transport_available(exc)
+            message = str(exc)
+            assert "inspect_blueprint_state" in message
+            assert "Blueprint not found" in message
+            assert MISSING_ASSET_PATH in message
+            return
+        pytest.fail("Missing Blueprint unexpectedly succeeded through the production boundary")
     except NamedPipeTransportError as exc:
         _assert_transport_available(exc)
-        raise
-    except UnrealPlanExecutionError as exc:
-        _assert_transport_available(exc)
-        if "blueprint not found" in str(exc).lower():
-            assert MISSING_ASSET_PATH in str(exc)
-            return
         raise
