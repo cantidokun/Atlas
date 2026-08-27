@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from planning.autonomous_corrective_task import CorrectiveTaskResult
-from planning.digital_twin_identity import DigitalTwinIdentity
+from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
@@ -14,7 +14,11 @@ from planning.registry_bound_durable_production_operation_sequence import Regist
 
 
 def _registry():
-    identity = DigitalTwinIdentity("twin-1", "soccer-field")
+    identity = DigitalTwinIdentity(
+        "twin-1",
+        "soccer-field",
+        (IdentityAnchor("capture", "source", "soccer-field"),),
+    )
     registry = DigitalTwinRegistry()
     registry.register_identity(identity)
     revision = DigitalTwinRevision(
@@ -22,6 +26,7 @@ def _registry():
         None, identity.stable_fingerprint()
     )
     registry.register_revision(revision)
+    registry.promote_revision(revision)
     return registry, identity, revision
 
 
@@ -66,6 +71,7 @@ def test_registry_revision_change_blocks_resume_before_any_write():
         "r1", identity.stable_fingerprint()
     )
     registry.register_revision(newer)
+    registry.promote_revision(newer)
     stale_writes = []
     with pytest.raises(ValueError, match="stale Digital Twin revision"):
         RegistryBoundDurableProductionOperationSequence(
