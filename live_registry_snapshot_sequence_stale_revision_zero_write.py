@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
@@ -23,11 +24,18 @@ def _revision(revision_id: str, sequence: int, identity: DigitalTwinIdentity) ->
 
 
 def _operation(task_id, revision, writes):
-    checkpoint = ProductionTaskCheckpoint.create(task_id, revision, (), {"task_id": task_id}, "auth")
+    checkpoint = ProductionTaskCheckpoint.create(
+        task_id, revision, (), {"task_id": task_id}, f"authorization-{task_id}"
+    )
     task = object.__new__(DurableResumableCorrectiveTask)
     task.checkpoint = checkpoint
     task.revision = revision
-    task.resume = lambda max_steps=16: writes.append(task_id)
+
+    def resume(max_steps=16):
+        writes.append(task_id)
+        return CorrectiveTaskResult((), {"task_id": task_id}, True)
+
+    task.resume = resume
     return ProductionOperationLifecycle(task, lambda _: True)
 
 
