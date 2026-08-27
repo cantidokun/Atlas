@@ -14,6 +14,11 @@
 #include "Async/Async.h"
 #include "Engine/GameViewportClient.h"
 #include "Editor.h"
+#include "Engine/Blueprint.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "UObject/MetaData.h"
+#include "UObject/SavePackage.h"
+#include "Misc/PackageName.h"
 
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -269,6 +274,63 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
         if (Request.Capability != TEXT("niagara") || Request.Kind != TEXT("write")) { OutError = TEXT("apply_niagara_variant requires niagara/write"); return false; }
         const TSharedPtr<FJsonObject>* O=nullptr; if(!Request.Arguments->TryGetObjectField(TEXT("niagara_variant"),O)||!O||!O->IsValid()){OutError=TEXT("arguments.niagara_variant must be an object");return false;} FString Name; if(!(*O)->TryGetStringField(TEXT("name"),Name)||Name.TrimStartAndEnd().IsEmpty()){OutError=TEXT("arguments.niagara_variant.name must be a non-empty string");return false;} return true;
     }
+    if (Request.OperationName == TEXT("inspect_blueprint_state"))
+    {
+        if (Request.Capability != TEXT("blueprint") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_blueprint_state requires blueprint/read"); return false; }
+        FString AssetPath;
+        if (!Request.Arguments->TryGetStringField(TEXT("asset_path"), AssetPath) || !AssetPath.StartsWith(TEXT("/"))) { OutError = TEXT("arguments.asset_path must be a non-empty Unreal package path"); return false; }
+        return true;
+    }
+    if (Request.OperationName == TEXT("set_blueprint_metadata"))
+    {
+        if (Request.Capability != TEXT("blueprint") || Request.Kind != TEXT("write"))
+        {
+            OutError = TEXT("set_blueprint_metadata requires blueprint/write");
+            return false;
+        }
+
+        FString AssetPath;
+        FString MetadataKey;
+        FString MetadataValue;
+
+        if (!Request.Arguments->TryGetStringField(TEXT("asset_path"), AssetPath) ||
+            !AssetPath.StartsWith(TEXT("/")))
+        {
+            OutError = TEXT("arguments.asset_path must be a non-empty Unreal package path");
+            return false;
+        }
+
+        if (!Request.Arguments->TryGetStringField(TEXT("metadata_key"), MetadataKey) ||
+            MetadataKey.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = TEXT("arguments.metadata_key must be a non-empty string");
+            return false;
+        }
+
+        if (!Request.Arguments->TryGetStringField(TEXT("metadata_value"), MetadataValue))
+        {
+            OutError = TEXT("arguments.metadata_value must be a string");
+            return false;
+        }
+
+        return true;
+    }
+    if (Request.OperationName == TEXT("compile_blueprint"))
+    {
+        if (Request.Capability != TEXT("blueprint") || Request.Kind != TEXT("write")) { OutError = TEXT("compile_blueprint requires blueprint/write"); return false; }
+        FString AssetPath;
+        if (!Request.Arguments->TryGetStringField(TEXT("asset_path"), AssetPath) || !AssetPath.StartsWith(TEXT("/"))) { OutError = TEXT("arguments.asset_path must be a non-empty Unreal package path"); return false; }
+        return true;
+    }
+    if (Request.OperationName == TEXT("verify_blueprint_state"))
+    {
+        if (Request.Capability != TEXT("blueprint") || Request.Kind != TEXT("verify")) { OutError = TEXT("verify_blueprint_state requires blueprint/verify"); return false; }
+        FString AssetPath;
+        FString ExpectedStatus;
+        if (!Request.Arguments->TryGetStringField(TEXT("asset_path"), AssetPath) || !AssetPath.StartsWith(TEXT("/"))) { OutError = TEXT("arguments.asset_path must be a non-empty Unreal package path"); return false; }
+        if (!Request.Arguments->TryGetStringField(TEXT("expected_compile_status"), ExpectedStatus) || ExpectedStatus.TrimStartAndEnd().IsEmpty()) { OutError = TEXT("arguments.expected_compile_status must be a non-empty string"); return false; }
+        return true;
+    }
     if (Request.OperationName == TEXT("inspect_sequencer_state"))
     {
         if (Request.Capability != TEXT("sequencer") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_sequencer_state requires sequencer/read"); return false; }
@@ -297,7 +359,7 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
 bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
 {
     OutResponse.RequestId=Request.RequestId; OutResponse.OperationName=Request.OperationName; OutResponse.EntityIds=Request.EntityIds; OutResponse.Source=TEXT("unreal-editor-atlas-transport");
-    const bool bSupported = Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range");
+    const bool bSupported = Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata");
     if (!bSupported) { OutResponse.bSuccess=false; OutResponse.Error=FString::Printf(TEXT("Unsupported operation: %s"),*Request.OperationName); return false; }
     TSharedPtr<FGameThreadExecutionState> SharedState=MakeShareable(new FGameThreadExecutionState()); SharedState->Request=Request; SharedState->Response.RequestId=Request.RequestId; SharedState->Response.OperationName=Request.OperationName; SharedState->Response.EntityIds=Request.EntityIds; SharedState->Response.Source=TEXT("unreal-editor-atlas-transport");
     AsyncTask(ENamedThreads::GameThread,[SharedState](){FAtlasTransportServer::ExecuteOnGameThread(SharedState);});
@@ -322,6 +384,10 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     else if(S->Request.OperationName==TEXT("inspect_niagara_state")) bTaskSuccess=InspectNiagaraState(S->Request.EntityIds,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("apply_niagara_variant")) bTaskSuccess=ApplyNiagaraVariant(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("inspect_sequencer_state")) bTaskSuccess=InspectSequencerState(S->Request.EntityIds,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("inspect_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("compile_blueprint")) bTaskSuccess=CompileBlueprint(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("set_blueprint_metadata")) bTaskSuccess=SetBlueprintMetadata(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("verify_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("set_sequencer_playback_range")) bTaskSuccess=SetSequencerPlaybackRange(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("verify_sequencer_playback_range")) bTaskSuccess=InspectSequencerState(S->Request.EntityIds,S->ObservedState,S->Error);
     else S->Error=FString::Printf(TEXT("Unsupported operation: %s"),*S->Request.OperationName);
@@ -437,6 +503,159 @@ bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& IDs,TShar
 {
     if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World)){E=TEXT("No valid world found");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
     for(const FString& ID:IDs){AActor* A=FindActorByEntityId(ID);if(!A||!IsValid(A)){E=FString::Printf(TEXT("Actor not found for entity_id: %s"),*ID);return false;} TSharedPtr<FJsonObject>D=MakeShareable(new FJsonObject);D->SetStringField(TEXT("entity_id"),ID);D->SetStringField(TEXT("actor_name"),A->GetName());D->SetStringField(TEXT("actor_class"),A->GetClass()->GetName()); FVector L=A->GetActorLocation();TSharedPtr<FJsonObject>LO=MakeShareable(new FJsonObject);LO->SetNumberField(TEXT("x"),L.X);LO->SetNumberField(TEXT("y"),L.Y);LO->SetNumberField(TEXT("z"),L.Z);D->SetObjectField(TEXT("location"),LO); FRotator R=A->GetActorRotation();TSharedPtr<FJsonObject>RO=MakeShareable(new FJsonObject);RO->SetNumberField(TEXT("pitch"),R.Pitch);RO->SetNumberField(TEXT("yaw"),R.Yaw);RO->SetNumberField(TEXT("roll"),R.Roll);D->SetObjectField(TEXT("rotation"),RO); FVector S=A->GetActorScale3D();TSharedPtr<FJsonObject>SO=MakeShareable(new FJsonObject);SO->SetNumberField(TEXT("x"),S.X);SO->SetNumberField(TEXT("y"),S.Y);SO->SetNumberField(TEXT("z"),S.Z);D->SetObjectField(TEXT("scale"),SO);State->SetObjectField(ID,D);} O=State;return true;
+}
+
+namespace
+{
+    FString BlueprintStatusToString(const UBlueprint* Blueprint)
+    {
+        if (!Blueprint) return TEXT("unknown");
+        switch (Blueprint->Status)
+        {
+        case BS_UpToDate: return TEXT("success");
+        case BS_UpToDateWithWarnings: return TEXT("success");
+        case BS_Error: return TEXT("error");
+        case BS_Dirty: return TEXT("dirty");
+        case BS_BeingCreated: return TEXT("being_created");
+        default: return TEXT("unknown");
+        }
+    }
+}
+
+bool FAtlasTransportServer::BuildBlueprintState(const FString& AssetPath,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;}
+    UBlueprint* Blueprint=LoadObject<UBlueprint>(nullptr,*AssetPath);
+    if(!Blueprint||!IsValid(Blueprint)){E=FString::Printf(TEXT("Blueprint not found at asset_path: %s"),*AssetPath);return false;}
+    TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
+    State->SetStringField(TEXT("asset_path"),AssetPath);
+    State->SetStringField(TEXT("blueprint_name"),Blueprint->GetName());
+    State->SetStringField(TEXT("compile_status"),BlueprintStatusToString(Blueprint));
+    State->SetBoolField(TEXT("is_up_to_date"),Blueprint->IsUpToDate());
+    if(Blueprint->GeneratedClass) State->SetStringField(TEXT("generated_class"),Blueprint->GeneratedClass->GetPathName());
+    else State->SetStringField(TEXT("generated_class"),TEXT(""));
+    O=State;
+    return true;
+}
+
+bool FAtlasTransportServer::InspectBlueprintState(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(R.EntityIds.Num()==0){E=TEXT("inspect_blueprint_state requires at least one entity_id");return false;}
+    FString AssetPath;
+    if(!R.Arguments.IsValid()||!R.Arguments->TryGetStringField(TEXT("asset_path"),AssetPath)||!AssetPath.StartsWith(TEXT("/"))){E=TEXT("arguments.asset_path must be a non-empty Unreal package path");return false;}
+    TSharedPtr<FJsonObject> BlueprintState;
+    if(!BuildBlueprintState(AssetPath,BlueprintState,E)) return false;
+    TSharedPtr<FJsonObject> Entry=MakeShareable(new FJsonObject);
+    Entry->SetStringField(TEXT("entity_id"),R.EntityIds[0]);
+    Entry->SetObjectField(TEXT("blueprint"),BlueprintState);
+    TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
+    for(const FString& ID:R.EntityIds) State->SetObjectField(ID,Entry);
+    O=State;
+    return true;
+}
+
+bool FAtlasTransportServer::CompileBlueprint(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(R.EntityIds.Num()==0){E=TEXT("compile_blueprint requires at least one entity_id");return false;}
+    FString AssetPath;
+    if(!R.Arguments.IsValid()||!R.Arguments->TryGetStringField(TEXT("asset_path"),AssetPath)||!AssetPath.StartsWith(TEXT("/"))){E=TEXT("arguments.asset_path must be a non-empty Unreal package path");return false;}
+    UBlueprint* Blueprint=LoadObject<UBlueprint>(nullptr,*AssetPath);
+    if(!Blueprint||!IsValid(Blueprint)){E=FString::Printf(TEXT("Blueprint not found at asset_path: %s"),*AssetPath);return false;}
+    FCompilerResultsLog Results;
+    FKismetEditorUtilities::CompileBlueprint(Blueprint,EBlueprintCompileOptions::None,&Results);
+    if(Blueprint->Status==BS_Error){E=FString::Printf(TEXT("Blueprint compilation failed for %s"),*AssetPath);return false;}
+    return InspectBlueprintState(R,O,E);
+}
+
+
+bool FAtlasTransportServer::SetBlueprintMetadata(
+    const FTransportRequest& R,
+    TSharedPtr<FJsonObject>& O,
+    FString& E)
+{
+    if (R.EntityIds.Num() == 0)
+    {
+        E = TEXT("set_blueprint_metadata requires at least one entity_id");
+        return false;
+    }
+
+    if (!R.Arguments.IsValid())
+    {
+        E = TEXT("set_blueprint_metadata requires arguments");
+        return false;
+    }
+
+    FString AssetPath;
+    FString MetadataKey;
+    FString MetadataValue;
+
+    if (!R.Arguments->TryGetStringField(TEXT("asset_path"), AssetPath) ||
+        !AssetPath.StartsWith(TEXT("/")))
+    {
+        E = TEXT("arguments.asset_path must be a non-empty Unreal package path");
+        return false;
+    }
+
+    if (!R.Arguments->TryGetStringField(TEXT("metadata_key"), MetadataKey) ||
+        MetadataKey.TrimStartAndEnd().IsEmpty())
+    {
+        E = TEXT("arguments.metadata_key must be a non-empty string");
+        return false;
+    }
+
+    if (!R.Arguments->TryGetStringField(TEXT("metadata_value"), MetadataValue))
+    {
+        E = TEXT("arguments.metadata_value must be a string");
+        return false;
+    }
+
+    MetadataKey = MetadataKey.TrimStartAndEnd();
+    MetadataValue = MetadataValue.TrimStartAndEnd();
+
+    UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetPath);
+    if (!Blueprint || !IsValid(Blueprint))
+    {
+        E = FString::Printf(
+            TEXT("Blueprint not found at asset_path: %s"),
+            *AssetPath);
+        return false;
+    }
+
+    UPackage* Package = Blueprint->GetOutermost();
+    if (!Package || !IsValid(Package))
+    {
+        E = FString::Printf(
+            TEXT("Blueprint package unavailable at asset_path: %s"),
+            *AssetPath);
+        return false;
+    }
+
+    FMetaData& MetaData = Package->GetMetaData();
+    MetaData.SetValue(Blueprint, *MetadataKey, *MetadataValue);
+    Package->MarkPackageDirty();
+
+    const FString PackageFilename =
+        FPackageName::LongPackageNameToFilename(
+            Package->GetName(),
+            FPackageName::GetAssetPackageExtension());
+
+    FSavePackageArgs SaveArgs;
+    SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+    SaveArgs.SaveFlags = SAVE_None;
+
+    if (!UPackage::SavePackage(
+            Package,
+            Blueprint,
+            *PackageFilename,
+            SaveArgs))
+    {
+        E = FString::Printf(
+            TEXT("Failed to save Blueprint package at asset_path: %s"),
+            *AssetPath);
+        return false;
+    }
+
+    return InspectBlueprintState(R, O, E);
 }
 
 AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
