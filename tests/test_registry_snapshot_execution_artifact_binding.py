@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from planning.digital_twin_identity import DigitalTwinIdentity
+from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
 from planning.durable_production_sequence_rehydration import DurableProductionSequenceRehydrator
@@ -10,7 +10,9 @@ from planning.durable_production_sequence_rehydration import DurableProductionSe
 
 def _registry():
     identity = DigitalTwinIdentity(
-        "artifact-binding-twin", "reconstruction", ("anchor-a",)
+        "artifact-binding-twin",
+        "reconstruction",
+        (IdentityAnchor("source", "capture", "artifact-binding"),),
     )
     registry = DigitalTwinRegistry()
     registry.register_identity(identity)
@@ -35,7 +37,6 @@ def test_registry_snapshot_tampering_fails_closed_before_sequence_rehydration():
     snapshot = registry.snapshot()
     snapshot["revisions"][0]["revision_id"] = "tampered"
     with pytest.raises(ValueError, match="snapshot digest"):
-        DurableProductionSequenceRehydrator(registry).rehydrate((), snapshot, {
-            "completed_receipts": (),
-            "next_operation_index": 0,
-        })
+        DurableProductionSequenceRehydrator(registry).rehydrate(
+            (), snapshot, {"completed_receipts": (), "next_operation_index": 0}
+        )
