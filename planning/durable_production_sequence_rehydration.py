@@ -20,8 +20,10 @@ class DurableProductionSequenceRehydrator:
         if not isinstance(registry_snapshot, dict):
             raise TypeError("registry snapshot must be a mapping")
         canonical_registry = DigitalTwinRegistry.from_snapshot(registry_snapshot)
+        if canonical_registry.snapshot() != self.registry.snapshot():
+            raise ValueError("registry snapshot does not match current canonical registry")
         checkpoint = DurableProductionSequenceCheckpoint.rehydrate(checkpoint_snapshot)
         bound = RegistryBoundDurableProductionOperationSequence(
-            operations, canonical_registry, checkpoint=checkpoint
+            operations, self.registry, checkpoint=checkpoint
         )
         return bound
