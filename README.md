@@ -123,7 +123,7 @@ unreal/AtlasUnrealHarness/Source/AtlasUnrealHarness/AtlasBlueprintFixtureCommand
 unreal/AtlasUnrealHarness/Source/AtlasUnrealHarness/AtlasBlueprintFixtureCommandlet.h
 ```
 
-The Unreal harness has successfully compiled after resolving the UE 5.6 `FSavePackageArgs` include/build issue.
+The UE 5.6 harness has successfully compiled after the Blueprint metadata/save-package implementation changes.
 
 ## Blueprint production operations
 
@@ -148,34 +148,51 @@ compile_blueprint
 verify_blueprint_state
 ```
 
-## Latest test state
+## Latest checkpoint — August 27, 2026
 
-The Blueprint planning and schema work has passed its covered regression cases. The real Unreal integration also passed its earlier fixture/discovery/compile stages.
-
-At the point development was paused, the latest real integration run reported:
+The current real integration suite reports:
 
 ```text
-8 passed, 2 failed, 1 skipped
+1 failed, 2 passed
 ```
 
-The remaining failures are:
+The remaining failure is:
 
 ```text
-test_real_unreal_blueprint_compile_and_verify
-test_real_unreal_blueprint_missing_asset_fails_at_production-boundary
+test_real_unreal_blueprint_metadata_mutation_persists_after_compile
 ```
 
-Both currently fail at the Unreal transport/runtime boundary, with the key error:
+The important result is that the real metadata mutation itself now succeeds. The executor reaches:
 
 ```text
-Unreal transport failed for operation 'inspect_blueprint_state'
+result.success is True
 ```
 
-The missing-asset test consequently cannot yet observe its expected production-boundary error (`Blueprint not found`).
+The remaining failure is an evidence-shape issue:
 
-**The Unreal Blueprint production milestone is therefore not yet declared green.**
+```text
+KeyError: 'metadata'
+```
 
-The immediate next step is to restore the Unreal runtime/transport and rerun the real integration suite before making further planner/schema changes.
+`BuildBlueprintState()` does not yet expose the Blueprint metadata map in its returned `observed_state`. The next change is therefore to serialize the metadata into the Blueprint evidence, after which the focused target is:
+
+```text
+3 passed
+```
+
+The Blueprint production milestone is **not yet declared green**.
+
+The exact current handoff is:
+
+```text
+UNREAL_AGENT_HANDOFF_CURRENT.md
+```
+
+and the dated session handoff is:
+
+```text
+docs/ATLAS_HANDOFF_2026-08-27_0200EDT.md
+```
 
 ---
 
@@ -345,22 +362,18 @@ Build the harness if required:
   -architecture=x64
 ```
 
-Then restore the live Unreal runtime/transport and run:
+Then run:
 
 ```powershell
 python -m pytest tests/test_unreal_blueprint_real_integration.py -q
 ```
 
-Do not mark the Blueprint production-boundary milestone complete until the remaining real integration failures pass.
+The immediate implementation task is to expose Blueprint metadata in `BuildBlueprintState()` evidence. Do not expand Blueprint graph authoring until the focused real integration suite is green.
 
-Detailed handoff:
+After the focused suite reaches `3 passed`, run:
 
-```text
-docs/ATLAS_HANDOFF_2026-08-26_0428EDT.md
+```powershell
+python -m pytest -q
 ```
 
-Current concise handoff:
-
-```text
-ATLAS_HANDOFF_CURRENT.md
-```
+Do not declare the Blueprint production-boundary milestone complete until the focused real integration suite and the full regression suite both pass.
