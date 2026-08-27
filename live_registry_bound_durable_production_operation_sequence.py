@@ -3,29 +3,42 @@ from __future__ import annotations
 
 import json
 
+from planning.autonomous_corrective_task import CorrectiveTaskResult
+from planning.digital_twin_identity import DigitalTwinIdentity
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
 from planning.production_operation_lifecycle import ProductionOperationLifecycle, ProductionOperationState
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
 from planning.registry_bound_durable_production_operation_sequence import RegistryBoundDurableProductionOperationSequence
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
-from planning.autonomous_corrective_task import CorrectiveTaskResult
 
 
-def _revision(revision_id: str) -> DigitalTwinRevision:
-    return DigitalTwinRevision(
+def _identity() -> DigitalTwinIdentity:
+    return DigitalTwinIdentity(
         twin_id="live-registry-sequence-twin",
+        entity_type="soccer_field",
+        anchors=(),
+    )
+
+
+def _revision(identity: DigitalTwinIdentity, revision_id: str, sequence: int) -> DigitalTwinRevision:
+    return DigitalTwinRevision(
+        twin_id=identity.twin_id,
         revision_id=revision_id,
-        sequence=1,
-        kind=RevisionKind.RECONSTRUCTION,
-        source_revision_id=None,
-        source_fingerprint="live-registry-sequence-fingerprint",
+        sequence=sequence,
+        kind=RevisionKind.RECONSTRUCTION if sequence == 1 else RevisionKind.CLEANUP,
+        source_revision_id=None if sequence == 1 else "live-r1",
+        source_fingerprint=identity.stable_fingerprint(),
     )
 
 
 def _operation(task_id: str, revision: DigitalTwinRevision, writes: list[str]):
     checkpoint = ProductionTaskCheckpoint.create(
-        task_id, revision, (), {"task_id": task_id}, f"authorization-{task_id}"
+        task_id,
+        revision,
+        (),
+        {"task_id": task_id},
+        f"authorization-{task_id}",
     )
     task = object.__new__(DurableResumableCorrectiveTask)
     task.checkpoint = checkpoint
@@ -41,10 +54,10 @@ def _operation(task_id: str, revision: DigitalTwinRevision, writes: list[str]):
 
 def main() -> None:
     registry = DigitalTwinRegistry()
-    canonical = _revision("live-r1")
-    advanced = _revision("live-r2")
+    identity = _identity()
+    registry.register_identity(identity)
+    canonical = _revision(identity, "live-r1", 1)
     registry.register_revision(canonical)
-    registry.promote_revision(canonical)
 
     writes: list[str] = []
     first = _operation("live-registry-1", canonical, writes)
@@ -54,8 +67,8 @@ def main() -> None:
     assert result.state is ProductionOperationState.COMPLETED
     assert writes == ["live-registry-1", "live-registry-2"]
 
+    advanced = _revision(identity, "live-r2", 2)
     registry.register_revision(advanced)
-    registry.promote_revision(advanced)
 
     stale_writes: list[str] = []
     stale_first = _operation("stale-1", canonical, stale_writes)
