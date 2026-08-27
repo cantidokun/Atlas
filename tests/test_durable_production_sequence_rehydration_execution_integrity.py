@@ -20,7 +20,7 @@ def _registry_snapshot():
 
 def test_rehydrator_rejects_non_mapping_checkpoint():
     snapshot = _registry_snapshot()
-    with pytest.raises(TypeError, match="checkpoint"):
+    with pytest.raises(TypeError, match="sequence snapshot must be a mapping"):
         DurableProductionSequenceRehydrator.__new__(DurableProductionSequenceRehydrator).rehydrate(
             (), snapshot, []
         )
