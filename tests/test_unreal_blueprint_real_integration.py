@@ -21,21 +21,11 @@ METADATA_VALUE = "production-boundary-1"
 
 
 def _intent(intent_id: str) -> UnrealTaskIntent:
-    return UnrealTaskIntent(
-        intent_id=intent_id,
-        description="real Unreal Blueprint production integration",
-        target_entity_ids=(ENTITY_ID,),
-    )
+    return UnrealTaskIntent(intent_id=intent_id, description="real Unreal Blueprint production integration", target_entity_ids=(ENTITY_ID,))
 
 
 def _inspection_plan(intent: UnrealTaskIntent, asset_path: str = ASSET_PATH) -> UnrealTaskPlan:
-    operation = UnrealOperation(
-        capability=UnrealCapability.BLUEPRINT,
-        kind=UnrealOperationKind.READ,
-        name="inspect_blueprint_state",
-        arguments={"entity_ids": (ENTITY_ID,), "asset_path": asset_path},
-        entity_ids=(ENTITY_ID,),
-    )
+    operation = UnrealOperation(capability=UnrealCapability.BLUEPRINT, kind=UnrealOperationKind.READ, name="inspect_blueprint_state", arguments={"entity_ids": (ENTITY_ID,), "asset_path": asset_path}, entity_ids=(ENTITY_ID,))
     return UnrealTaskPlan(intent.intent_id, (operation,))
 
 
@@ -44,12 +34,16 @@ def _blueprint_state(evidence):
 
 
 def _assert_transport_available(exc: Exception) -> None:
-    message = str(exc).lower()
-    if (
-        "not available" in message
-        or "pipe not found" in message
-        or "disconnected" in message
-    ):
+    """Skip when Unreal is unavailable, including wrapped transport failures."""
+    current = exc
+    messages = []
+    seen = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        messages.append(str(current).lower())
+        current = current.__cause__ or current.__context__
+    message = " | ".join(messages)
+    if "not available" in message or "pipe not found" in message or "disconnected" in message:
         pytest.skip("Unreal Editor transport is unavailable")
 
 
@@ -59,25 +53,11 @@ def test_real_unreal_blueprint_compile_and_verify():
         adapter = create_production_adapter("blueprint-integration")
         executor = UnrealPlanExecutor(adapter)
         planner = UnrealTaskPlanner()
-
-        original_result = executor.execute(
-            _inspection_plan(_intent("real-blueprint-original")),
-            "real-blueprint-original-auth",
-        )
+        original_result = executor.execute(_inspection_plan(_intent("real-blueprint-original")), "real-blueprint-original-auth")
         original_state = _blueprint_state(original_result.evidence_ledger[0])
-
-        plan = planner.plan_blueprint_compile(
-            _intent("real-blueprint-compile"),
-            ASSET_PATH,
-        )
-        assert [operation.name for operation in plan.operations] == [
-            "inspect_blueprint_state",
-            "compile_blueprint",
-            "verify_blueprint_state",
-        ]
-
+        plan = planner.plan_blueprint_compile(_intent("real-blueprint-compile"), ASSET_PATH)
+        assert [operation.name for operation in plan.operations] == ["inspect_blueprint_state", "compile_blueprint", "verify_blueprint_state"]
         result = executor.execute(plan, "real-blueprint-compile-auth")
-
         assert result.success is True
         assert result.evidence_ledger[0].operation_name == "inspect_blueprint_state"
         assert result.evidence_ledger[1].operation_name == "compile_blueprint"
@@ -86,7 +66,6 @@ def test_real_unreal_blueprint_compile_and_verify():
         assert _blueprint_state(result.evidence_ledger[2])["compile_status"].lower() == "success"
         assert _blueprint_state(original_result.evidence_ledger[0])["asset_path"] == ASSET_PATH
         assert original_state["asset_path"] == ASSET_PATH
-
     except NamedPipeTransportError as exc:
         _assert_transport_available(exc)
         if "blueprint" in str(exc).lower() and ("not found" in str(exc).lower() or "asset" in str(exc).lower()):
@@ -105,42 +84,19 @@ def test_real_unreal_blueprint_metadata_mutation_persists_after_compile():
         adapter = create_production_adapter("blueprint-metadata-integration")
         executor = UnrealPlanExecutor(adapter)
         planner = UnrealTaskPlanner()
-
-        original_result = executor.execute(
-            _inspection_plan(_intent("real-blueprint-metadata-original")),
-            "real-blueprint-metadata-original-auth",
-        )
+        original_result = executor.execute(_inspection_plan(_intent("real-blueprint-metadata-original")), "real-blueprint-metadata-original-auth")
         original_state = _blueprint_state(original_result.evidence_ledger[0])
         assert original_state["asset_path"] == ASSET_PATH
-
-        plan = planner.plan_blueprint_metadata_mutation(
-            _intent("real-blueprint-metadata-mutation"),
-            ASSET_PATH,
-            METADATA_KEY,
-            f"  {METADATA_VALUE}  ",
-        )
-        assert [operation.name for operation in plan.operations] == [
-            "inspect_blueprint_state",
-            "set_blueprint_metadata",
-            "compile_blueprint",
-            "verify_blueprint_state",
-        ]
-
+        plan = planner.plan_blueprint_metadata_mutation(_intent("real-blueprint-metadata-mutation"), ASSET_PATH, METADATA_KEY, f"  {METADATA_VALUE}  ")
+        assert [operation.name for operation in plan.operations] == ["inspect_blueprint_state", "set_blueprint_metadata", "compile_blueprint", "verify_blueprint_state"]
         result = executor.execute(plan, "real-blueprint-metadata-auth")
-
         assert result.success is True
         assert _blueprint_state(result.evidence_ledger[1])["metadata"][METADATA_KEY] == METADATA_VALUE
         assert _blueprint_state(result.evidence_ledger[2])["metadata"][METADATA_KEY] == METADATA_VALUE
         assert _blueprint_state(result.evidence_ledger[3])["metadata"][METADATA_KEY] == METADATA_VALUE
         assert _blueprint_state(result.evidence_ledger[3])["compile_status"].lower() == "success"
-
-        fresh_result = executor.execute(
-            _inspection_plan(_intent("real-blueprint-metadata-fresh-inspection")),
-            "real-blueprint-metadata-fresh-auth",
-        )
-        fresh_state = _blueprint_state(fresh_result.evidence_ledger[0])
-        assert fresh_state["metadata"][METADATA_KEY] == METADATA_VALUE
-
+        fresh_result = executor.execute(_inspection_plan(_intent("real-blueprint-metadata-fresh-inspection")), "real-blueprint-metadata-fresh-auth")
+        assert _blueprint_state(fresh_result.evidence_ledger[0])["metadata"][METADATA_KEY] == METADATA_VALUE
     except NamedPipeTransportError as exc:
         _assert_transport_available(exc)
         if "blueprint" in str(exc).lower() and ("not found" in str(exc).lower() or "asset" in str(exc).lower()):
@@ -158,13 +114,8 @@ def test_real_unreal_blueprint_missing_asset_fails_at_production_boundary():
     try:
         adapter = create_production_adapter("blueprint-integration-missing-asset")
         executor = UnrealPlanExecutor(adapter)
-
         with pytest.raises(UnrealPlanExecutionError) as failure:
-            executor.execute(
-                _inspection_plan(_intent("real-blueprint-missing"), MISSING_ASSET_PATH),
-                "real-blueprint-missing-auth",
-            )
-
+            executor.execute(_inspection_plan(_intent("real-blueprint-missing"), MISSING_ASSET_PATH), "real-blueprint-missing-auth")
         message = str(failure.value)
         assert "inspect_blueprint_state" in message
         assert "Blueprint not found" in message
