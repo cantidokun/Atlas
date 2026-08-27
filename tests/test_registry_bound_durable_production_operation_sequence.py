@@ -23,15 +23,15 @@ def _registry():
     return registry, identity, first
 
 
-def _operation(revision, writes):
+def _operation(task_id, revision, writes):
     checkpoint = ProductionTaskCheckpoint.create(
-        "task-1", revision, (), {"task": "one"}, "auth-1"
+        task_id, revision, (), {"task": task_id}, "auth-1"
     )
     task = object.__new__(DurableResumableCorrectiveTask)
     task.checkpoint = checkpoint
     task.revision = revision
     def resume(max_steps=16):
-        writes.append("write")
+        writes.append(task_id)
         return CorrectiveTaskResult((), {"ok": True}, True)
     task.resume = resume
     return ProductionOperationLifecycle(task, lambda _: True)
@@ -41,10 +41,10 @@ def test_sequence_accepts_current_canonical_revision_and_runs():
     registry, _, revision = _registry()
     writes = []
     result = RegistryBoundDurableProductionOperationSequence(
-        (_operation(revision, writes),), registry
+        (_operation("task-1", revision, writes),), registry
     ).run()
     assert result.completed
-    assert writes == ["write"]
+    assert writes == ["task-1"]
 
 
 def test_sequence_rejects_stale_operation_before_any_write():
@@ -56,28 +56,47 @@ def test_sequence_rejects_stale_operation_before_any_write():
     )
     registry.register_revision(newer)
     writes = []
-    with pytest.raises(ValueError, match="stale Digital Twin revision"):
+    with pytest.raises(ValueError, match="current canonical Digital Twin revision"):
         RegistryBoundDurableProductionOperationSequence(
-            (_operation(revision, writes),), registry
+            (_operation("task-1", revision, writes),), registry
         )
     assert writes == []
 
 
 def test_sequence_rejects_registry_bound_completed_receipt_from_stale_revision():
     registry, identity, revision = _registry()
+    writes = []
+    operation = _operation("task-1", revision, writes)
+    result = RegistryBoundDurableProductionOperationSequence((operation,), registry).run()
     newer = DigitalTwinRevision(
         twin_id="twin-1", revision_id="r2", sequence=2,
         kind=RevisionKind.CLEANUP, source_revision_id="r1",
         source_fingerprint=identity.stable_fingerprint(),
     )
     registry.register_revision(newer)
-    writes = []
-    operation = _operation(revision, writes)
-    result = RegistryBoundDurableProductionOperationSequence(
-        (operation,), DigitalTwinRegistry.from_snapshot(_registry()[0].snapshot())
-    ).run()
-    checkpoint = result.checkpoint
+    stale_writes = []
     with pytest.raises(ValueError, match="stale Digital Twin revision"):
         RegistryBoundDurableProductionOperationSequence(
-            (_operation(revision, writes),), registry, checkpoint=checkpoint
+            (_operation("task-1", revision, stale_writes),), registry, checkpoint=result.checkpoint
         )
+    assert stale_writes == []
+
+
+def test_sequence_rejects_stale_unfinished_operation_before_any_write():
+    registry, identity, revision = _registry()
+    writes = []
+    first = _operation("task-1", revision, writes)
+    result = RegistryBoundDurableProductionOperationSequence((first,), registry).run()
+    newer = DigitalTwinRevision(
+        twin_id="twin-1", revision_id="r2", sequence=2,
+        kind=RevisionKind.CLEANUP, source_revision_id="r1",
+        source_fingerprint=identity.stable_fingerprint(),
+    )
+    registry.register_revision(newer)
+    stale_writes = []
+    second = _operation("task-2", revision, stale_writes)
+    with pytest.raises(ValueError, match="stale Digital Twin revision|current canonical Digital Twin revision"):
+        RegistryBoundDurableProductionOperationSequence(
+            (first, second), registry, checkpoint=result.checkpoint
+        )
+    assert stale_writes == []
