@@ -3,18 +3,23 @@ from __future__ import annotations
 
 import json
 
-from planning.digital_twin_identity import DigitalTwinIdentity
+from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
-from planning.production_completion_receipt import ProductionCompletionReceipt
 from planning.production_operation_lifecycle import ProductionOperationLifecycle
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
 from planning.registry_bound_durable_production_operation_sequence import RegistryBoundDurableProductionOperationSequence
 
 
 def _revision(revision_id: str, sequence: int, identity: DigitalTwinIdentity) -> DigitalTwinRevision:
-    return DigitalTwinRevision(identity.twin_id, revision_id, sequence, RevisionKind.RECONSTRUCTION, source_fingerprint=identity.stable_fingerprint())
+    return DigitalTwinRevision(
+        identity.twin_id,
+        revision_id,
+        sequence,
+        RevisionKind.RECONSTRUCTION,
+        source_fingerprint=identity.stable_fingerprint(),
+    )
 
 
 def _operation(task_id, revision, writes):
@@ -27,12 +32,15 @@ def _operation(task_id, revision, writes):
 
 
 def main():
-    identity = DigitalTwinIdentity("rehydrated-stale-twin", "reconstruction")
+    identity = DigitalTwinIdentity(
+        "rehydrated-stale-twin",
+        "reconstruction",
+        (IdentityAnchor("capture", "source", "rehydrated-stale-twin"),),
+    )
     registry = DigitalTwinRegistry()
     registry.register_identity(identity)
     r1 = _revision("r1", 1, identity)
     registry.register_revision(r1)
-    registry.promote_revision(r1)
 
     writes = []
     op1 = _operation("op-1", r1, writes)
@@ -43,13 +51,14 @@ def main():
 
     r2 = _revision("r2", 2, identity)
     registry.register_revision(r2)
-    registry.promote_revision(r2)
 
     stale_writes = []
     stale_op1 = _operation("op-1", r1, stale_writes)
     stale_op2 = _operation("op-2", r1, stale_writes)
     try:
-        RegistryBoundDurableProductionOperationSequence((stale_op1, stale_op2), registry, checkpoint=completed.checkpoint)
+        RegistryBoundDurableProductionOperationSequence(
+            (stale_op1, stale_op2), registry, checkpoint=completed.checkpoint
+        )
     except ValueError as exc:
         rejection = str(exc)
     else:
