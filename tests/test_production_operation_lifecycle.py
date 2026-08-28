@@ -1,5 +1,6 @@
 import pytest
 
+from action_plan import ActionSpec
 from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
 from planning.production_completion_receipt import ProductionCompletionReceipt
@@ -21,18 +22,12 @@ def _task_result(converged=True, evidence=None):
 
 def _task(result, task_id="task-1"):
     revision = DigitalTwinRevision(
-        twin_id="twin-1",
-        revision_id="r1",
-        sequence=1,
-        kind=RevisionKind.RECONSTRUCTION,
-        source_revision_id=None,
+        twin_id="twin-1", revision_id="r1", sequence=1,
+        kind=RevisionKind.RECONSTRUCTION, source_revision_id=None,
         source_fingerprint="fingerprint",
     )
     checkpoint = ProductionTaskCheckpoint.create(
-        task_id,
-        revision,
-        (),
-        {"checkpoint": True, "task_id": task_id},
+        task_id, revision, (), {"checkpoint": True, "task_id": task_id},
         f"authorization-{task_id}",
     )
     task = object.__new__(DurableResumableCorrectiveTask)
@@ -96,9 +91,7 @@ def test_rejected_authoritative_state_cannot_create_receipt():
 def test_operation_sequence_completes_only_when_every_operation_is_authoritatively_verified():
     first = _lifecycle(_task_result(True, {"verified": True}), task_id="task-1")
     second = _lifecycle(_task_result(True, {"verified": True}), task_id="task-2")
-
     result = ProductionOperationSequence((first, second)).run()
-
     assert result.state is ProductionOperationState.COMPLETED
     assert result.completed
     assert len(result.results) == 2
@@ -110,9 +103,7 @@ def test_operation_sequence_blocks_at_first_failed_operation_and_does_not_run_la
     first = _lifecycle(_task_result(True, {"verified": True}), task_id="task-1")
     second = _lifecycle(_task_result(True, {"verified": False}), verified=False, task_id="task-2")
     third = _lifecycle(_task_result(True, {"verified": True}), task_id="task-3")
-
     result = ProductionOperationSequence((first, second, third)).run()
-
     assert result.state is ProductionOperationState.BLOCKED
     assert not result.completed
     assert len(result.results) == 2
@@ -139,18 +130,14 @@ def test_invalid_constructor_inputs_fail_closed():
 
 def _registry_and_revision():
     identity = DigitalTwinIdentity(
-        twin_id="twin-1",
-        entity_type="reconstruction",
+        twin_id="twin-1", entity_type="reconstruction",
         anchors=(IdentityAnchor("scene", "source", "scene-1"),),
     )
     registry = DigitalTwinRegistry()
     registry.register_identity(identity)
     revision = DigitalTwinRevision(
-        twin_id="twin-1",
-        revision_id="r1",
-        sequence=1,
-        kind=RevisionKind.RECONSTRUCTION,
-        source_revision_id=None,
+        twin_id="twin-1", revision_id="r1", sequence=1,
+        kind=RevisionKind.RECONSTRUCTION, source_revision_id=None,
         source_fingerprint=identity.stable_fingerprint(),
     )
     registry.register_revision(revision)
@@ -159,27 +146,17 @@ def _registry_and_revision():
 
 def _checkpoint_snapshot(revision):
     checkpoint = ProductionTaskCheckpoint.create(
-        "task-1",
-        revision,
-        (),
-        {"checkpoint": True},
-        "authorization-1",
+        "task-1", revision, (), {"checkpoint": True}, "authorization-1",
     )
     return checkpoint.snapshot()
 
 
 def test_registry_snapshot_constructor_rehydrates_canonical_resume_boundary():
     registry, revision = _registry_and_revision()
-
     lifecycle = ProductionRegistryResumeLifecycle.from_registry_snapshot(
-        registry.snapshot(),
-        _checkpoint_snapshot(revision),
-        revision,
-        observe=lambda: {"fresh": True},
-        plan=lambda _: (),
-        verify_final=lambda _: True,
+        registry.snapshot(), _checkpoint_snapshot(revision), revision,
+        observe=lambda: {"fresh": True}, plan=lambda _: (), verify_final=lambda _: True,
     )
-
     assert lifecycle.registry.canonical_revision("twin-1") == revision
     assert lifecycle.checkpoint.revision_id == "r1"
     assert lifecycle.checkpoint.task_id == "task-1"
@@ -189,13 +166,35 @@ def test_registry_snapshot_constructor_rejects_tampering_before_checkpoint_rehyd
     registry, revision = _registry_and_revision()
     snapshot = registry.snapshot()
     snapshot["snapshot_digest"] = "tampered"
-
     with pytest.raises(ValueError, match="snapshot digest"):
         ProductionRegistryResumeLifecycle.from_registry_snapshot(
-            snapshot,
-            _checkpoint_snapshot(revision),
-            revision,
-            observe=lambda: {"fresh": True},
-            plan=lambda _: (),
-            verify_final=lambda _: True,
+            snapshot, _checkpoint_snapshot(revision), revision,
+            observe=lambda: {"fresh": True}, plan=lambda _: (), verify_final=lambda _: True,
         )
+
+
+def test_registry_snapshot_resume_executes_and_requires_authoritative_completion():
+    registry, revision = _registry_and_revision()
+    calls = []
+
+    def executor(tool, arguments):
+        calls.append((tool, arguments))
+        return {
+            "ok": True,
+            "state": {"target": arguments["target"], "verified": True},
+            "details": {"execution": "accepted"},
+        }
+
+    lifecycle = ProductionRegistryResumeLifecycle.from_registry_snapshot(
+        registry.snapshot(), _checkpoint_snapshot(revision), revision,
+        observe=lambda: {"target": "final"},
+        plan=lambda evidence: [ActionSpec("test.move", {"target": evidence["target"]})],
+        verify_final=lambda evidence: evidence.state["verified"],
+        executor=executor,
+    )
+    result = lifecycle.run()
+    assert result.state is ProductionOperationState.COMPLETED
+    assert result.completed
+    assert result.receipt is not None
+    assert calls == [("test.move", {"target": "final"})]
+    assert result.receipt.matches(lifecycle.checkpoint, revision, result.task_result.final_evidence)
