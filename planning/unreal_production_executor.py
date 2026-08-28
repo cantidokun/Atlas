@@ -35,9 +35,12 @@ class UnrealProductionExecutionResult:
     def success(self) -> bool:
         if self.initial_result is not None:
             return self.initial_result.success
+        if self.recovery is None:
+            return False
+        if self.recovery.assessment.disposition == "already_applied":
+            return True
         return bool(
-            self.recovery is not None
-            and self.recovery.replacement_result is not None
+            self.recovery.replacement_result is not None
             and self.recovery.replacement_result.success
         )
 
@@ -65,7 +68,7 @@ class UnrealProductionExecutor:
         authorize the exact reassessment and replacement plans.
         """
         if not isinstance(production, UnrealProductionPlan):
-            raise TypeError("production must be an UnrealProductionPlan instance")
+            raise TypeError("production must be a UnrealProductionPlan instance")
         if not isinstance(authorization, UnrealPlanAuthorization):
             raise TypeError("authorization must be a UnrealPlanAuthorization instance")
         if not authorization.matches(production.plan):
