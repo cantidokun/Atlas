@@ -99,8 +99,13 @@ class BlenderExecutionCoordinator:
         )
 
     def run(self) -> list[BlenderExecutionStep]:
-        """Run until completion or a required-success action blocks the plan."""
+        """Run until completion; never silently swallow a blocked plan."""
+        if self.plan.blocked:
+            raise BlenderExecutionError("Blender plan is blocked by a previous failure.")
+        if self.plan.complete:
+            return []
+
         steps: list[BlenderExecutionStep] = []
-        while not self.plan.complete and not self.plan.blocked:
+        while not self.plan.complete:
             steps.append(self.step())
         return steps
