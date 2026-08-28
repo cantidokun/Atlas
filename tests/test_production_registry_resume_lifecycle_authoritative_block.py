@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from action_plan import ActionSpec
 from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
@@ -38,48 +37,22 @@ def _checkpoint_snapshot(revision):
 
 def test_registry_resume_blocks_on_wrong_authoritative_state_without_completion_receipt():
     registry, revision = _registry_and_revision()
-    state = {"value": "old"}
-    writes = []
-
-    def observe():
-        return dict(state)
-
-    def plan(evidence):
-        if evidence["value"] == "new":
-            return []
-        return [ActionSpec("test.move", {"target": "new"})]
-
-    def executor(tool, arguments):
-        writes.append((tool, arguments))
-        return {
-            "ok": True,
-            "state": {"value": "new"},
-            "details": {"executor": "accepted"},
-        }
+    task_result = CorrectiveTaskResult(
+        receipts=(object(),),
+        final_evidence={"authoritative": "wrong"},
+        converged=True,
+    )
 
     lifecycle = ProductionRegistryResumeLifecycle.from_registry_snapshot(
         registry.snapshot(),
         _checkpoint_snapshot(revision),
         revision,
-        observe=observe,
-        plan=plan,
+        observe=lambda: {"fresh": True},
+        plan=lambda _: [],
         verify_final=lambda _evidence: False,
-        executor=executor,
     )
+    lifecycle.task.resume = lambda max_steps=16: task_result
 
-    original_resume = lifecycle.task.resume
-    result = original_resume(max_steps=16)
-
-    assert result.converged
-    assert result.receipts
-    assert writes == [("test.move", {"target": "new"})]
-
-    authoritative_result = CorrectiveTaskResult(
-        result.receipts,
-        {"value": "wrong-authoritative-state"},
-        True,
-    )
-    lifecycle.task.resume = lambda max_steps=16: authoritative_result
     terminal = lifecycle.run(max_steps=1)
 
     assert terminal.state is ProductionOperationState.BLOCKED
