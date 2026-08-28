@@ -24,6 +24,8 @@ class InMemoryDurableProductionPersistenceStore:
             "registry_snapshot": dict(snapshot["registry_snapshot"]),
             "checkpoint_snapshot": dict(snapshot["checkpoint_snapshot"]),
         }
+        if "resume_identity" in snapshot:
+            self._snapshot["resume_identity"] = dict(snapshot["resume_identity"])
 
     def load(self) -> DurableProductionPersistenceBundle:
         if self._snapshot is None:
@@ -33,7 +35,10 @@ class InMemoryDurableProductionPersistenceStore:
     def snapshot(self) -> Mapping[str, Any]:
         if self._snapshot is None:
             raise ValueError("no durable production persistence state")
-        return {
+        result = {
             "registry_snapshot": dict(self._snapshot["registry_snapshot"]),
             "checkpoint_snapshot": dict(self._snapshot["checkpoint_snapshot"]),
         }
+        if "resume_identity" in self._snapshot:
+            result["resume_identity"] = dict(self._snapshot["resume_identity"])
+        return result
