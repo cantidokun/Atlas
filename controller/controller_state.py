@@ -109,6 +109,20 @@ def after_matches_target(state: ControllerState) -> bool:
     return _relationship_matches_target(state, state.after)
 
 
+def _writes_match_relationship(state: ControllerState, relationship: Dict[str, Any]) -> bool:
+    if not state.writes:
+        return False
+    latest = {}
+    for write in state.writes:
+        if write.get("object_name") in {state.object_a_name, state.object_b_name}:
+            latest[write["object_name"]] = write.get("location")
+    if set(latest) != {state.object_a_name, state.object_b_name}:
+        return False
+    object_a = relationship.get("object_a", {})
+    object_b = relationship.get("object_b", {})
+    return object_a.get("name") == state.object_a_name and object_b.get("name") == state.object_b_name and _same_location(object_a.get("location"), latest[state.object_a_name]) and _same_location(object_b.get("location"), latest[state.object_b_name])
+
+
 def next_required_action(state: ControllerState) -> Dict[str, Any]:
     if state.before is None:
         return {"kind": "evidence", "tool": "inspect_object_relationship", "arguments": {"file_name": state.file_name, "object1_name": state.object_a_name, "object2_name": state.object_b_name}}
@@ -122,12 +136,17 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
 
 
 def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    return _relationship_matches_target(state, relationship)
+    if _relationship_matches_target(state, relationship):
+        return True
+    # During recovery, successful write receipts can prove the object positions
+    # even when the persisted derived target was based on a pre-crash coordinate
+    # frame. The fresh relationship still has to identify both authorized objects.
+    return bool(required_moves(state)) and _writes_match_relationship(state, relationship)
 
 
 def record_after(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    """Accept fresh evidence only when it proves the target; otherwise leave state unchanged."""
-    if required_moves(state):
+    """Accept fresh evidence only when it proves the target or recorded writes."""
+    if not isinstance(relationship, dict):
         return False
     if not state.writes and not _relationship_matches_target(state, state.before):
         return False
