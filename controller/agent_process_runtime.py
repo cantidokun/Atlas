@@ -75,7 +75,13 @@ class AtlasAgentProcessRuntime:
         if classified.runtime is not self.runtime:
             raise ValueError("classified route belongs to a different agent-process runtime")
 
-        current = self.classify(classified.request)
+        try:
+            current = self.classify(classified.request)
+        except RuntimeError as exc:
+            if str(exc).startswith("multiple controller capabilities matched:"):
+                raise ValueError("classified capability changed since classification") from exc
+            raise
+
         if not current.controller_owned:
             raise ValueError("classified route is no longer controller-owned")
         if current.route.selection.name != classified.route.selection.name:
