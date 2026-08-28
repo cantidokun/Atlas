@@ -1,10 +1,4 @@
-"""Durable runtime state for resumable Atlas futures.
-
-This layer persists only controller state, the immutable plan digest, and the
-runtime-continuation integrity receipt. It does not persist executable
-callables or allow a persisted snapshot to define a new future. The caller
-must supply the original FutureStep list when resuming.
-"""
+"""Durable runtime state for resumable Atlas futures."""
 
 from __future__ import annotations
 
@@ -59,8 +53,11 @@ class FutureRuntimeStateStore:
     def load(self) -> Dict[str, Any]:
         if not self.path.exists():
             raise FileNotFoundError(self.path)
-        with self.path.open("r", encoding="utf-8") as handle:
-            envelope = json.load(handle)
+        try:
+            with self.path.open("r", encoding="utf-8") as handle:
+                envelope = json.load(handle)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise RuntimeError("Future runtime state is not valid JSON.") from exc
         if not isinstance(envelope, dict) or envelope.get("version") != self.VERSION:
             raise RuntimeError("Unsupported or invalid future runtime state.")
         snapshot = envelope.get("snapshot")
@@ -68,8 +65,11 @@ class FutureRuntimeStateStore:
             raise RuntimeError("Future runtime state is missing its snapshot.")
         if envelope.get("plan_digest") != snapshot.get("plan_digest"):
             raise RuntimeError("Future runtime state digest is inconsistent.")
-        if "runtime_integrity" in envelope:
-            RuntimeIntegrity.from_dict(envelope["runtime_integrity"])
+        integrity_payload = envelope.get("runtime_integrity")
+        if integrity_payload is not None:
+            if not isinstance(integrity_payload, dict):
+                raise RuntimeError("Future runtime integrity receipt is invalid.")
+            RuntimeIntegrity.from_dict(integrity_payload)
         return envelope
 
     def resume(self, steps: List[FutureStep]) -> FutureExecutionController:
