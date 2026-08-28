@@ -22,7 +22,11 @@ class DurableProductionSequenceRehydrator:
         if isinstance(registry_snapshot_or_bundle, DurableProductionPersistenceBundle):
             if checkpoint_snapshot is not None:
                 raise TypeError("checkpoint snapshot must be omitted when using a persistence bundle")
-            bundle = registry_snapshot_or_bundle
+            # Revalidate the bundle at the orchestration boundary so callers cannot
+            # mutate its nested snapshots after construction and bypass integrity checks.
+            bundle = DurableProductionPersistenceBundle.from_snapshot(
+                registry_snapshot_or_bundle.snapshot()
+            )
             registry_snapshot = bundle.registry_snapshot
             checkpoint_snapshot = bundle.checkpoint_snapshot
         else:
