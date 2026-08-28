@@ -120,9 +120,10 @@ class DurableProductionOperationSequence:
             result = operation.run(max_steps=max_steps)
             results.append(result)
             if result.state is ProductionOperationState.BLOCKED or result.receipt is None:
-                self.checkpoint = DurableProductionSequenceCheckpoint._from_snapshots(receipt_snapshots, operation_index)
+                blocked_checkpoint = DurableProductionSequenceCheckpoint._from_snapshots(receipt_snapshots, operation_index)
                 if checkpoint_sink is not None:
-                    checkpoint_sink(self.checkpoint)
+                    checkpoint_sink(blocked_checkpoint)
+                self.checkpoint = blocked_checkpoint
                 return DurableProductionSequenceResult(
                     ProductionOperationState.BLOCKED,
                     tuple(results),
@@ -130,9 +131,10 @@ class DurableProductionOperationSequence:
                     f"durable production sequence blocked at step {operation_index + 1}: {result.reason}",
                 )
             receipt_snapshots = receipt_snapshots + (result.receipt.snapshot(),)
-            self.checkpoint = DurableProductionSequenceCheckpoint._from_snapshots(receipt_snapshots, operation_index + 1)
+            next_checkpoint = DurableProductionSequenceCheckpoint._from_snapshots(receipt_snapshots, operation_index + 1)
             if checkpoint_sink is not None:
-                checkpoint_sink(self.checkpoint)
+                checkpoint_sink(next_checkpoint)
+            self.checkpoint = next_checkpoint
         return DurableProductionSequenceResult(
             ProductionOperationState.COMPLETED,
             tuple(results),
