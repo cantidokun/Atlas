@@ -19,14 +19,7 @@ from planning.registry_bound_durable_production_operation_sequence import (
 class ProductionPersistenceResumeLifecycle:
     """Load and resume a persisted production sequence against canonical registry state."""
 
-    def __init__(
-        self,
-        registry: DigitalTwinRegistry,
-        operations: Iterable[Any],
-        bundle: DurableProductionPersistenceBundle,
-        persistence_store: Any = None,
-        resume_request: ProductionResumeRequest | None = None,
-    ) -> None:
+    def __init__(self, registry: DigitalTwinRegistry, operations: Iterable[Any], bundle: DurableProductionPersistenceBundle, persistence_store: Any = None, resume_request: ProductionResumeRequest | None = None) -> None:
         if not isinstance(registry, DigitalTwinRegistry):
             raise TypeError("registry must be a DigitalTwinRegistry")
         if not isinstance(bundle, DurableProductionPersistenceBundle):
@@ -39,47 +32,18 @@ class ProductionPersistenceResumeLifecycle:
         self.bundle = DurableProductionPersistenceBundle.from_snapshot(bundle.snapshot())
         self.persistence_store = persistence_store
         self.resume_request = resume_request
-        self.sequence: RegistryBoundDurableProductionOperationSequence = (
-            DurableProductionSequenceRehydrator(registry).rehydrate(
-                tuple(operations), self.bundle
-            )
-        )
+        self.sequence: RegistryBoundDurableProductionOperationSequence = DurableProductionSequenceRehydrator(registry).rehydrate(tuple(operations), self.bundle)
         if self.resume_request is not None:
             self._validate_resume_request(self.resume_request)
 
     @classmethod
-    def from_bundle(
-        cls,
-        registry: DigitalTwinRegistry,
-        operations: Iterable[Any],
-        bundle: DurableProductionPersistenceBundle,
-        persistence_store: Any = None,
-        resume_request: ProductionResumeRequest | None = None,
-    ) -> "ProductionPersistenceResumeLifecycle":
-        return cls(
-            registry,
-            operations,
-            bundle,
-            persistence_store=persistence_store,
-            resume_request=resume_request,
-        )
+    def from_bundle(cls, registry: DigitalTwinRegistry, operations: Iterable[Any], bundle: DurableProductionPersistenceBundle, persistence_store: Any = None, resume_request: ProductionResumeRequest | None = None) -> "ProductionPersistenceResumeLifecycle":
+        return cls(registry, operations, bundle, persistence_store=persistence_store, resume_request=resume_request)
 
     @classmethod
-    def from_persistence_store(
-        cls,
-        registry: DigitalTwinRegistry,
-        operations: Iterable[Any],
-        store: Any,
-        resume_request: ProductionResumeRequest | None = None,
-    ) -> "ProductionPersistenceResumeLifecycle":
+    def from_persistence_store(cls, registry: DigitalTwinRegistry, operations: Iterable[Any], store: Any, resume_request: ProductionResumeRequest | None = None) -> "ProductionPersistenceResumeLifecycle":
         bundle = store.load()
-        return cls(
-            registry,
-            operations,
-            bundle,
-            persistence_store=store,
-            resume_request=resume_request,
-        )
+        return cls(registry, operations, bundle, persistence_store=store, resume_request=resume_request)
 
     @property
     def checkpoint(self):
@@ -96,12 +60,7 @@ class ProductionPersistenceResumeLifecycle:
         plan_id = registry_snapshot.get("plan_id")
         if not all(isinstance(value, str) for value in (sequence_id, plan_id, revision)):
             raise ValueError("persisted resume identity is incomplete")
-        return ProductionResumeCheckpoint(
-            sequence_id=sequence_id,
-            plan_id=plan_id,
-            digital_twin_revision=revision,
-            completed_operation_index=self.next_operation_index - 1,
-        )
+        return ProductionResumeCheckpoint(sequence_id=sequence_id, plan_id=plan_id, digital_twin_revision=revision, completed_operation_index=self.next_operation_index - 1)
 
     def _validate_resume_request(self, request: ProductionResumeRequest) -> None:
         validate_production_resume(self._resume_checkpoint(), request)
@@ -122,7 +81,4 @@ class ProductionPersistenceResumeLifecycle:
     def run(self, max_steps: int = 16):
         if self.resume_request is not None:
             self._validate_resume_request(self.resume_request)
-        return self.sequence.run(
-            max_steps=max_steps,
-            checkpoint_sink=self._persist_checkpoint if self.persistence_store is not None else None,
-        )
+        return self.sequence.run(max_steps=max_steps, checkpoint_sink=self._persist_checkpoint if self.persistence_store is not None else None)
