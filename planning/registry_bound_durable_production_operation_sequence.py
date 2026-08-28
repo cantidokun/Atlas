@@ -1,5 +1,4 @@
 """Registry-bound durable multi-operation production sequencing."""
-from __future__ import annotations
 
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.durable_production_operation_sequence import DurableProductionOperationSequence
@@ -19,7 +18,11 @@ class RegistryBoundDurableProductionOperationSequence:
         self._validate_registry_binding()
 
     def _validate_registry_binding(self) -> None:
-        for snapshot in self._sequence.checkpoint.completed_receipts:
+        completed = self._sequence.checkpoint.completed_receipts
+        if len(completed) > len(self._sequence.operations):
+            raise ValueError("durable sequence checkpoint contains too many completed operations")
+
+        for index, snapshot in enumerate(completed):
             twin_id = snapshot.get("twin_id")
             revision_id = snapshot.get("revision_id")
             if not twin_id or not revision_id:
@@ -27,6 +30,18 @@ class RegistryBoundDurableProductionOperationSequence:
             canonical = self.registry.canonical_revision(twin_id)
             if canonical.revision_id != revision_id:
                 raise ValueError("durable sequence checkpoint is bound to a stale Digital Twin revision")
+
+            operation = self._sequence.operations[index]
+            task_checkpoint = operation.task.checkpoint
+            if (
+                snapshot.get("task_id") != task_checkpoint.task_id
+                or twin_id != task_checkpoint.twin_id
+                or revision_id != task_checkpoint.revision_id
+                or snapshot.get("checkpoint_digest") != task_checkpoint.checkpoint_digest
+            ):
+                raise ValueError(
+                    "completed receipt is not bound to its corresponding production operation"
+                )
 
         for operation in self._sequence.operations[self._sequence.next_operation_index:]:
             self.registry.require_canonical_revision(operation.task.revision)
