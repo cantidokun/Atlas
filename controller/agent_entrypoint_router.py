@@ -7,6 +7,7 @@ provider work, create authorizations, or alter the legacy controller path.
 from dataclasses import dataclass
 from typing import Optional
 
+from controller.agent_task_request import AgentTaskRequest
 from controller.atlas_controller_runtime import AtlasControllerRuntime
 from controller.capability_selection import CapabilitySelection
 
@@ -48,3 +49,9 @@ class AgentEntrypointRouter:
             route="controller" if selection.matched else "agent",
             selection=selection,
         )
+
+    def route_request(self, request: AgentTaskRequest) -> AgentEntrypointRoute:
+        """Route one explicit agent task request without reconstructing its fields."""
+        if not isinstance(request, AgentTaskRequest):
+            raise TypeError("request must be an AgentTaskRequest instance")
+        return self.route(**request.routing_kwargs())
