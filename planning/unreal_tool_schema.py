@@ -31,6 +31,9 @@ UNREAL_TOOL_SCHEMAS = {
     "set_blueprint_metadata": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "asset_path": str, "metadata_key": str, "metadata_value": str}),
     "compile_blueprint": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "asset_path": str}),
     "verify_blueprint_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "asset_path": str, "expected_compile_status": str}),
+    "inspect_render_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
+    "configure_render": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "width": int, "height": int, "start_frame": int, "end_frame": int, "output_directory": str, "output_format": str}),
+    "verify_render_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "width": int, "height": int, "start_frame": int, "end_frame": int, "output_directory": str, "output_format": str}),
 }
 
 

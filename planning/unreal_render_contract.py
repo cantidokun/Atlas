@@ -40,3 +40,23 @@ def normalize_render_config(value: Mapping[str, Any]) -> UnrealRenderConfig:
     if not isinstance(value["output_directory"], str) or not isinstance(value["output_format"], str):
         raise TypeError("output_directory and output_format must be strings")
     return UnrealRenderConfig(**dict(value))
+
+
+def verify_render_config(evidence, expected):
+    """Independently verify fresh Unreal render-state evidence."""
+    observed = evidence.observed_state
+    state = observed.get("render") if isinstance(observed, Mapping) else None
+    if not isinstance(state, Mapping):
+        raise ValueError("render evidence is missing render state")
+    actual = normalize_render_config({
+        "width": state.get("width"),
+        "height": state.get("height"),
+        "start_frame": state.get("start_frame"),
+        "end_frame": state.get("end_frame"),
+        "output_directory": state.get("output_directory"),
+        "output_format": state.get("output_format"),
+    })
+    expected_config = normalize_render_config(expected)
+    if actual != expected_config:
+        raise ValueError(f"render state does not match expected configuration: expected={expected_config!r}, observed={actual!r}")
+    return evidence

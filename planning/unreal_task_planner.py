@@ -35,6 +35,7 @@ class UnrealTaskPlanner:
     def plan_actor_location_sequence(self, intent, locations): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
     def plan_sequencer_playback_range(self, intent, start_frame, end_frame): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_sequencer_playback_range(intent, start_frame, end_frame))
     def plan_blueprint_compile(self, intent, asset_path): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_blueprint_compile(intent, asset_path))
+    def plan_render_configuration(self, intent, render_config): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_render_configuration(intent, render_config))
     def plan_blueprint_metadata_mutation(self, intent, asset_path, metadata_key, metadata_value): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_blueprint_metadata_mutation(intent, asset_path, metadata_key, metadata_value))
     def plan_composite_actor_production(self, intent: UnrealTaskIntent, composite: CompositeActorProductionOperation) -> UnrealTaskPlan:
         self._validate_intent(intent)
@@ -97,6 +98,16 @@ class UnrealAgentPlanBuilder:
         ids=self._require_targets(intent); start_frame=self._validate_frame(start_frame,"start_frame"); end_frame=self._validate_frame(end_frame,"end_frame")
         if start_frame > end_frame: raise ValueError("start_frame must not exceed end_frame")
         return (self._operation(UnrealCapability.SEQUENCER,UnrealOperationKind.READ,"inspect_sequencer_state",ids),self._operation(UnrealCapability.SEQUENCER,UnrealOperationKind.WRITE,"set_sequencer_playback_range",ids,{"start_frame":start_frame,"end_frame":end_frame}),self._operation(UnrealCapability.SEQUENCER,UnrealOperationKind.VERIFY,"verify_sequencer_playback_range",ids,{"expected_start_frame":start_frame,"expected_end_frame":end_frame}))
+    def for_render_configuration(self, intent, render_config):
+        ids=self._require_targets(intent)
+        from planning.unreal_render_contract import normalize_render_config
+        config=normalize_render_config(render_config)
+        payload={"width":config.width,"height":config.height,"start_frame":config.start_frame,"end_frame":config.end_frame,"output_directory":config.output_directory,"output_format":config.output_format}
+        return (
+            self._operation(UnrealCapability.RENDER,UnrealOperationKind.READ,"inspect_render_state",ids),
+            self._operation(UnrealCapability.RENDER,UnrealOperationKind.WRITE,"configure_render",ids,payload),
+            self._operation(UnrealCapability.RENDER,UnrealOperationKind.VERIFY,"verify_render_state",ids,payload),
+        )
     def for_blueprint_compile(self, intent, asset_path):
         ids=self._require_targets(intent); asset_path=self._validate_asset_path(asset_path)
         return (

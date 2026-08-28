@@ -12,6 +12,7 @@ from planning.unreal_niagara_verifier import verify_niagara_variant
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
 from planning.unreal_sequencer_verifier import verify_sequencer_playback_range
+from planning.unreal_render_contract import verify_render_config
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_tool_schema import validate_unreal_tool_call
 
@@ -194,7 +195,7 @@ class UnrealPlanExecutor:
     _DISPATCH = {UnrealOperationKind.READ: "inspect", UnrealOperationKind.WRITE: "apply_authorized", UnrealOperationKind.VERIFY: "verify"}
     @staticmethod
     def _expected_verifier(write_operation):
-        return {"set_actor_location":"verify_actor_location","set_actor_rotation":"verify_actor_rotation","set_actor_scale":"verify_actor_scale","apply_material_variant":"verify_material_variant","apply_niagara_variant":"verify_niagara_variant","set_sequencer_playback_range":"verify_sequencer_playback_range","compile_blueprint":"verify_blueprint_state"}.get(write_operation.name)
+        return {"set_actor_location":"verify_actor_location","set_actor_rotation":"verify_actor_rotation","set_actor_scale":"verify_actor_scale","apply_material_variant":"verify_material_variant","apply_niagara_variant":"verify_niagara_variant","set_sequencer_playback_range":"verify_sequencer_playback_range","configure_render":"verify_render_state","compile_blueprint":"verify_blueprint_state"}.get(write_operation.name)
     @classmethod
     def _validate_execution_shape(cls, plan):
         for index, operation in enumerate(plan.operations):
@@ -243,6 +244,7 @@ class UnrealPlanExecutor:
         if write_operation.name=="apply_material_variant": return {"material_variant":dict(a["material_variant"])}
         if write_operation.name=="apply_niagara_variant": return {"niagara_variant":dict(a["niagara_variant"])}
         if write_operation.name=="set_sequencer_playback_range": return {"start_frame":a["start_frame"],"end_frame":a["end_frame"]}
+        if write_operation.name=="configure_render": return {key:a[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")}
         return {}
     @staticmethod
     def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range"}
@@ -256,6 +258,7 @@ class UnrealPlanExecutor:
             if expected_material_variant is not None: evidence=verify_material_variant(evidence,expected_material_variant)
             if expected_niagara_variant is not None: evidence=verify_niagara_variant(evidence,expected_niagara_variant)
             if expected_start_frame is not None and expected_end_frame is not None: evidence=verify_sequencer_playback_range(evidence,expected_start_frame,expected_end_frame)
+            if operation.name == "verify_render_state": evidence=verify_render_config(evidence, {key: operation.arguments[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")})
             if self._is_semantically_verified(operation,evidence): evidence=replace(evidence,verified=True)
         return evidence
     @staticmethod

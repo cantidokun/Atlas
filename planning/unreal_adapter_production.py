@@ -60,6 +60,7 @@ class UnrealAdapterProduction:
             "verify_niagara_variant": (UnrealCapability.NIAGARA,"inspect_niagara_state"),
             "verify_sequencer_playback_range": (UnrealCapability.SEQUENCER,"inspect_sequencer_state"),
             "verify_blueprint_state": (UnrealCapability.BLUEPRINT,"inspect_blueprint_state"),
+            "verify_render_state": (UnrealCapability.RENDER,"inspect_render_state"),
         }
         mapped=read_map.get(operation.name)
         if mapped:

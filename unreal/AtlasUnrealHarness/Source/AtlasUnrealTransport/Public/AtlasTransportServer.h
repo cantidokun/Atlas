@@ -49,9 +49,8 @@ private:
     static bool FindSequencerPlaybackRange(int32& OutStartFrame, int32& OutEndFrame, FString& OutError);
     static bool InspectBlueprintState(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool CompileBlueprint(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
-    static bool BuildBlueprintState(const FString& AssetPath,TSharedPtr<FJsonObject>& OutBlueprintState,FString& OutError);
-    static bool InspectRenderState(const TArray<FString>& EntityIds,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool InspectRenderState(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool ConfigureRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
-    static bool BuildRenderState(TSharedPtr<FJsonObject>& OutRenderState,FString& OutError);
+    static bool BuildBlueprintState(const FString& AssetPath,TSharedPtr<FJsonObject>& OutBlueprintState,FString& OutError);
     static AActor* FindActorByEntityId(const FString& EntityId);
 };
