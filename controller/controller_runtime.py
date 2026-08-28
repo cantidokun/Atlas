@@ -1,9 +1,10 @@
 """Deterministic execution gate for the current authorized midpoint task."""
 
 from copy import deepcopy
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 from controller_state import ControllerState, record_after, record_before, record_write
+from controller_checkpoint import snapshot_controller_state, restore_controller_state
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 _FAILURE_STATUSES = {"error", "failed", "failure"}
@@ -15,23 +16,38 @@ class ControllerRuntime:
     def __init__(self, file_name: str):
         self.state = ControllerState(file_name=file_name, object_a_name="Goal_Left_post", object_b_name="Goal_Right_Post")
 
+    @classmethod
+    def from_checkpoint(cls, payload: Dict[str, Any], fresh_evidence: Optional[Dict[str, Any]] = None) -> "ControllerRuntime":
+        """Restore controller history; optional evidence is reconciled, never trusted historically."""
+        state = restore_controller_state(payload)
+        state.after = None
+        runtime = cls(state.file_name)
+        runtime.state = state
+        if fresh_evidence is not None:
+            if not isinstance(fresh_evidence, dict):
+                raise ValueError("Fresh Blender evidence must be an object.")
+            if fresh_evidence.get("error") or fresh_evidence.get("status") in _FAILURE_STATUSES:
+                raise ValueError("Fresh Blender evidence is unavailable.")
+            if state.writes:
+                record_after(state, deepcopy(fresh_evidence))
+        return runtime
+
+    def checkpoint(self) -> Dict[str, Any]:
+        return snapshot_controller_state(self.state)
+
     def step(self, execute: ToolExecutor) -> Dict[str, Any]:
-        """Execute exactly the next required controller action."""
         action = deepcopy(self._next_action())
         if action["kind"] == "complete":
             return {"status": "complete", "phase": self.state.phase}
-
         try:
             result = execute(action["tool"], deepcopy(action["arguments"]))
         except Exception as exc:
             return self._error(type(exc).__name__, str(exc))
-
         if not isinstance(result, dict):
             return self._error("InvalidToolResult", "Tool result must be an object.")
         result = deepcopy(result)
         if result.get("error") or result.get("status") in _FAILURE_STATUSES:
             return self._error("ToolExecutionError", result)
-
         try:
             if action["kind"] == "evidence":
                 record_before(self.state, result)
@@ -43,7 +59,6 @@ class ControllerRuntime:
                 record_after(self.state, result)
         except (TypeError, ValueError, KeyError) as exc:
             return self._error(type(exc).__name__, str(exc))
-
         return {"status": "complete" if self.state.complete else "progress", "phase": self.state.phase, "next_action": deepcopy(self._next_action())}
 
     def _error(self, error_type: str, message: Any) -> Dict[str, Any]:
