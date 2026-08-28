@@ -9,22 +9,67 @@ from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from planning.agent_controller_production_request import AgentControllerProductionRequest
 from planning.unreal_adapter_production import UnrealAdapterProduction
+from planning.unreal_composite_operation import build_composite_actor_operation
+from planning.unreal_plan_authorization import UnrealPlanAuthorization
+from planning.unreal_plan_executor import UnrealPlanExecutor
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
-from planning.unreal_production_operation import build_unreal_production_plan
+from planning.unreal_production_operation import UnrealProductionSpec, build_unreal_production_plan
 from planning.unreal_production_planning_boundary import authorize_production_plan
 from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeAdapter
-from planning.unreal_plan_executor import UnrealPlanExecutor
-from planning.unreal_task_planner import UnrealTaskPlan
-from planning.unreal_transport_named_pipe import NamedPipeTransportError
+from planning.unreal_render_contract import UnrealRenderConfig
+from planning.unreal_transport_named_pipe import NamedPipeTransportError, WindowsNamedPipeTransport
+from planning.unreal_task_planner import UnrealTaskIntent
 
 
 pytestmark = pytest.mark.integration
 
-ENTITY_ID = "ATLAS_BLUEPRINT_TEST"
-ASSET_PATH = os.environ.get(
-    "ATLAS_TEST_BLUEPRINT_ASSET",
-    "/Game/AtlasTest/BP_AtlasTest.BP_AtlasTest",
-)
+ENTITY_ID = "FIELD_SURFACE"
+
+
+def _intent(intent_id: str) -> UnrealTaskIntent:
+    return UnrealTaskIntent(
+        intent_id=intent_id,
+        description="agent-originated Unreal production request",
+        target_entity_ids=(ENTITY_ID,),
+    )
+
+
+def _spec() -> UnrealProductionSpec:
+    return UnrealProductionSpec(
+        composite=build_composite_actor_operation(
+            [ENTITY_ID],
+            [
+                {"name": "set_actor_location", "location": {"x": 10.0, "y": 20.0, "z": 30.0}},
+                {"name": "set_actor_rotation", "rotation": {"pitch": 0.0, "yaw": 15.0, "roll": 0.0}},
+                {"name": "set_actor_scale", "scale": {"x": 1.1, "y": 1.1, "z": 1.1}},
+                {"name": "apply_material_variant", "variant": "liquid_surface"},
+                {"name": "apply_niagara_variant", "variant": "goal_burst"},
+            ],
+        ),
+        start_frame=1,
+        end_frame=24,
+        render_config=UnrealRenderConfig(
+            width=1280,
+            height=720,
+            start_frame=1,
+            end_frame=24,
+            output_directory="Saved/AtlasProductionOutput",
+            output_format="png",
+        ),
+    )
+
+
+def _integration() -> UnrealProductionControllerIntegration:
+    return UnrealProductionControllerIntegration(
+        UnrealProductionRuntimeAdapter(
+            UnrealPlanExecutor(
+                UnrealAdapterProduction(
+                    WindowsNamedPipeTransport(),
+                    "agent-controller-real-integration",
+                )
+            )
+        )
+    )
 
 
 def _assert_transport_available(exc: Exception) -> None:
@@ -40,50 +85,11 @@ def _assert_transport_available(exc: Exception) -> None:
         pytest.skip("Unreal Editor transport is unavailable")
 
 
-def _intent(intent_id: str):
-    from planning.unreal_agent import UnrealTaskIntent
-
-    return UnrealTaskIntent(
-        intent_id=intent_id,
-        description="agent-originated Unreal production request",
-        target_entity_ids=(ENTITY_ID,),
-    )
-
-
-def _spec():
-    from planning.unreal_production_operation import UnrealProductionSpec
-
-    return UnrealProductionSpec(
-        entity_ids=(ENTITY_ID,),
-        location=(1.0, 2.0, 3.0),
-        rotation=(0.0, 0.0, 0.0),
-        scale=(1.0, 1.0, 1.0),
-        material_variant="Default",
-        niagara_variant="Default",
-    )
-
-
-def _integration() -> UnrealProductionControllerIntegration:
-    from planning.unreal_transport_named_pipe import WindowsNamedPipeTransport
-
-    transport = WindowsNamedPipeTransport()
-    return UnrealProductionControllerIntegration(
-        UnrealProductionRuntimeAdapter(
-            UnrealPlanExecutor(
-                UnrealAdapterProduction(transport, "agent-controller-real-integration")
-            )
-        )
-    )
-
-
 def test_real_agent_originated_unreal_request_reaches_live_production_boundary():
     """Send an explicit agent handoff through the controller and into live Unreal."""
     try:
         production = build_unreal_production_plan(_intent("real-agent-production"), _spec())
-        authorized = authorize_production_plan(
-            production,
-            "real-agent-production-auth",
-        )
+        authorized = authorize_production_plan(production, "real-agent-production-auth")
         integration = _integration()
         process = AtlasAgentProcessRuntime(unreal_production=integration)
         entrypoint = AtlasAgentEntrypointRuntime(process)
