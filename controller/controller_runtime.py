@@ -3,8 +3,8 @@
 from copy import deepcopy
 from typing import Any, Callable, Dict, Optional
 
-from controller_state import ControllerState, record_after, record_before, record_write
-from controller_checkpoint import snapshot_controller_state, restore_controller_state
+from .controller_state import ControllerState, record_after, record_before, record_write
+from .controller_checkpoint import snapshot_controller_state, restore_controller_state
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 _FAILURE_STATUSES = {"error", "failed", "failure"}
@@ -14,7 +14,7 @@ class ControllerRuntime:
     """Run the authorized midpoint workflow without delegating sequencing to Qwen."""
 
     def __init__(self, file_name: str):
-        self.state = ControllerState(file_name=file_name, object_a_name="Goal_Left_post", object_b_name="Goal_Right_Post")
+        self.state = ControllerState(file_name=file_name, object_a_name="Goal_Left_post", object_b_name="Goal_Right_post")
 
     @classmethod
     def from_checkpoint(cls, payload: Dict[str, Any], fresh_evidence: Optional[Dict[str, Any]] = None) -> "ControllerRuntime":
@@ -65,5 +65,5 @@ class ControllerRuntime:
         return {"status": "error", "phase": self.state.phase, "error": {"type": error_type, "message": deepcopy(message)}}
 
     def _next_action(self) -> Dict[str, Any]:
-        from controller_state import next_required_action
+        from .controller_state import next_required_action
         return next_required_action(self.state)
