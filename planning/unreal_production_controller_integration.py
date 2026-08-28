@@ -31,42 +31,55 @@ class UnrealProductionControllerIntegration:
         if not isinstance(runtime, UnrealProductionRuntimeAdapter):
             raise TypeError("runtime must be a UnrealProductionRuntimeAdapter instance")
         self._runtime = runtime
+        self._last_event: Optional[UnrealProductionControllerEvent] = None
 
     @property
     def complete(self) -> bool:
         return self._runtime.complete
 
+    @property
+    def last_event(self) -> Optional[UnrealProductionControllerEvent]:
+        return self._last_event
+
     def start(self, authorized: UnrealAuthorizedProductionPlan) -> UnrealProductionControllerEvent:
-        return UnrealProductionControllerEvent(
+        event = UnrealProductionControllerEvent(
             operation="start",
             snapshot=self._runtime.start(authorized),
         )
+        self._last_event = event
+        return event
 
     def reassess(
         self,
         authorization: UnrealPlanAuthorization,
     ) -> UnrealProductionControllerEvent:
-        return UnrealProductionControllerEvent(
+        event = UnrealProductionControllerEvent(
             operation="reassess",
             snapshot=self._runtime.reassess(authorization),
         )
+        self._last_event = event
+        return event
 
     def resume(
         self,
         authorization: UnrealPlanAuthorization,
     ) -> UnrealProductionControllerEvent:
-        return UnrealProductionControllerEvent(
+        event = UnrealProductionControllerEvent(
             operation="resume_recovery",
             snapshot=self._runtime.resume(authorization),
         )
+        self._last_event = event
+        return event
 
     def next_required_authorization(self) -> Optional[str]:
         """Return the next explicit authorization class, if one is required."""
-        loop = self._runtime.loop
         if self._runtime.complete:
             return None
-        if loop.waiting_for_replacement:
-            return "replacement"
-        if loop.waiting_for_reassessment:
+        if self._last_event is None:
+            return "production"
+        state = self._last_event.snapshot.state
+        if state == "awaiting_reassessment":
             return "reassessment"
-        return "production"
+        if state == "awaiting_replacement":
+            return "replacement"
+        return None
