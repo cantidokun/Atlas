@@ -114,6 +114,7 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
         return {"kind": "evidence", "tool": "inspect_object_relationship", "arguments": {"file_name": state.file_name, "object1_name": state.object_a_name, "object2_name": state.object_b_name}}
     pending = required_moves(state)
     if pending:
+        state.write_retry_pending = True
         return {"kind": "write", **pending[0]}
     if state.after is None or not after_matches_target(state):
         return {"kind": "verification", "tool": "inspect_object_relationship", "arguments": {"file_name": state.file_name, "object1_name": state.object_a_name, "object2_name": state.object_b_name}}
