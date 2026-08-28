@@ -54,7 +54,7 @@ def test_integration_exposes_replacement_after_fresh_reassessment():
 
     reassessment_plan = build_production_reassessment_plan(
         production,
-        integration._runtime.loop._failure,
+        integration.snapshot.failure,
     )
     event = integration.reassess(
         UnrealPlanAuthorization.issue(reassessment_plan, "reassessment-auth")
@@ -72,12 +72,13 @@ def test_integration_resumes_exact_replacement_and_clears_authorization_requirem
     integration = _integration(transport)
     integration.start(authorize_production_plan(production, "production-auth"))
 
-    failure = integration._runtime.loop._failure
+    failure = integration.snapshot.failure
     reassessment_plan = build_production_reassessment_plan(production, failure)
-    integration.reassess(UnrealPlanAuthorization.issue(reassessment_plan, "reassessment-auth"))
-    prepared = integration._runtime.loop._prepared_recovery
+    reassessment = integration.reassess(
+        UnrealPlanAuthorization.issue(reassessment_plan, "reassessment-auth")
+    )
     replacement_auth = issue_production_replacement_authorization(
-        prepared.replacement_plan,
+        reassessment.snapshot.recovery.replacement_plan,
         "replacement-auth",
     )
     transport.fail_at = 999
@@ -93,3 +94,9 @@ def test_integration_resumes_exact_replacement_and_clears_authorization_requirem
 def test_integration_rejects_non_runtime_dependencies():
     with pytest.raises(TypeError, match="runtime must be a UnrealProductionRuntimeAdapter"):
         UnrealProductionControllerIntegration(object())
+
+
+def test_integration_exposes_runtime_snapshot_without_internal_loop_access():
+    integration = _integration(ProductionTransport())
+    assert integration.snapshot.state == "not_started"
+    assert not hasattr(integration, "loop")
