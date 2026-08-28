@@ -19,6 +19,8 @@
 #include "UObject/MetaData.h"
 #include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -59,6 +61,60 @@ namespace
         }
         Actor->Tags.Add(FName(*(Prefix + VariantName)));
         Actor->MarkPackageDirty();
+    }
+
+    FString RenderConfigFilePath()
+    {
+        return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AtlasRenderConfig.json"));
+    }
+
+    void SetDefaultRenderState(TSharedPtr<FJsonObject>& State)
+    {
+        State = MakeShareable(new FJsonObject);
+        State->SetNumberField(TEXT("width"), 1920);
+        State->SetNumberField(TEXT("height"), 1080);
+        State->SetNumberField(TEXT("start_frame"), 1);
+        State->SetNumberField(TEXT("end_frame"), 1);
+        State->SetStringField(TEXT("output_directory"), TEXT("Saved/AtlasRenderOutput"));
+        State->SetStringField(TEXT("output_format"), TEXT("png"));
+    }
+
+    bool LoadRenderStateFromDisk(TSharedPtr<FJsonObject>& State, FString& Error)
+    {
+        const FString Filename = RenderConfigFilePath();
+        FString JsonText;
+        if (!FFileHelper::LoadFileToString(JsonText, *Filename))
+        {
+            SetDefaultRenderState(State);
+            return true;
+        }
+
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+        if (!FJsonSerializer::Deserialize(Reader, State) || !State.IsValid())
+        {
+            Error = FString::Printf(TEXT("Failed to parse persisted render configuration: %s"), *Filename);
+            return false;
+        }
+        return true;
+    }
+
+    bool SaveRenderStateToDisk(const TSharedPtr<FJsonObject>& State, FString& Error)
+    {
+        FString JsonText;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonText);
+        if (!FJsonSerializer::Serialize(State.ToSharedRef(), Writer))
+        {
+            Error = TEXT("Failed to serialize render configuration");
+            return false;
+        }
+
+        const FString Filename = RenderConfigFilePath();
+        if (!FFileHelper::SaveStringToFile(JsonText, *Filename))
+        {
+            Error = FString::Printf(TEXT("Failed to persist render configuration: %s"), *Filename);
+            return false;
+        }
+        return true;
     }
 
     UWorld* GetActiveEditorWorld()
@@ -353,13 +409,83 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
         if(FMath::RoundToInt(StartFrame)!=StartFrame||FMath::RoundToInt(EndFrame)!=EndFrame){OutError=TEXT("expected_start_frame and expected_end_frame must be integers");return false;}
         if(StartFrame>EndFrame){OutError=TEXT("Sequencer start frame must not exceed end frame");return false;} return true;
     }
+    if (Request.OperationName == TEXT("inspect_render_state"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("read"))
+        {
+            OutError = TEXT("inspect_render_state requires render/read");
+            return false;
+        }
+        return true;
+    }
+    if (Request.OperationName == TEXT("configure_render"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("write"))
+        {
+            OutError = TEXT("configure_render requires render/write");
+            return false;
+        }
+        double Width = 0, Height = 0, StartFrame = 0, EndFrame = 0;
+        FString OutputDirectory, OutputFormat;
+        if (!Request.Arguments->TryGetNumberField(TEXT("width"), Width) ||
+            !Request.Arguments->TryGetNumberField(TEXT("height"), Height) ||
+            !Request.Arguments->TryGetNumberField(TEXT("start_frame"), StartFrame) ||
+            !Request.Arguments->TryGetNumberField(TEXT("end_frame"), EndFrame))
+        {
+            OutError = TEXT("width, height, start_frame, and end_frame must be numeric");
+            return false;
+        }
+        if (FMath::RoundToInt(Width) != Width || FMath::RoundToInt(Height) != Height ||
+            FMath::RoundToInt(StartFrame) != StartFrame || FMath::RoundToInt(EndFrame) != EndFrame)
+        {
+            OutError = TEXT("width, height, start_frame, and end_frame must be integers");
+            return false;
+        }
+        if (Width <= 0 || Height <= 0 || StartFrame > EndFrame)
+        {
+            OutError = TEXT("render resolution must be positive and start_frame must not exceed end_frame");
+            return false;
+        }
+        if (!Request.Arguments->TryGetStringField(TEXT("output_directory"), OutputDirectory) || OutputDirectory.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = TEXT("output_directory must be a non-empty string");
+            return false;
+        }
+        if (!Request.Arguments->TryGetStringField(TEXT("output_format"), OutputFormat) || OutputFormat.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = TEXT("output_format must be a non-empty string");
+            return false;
+        }
+        return true;
+    }
+    if (Request.OperationName == TEXT("verify_render_state"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("verify"))
+        {
+            OutError = TEXT("verify_render_state requires render/verify");
+            return false;
+        }
+        double Width = 0, Height = 0, StartFrame = 0, EndFrame = 0;
+        FString OutputDirectory, OutputFormat;
+        if (!Request.Arguments->TryGetNumberField(TEXT("width"), Width) ||
+            !Request.Arguments->TryGetNumberField(TEXT("height"), Height) ||
+            !Request.Arguments->TryGetNumberField(TEXT("start_frame"), StartFrame) ||
+            !Request.Arguments->TryGetNumberField(TEXT("end_frame"), EndFrame) ||
+            !Request.Arguments->TryGetStringField(TEXT("output_directory"), OutputDirectory) ||
+            !Request.Arguments->TryGetStringField(TEXT("output_format"), OutputFormat))
+        {
+            OutError = TEXT("verify_render_state requires the complete render configuration");
+            return false;
+        }
+        return true;
+    }
     OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName); return false;
 }
 
 bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
 {
     OutResponse.RequestId=Request.RequestId; OutResponse.OperationName=Request.OperationName; OutResponse.EntityIds=Request.EntityIds; OutResponse.Source=TEXT("unreal-editor-atlas-transport");
-    const bool bSupported = Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata");
+    const bool bSupported = Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata")||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("verify_render_state");
     if (!bSupported) { OutResponse.bSuccess=false; OutResponse.Error=FString::Printf(TEXT("Unsupported operation: %s"),*Request.OperationName); return false; }
     TSharedPtr<FGameThreadExecutionState> SharedState=MakeShareable(new FGameThreadExecutionState()); SharedState->Request=Request; SharedState->Response.RequestId=Request.RequestId; SharedState->Response.OperationName=Request.OperationName; SharedState->Response.EntityIds=Request.EntityIds; SharedState->Response.Source=TEXT("unreal-editor-atlas-transport");
     AsyncTask(ENamedThreads::GameThread,[SharedState](){FAtlasTransportServer::ExecuteOnGameThread(SharedState);});
@@ -390,6 +516,9 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     else if(S->Request.OperationName==TEXT("verify_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("set_sequencer_playback_range")) bTaskSuccess=SetSequencerPlaybackRange(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("verify_sequencer_playback_range")) bTaskSuccess=InspectSequencerState(S->Request.EntityIds,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("inspect_render_state")) bTaskSuccess=InspectRenderState(S->Request.EntityIds,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("configure_render")) bTaskSuccess=ConfigureRender(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("verify_render_state")) bTaskSuccess=InspectRenderState(S->Request.EntityIds,S->ObservedState,S->Error);
     else S->Error=FString::Printf(TEXT("Unsupported operation: %s"),*S->Request.OperationName);
     if(bTaskSuccess&&S->Error.IsEmpty()){S->Response.bSuccess=true;S->Response.ObservedState=S->ObservedState;S->bSuccess=true;}else{S->Response.bSuccess=false;S->Response.Error=S->Error.IsEmpty()?TEXT("Unknown error during Unreal operation"):S->Error;S->bSuccess=false;}
     S->bCompleted=true; S->CompletionEvent->Trigger();
@@ -656,6 +785,91 @@ bool FAtlasTransportServer::SetBlueprintMetadata(
     }
 
     return InspectBlueprintState(R, O, E);
+}
+
+bool FAtlasTransportServer::BuildRenderState(TSharedPtr<FJsonObject>& O, FString& E)
+{
+    if (!IsInGameThread() || !GEngine || IsEngineExitRequested())
+    {
+        E = TEXT("Engine unavailable or operation is not on the game thread");
+        return false;
+    }
+    return LoadRenderStateFromDisk(O, E);
+}
+
+bool FAtlasTransportServer::InspectRenderState(const TArray<FString>& IDs, TSharedPtr<FJsonObject>& O, FString& E)
+{
+    if (IDs.Num() == 0)
+    {
+        E = TEXT("inspect_render_state requires at least one entity_id");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> RenderState;
+    if (!BuildRenderState(RenderState, E)) return false;
+
+    TSharedPtr<FJsonObject> State = MakeShareable(new FJsonObject);
+    for (const FString& ID : IDs)
+    {
+        TSharedPtr<FJsonObject> Entry = MakeShareable(new FJsonObject);
+        Entry->SetStringField(TEXT("entity_id"), ID);
+        Entry->SetObjectField(TEXT("render"), RenderState);
+        State->SetObjectField(ID, Entry);
+    }
+    O = State;
+    return true;
+}
+
+bool FAtlasTransportServer::ConfigureRender(const FTransportRequest& R, TSharedPtr<FJsonObject>& O, FString& E)
+{
+    if (R.EntityIds.Num() == 0 || !R.Arguments.IsValid())
+    {
+        E = TEXT("configure_render requires valid entity_ids and arguments");
+        return false;
+    }
+
+    double Width = 0, Height = 0, StartFrame = 0, EndFrame = 0;
+    FString OutputDirectory, OutputFormat;
+    if (!R.Arguments->TryGetNumberField(TEXT("width"), Width) ||
+        !R.Arguments->TryGetNumberField(TEXT("height"), Height) ||
+        !R.Arguments->TryGetNumberField(TEXT("start_frame"), StartFrame) ||
+        !R.Arguments->TryGetNumberField(TEXT("end_frame"), EndFrame) ||
+        !R.Arguments->TryGetStringField(TEXT("output_directory"), OutputDirectory) ||
+        !R.Arguments->TryGetStringField(TEXT("output_format"), OutputFormat))
+    {
+        E = TEXT("configure_render requires the complete render configuration");
+        return false;
+    }
+
+    if (FMath::RoundToInt(Width) != Width || FMath::RoundToInt(Height) != Height ||
+        FMath::RoundToInt(StartFrame) != StartFrame || FMath::RoundToInt(EndFrame) != EndFrame)
+    {
+        E = TEXT("render configuration numeric fields must be integers");
+        return false;
+    }
+    if (Width <= 0 || Height <= 0 || StartFrame > EndFrame)
+    {
+        E = TEXT("render resolution must be positive and start_frame must not exceed end_frame");
+        return false;
+    }
+    OutputDirectory = OutputDirectory.TrimStartAndEnd();
+    OutputFormat = OutputFormat.TrimStartAndEnd().ToLower();
+    if (OutputDirectory.IsEmpty() || OutputFormat.IsEmpty())
+    {
+        E = TEXT("output_directory and output_format must not be empty");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> RenderState = MakeShareable(new FJsonObject);
+    RenderState->SetNumberField(TEXT("width"), FMath::RoundToInt(Width));
+    RenderState->SetNumberField(TEXT("height"), FMath::RoundToInt(Height));
+    RenderState->SetNumberField(TEXT("start_frame"), FMath::RoundToInt(StartFrame));
+    RenderState->SetNumberField(TEXT("end_frame"), FMath::RoundToInt(EndFrame));
+    RenderState->SetStringField(TEXT("output_directory"), OutputDirectory);
+    RenderState->SetStringField(TEXT("output_format"), OutputFormat);
+
+    if (!SaveRenderStateToDisk(RenderState, E)) return false;
+    return InspectRenderState(R.EntityIds, O, E);
 }
 
 AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
