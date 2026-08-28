@@ -41,7 +41,8 @@ int32 UAtlasRenderFixtureCommandlet::Main(const FString& Params)
         return 1;
     }
 
-    UMoviePipelineOutputSetting* OutputSetting = Config->FindOrAddSettingByClass<UMoviePipelineOutputSetting>(false, true);
+    UMoviePipelineOutputSetting* OutputSetting = Cast<UMoviePipelineOutputSetting>(
+        Config->FindOrAddSettingByClass(UMoviePipelineOutputSetting::StaticClass(), false, true));
     if (!OutputSetting)
     {
         UE_LOG(LogTemp, Error, TEXT("Failed to create MoviePipelineOutputSetting"));
@@ -55,7 +56,8 @@ int32 UAtlasRenderFixtureCommandlet::Main(const FString& Params)
     OutputSetting->OutputDirectory.Path = TEXT("/Game/AtlasTest/RenderOutput");
     OutputSetting->FileNameFormat = TEXT("AtlasRender_{frame_number}");
 
-    UMoviePipelineImageSequenceOutput_PNG* PngOutput = Config->FindOrAddSettingByClass<UMoviePipelineImageSequenceOutput_PNG>(false, true);
+    UMoviePipelineImageSequenceOutput_PNG* PngOutput = Cast<UMoviePipelineImageSequenceOutput_PNG>(
+        Config->FindOrAddSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass(), false, true));
     if (!PngOutput)
     {
         UE_LOG(LogTemp, Error, TEXT("Failed to create PNG output setting"));
