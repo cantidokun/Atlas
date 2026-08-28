@@ -3,8 +3,8 @@
 from copy import deepcopy
 from typing import Any, Callable, Dict
 
-from controller_checkpoint import restore_controller_state, snapshot_controller_state
-from controller_state import ControllerState
+from .controller_checkpoint import restore_controller_state, snapshot_controller_state
+from .controller_state import ControllerState
 
 EvidenceReader = Callable[[str, str, str], Dict[str, Any]]
 
@@ -36,7 +36,7 @@ def recover_and_reconcile(payload: Dict[str, Any], read_evidence: EvidenceReader
 
     # A fresh read is intentionally retained only as verification input. It must
     # pass through the same state validator used by normal completion.
-    from controller_state import record_after
+    from .controller_state import record_after
     if not state.writes:
         return state
     record_after(state, deepcopy(evidence))
