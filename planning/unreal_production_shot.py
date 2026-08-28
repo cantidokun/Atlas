@@ -5,11 +5,12 @@ ordered shot-production plan. It deliberately introduces no new transport
 primitive and does not authorize or execute anything itself.
 """
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence, Tuple
+from typing import Any, Mapping
 
-from planning.unreal_composite_operation import CompositeActorProductionOperation
-from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 from planning.unreal_agent import UnrealTaskIntent
+from planning.unreal_composite_operation import CompositeActorProductionOperation
+from planning.unreal_render_contract import normalize_render_config
+from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,11 @@ class UnrealProductionShotRequest:
             raise ValueError("start_frame must not exceed end_frame")
         if not isinstance(self.render_config, Mapping):
             raise TypeError("render_config must be a mapping")
+        render = normalize_render_config(self.render_config)
+        if render.start_frame != self.start_frame or render.end_frame != self.end_frame:
+            raise ValueError(
+                "render_config frame range must exactly match production shot frame range"
+            )
 
 
 def build_production_shot_plan(
