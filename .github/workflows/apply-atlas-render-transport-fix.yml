@@ -1,0 +1,29 @@
+name: Apply Atlas render transport fix
+
+on:
+  push:
+    branches:
+      - feat/unreal-composite-production-operation
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: "!contains(github.event.head_commit.message, 'Apply Unreal render transport boundary')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/unreal-composite-production-operation
+          fetch-depth: 0
+      - name: Apply transport fix
+        run: python tools/apply_unreal_render_transport_fix.py
+      - name: Commit transport fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Public/AtlasTransportServer.h
+          git diff --cached --quiet && exit 0
+          git commit -m "Apply Unreal render transport boundary"
+          git push origin HEAD:feat/unreal-composite-production-operation
