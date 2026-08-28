@@ -1,148 +1,194 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 26, 2026 04:28 EDT
+**Updated:** August 28, 2026
 **Current branch:** `feat/unreal-composite-production-operation`
 
 ## Current milestone
 
-Atlas has entered the **real Unreal Engine Blueprint production-boundary** phase.
+Atlas now has a provider-neutral **controller capability runtime boundary** layered above the existing Unreal production architecture.
 
-The current proof path is:
-
-```text
-Python planner
- -> Unreal tool/schema validation
- -> production adapter
- -> named-pipe transport
- -> Unreal harness/editor
- -> real Blueprint asset
- -> independent inspection / verification
-```
-
-Real fixture:
+The current architecture is:
 
 ```text
-/Game/AtlasTest/BP_AtlasTest.BP_AtlasTest
+Agent task intent
+ -> AgentTaskRequest
+ -> Agent entrypoint adapter
+ -> Agent entrypoint router
+ -> Agent process classification
+ -> Capability admission
+ -> Capability execution
+ -> registered controller capability
+ -> Unreal production controller integration
+ -> Unreal production runtime adapter
+ -> existing authorization / execution / recovery
+ -> Unreal transport / environment
 ```
 
-Repository asset:
+The generic controller layer is deliberately provider-neutral. Unreal is registered as an explicit capability rather than being hard-coded into the generic dispatcher.
+
+## Completed in this development session
+
+### Unreal heterogeneous production transaction
+
+- Added the deterministic heterogeneous production composer.
+- Production phases are composed as:
+  - Blueprint
+  - Actor Composite
+  - Sequencer
+  - Render
+- Production recovery now supports fresh reassessment and explicit replacement authorization across the production transaction.
+- Added production executor, recovery adapter, controller bridge, planning boundary, runtime integration, and controller integration layers.
+- Added autonomous-loop coverage for exact replacement authorization and non-repeated reassessment.
+
+### Generic controller capability architecture
+
+Added and validated:
+
+- `controller/capability_request.py`
+- `controller/capability_dispatch.py`
+- `controller/capability_registry.py`
+- `controller/capability_selection.py`
+- `controller/capability_admission.py`
+- `controller/capability_execution.py`
+- `controller/unreal_production_capability.py`
+- `controller/atlas_controller_runtime.py`
+- `controller/agent_capability_bootstrap.py`
+- `controller/agent_capability_runtime.py`
+- `controller/agent_task_request.py`
+- `controller/agent_entrypoint_router.py`
+- `controller/agent_process_runtime.py`
+- `controller/agent_entrypoint_adapter.py`
+- `controller/agent_entrypoint_runtime.py`
+
+The important trust-boundary rules are now enforced:
 
 ```text
-unreal/AtlasUnrealHarness/Content/AtlasTest/BP_AtlasTest.uasset
+raw agent request
+    ↓
+explicit admission
+    ↓
+canonical CapabilityRequest
+    ↓
+resolved registered capability
+    ↓
+execution
 ```
 
-The Blueprint fixture is generated/saved by the Unreal harness commandlet. Manual Blueprint creation is no longer part of the test setup.
+Execution cannot accept a raw `AgentTaskRequest` through the admitted-execution API. Legacy agent routes cannot be executed through the controller-owned execution seam. Capability selection itself does not execute handlers.
 
-## Completed
+### Unreal capability integration
 
-- Added the real Unreal Blueprint fixture commandlet.
-- Fixed the UE 5.6 `FSavePackageArgs` compile issue.
-- Successfully built `AtlasUnrealHarnessEditor`.
-- Confirmed `BP_AtlasTest.uasset` exists in the project.
-- Added Blueprint tool schemas for:
-  - `inspect_blueprint_state`
-  - `set_blueprint_metadata`
-  - `compile_blueprint`
-  - `verify_blueprint_state`
-- Added/validated Blueprint metadata normalization and compile-status verification requirements.
-- Proved the real Blueprint fixture can be reached through the production Unreal boundary.
-- Earlier Blueprint integration stages reached passing results, including the real compile/verify path before the latest transport shutdown.
+`UnrealProductionControllerIntegration` now exposes the generic capability contract with `execute(CapabilityRequest)`.
 
-## Latest known test state
+Execution requires an explicitly supplied `UnrealAuthorizedProductionPlan` under the `authorized_production` request context. The generic capability layer does not manufacture Unreal authorization.
 
-The last full real integration run before shutdown reported:
+### Agent entrypoint integration
+
+The new agent-entrypoint runtime provides an explicit path:
 
 ```text
-8 passed, 2 failed, 1 skipped
+AgentTaskRequest
+ -> AtlasAgentEntrypointRuntime.dispatch()
+ -> AtlasAgentProcessRuntime.classify()
+ -> controller-owned route only
+ -> execute_classified()
+ -> AtlasControllerRuntime.execute_request()
 ```
 
-The remaining failures were:
+Unmatched/legacy requests are returned to the caller without execution. The existing Blender/Qwen compatibility entrypoint remains separate and has not been replaced by this generic controller path.
 
-1. `test_real_unreal_blueprint_compile_and_verify`
-2. `test_real_unreal_blueprint_missing_asset_fails_at_production_boundary`
+## Latest validated test state
 
-Both currently fail at the **Unreal transport/runtime boundary**, with the key error beginning:
+The latest controller/agent boundary run reported:
+
+```text
+53 passed
+```
+
+The latest focused entrypoint runtime test reported:
+
+```text
+3 passed
+```
+
+Earlier in this session the broader controller/production regression suite reached:
+
+```text
+87 passed
+```
+
+The new controller execution boundary added additional runtime tests after that result, so rerun the current combined suite before declaring the entire branch green.
+
+## Important current limitation
+
+The latest real Unreal Blueprint integration status remains separate from the generic controller work.
+
+The previously documented Blueprint integration handoff recorded transport failures such as:
 
 ```text
 Unreal transport failed for operation 'inspect_blueprint_state'
 ```
 
-The missing-asset test therefore cannot yet observe its expected production-boundary error (`Blueprint not found`).
+That real-runtime issue has not been revalidated in this controller-focused work. Do not treat the controller capability tests as proof that live Unreal transport is healthy.
 
-This is not currently evidence of a Blueprint schema/planner defect.
+## Runtime / Unreal constraints
 
-## Runtime requirement
-
-The source can build with Unreal closed, but the real integration tests require the Unreal runtime/transport to be running.
-
-Before the next real integration run:
-
-```powershell
-Get-Process UnrealEditor -ErrorAction SilentlyContinue |
-    Select-Object ProcessName,Id,Path
-```
-
-If Unreal is not running, launch the harness project and then run:
-
-```powershell
-python -m pytest tests/test_unreal_blueprint_real_integration.py -q
-```
-
-Do not modify planner/schema code until the live transport has been restored and the test is rerun.
-
-## Next development step
-
-1. Restore the Unreal runtime/transport.
-2. Rerun the real Blueprint integration suite.
-3. Diagnose the `inspect_blueprint_state` transport failure if it persists.
-4. Get the two remaining real integration tests green.
-5. Only then declare the Blueprint production-boundary milestone complete.
-6. Extend the same generic production-boundary architecture to the next Unreal capability.
-
-The next capability must preserve:
-
-```text
-schema validation
- -> authorization
- -> real Unreal transport
- -> actual Unreal operation
- -> fresh evidence
- -> independent verification
-```
-
-## Architectural constraints
-
-- Qwen proposes/reasons; it never becomes the execution authority.
+- Qwen proposes/reasons; it is never the execution authority.
 - Python/Atlas owns validation, authorization, ordering, execution state, verification, recovery, and completion.
 - Unreal is an execution environment/adapter, not the canonical Atlas Digital Twin authority.
 - Successful writes never substitute for independent verification.
-- The Blueprint fixture is a proof fixture, not the generic architecture.
-- Do not require manual editor setup for deterministic integration fixtures.
-- Photogrammetry remains upstream of Blender and is not being moved into Unreal.
+- Do not modify `unreal/AtlasUnrealHarness/Content/AtlasTest/BP_AtlasTest.uasset` as part of controller-layer work.
+- The existing local `.uasset` modification may be intentional and must be preserved unless explicitly instructed otherwise.
+- Photogrammetry remains upstream of Blender.
+- Atlas remains focused on soccer-field-related digital twins and their production pipeline.
 
-## Detailed handoff
+## Architectural direction
 
-See:
+The next work should now move toward a **single real agent-to-controller request path** while preserving the existing Blender compatibility path.
 
-`docs/ATLAS_HANDOFF_2026-08-26_0428EDT.md`
+The desired end state is:
 
-That document contains the detailed state, recent fixes, exact test status, resume commands, and next milestone criteria.
-
-## Resume commands
-
-```powershell
-Get-Process UnrealEditor -ErrorAction SilentlyContinue |
-    Select-Object ProcessName,Id,Path
-
-& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" `
-  AtlasUnrealHarnessEditor `
-  Win64 `
-  Development `
-  -Project="$PWD\unreal\AtlasUnrealHarness\AtlasUnrealHarness.uproject" `
-  -WaitMutex `
-  -architecture=x64
-
-python -m pytest tests/test_unreal_blueprint_planning.py tests/test_unreal_blueprint_real_integration.py -q
+```text
+Agent reasoning
+      ↓
+explicit capability intent
+      ↓
+AgentTaskRequest
+      ↓
+entrypoint runtime
+      ↓
+capability admission
+      ↓
+capability execution
+      ↓
+provider-specific integration
+      ↓
+authorization
+      ↓
+execution / evidence / verification / recovery
 ```
 
-**Do not mark the Unreal Blueprint milestone green until the two remaining real integration failures pass.**
+Do not create another parallel dispatcher, router, or authorization mechanism.
+
+## Next development step
+
+1. Run the current combined controller/agent regression suite after pulling the latest commits.
+2. Add the smallest possible integration from the real Atlas agent-facing request source into `AtlasAgentEntrypointRuntime` without changing the existing Blender/Qwen behavior.
+3. Validate that explicit Unreal production requests can enter through the generic entrypoint path with an already-authorized production artifact.
+4. Only after that path is stable, consider extending the same mechanism to other provider capabilities.
+5. Separately, restore/revalidate the real Unreal transport before declaring the live Blueprint production milestone complete.
+
+## Useful resume commands
+
+```powershell
+cd "C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider"
+
+git status
+git pull origin feat/unreal-composite-production-operation
+
+python -m pytest tests/test_agent_entrypoint_runtime.py -q
+
+python -m pytest tests/test_agent_process_runtime.py tests/test_agent_entrypoint_router.py tests/test_agent_task_request.py tests/test_agent_capability_bootstrap.py tests/test_agent_capability_runtime.py tests/test_capability_admission.py tests/test_capability_execution.py tests/test_controller_capability_dispatch.py tests/test_controller_capability_registry.py tests/test_unreal_production_capability.py tests/test_atlas_controller_runtime.py tests/test_unreal_production_controller_integration.py -q
+```
+
+For live Unreal validation, first confirm the runtime is actually running before interpreting transport failures as code failures.
