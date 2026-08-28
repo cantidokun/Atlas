@@ -52,3 +52,8 @@ def test_rehydrated_checkpoint_rejects_boolean_next_operation_index():
     snapshot["next_operation_index"] = True
     with pytest.raises(TypeError, match="next operation index must be an integer"):
         DurableProductionSequenceCheckpoint.rehydrate(snapshot)
+
+
+def test_checkpoint_creation_rejects_boolean_next_operation_index():
+    with pytest.raises(TypeError, match="next operation index must be an integer"):
+        DurableProductionSequenceCheckpoint.create((), False)
