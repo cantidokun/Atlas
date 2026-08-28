@@ -100,3 +100,27 @@ def test_sequence_rejects_stale_unfinished_operation_before_any_write():
             (first, second), registry, checkpoint=result.checkpoint
         )
     assert stale_writes == []
+
+
+def test_sequence_rechecks_registry_before_each_operation_after_revision_race():
+    registry, identity, revision = _registry()
+    first_writes = []
+    second_writes = []
+    first = _operation("task-1", revision, first_writes)
+    second = _operation("task-2", revision, second_writes)
+
+    def race_after_first(_checkpoint):
+        newer = DigitalTwinRevision(
+            twin_id="twin-1", revision_id="r2", sequence=2,
+            kind=RevisionKind.CLEANUP, source_revision_id="r1",
+            source_fingerprint=identity.stable_fingerprint(),
+        )
+        registry.register_revision(newer)
+
+    with pytest.raises(ValueError, match="current canonical Digital Twin revision"):
+        RegistryBoundDurableProductionOperationSequence(
+            (first, second), registry
+        ).run(checkpoint_sink=race_after_first)
+
+    assert first_writes == ["task-1"]
+    assert second_writes == []
