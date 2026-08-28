@@ -32,6 +32,8 @@ class DurableProductionSequenceCheckpoint:
 
     @classmethod
     def _from_snapshots(cls, values: Tuple[dict[str, str], ...], next_operation_index: int):
+        if isinstance(next_operation_index, bool) or not isinstance(next_operation_index, int):
+            raise TypeError("next operation index must be an integer")
         if next_operation_index != len(values):
             raise ValueError("next operation index must equal completed receipt count")
         if next_operation_index < 0:
