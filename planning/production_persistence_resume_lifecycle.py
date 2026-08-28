@@ -64,8 +64,26 @@ class ProductionPersistenceResumeLifecycle:
             completed_operation_index=self.next_operation_index - 1,
         )
 
+    def _validate_canonical_resume_revision(self) -> None:
+        identity = self.bundle.resume_identity
+        if not isinstance(identity, dict):
+            raise ValueError("persisted resume identity is incomplete")
+        target_revision_id = identity["digital_twin_revision"]
+        matches = [
+            revision
+            for twin_id in self.registry._revisions
+            for revision in self.registry.revisions(twin_id)
+            if revision.revision_id == target_revision_id
+        ]
+        if not matches:
+            raise ValueError("persisted resume Digital Twin revision is not canonical")
+        if len(matches) != 1:
+            raise ValueError("persisted resume Digital Twin revision is ambiguous")
+        self.registry.require_canonical_revision(matches[0])
+
     def _validate_resume_request(self, request: ProductionResumeRequest) -> None:
         validate_production_resume(self._resume_checkpoint(), request)
+        self._validate_canonical_resume_revision()
 
     def validate_resume(self, request: ProductionResumeRequest) -> None:
         """Validate a requested restart without executing production work."""
