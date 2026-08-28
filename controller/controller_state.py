@@ -65,13 +65,8 @@ def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Di
     if object_a.get("name") != state.object_a_name or object_b.get("name") != state.object_b_name:
         raise ValueError("BEFORE evidence does not match the authorized objects.")
     adjustment = _subtract(list(TARGET_MIDPOINT), list(midpoint))
-    state.target = {
-        "midpoint": TARGET_MIDPOINT.copy(),
-        "adjustment": adjustment,
-        "object_a_location": _subtract(list(location_a), list(midpoint)),
-        "object_b_location": _subtract(list(location_b), list(midpoint)),
-    }
-    return state.target
+    state.target = {"midpoint": TARGET_MIDPOINT.copy(), "adjustment": adjustment, "object_a_location": _subtract(list(location_a), list(midpoint)), "object_b_location": _subtract(list(location_b), list(midpoint))}
+    return deepcopy(state.target)
 
 
 def record_before(state: ControllerState, relationship: Dict[str, Any]) -> None:
@@ -102,13 +97,7 @@ def after_matches_target(state: ControllerState) -> bool:
         return False
     object_a = state.after.get("object_a", {})
     object_b = state.after.get("object_b", {})
-    return (
-        object_a.get("name") == state.object_a_name
-        and object_b.get("name") == state.object_b_name
-        and _same_location(object_a.get("location"), state.target.get("object_a_location"))
-        and _same_location(object_b.get("location"), state.target.get("object_b_location"))
-        and _same_location(state.after.get("midpoint"), state.target.get("midpoint"))
-    )
+    return object_a.get("name") == state.object_a_name and object_b.get("name") == state.object_b_name and _same_location(object_a.get("location"), state.target.get("object_a_location")) and _same_location(object_b.get("location"), state.target.get("object_b_location")) and _same_location(state.after.get("midpoint"), state.target.get("midpoint"))
 
 
 def next_required_action(state: ControllerState) -> Dict[str, Any]:
@@ -122,6 +111,14 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
     return {"kind": "complete"}
 
 
+def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
+    if state.target is None:
+        return False
+    object_a = relationship.get("object_a", {})
+    object_b = relationship.get("object_b", {})
+    return object_a.get("name") == state.object_a_name and object_b.get("name") == state.object_b_name and _same_location(object_a.get("location"), state.target.get("object_a_location")) and _same_location(object_b.get("location"), state.target.get("object_b_location")) and _same_location(relationship.get("midpoint"), state.target.get("midpoint"))
+
+
 def record_after(state: ControllerState, relationship: Dict[str, Any]) -> None:
     if required_moves(state):
         raise ValueError("Cannot establish AFTER state while authorized writes remain outstanding.")
@@ -130,17 +127,3 @@ def record_after(state: ControllerState, relationship: Dict[str, Any]) -> None:
     if not after_matches_target_with(state, relationship):
         raise ValueError("AFTER evidence does not prove the authorized target state.")
     state.after = deepcopy(relationship)
-
-
-def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    if state.target is None:
-        return False
-    object_a = relationship.get("object_a", {})
-    object_b = relationship.get("object_b", {})
-    return (
-        object_a.get("name") == state.object_a_name
-        and object_b.get("name") == state.object_b_name
-        and _same_location(object_a.get("location"), state.target.get("object_a_location"))
-        and _same_location(object_b.get("location"), state.target.get("object_b_location"))
-        and _same_location(relationship.get("midpoint"), state.target.get("midpoint"))
-    )
