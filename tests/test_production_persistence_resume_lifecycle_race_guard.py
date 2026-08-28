@@ -116,3 +116,61 @@ def test_resume_identity_is_rechecked_when_run_begins():
         lifecycle.run()
 
     assert writes == []
+
+
+def test_resume_revision_must_be_current_canonical_revision():
+    registry, revision = _registry()
+    newer = DigitalTwinRevision(
+        revision.twin_id,
+        "r2",
+        2,
+        RevisionKind.CLEANUP,
+        source_revision_id=revision.revision_id,
+        source_fingerprint=revision.source_fingerprint,
+    )
+    registry.register_revision(newer)
+    store = InMemoryDurableProductionPersistenceStore()
+    bundle = _interrupted_bundle(registry, revision)
+    store.save(bundle)
+    writes = []
+    request = ProductionResumeRequest(
+        sequence_id="sequence-1",
+        plan_id="plan-1",
+        digital_twin_revision=revision.revision_id,
+    )
+
+    with pytest.raises(ValueError, match="canonical"):
+        ProductionPersistenceResumeLifecycle.from_persistence_store(
+            registry,
+            (_operation("task-1", revision, writes),),
+            store,
+            resume_request=request,
+        )
+
+    assert writes == []
+
+
+def test_resume_revision_must_exist_in_canonical_registry():
+    registry, revision = _registry()
+    store = InMemoryDurableProductionPersistenceStore()
+    bundle = _interrupted_bundle(registry, revision)
+    store.save(bundle)
+    registry_without_revision = DigitalTwinRegistry()
+    identity = next(iter(registry._identities.values()))
+    registry_without_revision.register_identity(identity)
+    writes = []
+    request = ProductionResumeRequest(
+        sequence_id="sequence-1",
+        plan_id="plan-1",
+        digital_twin_revision=revision.revision_id,
+    )
+
+    with pytest.raises(ValueError, match="not canonical"):
+        ProductionPersistenceResumeLifecycle.from_persistence_store(
+            registry_without_revision,
+            (_operation("task-1", revision, writes),),
+            store,
+            resume_request=request,
+        )
+
+    assert writes == []
