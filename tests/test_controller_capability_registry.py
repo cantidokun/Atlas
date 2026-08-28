@@ -2,6 +2,7 @@
 
 from controller.capability_dispatch import ControllerCapabilityDispatcher
 from controller.capability_registry import ControllerCapabilityRegistry
+from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
 
 
 def test_registry_exposes_one_shared_agent_runtime_over_dispatcher():
@@ -27,3 +28,27 @@ def test_registry_creates_dispatcher_when_not_supplied():
 
     assert isinstance(registry.dispatcher, ControllerCapabilityDispatcher)
     assert registry.registered_names() == ()
+
+
+def test_registry_can_bootstrap_explicit_unreal_production_capability():
+    registry = ControllerCapabilityRegistry()
+    integration = object.__new__(UnrealProductionControllerIntegration)
+
+    registry.register_unreal_production(integration)
+
+    assert registry.registered_names() == ("unreal_production",)
+    resolution = registry.runtime().resolve(
+        "production",
+        provider="unreal",
+        context={"production": True},
+    )
+    assert resolution.matched is True
+    assert resolution.capability.handler is integration
+
+
+def test_registry_does_not_match_unreal_without_explicit_production_context():
+    registry = ControllerCapabilityRegistry()
+    integration = object.__new__(UnrealProductionControllerIntegration)
+    registry.register_unreal_production(integration)
+
+    assert registry.runtime().resolve("production", provider="unreal").matched is False
