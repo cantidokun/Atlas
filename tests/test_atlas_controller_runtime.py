@@ -116,6 +116,31 @@ def test_runtime_admits_and_executes_through_one_capability_boundary():
     assert calls == [admission.request]
 
 
+def test_runtime_execute_request_chains_admission_and_execution():
+    runtime = AtlasControllerRuntime()
+    calls = []
+
+    class Handler:
+        def execute(self, request):
+            calls.append(request)
+            return request.normalized_capability
+
+    handler = Handler()
+    runtime.registry.dispatcher.register(
+        "test",
+        lambda request: request.normalized_capability == "test",
+        handler,
+    )
+
+    request = AgentTaskRequest("test")
+    result = runtime.execute_request(request)
+
+    assert isinstance(result, CapabilityExecutionResult)
+    assert result.capability_name == "test"
+    assert result.value == "test"
+    assert calls == [request]
+
+
 def test_runtime_execution_rejects_raw_agent_request():
     runtime = AtlasControllerRuntime()
 
