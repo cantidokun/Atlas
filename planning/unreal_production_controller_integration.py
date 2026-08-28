@@ -43,12 +43,11 @@ class UnrealProductionControllerIntegration:
         return self._runtime.snapshot
 
     def execute(self, request: CapabilityRequest) -> UnrealProductionControllerEvent:
-        """Execute one admitted production request using explicit authorization context.
+        """Execute one admitted production lifecycle request.
 
-        The generic capability layer supplies only a normalized request. Unreal
-        authorization remains a concrete downstream concern: the request must
-        carry an ``UnrealAuthorizedProductionPlan`` under the explicit
-        ``authorized_production`` context key before production can start.
+        ``production`` starts a transaction. Recovery actions are explicit and
+        carry their own fresh authorization object in request context. No
+        action performs capability re-selection or invents authorization.
         """
         if not isinstance(request, CapabilityRequest):
             raise TypeError("request must be a CapabilityRequest")
@@ -56,13 +55,36 @@ class UnrealProductionControllerIntegration:
             raise ValueError("Unreal production execution requires provider='unreal'")
         if request.normalized_capability != "production":
             raise ValueError("Unreal production execution requires capability='production'")
-        authorized = request.context.get("authorized_production")
-        if not isinstance(authorized, UnrealAuthorizedProductionPlan):
-            raise TypeError(
-                "request context must contain an UnrealAuthorizedProductionPlan "
-                "under 'authorized_production'"
-            )
-        return self.start(authorized)
+
+        recovery_action = request.context.get("recovery_action")
+        if recovery_action is None:
+            authorized = request.context.get("authorized_production")
+            if not isinstance(authorized, UnrealAuthorizedProductionPlan):
+                raise TypeError(
+                    "request context must contain an UnrealAuthorizedProductionPlan "
+                    "under 'authorized_production'"
+                )
+            return self.start(authorized)
+
+        if recovery_action == "reassess":
+            authorization = request.context.get("reassessment_authorization")
+            if not isinstance(authorization, UnrealPlanAuthorization):
+                raise TypeError(
+                    "reassess requests require a UnrealPlanAuthorization under "
+                    "'reassessment_authorization'"
+                )
+            return self.reassess(authorization)
+
+        if recovery_action == "resume_recovery":
+            authorization = request.context.get("replacement_authorization")
+            if not isinstance(authorization, UnrealPlanAuthorization):
+                raise TypeError(
+                    "resume requests require a UnrealPlanAuthorization under "
+                    "'replacement_authorization'"
+                )
+            return self.resume(authorization)
+
+        raise ValueError(f"unsupported Unreal production recovery action: {recovery_action!r}")
 
     def start(self, authorized: UnrealAuthorizedProductionPlan) -> UnrealProductionControllerEvent:
         event = UnrealProductionControllerEvent(
