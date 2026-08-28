@@ -7,6 +7,14 @@ from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.agent_task_request import AgentTaskRequest
 from controller.capability_execution import CapabilityExecutionResult
 from controller.capability_request import CapabilityRequest
+from controller.agent_capability_runtime import AgentCapabilityResolution
+from planning.unreal_adapter_production import UnrealAdapterProduction
+from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
+from planning.unreal_production_operation import build_unreal_production_plan
+from planning.unreal_production_planning_boundary import authorize_production_plan
+from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeAdapter
+from planning.unreal_plan_executor import UnrealPlanExecutor
+from tests.test_unreal_heterogeneous_production import ProductionTransport, _intent, _spec
 
 
 class Handler:
@@ -16,6 +24,16 @@ class Handler:
     def execute(self, request):
         self.calls.append(request)
         return "executed"
+
+
+def _integration():
+    return UnrealProductionControllerIntegration(
+        UnrealProductionRuntimeAdapter(
+            UnrealPlanExecutor(
+                UnrealAdapterProduction(ProductionTransport(), "entrypoint-runtime-test")
+            )
+        )
+    )
 
 
 def test_entrypoint_executes_explicit_controller_route():
@@ -65,3 +83,28 @@ def test_entrypoint_rejects_non_request_input():
 
     with pytest.raises(TypeError, match="AgentTaskRequest"):
         AtlasAgentEntrypointRuntime(process).dispatch("production")
+
+
+def test_entrypoint_executes_real_authorized_unreal_production():
+    production = build_unreal_production_plan(_intent(), _spec())
+    authorized = authorize_production_plan(production, "entrypoint-production-auth")
+    integration = _integration()
+    process = AtlasAgentProcessRuntime(unreal_production=integration)
+
+    dispatched = AtlasAgentEntrypointRuntime(process).dispatch(
+        AgentTaskRequest(
+            capability="production",
+            provider="unreal",
+            context={
+                "production": True,
+                "authorized_production": authorized,
+            },
+        )
+    )
+
+    assert dispatched.controller_executed is True
+    assert dispatched.result is not None
+    assert dispatched.result.capability_name == "unreal_production"
+    assert dispatched.result.value.operation == "start"
+    assert dispatched.result.value.snapshot.state == "complete"
+    assert integration.complete is True
