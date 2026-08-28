@@ -40,33 +40,41 @@ class UnrealProductionRuntimeAdapter:
             raise TypeError("executor must be a UnrealPlanExecutor instance")
         self._bridge = UnrealProductionControllerBridge(executor)
         self._loop = UnrealProductionAutonomousLoop(self._bridge)
+        self._snapshot_state = UnrealProductionRuntimeSnapshot(
+            state="not_started",
+            phase="not_started",
+            waiting_for_reassessment=False,
+            waiting_for_replacement=False,
+            failure=None,
+            recovery=None,
+            required_authorizations=(),
+        )
 
     @property
     def complete(self) -> bool:
         return self._bridge.complete
 
     @property
-    def loop(self) -> UnrealProductionAutonomousLoop:
-        return self._loop
+    def snapshot(self) -> UnrealProductionRuntimeSnapshot:
+        return self._snapshot_state
 
     def start(self, authorized: UnrealAuthorizedProductionPlan) -> UnrealProductionRuntimeSnapshot:
-        return self._snapshot(self._loop.start(authorized))
+        return self._record(self._loop.start(authorized))
 
     def reassess(
         self,
         reassessment_authorization: UnrealPlanAuthorization,
     ) -> UnrealProductionRuntimeSnapshot:
-        return self._snapshot(self._loop.reassess(reassessment_authorization))
+        return self._record(self._loop.reassess(reassessment_authorization))
 
     def resume(
         self,
         replacement_authorization: UnrealPlanAuthorization,
     ) -> UnrealProductionRuntimeSnapshot:
-        return self._snapshot(self._loop.resume_recovery(replacement_authorization))
+        return self._record(self._loop.resume_recovery(replacement_authorization))
 
-    @staticmethod
-    def _snapshot(outcome: UnrealProductionLoopOutcome) -> UnrealProductionRuntimeSnapshot:
-        return UnrealProductionRuntimeSnapshot(
+    def _record(self, outcome: UnrealProductionLoopOutcome) -> UnrealProductionRuntimeSnapshot:
+        self._snapshot_state = UnrealProductionRuntimeSnapshot(
             state=outcome.state,
             phase=outcome.phase,
             waiting_for_reassessment=outcome.state == "awaiting_reassessment",
@@ -75,3 +83,4 @@ class UnrealProductionRuntimeAdapter:
             recovery=outcome.recovery,
             required_authorizations=outcome.required_authorizations,
         )
+        return self._snapshot_state
