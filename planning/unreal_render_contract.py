@@ -1,6 +1,6 @@
 """Deterministic render configuration contract for the Unreal Agent."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping, Any
 
 
@@ -77,4 +77,4 @@ def verify_render_config(evidence, expected):
                 f"expected={expected_config!r}, observed={actual!r}"
             )
 
-    return evidence
+    return replace(evidence, verified=True)
