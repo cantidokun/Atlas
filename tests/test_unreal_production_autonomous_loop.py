@@ -11,8 +11,6 @@ from planning.unreal_production_operation import build_unreal_production_plan
 from planning.unreal_production_planning_boundary import authorize_production_plan
 from planning.unreal_production_recovery import (
     build_production_reassessment_plan,
-    build_production_replacement_plan,
-    assess_production_reassessment,
     issue_production_replacement_authorization,
 )
 from tests.test_unreal_heterogeneous_production import ProductionTransport, _intent, _spec
@@ -56,10 +54,7 @@ def test_loop_reassesses_then_surfaces_exact_replacement_requirement():
     started = loop.start(authorized)
     assert started.failure is not None
 
-    reassessment_plan = __import__(
-        "planning.unreal_production_recovery",
-        fromlist=["build_production_reassessment_plan"],
-    ).build_production_reassessment_plan(production, started.failure)
+    reassessment_plan = build_production_reassessment_plan(production, started.failure)
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment_plan, "reassessment-auth")
 
     reassessed = loop.reassess(reassessment_auth)
@@ -82,6 +77,7 @@ def test_loop_resumes_with_exact_replacement_authorization_without_repeating_rea
     reassessed = loop.reassess(reassessment_auth)
     prepared = reassessed.recovery
     assert prepared is not None
+    assert prepared.replacement_plan is not None
 
     replacement_auth = issue_production_replacement_authorization(
         prepared.replacement_plan,
