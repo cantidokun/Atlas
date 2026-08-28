@@ -43,3 +43,12 @@ def test_checkpoint_snapshot_preserves_completed_receipt_count():
     restored = DurableProductionSequenceCheckpoint.rehydrate(checkpoint.snapshot())
     assert restored.next_operation_index == 1
     assert len(restored.completed_receipts) == 1
+
+
+def test_rehydrated_checkpoint_rejects_boolean_next_operation_index():
+    receipt = _receipt()
+    checkpoint = DurableProductionSequenceCheckpoint.create((receipt,), 1)
+    snapshot = checkpoint.snapshot()
+    snapshot["next_operation_index"] = True
+    with pytest.raises(TypeError, match="next operation index must be an integer"):
+        DurableProductionSequenceCheckpoint.rehydrate(snapshot)
