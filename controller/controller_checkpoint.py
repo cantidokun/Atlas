@@ -3,7 +3,7 @@
 from copy import deepcopy
 from typing import Any, Dict
 
-from controller_state import ControllerState, after_matches_target, required_moves
+from .controller_state import ControllerState, after_matches_target, required_moves
 
 CHECKPOINT_VERSION = 1
 
