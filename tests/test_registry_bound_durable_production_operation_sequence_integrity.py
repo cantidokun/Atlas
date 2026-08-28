@@ -85,6 +85,17 @@ def test_registry_revision_change_blocks_resume_before_any_write():
     assert stale_writes == []
 
 
+def test_completed_receipt_must_bind_to_corresponding_operation():
+    registry, _, revision = _registry()
+    checkpoint = _completed_checkpoint(revision)
+    writes = []
+    with pytest.raises(ValueError, match="corresponding production operation"):
+        RegistryBoundDurableProductionOperationSequence(
+            (_operation("task-2", revision, writes),), registry, checkpoint=checkpoint
+        )
+    assert writes == []
+
+
 def test_current_revision_sequence_runs_and_keeps_canonical_binding():
     registry, _, revision = _registry()
     writes = []
