@@ -32,9 +32,12 @@ class ProductionPersistenceResumeLifecycle:
         self.bundle = DurableProductionPersistenceBundle.from_snapshot(bundle.snapshot())
         self.persistence_store = persistence_store
         self.resume_request = resume_request
-        self.sequence: RegistryBoundDurableProductionOperationSequence = DurableProductionSequenceRehydrator(registry).rehydrate(tuple(operations), self.bundle)
+        # Resume identity and canonical revision are validated before rehydration.
+        # This ensures a resume request fails at the production restart boundary,
+        # rather than being obscured by the lower-level registry snapshot guard.
         if self.resume_request is not None:
             self._validate_resume_request(self.resume_request)
+        self.sequence: RegistryBoundDurableProductionOperationSequence = DurableProductionSequenceRehydrator(registry).rehydrate(tuple(operations), self.bundle)
 
     @classmethod
     def from_bundle(cls, registry: DigitalTwinRegistry, operations: Iterable[Any], bundle: DurableProductionPersistenceBundle, persistence_store: Any = None, resume_request: ProductionResumeRequest | None = None) -> "ProductionPersistenceResumeLifecycle":
@@ -61,7 +64,7 @@ class ProductionPersistenceResumeLifecycle:
             sequence_id=identity["sequence_id"],
             plan_id=identity["plan_id"],
             digital_twin_revision=identity["digital_twin_revision"],
-            completed_operation_index=self.next_operation_index - 1,
+            completed_operation_index=self.next_operation_index - 1 if hasattr(self, "sequence") else -1,
         )
 
     def _validate_canonical_resume_revision(self) -> None:
