@@ -88,3 +88,43 @@ def test_authoritative_rejection_does_not_advance_durable_checkpoint():
     assert result.checkpoint.next_operation_index == 0
     assert result.checkpoint.completed_receipts == ()
     assert writes == ["task-1"]
+
+
+def test_multi_operation_block_preserves_prior_receipts_and_resumes_only_blocked_operation():
+    registry, revision = _registry()
+    writes = []
+    first = _operation("task-1", revision, writes, converged=True)
+    second = _operation("task-2", revision, writes, converged=True)
+    third = _operation("task-3", revision, writes, converged=False)
+
+    interrupted = DurableProductionOperationSequence((first, second, third)).run()
+
+    assert interrupted.state is ProductionOperationState.BLOCKED
+    assert interrupted.checkpoint.next_operation_index == 2
+    assert [receipt["task_id"] for receipt in interrupted.checkpoint.completed_receipts] == [
+        "task-1",
+        "task-2",
+    ]
+    assert writes == ["task-1", "task-2", "task-3"]
+
+    resumed_writes = []
+    restored = DurableProductionSequenceRehydrator(registry).rehydrate(
+        (
+            _operation("task-1", revision, [], converged=True),
+            _operation("task-2", revision, [], converged=True),
+            _operation("task-3", revision, resumed_writes, converged=True),
+        ),
+        registry.snapshot(),
+        interrupted.checkpoint.snapshot(),
+    )
+
+    result = restored.run()
+
+    assert result.state is ProductionOperationState.COMPLETED
+    assert resumed_writes == ["task-3"]
+    assert result.checkpoint.next_operation_index == 3
+    assert [receipt["task_id"] for receipt in result.checkpoint.completed_receipts] == [
+        "task-1",
+        "task-2",
+        "task-3",
+    ]
