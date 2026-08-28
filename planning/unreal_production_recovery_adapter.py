@@ -11,15 +11,22 @@ from typing import Optional
 from planning.recovery_receipt import RecoveryReceipt
 from planning.unreal_evidence_digest import digest_evidence_ledger
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
+from planning.unreal_plan_executor import (
+    UnrealPlanExecutionFailure,
+    UnrealPlanExecutionResult,
+    UnrealPlanExecutor,
+)
 from planning.unreal_production_operation import UnrealProductionPlan
 from planning.unreal_production_recovery import (
     UnrealProductionRecoveryAssessment,
-    build_production_reassessment_plan,
     assess_production_reassessment,
+    build_production_reassessment_plan,
     build_production_replacement_plan,
 )
-from planning.unreal_recovery_workflow import build_recovery_receipt, execute_receipt_bound_recovery_sequence
+from planning.unreal_recovery_workflow import (
+    build_recovery_receipt,
+    execute_receipt_bound_recovery_sequence,
+)
 
 
 @dataclass(frozen=True)
@@ -40,7 +47,13 @@ def prepare_production_receipt_recovery(
     reassessment_authorization: UnrealPlanAuthorization,
     replacement_authorization: Optional[UnrealPlanAuthorization] = None,
 ) -> UnrealProductionReceiptRecovery:
-    """Reassess production state and prepare the canonical receipt when needed."""
+    """Reassess production state and prepare the exact replacement plan.
+
+    Replacement planning and replacement authorization are deliberately
+    separate phases. A caller may prepare the replacement plan first, obtain
+    an explicit authorization for that exact plan, and only then create the
+    canonical recovery receipt.
+    """
     if not isinstance(executor, UnrealPlanExecutor):
         raise TypeError("executor must be a UnrealPlanExecutor instance")
     if not isinstance(production, UnrealProductionPlan):
@@ -67,16 +80,17 @@ def prepare_production_receipt_recovery(
         return UnrealProductionReceiptRecovery(reassessment_plan, reassessment_result, assessment, None, None)
 
     replacement_plan = build_production_replacement_plan(production, assessment)
-    if replacement_authorization is None:
-        raise ValueError("replacement_required recovery requires a separate replacement authorization")
-    if not replacement_authorization.matches(replacement_plan):
-        raise ValueError("replacement authorization does not match the exact production replacement plan")
+    if replacement_authorization is not None:
+        if not replacement_authorization.matches(replacement_plan):
+            raise ValueError("replacement authorization does not match the exact production replacement plan")
+        receipt = build_recovery_receipt(
+            reassessment_result,
+            replacement_plan,
+            replacement_authorization,
+        )
+    else:
+        receipt = None
 
-    receipt = build_recovery_receipt(
-        reassessment_result,
-        replacement_plan,
-        replacement_authorization,
-    )
     return UnrealProductionReceiptRecovery(
         reassessment_plan,
         reassessment_result,
@@ -97,12 +111,30 @@ def execute_prepared_production_receipt_recovery(
     """Execute through the canonical receipt-bound recovery gate."""
     if not isinstance(prepared, UnrealProductionReceiptRecovery):
         raise TypeError("prepared must be a UnrealProductionReceiptRecovery instance")
+    if not reassessment_authorization.matches(prepared.reassessment_plan):
+        raise ValueError("reassessment authorization does not match the prepared reassessment plan")
     if prepared.recovery_receipt is None:
-        if replacement_authorization is not None:
-            raise ValueError("replacement authorization is invalid without a recovery receipt")
-        return prepared
-    if prepared.replacement_plan is None or replacement_authorization is None:
-        raise ValueError("receipt-bound production recovery requires replacement plan and authorization")
+        if prepared.replacement_plan is None:
+            if replacement_authorization is not None:
+                raise ValueError("replacement authorization is invalid without a replacement plan")
+            return prepared
+        if replacement_authorization is None:
+            raise ValueError("receipt-bound production recovery requires separate replacement authorization")
+        if not replacement_authorization.matches(prepared.replacement_plan):
+            raise ValueError("replacement authorization does not match the exact prepared replacement plan")
+        receipt = build_recovery_receipt(
+            prepared.reassessment_result,
+            prepared.replacement_plan,
+            replacement_authorization,
+        )
+    else:
+        if replacement_authorization is None:
+            raise ValueError("receipt-bound production recovery requires replacement authorization")
+        if prepared.replacement_plan is None:
+            raise ValueError("receipt-bound production recovery requires replacement plan and authorization")
+        if not replacement_authorization.matches(prepared.replacement_plan):
+            raise ValueError("replacement authorization does not match the exact prepared replacement plan")
+        receipt = prepared.recovery_receipt
 
     fresh_digest = digest_evidence_ledger(prepared.reassessment_result.evidence_ledger)
     authorization_digest = replacement_authorization.authorization_digest
@@ -112,7 +144,7 @@ def execute_prepared_production_receipt_recovery(
         failure,
         reassessment_authorization,
         replacement_authorization,
-        prepared.recovery_receipt,
+        receipt,
         evidence_digest=fresh_digest,
         authorization_digest=authorization_digest,
     )
