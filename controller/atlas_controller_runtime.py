@@ -69,3 +69,7 @@ class AtlasControllerRuntime:
     def execute_admitted(self, admission: CapabilityAdmission) -> CapabilityExecutionResult:
         """Execute only a capability that has already passed admission."""
         return self.executor.execute(admission)
+
+    def execute_request(self, request) -> CapabilityExecutionResult:
+        """Admit and execute one normalized agent task through the controller boundary."""
+        return self.execute_admitted(self.admit_capability(request))
