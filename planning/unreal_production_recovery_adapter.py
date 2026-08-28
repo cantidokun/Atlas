@@ -23,10 +23,9 @@ from planning.unreal_production_recovery import (
     build_production_reassessment_plan,
     build_production_replacement_plan,
 )
-from planning.unreal_recovery_workflow import (
-    build_recovery_receipt,
-    execute_receipt_bound_recovery_sequence,
-)
+from planning.unreal_recovery_execution import resume_replacement
+from planning.unreal_recovery_sequence import UnrealRecoverySequenceResult
+from planning.unreal_recovery_workflow import build_recovery_receipt
 
 
 @dataclass(frozen=True)
@@ -108,43 +107,59 @@ def execute_prepared_production_receipt_recovery(
     reassessment_authorization: UnrealPlanAuthorization,
     replacement_authorization: Optional[UnrealPlanAuthorization] = None,
 ) -> object:
-    """Execute through the canonical receipt-bound recovery gate."""
+    """Execute a prepared production recovery without repeating reassessment.
+
+    The prepared production replacement plan is executed directly through the
+    canonical receipt-bound ``resume_replacement`` gate. The generic recovery
+    sequence cannot be reused here because it would rebuild a replacement plan
+    from the composite production's underlying task plan and could therefore
+    produce a different plan identity.
+    """
     if not isinstance(prepared, UnrealProductionReceiptRecovery):
         raise TypeError("prepared must be a UnrealProductionReceiptRecovery instance")
     if not reassessment_authorization.matches(prepared.reassessment_plan):
         raise ValueError("reassessment authorization does not match the prepared reassessment plan")
-    if prepared.recovery_receipt is None:
-        if prepared.replacement_plan is None:
-            if replacement_authorization is not None:
-                raise ValueError("replacement authorization is invalid without a replacement plan")
-            return prepared
-        if replacement_authorization is None:
-            raise ValueError("receipt-bound production recovery requires separate replacement authorization")
-        if not replacement_authorization.matches(prepared.replacement_plan):
-            raise ValueError("replacement authorization does not match the exact prepared replacement plan")
+
+    if prepared.replacement_plan is None:
+        if replacement_authorization is not None:
+            raise ValueError("replacement authorization is invalid without a replacement plan")
+        return UnrealRecoverySequenceResult(
+            prepared.reassessment_result,
+            prepared.assessment,
+        )
+
+    if replacement_authorization is None:
+        raise ValueError("receipt-bound production recovery requires separate replacement authorization")
+    if not replacement_authorization.matches(prepared.replacement_plan):
+        raise ValueError("replacement authorization does not match the exact prepared replacement plan")
+
+    receipt = prepared.recovery_receipt
+    if receipt is None:
         receipt = build_recovery_receipt(
             prepared.reassessment_result,
             prepared.replacement_plan,
             replacement_authorization,
         )
     else:
-        if replacement_authorization is None:
-            raise ValueError("receipt-bound production recovery requires replacement authorization")
-        if prepared.replacement_plan is None:
-            raise ValueError("receipt-bound production recovery requires replacement plan and authorization")
-        if not replacement_authorization.matches(prepared.replacement_plan):
-            raise ValueError("replacement authorization does not match the exact prepared replacement plan")
-        receipt = prepared.recovery_receipt
+        if not receipt.matches(
+            digest_evidence_ledger(prepared.reassessment_result.evidence_ledger),
+            replacement_authorization.plan_digest,
+            replacement_authorization.authorization_digest,
+        ):
+            raise RuntimeError("recovery receipt does not match the prepared production recovery artifacts")
 
-    fresh_digest = digest_evidence_ledger(prepared.reassessment_result.evidence_ledger)
-    authorization_digest = replacement_authorization.authorization_digest
-    return execute_receipt_bound_recovery_sequence(
+    evidence_digest = digest_evidence_ledger(prepared.reassessment_result.evidence_ledger)
+    replacement_result = resume_replacement(
         executor,
-        production.plan,
-        failure,
-        reassessment_authorization,
+        prepared.replacement_plan,
         replacement_authorization,
         receipt,
-        evidence_digest=fresh_digest,
-        authorization_digest=authorization_digest,
+        evidence_digest=evidence_digest,
+        authorization_digest=replacement_authorization.authorization_digest,
+    )
+    return UnrealRecoverySequenceResult(
+        prepared.reassessment_result,
+        prepared.assessment,
+        prepared.replacement_plan,
+        replacement_result,
     )
