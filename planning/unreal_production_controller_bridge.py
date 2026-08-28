@@ -9,11 +9,24 @@ from dataclasses import dataclass
 from typing import Optional
 
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
-from planning.unreal_production_executor import UnrealProductionExecutionResult, UnrealProductionExecutor
+from planning.unreal_plan_executor import (
+    UnrealPlanExecutionFailure,
+    UnrealPlanExecutionResult,
+    UnrealPlanExecutor,
+)
+from planning.unreal_production_executor import (
+    UnrealProductionExecutionResult,
+    UnrealProductionExecutor,
+)
 from planning.unreal_production_operation import UnrealProductionPlan
-from planning.unreal_production_recovery import UnrealProductionRecoveryAssessment
-from planning.unreal_production_recovery_adapter import UnrealProductionReceiptRecovery, prepare_production_receipt_recovery
+from planning.unreal_production_recovery import (
+    UnrealProductionRecoveryAssessment,
+    execute_production_recovery,
+)
+from planning.unreal_production_recovery_adapter import (
+    UnrealProductionReceiptRecovery,
+    prepare_production_receipt_recovery,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +38,21 @@ class UnrealProductionControllerState:
     failure: Optional[UnrealPlanExecutionFailure]
     recovery_assessment: Optional[UnrealProductionRecoveryAssessment]
 
+    @property
+    def state(self) -> str:
+        """Compatibility alias exposing the controller phase as its state."""
+        return self.phase
+
+
+@dataclass(frozen=True)
+class UnrealProductionControllerOutcome:
+    """Result returned by controller-facing transaction methods."""
+
+    state: str
+    result: Optional[UnrealProductionExecutionResult]
+    failure: Optional[UnrealPlanExecutionFailure]
+    recovery: Optional[object] = None
+
 
 class UnrealProductionControllerBridge:
     """Expose production execution as a deterministic controller boundary."""
@@ -34,12 +62,20 @@ class UnrealProductionControllerBridge:
             raise TypeError("executor must be a UnrealPlanExecutor instance")
         self._production_executor = UnrealProductionExecutor(executor)
         self._executor = executor
+        self._production: Optional[UnrealProductionPlan] = None
+        self._failure: Optional[UnrealPlanExecutionFailure] = None
+        self._last_result: Optional[UnrealProductionExecutionResult] = None
+        self._last_recovery: Optional[object] = None
         self.state = UnrealProductionControllerState(
             phase="not_started",
             status="idle",
             failure=None,
             recovery_assessment=None,
         )
+
+    @property
+    def complete(self) -> bool:
+        return self.state.status == "complete"
 
     def start(
         self,
@@ -48,13 +84,18 @@ class UnrealProductionControllerBridge:
         *,
         reassessment_authorization: Optional[UnrealPlanAuthorization] = None,
         replacement_authorization: Optional[UnrealPlanAuthorization] = None,
-    ) -> UnrealProductionExecutionResult:
+    ) -> UnrealProductionControllerOutcome:
         result = self._production_executor.execute(
             production,
             authorization,
             reassessment_authorization=reassessment_authorization,
             replacement_authorization=replacement_authorization,
         )
+        self._production = production
+        self._last_result = result
+        self._failure = result.failure
+        self._last_recovery = result.recovery
+
         if result.initial_result is not None:
             phase = "complete"
             status = "complete"
@@ -64,13 +105,56 @@ class UnrealProductionControllerBridge:
         else:
             phase = self._failed_phase(production, result.failure)
             status = "failed_pending_recovery"
+
         self.state = UnrealProductionControllerState(
             phase=phase,
             status=status,
             failure=result.failure,
             recovery_assessment=None if result.recovery is None else result.recovery.assessment,
         )
-        return result
+        return UnrealProductionControllerOutcome(
+            state=phase,
+            result=result,
+            failure=result.failure,
+            recovery=result.recovery,
+        )
+
+    def recover(
+        self,
+        *,
+        reassessment_authorization: UnrealPlanAuthorization,
+        replacement_authorization: Optional[UnrealPlanAuthorization] = None,
+    ) -> UnrealProductionControllerOutcome:
+        """Perform fresh reassessment and, when required, explicit replacement."""
+        if self._production is None or self._failure is None:
+            raise RuntimeError("no failed production transaction is available for recovery")
+
+        recovery = execute_production_recovery(
+            self._executor,
+            self._production,
+            self._failure,
+            reassessment_authorization,
+            replacement_authorization,
+        )
+        self._last_recovery = recovery
+        self.state = UnrealProductionControllerState(
+            phase="recovery_complete",
+            status="complete" if (
+                recovery.assessment.disposition == "already_applied"
+                or (
+                    recovery.replacement_result is not None
+                    and recovery.replacement_result.success
+                )
+            ) else recovery.assessment.disposition,
+            failure=self._failure,
+            recovery_assessment=recovery.assessment,
+        )
+        return UnrealProductionControllerOutcome(
+            state=self.state.phase,
+            result=self._last_result,
+            failure=self._failure,
+            recovery=recovery,
+        )
 
     def prepare_recovery(
         self,
@@ -86,6 +170,8 @@ class UnrealProductionControllerBridge:
             reassessment_authorization,
             replacement_authorization,
         )
+        self._production = production
+        self._failure = failure
         phase = "recovery_reassessed"
         status = prepared.assessment.disposition
         self.state = UnrealProductionControllerState(
