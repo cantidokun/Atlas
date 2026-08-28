@@ -14,6 +14,9 @@ test = [
     "requests>=2.31",
 ]
 
+[tool.setuptools.packages.find]
+include = ["qwen*", "live*", "planning*", "controller*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
