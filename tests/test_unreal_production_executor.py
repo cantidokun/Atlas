@@ -3,9 +3,11 @@
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
+from planning.unreal_agent import UnrealTaskIntent
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_production_executor import UnrealProductionExecutor
+from planning.unreal_production_operation import build_unreal_production_plan
 from planning.unreal_production_recovery import (
     assess_production_reassessment,
     build_production_reassessment_plan,
@@ -15,9 +17,8 @@ from planning.unreal_production_recovery import (
 from tests.test_unreal_heterogeneous_production import ProductionTransport, _intent, _spec
 
 
-def _production():
-    from planning.unreal_production_operation import build_unreal_production_plan
-    return build_unreal_production_plan(_intent(), _spec())
+def _production(intent=None):
+    return build_unreal_production_plan(intent or _intent(), _spec())
 
 
 def test_successful_transaction_is_executed_as_one_authorized_boundary():
@@ -48,7 +49,7 @@ def test_failed_transaction_can_drive_fresh_reassessment_and_authorized_replacem
 
     # Derive the exact recovery authorizations from the same failure boundary
     # the transaction executor will encounter, without executing the mutation
-    # a second time.
+    # a second time through the transaction boundary.
     with pytest.raises(UnrealPlanExecutionError) as exc_info:
         raw_executor.execute_authorized(production.plan, authorization)
     failure = exc_info.value.failure
@@ -67,10 +68,21 @@ def test_failed_transaction_can_drive_fresh_reassessment_and_authorized_replacem
         replacement_plan, "replacement-auth"
     )
 
-    # Reset the injected transport boundary so the transaction executor can
-    # perform the actual production attempt and recovery sequence from scratch.
+    # Reset the fixture to the state expected before the transaction attempt.
     transport.fail_at = 999
     transport.calls.clear()
+    transport.state["FIELD_SURFACE"]["location"] = {"x": 0.0, "y": 0.0, "z": 0.0}
+    transport.state["FIELD_SURFACE"]["rotation"] = {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
+    transport.state["FIELD_SURFACE"]["scale"] = {"x": 1.0, "y": 1.0, "z": 1.0}
+    transport.state["FIELD_SURFACE"]["material"] = {"variant": {"name": "default"}}
+    transport.state["FIELD_SURFACE"]["niagara"] = {"variant": {"name": "none"}}
+    transport.state["FIELD_SURFACE"]["sequencer"] = {
+        "playback_range": {"start_frame": 0, "end_frame": 0}
+    }
+    transport.state["FIELD_SURFACE"]["blueprint"] = {
+        "asset_path": "/Game/AtlasTest/BP_AtlasTest",
+        "compile_status": "success",
+    }
     transport.state["FIELD_SURFACE"]["render"] = {
         "width": 640,
         "height": 360,
@@ -78,9 +90,6 @@ def test_failed_transaction_can_drive_fresh_reassessment_and_authorized_replacem
         "end_frame": 0,
         "output_directory": "Saved/Default",
         "output_format": "png",
-    }
-    transport.state["FIELD_SURFACE"]["sequencer"] = {
-        "playback_range": {"start_frame": 0, "end_frame": 0}
     }
 
     # Reintroduce the failure only for the transaction's initial execution.
@@ -103,7 +112,13 @@ def test_failed_transaction_can_drive_fresh_reassessment_and_authorized_replacem
 
 def test_transaction_rejects_authorization_for_a_different_production_plan():
     production = _production()
-    other = _production()
+    other = _production(
+        UnrealTaskIntent(
+            "different-production",
+            "different heterogeneous production",
+            ("FIELD_SURFACE",),
+        )
+    )
     authorization = UnrealPlanAuthorization.issue(other.plan, "wrong-plan-auth")
     executor = UnrealProductionExecutor(
         UnrealPlanExecutor(UnrealAdapterProduction(ProductionTransport(), "auth-boundary-test"))
@@ -121,11 +136,11 @@ def test_transaction_does_not_accept_recovery_authorization_on_success():
     authorization = UnrealPlanAuthorization.issue(production.plan, "production-auth")
     reassessment = build_production_reassessment_plan(
         production,
-        # This failure object is intentionally obtained without relying on a
-        # successful transaction; use a known production boundary fixture.
         _failure_for_boundary(raw_executor, production, authorization),
     )
-    reassessment_authorization = UnrealPlanAuthorization.issue(reassessment, "unused-reassessment-auth")
+    reassessment_authorization = UnrealPlanAuthorization.issue(
+        reassessment, "unused-reassessment-auth"
+    )
 
     with pytest.raises(ValueError, match="recovery authorization cannot"):
         executor.execute(
