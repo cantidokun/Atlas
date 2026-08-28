@@ -11,7 +11,6 @@ from typing import Optional
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import (
     UnrealPlanExecutionFailure,
-    UnrealPlanExecutionResult,
     UnrealPlanExecutor,
 )
 from planning.unreal_production_executor import (
@@ -113,7 +112,7 @@ class UnrealProductionControllerBridge:
             recovery_assessment=None if result.recovery is None else result.recovery.assessment,
         )
         return UnrealProductionControllerOutcome(
-            state=phase,
+            state=status,
             result=result,
             failure=result.failure,
             recovery=result.recovery,
@@ -137,20 +136,21 @@ class UnrealProductionControllerBridge:
             replacement_authorization,
         )
         self._last_recovery = recovery
+        status = "complete" if (
+            recovery.assessment.disposition == "already_applied"
+            or (
+                recovery.replacement_result is not None
+                and recovery.replacement_result.success
+            )
+        ) else recovery.assessment.disposition
         self.state = UnrealProductionControllerState(
             phase="recovery_complete",
-            status="complete" if (
-                recovery.assessment.disposition == "already_applied"
-                or (
-                    recovery.replacement_result is not None
-                    and recovery.replacement_result.success
-                )
-            ) else recovery.assessment.disposition,
+            status=status,
             failure=self._failure,
             recovery_assessment=recovery.assessment,
         )
         return UnrealProductionControllerOutcome(
-            state=self.state.phase,
+            state=status,
             result=self._last_result,
             failure=self._failure,
             recovery=recovery,
