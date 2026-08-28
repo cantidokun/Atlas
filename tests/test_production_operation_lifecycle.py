@@ -176,20 +176,27 @@ def test_registry_snapshot_constructor_rejects_tampering_before_checkpoint_rehyd
 def test_registry_snapshot_resume_executes_and_requires_authoritative_completion():
     registry, revision = _registry_and_revision()
     calls = []
+    state = {"target": "initial", "verified": False}
+
+    def observe():
+        return dict(state)
 
     def executor(tool, arguments):
         calls.append((tool, arguments))
+        state.update(target=arguments["target"], verified=True)
         return {
             "ok": True,
-            "state": {"target": arguments["target"], "verified": True},
+            "state": dict(state),
             "details": {"execution": "accepted"},
         }
 
     lifecycle = ProductionRegistryResumeLifecycle.from_registry_snapshot(
         registry.snapshot(), _checkpoint_snapshot(revision), revision,
-        observe=lambda: {"target": "final"},
-        plan=lambda evidence: [ActionSpec("test.move", {"target": evidence["target"]})],
-        verify_final=lambda evidence: evidence.state["verified"],
+        observe=observe,
+        plan=lambda evidence: [] if evidence["verified"] else [
+            ActionSpec("test.move", {"target": "final"})
+        ],
+        verify_final=lambda evidence: evidence["verified"],
         executor=executor,
     )
     result = lifecycle.run()
