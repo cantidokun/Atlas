@@ -14,7 +14,7 @@ class ControllerRuntime:
     """Run the authorized midpoint workflow without delegating sequencing to Qwen."""
 
     def __init__(self, file_name: str):
-        self.state = ControllerState(file_name=file_name, object_a_name="Goal_Left_post", object_b_name="Goal_Right_post")
+        self.state = ControllerState(file_name=file_name, object_a_name="Goal_Left_post", object_b_name="Goal_Right_Post")
 
     @classmethod
     def from_checkpoint(cls, payload: Dict[str, Any], fresh_evidence: Optional[Dict[str, Any]] = None) -> "ControllerRuntime":
