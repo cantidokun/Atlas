@@ -32,9 +32,6 @@ class ProductionPersistenceResumeLifecycle:
         self.bundle = DurableProductionPersistenceBundle.from_snapshot(bundle.snapshot())
         self.persistence_store = persistence_store
         self.resume_request = resume_request
-        # Resume identity and canonical revision are validated before rehydration.
-        # This ensures a resume request fails at the production restart boundary,
-        # rather than being obscured by the lower-level registry snapshot guard.
         if self.resume_request is not None:
             self._validate_resume_request(self.resume_request)
         self.sequence: RegistryBoundDurableProductionOperationSequence = DurableProductionSequenceRehydrator(registry).rehydrate(tuple(operations), self.bundle)
