@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Callable, Iterable, Tuple
+from typing import Any, Callable, Iterable, Optional, Tuple
 
 from planning.production_completion_receipt import ProductionCompletionReceipt
 from planning.production_operation_lifecycle import (
@@ -104,14 +104,20 @@ class DurableProductionOperationSequence:
     def run(
         self,
         max_steps: int = 16,
-        checkpoint_sink: Callable[[DurableProductionSequenceCheckpoint], None] | None = None,
+        checkpoint_sink: Optional[Callable[[DurableProductionSequenceCheckpoint], None]] = None,
+        pre_operation_hook: Optional[Callable[[int, ProductionOperationLifecycle], None]] = None,
     ) -> DurableProductionSequenceResult:
         if checkpoint_sink is not None and not callable(checkpoint_sink):
             raise TypeError("checkpoint_sink must be callable")
+        if pre_operation_hook is not None and not callable(pre_operation_hook):
+            raise TypeError("pre_operation_hook must be callable")
         results = []
         receipt_snapshots = self.checkpoint.completed_receipts
         for operation_index in range(self.next_operation_index, len(self.operations)):
-            result = self.operations[operation_index].run(max_steps=max_steps)
+            operation = self.operations[operation_index]
+            if pre_operation_hook is not None:
+                pre_operation_hook(operation_index, operation)
+            result = operation.run(max_steps=max_steps)
             results.append(result)
             if result.state is ProductionOperationState.BLOCKED or result.receipt is None:
                 self.checkpoint = DurableProductionSequenceCheckpoint._from_snapshots(receipt_snapshots, operation_index)
