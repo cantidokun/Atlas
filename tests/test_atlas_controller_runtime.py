@@ -8,6 +8,13 @@ from controller.capability_admission import CapabilityAdmission
 from controller.capability_execution import CapabilityExecutionResult
 from controller.capability_registry import ControllerCapabilityRegistry
 from controller.capability_request import CapabilityRequest
+from planning.unreal_adapter_production import UnrealAdapterProduction
+from planning.unreal_plan_executor import UnrealPlanExecutor
+from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
+from planning.unreal_production_planning_boundary import authorize_production_plan
+from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeAdapter
+from tests.test_unreal_heterogeneous_production import ProductionTransport, _intent, _spec
+from planning.unreal_production_operation import build_unreal_production_plan
 
 
 def test_runtime_bootstraps_one_shared_capability_registry():
@@ -142,6 +149,34 @@ def test_runtime_execute_request_chains_admission_and_execution():
     assert isinstance(calls[0], CapabilityRequest)
     assert calls[0].normalized_capability == request.capability
     assert calls[0] is not request
+
+
+def test_runtime_executes_explicit_unreal_production_capability():
+    production = build_unreal_production_plan(_intent(), _spec())
+    integration = UnrealProductionControllerIntegration(
+        UnrealProductionRuntimeAdapter(
+            UnrealPlanExecutor(UnrealAdapterProduction(ProductionTransport(), "runtime-capability-test"))
+        )
+    )
+    runtime = AtlasControllerRuntime()
+    runtime.register_unreal_production(integration)
+
+    request = AgentTaskRequest(
+        capability="production",
+        provider="unreal",
+        context={
+            "production": True,
+            "authorized_production": authorize_production_plan(production, "production-auth"),
+        },
+    )
+
+    result = runtime.execute_request(request)
+
+    assert isinstance(result, CapabilityExecutionResult)
+    assert result.capability_name == "unreal_production"
+    assert result.value.operation == "start"
+    assert result.value.snapshot.state == "complete"
+    assert integration.complete is True
 
 
 def test_runtime_execution_rejects_raw_agent_request():
