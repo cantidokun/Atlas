@@ -27,6 +27,10 @@ def _location_key(value: Any) -> tuple:
     return tuple(round(float(item), _LOCATION_PRECISION) for item in value)
 
 
+def _same_location(a: Any, b: Any) -> bool:
+    return _is_vec3(a) and _is_vec3(b) and _location_key(a) == _location_key(b)
+
+
 @dataclass
 class ControllerState:
     """Deterministic state for the current authorized midpoint task."""
@@ -41,8 +45,6 @@ class ControllerState:
 
     @property
     def phase(self) -> str:
-        # AFTER is a useful observable state even when its verification proves
-        # the task complete. COMPLETE is exposed separately by `complete`.
         if self.after is not None:
             return "AFTER"
         if self.writes:
@@ -60,7 +62,7 @@ class ControllerState:
             and self.target is not None
             and not required_moves(self)
             and self.after is not None
-            and self.after.get("midpoint") == TARGET_MIDPOINT
+            and after_matches_target(self)
         )
 
 
@@ -153,6 +155,21 @@ def required_moves(state: ControllerState) -> List[Dict[str, Any]]:
     ]
 
 
+def after_matches_target(state: ControllerState) -> bool:
+    """Require independent AFTER evidence to match every authorized target."""
+    if state.after is None or state.target is None:
+        return False
+
+    object_a = state.after.get("object_a", {})
+    object_b = state.after.get("object_b", {})
+
+    return (
+        _same_location(object_a.get("location"), state.target.get("object_a_location"))
+        and _same_location(object_b.get("location"), state.target.get("object_b_location"))
+        and _same_location(state.after.get("midpoint"), TARGET_MIDPOINT)
+    )
+
+
 def next_required_action(state: ControllerState) -> Dict[str, Any]:
     """Return the next deterministic gate without performing it."""
     if state.before is None:
@@ -196,7 +213,7 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
 
 
 def record_after(state: ControllerState, relationship: Dict[str, Any]) -> None:
-    """Record the independent AFTER verification after all required writes."""
+    """Record independent AFTER verification after all required writes."""
     if required_moves(state):
         raise ValueError("Cannot establish AFTER state while authorized writes remain outstanding.")
 
