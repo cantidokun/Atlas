@@ -5,9 +5,10 @@ from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.capability_request import CapabilityRequest
 from planning.agent_controller_production_request import AgentControllerProductionRequest
+from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
 
 
-class FakeUnrealProduction:
+class FakeUnrealProduction(UnrealProductionControllerIntegration):
     def __init__(self):
         self.calls = []
 
