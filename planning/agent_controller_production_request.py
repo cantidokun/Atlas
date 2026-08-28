@@ -3,7 +3,7 @@
 This module provides the smallest concrete bridge for an agent-originated
 Unreal production request. It intentionally accepts only the normalized
 AgentControllerHandoff contract and delegates to the existing controller
-runtime; it does not re-select or directly execute provider capabilities.
+entrypoint runtime; it does not re-select or directly execute provider capabilities.
 """
 
 from controller.agent_entrypoint_contract import AgentControllerHandoff
@@ -19,4 +19,4 @@ class AgentControllerProductionRequest:
     def submit(self, handoff: AgentControllerHandoff):
         if not isinstance(handoff, AgentControllerHandoff):
             raise TypeError("handoff must be an AgentControllerHandoff")
-        return self.runtime.execute(handoff)
+        return self.runtime.dispatch(handoff.request)
