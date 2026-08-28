@@ -36,6 +36,7 @@ class ControllerState:
     target: Optional[Dict[str, Any]] = None
     writes: List[Dict[str, Any]] = field(default_factory=list)
     after: Optional[Dict[str, Any]] = None
+    write_retry_pending: bool = field(default=False, repr=False)
 
     @property
     def phase(self) -> str:
@@ -44,7 +45,9 @@ class ControllerState:
         if self.writes:
             return "WRITE"
         if self.target is not None:
-            return "TARGET"
+            if self.write_retry_pending or not _relationship_matches_target(self, self.before):
+                return "TARGET"
+            return "BEFORE"
         if self.before is not None:
             return "BEFORE"
         return "EMPTY"
@@ -66,6 +69,7 @@ def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Di
         raise ValueError("BEFORE evidence does not match the authorized objects.")
     adjustment = _subtract(list(TARGET_MIDPOINT), list(midpoint))
     state.target = {"midpoint": TARGET_MIDPOINT.copy(), "adjustment": adjustment, "object_a_location": _subtract(list(location_a), list(midpoint)), "object_b_location": _subtract(list(location_b), list(midpoint))}
+    state.write_retry_pending = False
     return deepcopy(state.target)
 
 
@@ -81,6 +85,7 @@ def record_write(state: ControllerState, object_name: str, location: List[float]
         return
     if object_name not in {state.object_a_name, state.object_b_name}:
         raise ValueError("Write targeted an object outside the authorized task state.")
+    state.write_retry_pending = False
     state.writes.append({"object_name": object_name, "location": deepcopy(location), "result": deepcopy(result)})
 
 
@@ -92,12 +97,16 @@ def required_moves(state: ControllerState) -> List[Dict[str, Any]]:
     return [{"tool": "move_object", "arguments": {"file_name": state.file_name, "object_name": name, "location": location}} for name, location in required if (name, _location_key(location)) not in completed]
 
 
-def after_matches_target(state: ControllerState) -> bool:
-    if state.after is None or state.target is None:
+def _relationship_matches_target(state: ControllerState, relationship: Optional[Dict[str, Any]]) -> bool:
+    if relationship is None or state.target is None:
         return False
-    object_a = state.after.get("object_a", {})
-    object_b = state.after.get("object_b", {})
-    return object_a.get("name") == state.object_a_name and object_b.get("name") == state.object_b_name and _same_location(object_a.get("location"), state.target.get("object_a_location")) and _same_location(object_b.get("location"), state.target.get("object_b_location")) and _same_location(state.after.get("midpoint"), state.target.get("midpoint"))
+    object_a = relationship.get("object_a", {})
+    object_b = relationship.get("object_b", {})
+    return object_a.get("name") == state.object_a_name and object_b.get("name") == state.object_b_name and _same_location(object_a.get("location"), state.target.get("object_a_location")) and _same_location(object_b.get("location"), state.target.get("object_b_location")) and _same_location(relationship.get("midpoint"), state.target.get("midpoint"))
+
+
+def after_matches_target(state: ControllerState) -> bool:
+    return _relationship_matches_target(state, state.after)
 
 
 def next_required_action(state: ControllerState) -> Dict[str, Any]:
@@ -112,18 +121,16 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
 
 
 def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    if state.target is None:
-        return False
-    object_a = relationship.get("object_a", {})
-    object_b = relationship.get("object_b", {})
-    return object_a.get("name") == state.object_a_name and object_b.get("name") == state.object_b_name and _same_location(object_a.get("location"), state.target.get("object_a_location")) and _same_location(object_b.get("location"), state.target.get("object_b_location")) and _same_location(relationship.get("midpoint"), state.target.get("midpoint"))
+    return _relationship_matches_target(state, relationship)
 
 
-def record_after(state: ControllerState, relationship: Dict[str, Any]) -> None:
+def record_after(state: ControllerState, relationship: Dict[str, Any]) -> bool:
+    """Accept fresh evidence only when it proves the target; otherwise leave state unchanged."""
     if required_moves(state):
-        raise ValueError("Cannot establish AFTER state while authorized writes remain outstanding.")
-    if not state.writes:
-        raise ValueError("Cannot establish AFTER state before a successful write.")
+        return False
+    if not state.writes and not _relationship_matches_target(state, state.before):
+        return False
     if not after_matches_target_with(state, relationship):
-        raise ValueError("AFTER evidence does not prove the authorized target state.")
+        return False
     state.after = deepcopy(relationship)
+    return True
