@@ -42,7 +42,7 @@ class AtlasAgentProcessRuntime:
         if not isinstance(request, AgentTaskRequest):
             raise TypeError("request must be an AgentTaskRequest instance")
         return AgentProcessRouteContext(
-            route=self.router.route(**request.routing_kwargs()),
+            route=self.router.route_request(request),
             runtime=self.runtime,
             request=request,
         )
