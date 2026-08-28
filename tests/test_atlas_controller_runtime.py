@@ -140,7 +140,7 @@ def test_runtime_execute_request_chains_admission_and_execution():
     assert result.value == "test"
     assert len(calls) == 1
     assert isinstance(calls[0], CapabilityRequest)
-    assert calls[0].normalized_capability == request.normalized_capability
+    assert calls[0].normalized_capability == request.capability
     assert calls[0] is not request
 
 
