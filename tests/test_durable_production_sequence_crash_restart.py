@@ -137,3 +137,22 @@ def test_completed_restart_rehydrates_without_replaying_any_operation():
     assert result.results == ()
     assert result.checkpoint.next_operation_index == 2
     assert resumed_writes == []
+
+
+def test_rehydrated_checkpoint_cannot_claim_more_completed_operations_than_sequence():
+    registry, revision = _registry()
+    writes = []
+    first = _operation("task-1", revision, writes)
+    second = _operation("task-2", revision, writes)
+    completed = DurableProductionOperationSequence((first, second)).run()
+
+    persisted_registry = registry.snapshot()
+    persisted_checkpoint = completed.checkpoint.snapshot()
+    resumed_writes = []
+    only_first = _operation("task-1", revision, resumed_writes)
+
+    with pytest.raises(ValueError, match="more completed operations than sequence"):
+        DurableProductionSequenceRehydrator(registry).rehydrate(
+            (only_first,), persisted_registry, persisted_checkpoint
+        )
+    assert resumed_writes == []
