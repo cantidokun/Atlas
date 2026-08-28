@@ -563,6 +563,16 @@ bool FAtlasTransportServer::BuildBlueprintState(const FString& AssetPath,TShared
     State->SetBoolField(TEXT("is_up_to_date"),Blueprint->IsUpToDate());
     if(Blueprint->GeneratedClass) State->SetStringField(TEXT("generated_class"),Blueprint->GeneratedClass->GetPathName());
     else State->SetStringField(TEXT("generated_class"),TEXT(""));
+
+    TSharedPtr<FJsonObject> Metadata = MakeShareable(new FJsonObject);
+    if (TMap<FName, FString>* MetadataValues = FMetaData::GetMapForObject(Blueprint))
+    {
+        for (const TPair<FName, FString>& Pair : *MetadataValues)
+        {
+            Metadata->SetStringField(Pair.Key.ToString(), Pair.Value);
+        }
+    }
+    State->SetObjectField(TEXT("metadata"), Metadata);
     O=State;
     return true;
 }
@@ -710,7 +720,7 @@ namespace
             OutError = TEXT("Render config is invalid");
             return nullptr;
         }
-        UMoviePipelineOutputSetting* Setting = Config->FindSettingByClass<UMoviePipelineOutputSetting>(false);
+        UMoviePipelineOutputSetting* Setting = Cast<UMoviePipelineOutputSetting>(Config->FindSettingByClass(UMoviePipelineOutputSetting::StaticClass(), false, true));
         if (!Setting)
         {
             OutError = TEXT("Render config is missing MoviePipelineOutputSetting");
@@ -737,7 +747,7 @@ namespace
             OutError = TEXT("Only PNG output_format is supported by the initial Unreal render boundary");
             return false;
         }
-        UMoviePipelineImageSequenceOutput_PNG* Existing = Config->FindSettingByClass<UMoviePipelineImageSequenceOutput_PNG>(false);
+        UMoviePipelineImageSequenceOutput_PNG* Existing = Cast<UMoviePipelineImageSequenceOutput_PNG>(Config->FindSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass(), false, true));
         if (!Existing)
         {
             Existing = Cast<UMoviePipelineImageSequenceOutput_PNG>(Config->FindOrAddSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass(), false, true));

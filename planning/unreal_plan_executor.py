@@ -257,7 +257,7 @@ class UnrealPlanExecutor:
             if expected_scale is not None: evidence=verify_actor_scale(evidence,expected_scale)
             if expected_material_variant is not None: evidence=verify_material_variant(evidence,expected_material_variant)
             if expected_niagara_variant is not None: evidence=verify_niagara_variant(evidence,expected_niagara_variant)
-            if expected_start_frame is not None and expected_end_frame is not None: evidence=verify_sequencer_playback_range(evidence,expected_start_frame,expected_end_frame)
+            if operation.name == "verify_sequencer_playback_range" and expected_start_frame is not None and expected_end_frame is not None: evidence=verify_sequencer_playback_range(evidence,expected_start_frame,expected_end_frame)
             if operation.name == "verify_render_state": evidence=verify_render_config(evidence, {key: operation.arguments[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")})
             if self._is_semantically_verified(operation,evidence): evidence=replace(evidence,verified=True)
         return evidence

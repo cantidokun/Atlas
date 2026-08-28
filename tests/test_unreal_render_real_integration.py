@@ -6,7 +6,7 @@ from planning.unreal_adapter_production import create_production_adapter
 from planning.unreal_agent import UnrealTaskIntent
 from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
 from planning.unreal_transport_named_pipe import NamedPipeTransportError
-from planning.unreal_task_planner import UnrealTaskPlanner
+from planning.unreal_task_planner import UnrealTaskPlan, UnrealTaskPlanner
 
 pytestmark = pytest.mark.integration
 
@@ -58,14 +58,11 @@ def test_real_unreal_render_configuration_persists_and_verifies():
         assert _render_state(result.evidence_ledger[1])["end_frame"] == CONFIG["end_frame"]
         assert _render_state(result.evidence_ledger[1])["output_format"] == "png"
         assert _render_state(result.evidence_ledger[2]) == _render_state(result.evidence_ledger[1])
-        fresh = executor.execute(
-            planner.plan_render_configuration(_intent("real-render-fresh-inspection"), CONFIG)[:1] and
-            __import__("planning.unreal_task_planner", fromlist=["UnrealTaskPlan"]).UnrealTaskPlan(
-                "real-render-fresh-inspection",
-                (plan.operations[0],),
-            ),
-            "real-render-fresh-auth",
+        fresh_plan = UnrealTaskPlan(
+            "real-render-fresh-inspection",
+            (plan.operations[0],),
         )
+        fresh = executor.execute(fresh_plan, "real-render-fresh-auth")
         assert _render_state(fresh.evidence_ledger[0])["width"] == CONFIG["width"]
         assert _render_state(fresh.evidence_ledger[0])["height"] == CONFIG["height"]
     except (NamedPipeTransportError, UnrealPlanExecutionError) as exc:
