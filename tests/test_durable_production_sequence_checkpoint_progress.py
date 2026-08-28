@@ -1,4 +1,6 @@
-from planning.durable_production_sequence import DurableProductionOperationSequence
+from __future__ import annotations
+
+from planning.durable_production_operation_sequence import DurableProductionOperationSequence
 from planning.production_operation_lifecycle import ProductionOperationState
 
 
