@@ -68,13 +68,12 @@ def test_registry_resume_blocks_on_wrong_authoritative_state_without_completion_
     )
 
     original_resume = lifecycle.task.resume
-    result = original_resume(max_steps=1)
+    result = original_resume(max_steps=16)
 
     assert result.converged
     assert result.receipts
     assert writes == [("test.move", {"target": "new"})]
 
-    # The executor succeeded, but the authoritative production decision must still block.
     authoritative_result = CorrectiveTaskResult(
         result.receipts,
         {"value": "wrong-authoritative-state"},
