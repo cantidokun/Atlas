@@ -54,13 +54,15 @@ class ProductionPersistenceResumeLifecycle:
         return self.sequence.next_operation_index
 
     def _resume_checkpoint(self) -> ProductionResumeCheckpoint:
-        registry_snapshot = self.bundle.registry_snapshot
-        revision = registry_snapshot.get("revision_id")
-        sequence_id = registry_snapshot.get("sequence_id")
-        plan_id = registry_snapshot.get("plan_id")
-        if not all(isinstance(value, str) for value in (sequence_id, plan_id, revision)):
+        identity = self.bundle.resume_identity
+        if not isinstance(identity, dict):
             raise ValueError("persisted resume identity is incomplete")
-        return ProductionResumeCheckpoint(sequence_id=sequence_id, plan_id=plan_id, digital_twin_revision=revision, completed_operation_index=self.next_operation_index - 1)
+        return ProductionResumeCheckpoint(
+            sequence_id=identity["sequence_id"],
+            plan_id=identity["plan_id"],
+            digital_twin_revision=identity["digital_twin_revision"],
+            completed_operation_index=self.next_operation_index - 1,
+        )
 
     def _validate_resume_request(self, request: ProductionResumeRequest) -> None:
         validate_production_resume(self._resume_checkpoint(), request)
@@ -74,7 +76,11 @@ class ProductionPersistenceResumeLifecycle:
     def _persist_checkpoint(self, checkpoint) -> None:
         if self.persistence_store is None:
             return
-        bundle = DurableProductionPersistenceBundle.create(self.registry, checkpoint)
+        bundle = DurableProductionPersistenceBundle.create(
+            self.registry,
+            checkpoint,
+            resume_identity=self.bundle.resume_identity,
+        )
         self.persistence_store.save(bundle)
         self.bundle = bundle
 
