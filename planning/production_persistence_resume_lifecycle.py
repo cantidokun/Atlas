@@ -102,7 +102,10 @@ class ProductionPersistenceResumeLifecycle:
             checkpoint,
             resume_identity=self.bundle.resume_identity,
         )
-        self.persistence_store.save(bundle)
+        try:
+            self.persistence_store.save(bundle)
+        except Exception as exc:
+            raise RuntimeError(f"durable production checkpoint persistence failed: {exc}") from exc
         self.bundle = bundle
 
     def run(self, max_steps: int = 16):
