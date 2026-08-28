@@ -138,7 +138,10 @@ def test_runtime_execute_request_chains_admission_and_execution():
     assert isinstance(result, CapabilityExecutionResult)
     assert result.capability_name == "test"
     assert result.value == "test"
-    assert calls == [request]
+    assert len(calls) == 1
+    assert isinstance(calls[0], CapabilityRequest)
+    assert calls[0].normalized_capability == request.normalized_capability
+    assert calls[0] is not request
 
 
 def test_runtime_execution_rejects_raw_agent_request():
