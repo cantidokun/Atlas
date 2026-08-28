@@ -48,6 +48,12 @@ class RegistryBoundDurableProductionOperationSequence:
         for operation in self._sequence.operations[self._sequence.next_operation_index:]:
             self.registry.require_canonical_revision(operation.task.revision)
 
+    def _validate_operation_before_run(self, index, operation) -> None:
+        """Recheck the operation's canonical revision immediately before execution."""
+        if index < self._sequence.next_operation_index:
+            raise ValueError("pre-operation validation index is behind the durable sequence checkpoint")
+        self.registry.require_canonical_revision(operation.task.revision)
+
     @property
     def checkpoint(self):
         return self._sequence.checkpoint
@@ -67,6 +73,7 @@ class RegistryBoundDurableProductionOperationSequence:
         result = self._sequence.run(
             max_steps=max_steps,
             checkpoint_sink=checkpoint_sink,
+            pre_operation_hook=self._validate_operation_before_run,
         )
         self._validate_registry_binding()
         return result
