@@ -174,3 +174,19 @@ def test_resume_revision_must_exist_in_canonical_registry():
         )
 
     assert writes == []
+
+
+def test_store_snapshot_preserves_resume_identity_and_integrity_digest():
+    registry, revision = _registry()
+    store = InMemoryDurableProductionPersistenceStore()
+    bundle = _interrupted_bundle(registry, revision)
+    store.save(bundle)
+
+    snapshot = store.snapshot()
+
+    assert snapshot is not None
+    assert snapshot["resume_identity"] == bundle.resume_identity
+    assert snapshot["resume_identity_digest"] == bundle.resume_identity_digest
+    restored = DurableProductionPersistenceBundle.from_snapshot(snapshot)
+    assert restored.resume_identity == bundle.resume_identity
+    assert restored.resume_identity_digest == bundle.resume_identity_digest
