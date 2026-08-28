@@ -28,7 +28,11 @@ class InMemoryDurableProductionPersistenceStore:
     def snapshot(self) -> Mapping[str, Any] | None:
         if self._snapshot is None:
             return None
-        return {
+        snapshot = {
             "registry_snapshot": dict(self._snapshot["registry_snapshot"]),
             "checkpoint_snapshot": dict(self._snapshot["checkpoint_snapshot"]),
         }
+        if "resume_identity" in self._snapshot:
+            snapshot["resume_identity"] = dict(self._snapshot["resume_identity"])
+            snapshot["resume_identity_digest"] = self._snapshot["resume_identity_digest"]
+        return snapshot
