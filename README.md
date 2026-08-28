@@ -19,30 +19,29 @@ Qwen never receives direct Blender execution authority.
 
 ## Current milestone
 
-**PROVEN MILESTONE: generalized Blender authorization-bound writes, corrective replanning, interruption/resume recovery, durable checkpoints, canonical Digital Twin registry binding, production completion authority, immutable completion receipts, persisted durable-sequence rehydration, and fail-closed registry-snapshot integrity are proven offline and through the live Blender/runtime paths exercised so far.**
+**PROVEN MILESTONE:** generalized Blender authorization-bound writes, corrective replanning, interruption/resume recovery, durable checkpoints, canonical Digital Twin registry binding, production completion authority, immutable completion receipts, persisted durable-sequence rehydration, fail-closed registry integrity, and production-facing resume identity validation are implemented and green in the current branch.
 
-Latest completed full offline suite:
-
-```text
-744 passed in 1.58s
-```
-
-The latest focused persisted rehydration execution suite is:
+Latest user-run full offline suite:
 
 ```text
-2 passed
+804 passed in 1.48s
 ```
 
-## Live production completion
-
-The production completion boundary is live-proven for both terminal cases:
+Current branch:
 
 ```text
-ATLAS LIVE PRODUCTION COMPLETION VERIFIED-STATE GATE: PASS
-ATLAS LIVE PRODUCTION COMPLETION WRONG-STATE BLOCK GATE: PASS
+feat/replan-race-gate
 ```
 
-The invariant is:
+Current branch tip:
+
+```text
+1c1fb08a21b89de8c47ecc3a5dfe310357627c9b
+```
+
+## Production completion
+
+The production completion invariant remains:
 
 ```text
 executor success
@@ -60,27 +59,6 @@ Executor success alone is never sufficient for production completion.
 
 ## Durable checkpoint / registry resume
 
-The live durable checkpoint path is proven:
-
-```text
-ATLAS BLENDER LIVE DURABLE CHECKPOINT STALE-STATE ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE DURABLE CHECKPOINT RESUME: PASS
-```
-
-The registry-aware live continuation path is proven:
-
-```text
-ATLAS BLENDER LIVE REGISTRY STALE-REVISION ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE REGISTRY DURABLE RESUME: PASS
-```
-
-The rehydrated production completion path is also proven:
-
-```text
-ATLAS LIVE REGISTRY REHYDRATED COMPLETION GATE: PASS
-ATLAS LIVE REGISTRY REHYDRATED WRONG-STATE BLOCK GATE: PASS
-```
-
 The durable production resume chain is:
 
 ```text
@@ -90,8 +68,8 @@ registry reload
  -> checkpoint integrity + validated parent lineage
  -> durable sequence rehydration
  -> completed-receipt/order validation
- -> fresh observation
- -> fresh resume/replan authorization
+ -> resume identity validation
+ -> fresh observation / authorization
  -> authorized Blender continuation
  -> authorization-bound receipt
  -> authoritative final evidence
@@ -101,11 +79,9 @@ registry reload
 
 Saved authorization is never replayed. Checkpoint persistence is state/audit lineage, not an execution credential.
 
-Persisted registry snapshots and durable sequence checkpoints are validated before resumed execution. Tampered snapshots, stale revisions, malformed checkpoints, and inconsistent receipt/index state fail closed without continuation writes.
+The production-facing `ProductionPersistenceResumeLifecycle` now contains a fail-closed resume identity boundary for persisted `sequence_id`, `plan_id`, and Digital Twin revision, with validation available before execution and rechecked at `run()` time.
 
-## Live Blender capabilities
-
-The shared live-write gate has been proven against five real Blender-backed mutation capabilities with both legitimate authoritative-success and adversarial authoritative-mismatch outcomes:
+## Proven live Blender capabilities
 
 | Capability | Legitimate | Adversarial |
 | --- | --- | --- |
@@ -115,139 +91,92 @@ The shared live-write gate has been proven against five real Blender-backed muta
 | `create_empty_marker` | `VERIFIED` | `BLOCKED` |
 | `move_object_to_collection` | `VERIFIED` | `BLOCKED` |
 
-Previously proven live gates include:
+Previously proven live gates include durable checkpoint resume, stale-state zero-write behavior, registry-bound stale-revision blocking, registry snapshot rehydration/tamper rejection, durable production sequence interruption/resume, and rehydrated production completion/blocking.
 
-```text
-ATLAS BLENDER LIVE MARKER VERIFIED: PASS
-ATLAS BLENDER LIVE COLLECTION ADVERSARIAL GATE: PASS
-ATLAS BLENDER LIVE COLLECTION VERIFIED: PASS
-ATLAS BLENDER LIVE MULTI-OPERATION COMPOSITION: PASS
-ATLAS BLENDER LIVE STALE AUTHORIZATION ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE CONTINUATION STALE-STATE ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE CONTINUATION RESUME: PASS
-ATLAS BLENDER LIVE DURABLE CHECKPOINT STALE-STATE ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE DURABLE CHECKPOINT RESUME: PASS
-ATLAS BLENDER LIVE REGISTRY STALE-REVISION ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE REGISTRY DURABLE RESUME: PASS
-ATLAS LIVE DURABLE PRODUCTION SEQUENCE INTERRUPTION/RESUME GATE: PASS
-ATLAS LIVE DURABLE PRODUCTION SEQUENCE FINAL VERIFICATION GATE: PASS
-ATLAS LIVE REGISTRY-BOUND STALE-REVISION ZERO-WRITE GATE: PASS
-ATLAS LIVE REGISTRY SNAPSHOT REHYDRATION GATE: PASS
-ATLAS LIVE REGISTRY SNAPSHOT TAMPER FAIL-CLOSED GATE: PASS
-ATLAS LIVE REHYDRATED REGISTRY STALE-REVISION ZERO-WRITE GATE: PASS
-```
-
-## Corrective and completion runtime
-
-The generalized corrective runtime maintains separation between:
-
-- protected Blender execution through `BlenderExecutionBoundary`;
-- generic/in-memory corrective execution through the generic corrective boundary;
-- durable checkpoint/resume state;
-- durable ordered production operation sequences;
-- persisted registry snapshot integrity;
-- production completion authority;
-- immutable production completion evidence.
-
-Fresh observation, replanning, exact corrective authorization, execution, receipt binding, re-observation, and authoritative verification are distinct lifecycle boundaries.
-
-Synthetic corrective tests may use operations such as `set_value`; `set_value` is deliberately **not** a production Blender capability.
+Live evidence is separate from offline testing. Do not infer a live result from pytest.
 
 ## Durable production architecture
 
-Key production boundaries include:
+Key boundaries include:
 
-- `planning/blender_capability_catalog.py` — explicit read/write capability classification and fail-closed unknown capabilities.
-- `planning/blender_write_authorization.py` — exact-action authorization for scene-writing capabilities.
+- `planning/blender_capability_catalog.py` — explicit Blender capability admission and fail-closed unknown capabilities.
+- `planning/blender_write_authorization.py` — exact-action write authorization.
 - `planning/blender_live_write_gate.py` — final authorization-bound write choke point.
 - `planning/blender_live_verification.py` — independent authoritative post-write verification.
 - `planning/blender_execution_receipt.py` — immutable authorization-bound execution receipt.
-- `planning/blender_execution_boundary.py` — authorized writes and corrective-replan execution APIs.
-- `planning/replan_authorization.py` — immutable corrective authorization bound to fresh evidence and exact replacement actions.
-- `planning/production_task_checkpoint.py` — immutable durable checkpoint contract.
+- `planning/blender_execution_boundary.py` — protected execution and corrective-replan APIs.
+- `planning/replan_authorization.py` — fresh-evidence corrective authorization.
+- `planning/production_task_checkpoint.py` — immutable durable task checkpoint.
 - `planning/production_checkpoint_lifecycle.py` — checkpoint persistence, canonical revision, and parent-lineage validation.
 - `planning/durable_resumable_corrective_task.py` — durable fresh-resume boundary.
-- `planning/digital_twin_registry.py` — persisted canonical Digital Twin identity/revision registry with integrity-addressed snapshots.
-- `planning/production_operation_lifecycle.py` — authoritative production `COMPLETED` / `BLOCKED` decision.
-- `planning/production_completion_receipt.py` — immutable production completion receipt.
-- `planning/production_autonomous_runtime_bridge.py` — narrow autonomous-runtime-to-production completion bridge.
-- `planning/production_registry_resume_lifecycle.py` — registry-backed production continuation and completion lifecycle.
-- `planning/durable_production_operation_sequence.py` — ordered durable production operation sequence and checkpoint progression.
-- `planning/registry_bound_durable_production_operation_sequence.py` — canonical registry revision binding for durable sequences.
-- `planning/durable_production_sequence_rehydration.py` — persisted sequence checkpoint rehydration.
+- `planning/digital_twin_registry.py` — canonical Digital Twin identity/revision registry with integrity-addressed snapshots.
+- `planning/production_operation_lifecycle.py` — authoritative `COMPLETED` / `BLOCKED` decision.
+- `planning/production_completion_receipt.py` — immutable production completion evidence.
+- `planning/production_registry_resume_lifecycle.py` — registry-backed production continuation/completion.
+- `planning/durable_production_operation_sequence.py` — ordered durable production sequence/checkpoint progression.
+- `planning/registry_bound_durable_production_operation_sequence.py` — canonical registry revision binding.
+- `planning/durable_production_sequence_rehydration.py` — persisted sequence rehydration.
+- `planning/production_resume_integrity_gate.py` — fail-closed persisted resume identity validation.
+- `planning/production_persistence_resume_lifecycle.py` — production-facing persisted restart boundary with resume validation.
 
-## Authority and verification boundary
+## Authority chain
 
 ```text
 Qwen proposal
  -> task/evidence/action validation
  -> explicit capability admission
- -> fresh authoritative evidence
  -> exact authorization
  -> deterministic Blender execution
- -> normalized result
- -> immutable authorization-bound receipt
- -> fresh independent evidence
- -> target verification / corrective replan
+ -> immutable execution receipt
+ -> fresh authoritative observation
+ -> VERIFIED / BLOCKED or corrective replan
  -> durable checkpoint when interrupted
- -> canonical revision + parent-lineage validation
+ -> checkpoint + parent-lineage validation
  -> registry snapshot integrity validation
+ -> canonical Digital Twin revision
  -> durable sequence rehydration
+ -> resume identity validation
  -> fresh resume authorization
  -> resumed write
- -> authoritative production completion verification
+ -> authoritative final verification
  -> ProductionCompletionReceipt
  -> COMPLETED / BLOCKED
 ```
 
-Qwen proposes; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender is an execution target, never an authority.
+Qwen proposes; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender is an execution target, never the authority.
 
 ## Architectural constraints
 
 - Only explicitly admitted Blender capabilities execute.
 - Corrective planning uses fresh world state.
-- `ReplanAuthorization` must match fresh evidence and the exact replacement action list.
+- `ReplanAuthorization` must match fresh evidence and exact replacement actions.
 - Ordinary writes must match exact `BlenderWriteAuthorization`.
-- Receipts bind the executed action/result and authorization identity.
 - Missing, stale, changed, or unbound authorization fails closed.
 - `VERIFIED` requires authoritative verification and a receipt.
 - `COMPLETED` requires authoritative verification and a production completion receipt.
 - Wrong authoritative state is `BLOCKED`, even after executor success.
 - Zero-write guarantees must be preserved on stale/unauthorized paths.
 - Persisted registry snapshots and sequence checkpoints must be validated before resumed execution.
-- Exhausting a corrective budget is not success.
 - Do not add generic test operations such as `set_value` to the production Blender capability catalog.
-- Avoid bespoke per-tool lifecycle orchestration in place of the generalized runtime.
-- C++ interoperability remains a future architectural requirement; keep subsystem contracts language-agnostic.
+- Avoid bespoke per-tool lifecycle orchestration in place of generalized runtime boundaries.
+- C++ interoperability remains a future architectural requirement; subsystem contracts should remain language-agnostic.
 - Photogrammetry is upstream of Blender; Atlas is exclusively concerned with soccer-field-related digital twins.
-
-## Validation discipline
-
-Live evidence is separate from offline testing and is backed by actual Windows/Blender runner output. Do not infer a live result from the pytest suite.
-
-Current recorded offline baseline:
-
-```text
-FULL OFFLINE PYTEST SUITE: 744 passed, 0 failed
-```
-
-Current branch:
-
-```text
-feat/replan-race-gate
-```
-
-The Actions runner is active and available for workflow execution.
 
 ## End-of-session checkpoint
 
-**Development is paused for the night.** The generalized Blender authorization/recovery chain, durable production operation lifecycle, registry-bound durable sequences, persisted sequence rehydration, production completion authority, immutable completion receipts, and live stale-revision/tamper fail-closed boundaries are green for the current session.
+**Development is paused for the night.** The current branch is green with **804 passed, 0 failed** in the latest user-run full suite. The session's production-resume work is complete for tonight, including the fail-closed resume identity boundary and its integration into the production-facing persistence/resume lifecycle.
 
-Next session:
+No further implementation should be started tonight.
 
-1. `git pull --ff-only origin feat/replan-race-gate`
-2. `python -m pytest -q` to re-establish the **744-test** baseline.
-3. Preserve the already-proven live registry/resume/completion/rehydration gates.
-4. Continue with the remaining production-facing orchestration/continuation surface using the existing generic boundaries rather than creating another checkpoint, authorization, receipt, or completion mechanism.
+## Next-session resume
 
-See `ATLAS_HANDOFF_CURRENT.md` for the canonical resume point and `DEVELOPMENT_LOG.md` for chronological progress.
+```powershell
+git pull --ff-only origin feat/replan-race-gate
+python -m pytest -q
+```
+
+Expected baseline: **804 passed** unless intentional new work changes the suite.
+
+Continue from the existing generalized production boundaries. Do not create another checkpoint, authorization, receipt, or completion mechanism unless a concrete architectural gap is demonstrated.
+
+See `ATLAS_HANDOFF_CURRENT.md` for the canonical resume point and `DEVELOPMENT_LOG.md` for chronological history.
