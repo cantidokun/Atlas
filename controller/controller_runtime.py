@@ -5,8 +5,8 @@ from typing import Any, Callable, Dict
 
 from controller_state import ControllerState, record_after, record_before, record_write
 
-
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+_FAILURE_STATUSES = {"error", "failed", "failure"}
 
 
 class ControllerRuntime:
@@ -21,25 +21,33 @@ class ControllerRuntime:
         if action["kind"] == "complete":
             return {"status": "complete", "phase": self.state.phase}
 
-        result = execute(action["tool"], deepcopy(action["arguments"]))
-        if not isinstance(result, dict):
-            return {"status": "error", "phase": self.state.phase, "error": "Tool result must be an object."}
-        result = deepcopy(result)
+        try:
+            result = execute(action["tool"], deepcopy(action["arguments"]))
+        except Exception as exc:
+            return self._error(type(exc).__name__, str(exc))
 
-        if action["kind"] == "evidence":
-            if result.get("error") or result.get("status") == "error":
-                return {"status": "error", "phase": self.state.phase, "error": result}
-            record_before(self.state, result)
-        elif action["kind"] == "write":
-            record_write(self.state, action["arguments"]["object_name"], action["arguments"]["location"], result)
-            if result.get("status") != "moved":
-                return {"status": "error", "phase": self.state.phase, "error": result}
-        elif action["kind"] == "verification":
-            if result.get("error") or result.get("status") == "error":
-                return {"status": "error", "phase": self.state.phase, "error": result}
-            record_after(self.state, result)
+        if not isinstance(result, dict):
+            return self._error("InvalidToolResult", "Tool result must be an object.")
+        result = deepcopy(result)
+        if result.get("error") or result.get("status") in _FAILURE_STATUSES:
+            return self._error("ToolExecutionError", result)
+
+        try:
+            if action["kind"] == "evidence":
+                record_before(self.state, result)
+            elif action["kind"] == "write":
+                record_write(self.state, action["arguments"]["object_name"], action["arguments"]["location"], result)
+                if result.get("status") != "moved":
+                    return self._error("InvalidWriteResult", result)
+            elif action["kind"] == "verification":
+                record_after(self.state, result)
+        except (TypeError, ValueError, KeyError) as exc:
+            return self._error(type(exc).__name__, str(exc))
 
         return {"status": "complete" if self.state.complete else "progress", "phase": self.state.phase, "next_action": deepcopy(self._next_action())}
+
+    def _error(self, error_type: str, message: Any) -> Dict[str, Any]:
+        return {"status": "error", "phase": self.state.phase, "error": {"type": error_type, "message": deepcopy(message)}}
 
     def _next_action(self) -> Dict[str, Any]:
         from controller_state import next_required_action
