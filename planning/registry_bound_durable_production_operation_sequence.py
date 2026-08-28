@@ -1,6 +1,6 @@
 """Registry-bound durable multi-operation production sequencing."""
 
-from typing import Callable
+from typing import Callable, Optional
 
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.durable_production_operation_sequence import DurableProductionOperationSequence
@@ -59,7 +59,7 @@ class RegistryBoundDurableProductionOperationSequence:
     def run(
         self,
         max_steps: int = 16,
-        checkpoint_sink: Callable[[object], None] | None = None,
+        checkpoint_sink: Optional[Callable[[object], None]] = None,
     ):
         if checkpoint_sink is not None and not callable(checkpoint_sink):
             raise TypeError("checkpoint_sink must be callable")
