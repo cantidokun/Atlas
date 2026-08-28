@@ -10,6 +10,9 @@ from planning.production_operation_lifecycle import (
 )
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
+from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
+from planning.digital_twin_registry import DigitalTwinRegistry
+from planning.production_registry_resume_lifecycle import ProductionRegistryResumeLifecycle
 
 
 def _task_result(converged=True, evidence=None):
@@ -132,3 +135,67 @@ def test_invalid_constructor_inputs_fail_closed():
     task = object.__new__(DurableResumableCorrectiveTask)
     with pytest.raises(TypeError, match="callable"):
         ProductionOperationLifecycle(task, None)
+
+
+def _registry_and_revision():
+    identity = DigitalTwinIdentity(
+        twin_id="twin-1",
+        entity_type="reconstruction",
+        anchors=(IdentityAnchor("scene", "source", "scene-1"),),
+    )
+    registry = DigitalTwinRegistry()
+    registry.register_identity(identity)
+    revision = DigitalTwinRevision(
+        twin_id="twin-1",
+        revision_id="r1",
+        sequence=1,
+        kind=RevisionKind.RECONSTRUCTION,
+        source_revision_id=None,
+        source_fingerprint=identity.stable_fingerprint(),
+    )
+    registry.register_revision(revision)
+    return registry, revision
+
+
+def _checkpoint_snapshot(revision):
+    checkpoint = ProductionTaskCheckpoint.create(
+        "task-1",
+        revision,
+        (),
+        {"checkpoint": True},
+        "authorization-1",
+    )
+    return checkpoint.snapshot()
+
+
+def test_registry_snapshot_constructor_rehydrates_canonical_resume_boundary():
+    registry, revision = _registry_and_revision()
+
+    lifecycle = ProductionRegistryResumeLifecycle.from_registry_snapshot(
+        registry.snapshot(),
+        _checkpoint_snapshot(revision),
+        revision,
+        observe=lambda: {"fresh": True},
+        plan=lambda _: (),
+        verify_final=lambda _: True,
+    )
+
+    assert lifecycle.registry.canonical_revision("twin-1") == revision
+    assert lifecycle.checkpoint.revision_id == "r1"
+    assert lifecycle.checkpoint.task_id == "task-1"
+
+
+def test_registry_snapshot_constructor_rejects_tampering_before_checkpoint_rehydration():
+    registry, revision = _registry_and_revision()
+    snapshot = registry.snapshot()
+    snapshot["snapshot_digest"] = "tampered"
+
+    with pytest.raises(ValueError, match="snapshot digest"):
+        ProductionRegistryResumeLifecycle.from_registry_snapshot(
+            snapshot,
+            _checkpoint_snapshot(revision),
+            revision,
+            observe=lambda: {"fresh": True},
+            plan=lambda _: (),
+            verify_final=lambda _: True,
+        )
