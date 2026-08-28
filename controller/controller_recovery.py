@@ -36,10 +36,13 @@ def recover_and_reconcile(payload: Dict[str, Any], read_evidence: EvidenceReader
         return state
 
     if required_moves(state):
-        # A checkpoint may represent an interrupted multi-write operation. Fresh
-        # evidence can be useful, but it cannot close the task while writes remain
-        # outstanding. The normal runtime will resume the missing writes.
-        record_after(state, deepcopy(evidence))
+        # An interrupted checkpoint may have successful write receipts whose
+        # coordinate frame differs from the derived target. Fresh evidence that
+        # exactly matches those receipts is useful reconciliation evidence, but
+        # the interrupted task remains incomplete and will resume normally.
+        if not record_after(state, deepcopy(evidence)):
+            raise ValueError("AFTER evidence does not prove the recorded write state.")
+        state.after = None
         return state
 
     if not record_after(state, deepcopy(evidence)):
