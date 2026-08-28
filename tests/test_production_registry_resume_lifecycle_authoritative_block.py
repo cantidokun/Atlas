@@ -5,7 +5,6 @@ from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
-from planning.production_completion_receipt import ProductionCompletionReceipt
 from planning.production_operation_lifecycle import ProductionOperationState
 from planning.production_registry_resume_lifecycle import ProductionRegistryResumeLifecycle
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
@@ -69,8 +68,10 @@ def test_registry_resume_blocks_on_wrong_authoritative_state_without_completion_
     )
 
     # Executor reports success, but authoritative verification deliberately rejects.
+    original_resume = lifecycle.task.resume
+
     def fake_resume(max_steps=16):
-        result = lifecycle.task.resume(max_steps=max_steps)
+        result = original_resume(max_steps=max_steps)
         state["value"] = "new"
         return CorrectiveTaskResult(result.receipts, {"authoritative": "wrong"}, True)
 
