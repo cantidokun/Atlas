@@ -1,12 +1,12 @@
 """Agent-facing integration boundary for Unreal production transactions.
 
-The generic Atlas controller remains provider-neutral.  This module adapts the
+The generic Atlas controller remains provider-neutral. This module adapts the
 Unreal production runtime into a small lifecycle contract that an outer agent
 or orchestrator can consume without gaining a way to bypass authorization.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_production_planning_boundary import UnrealAuthorizedProductionPlan
@@ -62,13 +62,11 @@ class UnrealProductionControllerIntegration:
 
     def next_required_authorization(self) -> Optional[str]:
         """Return the next explicit authorization class, if one is required."""
+        loop = self._runtime.loop
         if self._runtime.complete:
             return None
-        outcome = self._runtime.loop.outcome
-        if outcome is None:
-            return "production"
-        if outcome.state == "awaiting_reassessment":
-            return "reassessment"
-        if outcome.state == "awaiting_replacement":
+        if loop.waiting_for_replacement:
             return "replacement"
-        return None
+        if loop.waiting_for_reassessment:
+            return "reassessment"
+        return "production"
