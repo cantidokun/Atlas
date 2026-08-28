@@ -34,8 +34,13 @@ class ProductionRegistryResumeLifecycle:
     ) -> None:
         if not isinstance(registry, DigitalTwinRegistry):
             raise TypeError("registry must be a DigitalTwinRegistry")
+        if not isinstance(revision, DigitalTwinRevision):
+            raise TypeError("revision must be a DigitalTwinRevision")
         self.registry = registry
         self.checkpoint_lifecycle = ProductionCheckpointLifecycle(registry)
+        registry_revision = registry.canonical_revision(revision.twin_id)
+        if registry_revision.revision_id != revision.revision_id:
+            raise ValueError("production resume revision is not the current canonical revision")
         checkpoint = self.checkpoint_lifecycle.rehydrate_checkpoint(
             checkpoint_snapshot,
             revision,
