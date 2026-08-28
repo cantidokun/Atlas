@@ -30,7 +30,7 @@ def _registry():
     return registry, revision
 
 
-def _operation(task_id, revision, writes, converged=True):
+def _operation(task_id, revision, writes, converged=True, authoritative=True):
     checkpoint = ProductionTaskCheckpoint.create(
         task_id, revision, (), {"task_id": task_id}, f"auth-{task_id}"
     )
@@ -43,7 +43,7 @@ def _operation(task_id, revision, writes, converged=True):
         return CorrectiveTaskResult((), {"task_id": task_id}, converged)
 
     task.resume = resume
-    return ProductionOperationLifecycle(task, lambda evidence: converged)
+    return ProductionOperationLifecycle(task, lambda evidence: authoritative)
 
 
 def test_restart_boundary_persists_first_completion_and_resumes_only_second_operation():
@@ -72,3 +72,19 @@ def test_restart_boundary_persists_first_completion_and_resumes_only_second_oper
     assert result.state is ProductionOperationState.COMPLETED
     assert resumed_writes == ["task-2"]
     assert result.checkpoint.next_operation_index == 2
+
+
+def test_authoritative_rejection_does_not_advance_durable_checkpoint():
+    registry, revision = _registry()
+    writes = []
+    operation = _operation(
+        "task-1", revision, writes, converged=True, authoritative=False
+    )
+
+    result = DurableProductionOperationSequence((operation,)).run()
+
+    assert result.state is ProductionOperationState.BLOCKED
+    assert result.results[0].receipt is None
+    assert result.checkpoint.next_operation_index == 0
+    assert result.checkpoint.completed_receipts == ()
+    assert writes == ["task-1"]
