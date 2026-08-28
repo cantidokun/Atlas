@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
@@ -55,7 +57,6 @@ def test_crash_restart_persists_completed_prefix_and_never_replays_completed_ope
     writes = []
 
     first = _operation("task-1", revision, writes)
-    # Simulate the process dying before operation two can complete.
     second = _operation("task-2", revision, writes, converged=False)
     interrupted = DurableProductionOperationSequence((first, second)).run()
 
@@ -78,3 +79,32 @@ def test_crash_restart_persists_completed_prefix_and_never_replays_completed_ope
     assert result.state is ProductionOperationState.COMPLETED
     assert result.checkpoint.next_operation_index == 2
     assert resumed_writes == ["task-2"]
+
+
+def test_crash_restart_refuses_stale_canonical_revision_before_any_resume_write():
+    registry, revision = _registry()
+    writes = []
+    first = _operation("task-1", revision, writes)
+    second = _operation("task-2", revision, writes, converged=False)
+    interrupted = DurableProductionOperationSequence((first, second)).run()
+    persisted_checkpoint = interrupted.checkpoint.snapshot()
+    persisted_registry = registry.snapshot()
+
+    newer = DigitalTwinRevision(
+        revision.twin_id,
+        "r2",
+        2,
+        RevisionKind.CLEANUP,
+        source_revision_id=revision.revision_id,
+        source_fingerprint=revision.source_fingerprint,
+    )
+    registry.register_revision(newer)
+
+    resumed_writes = []
+    resumed_first = _operation("task-1", revision, resumed_writes)
+    resumed_second = _operation("task-2", revision, resumed_writes)
+    with pytest.raises(ValueError, match="stale Digital Twin revision"):
+        DurableProductionSequenceRehydrator(registry).rehydrate(
+            (resumed_first, resumed_second), persisted_registry, persisted_checkpoint
+        )
+    assert resumed_writes == []
