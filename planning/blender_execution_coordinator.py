@@ -49,6 +49,13 @@ class BlenderExecutionCoordinator:
         self._verify = verify
         self._checkpoint = checkpoint
 
+    @staticmethod
+    def _execution_succeeded(result: Dict[str, Any]) -> bool:
+        """Interpret both current and legacy Blender result success contracts."""
+        if "ok" in result:
+            return result["ok"] is True
+        return "error" not in result and result.get("status") not in {"error", "failed", "failure"}
+
     def step(self) -> BlenderExecutionStep:
         if self.plan.blocked:
             raise BlenderExecutionError("Blender plan is blocked by a previous failure.")
@@ -65,7 +72,7 @@ class BlenderExecutionCoordinator:
         if not isinstance(result, dict):
             raise BlenderExecutionError("Blender executor must return an object.")
 
-        execution_success = "error" not in result and result.get("status") not in {"error", "failed"}
+        execution_success = self._execution_succeeded(result)
         verified = execution_success
         if execution_success and self._verify is not None:
             verified = bool(self._verify(action.tool, dict(action.arguments), result))
