@@ -3,6 +3,7 @@
 import pytest
 
 from controller.capability_dispatch import ControllerCapabilityDispatcher
+from controller.capability_request import CapabilityRequest
 from controller.unreal_production_capability import register_unreal_production_capability
 from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
@@ -22,8 +23,11 @@ def test_unreal_production_registers_as_named_capability():
     register_unreal_production_capability(dispatcher, integration)
 
     capability = dispatcher.resolve(
-        "create Unreal production",
-        {"provider": "unreal", "production": True},
+        CapabilityRequest(
+            capability="production",
+            provider="unreal",
+            context={"production": True},
+        )
     )
     assert capability is not None
     assert capability.name == "unreal_production"
@@ -39,8 +43,20 @@ def test_unreal_production_capability_does_not_match_without_explicit_context():
     )
     register_unreal_production_capability(dispatcher, integration)
 
-    assert dispatcher.resolve("create Unreal production", {"provider": "unreal"}) is None
-    assert dispatcher.resolve("create production", {"provider": "blender", "production": True}) is None
+    assert dispatcher.resolve(
+        CapabilityRequest(
+            capability="production",
+            provider="unreal",
+            context={},
+        )
+    ) is None
+    assert dispatcher.resolve(
+        CapabilityRequest(
+            capability="production",
+            provider="blender",
+            context={"production": True},
+        )
+    ) is None
 
 
 def test_registration_rejects_wrong_dependencies():
