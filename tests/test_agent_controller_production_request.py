@@ -10,9 +10,9 @@ class FakeRuntime:
     def __init__(self):
         self.calls = []
 
-    def execute(self, handoff):
-        self.calls.append(handoff)
-        return {"status": "executed", "intent_id": handoff.request.intent_id}
+    def dispatch(self, request):
+        self.calls.append(request)
+        return {"status": "executed", "intent_id": request.intent}
 
 
 def _handoff():
@@ -36,7 +36,7 @@ def test_submit_delegates_explicit_handoff_without_reselection():
         "status": "executed",
         "intent_id": "agent-produced-request",
     }
-    assert runtime.calls == [handoff]
+    assert runtime.calls == [handoff.request]
 
 
 def test_submit_rejects_raw_request_shape():
