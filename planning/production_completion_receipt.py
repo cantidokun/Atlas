@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any
+from typing import Any, Mapping
 
 from planning.digital_twin_revision import DigitalTwinRevision
 from planning.production_task_checkpoint import ProductionTaskCheckpoint
@@ -42,6 +42,34 @@ class ProductionCompletionReceipt:
             revision_id=revision.revision_id,
             checkpoint_digest=checkpoint.checkpoint_digest,
             evidence_digest=_digest(final_evidence),
+        )
+
+    @classmethod
+    def from_snapshot(cls, snapshot: Mapping[str, str]) -> "ProductionCompletionReceipt":
+        """Rehydrate only an intact, structurally valid completion receipt."""
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("completion receipt snapshot must be a mapping")
+        required = {
+            "task_id",
+            "twin_id",
+            "revision_id",
+            "checkpoint_digest",
+            "evidence_digest",
+            "receipt_digest",
+        }
+        if set(snapshot) != required:
+            raise ValueError("invalid completion receipt snapshot")
+        payload = {key: snapshot[key] for key in required if key != "receipt_digest"}
+        if not all(isinstance(value, str) for value in payload.values()):
+            raise ValueError("completion receipt fields must be strings")
+        if _digest(payload) != snapshot["receipt_digest"]:
+            raise ValueError("completion receipt snapshot digest validation failed")
+        return cls(
+            task_id=snapshot["task_id"],
+            twin_id=snapshot["twin_id"],
+            revision_id=snapshot["revision_id"],
+            checkpoint_digest=snapshot["checkpoint_digest"],
+            evidence_digest=snapshot["evidence_digest"],
         )
 
     def matches(self, checkpoint: ProductionTaskCheckpoint, revision: DigitalTwinRevision, final_evidence: Any) -> bool:
