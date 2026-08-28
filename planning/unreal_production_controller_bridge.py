@@ -24,6 +24,7 @@ from planning.unreal_production_recovery import (
 )
 from planning.unreal_production_recovery_adapter import (
     UnrealProductionReceiptRecovery,
+    execute_prepared_production_receipt_recovery,
     prepare_production_receipt_recovery,
 )
 
@@ -181,6 +182,47 @@ class UnrealProductionControllerBridge:
             recovery_assessment=prepared.assessment,
         )
         return prepared
+
+    def complete_prepared_recovery(
+        self,
+        prepared: UnrealProductionReceiptRecovery,
+        *,
+        reassessment_authorization: UnrealPlanAuthorization,
+        replacement_authorization: Optional[UnrealPlanAuthorization] = None,
+    ) -> UnrealProductionControllerOutcome:
+        """Execute an already-reassessed recovery without repeating reassessment."""
+        if self._production is None or self._failure is None:
+            raise RuntimeError("no failed production transaction is available for recovery")
+        if prepared.assessment.disposition == "replacement_required" and replacement_authorization is None:
+            raise RuntimeError("replacement authorization is required to complete prepared recovery")
+
+        recovery = execute_prepared_production_receipt_recovery(
+            self._executor,
+            self._production,
+            self._failure,
+            prepared,
+            reassessment_authorization,
+            replacement_authorization,
+        )
+        self._last_recovery = recovery
+        assessment = prepared.assessment
+        success = assessment.disposition == "already_applied" or (
+            getattr(recovery, "replacement_result", None) is not None
+            and recovery.replacement_result.success
+        )
+        status = "complete" if success else assessment.disposition
+        self.state = UnrealProductionControllerState(
+            phase="recovery_complete",
+            status=status,
+            failure=self._failure,
+            recovery_assessment=assessment,
+        )
+        return UnrealProductionControllerOutcome(
+            state="recovery_complete",
+            result=self._last_result,
+            failure=self._failure,
+            recovery=recovery,
+        )
 
     @staticmethod
     def _failed_phase(
