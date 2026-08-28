@@ -10,6 +10,7 @@ from typing import Optional
 
 from controller.agent_capability_runtime import AgentCapabilityRuntime
 from controller.capability_registry import ControllerCapabilityRegistry
+from controller.capability_selection import CapabilitySelection
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
 
 
@@ -39,4 +40,20 @@ class AtlasControllerRuntime:
             capability,
             provider=provider,
             context=context,
+        )
+
+    def select_capability(
+        self,
+        capability: str,
+        *,
+        provider: Optional[str] = None,
+        context: Optional[dict] = None,
+    ) -> CapabilitySelection:
+        """Return an immutable selection result without executing the capability."""
+        return CapabilitySelection(
+            self.resolve_capability(
+                capability,
+                provider=provider,
+                context=context,
+            )
         )
