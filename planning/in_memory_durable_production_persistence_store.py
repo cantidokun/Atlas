@@ -37,12 +37,16 @@ class InMemoryDurableProductionPersistenceStore:
     def snapshot(self) -> Mapping[str, Any]:
         if self._snapshot is None:
             raise ValueError("no durable production persistence state")
+        # Revalidate the complete persisted boundary before exposing it. This
+        # models a storage read rather than trusting the last in-memory write.
+        validated = DurableProductionPersistenceBundle.from_snapshot(self._snapshot)
+        snapshot = validated.snapshot()
         result = {
-            "registry_snapshot": dict(self._snapshot["registry_snapshot"]),
-            "checkpoint_snapshot": dict(self._snapshot["checkpoint_snapshot"]),
+            "registry_snapshot": dict(snapshot["registry_snapshot"]),
+            "checkpoint_snapshot": dict(snapshot["checkpoint_snapshot"]),
         }
-        if "resume_identity" in self._snapshot:
-            result["resume_identity"] = dict(self._snapshot["resume_identity"])
-        if "resume_identity_digest" in self._snapshot:
-            result["resume_identity_digest"] = self._snapshot["resume_identity_digest"]
+        if "resume_identity" in snapshot:
+            result["resume_identity"] = dict(snapshot["resume_identity"])
+        if "resume_identity_digest" in snapshot:
+            result["resume_identity_digest"] = snapshot["resume_identity_digest"]
         return result
