@@ -25,9 +25,14 @@ class DurableProductionSequenceRehydrator:
             if "digest" in str(exc):
                 raise ValueError("snapshot digest validation failed") from exc
             raise
+
+        # Validate the persisted checkpoint before consulting the live registry
+        # binding.  This keeps malformed checkpoint input fail-closed even when
+        # callers deliberately bypass __init__ in contract tests.
+        checkpoint = DurableProductionSequenceCheckpoint.rehydrate(checkpoint_snapshot)
+
         if canonical_registry.snapshot() != self.registry.snapshot():
             raise ValueError("registry snapshot does not match current canonical registry")
-        checkpoint = DurableProductionSequenceCheckpoint.rehydrate(checkpoint_snapshot)
         bound = RegistryBoundDurableProductionOperationSequence(
             operations, self.registry, checkpoint=checkpoint
         )
