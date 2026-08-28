@@ -51,7 +51,10 @@ class BlenderAgentCycle:
             raise BlenderAgentCycleError("authorization provider must return ActionAuthorization")
         if not authorization.matches(plan.actions):
             raise BlenderAgentCycleError("authorization does not match the exact action plan")
-        plan.authorization = authorization
+        try:
+            plan.authorize(authorization)
+        except (RuntimeError, TypeError) as exc:
+            raise BlenderAgentCycleError(str(exc)) from exc
         return plan
 
     def advance(
