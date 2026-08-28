@@ -1,11 +1,17 @@
 """Tests for the optional Atlas agent-process capability routing boundary."""
 
-from controller.agent_process_runtime import AtlasAgentProcessRuntime
+import pytest
+
+from controller.agent_process_runtime import AtlasAgentProcessRuntime, AgentProcessRouteContext
+from controller.agent_task_request import AgentTaskRequest
 from planning.unreal_adapter_production import UnrealAdapterProduction
+from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutor
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
+from planning.unreal_production_operation import build_unreal_production_plan
+from planning.unreal_production_planning_boundary import authorize_production_plan
 from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeAdapter
-from tests.test_unreal_heterogeneous_production import ProductionTransport
+from tests.test_unreal_heterogeneous_production import ProductionTransport, _intent, _spec
 
 
 def _integration():
@@ -53,3 +59,42 @@ def test_agent_process_routing_does_not_execute_capability():
     )
 
     assert integration.complete is False
+
+
+def test_agent_process_executes_classified_explicit_unreal_production():
+    production = build_unreal_production_plan(_intent(), _spec())
+    authorized = authorize_production_plan(production, "production-auth")
+    process = AtlasAgentProcessRuntime(unreal_production=_integration())
+
+    classified = process.classify(
+        AgentTaskRequest(
+            capability="production",
+            provider="unreal",
+            context={
+                "production": True,
+                "authorized_production": authorized,
+            },
+        )
+    )
+
+    assert isinstance(classified, AgentProcessRouteContext)
+    result = process.execute_classified(classified)
+
+    assert result.capability_name == "unreal_production"
+    assert result.value.operation == "start"
+    assert result.value.snapshot.state == "complete"
+
+
+def test_agent_process_refuses_execution_of_legacy_route():
+    process = AtlasAgentProcessRuntime(unreal_production=_integration())
+    classified = process.route("ordinary task", provider="blender", context={})
+
+    with pytest.raises(ValueError, match="controller-owned"):
+        process.execute_classified(classified)
+
+
+def test_agent_process_refuses_raw_request_for_classified_execution():
+    process = AtlasAgentProcessRuntime(unreal_production=_integration())
+
+    with pytest.raises(TypeError, match="AgentProcessRouteContext"):
+        process.execute_classified(AgentTaskRequest("production"))
