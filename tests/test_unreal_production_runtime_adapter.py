@@ -88,3 +88,11 @@ def test_runtime_adapter_rejects_wrong_type_for_authorized_plan():
     )
     with pytest.raises(TypeError, match="UnrealAuthorizedProductionPlan"):
         adapter.start(object())
+
+
+def test_runtime_adapter_exposes_snapshot_without_exposing_internal_loop():
+    adapter = UnrealProductionRuntimeAdapter(
+        UnrealPlanExecutor(UnrealAdapterProduction(ProductionTransport(), "runtime-adapter-encapsulation-test"))
+    )
+    assert not hasattr(adapter, "loop")
+    assert adapter.snapshot.state == "not_started"
