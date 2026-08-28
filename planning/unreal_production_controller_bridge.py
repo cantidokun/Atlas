@@ -150,7 +150,7 @@ class UnrealProductionControllerBridge:
             recovery_assessment=recovery.assessment,
         )
         return UnrealProductionControllerOutcome(
-            state=status,
+            state="recovery_complete",
             result=self._last_result,
             failure=self._failure,
             recovery=recovery,
