@@ -7,6 +7,7 @@ from controller.agent_capability_bootstrap import build_agent_capability_runtime
 from controller.agent_entrypoint_router import AgentEntrypointRoute, AgentEntrypointRouter
 from controller.agent_task_request import AgentTaskRequest
 from controller.atlas_controller_runtime import AtlasControllerRuntime
+from controller.capability_execution import CapabilityExecutionResult
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
 
 
@@ -45,6 +46,17 @@ class AtlasAgentProcessRuntime:
             runtime=self.runtime,
             request=request,
         )
+
+    def execute_classified(
+        self,
+        classified: AgentProcessRouteContext,
+    ) -> CapabilityExecutionResult:
+        """Execute a controller-owned request after explicit classification."""
+        if not isinstance(classified, AgentProcessRouteContext):
+            raise TypeError("classified must be an AgentProcessRouteContext instance")
+        if not classified.controller_owned:
+            raise ValueError("only controller-owned routes may reach capability execution")
+        return classified.runtime.execute_request(classified.request)
 
     def route(
         self,
