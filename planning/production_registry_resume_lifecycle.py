@@ -53,6 +53,35 @@ class ProductionRegistryResumeLifecycle:
         )
         self.lifecycle = ProductionOperationLifecycle(self.task, verify_final)
 
+    @classmethod
+    def from_registry_snapshot(
+        cls,
+        registry_snapshot: Mapping[str, Any],
+        checkpoint_snapshot: Mapping[str, Any],
+        revision: DigitalTwinRevision,
+        observe: Callable[[], Any],
+        plan: Callable[[Any], Sequence[ActionSpec]],
+        verify_final: Callable[[Any], bool],
+        executor: Any = None,
+        parent_checkpoint: ProductionTaskCheckpoint | None = None,
+    ) -> "ProductionRegistryResumeLifecycle":
+        """Rehydrate the canonical registry before accepting production checkpoint state.
+
+        Registry integrity is checked before checkpoint construction, ensuring a
+        tampered persisted registry cannot reach the durable resume boundary.
+        """
+        registry = DigitalTwinRegistry.from_snapshot(registry_snapshot)
+        return cls(
+            registry,
+            checkpoint_snapshot,
+            revision,
+            observe,
+            plan,
+            verify_final,
+            executor=executor,
+            parent_checkpoint=parent_checkpoint,
+        )
+
     @property
     def checkpoint(self) -> ProductionTaskCheckpoint:
         return self.task.checkpoint
