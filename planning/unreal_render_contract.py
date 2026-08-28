@@ -43,20 +43,38 @@ def normalize_render_config(value: Mapping[str, Any]) -> UnrealRenderConfig:
 
 
 def verify_render_config(evidence, expected):
-    """Independently verify fresh Unreal render-state evidence."""
+    """Independently verify fresh Unreal render-state evidence.
+
+    Production Unreal evidence is keyed by entity id. Render state belongs
+    inside that entity's state envelope, so verification must resolve the
+    render state from each requested entity rather than assuming a root-level
+    ``render`` field.
+    """
     observed = evidence.observed_state
-    state = observed.get("render") if isinstance(observed, Mapping) else None
-    if not isinstance(state, Mapping):
-        raise ValueError("render evidence is missing render state")
-    actual = normalize_render_config({
-        "width": state.get("width"),
-        "height": state.get("height"),
-        "start_frame": state.get("start_frame"),
-        "end_frame": state.get("end_frame"),
-        "output_directory": state.get("output_directory"),
-        "output_format": state.get("output_format"),
-    })
-    expected_config = normalize_render_config(expected)
-    if actual != expected_config:
-        raise ValueError(f"render state does not match expected configuration: expected={expected_config!r}, observed={actual!r}")
+    if not isinstance(observed, Mapping):
+        raise ValueError("render evidence is missing observed state")
+
+    for entity_id in evidence.entity_ids:
+        entity_state = observed.get(entity_id)
+        if not isinstance(entity_state, Mapping):
+            raise ValueError(f"render evidence is missing state for entity '{entity_id}'")
+        state = entity_state.get("render")
+        if not isinstance(state, Mapping):
+            raise ValueError(f"render evidence is missing render state for entity '{entity_id}'")
+
+        actual = normalize_render_config({
+            "width": state.get("width"),
+            "height": state.get("height"),
+            "start_frame": state.get("start_frame"),
+            "end_frame": state.get("end_frame"),
+            "output_directory": state.get("output_directory"),
+            "output_format": state.get("output_format"),
+        })
+        expected_config = normalize_render_config(expected)
+        if actual != expected_config:
+            raise ValueError(
+                f"render state does not match expected configuration for entity '{entity_id}': "
+                f"expected={expected_config!r}, observed={actual!r}"
+            )
+
     return evidence
