@@ -190,3 +190,26 @@ def test_store_snapshot_preserves_resume_identity_and_integrity_digest():
     restored = DurableProductionPersistenceBundle.from_snapshot(snapshot)
     assert restored.resume_identity == bundle.resume_identity
     assert restored.resume_identity_digest == bundle.resume_identity_digest
+
+
+def test_persistence_failure_blocks_progress_before_next_operation_starts():
+    registry, revision = _registry()
+    writes = []
+    store = InMemoryDurableProductionPersistenceStore()
+    bundle = _interrupted_bundle(registry, revision)
+    store.save(bundle)
+    lifecycle = ProductionPersistenceResumeLifecycle.from_persistence_store(
+        registry,
+        (_operation("task-1", revision, writes), _operation("task-2", revision, writes)),
+        store,
+    )
+
+    def fail_save(_bundle):
+        raise RuntimeError("durable checkpoint persistence failed")
+
+    store.save = fail_save
+
+    with pytest.raises(RuntimeError, match="durable checkpoint persistence failed"):
+        lifecycle.run()
+
+    assert writes == ["task-1"]
