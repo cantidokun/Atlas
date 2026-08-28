@@ -67,19 +67,22 @@ def test_registry_resume_blocks_on_wrong_authoritative_state_without_completion_
         executor=executor,
     )
 
-    # Executor reports success, but authoritative verification deliberately rejects.
     original_resume = lifecycle.task.resume
+    result = original_resume(max_steps=1)
 
-    def fake_resume(max_steps=16):
-        result = original_resume(max_steps=max_steps)
-        state["value"] = "new"
-        return CorrectiveTaskResult(result.receipts, {"authoritative": "wrong"}, True)
+    assert result.converged
+    assert result.receipts
+    assert writes == [("test.move", {"target": "new"})]
 
-    lifecycle.task.resume = fake_resume
-    result = lifecycle.run(max_steps=1)
+    # The executor succeeded, but the authoritative production decision must still block.
+    authoritative_result = CorrectiveTaskResult(
+        result.receipts,
+        {"value": "wrong-authoritative-state"},
+        True,
+    )
+    lifecycle.task.resume = lambda max_steps=16: authoritative_result
+    terminal = lifecycle.run(max_steps=1)
 
-    assert result.state is ProductionOperationState.BLOCKED
-    assert result.receipt is None
-    assert not lifecycle.lifecycle.receipt
-    assert isinstance(writes, list)
-    assert len(writes) == 1
+    assert terminal.state is ProductionOperationState.BLOCKED
+    assert terminal.receipt is None
+    assert lifecycle.lifecycle.receipt is None
