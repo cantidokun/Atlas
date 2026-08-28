@@ -2,6 +2,7 @@
 
 from controller.agent_capability_runtime import AgentCapabilityRuntime
 from controller.agent_entrypoint_router import AgentEntrypointRouter
+from controller.agent_task_request import AgentTaskRequest
 from controller.atlas_controller_runtime import AtlasControllerRuntime
 from controller.capability_registry import ControllerCapabilityRegistry
 from controller.capability_request import CapabilityRequest
@@ -45,6 +46,21 @@ def test_router_leaves_unmatched_request_on_agent_path():
     assert route.route == "agent"
     assert route.controller_owned is False
     assert route.selection.matched is False
+
+
+def test_router_routes_explicit_agent_task_request():
+    router = AgentEntrypointRouter(_runtime())
+
+    request = AgentTaskRequest(
+        capability="production",
+        provider="unreal",
+        context={"production": True},
+    )
+    route = router.route_request(request)
+
+    assert route.controller_owned is True
+    assert route.selection.matched is True
+    assert route.selection.name == "test_capability"
 
 
 def test_router_never_executes_selected_handler():
