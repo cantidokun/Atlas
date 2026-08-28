@@ -76,7 +76,7 @@ def test_registry_resume_blocks_on_wrong_authoritative_state_without_completion_
         return CorrectiveTaskResult(result.receipts, {"authoritative": "wrong"}, True)
 
     lifecycle.task.resume = fake_resume
-    result = lifecycle.run()
+    result = lifecycle.run(max_steps=1)
 
     assert result.state is ProductionOperationState.BLOCKED
     assert result.receipt is None
