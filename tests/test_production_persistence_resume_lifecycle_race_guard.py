@@ -6,7 +6,7 @@ from planning.autonomous_corrective_task import CorrectiveTaskResult
 from planning.digital_twin_identity import DigitalTwinIdentity, IdentityAnchor
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.digital_twin_revision import DigitalTwinRevision, RevisionKind
-from planning.durable_production_operation_sequence import DurableProductionOperationSequence
+from planning.durable_production_operation_sequence import DurableProductionOperationSequence, DurableProductionSequenceCheckpoint
 from planning.durable_production_persistence import DurableProductionPersistenceBundle
 from planning.durable_resumable_corrective_task import DurableResumableCorrectiveTask
 from planning.in_memory_durable_production_persistence_store import InMemoryDurableProductionPersistenceStore
@@ -196,7 +196,16 @@ def test_persistence_failure_blocks_progress_before_next_operation_starts():
     registry, revision = _registry()
     writes = []
     store = InMemoryDurableProductionPersistenceStore()
-    bundle = _interrupted_bundle(registry, revision)
+    pending_checkpoint = DurableProductionSequenceCheckpoint.create((), 0)
+    bundle = DurableProductionPersistenceBundle.create(
+        registry,
+        pending_checkpoint,
+        resume_identity={
+            "sequence_id": "sequence-1",
+            "plan_id": "plan-1",
+            "digital_twin_revision": revision.revision_id,
+        },
+    )
     store.save(bundle)
     lifecycle = ProductionPersistenceResumeLifecycle.from_persistence_store(
         registry,
