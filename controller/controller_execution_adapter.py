@@ -8,7 +8,7 @@ caller.
 
 from typing import Any, Callable, Dict, List
 
-from controller_bridge import ControllerBridge, controller_required_for_midpoint_task
+from .controller_bridge import ControllerBridge, controller_required_for_midpoint_task
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 
