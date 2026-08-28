@@ -1,21 +1,20 @@
 """Registration helper for the Unreal production controller capability."""
 
-from typing import Any, Mapping
+from typing import Any
 
 from controller.capability_dispatch import ControllerCapabilityDispatcher
+from controller.capability_request import CapabilityRequest
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
 
 
-def unreal_production_task(
-    task_text: str,
-    context: Mapping[str, Any],
-) -> bool:
-    """Identify explicit Unreal production tasks without interpreting them as writes."""
-    text = (task_text or "").lower()
+def unreal_production_task(request: CapabilityRequest) -> bool:
+    """Identify explicit Unreal production requests without granting execution authority."""
+    if not isinstance(request, CapabilityRequest):
+        raise TypeError("request must be a CapabilityRequest")
     return (
-        context.get("provider") == "unreal"
-        and context.get("production") is True
-        and "production" in text
+        request.normalized_provider == "unreal"
+        and request.context.get("production") is True
+        and request.normalized_capability == "production"
     )
 
 
