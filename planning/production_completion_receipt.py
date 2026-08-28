@@ -59,18 +59,18 @@ class ProductionCompletionReceipt:
         }
         if set(snapshot) != required:
             raise ValueError("invalid completion receipt snapshot")
-        payload = {key: snapshot[key] for key in required if key != "receipt_digest"}
+        payload = {
+            "task_id": snapshot["task_id"],
+            "twin_id": snapshot["twin_id"],
+            "revision_id": snapshot["revision_id"],
+            "checkpoint_digest": snapshot["checkpoint_digest"],
+            "evidence_digest": snapshot["evidence_digest"],
+        }
         if not all(isinstance(value, str) for value in payload.values()):
             raise ValueError("completion receipt fields must be strings")
         if _digest(payload) != snapshot["receipt_digest"]:
-            raise ValueError("completion receipt snapshot digest validation failed")
-        return cls(
-            task_id=snapshot["task_id"],
-            twin_id=snapshot["twin_id"],
-            revision_id=snapshot["revision_id"],
-            checkpoint_digest=snapshot["checkpoint_digest"],
-            evidence_digest=snapshot["evidence_digest"],
-        )
+            raise ValueError("completion receipt integrity failure: snapshot digest validation failed")
+        return cls(**payload)
 
     def matches(self, checkpoint: ProductionTaskCheckpoint, revision: DigitalTwinRevision, final_evidence: Any) -> bool:
         return (
