@@ -1,6 +1,11 @@
 """Tests for the outer Atlas controller runtime capability boundary."""
 
+import pytest
+
+from controller.agent_task_request import AgentTaskRequest
 from controller.atlas_controller_runtime import AtlasControllerRuntime
+from controller.capability_admission import CapabilityAdmission
+from controller.capability_execution import CapabilityExecutionResult
 from controller.capability_registry import ControllerCapabilityRegistry
 from controller.capability_request import CapabilityRequest
 
@@ -71,3 +76,48 @@ def test_runtime_selects_immutable_capability_result():
     assert selection.handler is handler
     assert selection.resolution.request.normalized_capability == "test"
     assert selection.resolution.request.provider is None
+
+
+def test_runtime_admits_and_executes_through_one_capability_boundary():
+    runtime = AtlasControllerRuntime()
+    calls = []
+
+    class Handler:
+        def execute(self, request):
+            calls.append(request)
+            return {
+                "status": "executed",
+                "capability": request.normalized_capability,
+            }
+
+    handler = Handler()
+    runtime.registry.dispatcher.register(
+        "test",
+        lambda request: request.normalized_capability == "test",
+        handler,
+    )
+
+    request = AgentTaskRequest("test")
+    admission = runtime.admit_capability(request)
+
+    assert isinstance(admission, CapabilityAdmission)
+    assert admission.name == "test"
+    assert admission.handler is handler
+    assert calls == []
+
+    result = runtime.execute_admitted(admission)
+
+    assert isinstance(result, CapabilityExecutionResult)
+    assert result.capability_name == "test"
+    assert result.value == {
+        "status": "executed",
+        "capability": "test",
+    }
+    assert calls == [admission.request]
+
+
+def test_runtime_execution_rejects_raw_agent_request():
+    runtime = AtlasControllerRuntime()
+
+    with pytest.raises(TypeError, match="CapabilityAdmission"):
+        runtime.execute_admitted(AgentTaskRequest("test"))
