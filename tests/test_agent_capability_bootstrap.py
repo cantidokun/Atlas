@@ -43,5 +43,5 @@ def test_bootstrap_wires_explicit_unreal_capability():
     )
 
     assert selected.matched is True
-    assert selected.name == "unreal_production"
-    assert selected.handler is integration
+    assert selected.capability.name == "unreal_production"
+    assert selected.capability.handler is integration
