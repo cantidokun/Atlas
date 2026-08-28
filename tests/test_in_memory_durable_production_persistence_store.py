@@ -66,3 +66,16 @@ def test_tampered_persisted_state_is_rejected_on_load():
     store._snapshot = persisted
     with pytest.raises(ValueError, match="registry snapshot digest"):
         store.load()
+
+
+def test_tampered_persisted_state_is_rejected_at_snapshot_boundary():
+    store = InMemoryDurableProductionPersistenceStore()
+    store.save(_bundle())
+    persisted = dict(store.snapshot())
+    persisted["checkpoint_snapshot"] = dict(persisted["checkpoint_snapshot"])
+    persisted["checkpoint_snapshot"]["sequence_digest"] = "tampered"
+
+    # Simulate storage corruption without going through save(), which validates input.
+    store._snapshot = persisted
+    with pytest.raises(ValueError, match="sequence checkpoint digest"):
+        store.snapshot()
