@@ -1,7 +1,7 @@
 """Immutable capability selection result for the Atlas runtime boundary."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from controller.agent_capability_runtime import AgentCapabilityResolution
 
@@ -17,7 +17,7 @@ class CapabilitySelection:
         return self.resolution.matched
 
     @property
-    def name(self) -> str | None:
+    def name(self) -> Optional[str]:
         return None if not self.matched else self.resolution.capability.name
 
     @property
