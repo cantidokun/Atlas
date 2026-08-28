@@ -116,12 +116,23 @@ def test_multi_operation_receipts_must_remain_in_operation_order():
     checkpoint = _two_receipt_checkpoint(revision)
     snapshot = checkpoint.snapshot()
     snapshot["completed_receipts"] = tuple(reversed(snapshot["completed_receipts"]))
+    from planning.durable_production_operation_sequence import DurableProductionSequenceCheckpoint
+    reordered_receipts = tuple(snapshot["completed_receipts"])
+    reordered_checkpoint = DurableProductionSequenceCheckpoint.rehydrate(
+        {
+            **snapshot,
+            "completed_receipts": reordered_receipts,
+            "sequence_digest": checkpoint.__class__._from_snapshots(
+                reordered_receipts, 2
+            ).sequence_digest,
+        }
+    )
     writes = []
     with pytest.raises(ValueError, match="corresponding production operation"):
         RegistryBoundDurableProductionOperationSequence(
             (_operation("task-1", revision, writes), _operation("task-2", revision, writes)),
             registry,
-            checkpoint=checkpoint.__class__.rehydrate(snapshot),
+            checkpoint=reordered_checkpoint,
         )
     assert writes == []
 
