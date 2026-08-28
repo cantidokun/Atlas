@@ -57,3 +57,17 @@ def test_resolution_does_not_invoke_registered_handler():
 
     assert resolved.matched is True
     assert calls == []
+
+
+def test_runtime_selects_immutable_capability_result():
+    runtime = AtlasControllerRuntime()
+    handler = object()
+    runtime.registry.dispatcher.register("test", lambda request: True, handler)
+
+    selection = runtime.select_capability("test")
+
+    assert selection.matched is True
+    assert selection.name == "test"
+    assert selection.handler is handler
+    assert selection.resolution.request.normalized_capability == "test"
+    assert selection.resolution.request.provider is None
