@@ -79,7 +79,10 @@ class ProductionPersistenceResumeLifecycle:
             raise ValueError("persisted resume Digital Twin revision is not canonical")
         if len(matches) != 1:
             raise ValueError("persisted resume Digital Twin revision is ambiguous")
-        self.registry.require_canonical_revision(matches[0])
+        try:
+            self.registry.require_canonical_revision(matches[0])
+        except ValueError as exc:
+            raise ValueError("persisted resume Digital Twin revision is not the current canonical revision") from exc
 
     def _validate_resume_request(self, request: ProductionResumeRequest) -> None:
         validate_production_resume(self._resume_checkpoint(), request)
