@@ -47,17 +47,6 @@ class AtlasAgentProcessRuntime:
             request=request,
         )
 
-    def execute_classified(
-        self,
-        classified: AgentProcessRouteContext,
-    ) -> CapabilityExecutionResult:
-        """Execute a controller-owned request after explicit classification."""
-        if not isinstance(classified, AgentProcessRouteContext):
-            raise TypeError("classified must be an AgentProcessRouteContext instance")
-        if not classified.controller_owned:
-            raise ValueError("only controller-owned routes may reach capability execution")
-        return classified.runtime.execute_request(classified.request)
-
     def route(
         self,
         capability: str,
@@ -73,3 +62,16 @@ class AtlasAgentProcessRuntime:
                 context={} if context is None else context,
             )
         )
+
+    def execute_classified(
+        self,
+        classified: AgentProcessRouteContext,
+    ) -> CapabilityExecutionResult:
+        """Execute a previously classified controller-owned request."""
+        if not isinstance(classified, AgentProcessRouteContext):
+            raise TypeError("classified must be an AgentProcessRouteContext instance")
+        if not classified.controller_owned:
+            raise ValueError("only controller-owned routes may be executed here")
+        if classified.runtime is not self.runtime:
+            raise ValueError("classified route belongs to a different agent-process runtime")
+        return self.runtime.execute_request(classified.request)
