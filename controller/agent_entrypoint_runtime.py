@@ -7,6 +7,7 @@ returned to the caller without execution.
 """
 
 from dataclasses import dataclass
+from typing import Optional
 
 from controller.agent_process_runtime import AgentProcessRouteContext, AtlasAgentProcessRuntime
 from controller.agent_task_request import AgentTaskRequest
@@ -18,7 +19,7 @@ class AgentEntrypointExecution:
     """Stable result describing whether the entrypoint executed a controller route."""
 
     classified: AgentProcessRouteContext
-    result: CapabilityExecutionResult | None
+    result: Optional[CapabilityExecutionResult]
 
     @property
     def controller_executed(self) -> bool:
