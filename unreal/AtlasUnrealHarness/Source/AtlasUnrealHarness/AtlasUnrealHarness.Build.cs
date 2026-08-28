@@ -22,7 +22,9 @@ public class AtlasUnrealHarness : ModuleRules
                 "AssetTools",
                 "Json",
                 "JsonUtilities",
-                "UnrealEd"
+                "UnrealEd",
+                "MovieRenderPipelineCore",
+                "MovieRenderPipelineRenderPasses"
             }
         );
     }
