@@ -1,5 +1,7 @@
 """Registry-bound durable multi-operation production sequencing."""
 
+from typing import Callable
+
 from planning.digital_twin_registry import DigitalTwinRegistry
 from planning.durable_production_operation_sequence import DurableProductionOperationSequence
 
@@ -54,8 +56,17 @@ class RegistryBoundDurableProductionOperationSequence:
     def next_operation_index(self):
         return self._sequence.next_operation_index
 
-    def run(self, max_steps: int = 16):
+    def run(
+        self,
+        max_steps: int = 16,
+        checkpoint_sink: Callable[[object], None] | None = None,
+    ):
+        if checkpoint_sink is not None and not callable(checkpoint_sink):
+            raise TypeError("checkpoint_sink must be callable")
         self._validate_registry_binding()
-        result = self._sequence.run(max_steps=max_steps)
+        result = self._sequence.run(
+            max_steps=max_steps,
+            checkpoint_sink=checkpoint_sink,
+        )
         self._validate_registry_binding()
         return result
