@@ -77,5 +77,5 @@ def test_tampered_persisted_state_is_rejected_at_snapshot_boundary():
 
     # Simulate storage corruption without going through save(), which validates input.
     store._snapshot = persisted
-    with pytest.raises(ValueError, match="sequence checkpoint digest"):
+    with pytest.raises(ValueError, match="durable production sequence checkpoint integrity failure"):
         store.snapshot()
