@@ -52,6 +52,8 @@ class DurableProductionSequenceCheckpoint:
         required = {"completed_receipts", "next_operation_index", "sequence_digest"}
         if set(snapshot) != required:
             raise ValueError("invalid durable production sequence checkpoint")
+        if isinstance(snapshot["next_operation_index"], bool) or not isinstance(snapshot["next_operation_index"], int):
+            raise TypeError("next operation index must be an integer")
         receipts = tuple(snapshot["completed_receipts"])
         if not all(isinstance(receipt, dict) for receipt in receipts):
             raise ValueError("invalid completed receipt snapshot")
