@@ -3,6 +3,12 @@
   "EngineAssociation": "5.6",
   "Category": "Atlas",
   "Description": "Minimal Unreal Engine validation harness for the Atlas Unreal Agent boundary.",
+  "Plugins": [
+    {
+      "Name": "MovieRenderPipeline",
+      "Enabled": true
+    }
+  ],
   "Modules": [
     {
       "Name": "AtlasUnrealHarness",
