@@ -36,7 +36,7 @@ The generic controller layer is deliberately provider-neutral. Unreal is registe
   - Actor Composite
   - Sequencer
   - Render
-- Production recovery now supports fresh reassessment and explicit replacement authorization across the production transaction.
+- Production recovery supports fresh reassessment and explicit replacement authorization across the production transaction.
 - Added production executor, recovery adapter, controller bridge, planning boundary, runtime integration, and controller integration layers.
 - Added autonomous-loop coverage for exact replacement authorization and non-repeated reassessment.
 
@@ -60,7 +60,7 @@ Added and validated:
 - `controller/agent_entrypoint_adapter.py`
 - `controller/agent_entrypoint_runtime.py`
 
-The important trust-boundary rules are now enforced:
+The trust-boundary rules are enforced:
 
 ```text
 raw agent request
@@ -78,7 +78,7 @@ Execution cannot accept a raw `AgentTaskRequest` through the admitted-execution 
 
 ### Unreal capability integration
 
-`UnrealProductionControllerIntegration` now exposes the generic capability contract with `execute(CapabilityRequest)`.
+`UnrealProductionControllerIntegration` exposes the generic capability contract with `execute(CapabilityRequest)`.
 
 Execution requires an explicitly supplied `UnrealAuthorizedProductionPlan` under the `authorized_production` request context. The generic capability layer does not manufacture Unreal authorization.
 
@@ -99,37 +99,37 @@ Unmatched/legacy requests are returned to the caller without execution. The exis
 
 ## Latest validated test state
 
-The latest controller/agent boundary run reported:
-
-```text
-53 passed
-```
-
-The latest focused entrypoint runtime test reported:
+Latest focused entrypoint runtime test:
 
 ```text
 3 passed
 ```
 
-Earlier in this session the broader controller/production regression suite reached:
+Latest controller/agent boundary run before this handoff update:
+
+```text
+53 passed
+```
+
+Earlier in this development session the broader production/controller regression suite reached:
 
 ```text
 87 passed
 ```
 
-The new controller execution boundary added additional runtime tests after that result, so rerun the current combined suite before declaring the entire branch green.
+The 87-test figure predates some of the later controller/entrypoint additions, so the full combined suite should be rerun after the current pull before declaring the entire branch green.
 
 ## Important current limitation
 
-The latest real Unreal Blueprint integration status remains separate from the generic controller work.
+The real Unreal Blueprint integration status remains separate from the generic controller work.
 
-The previously documented Blueprint integration handoff recorded transport failures such as:
+The previously documented live Blueprint integration issue involved transport failures such as:
 
 ```text
 Unreal transport failed for operation 'inspect_blueprint_state'
 ```
 
-That real-runtime issue has not been revalidated in this controller-focused work. Do not treat the controller capability tests as proof that live Unreal transport is healthy.
+That live-runtime issue has not been revalidated during the current controller-focused work. Controller tests are not proof that live Unreal transport is healthy.
 
 ## Runtime / Unreal constraints
 
@@ -138,15 +138,15 @@ That real-runtime issue has not been revalidated in this controller-focused work
 - Unreal is an execution environment/adapter, not the canonical Atlas Digital Twin authority.
 - Successful writes never substitute for independent verification.
 - Do not modify `unreal/AtlasUnrealHarness/Content/AtlasTest/BP_AtlasTest.uasset` as part of controller-layer work.
-- The existing local `.uasset` modification may be intentional and must be preserved unless explicitly instructed otherwise.
+- The existing local `.uasset` modification is known to exist and must be preserved unless explicitly instructed otherwise.
 - Photogrammetry remains upstream of Blender.
 - Atlas remains focused on soccer-field-related digital twins and their production pipeline.
 
 ## Architectural direction
 
-The next work should now move toward a **single real agent-to-controller request path** while preserving the existing Blender compatibility path.
+The next work should continue toward a **single real agent-to-controller request path** while preserving the existing Blender compatibility path.
 
-The desired end state is:
+Desired end state:
 
 ```text
 Agent reasoning
@@ -172,7 +172,7 @@ Do not create another parallel dispatcher, router, or authorization mechanism.
 
 ## Next development step
 
-1. Run the current combined controller/agent regression suite after pulling the latest commits.
+1. Pull and run the current combined controller/agent regression suite.
 2. Add the smallest possible integration from the real Atlas agent-facing request source into `AtlasAgentEntrypointRuntime` without changing the existing Blender/Qwen behavior.
 3. Validate that explicit Unreal production requests can enter through the generic entrypoint path with an already-authorized production artifact.
 4. Only after that path is stable, consider extending the same mechanism to other provider capabilities.
