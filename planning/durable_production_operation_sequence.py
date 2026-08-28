@@ -55,6 +55,8 @@ class DurableProductionSequenceCheckpoint:
         receipts = tuple(snapshot["completed_receipts"])
         if not all(isinstance(receipt, dict) for receipt in receipts):
             raise ValueError("invalid completed receipt snapshot")
+        for receipt in receipts:
+            ProductionCompletionReceipt.from_snapshot(receipt)
         payload = {"completed_receipts": receipts, "next_operation_index": snapshot["next_operation_index"]}
         if _digest(payload) != snapshot["sequence_digest"]:
             raise ValueError("durable production sequence checkpoint integrity failure")
