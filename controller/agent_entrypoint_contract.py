@@ -6,7 +6,7 @@ Atlas controller entrypoint runtime.
 """
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 from controller.agent_entrypoint_runtime import (
     AgentEntrypointExecution,
@@ -38,6 +38,37 @@ class AgentControllerHandoff:
                 context=dict(context or {}),
                 intent=intent,
             )
+        )
+
+    @classmethod
+    def from_fields(
+        cls,
+        *,
+        capability: str,
+        provider: Optional[str] = None,
+        target_entity_ids: Optional[Sequence[str]] = None,
+        intent_id: Optional[str] = None,
+        description: Optional[str] = None,
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> "AgentControllerHandoff":
+        """Construct a production-oriented handoff while preserving canonical request fields.
+
+        Production metadata is carried in the request context so the handoff
+        remains compatible with the provider-neutral AgentTaskRequest contract.
+        """
+        request_context = dict(context or {})
+        if target_entity_ids is not None:
+            request_context.setdefault("target_entity_ids", tuple(target_entity_ids))
+        if intent_id is not None:
+            request_context.setdefault("intent_id", intent_id)
+        if description is not None:
+            request_context.setdefault("description", description)
+
+        return cls.build(
+            capability,
+            provider=provider,
+            context=request_context,
+            intent=intent_id,
         )
 
 
