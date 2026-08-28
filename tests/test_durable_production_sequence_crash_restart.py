@@ -108,3 +108,32 @@ def test_crash_restart_refuses_stale_canonical_revision_before_any_resume_write(
             (resumed_first, resumed_second), persisted_registry, persisted_checkpoint
         )
     assert resumed_writes == []
+
+
+def test_completed_restart_rehydrates_without_replaying_any_operation():
+    registry, revision = _registry()
+    writes = []
+    first = _operation("task-1", revision, writes)
+    second = _operation("task-2", revision, writes)
+    completed = DurableProductionOperationSequence((first, second)).run()
+
+    assert completed.state is ProductionOperationState.COMPLETED
+    assert completed.checkpoint.next_operation_index == 2
+    assert writes == ["task-1", "task-2"]
+
+    persisted_registry = registry.snapshot()
+    persisted_checkpoint = completed.checkpoint.snapshot()
+
+    resumed_writes = []
+    resumed_first = _operation("task-1", revision, resumed_writes)
+    resumed_second = _operation("task-2", revision, resumed_writes)
+    restored = DurableProductionSequenceRehydrator(registry).rehydrate(
+        (resumed_first, resumed_second), persisted_registry, persisted_checkpoint
+    )
+
+    result = restored.run()
+
+    assert result.state is ProductionOperationState.COMPLETED
+    assert result.results == ()
+    assert result.checkpoint.next_operation_index == 2
+    assert resumed_writes == []
