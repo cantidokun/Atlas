@@ -29,7 +29,7 @@ class UnrealProductionControllerIntegration:
 
     def __init__(self, runtime: UnrealProductionRuntimeAdapter) -> None:
         if not isinstance(runtime, UnrealProductionRuntimeAdapter):
-            raise TypeError("runtime must be a UnrealProductionRuntimeAdapter instance")
+            raise TypeError("runtime must be a UnrealProductionRuntimeAdapter")
         self._runtime = runtime
         self._last_event: Optional[UnrealProductionControllerEvent] = None
 
@@ -38,8 +38,8 @@ class UnrealProductionControllerIntegration:
         return self._runtime.complete
 
     @property
-    def last_event(self) -> Optional[UnrealProductionControllerEvent]:
-        return self._last_event
+    def snapshot(self) -> UnrealProductionRuntimeSnapshot:
+        return self._runtime.snapshot
 
     def start(self, authorized: UnrealAuthorizedProductionPlan) -> UnrealProductionControllerEvent:
         event = UnrealProductionControllerEvent(
