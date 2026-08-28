@@ -123,3 +123,32 @@ def test_registry_resume_rejects_checkpoint_after_canonical_revision_advances():
         assert "canonical" in str(exc).lower()
     else:
         raise AssertionError("stale checkpoint must be rejected")
+
+
+def test_registry_resume_rejects_revision_from_other_twin():
+    registry, revision = _registry_and_revision()
+    other_identity = DigitalTwinIdentity(twin_id="twin-2", entity_type="soccer_field", anchors=())
+    registry.register_identity(other_identity)
+    other_revision = DigitalTwinRevision(
+        twin_id="twin-2",
+        revision_id="r1-other",
+        sequence=1,
+        kind=RevisionKind.RECONSTRUCTION,
+        source_revision_id=None,
+        source_fingerprint=other_identity.stable_fingerprint(),
+    )
+    registry.register_revision(other_revision)
+    checkpoint = _checkpoint(registry, revision)
+
+    try:
+        _build(
+            registry,
+            other_revision,
+            checkpoint,
+            {"revision": "r1", "location": [1, 0, 0]},
+            True,
+        )
+    except ValueError as exc:
+        assert "checkpoint" in str(exc).lower() or "canonical" in str(exc).lower()
+    else:
+        raise AssertionError("cross-twin resume revision must be rejected")
