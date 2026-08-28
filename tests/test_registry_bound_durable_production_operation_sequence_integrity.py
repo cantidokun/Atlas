@@ -53,6 +53,21 @@ def _completed_checkpoint(revision):
     return DurableProductionSequenceCheckpoint.create((receipt,), 1)
 
 
+def _two_receipt_checkpoint(revision):
+    first = ProductionTaskCheckpoint.create(
+        "task-1", revision, (), {"done": "task-1"}, "auth-1"
+    )
+    second = ProductionTaskCheckpoint.create(
+        "task-2", revision, (), {"done": "task-2"}, "auth-2"
+    )
+    receipts = (
+        ProductionCompletionReceipt.create(first, revision, {"done": "task-1"}),
+        ProductionCompletionReceipt.create(second, revision, {"done": "task-2"}),
+    )
+    from planning.durable_production_operation_sequence import DurableProductionSequenceCheckpoint
+    return DurableProductionSequenceCheckpoint.create(receipts, 2)
+
+
 def test_tampered_completed_receipt_binding_is_rejected():
     _, _, revision = _registry()
     checkpoint = _completed_checkpoint(revision)
@@ -92,6 +107,47 @@ def test_completed_receipt_must_bind_to_corresponding_operation():
     with pytest.raises(ValueError, match="corresponding production operation"):
         RegistryBoundDurableProductionOperationSequence(
             (_operation("task-2", revision, writes),), registry, checkpoint=checkpoint
+        )
+    assert writes == []
+
+
+def test_multi_operation_receipts_must_remain_in_operation_order():
+    registry, _, revision = _registry()
+    checkpoint = _two_receipt_checkpoint(revision)
+    snapshot = checkpoint.snapshot()
+    snapshot["completed_receipts"] = tuple(reversed(snapshot["completed_receipts"]))
+    writes = []
+    with pytest.raises(ValueError, match="corresponding production operation"):
+        RegistryBoundDurableProductionOperationSequence(
+            (_operation("task-1", revision, writes), _operation("task-2", revision, writes)),
+            registry,
+            checkpoint=checkpoint.__class__.rehydrate(snapshot),
+        )
+    assert writes == []
+
+
+def test_multi_operation_receipts_cannot_duplicate_a_completed_operation():
+    registry, _, revision = _registry()
+    checkpoint = _two_receipt_checkpoint(revision)
+    snapshot = checkpoint.snapshot()
+    receipts = list(snapshot["completed_receipts"])
+    receipts[1] = dict(receipts[0])
+    from planning.durable_production_operation_sequence import DurableProductionSequenceCheckpoint
+    duplicate_checkpoint = DurableProductionSequenceCheckpoint.rehydrate(
+        {
+            **snapshot,
+            "completed_receipts": tuple(receipts),
+            "sequence_digest": checkpoint.__class__._from_snapshots(
+                tuple(receipts), 2
+            ).sequence_digest,
+        }
+    )
+    writes = []
+    with pytest.raises(ValueError, match="corresponding production operation"):
+        RegistryBoundDurableProductionOperationSequence(
+            (_operation("task-1", revision, writes), _operation("task-2", revision, writes)),
+            registry,
+            checkpoint=duplicate_checkpoint,
         )
     assert writes == []
 
