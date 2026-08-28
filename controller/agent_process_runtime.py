@@ -1,15 +1,11 @@
-"""Optional capability routing bootstrap for an Atlas agent process.
-
-This module is intentionally additive. It gives an agent process an explicit
-controller capability router, while leaving the existing legacy agent loop and
-its midpoint controller integration unchanged.
-"""
+"""Agent-process boundary for normalized Atlas task requests."""
 
 from dataclasses import dataclass
 from typing import Optional
 
 from controller.agent_capability_bootstrap import build_agent_capability_runtime
 from controller.agent_entrypoint_router import AgentEntrypointRoute, AgentEntrypointRouter
+from controller.agent_task_request import AgentTaskRequest
 from controller.atlas_controller_runtime import AtlasControllerRuntime
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
 
@@ -20,6 +16,11 @@ class AgentProcessRouteContext:
 
     route: AgentEntrypointRoute
     runtime: AtlasControllerRuntime
+    request: AgentTaskRequest
+
+    @property
+    def controller_owned(self) -> bool:
+        return self.route.controller_owned
 
 
 class AtlasAgentProcessRuntime:
@@ -35,6 +36,16 @@ class AtlasAgentProcessRuntime:
         )
         self.router = AgentEntrypointRouter(self.runtime)
 
+    def classify(self, request: AgentTaskRequest) -> AgentProcessRouteContext:
+        """Resolve a normalized task request without invoking a capability handler."""
+        if not isinstance(request, AgentTaskRequest):
+            raise TypeError("request must be an AgentTaskRequest instance")
+        return AgentProcessRouteContext(
+            route=self.router.route(**request.routing_kwargs()),
+            runtime=self.runtime,
+            request=request,
+        )
+
     def route(
         self,
         capability: str,
@@ -42,12 +53,11 @@ class AtlasAgentProcessRuntime:
         provider: Optional[str] = None,
         context: Optional[dict] = None,
     ) -> AgentProcessRouteContext:
-        """Resolve the next agent route without invoking a capability handler."""
-        return AgentProcessRouteContext(
-            route=self.router.route(
-                capability,
+        """Backward-compatible convenience wrapper for explicit capability routing."""
+        return self.classify(
+            AgentTaskRequest(
+                capability=capability,
                 provider=provider,
-                context=context,
-            ),
-            runtime=self.runtime,
+                context={} if context is None else context,
+            )
         )
