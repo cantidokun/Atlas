@@ -1,15 +1,17 @@
 """Provider-neutral dispatch for controller-owned capabilities.
 
 The dispatcher does not execute work itself. It selects an already-registered
-capability from immutable task context and leaves authorization/execution to
+capability from a normalized request and leaves authorization/execution to
 that capability's own boundary.
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
+
+from controller.capability_request import CapabilityRequest
 
 
-CapabilityPredicate = Callable[[str, Mapping[str, Any]], bool]
+CapabilityPredicate = Callable[[CapabilityRequest], bool]
 
 
 @dataclass(frozen=True)
@@ -25,7 +27,7 @@ class ControllerCapabilityDispatcher:
     """Select exactly one applicable controller capability without executing it."""
 
     def __init__(self) -> None:
-        self._capabilities: Dict[str, ControllerCapability] = {}
+        self._capabilities: dict[str, ControllerCapability] = {}
 
     def register(
         self,
@@ -43,14 +45,14 @@ class ControllerCapabilityDispatcher:
 
     def resolve(
         self,
-        task_text: str,
-        context: Optional[Mapping[str, Any]] = None,
+        request: CapabilityRequest,
     ) -> Optional[ControllerCapability]:
-        state = context or {}
+        if not isinstance(request, CapabilityRequest):
+            raise TypeError("request must be a CapabilityRequest")
         matches = [
             capability
             for capability in self._capabilities.values()
-            if capability.predicate(task_text, state)
+            if capability.predicate(request)
         ]
         if len(matches) > 1:
             names = ", ".join(item.name for item in matches)
