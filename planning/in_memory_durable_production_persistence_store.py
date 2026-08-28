@@ -26,6 +26,8 @@ class InMemoryDurableProductionPersistenceStore:
         }
         if "resume_identity" in snapshot:
             self._snapshot["resume_identity"] = dict(snapshot["resume_identity"])
+        if "resume_identity_digest" in snapshot:
+            self._snapshot["resume_identity_digest"] = snapshot["resume_identity_digest"]
 
     def load(self) -> DurableProductionPersistenceBundle:
         if self._snapshot is None:
@@ -41,4 +43,6 @@ class InMemoryDurableProductionPersistenceStore:
         }
         if "resume_identity" in self._snapshot:
             result["resume_identity"] = dict(self._snapshot["resume_identity"])
+        if "resume_identity_digest" in self._snapshot:
+            result["resume_identity_digest"] = self._snapshot["resume_identity_digest"]
         return result
