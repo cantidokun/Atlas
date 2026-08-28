@@ -56,7 +56,15 @@ def _interrupted_bundle(registry, revision):
     result = DurableProductionOperationSequence(
         (_operation("task-1", revision, writes), _operation("task-2", revision, writes, converged=False))
     ).run()
-    return DurableProductionPersistenceBundle.create(registry, result.checkpoint)
+    return DurableProductionPersistenceBundle.create(
+        registry,
+        result.checkpoint,
+        resume_identity={
+            "sequence_id": "sequence-1",
+            "plan_id": "plan-1",
+            "digital_twin_revision": revision.revision_id,
+        },
+    )
 
 
 def test_requested_resume_identity_is_checked_before_first_resume_write():
@@ -88,8 +96,8 @@ def test_resume_identity_is_rechecked_when_run_begins():
     store.save(bundle)
     writes = []
     request = ProductionResumeRequest(
-        sequence_id=bundle.registry_snapshot["sequence_id"],
-        plan_id=bundle.registry_snapshot["plan_id"],
+        sequence_id=bundle.resume_identity["sequence_id"],
+        plan_id=bundle.resume_identity["plan_id"],
         digital_twin_revision=revision.revision_id,
     )
     lifecycle = ProductionPersistenceResumeLifecycle.from_persistence_store(
