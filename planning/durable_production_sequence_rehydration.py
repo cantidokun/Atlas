@@ -31,6 +31,20 @@ class DurableProductionSequenceRehydrator:
         # callers deliberately bypass __init__ in contract tests.
         checkpoint = DurableProductionSequenceCheckpoint.rehydrate(checkpoint_snapshot)
 
+        # A persisted checkpoint can legitimately reference an older registry
+        # snapshot, but it must never resume against a newer canonical revision.
+        # Classify that condition explicitly before the broader snapshot-equality
+        # guard so callers can distinguish revision drift from snapshot mismatch.
+        for receipt in checkpoint.completed_receipts:
+            twin_id = receipt.get("twin_id")
+            revision_id = receipt.get("revision_id")
+            if twin_id and revision_id:
+                current_revision = self.registry.canonical_revision(twin_id)
+                if current_revision.revision_id != revision_id:
+                    raise ValueError(
+                        "durable sequence checkpoint is bound to a stale Digital Twin revision"
+                    )
+
         if canonical_registry.snapshot() != self.registry.snapshot():
             raise ValueError("registry snapshot does not match current canonical registry")
         bound = RegistryBoundDurableProductionOperationSequence(
