@@ -30,12 +30,12 @@ jobs:
           ref: ${{ github.event.inputs.ref || github.sha }}
           fetch-depth: 0
       - name: Verify runner identity
-        shell: powershell
+        shell: cmd
         run: |
-          Write-Host "OS: $([System.Environment]::OSVersion.VersionString)"
-          Write-Host "Platform: $([System.Environment]::OSVersion.Platform)"
-          Write-Host "Runner: $env:RUNNER_NAME"
-          if ($env:RUNNER_OS -ne "Windows") { throw "Unreal regression requires a Windows runner; GitHub reports '$env:RUNNER_OS'." }
+          echo Runner: %RUNNER_NAME%
+          echo Runner OS: %RUNNER_OS%
+          ver
+          if /I not "%RUNNER_OS%"=="Windows" exit /B 1
       - name: Run transactional regression suite
         shell: cmd
         run: python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_production_recovery.py tests/test_unreal_transactional_executor.py -q
