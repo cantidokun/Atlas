@@ -9,24 +9,16 @@ from dataclasses import dataclass
 from typing import Optional
 
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_plan_executor import (
-    UnrealPlanExecutionFailure,
-    UnrealPlanExecutor,
-)
-from planning.unreal_production_executor import (
-    UnrealProductionExecutionResult,
-    UnrealProductionExecutor,
-)
+from planning.unreal_plan_executor import UnrealPlanExecutionFailure, UnrealPlanExecutor
+from planning.unreal_production_executor import UnrealProductionExecutionResult, UnrealProductionExecutor
 from planning.unreal_production_operation import UnrealProductionPlan
-from planning.unreal_production_recovery import (
-    UnrealProductionRecoveryAssessment,
-    execute_production_recovery,
-)
+from planning.unreal_production_recovery import UnrealProductionRecoveryAssessment, execute_production_recovery
 from planning.unreal_production_recovery_adapter import (
     UnrealProductionReceiptRecovery,
     execute_prepared_production_receipt_recovery,
     prepare_production_receipt_recovery,
 )
+from planning.unreal_transactional_executor import UnrealTransactionalPlanExecutor
 
 
 @dataclass(frozen=True)
@@ -60,8 +52,13 @@ class UnrealProductionControllerBridge:
     def __init__(self, executor: UnrealPlanExecutor) -> None:
         if not isinstance(executor, UnrealPlanExecutor):
             raise TypeError("executor must be a UnrealPlanExecutor instance")
-        self._production_executor = UnrealProductionExecutor(executor)
         self._executor = executor
+        self._transactional_executor = (
+            executor
+            if isinstance(executor, UnrealTransactionalPlanExecutor)
+            else UnrealTransactionalPlanExecutor(executor._adapter)
+        )
+        self._production_executor = UnrealProductionExecutor(self._transactional_executor)
         self._production: Optional[UnrealProductionPlan] = None
         self._failure: Optional[UnrealPlanExecutionFailure] = None
         self._last_result: Optional[UnrealProductionExecutionResult] = None
@@ -130,7 +127,7 @@ class UnrealProductionControllerBridge:
             raise RuntimeError("no failed production transaction is available for recovery")
 
         recovery = execute_production_recovery(
-            self._executor,
+            self._transactional_executor,
             self._production,
             self._failure,
             reassessment_authorization,
@@ -165,7 +162,7 @@ class UnrealProductionControllerBridge:
         replacement_authorization: Optional[UnrealPlanAuthorization] = None,
     ) -> UnrealProductionReceiptRecovery:
         prepared = prepare_production_receipt_recovery(
-            self._executor,
+            self._transactional_executor,
             production,
             failure,
             reassessment_authorization,
@@ -173,11 +170,9 @@ class UnrealProductionControllerBridge:
         )
         self._production = production
         self._failure = failure
-        phase = "recovery_reassessed"
-        status = prepared.assessment.disposition
         self.state = UnrealProductionControllerState(
-            phase=phase,
-            status=status,
+            phase="recovery_reassessed",
+            status=prepared.assessment.disposition,
             failure=failure,
             recovery_assessment=prepared.assessment,
         )
@@ -197,7 +192,7 @@ class UnrealProductionControllerBridge:
             raise RuntimeError("replacement authorization is required to complete prepared recovery")
 
         recovery = execute_prepared_production_receipt_recovery(
-            self._executor,
+            self._transactional_executor,
             self._production,
             self._failure,
             prepared,
