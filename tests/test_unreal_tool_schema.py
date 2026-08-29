@@ -69,3 +69,35 @@ def test_verify_render_state_uses_the_same_render_contract():
 def test_render_validation_rejects_boolean_dimensions():
     with pytest.raises(ValueError, match="width must be a positive integer"):
         validate_unreal_tool_call("configure_render", _render_arguments(width=True))
+
+
+def test_submit_render_accepts_a_sequence_package_path():
+    result = validate_unreal_tool_call(
+        "submit_render",
+        {"entity_ids": ["RenderQueue"], "authorization_id": "auth-render", "sequence_asset_path": " /Game/AtlasTest/MainSequence.MainSequence "},
+    )
+    assert result["sequence_asset_path"] == "/Game/AtlasTest/MainSequence.MainSequence"
+
+
+def test_submit_render_rejects_non_package_sequence_path():
+    with pytest.raises(ValueError, match="sequence_asset_path must be a non-empty Unreal package path"):
+        validate_unreal_tool_call(
+            "submit_render",
+            {"entity_ids": ["RenderQueue"], "authorization_id": "auth-render", "sequence_asset_path": "MainSequence"},
+        )
+
+
+def test_inspect_render_job_requires_non_empty_job_id():
+    with pytest.raises(ValueError, match="job_id must be a non-empty string"):
+        validate_unreal_tool_call(
+            "inspect_render_job",
+            {"entity_ids": ["RenderQueue"], "authorization_id": "auth-render", "job_id": "  "},
+        )
+
+
+def test_inspect_render_job_normalizes_job_id():
+    result = validate_unreal_tool_call(
+        "inspect_render_job",
+        {"entity_ids": ["RenderQueue"], "authorization_id": "auth-render", "job_id": " render-001 "},
+    )
+    assert result["job_id"] == "render-001"
