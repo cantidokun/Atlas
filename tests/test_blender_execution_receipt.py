@@ -2,6 +2,7 @@ import pytest
 
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_execution_receipt import BlenderExecutionReceipt
+from planning.blender_result_contract import BlenderExecutionResult
 from planning.blender_verification import BlenderVerificationError
 
 
@@ -29,6 +30,57 @@ def test_receipt_rejects_changed_result():
     result, receipt = boundary.execute_with_receipt("move_object", MOVE)
     changed = type(result)(result.tool, result.ok, "different", result.details)
     assert not receipt.matches("move_object", MOVE, changed)
+
+
+def test_receipt_binds_explicit_mutation_evidence():
+    result = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"mutation_performed": True},
+    )
+    receipt = BlenderExecutionReceipt.create_authorized(
+        "move_object", MOVE, result, "live-auth"
+    )
+    tampered = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"mutation_performed": False},
+    )
+
+    assert receipt.matches("move_object", MOVE, result)
+    assert not receipt.matches("move_object", MOVE, tampered)
+
+
+def test_receipt_detects_detail_tampering_beyond_mutation_evidence():
+    result = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"mutation_performed": True},
+    )
+    receipt = BlenderExecutionReceipt.create("move_object", MOVE, result)
+    tampered = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"mutation_performed": True, "extra": "tampered"},
+    )
+
+    assert not receipt.matches("move_object", MOVE, tampered)
+
+
+def test_receipt_rejects_non_mapping_arguments():
+    result = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"mutation_performed": True},
+    )
+
+    with pytest.raises(TypeError, match="receipt arguments must be an object"):
+        BlenderExecutionReceipt.create("move_object", [], result)
 
 
 def test_failed_execution_never_produces_receipt():
