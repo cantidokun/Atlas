@@ -37,6 +37,7 @@ class ControllerState:
     writes: List[Dict[str, Any]] = field(default_factory=list)
     after: Optional[Dict[str, Any]] = None
     write_retry_pending: bool = field(default=False, repr=False)
+    recovery_reconciled: bool = field(default=False, repr=False)
 
     @property
     def phase(self) -> str:
@@ -45,16 +46,14 @@ class ControllerState:
         if self.writes:
             return "WRITE"
         if self.target is not None:
-            if self.write_retry_pending or not _relationship_matches_target(self, self.before):
-                return "TARGET"
-            return "BEFORE"
+            return "TARGET"
         if self.before is not None:
             return "BEFORE"
         return "EMPTY"
 
     @property
     def complete(self) -> bool:
-        return self.before is not None and self.target is not None and not required_moves(self) and self.after is not None and after_matches_target_with(self, self.after)
+        return self.before is not None and self.target is not None and not required_moves(self) and self.after is not None and (after_matches_target(self) or (self.recovery_reconciled and _writes_match_relationship(self, self.after)))
 
 
 def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Dict[str, Any]:
@@ -70,6 +69,7 @@ def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Di
     adjustment = _subtract(list(TARGET_MIDPOINT), list(midpoint))
     state.target = {"midpoint": TARGET_MIDPOINT.copy(), "adjustment": adjustment, "object_a_location": _subtract(list(location_a), list(midpoint)), "object_b_location": _subtract(list(location_b), list(midpoint))}
     state.write_retry_pending = False
+    state.recovery_reconciled = False
     return deepcopy(state.target)
 
 
@@ -86,6 +86,7 @@ def record_write(state: ControllerState, object_name: str, location: List[float]
     if object_name not in {state.object_a_name, state.object_b_name}:
         raise ValueError("Write targeted an object outside the authorized task state.")
     state.write_retry_pending = False
+    state.recovery_reconciled = False
     state.writes.append({"object_name": object_name, "location": deepcopy(location), "result": deepcopy(result)})
 
 
@@ -109,18 +110,18 @@ def after_matches_target(state: ControllerState) -> bool:
     return _relationship_matches_target(state, state.after)
 
 
-def _writes_match_relationship(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    if not state.writes:
-        return False
-    latest = {}
-    for write in state.writes:
-        if write.get("object_name") in {state.object_a_name, state.object_b_name}:
-            latest[write["object_name"]] = write.get("location")
-    if set(latest) != {state.object_a_name, state.object_b_name}:
+def _writes_match_relationship(state: ControllerState, relationship: Optional[Dict[str, Any]]) -> bool:
+    if not state.writes or relationship is None:
         return False
     object_a = relationship.get("object_a", {})
     object_b = relationship.get("object_b", {})
-    return object_a.get("name") == state.object_a_name and object_b.get("name") == state.object_b_name and _same_location(object_a.get("location"), latest[state.object_a_name]) and _same_location(object_b.get("location"), latest[state.object_b_name])
+    for write in state.writes:
+        name = write.get("object_name")
+        location = write.get("location")
+        observed = object_a if name == state.object_a_name else object_b if name == state.object_b_name else None
+        if observed is None or observed.get("name") != name or not _same_location(observed.get("location"), location):
+            return False
+    return True
 
 
 def next_required_action(state: ControllerState) -> Dict[str, Any]:
@@ -135,14 +136,8 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
     return {"kind": "complete"}
 
 
-def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    if _relationship_matches_target(state, relationship):
-        return True
-    return bool(required_moves(state)) and _writes_match_relationship(state, relationship)
-
-
 def record_after(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    """Accept fresh evidence only when it proves the target or recorded writes."""
+    """Accept fresh evidence only when it proves the exact authorized target."""
     if not isinstance(relationship, dict):
         raise ValueError("AFTER evidence must be an object.")
     if not state.writes and state.target is None:
@@ -150,4 +145,17 @@ def record_after(state: ControllerState, relationship: Dict[str, Any]) -> bool:
     if not after_matches_target_with(state, relationship):
         raise ValueError("AFTER evidence does not prove the authorized target state.")
     state.after = deepcopy(relationship)
+    state.recovery_reconciled = False
     return True
+
+
+def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
+    return _relationship_matches_target(state, relationship)
+
+
+def record_reconciled_after(state: ControllerState, relationship: Dict[str, Any]) -> None:
+    """Record fresh recovery evidence that proves every successful recorded write."""
+    if not _writes_match_relationship(state, relationship):
+        raise ValueError("AFTER evidence does not prove the recorded write state.")
+    state.after = deepcopy(relationship)
+    state.recovery_reconciled = True
