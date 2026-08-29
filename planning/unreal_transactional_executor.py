@@ -1,19 +1,9 @@
-"""Transactional Unreal executor backed by an immutable production ledger.
-
-This layer keeps the existing UnrealPlanExecutor operation semantics while making
-transaction progress explicit. A successful operation advances the immutable
-ledger; the first execution failure freezes it at that exact boundary.
-"""
+"""Transactional Unreal executor backed by an immutable production ledger."""
 
 from dataclasses import dataclass
 
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_plan_executor import (
-    UnrealPlanExecutionError,
-    UnrealPlanExecutionFailure,
-    UnrealPlanExecutionResult,
-    UnrealPlanExecutor,
-)
+from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutionFailure, UnrealPlanExecutionResult, UnrealPlanExecutor
 from planning.unreal_production_transaction_ledger import UnrealProductionTransactionLedger
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_agent import UnrealOperationKind
@@ -38,10 +28,7 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
 
     @staticmethod
     def _raise_transaction_failure(message, failure, ledger):
-        """Raise a normal execution error while preserving the frozen ledger."""
         error = UnrealPlanExecutionError(message, failure=failure)
-        # Keep the transaction boundary available to recovery coordinators even
-        # when execution terminates by exception. The ledger itself is immutable.
         error.transaction_ledger = ledger
         raise error
 
@@ -53,7 +40,6 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
 
         self._validate_execution_shape(plan)
         self._preflight_plan(plan)
-
         ledger = UnrealProductionTransactionLedger(plan.intent_id)
         evidence_ledger = []
         completed_arguments = []
@@ -63,67 +49,35 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
             if operation.kind is UnrealOperationKind.VERIFY:
                 previous = plan.operations[index - 1] if index else None
                 if previous is None or previous.kind not in (UnrealOperationKind.WRITE, UnrealOperationKind.READ):
-                    raise UnrealPlanExecutionError(
-                        f"Verify operation {index} ('{operation.name}') must follow a read or write"
-                    )
+                    raise UnrealPlanExecutionError(f"Verify operation {index} ('{operation.name}') must follow a read or write")
                 if previous.kind is UnrealOperationKind.WRITE:
                     expected = self._verification_expectation(previous)
-
             try:
                 evidence = self._execute_one(
-                    operation,
-                    authorization_id,
-                    expected_location=expected.get("location"),
-                    expected_rotation=expected.get("rotation"),
-                    expected_scale=expected.get("scale"),
-                    expected_material_variant=expected.get("material_variant"),
-                    expected_niagara_variant=expected.get("niagara_variant"),
-                    expected_start_frame=expected.get("start_frame"),
+                    operation, authorization_id,
+                    expected_location=expected.get("location"), expected_rotation=expected.get("rotation"),
+                    expected_scale=expected.get("scale"), expected_material_variant=expected.get("material_variant"),
+                    expected_niagara_variant=expected.get("niagara_variant"), expected_start_frame=expected.get("start_frame"),
                     expected_end_frame=expected.get("end_frame"),
                 )
             except (UnrealPlanExecutionError, UnrealPlanExecutionFailure) as exc:
-                frozen = ledger.record_failure(index)
-                if isinstance(exc, UnrealPlanExecutionError) and exc.failure is not None:
-                    failure = exc.failure
-                else:
-                    failure = UnrealPlanExecutionFailure(
-                        plan.intent_id,
-                        index,
-                        operation.name,
-                        tuple(evidence_ledger),
-                        str(exc),
-                        tuple(operation.entity_ids),
-                        dict(operation.arguments),
-                        tuple(completed_arguments),
-                    )
+                frozen = ledger.record_failure(index, operation.name, tuple(operation.entity_ids), dict(operation.arguments))
+                failure = exc.failure if isinstance(exc, UnrealPlanExecutionError) and exc.failure is not None else UnrealPlanExecutionFailure(
+                    plan.intent_id, index, operation.name, tuple(evidence_ledger), str(exc),
+                    tuple(operation.entity_ids), dict(operation.arguments), tuple(completed_arguments),
+                )
                 self._raise_transaction_failure(str(exc), failure, frozen)
             except Exception as exc:
-                frozen = ledger.record_failure(index)
+                frozen = ledger.record_failure(index, operation.name, tuple(operation.entity_ids), dict(operation.arguments))
                 failure = UnrealPlanExecutionFailure(
-                    plan.intent_id,
-                    index,
-                    operation.name,
-                    tuple(evidence_ledger),
+                    plan.intent_id, index, operation.name, tuple(evidence_ledger),
                     f"Operation {index} ('{operation.name}') failed: {exc}",
-                    tuple(operation.entity_ids),
-                    dict(operation.arguments),
-                    tuple(completed_arguments),
+                    tuple(operation.entity_ids), dict(operation.arguments), tuple(completed_arguments),
                 )
                 self._raise_transaction_failure(failure.error, failure, frozen)
 
             evidence_ledger.append(evidence)
             completed_arguments.append(dict(operation.arguments))
-            ledger = ledger.record_success(
-                index,
-                operation.name,
-                tuple(operation.entity_ids),
-                dict(operation.arguments),
-                len(evidence_ledger) - 1,
-            )
+            ledger = ledger.record_success(index, operation.name, tuple(operation.entity_ids), dict(operation.arguments), len(evidence_ledger) - 1)
 
-        return UnrealTransactionalExecutionResult(
-            plan.intent_id,
-            tuple(evidence_ledger),
-            True,
-            ledger,
-        )
+        return UnrealTransactionalExecutionResult(plan.intent_id, tuple(evidence_ledger), True, ledger)
