@@ -4,9 +4,9 @@ from controller.controller_runtime import ControllerRuntime
 
 
 RELATIONSHIP = {
-    "object_a": {"name": "Goal_Left_post", "location": [-1.0, 0.0, 0.0]},
-    "object_b": {"name": "Goal_Right_Post", "location": [1.0, 0.0, 0.0]},
-    "midpoint": [0.0, 0.0, 0.0],
+    "object_a": {"name": "Goal_Left_post", "location": [8.0, 0.0, 0.0]},
+    "object_b": {"name": "Goal_Right_Post", "location": [12.0, 0.0, 0.0]},
+    "midpoint": [10.0, 0.0, 0.0],
 }
 
 
@@ -34,7 +34,7 @@ def test_canonical_success_result_is_accepted_for_midpoint_write():
         lambda *_: {
             "ok": True,
             "state": "moved",
-            "details": {"object_name": "Goal_Left_post", "location": [-1.0, 0.0, 0.0]},
+            "details": {"object_name": "Goal_Left_post", "location": [-2.0, 0.0, 0.0]},
         }
     )
 
