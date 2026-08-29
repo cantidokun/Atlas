@@ -134,7 +134,7 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
         if not isinstance(output_format, str) or not output_format.strip():
             raise ValueError("output_format must be a non-empty string")
         normalized_format = output_format.strip().lower().lstrip(".")
-        if normalized_format not in {"png", "jpg", "jpeg", "exr", "bmp"}:
-            raise ValueError("unsupported render output format")
+        if normalized_format != "png":
+            raise ValueError("unsupported render output format: only png is supported by the Unreal boundary")
         snapshot["output_format"] = normalized_format
     return snapshot
