@@ -4,6 +4,19 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
+_LEGACY_EVIDENCE_TOOLS = {
+    "inspect_scene",
+    "inspect_scene_health",
+    "inspect_object_relationship",
+    "inspect_object_transform",
+    "inspect_mesh",
+    "inspect_scene_settings",
+    "inspect_object_parent",
+    "inspect_object_collections",
+    "inspect_soccer_components",
+}
+
+
 @dataclass(frozen=True)
 class BlenderExecutionResult:
     """Immutable, normalized result returned by the Blender adapter."""
@@ -42,6 +55,11 @@ def normalize_blender_result(tool: str, result: Any) -> BlenderExecutionResult:
             "state": result.get("state", status),
             "details": {key: value for key, value in result.items() if key not in {"status", "state"}},
         }
+    elif "ok" not in result and "status" not in result and tool in _LEGACY_EVIDENCE_TOOLS:
+        # Existing read-only Blender adapters historically return the evidence
+        # object directly. Preserve that established contract while routing it
+        # through the canonical result envelope.
+        result = {"ok": True, "state": result, "details": {}}
 
     for key in ("ok", "state"):
         if key not in result:
