@@ -27,24 +27,23 @@ def recover_and_reconcile(payload: Dict[str, Any], read_evidence: EvidenceReader
     )
     if not isinstance(evidence, dict):
         raise RuntimeError("Fresh Blender evidence must be an object.")
-    if evidence.get("error") or evidence.get("status") in {"error", "failed", "failure"}:
+    if evidence.get("error") or evidence.get("status") in {"error", "failed", "failure"} or evidence.get("ok") is False:
         raise RuntimeError("Fresh Blender evidence is unavailable.")
 
     if not state.writes:
-        # No successful write was recorded. Fresh evidence cannot manufacture
-        # completion; leave the restored plan ready for its normal next action.
         return state
 
     if required_moves(state):
-        # An interrupted checkpoint may have successful write receipts whose
-        # coordinate frame differs from the derived target. Fresh evidence that
-        # exactly matches those receipts is useful reconciliation evidence, but
-        # the interrupted task remains incomplete and will resume normally.
-        if not record_after(state, deepcopy(evidence)):
-            raise ValueError("AFTER evidence does not prove the recorded write state.")
-        state.after = None
+        # A partial-write checkpoint remains incomplete. Fresh evidence is
+        # useful only when it proves the recorded writes; otherwise leave the
+        # state untouched and resume the normal write path.
+        try:
+            record_after(state, deepcopy(evidence))
+        except ValueError:
+            state.after = None
+        else:
+            state.after = None
         return state
 
-    if not record_after(state, deepcopy(evidence)):
-        raise ValueError("AFTER evidence does not prove the authorized target state.")
+    record_after(state, deepcopy(evidence))
     return state
