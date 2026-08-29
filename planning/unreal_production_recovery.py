@@ -96,6 +96,8 @@ def _validate_failure_binding(production: UnrealProductionPlan, failure: UnrealP
         raise ValueError("recovery failure operation_name does not match the production plan")
     if tuple(operation.entity_ids) != tuple(failure.operation_entity_ids):
         raise ValueError("recovery failure entity_ids do not match the production plan")
+    if dict(operation.arguments) != dict(failure.operation_arguments):
+        raise ValueError("recovery failure arguments do not match the exact failed production operation")
 
 
 def failed_phase(production: UnrealProductionPlan, failure: UnrealPlanExecutionFailure) -> str:
