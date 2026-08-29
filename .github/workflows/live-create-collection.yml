@@ -19,7 +19,7 @@ concurrency:
 jobs:
   live-create-collection:
     name: live create collection (${{ matrix.case }}, ${{ matrix.mode }})
-    runs-on: [self-hosted, windows, local-win]
+    runs-on: [self-hosted, Windows, X64, atlas-blender]
     environment: local-testing
     strategy:
       fail-fast: false
