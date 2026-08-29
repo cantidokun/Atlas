@@ -20,3 +20,6 @@ include = ["qwen*", "live*", "planning*", "controller*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "blender: requires the self-hosted Blender integration runner",
+]
