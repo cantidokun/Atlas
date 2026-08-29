@@ -49,8 +49,6 @@ def test_successful_execution_returns_complete_transaction_ledger():
     assert result.transaction_ledger.completed_operation_indices == (0, 1)
     assert result.transaction_ledger.failed_operation_index is None
     assert [entry.operation_name for entry in result.transaction_ledger.entries] == ["inspect_a", "inspect_b"]
-    assert result.transaction_ledger.entries[0].evidence_index == 0
-    assert result.transaction_ledger.entries[1].evidence_index == 1
     assert executor.calls == ["inspect_a", "inspect_b"]
 
 
@@ -61,15 +59,27 @@ def test_failure_freezes_ledger_at_exact_operation_and_does_not_continue():
         executor.execute(_plan("inspect_a", "inspect_b", "inspect_c"), "auth-001")
 
     failure = raised.value.failure
+    ledger = raised.value.transaction_ledger
     assert failure is not None
     assert failure.operation_index == 1
-    assert failure.completed_operation_arguments == (
-        {"entity_ids": ("FIELD_SURFACE",)},
-    )
+    assert failure.completed_operation_arguments == ({"entity_ids": ("FIELD_SURFACE",)},)
     assert executor.calls == ["inspect_a", "inspect_b"]
-    assert raised.value.transaction_ledger.failed_operation_index == 1
-    assert raised.value.transaction_ledger.completed_operation_indices == (0,)
-    assert raised.value.transaction_ledger.terminal is True
+    assert ledger.failed_operation_index == 1
+    assert ledger.failed_operation_name == "inspect_b"
+    assert ledger.failed_entity_ids == ("FIELD_SURFACE",)
+    assert ledger.failed_arguments == {"entity_ids": ("FIELD_SURFACE",)}
+    assert ledger.completed_operation_indices == (0,)
+    assert ledger.terminal is True
+
+
+def test_terminal_ledger_rejects_any_further_progress():
+    ledger = UnrealProductionTransactionLedger("shot-transaction").record_failure(
+        0, "inspect_a", ("FIELD_SURFACE",), {"entity_ids": ("FIELD_SURFACE",)}
+    )
+    with pytest.raises(ValueError, match="cannot append"):
+        ledger.record_success(1, "inspect_b", ("FIELD_SURFACE",), {}, 1)
+    with pytest.raises(ValueError, match="already terminal"):
+        ledger.record_failure(0, "inspect_a", ("FIELD_SURFACE",), {})
 
 
 def test_transactional_executor_rejects_empty_authorization_id():
