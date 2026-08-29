@@ -19,17 +19,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  regression:
-    name: Transactional Python regression
-    runs-on: [self-hosted, windows, local-win]
-    environment: local-testing
+  materialize:
+    name: Materialize native MRQ transport
+    runs-on: windows-latest
     steps:
-      - name: Check out tested revision
+      - name: Check out branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref || github.sha }}
+          ref: feat/unreal-composite-production-operation
           fetch-depth: 0
-
       - name: Materialize native MRQ render transport
         shell: pwsh
         run: |
@@ -53,7 +51,6 @@ jobs:
             if ($h -notlike "*$anchor*") { throw 'Header render declaration anchor not found' }
             $h = $h.Replace($anchor, $replace)
           }
-
           if ($c -notmatch '#include "MoviePipelineQueueEngineSubsystem.h"') {
             $c = $c.Replace('#include "MoviePipelineImageSequenceOutput.h"', '#include "MoviePipelineImageSequenceOutput.h"`r`n#include "MoviePipelineQueueEngineSubsystem.h"`r`n#include "MoviePipelineExecutor.h"')
           }
@@ -81,21 +78,18 @@ jobs:
             if ($c -notlike "*$validationAnchor*") { throw 'Validation render anchor not found' }
             $c = $c.Replace($validationAnchor, $block + $validationAnchor)
           }
-
           $supportOld = '||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("verify_render_state");'
           $supportNew = '||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("verify_render_state")||Request.OperationName==TEXT("submit_render")||Request.OperationName==TEXT("inspect_render_job");'
           if ($c -notlike "*$supportNew*") {
             if ($c -notlike "*$supportOld*") { throw 'Supported-operation anchor not found' }
             $c = $c.Replace($supportOld, $supportNew)
           }
-
           $dispatchAnchor = '    else if(S->Request.OperationName==TEXT("configure_render")) bTaskSuccess=ConfigureRender(S->Request,S->ObservedState,S->Error);'
           $dispatchNew = $dispatchAnchor + "`r`n    else if(S->Request.OperationName==TEXT("submit_render")) bTaskSuccess=SubmitRender(S->Request,S->ObservedState,S->Error);`r`n    else if(S->Request.OperationName==TEXT("inspect_render_job")) bTaskSuccess=InspectRenderJob(S->Request,S->ObservedState,S->Error);"
           if ($c -notlike "*$dispatchNew*") {
             if ($c -notlike "*$dispatchAnchor*") { throw 'Dispatch anchor not found' }
             $c = $c.Replace($dispatchAnchor, $dispatchNew)
           }
-
           $insertBefore = 'AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)'
           if ($c -notlike "*$insertBefore*") { throw 'Implementation insertion anchor not found' }
           $impl = @'
@@ -112,9 +106,7 @@ namespace
         TWeakObjectPtr<UMoviePipelineExecutorJob> Job;
         TWeakObjectPtr<UMoviePipelineExecutorBase> Executor;
     };
-
     TMap<FString, FAtlasRenderJobState> AtlasRenderJobs;
-
     void RegisterAtlasExecutorCompletion(UMoviePipelineExecutorBase* Executor, const FString& JobId)
     {
         if (!Executor) return;
@@ -156,30 +148,20 @@ bool FAtlasTransportServer::SubmitRender(const FTransportRequest& R,TSharedPtr<F
     Job->UserData=R.RequestId;
     Job->JobName=FString::Printf(TEXT("Atlas-%s"),*R.RequestId);
     FAtlasRenderJobState State;
-    State.JobId=R.RequestId;
-    State.Status=TEXT("submitted");
-    State.SequenceAssetPath=SequenceAssetPath;
-    State.Job=Job;
-    if(UMoviePipelineOutputSetting* OutputSetting=GetAtlasRenderOutputSetting(RenderConfig,E)) State.OutputDirectory=OutputSetting->OutputDirectory.Path;
-    else return false;
+    State.JobId=R.RequestId; State.Status=TEXT("submitted"); State.SequenceAssetPath=SequenceAssetPath; State.Job=Job;
+    if(UMoviePipelineOutputSetting* OutputSetting=GetAtlasRenderOutputSetting(RenderConfig,E)) State.OutputDirectory=OutputSetting->OutputDirectory.Path; else return false;
     AtlasRenderJobs.Add(R.RequestId,State);
     Subsystem->RenderJob(Job);
     UMoviePipelineExecutorBase* Executor=Subsystem->GetActiveExecutor();
     if(!Executor){
         if(FAtlasRenderJobState* Stored=AtlasRenderJobs.Find(R.RequestId)){Stored->Status=TEXT("failed");Stored->Error=TEXT("Movie Render Pipeline did not expose an active executor after submission");}
-        E=TEXT("Movie Render Pipeline did not expose an active executor after submission");
-        return false;
+        E=TEXT("Movie Render Pipeline did not expose an active executor after submission"); return false;
     }
     if(FAtlasRenderJobState* Stored=AtlasRenderJobs.Find(R.RequestId)){Stored->Status=TEXT("running");Stored->Executor=Executor;}
     RegisterAtlasExecutorCompletion(Executor,R.RequestId);
     TSharedPtr<FJsonObject> JobState=MakeShareable(new FJsonObject);
-    JobState->SetStringField(TEXT("job_id"),R.RequestId);
-    JobState->SetStringField(TEXT("status"),TEXT("running"));
-    JobState->SetStringField(TEXT("sequence_asset_path"),SequenceAssetPath);
-    JobState->SetStringField(TEXT("output_directory"),State.OutputDirectory);
-    JobState->SetBoolField(TEXT("async"),true);
-    O=JobState;
-    return true;
+    JobState->SetStringField(TEXT("job_id"),R.RequestId); JobState->SetStringField(TEXT("status"),TEXT("running")); JobState->SetStringField(TEXT("sequence_asset_path"),SequenceAssetPath); JobState->SetStringField(TEXT("output_directory"),State.OutputDirectory); JobState->SetBoolField(TEXT("async"),true);
+    O=JobState; return true;
 }
 
 bool FAtlasTransportServer::InspectRenderJob(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
@@ -193,20 +175,12 @@ bool FAtlasTransportServer::InspectRenderJob(const FTransportRequest& R,TSharedP
     UMoviePipelineQueueEngineSubsystem* Subsystem=GEngine->GetEngineSubsystem<UMoviePipelineQueueEngineSubsystem>();
     if(Subsystem&&Subsystem->IsRendering() && State->Status==TEXT("running")) if(UMoviePipelineExecutorBase* Executor=Subsystem->GetActiveExecutor()) State->Executor=Executor;
     TSharedPtr<FJsonObject> JobState=MakeShareable(new FJsonObject);
-    JobState->SetStringField(TEXT("job_id"),State->JobId);
-    JobState->SetStringField(TEXT("status"),State->Status);
-    JobState->SetStringField(TEXT("sequence_asset_path"),State->SequenceAssetPath);
-    JobState->SetStringField(TEXT("output_directory"),State->OutputDirectory);
-    JobState->SetBoolField(TEXT("success"),State->bSuccess);
-    JobState->SetBoolField(TEXT("rendering"),Subsystem ? Subsystem->IsRendering() : false);
-    JobState->SetStringField(TEXT("error"),State->Error);
-    O=JobState;
-    return true;
+    JobState->SetStringField(TEXT("job_id"),State->JobId); JobState->SetStringField(TEXT("status"),State->Status); JobState->SetStringField(TEXT("sequence_asset_path"),State->SequenceAssetPath); JobState->SetStringField(TEXT("output_directory"),State->OutputDirectory); JobState->SetBoolField(TEXT("success"),State->bSuccess); JobState->SetBoolField(TEXT("rendering"),Subsystem ? Subsystem->IsRendering() : false); JobState->SetStringField(TEXT("error"),State->Error);
+    O=JobState; return true;
 }
 
 '@
           $c = $c.Replace($insertBefore, $impl + $insertBefore)
-
           Set-Content -Path $hdr -Value $h -NoNewline
           Set-Content -Path $cpp -Value $c -NoNewline
           git config user.name 'github-actions[bot]'
@@ -218,6 +192,17 @@ bool FAtlasTransportServer::InspectRenderJob(const FTransportRequest& R,TSharedP
             git push origin HEAD:feat/unreal-composite-production-operation
           }
 
+  regression:
+    name: Transactional Python regression
+    needs: materialize
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    steps:
+      - name: Check out latest branch revision
+        uses: actions/checkout@v4
+        with:
+          ref: feat/unreal-composite-production-operation
+          fetch-depth: 0
       - name: Verify runner identity
         shell: cmd
         run: |
