@@ -36,11 +36,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Report runner environment
-        shell: powershell
+        shell: cmd
         run: |
-          Write-Host "Runner: $env:RUNNER_NAME"
-          Write-Host "OS: $env:RUNNER_OS"
-          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
+          echo Runner: %RUNNER_NAME%
+          echo OS: %RUNNER_OS%
+          echo Workspace: %GITHUB_WORKSPACE%
       - name: Run Blender runner smoke tests
-        shell: powershell
+        shell: cmd
         run: python -m pytest -q tests/blender/test_runner_smoke.py
