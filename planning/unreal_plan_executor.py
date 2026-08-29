@@ -95,7 +95,7 @@ class UnrealPlanExecutionFailure:
         executing it through execute_authorized().
         """
         if not isinstance(assessment, UnrealRecoveryAssessment):
-            raise TypeError("assessment must be an UnrealRecoveryAssessment instance")
+            raise TypeError("assessment must be a UnrealRecoveryAssessment instance")
         if assessment.disposition != "replacement_required":
             raise ValueError("replacement_plan requires a replacement_required assessment")
         if tuple(assessment.entity_ids) != tuple(self.operation_entity_ids):
@@ -204,22 +204,12 @@ class UnrealPlanExecutor:
             if index + 1 >= len(plan.operations):
                 raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be followed by verification")
             verification = plan.operations[index + 1]
-
-            # Blueprint metadata is intentionally staged through compilation:
-            # inspect -> set metadata -> compile -> verify. The metadata write
-            # is not independently verifiable until the compiled Blueprint has
-            # been saved by the compile operation.
             if operation.name == "set_blueprint_metadata":
                 if verification.name != "compile_blueprint" or verification.kind is not UnrealOperationKind.WRITE:
-                    raise UnrealPlanExecutionError(
-                        f"Write operation {index} ('{operation.name}') must be followed by 'compile_blueprint'"
-                    )
+                    raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be followed by 'compile_blueprint'")
                 if tuple(verification.entity_ids) != tuple(operation.entity_ids):
-                    raise UnrealPlanExecutionError(
-                        f"Write operation {index} ('{operation.name}') and compilation must target the same entities"
-                    )
+                    raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') and compilation must target the same entities")
                 continue
-
             if verification.kind is not UnrealOperationKind.VERIFY:
                 raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be immediately followed by verification")
             if tuple(verification.entity_ids) != tuple(operation.entity_ids):
@@ -247,7 +237,17 @@ class UnrealPlanExecutor:
         if write_operation.name=="configure_render": return {key:a[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")}
         return {}
     @staticmethod
-    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range"}
+    def _is_semantically_verified(operation,evidence):
+        return operation.name in {
+            "verify_actor_location",
+            "verify_actor_rotation",
+            "verify_actor_scale",
+            "verify_material_variant",
+            "verify_niagara_variant",
+            "verify_sequencer_playback_range",
+            "verify_render_state",
+            "verify_blueprint_state",
+        }
     def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None,expected_start_frame=None,expected_end_frame=None):
         arguments=dict(operation.arguments); arguments["entity_ids"]=tuple(operation.entity_ids); arguments["authorization_id"]=authorization_id; validate_unreal_tool_call(operation.name,arguments)
         method_name=self._DISPATCH[operation.kind]; evidence=getattr(self._adapter,method_name)(operation,authorization_id); validate_evidence_for_operation(evidence,operation.name,tuple(operation.entity_ids))
@@ -281,6 +281,6 @@ class UnrealPlanExecutor:
             except (UnrealAdapterError,ValueError,TypeError) as exc:
                 message=f"Operation {index} ('{operation.name}') failed: {exc}"; failure=UnrealPlanExecutionFailure(plan.intent_id,index,operation.name,tuple(ledger),message,tuple(operation.entity_ids),self._failure_context(operation),tuple(completed)); raise UnrealPlanExecutionError(message,failure=failure) from exc
             except Exception as exc:
-                message=f"Unexpected execution failure for operation {index} ('{operation.name}'):\n{exc}"; failure=UnrealPlanExecutionFailure(plan.intent_id,index,operation.name,tuple(ledger),message,tuple(operation.entity_ids),self._failure_context(operation),tuple(completed)); raise UnrealPlanExecutionError(message,failure=failure) from exc
+                message=f"Unexpected execution failure for operation {index} ('{operation.name}'):\n{exc}"; failure=UnrealPlanExecutionFailure(plan.intent_id,index,operation.name,tuple(ledger),message,tuple(operation.entity_ids),message and self._failure_context(operation),tuple(completed)); raise UnrealPlanExecutionError(message,failure=failure) from exc
             ledger.append(evidence); completed.append(self._failure_context(operation))
         return UnrealPlanExecutionResult(plan.intent_id,tuple(ledger),True)
