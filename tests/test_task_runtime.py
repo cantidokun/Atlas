@@ -155,3 +155,43 @@ def test_session_blocks_evaluation_until_all_declared_evidence_is_recorded():
     session.acquire_initial_evidence()
     assert calls == ["inspect_scene", "inspect_object"]
     assert session.evaluate_target().satisfied is True
+
+
+def test_session_run_conditional_lifecycle_skips_write_when_target_is_satisfied():
+    calls = []
+
+    def execute(tool, arguments):
+        calls.append(tool)
+        return {"ready": True}
+
+    session = TaskRuntimeSession(task(), execute, lambda results: results[0])
+    session.acquire_initial_evidence()
+    state, execution, verified = session.run_conditional_lifecycle("skip-write")
+
+    assert state.satisfied is True
+    assert execution is None
+    assert verified.satisfied is True
+    assert session.complete is True
+    assert calls == ["inspect_scene", "inspect_scene"]
+
+
+def test_session_run_conditional_lifecycle_authorizes_executes_and_verifies():
+    calls = []
+    state = {"ready": False}
+
+    def execute(tool, arguments):
+        calls.append(tool)
+        if tool == "move_object":
+            state["ready"] = True
+            return {"ok": True}
+        return dict(state)
+
+    session = TaskRuntimeSession(task(), execute, lambda results: results[0])
+    session.acquire_initial_evidence()
+    initial, execution, verified = session.run_conditional_lifecycle("run-write")
+
+    assert initial.satisfied is False
+    assert execution == {"ok": True}
+    assert verified.satisfied is True
+    assert session.complete is True
+    assert calls == ["inspect_scene", "move_object", "inspect_scene"]
