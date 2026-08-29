@@ -45,9 +45,7 @@ class ControllerState:
         if self.writes:
             return "WRITE"
         if self.target is not None:
-            if self.write_retry_pending or not _relationship_matches_target(self, self.before):
-                return "TARGET"
-            return "BEFORE"
+            return "TARGET" if self.write_retry_pending else "BEFORE"
         if self.before is not None:
             return "BEFORE"
         return "EMPTY"
@@ -136,19 +134,14 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
 
 
 def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    if _relationship_matches_target(state, relationship):
-        return True
-    # During recovery, successful write receipts can prove the object positions
-    # even when the persisted derived target was based on a pre-crash coordinate
-    # frame. The fresh relationship still has to identify both authorized objects.
-    return bool(required_moves(state)) and _writes_match_relationship(state, relationship)
+    return _relationship_matches_target(state, relationship) or (bool(required_moves(state)) and _writes_match_relationship(state, relationship))
 
 
 def record_after(state: ControllerState, relationship: Dict[str, Any]) -> bool:
     """Accept fresh evidence only when it proves the target or recorded writes."""
     if not isinstance(relationship, dict):
         return False
-    if not state.writes and not _relationship_matches_target(state, state.before):
+    if not state.writes and state.target is None:
         return False
     if not after_matches_target_with(state, relationship):
         return False
