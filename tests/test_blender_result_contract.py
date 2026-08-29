@@ -107,14 +107,13 @@ def test_missing_mutation_evidence_remains_unknown_for_compatibility():
     assert result.mutation_performed is None
 
 
-def test_invalid_mutation_evidence_is_rejected():
-    result = normalize_blender_result(
-        "delete_object",
-        {
-            "status": "ok",
-            "object_name": "Cleanup_Target",
-            "mutation_performed": "yes",
-        },
-    )
+def test_invalid_mutation_evidence_is_rejected_during_normalization():
     with pytest.raises(TypeError, match="result mutation_performed must be boolean"):
-        _ = result.mutation_performed
+        normalize_blender_result(
+            "delete_object",
+            {
+                "status": "ok",
+                "object_name": "Cleanup_Target",
+                "mutation_performed": "yes",
+            },
+        )
