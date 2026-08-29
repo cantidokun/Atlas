@@ -37,6 +37,23 @@ class ControllerRuntime:
     def checkpoint(self) -> Dict[str, Any]:
         return snapshot_controller_state(self.state)
 
+    @staticmethod
+    def _controller_payload(result: Dict[str, Any], normalized: Any) -> Dict[str, Any]:
+        """Adapt canonical results without changing the existing controller state shape."""
+        # Existing Blender/controller tools return relationship evidence directly
+        # alongside a legacy status. Preserve that shape for the controller.
+        if "ok" not in result and "status" in result:
+            return deepcopy(result)
+
+        if isinstance(normalized.state, dict):
+            payload = deepcopy(dict(normalized.state))
+            if payload:
+                return payload
+
+        payload = deepcopy(dict(normalized.details))
+        payload.setdefault("status", normalized.state)
+        return payload
+
     def step(self, execute: ToolExecutor) -> Dict[str, Any]:
         action = deepcopy(self._next_action())
         if action["kind"] == "complete":
@@ -57,22 +74,13 @@ class ControllerRuntime:
         if not normalized.ok:
             return self._error("ToolExecutionError", normalized.details)
 
-        # Preserve the existing controller state/result shape while accepting
-        # the canonical {ok, state, details} contract as the preferred form.
-        result_state = normalized.state
-        if isinstance(result_state, dict):
-            controller_result = deepcopy(result_state)
-            if not controller_result:
-                controller_result = deepcopy(dict(normalized.details))
-        else:
-            controller_result = deepcopy(dict(normalized.details))
-            controller_result.setdefault("status", result_state)
+        controller_result = self._controller_payload(result, normalized)
 
         try:
             if action["kind"] == "evidence":
                 record_before(self.state, controller_result)
             elif action["kind"] == "write":
-                if result_state != "moved" and controller_result.get("status") != "moved":
+                if normalized.state != "moved" and controller_result.get("status") != "moved":
                     return self._error("InvalidWriteResult", result)
                 record_write(
                     self.state,
