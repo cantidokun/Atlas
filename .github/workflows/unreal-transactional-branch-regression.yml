@@ -1,0 +1,41 @@
+name: Unreal Transactional Branch Regression
+
+on:
+  push:
+    branches:
+      - feat/unreal-composite-production-operation
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Atlas ref to test"
+        required: true
+        default: "feat/unreal-composite-production-operation"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-unreal-transactional-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    name: Transactional Python regression
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    steps:
+      - name: Check out tested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+          fetch-depth: 0
+      - name: Verify runner identity
+        shell: powershell
+        run: |
+          Write-Host "OS: $([System.Environment]::OSVersion.VersionString)"
+          Write-Host "Platform: $([System.Environment]::OSVersion.Platform)"
+          Write-Host "Runner: $env:RUNNER_NAME"
+          if ($env:RUNNER_OS -ne "Windows") { throw "Unreal regression requires a Windows runner; GitHub reports '$env:RUNNER_OS'." }
+      - name: Run transactional regression suite
+        shell: cmd
+        run: python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_production_recovery.py tests/test_unreal_transactional_executor.py -q
