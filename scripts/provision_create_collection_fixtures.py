@@ -21,7 +21,7 @@ def blender_path() -> str:
 
 
 def provision(output: Path, collection_exists: bool) -> None:
-    script = f'''import bpy\nfrom pathlib import Path\nimport sys\n\noutput = Path(sys.argv[-1])\ntarget = {TARGET_COLLECTION!r}\nfor collection in list(bpy.data.collections):\n    if collection.name == target:\n        bpy.data.collections.remove(collection)\nif {collection_exists!r}:\n    collection = bpy.data.collections.new(target)\n    bpy.context.scene.collection.children.link(collection)\n\nbpy.ops.wm.save_as_mainfile(filepath=str(output))\n'''
+    script = f'''import bpy\nfrom pathlib import Path\nimport sys\n\noutput = Path(sys.argv[-1])\ntarget = {TARGET_COLLECTION!r}\nfor collection in list(bpy.data.collections):\n    if collection.name == target:\n        bpy.data.collections.remove(collection, do_unlink=True)\nif {collection_exists!r}:\n    collection = bpy.data.collections.new(target)\n    bpy.context.scene.collection.children.link(collection)\n\nbpy.ops.wm.save_as_mainfile(filepath=str(output))\n'''
     temp = PROJECT_DIR / "_atlas_create_collection_fixture.py"
     temp.write_text(script, encoding="utf-8")
     try:
