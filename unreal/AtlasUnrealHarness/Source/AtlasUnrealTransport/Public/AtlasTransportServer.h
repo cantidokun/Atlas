@@ -6,6 +6,7 @@
 #include "HAL/ThreadSafeBool.h"
 #include "HAL/Event.h"
 #include "Dom/JsonObject.h"
+#include "MoviePipelineQueue.h"
 
 class FAtlasTransportServer : public FRunnable
 {
@@ -52,6 +53,8 @@ private:
     static bool SetBlueprintMetadata(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool InspectRenderState(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool ConfigureRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool SubmitRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool InspectRenderJob(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool BuildBlueprintState(const FString& AssetPath,TSharedPtr<FJsonObject>& OutBlueprintState,FString& OutError);
     static AActor* FindActorByEntityId(const FString& EntityId);
 };
