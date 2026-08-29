@@ -1,0 +1,52 @@
+name: Unreal Transactional Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Atlas ref to test
+        required: true
+        default: feat/unreal-composite-production-operation
+      run_unreal:
+        description: Run Unreal integration harness
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-unreal-transactional-regression
+  cancel-in-progress: false
+
+jobs:
+  python-regression:
+    name: Python transactional regression
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    steps:
+      - name: Check out requested Atlas ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Run transactional regression suite
+        shell: cmd
+        run: python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_production_recovery.py tests/test_unreal_transactional_executor.py -q
+
+  unreal-integration:
+    name: Unreal integration harness
+    if: ${{ inputs.run_unreal }}
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    needs: python-regression
+    steps:
+      - name: Check out requested Atlas ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Run real Unreal Blueprint integration suite
+        shell: cmd
+        run: python -m pytest tests/test_unreal_blueprint_real_integration.py -q -rs
