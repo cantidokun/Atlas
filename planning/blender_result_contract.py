@@ -39,16 +39,14 @@ class BlenderExecutionResult:
             raise ValueError("result state object must not be empty")
         if not isinstance(self.details, dict):
             raise TypeError("result details must be an object")
+        mutation_performed = self.details.get("mutation_performed")
+        if mutation_performed is not None and not isinstance(mutation_performed, bool):
+            raise TypeError("result mutation_performed must be boolean")
 
     @property
     def mutation_performed(self) -> Optional[bool]:
         """Return explicit mutation evidence when the adapter supplied it."""
-        value = self.details.get("mutation_performed")
-        if value is None:
-            return None
-        if not isinstance(value, bool):
-            raise TypeError("result mutation_performed must be boolean")
-        return value
+        return self.details.get("mutation_performed")
 
 
 def normalize_blender_result(tool: str, result: Any) -> BlenderExecutionResult:
