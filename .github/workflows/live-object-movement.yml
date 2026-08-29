@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/blender-adapter-work
+      - feat/blender-coordinator-result-integrity-final
     paths-ignore:
       - "**/*.md"
       - "docs/**"
