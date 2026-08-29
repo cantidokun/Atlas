@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/unreal-composite-production-operation
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -47,8 +50,7 @@ jobs:
     {
         if (Request.Capability != TEXT("render") || Request.Kind != TEXT("write")) { OutError = TEXT("submit_render requires render/write"); return false; }
         FString SequenceAssetPath;
-        if (!Request.Arguments->TryGetStringField(TEXT("sequence_asset_path"), SequenceAssetPath) ||
-            SequenceAssetPath.TrimStartAndEnd().IsEmpty() || !SequenceAssetPath.TrimStartAndEnd().StartsWith(TEXT("/")))
+        if (!Request.Arguments->TryGetStringField(TEXT("sequence_asset_path"), SequenceAssetPath) || SequenceAssetPath.TrimStartAndEnd().IsEmpty() || !SequenceAssetPath.TrimStartAndEnd().StartsWith(TEXT("/")))
         { OutError = TEXT("arguments.sequence_asset_path must be a non-empty Unreal package path"); return false; }
         return true;
     }
@@ -186,16 +188,11 @@ bool FAtlasTransportServer::InspectRenderJob(const FTransportRequest& R,TSharedP
     JobId=JobId.TrimStartAndEnd();
     FAtlasRenderJobState* State=AtlasRenderJobs.Find(JobId);
     if(!State){E=FString::Printf(TEXT("Render job not found: %s"),*JobId);return false;}
-
     UMoviePipelineQueueEngineSubsystem* Subsystem=GEngine->GetEngineSubsystem<UMoviePipelineQueueEngineSubsystem>();
     if(Subsystem&&Subsystem->IsRendering() && State->Status==TEXT("running"))
     {
-        if(UMoviePipelineExecutorBase* Executor=Subsystem->GetActiveExecutor())
-        {
-            State->Executor=Executor;
-        }
+        if(UMoviePipelineExecutorBase* Executor=Subsystem->GetActiveExecutor()) State->Executor=Executor;
     }
-
     TSharedPtr<FJsonObject> JobState=MakeShareable(new FJsonObject);
     JobState->SetStringField(TEXT("job_id"),State->JobId);
     JobState->SetStringField(TEXT("status"),State->Status);
@@ -214,7 +211,6 @@ bool FAtlasTransportServer::InspectRenderJob(const FTransportRequest& R,TSharedP
           }
 
           Set-Content -Path $cpp -Value $c -NoNewline
-
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add $cpp $hdr
