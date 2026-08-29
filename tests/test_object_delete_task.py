@@ -60,6 +60,23 @@ def test_delete_adapter_uses_standard_success_status(monkeypatch):
     assert '"status": "deleted"' not in captured["script"]
 
 
+def test_delete_adapter_reports_whether_mutation_occurred(monkeypatch):
+    import tools.blender_delete as blender_delete
+
+    def fake_validate_blend_file(file_name):
+        return file_name
+
+    def fake_run_blender(blend_path, script, start_marker, end_marker):
+        return {"status": "already_absent", "object_name": TARGET_OBJECT, "mutation_performed": False}
+
+    monkeypatch.setattr(blender_delete, "validate_blend_file", fake_validate_blend_file)
+    monkeypatch.setattr(blender_delete, "run_blender", fake_run_blender)
+    result = blender_delete.delete_object("cleanup.blend", TARGET_OBJECT)
+
+    assert result["status"] == "already_absent"
+    assert result["mutation_performed"] is False
+
+
 def test_delete_object_is_admitted_by_qwen_planning_schema():
     from planning.tool_schema import validate_tool_arguments
 
