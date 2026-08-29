@@ -1,21 +1,21 @@
-"""Minimal Windows/self-hosted smoke test for the Atlas Blender runner.
-
-This test deliberately validates runner availability before any scene mutation.
-The real Blender fixture tests will build on this gate.
-"""
+"""Smoke tests for the Windows/self-hosted Blender environment."""
 
 import os
 import platform
 import shutil
 import subprocess
 
+import pytest
 
+
+@pytest.mark.blender
 def test_self_hosted_windows_runner_environment():
     assert platform.system() == "Windows"
     assert os.environ.get("GITHUB_ACTIONS") == "true"
     assert os.environ.get("RUNNER_NAME")
 
 
+@pytest.mark.blender
 def test_blender_executable_is_available():
     blender = shutil.which("blender") or shutil.which("blender.exe")
     assert blender, "Blender executable was not found on the self-hosted runner."
