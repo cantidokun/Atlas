@@ -31,6 +31,20 @@ class BlenderLiveWriteGate:
                 "Blender executor did not establish a successful write",
             )
 
+        # Explicit no-op evidence must never be promoted to a successful mutation.
+        # This is distinct from missing evidence (None), which remains compatible
+        # with legacy adapters and is still subject to authoritative verification.
+        if result.mutation_performed is False:
+            return BlenderLiveWriteOutcome.blocked(
+                {
+                    "receipt_authorized": receipt.matches_authorization(authorization.authorization_id),
+                    "receipt_matches_execution": receipt.matches(action.tool, action.arguments, result),
+                    "result": result,
+                    "mutation_performed": False,
+                },
+                "Blender executor explicitly reported that no mutation was performed",
+            )
+
         if not receipt.matches_authorization(authorization.authorization_id):
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": False},
