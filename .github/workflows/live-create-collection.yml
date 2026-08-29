@@ -1,0 +1,51 @@
+name: Live Create Collection Regression
+
+on:
+  push:
+    branches:
+      - feat/blender-coordinator-result-integrity-final
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-live-create-collection-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-create-collection:
+    name: live create collection (${{ matrix.case }}, ${{ matrix.mode }})
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - correct
+          - incorrect
+        mode:
+          - legitimate
+          - adversarial
+    steps:
+      - name: Check out triggering Atlas revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          cd
+      - name: Provision deterministic collection fixtures
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\scripts\provision_create_collection_fixtures.py"
+      - name: Run live create-collection gate
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "python .\live_blender_write_gate_create_collection.py --case '${{ matrix.case }}' ${{ matrix.mode == 'adversarial' && '--adversarial' || '' }}"
