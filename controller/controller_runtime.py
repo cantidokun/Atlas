@@ -21,7 +21,15 @@ class ControllerRuntime:
     @classmethod
     def from_checkpoint(cls, payload: Dict[str, Any], fresh_evidence: Optional[Dict[str, Any]] = None) -> "ControllerRuntime":
         """Restore controller history; optional evidence is reconciled, never trusted historically."""
-        state = restore_controller_state(payload)
+        if not isinstance(payload, dict):
+            raise ValueError("Controller checkpoint must be an object.")
+        # Historical AFTER is never trusted by the runtime. The lower-level
+        # checkpoint validator may still reject malformed checkpoints when used
+        # directly, but runtime recovery intentionally discards this field before
+        # validating/restoring operational history.
+        operational_payload = deepcopy(payload)
+        operational_payload["after"] = None
+        state = restore_controller_state(operational_payload)
         state.after = None
         runtime = cls(state.file_name)
         runtime.state = state
@@ -32,6 +40,8 @@ class ControllerRuntime:
                 raise ValueError("Fresh Blender evidence is unavailable.")
             if state.writes:
                 record_after(state, deepcopy(fresh_evidence))
+            elif state.target is not None:
+                record_after(state, deepcopy(fresh_evidence))
         return runtime
 
     def checkpoint(self) -> Dict[str, Any]:
@@ -40,8 +50,6 @@ class ControllerRuntime:
     @staticmethod
     def _controller_payload(result: Dict[str, Any], normalized: Any) -> Dict[str, Any]:
         """Adapt canonical results without changing the existing controller state shape."""
-        # Existing Blender/controller tools return relationship evidence directly
-        # alongside a legacy status. Preserve that shape for the controller.
         if "ok" not in result and "status" in result:
             return deepcopy(result)
 
