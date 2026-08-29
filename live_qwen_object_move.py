@@ -1,7 +1,7 @@
 """Live Qwen Blender task: conditionally move an explicit object."""
 import argparse
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 import requests
 
@@ -110,11 +110,8 @@ def main() -> None:
 
     def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if tool == "inspect_object_transform":
-            # Preserve the existing evidence shape consumed by the generic
-            # TaskRuntimeSession; the adapter's canonical envelope is only an
-            # internal normalization boundary here.
             normalized = adapter(tool, arguments)
-            if not isinstance(normalized.state, dict):
+            if not isinstance(normalized.state, Mapping):
                 raise RuntimeError("Object transform evidence must be an object")
             return dict(normalized.state)
         normalized, receipt = action_boundary.execute_with_receipt(tool, arguments)
