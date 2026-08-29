@@ -16,17 +16,17 @@ object_name = {object_name!r}
 obj = bpy.data.objects.get(object_name)
 
 if obj is None:
-    result = {{"status": "already_absent", "object_name": object_name}}
+    result = {{"status": "already_absent", "object_name": object_name, "mutation_performed": False}}
 elif obj.type in {{"CAMERA", "LIGHT"}}:
-    result = {{"status": "blocked", "error": "Protected object type", "object_name": object_name, "object_type": obj.type}}
+    result = {{"status": "blocked", "error": "Protected object type", "object_name": object_name, "object_type": obj.type, "mutation_performed": False}}
 elif any(collection.name == "Atlas_Protected" for collection in obj.users_collection):
-    result = {{"status": "blocked", "error": "Protected collection membership", "object_name": object_name}}
+    result = {{"status": "blocked", "error": "Protected collection membership", "object_name": object_name, "mutation_performed": False}}
 elif len(obj.children) > 0:
-    result = {{"status": "blocked", "error": "Object has child objects", "object_name": object_name}}
+    result = {{"status": "blocked", "error": "Object has child objects", "object_name": object_name, "mutation_performed": False}}
 else:
     bpy.data.objects.remove(obj, do_unlink=True)
     bpy.ops.wm.save_as_mainfile(filepath={blend_path!r})
-    result = {{"status": "ok", "object_name": object_name}}
+    result = {{"status": "ok", "object_name": object_name, "mutation_performed": True}}
 
 print("ATLAS_DELETE_START")
 print(json.dumps(result))
