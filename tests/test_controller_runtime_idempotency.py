@@ -17,8 +17,9 @@ def test_already_correct_scene_is_reverified_without_writes():
 
     result = runtime.step(execute)
     assert result["status"] == "progress"
-    assert runtime.state.phase == "BEFORE"
+    assert runtime.state.phase == "TARGET"
     assert calls[0][0] == "inspect_object_relationship"
+    assert result["next_action"]["kind"] == "verification"
 
 
 def test_failed_write_can_be_retried_without_consuming_the_step():
@@ -27,7 +28,7 @@ def test_failed_write_can_be_retried_without_consuming_the_step():
 
     result = runtime.step(lambda *_: {"status": "failed", "error": "temporary failure"})
     assert result["status"] == "error"
-    assert runtime.state.phase == "BEFORE"
+    assert runtime.state.phase == "TARGET"
     assert runtime.state.writes == []
 
     result = runtime.step(lambda *_: {"status": "moved"})
