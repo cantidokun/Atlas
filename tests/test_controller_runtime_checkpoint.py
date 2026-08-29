@@ -32,7 +32,7 @@ def test_runtime_restore_does_not_trust_historical_after():
     assert restored.state.phase == "WRITE"
 
 
-def test_runtime_restore_with_fresh_evidence_can_reestablish_after():
+def test_runtime_restore_with_fresh_evidence_reestablishes_reconciliation_without_false_completion():
     runtime = ControllerRuntime("scene.blend")
     record_before(runtime.state, relationship())
     record_write(runtime.state, "Goal_Left_post", [4.0, 0.0, 0.0], {"status": "moved"})
@@ -43,4 +43,6 @@ def test_runtime_restore_with_fresh_evidence_can_reestablish_after():
         fresh_evidence=relationship(left=(4.0, 0.0, 0.0), right=(8.0, 0.0, 0.0)),
     )
 
-    assert restored.state.complete
+    assert restored.state.after is not None
+    assert restored.state.recovery_reconciled
+    assert not restored.state.complete
