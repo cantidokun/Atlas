@@ -1,13 +1,12 @@
 from controller.controller_execution_adapter import ControllerExecutionAdapter
 
 
+TASK = "Authorized to modify Goal_Left_post and move it to midpoint [0.0, 0.0, 0.0]"
+
+
 def test_controller_adapter_marks_canonical_false_result_unsuccessful():
     ledger = []
-    adapter = ControllerExecutionAdapter(
-        "scene.blend",
-        "move Goal_Left_post to midpoint",
-        ledger,
-    )
+    adapter = ControllerExecutionAdapter("scene.blend", TASK, ledger)
     assert adapter.active
 
     # The controller's first required action is evidence. The adapter must
@@ -24,11 +23,7 @@ def test_controller_adapter_marks_canonical_false_result_unsuccessful():
 
 def test_controller_adapter_preserves_legacy_success_results():
     ledger = []
-    adapter = ControllerExecutionAdapter(
-        "scene.blend",
-        "move Goal_Left_post to midpoint",
-        ledger,
-    )
+    adapter = ControllerExecutionAdapter("scene.blend", TASK, ledger)
     history = []
 
     adapter.execute_required_step(
