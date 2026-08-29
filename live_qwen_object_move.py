@@ -7,14 +7,13 @@ import requests
 
 from audit_trail import AuditTrail
 from planning.blender_execution_boundary import BlenderExecutionBoundary
+from planning.blender_tool_adapter import BlenderToolAdapter
 from planning.object_move_task import TARGET_LOCATION, TARGET_OBJECT, object_move_task_definition
 from planning.task_runtime import TaskRuntimeSession
 from qwen.structured_plan import TASK_PLAN_JSON_SCHEMA
 from qwen_planning_runtime import parse_qwen_plan
 from task_plan_authorization import authorize_task_plan
 from task_planner import TaskPlanProposal, TaskPlanValidationError
-from tools.blender import move_object
-from tools.blender_transform import inspect_object_transform
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b"
@@ -81,6 +80,10 @@ def _reduce_move_evidence(evidence_results: List[Dict[str, Any]]) -> Dict[str, A
     return dict(evidence_results[-1])
 
 
+def _as_runtime_result(result: Any) -> Dict[str, Any]:
+    return {"ok": result.ok, "state": result.state, "details": dict(result.details)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("already-correct", "incorrect"), required=True)
@@ -95,19 +98,19 @@ def main() -> None:
     if tuple(proposal.actions) != definition.actions:
         raise RuntimeError("Qwen action plan does not match object movement task definition")
 
+    adapter = BlenderToolAdapter()
+
     def blender_action(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if tool != "move_object":
             raise RuntimeError(f"Unexpected movement action: {tool}")
-        raw = move_object(**arguments)
-        status = raw.get("status")
-        return {"ok": status in {"moved", "already_moved"}, "state": str(status or "unknown"), "details": dict(raw)}
+        return _as_runtime_result(adapter(tool, arguments))
 
     action_boundary = BlenderExecutionBoundary(blender_action)
     capture: Dict[str, Any] = {}
 
     def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if tool == "inspect_object_transform":
-            return inspect_object_transform(**arguments)
+            return _as_runtime_result(adapter(tool, arguments))
         normalized, receipt = action_boundary.execute_with_receipt(tool, arguments)
         capture["normalized"] = normalized
         capture["receipt"] = receipt
