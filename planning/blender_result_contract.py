@@ -55,10 +55,12 @@ def normalize_blender_result(tool: str, result: Any) -> BlenderExecutionResult:
             "state": result.get("state", status),
             "details": {key: value for key, value in result.items() if key not in {"status", "state"}},
         }
-    elif "ok" not in result and "status" not in result and tool in _LEGACY_EVIDENCE_TOOLS:
+    elif "ok" not in result and "status" not in result and "error" not in result and tool in _LEGACY_EVIDENCE_TOOLS:
         # Existing read-only Blender adapters historically return the evidence
         # object directly. Preserve that established contract while routing it
-        # through the canonical result envelope.
+        # through the canonical result envelope. Error payloads must never take
+        # this compatibility path, otherwise an executor failure can look like
+        # successful evidence.
         result = {"ok": True, "state": result, "details": {}}
 
     for key in ("ok", "state"):
