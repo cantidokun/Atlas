@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any, Callable, Dict
 
 from .controller_checkpoint import restore_controller_state, snapshot_controller_state
-from .controller_state import ControllerState, record_after, required_moves
+from .controller_state import ControllerState, record_reconciled_after
 
 EvidenceReader = Callable[[str, str, str], Dict[str, Any]]
 
@@ -19,12 +19,9 @@ def recover_and_reconcile(payload: Dict[str, Any], read_evidence: EvidenceReader
     state = restore_controller_state(payload)
     state.after = None
     state.write_retry_pending = False
+    state.recovery_reconciled = False
 
-    evidence = read_evidence(
-        state.file_name,
-        state.object_a_name,
-        state.object_b_name,
-    )
+    evidence = read_evidence(state.file_name, state.object_a_name, state.object_b_name)
     if not isinstance(evidence, dict):
         raise RuntimeError("Fresh Blender evidence must be an object.")
     if evidence.get("error") or evidence.get("status") in {"error", "failed", "failure"} or evidence.get("ok") is False:
@@ -33,17 +30,15 @@ def recover_and_reconcile(payload: Dict[str, Any], read_evidence: EvidenceReader
     if not state.writes:
         return state
 
-    if required_moves(state):
-        # A partial-write checkpoint remains incomplete. Fresh evidence is
-        # useful only when it proves the recorded writes; otherwise leave the
-        # state untouched and resume the normal write path.
+    if state.writes:
         try:
-            record_after(state, deepcopy(evidence))
+            record_reconciled_after(state, deepcopy(evidence))
         except ValueError:
+            if not state.writes:
+                raise
             state.after = None
-        else:
-            state.after = None
-        return state
-
-    record_after(state, deepcopy(evidence))
+            state.recovery_reconciled = False
+            if len(state.writes) < 2:
+                return state
+            raise
     return state
