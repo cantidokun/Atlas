@@ -1,7 +1,7 @@
 """Structured result contract for Blender execution and verification."""
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 
 _LEGACY_EVIDENCE_TOOLS = {
@@ -39,6 +39,16 @@ class BlenderExecutionResult:
             raise ValueError("result state object must not be empty")
         if not isinstance(self.details, dict):
             raise TypeError("result details must be an object")
+
+    @property
+    def mutation_performed(self) -> Optional[bool]:
+        """Return explicit mutation evidence when the adapter supplied it."""
+        value = self.details.get("mutation_performed")
+        if value is None:
+            return None
+        if not isinstance(value, bool):
+            raise TypeError("result mutation_performed must be boolean")
+        return value
 
 
 def normalize_blender_result(tool: str, result: Any) -> BlenderExecutionResult:
