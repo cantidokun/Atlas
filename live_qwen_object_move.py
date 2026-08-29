@@ -110,7 +110,13 @@ def main() -> None:
 
     def execute(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if tool == "inspect_object_transform":
-            return _as_runtime_result(adapter(tool, arguments))
+            # Preserve the existing evidence shape consumed by the generic
+            # TaskRuntimeSession; the adapter's canonical envelope is only an
+            # internal normalization boundary here.
+            normalized = adapter(tool, arguments)
+            if not isinstance(normalized.state, dict):
+                raise RuntimeError("Object transform evidence must be an object")
+            return dict(normalized.state)
         normalized, receipt = action_boundary.execute_with_receipt(tool, arguments)
         capture["normalized"] = normalized
         capture["receipt"] = receipt
