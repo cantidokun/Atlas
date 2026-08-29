@@ -101,7 +101,7 @@ class ControllerStateTests(unittest.TestCase):
         self.assertTrue(state.complete)
         self.assertEqual(next_required_action(state)["kind"], "complete")
 
-    def test_after_with_correct_midpoint_but_wrong_object_location_is_not_complete(self):
+    def test_after_with_correct_midpoint_but_wrong_object_location_is_rejected(self):
         state = self.make_state()
         record_before(state, BEFORE)
         self._complete_writes(state)
@@ -112,9 +112,11 @@ class ControllerStateTests(unittest.TestCase):
             "object_b": {**BEFORE["object_b"], "location": [0.0, -5.0, 0.0]},
             "midpoint": [0.0, 0.0, 0.0],
         }
-        record_after(state, after)
+        with self.assertRaisesRegex(ValueError, "AFTER evidence"):
+            record_after(state, after)
 
         self.assertFalse(state.complete)
+        self.assertIsNone(state.after)
         self.assertEqual(next_required_action(state)["kind"], "verification")
 
     def test_after_requires_valid_target_locations_not_just_midpoint(self):
@@ -128,9 +130,11 @@ class ControllerStateTests(unittest.TestCase):
             "object_b": {**BEFORE["object_b"], "location": [0.0, -5.302, 0.0]},
             "midpoint": [0.0, 0.0, 0.001],
         }
-        record_after(state, after)
+        with self.assertRaisesRegex(ValueError, "AFTER evidence"):
+            record_after(state, after)
 
         self.assertFalse(state.complete)
+        self.assertIsNone(state.after)
         self.assertEqual(next_required_action(state)["kind"], "verification")
 
     def test_failed_write_does_not_advance_state(self):
