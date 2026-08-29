@@ -4,7 +4,7 @@ import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
-from planning.unreal_plan_executor import UnrealPlanExecutionError, UnrealPlanExecutor
+from planning.unreal_plan_executor import UnrealPlanExecutor
 from planning.unreal_production_controller_bridge import UnrealProductionControllerBridge
 from planning.unreal_production_operation import build_unreal_production_plan
 from planning.unreal_production_recovery import (
@@ -13,6 +13,7 @@ from planning.unreal_production_recovery import (
     build_production_replacement_plan,
     issue_production_replacement_authorization,
 )
+from planning.unreal_transactional_executor import UnrealTransactionalExecutionResult
 from tests.test_unreal_heterogeneous_production import ProductionTransport, _intent, _spec
 
 
@@ -31,6 +32,8 @@ def test_controller_bridge_starts_and_completes_successful_transaction():
     assert started.state == "complete"
     assert started.result is not None
     assert started.result.success is True
+    assert isinstance(started.result.initial_result, UnrealTransactionalExecutionResult)
+    assert started.result.initial_result.transaction_ledger.terminal is True
     assert bridge.complete is True
 
 
@@ -47,6 +50,7 @@ def test_controller_bridge_records_failed_transaction_and_accepts_explicit_recov
     assert bridge.complete is False
 
     failure = started.failure
+    assert failure.operation_index == 20
     reassessment_plan = build_production_reassessment_plan(production, failure)
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment_plan, "reassessment-auth")
     transport.fail_at = 999
@@ -64,7 +68,9 @@ def test_controller_bridge_records_failed_transaction_and_accepts_explicit_recov
     assert completed.state == "recovery_complete"
     assert completed.recovery is not None
     assert completed.recovery.replacement_result is not None
+    assert isinstance(completed.recovery.replacement_result, UnrealTransactionalExecutionResult)
     assert completed.recovery.replacement_result.success is True
+    assert completed.recovery.replacement_result.transaction_ledger.terminal is True
     assert bridge.complete is True
 
 
