@@ -76,13 +76,7 @@ class BlenderExecutionCoordinator:
         execution_success = self._execution_succeeded(result)
         verified = execution_success
         if execution_success and self._verify is not None:
-            verified = bool(
-                self._verify(
-                    action.tool,
-                    deepcopy(action.arguments),
-                    deepcopy(result),
-                )
-            )
+            verified = bool(self._verify(action.tool, deepcopy(action.arguments), deepcopy(result)))
 
         self.plan.record_result(result, verified)
 
@@ -99,13 +93,13 @@ class BlenderExecutionCoordinator:
         )
 
     def run(self) -> list[BlenderExecutionStep]:
-        """Run until completion; never silently swallow a blocked plan."""
+        """Run until completion or the plan becomes blocked."""
         if self.plan.blocked:
             raise BlenderExecutionError("Blender plan is blocked by a previous failure.")
         if self.plan.complete:
             return []
 
         steps: list[BlenderExecutionStep] = []
-        while not self.plan.complete:
+        while not self.plan.complete and not self.plan.blocked:
             steps.append(self.step())
         return steps
