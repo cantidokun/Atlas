@@ -67,6 +67,9 @@ def test_failure_freezes_ledger_at_exact_operation_and_does_not_continue():
         {"entity_ids": ("FIELD_SURFACE",)},
     )
     assert executor.calls == ["inspect_a", "inspect_b"]
+    assert raised.value.transaction_ledger.failed_operation_index == 1
+    assert raised.value.transaction_ledger.completed_operation_indices == (0,)
+    assert raised.value.transaction_ledger.terminal is True
 
 
 def test_transactional_executor_rejects_empty_authorization_id():
