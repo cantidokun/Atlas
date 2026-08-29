@@ -6,7 +6,6 @@ ledger; the first execution failure freezes it at that exact boundary.
 """
 
 from dataclasses import dataclass
-from typing import Tuple
 
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import (
@@ -36,6 +35,15 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
         if not authorization.matches(plan):
             raise UnrealPlanExecutionError("authorization receipt does not match the exact Unreal task plan")
         return self.execute(plan, authorization.authorization_id)
+
+    @staticmethod
+    def _raise_transaction_failure(message, failure, ledger):
+        """Raise a normal execution error while preserving the frozen ledger."""
+        error = UnrealPlanExecutionError(message, failure=failure)
+        # Keep the transaction boundary available to recovery coordinators even
+        # when execution terminates by exception. The ledger itself is immutable.
+        error.transaction_ledger = ledger
+        raise error
 
     def execute(self, plan: UnrealTaskPlan, authorization_id: str):
         if not isinstance(plan, UnrealTaskPlan):
@@ -74,7 +82,7 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
                     expected_end_frame=expected.get("end_frame"),
                 )
             except (UnrealPlanExecutionError, UnrealPlanExecutionFailure) as exc:
-                failed = ledger.record_failure(index)
+                frozen = ledger.record_failure(index)
                 if isinstance(exc, UnrealPlanExecutionError) and exc.failure is not None:
                     failure = exc.failure
                 else:
@@ -88,9 +96,9 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
                         dict(operation.arguments),
                         tuple(completed_arguments),
                     )
-                raise UnrealPlanExecutionError(str(exc), failure=failure) from exc
+                self._raise_transaction_failure(str(exc), failure, frozen)
             except Exception as exc:
-                failed = ledger.record_failure(index)
+                frozen = ledger.record_failure(index)
                 failure = UnrealPlanExecutionFailure(
                     plan.intent_id,
                     index,
@@ -101,7 +109,7 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
                     dict(operation.arguments),
                     tuple(completed_arguments),
                 )
-                raise UnrealPlanExecutionError(failure.error, failure=failure) from exc
+                self._raise_transaction_failure(failure.error, failure, frozen)
 
             evidence_ledger.append(evidence)
             completed_arguments.append(dict(operation.arguments))
