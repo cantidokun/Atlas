@@ -90,12 +90,32 @@ def record_write(state: ControllerState, object_name: str, location: List[float]
     state.writes.append({"object_name": object_name, "location": deepcopy(location), "result": deepcopy(result)})
 
 
+def _before_location(state: ControllerState, object_name: str) -> Optional[Any]:
+    if state.before is None:
+        return None
+    if object_name == state.object_a_name:
+        return state.before.get("object_a", {}).get("location")
+    if object_name == state.object_b_name:
+        return state.before.get("object_b", {}).get("location")
+    return None
+
+
 def required_moves(state: ControllerState) -> List[Dict[str, Any]]:
     if state.before is None or state.target is None:
         return []
     required = [(state.object_a_name, state.target["object_a_location"]), (state.object_b_name, state.target["object_b_location"])]
     completed = {(write["object_name"], _location_key(write["location"])) for write in state.writes}
-    return [{"tool": "move_object", "arguments": {"file_name": state.file_name, "object_name": name, "location": location}} for name, location in required if (name, _location_key(location)) not in completed]
+    pending = []
+    for name, location in required:
+        key = (name, _location_key(location))
+        if key in completed:
+            continue
+        # A fresh BEFORE observation can already satisfy the exact target. Do not
+        # manufacture a write just to record an idempotent no-op.
+        if _same_location(_before_location(state, name), location):
+            continue
+        pending.append({"tool": "move_object", "arguments": {"file_name": state.file_name, "object_name": name, "location": location}})
+    return pending
 
 
 def _relationship_matches_target(state: ControllerState, relationship: Optional[Dict[str, Any]]) -> bool:
