@@ -113,4 +113,28 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
             raise TypeError(f"{end_key} must be an integer")
         if start_frame > end_frame:
             raise ValueError("Sequencer start frame must not exceed end frame")
+    if tool in {"configure_render", "verify_render_state"}:
+        for field in ("width", "height"):
+            value = snapshot[field]
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{field} must be a positive integer")
+        start_frame = snapshot["start_frame"]
+        end_frame = snapshot["end_frame"]
+        if isinstance(start_frame, bool) or not isinstance(start_frame, int):
+            raise TypeError("start_frame must be an integer")
+        if isinstance(end_frame, bool) or not isinstance(end_frame, int):
+            raise TypeError("end_frame must be an integer")
+        if start_frame > end_frame:
+            raise ValueError("Render start frame must not exceed end frame")
+        output_directory = snapshot["output_directory"]
+        if not isinstance(output_directory, str) or not output_directory.strip():
+            raise ValueError("output_directory must be a non-empty string")
+        snapshot["output_directory"] = output_directory.strip()
+        output_format = snapshot["output_format"]
+        if not isinstance(output_format, str) or not output_format.strip():
+            raise ValueError("output_format must be a non-empty string")
+        normalized_format = output_format.strip().lower().lstrip(".")
+        if normalized_format not in {"png", "jpg", "jpeg", "exr", "bmp"}:
+            raise ValueError("unsupported render output format")
+        snapshot["output_format"] = normalized_format
     return snapshot
