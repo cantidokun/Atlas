@@ -1,131 +1,141 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 28, 2026 — production-facing fail-closed resume identity validation integrated; full offline suite **804 passed**  
-**Branch:** `feat/replan-race-gate`  
-**Current documentation commit:** `34478819cd281ad73a4e0cd163be9c02604a4d9b`  
-**Prior implementation tip:** `1c1fb08a21b89de8c47ecc3a5dfe310357627c9b`  
-**Purpose:** canonical resume point for Atlas development.
+**Updated:** August 28, 2026 — Blender-agent development paused for the night after integrating GitHub Actions and establishing the self-hosted Windows/Blender smoke-test boundary.  
+**Branch:** `feat/blender-coordinator-result-integrity-final`  
+**Latest documentation commit:** `d5370a6526f5f2c5d6a3398253b74ba24df59cbc`  
+**Purpose:** canonical resume point for the next Atlas development session.
 
-## Current verified baseline
+## Session milestone
 
-Latest user-run Windows PowerShell validation:
+This session established the next major testing boundary for the Blender Agent:
 
 ```text
-804 passed in 1.48s
+GitHub-hosted Ubuntu CI
+    -> portable/offline Python regression tests
+
+GitHub Actions
+    -> self-hosted Windows runner
+    -> Blender smoke/integration tests
+    -> actual Blender environment
 ```
 
-This is the current known-good offline baseline. The suite is green with zero failures.
+The self-hosted runner remains connected and available. It is intentionally idle when no workflow job targets its labels. The authoritative workflow is `.github/workflows/tests.yml`.
 
 ## What was completed this session
 
-The session strengthened the durable production resume boundary in stages:
+1. Added GitHub Actions as a first-class Atlas development mechanism.
+2. Consolidated redundant test workflows into `.github/workflows/tests.yml`.
+3. Configured the portable CI tier for Python 3.12 and Atlas's declared test dependencies.
+4. Fixed package-relative controller imports exposed by CI.
+5. Added explicit setuptools package discovery for Atlas's current package layout.
+6. Added a dedicated self-hosted Windows/Blender CI job.
+7. Added `tests/blender/test_runner_smoke.py` to validate the runner environment and Blender executable before real scene integration testing.
+8. Isolated the smoke gate from the portable test suite so Blender-specific validation remains an explicit external-environment boundary.
+9. Continued strengthening the deterministic controller/recovery state machine, including fail-closed recovery semantics and retry-state handling.
 
-1. Fixed the Python typing compatibility issue that had prevented test collection.
-2. Established the clean `795 passed` baseline.
-3. Added `planning/production_resume_integrity_gate.py` with fail-closed validation of persisted resume identity.
-4. Added regression coverage for sequence, plan, Digital Twin revision, operation-index, and input-type integrity.
-5. Added registry-bound resume integration coverage.
-6. Integrated resume identity validation into `ProductionPersistenceResumeLifecycle`.
-7. Revalidated the full suite at **804 passed**.
+## Current architecture
 
-The production-facing lifecycle now validates the persisted `sequence_id`, `plan_id`, and Digital Twin revision against the requested resume identity before execution and rechecks the identity at `run()` time. Validation can also be invoked without executing production work.
-
-## Current production resume chain
+The Blender Agent remains governed by:
 
 ```text
-registry reload
+Qwen proposal
+ -> task/evidence/action validation
+ -> explicit capability admission
+ -> exact authorization
+ -> deterministic Blender execution
+ -> immutable execution receipt
+ -> fresh authoritative observation
+ -> VERIFIED / BLOCKED or corrective replan
+ -> durable checkpoint when interrupted
+ -> checkpoint + parent-lineage validation
  -> registry snapshot integrity validation
  -> canonical Digital Twin revision
- -> durable sequence checkpoint rehydration
- -> completed receipt/order validation
+ -> durable sequence rehydration
  -> resume identity validation
- -> fresh observation / resume authorization
- -> authorized continuation
- -> authorization-bound receipt
- -> authoritative verification
+ -> fresh resume authorization
+ -> resumed write
+ -> authoritative final verification
  -> ProductionCompletionReceipt
  -> COMPLETED / BLOCKED
 ```
 
-Persisted state is lineage/audit state, not an execution credential. Saved authorization is never replayed.
+Qwen proposes; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender is an execution target, never the authority.
 
-## Existing proven architecture
+## CI boundary
 
-The current branch already contains the generalized boundaries for:
+Portable CI should establish deterministic Python behavior. The self-hosted job exists specifically for environment-dependent validation that cannot be faithfully reproduced on GitHub-hosted Linux.
 
-- explicit Blender capability admission;
-- exact write authorization;
-- protected Blender execution;
-- independent authoritative verification;
-- immutable execution receipts;
-- corrective replanning from fresh evidence;
-- durable task checkpoints;
-- checkpoint parent lineage;
-- canonical Digital Twin registry identity/revision;
-- registry snapshot integrity;
-- ordered durable production sequences;
-- persisted sequence rehydration;
-- production completion authority;
-- immutable production completion receipts;
-- registry-backed production continuation.
+The current self-hosted smoke gate validates:
 
-Important files:
+- Windows execution;
+- GitHub Actions execution context;
+- presence of the configured runner identity;
+- discoverability of the Blender executable;
+- successful `blender --version` execution.
 
-- `planning/blender_capability_catalog.py`
-- `planning/blender_write_authorization.py`
-- `planning/blender_live_write_gate.py`
-- `planning/blender_live_verification.py`
-- `planning/blender_execution_boundary.py`
-- `planning/replan_authorization.py`
-- `planning/production_task_checkpoint.py`
-- `planning/production_checkpoint_lifecycle.py`
-- `planning/durable_resumable_corrective_task.py`
-- `planning/digital_twin_registry.py`
-- `planning/production_operation_lifecycle.py`
-- `planning/production_completion_receipt.py`
-- `planning/production_registry_resume_lifecycle.py`
-- `planning/durable_production_operation_sequence.py`
-- `planning/registry_bound_durable_production_operation_sequence.py`
-- `planning/durable_production_sequence_rehydration.py`
-- `planning/production_resume_integrity_gate.py`
-- `planning/production_persistence_resume_lifecycle.py`
+It intentionally performs **no scene mutation**. The next step is a controlled `.blend` fixture and real Atlas/Blender integration test.
 
-## Live validation already proven
+Do not claim a live Blender result from an offline pytest result. Live evidence must come from the self-hosted runner.
 
-The following live Windows/Blender boundaries were proven in earlier sessions and remain the authoritative live record:
+## Existing proven live architecture
+
+Previously proven live gates remain authoritative, including:
 
 ```text
-ATLAS BLENDER LIVE MULTI-OPERATION COMPOSITION: PASS
-ATLAS BLENDER LIVE STALE AUTHORIZATION ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE CONTINUATION STALE-STATE ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE CONTINUATION RESUME: PASS
-ATLAS BLENDER LIVE DURABLE CHECKPOINT STALE-STATE ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE DURABLE CHECKPOINT RESUME: PASS
-ATLAS BLENDER LIVE REGISTRY STALE-REVISION ZERO-WRITE GATE: PASS
-ATLAS BLENDER LIVE REGISTRY DURABLE RESUME: PASS
-ATLAS LIVE DURABLE PRODUCTION SEQUENCE INTERRUPTION/RESUME GATE: PASS
-ATLAS LIVE DURABLE PRODUCTION SEQUENCE FINAL VERIFICATION GATE: PASS
-ATLAS LIVE REGISTRY-BOUND STALE-REVISION ZERO-WRITE GATE: PASS
-ATLAS LIVE REGISTRY SNAPSHOT REHYDRATION GATE: PASS
-ATLAS LIVE REGISTRY SNAPSHOT TAMPER FAIL-CLOSED GATE: PASS
-ATLAS LIVE REHYDRATED REGISTRY STALE-REVISION ZERO-WRITE GATE: PASS
-ATLAS LIVE REGISTRY REHYDRATED COMPLETION GATE: PASS
-ATLAS LIVE REGISTRY REHYDRATED WRONG-STATE BLOCK GATE: PASS
+multi-operation composition
+stale authorization zero-write
+continuation stale-state zero-write
+continuation resume
+Durable checkpoint stale-state zero-write
+Durable checkpoint resume
+registry stale-revision zero-write
+registry durable resume
+Durable production sequence interruption/resume
+Durable production sequence final verification
+registry-bound stale-revision zero-write
+registry snapshot rehydration
+registry snapshot tamper fail-closed
+rehydrated registry stale-revision zero-write
+rehydrated registry completion
+rehydrated wrong-state block
 ```
 
-Do not infer new live Blender validation from the `804 passed` pytest result. The 804-test result is offline regression validation.
+Do not reopen these mechanisms without new evidence of an architectural gap.
+
+## Key files
+
+- `.github/workflows/tests.yml` — authoritative portable + self-hosted CI workflow.
+- `tests/blender/test_runner_smoke.py` — self-hosted Blender environment smoke gate.
+- `controller/controller_state.py` — deterministic controller state machine.
+- `controller/controller_checkpoint.py` — serializable checkpoint boundary.
+- `controller/controller_recovery.py` — fail-closed recovery/reconciliation boundary.
+- `controller/controller_runtime.py` — deterministic execution runtime.
+- `planning/blender_capability_catalog.py` — explicit Blender capability admission.
+- `planning/blender_write_authorization.py` — exact write authorization.
+- `planning/blender_live_write_gate.py` — authorization-bound write choke point.
+- `planning/blender_live_verification.py` — authoritative post-write verification.
+- `planning/blender_execution_receipt.py` — immutable execution receipt.
+- `planning/blender_execution_boundary.py` — protected execution/corrective-replan boundary.
+- `planning/replan_authorization.py` — fresh-evidence corrective authorization.
+- `planning/production_task_checkpoint.py` — durable task checkpoint.
+- `planning/digital_twin_registry.py` — canonical Digital Twin identity/revision registry.
+- `planning/production_operation_lifecycle.py` — authoritative completion/blocking decision.
+- `planning/production_completion_receipt.py` — immutable production completion evidence.
+- `planning/durable_production_operation_sequence.py` — ordered durable production sequence.
+- `planning/durable_production_sequence_rehydration.py` — persisted sequence rehydration.
+- `planning/production_resume_integrity_gate.py` — fail-closed persisted resume identity validation.
+- `planning/production_persistence_resume_lifecycle.py` — production-facing persisted restart boundary.
 
 ## Architectural constraints
 
-- Qwen proposes; Atlas validates, authorizes, executes, verifies, and recovers.
-- Blender is an execution target, never the authority.
+- Qwen never receives direct Blender execution authority.
 - Only explicitly admitted Blender capabilities execute.
 - Corrective planning uses fresh authoritative state.
 - Stale or changed authorization fails closed.
 - `VERIFIED` requires authoritative verification and an execution receipt.
 - `COMPLETED` requires authoritative verification and a `ProductionCompletionReceipt`.
 - Wrong authoritative state is `BLOCKED`, even after executor success.
-- Stale resume identity must fail closed before continuation writes.
+- Zero-write guarantees must be preserved on stale/unauthorized paths.
 - Persisted registry snapshots and sequence checkpoints must be validated before resumed execution.
 - Saved authorization is never replayed.
 - Do not introduce another checkpoint, authorization, receipt, or completion mechanism without demonstrating a concrete architectural gap.
@@ -133,32 +143,17 @@ Do not infer new live Blender validation from the `804 passed` pytest result. Th
 - C++ interoperability remains a future architectural requirement; subsystem contracts should remain language-agnostic.
 - Photogrammetry is upstream of Blender; Atlas is exclusively concerned with soccer-field-related digital twins.
 
-## Runtime environment
-
-```text
-OS / shell: Windows PowerShell
-Atlas root: C:\Users\Gavin's PC\Desktop\Atlas
-Working branch: feat/replan-race-gate
-Python invocation: python -m pytest
-Actions runner: active and available
-Blender: controlled external execution target through the Atlas runner
-```
-
 ## End-of-session status
 
-**Development is paused for the night.** The current branch is green. The durable production resume integrity work is complete for this session, and the documentation has been synchronized to the actual branch state and latest test result.
+**Blender Agent development is paused for the night.** No further implementation should be started until the next session unless the user explicitly resumes development.
 
-No further implementation should be started until the next session.
+The next meaningful validation boundary is the self-hosted Windows/Blender smoke gate, followed by creation of the controlled `.blend` integration fixture.
 
-## Exact next-session resume point
-
-Run:
+## Next-session resume
 
 ```powershell
-git pull --ff-only origin feat/replan-race-gate
+git pull --ff-only origin feat/blender-coordinator-result-integrity-final
 python -m pytest -q
 ```
 
-Expected current baseline: **804 passed** unless intentional new work changes the suite.
-
-Then inspect the remaining production-facing orchestration/continuation surface and continue using the existing generalized boundaries. Do not reopen already-proven live authorization, stale-write, continuation, durable checkpoint, registry resume, or persisted rehydration work unless new evidence requires it.
+Then inspect the GitHub Actions self-hosted Blender job result. If the smoke gate is green, proceed to the real Blender fixture/integration layer. If it fails, fix the runner/environment boundary before adding scene-level tests.
