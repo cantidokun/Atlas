@@ -3,6 +3,8 @@
 from copy import deepcopy
 from typing import Any, Callable, Dict, Optional
 
+from planning.blender_result_contract import normalize_blender_result
+
 from .controller_state import ControllerState, record_after, record_before, record_write
 from .controller_checkpoint import snapshot_controller_state, restore_controller_state
 
@@ -26,7 +28,7 @@ class ControllerRuntime:
         if fresh_evidence is not None:
             if not isinstance(fresh_evidence, dict):
                 raise ValueError("Fresh Blender evidence must be an object.")
-            if fresh_evidence.get("error") or fresh_evidence.get("status") in _FAILURE_STATUSES:
+            if fresh_evidence.get("error") or fresh_evidence.get("status") in _FAILURE_STATUSES or fresh_evidence.get("ok") is False:
                 raise ValueError("Fresh Blender evidence is unavailable.")
             if state.writes:
                 record_after(state, deepcopy(fresh_evidence))
@@ -45,18 +47,41 @@ class ControllerRuntime:
             return self._error(type(exc).__name__, str(exc))
         if not isinstance(result, dict):
             return self._error("InvalidToolResult", "Tool result must be an object.")
+
         result = deepcopy(result)
-        if result.get("error") or result.get("status") in _FAILURE_STATUSES:
-            return self._error("ToolExecutionError", result)
+        try:
+            normalized = normalize_blender_result(action["tool"], result)
+        except (TypeError, ValueError) as exc:
+            return self._error(type(exc).__name__, str(exc))
+
+        if not normalized.ok:
+            return self._error("ToolExecutionError", normalized.details)
+
+        # Preserve the existing controller state/result shape while accepting
+        # the canonical {ok, state, details} contract as the preferred form.
+        result_state = normalized.state
+        if isinstance(result_state, dict):
+            controller_result = deepcopy(result_state)
+            if not controller_result:
+                controller_result = deepcopy(dict(normalized.details))
+        else:
+            controller_result = deepcopy(dict(normalized.details))
+            controller_result.setdefault("status", result_state)
+
         try:
             if action["kind"] == "evidence":
-                record_before(self.state, result)
+                record_before(self.state, controller_result)
             elif action["kind"] == "write":
-                record_write(self.state, action["arguments"]["object_name"], action["arguments"]["location"], result)
-                if result.get("status") != "moved":
+                if result_state != "moved" and controller_result.get("status") != "moved":
                     return self._error("InvalidWriteResult", result)
+                record_write(
+                    self.state,
+                    action["arguments"]["object_name"],
+                    action["arguments"]["location"],
+                    controller_result,
+                )
             elif action["kind"] == "verification":
-                record_after(self.state, result)
+                record_after(self.state, controller_result)
         except (TypeError, ValueError, KeyError) as exc:
             return self._error(type(exc).__name__, str(exc))
         return {"status": "complete" if self.state.complete else "progress", "phase": self.state.phase, "next_action": deepcopy(self._next_action())}
