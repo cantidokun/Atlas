@@ -86,6 +86,22 @@ class TaskRuntimeSession:
     def verify_post_action(self, evidence: Any) -> Any:
         return self.orchestrator.verify_post_action(evidence)
 
+    def run_conditional_lifecycle(self, authorization_id: str) -> Tuple[Any, Optional[Dict[str, Any]], Any]:
+        """Run the shared inspect -> decide -> authorize/skip -> execute -> verify lifecycle.
+
+        Task-specific planning, authorization-policy checks, execution receipts, and audit logging
+        remain outside this session. This method only centralizes the deterministic runtime phases
+        already defined by ``TaskRuntimeSession``.
+        """
+        state = self.evaluate_target()
+        execution: Optional[Dict[str, Any]] = None
+        if not state.satisfied:
+            self.authorize(authorization_id)
+            execution = self.execute_authorized_action()
+        verified = self.verify_post_action(self.acquire_post_action_evidence())
+        self.finalize()
+        return state, execution, verified
+
     def finalize(self) -> Dict[str, Any]:
         if not self.complete:
             raise RuntimeError(f"Task cannot finalize from phase {self.phase}.")
