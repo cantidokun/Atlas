@@ -50,11 +50,23 @@ def normalize_blender_result(tool: str, result: Any) -> BlenderExecutionResult:
         status = result["status"]
         if not isinstance(status, str) or not status.strip():
             raise ValueError("Blender result status must be a non-empty string")
-        result = {
-            "ok": status not in {"error", "failed", "failure"},
-            "state": result.get("state", status),
-            "details": {key: value for key, value in result.items() if key not in {"status", "state"}},
-        }
+
+        if tool in _LEGACY_EVIDENCE_TOOLS:
+            # Legacy read-only Blender tools return their complete evidence
+            # object directly, with ``status`` as one field of that object.
+            # Preserve the full object as state so downstream evidence
+            # evaluators can inspect location, rotation, object identity, etc.
+            result = {
+                "ok": status not in {"error", "failed", "failure"},
+                "state": dict(result),
+                "details": {},
+            }
+        else:
+            result = {
+                "ok": status not in {"error", "failed", "failure"},
+                "state": result.get("state", status),
+                "details": {key: value for key, value in result.items() if key not in {"status", "state"}},
+            }
     elif "ok" not in result and "status" not in result and "error" not in result and tool in _LEGACY_EVIDENCE_TOOLS:
         # Existing read-only Blender adapters historically return the evidence
         # object directly. Preserve that established contract while routing it
