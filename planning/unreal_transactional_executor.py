@@ -60,9 +60,9 @@ class UnrealTransactionalPlanExecutor(UnrealPlanExecutor):
                     expected_niagara_variant=expected.get("niagara_variant"), expected_start_frame=expected.get("start_frame"),
                     expected_end_frame=expected.get("end_frame"),
                 )
-            except (UnrealPlanExecutionError, UnrealPlanExecutionFailure) as exc:
+            except UnrealPlanExecutionError as exc:
                 frozen = ledger.record_failure(index, operation.name, tuple(operation.entity_ids), dict(operation.arguments))
-                failure = exc.failure if isinstance(exc, UnrealPlanExecutionError) and exc.failure is not None else UnrealPlanExecutionFailure(
+                failure = exc.failure if exc.failure is not None else UnrealPlanExecutionFailure(
                     plan.intent_id, index, operation.name, tuple(evidence_ledger), str(exc),
                     tuple(operation.entity_ids), dict(operation.arguments), tuple(completed_arguments),
                 )
