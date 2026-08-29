@@ -68,7 +68,8 @@ class ControllerExecutionAdapter:
 
         tool_name = action.get("tool")
         arguments = action.get("arguments", {})
-        raw = result.get("error") if result.get("status") == "error" else None
+        is_controller_error = result.get("status") == "error"
+        raw = result.get("error") if is_controller_error else None
 
         if raw is None:
             if self.bridge.state.writes:
@@ -80,8 +81,11 @@ class ControllerExecutionAdapter:
             else:
                 raw = result
 
+        # Controller errors are already an error envelope. Never pass that
+        # envelope through legacy evidence compatibility, which is intentionally
+        # permissive for established read-only evidence objects.
         successful = False
-        if isinstance(raw, dict) and "error" not in raw:
+        if not is_controller_error and isinstance(raw, dict):
             try:
                 normalized = normalize_blender_result(tool_name, raw)
                 successful = normalized.ok
