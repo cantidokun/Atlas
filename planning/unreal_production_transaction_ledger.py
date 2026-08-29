@@ -5,6 +5,8 @@ owns only transaction bookkeeping: contiguous progress, terminal failure
 boundaries, and immutable evidence/operation context needed for recovery.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Tuple
