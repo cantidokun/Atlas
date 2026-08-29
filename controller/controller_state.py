@@ -45,7 +45,9 @@ class ControllerState:
         if self.writes:
             return "WRITE"
         if self.target is not None:
-            return "TARGET" if self.write_retry_pending else "BEFORE"
+            if self.write_retry_pending or not _relationship_matches_target(self, self.before):
+                return "TARGET"
+            return "BEFORE"
         if self.before is not None:
             return "BEFORE"
         return "EMPTY"
@@ -134,16 +136,18 @@ def next_required_action(state: ControllerState) -> Dict[str, Any]:
 
 
 def after_matches_target_with(state: ControllerState, relationship: Dict[str, Any]) -> bool:
-    return _relationship_matches_target(state, relationship) or (bool(required_moves(state)) and _writes_match_relationship(state, relationship))
+    if _relationship_matches_target(state, relationship):
+        return True
+    return bool(required_moves(state)) and _writes_match_relationship(state, relationship)
 
 
 def record_after(state: ControllerState, relationship: Dict[str, Any]) -> bool:
     """Accept fresh evidence only when it proves the target or recorded writes."""
     if not isinstance(relationship, dict):
-        return False
+        raise ValueError("AFTER evidence must be an object.")
     if not state.writes and state.target is None:
-        return False
+        raise ValueError("AFTER evidence has no established target or write state.")
     if not after_matches_target_with(state, relationship):
-        return False
+        raise ValueError("AFTER evidence does not prove the authorized target state.")
     state.after = deepcopy(relationship)
     return True
