@@ -1,5 +1,7 @@
 """Production-aware recovery tests for heterogeneous Unreal transactions."""
 
+from dataclasses import replace
+
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterProduction
@@ -153,3 +155,23 @@ def test_production_recovery_rejects_reused_original_authorization():
 
     replacement_auth = issue_production_replacement_authorization(replacement_plan, "replacement-auth")
     assert replacement_auth.matches(replacement_plan)
+
+
+def test_production_recovery_rejects_tampered_failure_arguments():
+    production = build_unreal_production_plan(_intent(), _spec())
+    transport = ProductionTransport(fail_at=20)
+    executor, failure = _execute_failure(transport, production)
+
+    tampered = replace(
+        failure,
+        operation_arguments={
+            **failure.operation_arguments,
+            "width": 9999,
+        },
+    )
+
+    with pytest.raises(ValueError, match="failure arguments do not match"):
+        failed_phase(production, tampered)
+
+    with pytest.raises(ValueError, match="failure arguments do not match"):
+        build_production_reassessment_plan(production, tampered)
