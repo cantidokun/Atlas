@@ -71,6 +71,18 @@ def test_receipt_detects_detail_tampering_beyond_mutation_evidence():
     assert not receipt.matches("move_object", MOVE, tampered)
 
 
+def test_receipt_accepts_mapping_arguments():
+    result = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"mutation_performed": True},
+    )
+    arguments = {"file_name": "test_scene.blend"}
+    receipt = BlenderExecutionReceipt.create("move_object", arguments, result)
+    assert receipt.matches("move_object", arguments, result)
+
+
 def test_receipt_rejects_non_mapping_arguments():
     result = BlenderExecutionResult(
         tool="move_object",
@@ -81,6 +93,23 @@ def test_receipt_rejects_non_mapping_arguments():
 
     with pytest.raises(TypeError, match="receipt arguments must be an object"):
         BlenderExecutionReceipt.create("move_object", [], result)
+    assert not BlenderExecutionReceipt.create("move_object", MOVE, result).matches(
+        "move_object", [], result
+    )
+
+
+def test_receipt_rejects_invalid_authorization_in_match():
+    result = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"mutation_performed": True},
+    )
+    receipt = BlenderExecutionReceipt.create_authorized(
+        "move_object", MOVE, result, "live-auth"
+    )
+    assert not receipt.matches_authorization("")
+    assert not receipt.matches_authorization(None)
 
 
 def test_failed_execution_never_produces_receipt():
