@@ -1,4 +1,5 @@
 import pytest
+from types import MappingProxyType
 
 from planning.blender_result_contract import normalize_blender_result
 
@@ -55,3 +56,17 @@ def test_legacy_transform_not_found_is_failed_evidence_with_state():
     result = normalize_blender_result("inspect_object_transform", raw)
     assert result.ok is True
     assert result.state == raw
+
+
+def test_mapping_state_is_accepted_by_shared_result_contract():
+    state = MappingProxyType({
+        "status": "ok",
+        "object_name": "Goal_Left_post",
+        "location": [1.0, 2.0, 0.0],
+    })
+    result = normalize_blender_result(
+        "inspect_object_transform",
+        {"ok": True, "state": state},
+    )
+    assert result.state is state
+    assert result.state["location"] == [1.0, 2.0, 0.0]
