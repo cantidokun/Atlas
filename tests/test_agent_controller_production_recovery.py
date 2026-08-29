@@ -45,6 +45,13 @@ def _intent(suffix):
     return UnrealTaskIntent(f"production-roundtrip-{suffix}", "full heterogeneous production", (TARGET,))
 
 
+def _snapshot(execution):
+    """Extract the Unreal production snapshot from the entrypoint result."""
+    assert execution.result is not None
+    event = execution.result.value
+    return event.snapshot
+
+
 def test_agent_recovery_action_uses_fresh_reassessment_authorization():
     integration = RecordingIntegration()
     entrypoint = _runtime(integration)
@@ -56,9 +63,10 @@ def test_agent_recovery_action_uses_fresh_reassessment_authorization():
         capability="production", provider="unreal", target_entity_ids=(TARGET,),
         intent_id="agent-recovery", context={"production": True, "authorized_production": authorized},
     ))
-    assert started.snapshot.state == "awaiting_reassessment"
+    started_snapshot = _snapshot(started)
+    assert started_snapshot.state == "awaiting_reassessment"
 
-    reassessment_plan = build_production_reassessment_plan(production, started.snapshot.failure)
+    reassessment_plan = build_production_reassessment_plan(production, started_snapshot.failure)
     reassessment_auth = UnrealPlanAuthorization.issue(reassessment_plan, "reassessment-auth")
     reassessed = request.submit(AgentControllerHandoff.from_fields(
         capability="production", provider="unreal", target_entity_ids=(TARGET,),
@@ -67,7 +75,7 @@ def test_agent_recovery_action_uses_fresh_reassessment_authorization():
             "reassessment_authorization": reassessment_auth,
         },
     ))
-    assert reassessed.snapshot.state == "awaiting_replacement"
+    assert _snapshot(reassessed).state == "awaiting_replacement"
     assert integration.actions == ["start", "reassess"]
 
 
@@ -80,17 +88,19 @@ def test_agent_recovery_requires_separate_replacement_authorization():
         capability="production", provider="unreal", target_entity_ids=(TARGET,),
         intent_id="agent-recovery-auth", context={"production": True, "authorized_production": authorize_production_plan(production, "production-auth")},
     ))
-    reassessment_plan = build_production_reassessment_plan(production, started.snapshot.failure)
+    started_snapshot = _snapshot(started)
+    reassessment_plan = build_production_reassessment_plan(production, started_snapshot.failure)
     reassessed = request.submit(AgentControllerHandoff.from_fields(
         capability="production", provider="unreal", target_entity_ids=(TARGET,),
         intent_id="agent-recovery-auth", context={"production": True, "recovery_action": "reassess", "reassessment_authorization": UnrealPlanAuthorization.issue(reassessment_plan, "reassessment-auth")},
     ))
-    replacement_plan = reassessed.snapshot.recovery.replacement_plan
+    reassessed_snapshot = _snapshot(reassessed)
+    replacement_plan = reassessed_snapshot.recovery.replacement_plan
     replacement_auth = issue_production_replacement_authorization(replacement_plan, "replacement-auth")
     integration._runtime._bridge._executor._adapter._transport.fail_at = 999
     resumed = request.submit(AgentControllerHandoff.from_fields(
         capability="production", provider="unreal", target_entity_ids=(TARGET,),
         intent_id="agent-recovery-auth", context={"production": True, "recovery_action": "resume_recovery", "replacement_authorization": replacement_auth},
     ))
-    assert resumed.snapshot.state == "recovery_complete"
+    assert _snapshot(resumed).state == "recovery_complete"
     assert integration.actions == ["start", "reassess", "resume_recovery"]
