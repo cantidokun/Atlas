@@ -3,7 +3,7 @@
 from copy import deepcopy
 from typing import Any, Dict
 
-from .controller_state import ControllerState
+from .controller_state import ControllerState, after_matches_target
 
 CHECKPOINT_VERSION = 1
 
@@ -22,7 +22,7 @@ def snapshot_controller_state(state: ControllerState) -> Dict[str, Any]:
 
 
 def restore_controller_state(payload: Dict[str, Any]) -> ControllerState:
-    """Restore execution history without treating historical AFTER as live proof."""
+    """Restore execution history while refusing unverifiable historical completion."""
     if not isinstance(payload, dict) or payload.get("version") != CHECKPOINT_VERSION:
         raise ValueError("Unsupported or invalid controller checkpoint.")
     for key in ("file_name", "object_a_name", "object_b_name"):
@@ -44,6 +44,6 @@ def restore_controller_state(payload: Dict[str, Any]) -> ControllerState:
         raise ValueError("Controller checkpoint contains progress without BEFORE evidence.")
     if state.before is not None and state.target is None:
         raise ValueError("Controller checkpoint is missing its derived target.")
-    # AFTER is intentionally not validated here. It is historical evidence and
-    # must be discarded and replaced with a fresh Blender read by the runtime.
+    if state.after is not None and not after_matches_target(state):
+        raise ValueError("Controller checkpoint contains unverifiable AFTER evidence.")
     return state
