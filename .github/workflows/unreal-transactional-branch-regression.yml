@@ -39,3 +39,6 @@ jobs:
       - name: Run transactional regression suite
         shell: cmd
         run: python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_production_recovery.py tests/test_unreal_transactional_executor.py -q
+      - name: Run real Unreal Blueprint integration suite
+        shell: cmd
+        run: python -m pytest tests/test_unreal_blueprint_real_integration.py -q -rs
