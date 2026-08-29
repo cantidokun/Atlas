@@ -72,6 +72,25 @@ def test_failure_freezes_ledger_at_exact_operation_and_does_not_continue():
     assert ledger.terminal is True
 
 
+def test_transactional_ledger_deeply_freezes_nested_arguments():
+    arguments = {
+        "entity_ids": ("FIELD_SURFACE",),
+        "render": {"resolution": {"width": 1280, "height": 720}, "passes": ["beauty", "depth"]},
+    }
+    ledger = UnrealProductionTransactionLedger("shot-transaction").record_success(
+        0, "configure_render", arguments["entity_ids"], arguments, 0
+    )
+
+    arguments["render"]["resolution"]["width"] = 9999
+    arguments["render"]["passes"].append("motion_vectors")
+
+    stored = ledger.entries[0].arguments
+    assert stored["render"]["resolution"]["width"] == 1280
+    assert stored["render"]["passes"] == ("beauty", "depth")
+    with pytest.raises(TypeError):
+        stored["render"]["resolution"]["width"] = 1
+
+
 def test_terminal_ledger_rejects_any_further_progress():
     ledger = UnrealProductionTransactionLedger("shot-transaction").record_failure(
         0, "inspect_a", ("FIELD_SURFACE",), {"entity_ids": ("FIELD_SURFACE",)}
