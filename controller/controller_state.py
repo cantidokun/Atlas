@@ -54,7 +54,7 @@ class ControllerState:
 
     @property
     def complete(self) -> bool:
-        return self.before is not None and self.target is not None and not required_moves(self) and self.after is not None and after_matches_target(self)
+        return self.before is not None and self.target is not None and not required_moves(self) and self.after is not None and after_matches_target_with(self, self.after)
 
 
 def establish_target(state: ControllerState, relationship: Dict[str, Any]) -> Dict[str, Any]:
