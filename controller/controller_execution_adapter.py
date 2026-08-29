@@ -8,6 +8,8 @@ caller.
 
 from typing import Any, Callable, Dict, List
 
+from planning.blender_result_contract import normalize_blender_result
+
 from .controller_bridge import ControllerBridge, controller_required_for_midpoint_task
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
@@ -56,7 +58,14 @@ class ControllerExecutionAdapter:
             return {"status": "inactive"}
 
         action = self.bridge.next_action()
-        result = self.bridge.execute_next(execute)
+        try:
+            result = self.bridge.execute_next(execute)
+        except Exception as exc:
+            result = {
+                "status": "error",
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
+
         tool_name = action.get("tool")
         arguments = action.get("arguments", {})
         raw = result.get("error") if result.get("status") == "error" else None
@@ -71,7 +80,14 @@ class ControllerExecutionAdapter:
             else:
                 raw = result
 
-        successful = isinstance(raw, dict) and "error" not in raw
+        successful = False
+        if isinstance(raw, dict) and "error" not in raw:
+            try:
+                normalized = normalize_blender_result(tool_name, raw)
+                successful = normalized.ok
+            except (TypeError, ValueError):
+                successful = False
+
         tool_execution_history.append({
             "tool": tool_name,
             "arguments": arguments,
