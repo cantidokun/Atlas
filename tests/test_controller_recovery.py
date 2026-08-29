@@ -9,7 +9,7 @@ def relationship(left=(-2.0, 0.0, 0.0), right=(2.0, 0.0, 0.0)):
     return {"object_a": {"name": "Goal_Left_post", "location": list(left)}, "object_b": {"name": "Goal_Right_Post", "location": list(right)}, "midpoint": [(left[i] + right[i]) / 2 for i in range(3)]}
 
 
-def test_recovery_requires_fresh_evidence():
+def test_recovery_reconciles_fresh_evidence_against_recorded_writes():
     state = ControllerState("scene.blend", "Goal_Left_post", "Goal_Right_Post")
     record_before(state, relationship(left=(8.0, 0.0, 0.0), right=(12.0, 0.0, 0.0)))
     record_write(state, "Goal_Left_post", [4.0, 0.0, 0.0], {"status": "moved"})
@@ -17,7 +17,8 @@ def test_recovery_requires_fresh_evidence():
 
     recovered = recover_and_reconcile(payload, lambda *_: relationship(left=(4.0, 0.0, 0.0), right=(8.0, 0.0, 0.0)))
 
-    assert recovered.after is None
+    assert recovered.after is not None
+    assert recovered.recovery_reconciled
     assert not recovered.complete
 
 
