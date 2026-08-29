@@ -12,7 +12,7 @@ on:
         default: "feat/unreal-composite-production-operation"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: atlas-unreal-transactional-regression-${{ github.ref }}
@@ -29,6 +29,195 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref || github.sha }}
           fetch-depth: 0
+
+      - name: Materialize native MRQ render transport
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cpp = 'unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp'
+          $hdr = 'unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Public/AtlasTransportServer.h'
+          $h = Get-Content $hdr -Raw
+          $c = Get-Content $cpp -Raw
+
+          if ($c -match 'bool FAtlasTransportServer::SubmitRender\(') {
+            Write-Host 'Native MRQ render transport already materialized.'
+            exit 0
+          }
+
+          if ($h -notmatch 'MoviePipelineQueue.h') {
+            $h = $h.Replace('#include "Dom/JsonObject.h"', '#include "Dom/JsonObject.h"`r`n#include "MoviePipelineQueue.h"')
+          }
+          if ($h -notmatch 'SubmitRender\(') {
+            $anchor = '    static bool ConfigureRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);'
+            $replace = $anchor + "`r`n    static bool SubmitRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);`r`n    static bool InspectRenderJob(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);"
+            if ($h -notlike "*$anchor*") { throw 'Header render declaration anchor not found' }
+            $h = $h.Replace($anchor, $replace)
+          }
+
+          if ($c -notmatch '#include "MoviePipelineQueueEngineSubsystem.h"') {
+            $c = $c.Replace('#include "MoviePipelineImageSequenceOutput.h"', '#include "MoviePipelineImageSequenceOutput.h"`r`n#include "MoviePipelineQueueEngineSubsystem.h"`r`n#include "MoviePipelineExecutor.h"')
+          }
+
+          $validationAnchor = '    if (Request.OperationName == TEXT("inspect_render_state"))'
+          $block = @'
+    if (Request.OperationName == TEXT("submit_render"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("write")) { OutError = TEXT("submit_render requires render/write"); return false; }
+        FString SequenceAssetPath;
+        if (!Request.Arguments->TryGetStringField(TEXT("sequence_asset_path"), SequenceAssetPath) || SequenceAssetPath.TrimStartAndEnd().IsEmpty() || !SequenceAssetPath.TrimStartAndEnd().StartsWith(TEXT("/")))
+        { OutError = TEXT("arguments.sequence_asset_path must be a non-empty Unreal package path"); return false; }
+        return true;
+    }
+    if (Request.OperationName == TEXT("inspect_render_job"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_render_job requires render/read"); return false; }
+        FString JobId;
+        if (!Request.Arguments->TryGetStringField(TEXT("job_id"), JobId) || JobId.TrimStartAndEnd().IsEmpty())
+        { OutError = TEXT("arguments.job_id must be a non-empty string"); return false; }
+        return true;
+    }
+'@
+          if ($c -notmatch 'submit_render requires render/write') {
+            if ($c -notlike "*$validationAnchor*") { throw 'Validation render anchor not found' }
+            $c = $c.Replace($validationAnchor, $block + $validationAnchor)
+          }
+
+          $supportOld = '||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("verify_render_state");'
+          $supportNew = '||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("verify_render_state")||Request.OperationName==TEXT("submit_render")||Request.OperationName==TEXT("inspect_render_job");'
+          if ($c -notlike "*$supportNew*") {
+            if ($c -notlike "*$supportOld*") { throw 'Supported-operation anchor not found' }
+            $c = $c.Replace($supportOld, $supportNew)
+          }
+
+          $dispatchAnchor = '    else if(S->Request.OperationName==TEXT("configure_render")) bTaskSuccess=ConfigureRender(S->Request,S->ObservedState,S->Error);'
+          $dispatchNew = $dispatchAnchor + "`r`n    else if(S->Request.OperationName==TEXT("submit_render")) bTaskSuccess=SubmitRender(S->Request,S->ObservedState,S->Error);`r`n    else if(S->Request.OperationName==TEXT("inspect_render_job")) bTaskSuccess=InspectRenderJob(S->Request,S->ObservedState,S->Error);"
+          if ($c -notlike "*$dispatchNew*") {
+            if ($c -notlike "*$dispatchAnchor*") { throw 'Dispatch anchor not found' }
+            $c = $c.Replace($dispatchAnchor, $dispatchNew)
+          }
+
+          $insertBefore = 'AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)'
+          if ($c -notlike "*$insertBefore*") { throw 'Implementation insertion anchor not found' }
+          $impl = @'
+namespace
+{
+    struct FAtlasRenderJobState
+    {
+        FString JobId;
+        FString Status;
+        FString Error;
+        FString SequenceAssetPath;
+        FString OutputDirectory;
+        bool bSuccess = false;
+        TWeakObjectPtr<UMoviePipelineExecutorJob> Job;
+        TWeakObjectPtr<UMoviePipelineExecutorBase> Executor;
+    };
+
+    TMap<FString, FAtlasRenderJobState> AtlasRenderJobs;
+
+    void RegisterAtlasExecutorCompletion(UMoviePipelineExecutorBase* Executor, const FString& JobId)
+    {
+        if (!Executor) return;
+        Executor->UserData = JobId;
+        Executor->OnExecutorFinished().AddLambda([](UMoviePipelineExecutorBase* FinishedExecutor, bool bSuccess)
+        {
+            if (!FinishedExecutor) return;
+            const FString JobId = FinishedExecutor->UserData;
+            if (JobId.IsEmpty()) return;
+            FAtlasRenderJobState* State = AtlasRenderJobs.Find(JobId);
+            if (!State) return;
+            State->Status = bSuccess ? TEXT("completed") : TEXT("failed");
+            State->bSuccess = bSuccess;
+            State->Error = bSuccess ? TEXT("") : TEXT("Movie Render Pipeline executor reported failure");
+            State->Executor = FinishedExecutor;
+        });
+    }
+}
+
+bool FAtlasTransportServer::SubmitRender(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;}
+    FString SequenceAssetPath;
+    if(!R.Arguments.IsValid()||!R.Arguments->TryGetStringField(TEXT("sequence_asset_path"),SequenceAssetPath)){E=TEXT("arguments.sequence_asset_path must be a non-empty Unreal package path");return false;}
+    SequenceAssetPath=SequenceAssetPath.TrimStartAndEnd();
+    if(!SequenceAssetPath.StartsWith(TEXT("/"))){E=TEXT("arguments.sequence_asset_path must be a non-empty Unreal package path");return false;}
+    if(R.EntityIds.Num()==0){E=TEXT("submit_render requires at least one entity_id");return false;}
+    if(AtlasRenderJobs.Contains(R.RequestId)){E=TEXT("A render job already exists for request_id");return false;}
+    ULevelSequence* Sequence=LoadObject<ULevelSequence>(nullptr,*SequenceAssetPath);
+    if(!Sequence||!IsValid(Sequence)){E=FString::Printf(TEXT("Level Sequence not found at sequence_asset_path: %s"),*SequenceAssetPath);return false;}
+    UMoviePipelineQueueEngineSubsystem* Subsystem=GEngine->GetEngineSubsystem<UMoviePipelineQueueEngineSubsystem>();
+    if(!Subsystem||!IsValid(Subsystem)){E=TEXT("Movie Pipeline runtime subsystem is unavailable");return false;}
+    if(Subsystem->IsRendering()){E=TEXT("A Movie Render Pipeline job is already rendering");return false;}
+    UMoviePipelineExecutorJob* Job=Subsystem->AllocateJob(Sequence);
+    if(!Job||!IsValid(Job)){E=TEXT("Failed to allocate Movie Render Pipeline job");return false;}
+    UMoviePipelinePrimaryConfig* RenderConfig=LoadAtlasRenderConfig(E);
+    if(!RenderConfig){return false;}
+    Job->SetPresetOrigin(RenderConfig);
+    Job->UserData=R.RequestId;
+    Job->JobName=FString::Printf(TEXT("Atlas-%s"),*R.RequestId);
+    FAtlasRenderJobState State;
+    State.JobId=R.RequestId;
+    State.Status=TEXT("submitted");
+    State.SequenceAssetPath=SequenceAssetPath;
+    State.Job=Job;
+    if(UMoviePipelineOutputSetting* OutputSetting=GetAtlasRenderOutputSetting(RenderConfig,E)) State.OutputDirectory=OutputSetting->OutputDirectory.Path;
+    else return false;
+    AtlasRenderJobs.Add(R.RequestId,State);
+    Subsystem->RenderJob(Job);
+    UMoviePipelineExecutorBase* Executor=Subsystem->GetActiveExecutor();
+    if(!Executor){
+        if(FAtlasRenderJobState* Stored=AtlasRenderJobs.Find(R.RequestId)){Stored->Status=TEXT("failed");Stored->Error=TEXT("Movie Render Pipeline did not expose an active executor after submission");}
+        E=TEXT("Movie Render Pipeline did not expose an active executor after submission");
+        return false;
+    }
+    if(FAtlasRenderJobState* Stored=AtlasRenderJobs.Find(R.RequestId)){Stored->Status=TEXT("running");Stored->Executor=Executor;}
+    RegisterAtlasExecutorCompletion(Executor,R.RequestId);
+    TSharedPtr<FJsonObject> JobState=MakeShareable(new FJsonObject);
+    JobState->SetStringField(TEXT("job_id"),R.RequestId);
+    JobState->SetStringField(TEXT("status"),TEXT("running"));
+    JobState->SetStringField(TEXT("sequence_asset_path"),SequenceAssetPath);
+    JobState->SetStringField(TEXT("output_directory"),State.OutputDirectory);
+    JobState->SetBoolField(TEXT("async"),true);
+    O=JobState;
+    return true;
+}
+
+bool FAtlasTransportServer::InspectRenderJob(const FTransportRequest& R,TSharedPtr<FJsonObject>& O,FString& E)
+{
+    if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;}
+    FString JobId;
+    if(!R.Arguments.IsValid()||!R.Arguments->TryGetStringField(TEXT("job_id"),JobId)){E=TEXT("arguments.job_id must be a non-empty string");return false;}
+    JobId=JobId.TrimStartAndEnd();
+    FAtlasRenderJobState* State=AtlasRenderJobs.Find(JobId);
+    if(!State){E=FString::Printf(TEXT("Render job not found: %s"),*JobId);return false;}
+    UMoviePipelineQueueEngineSubsystem* Subsystem=GEngine->GetEngineSubsystem<UMoviePipelineQueueEngineSubsystem>();
+    if(Subsystem&&Subsystem->IsRendering() && State->Status==TEXT("running")) if(UMoviePipelineExecutorBase* Executor=Subsystem->GetActiveExecutor()) State->Executor=Executor;
+    TSharedPtr<FJsonObject> JobState=MakeShareable(new FJsonObject);
+    JobState->SetStringField(TEXT("job_id"),State->JobId);
+    JobState->SetStringField(TEXT("status"),State->Status);
+    JobState->SetStringField(TEXT("sequence_asset_path"),State->SequenceAssetPath);
+    JobState->SetStringField(TEXT("output_directory"),State->OutputDirectory);
+    JobState->SetBoolField(TEXT("success"),State->bSuccess);
+    JobState->SetBoolField(TEXT("rendering"),Subsystem ? Subsystem->IsRendering() : false);
+    JobState->SetStringField(TEXT("error"),State->Error);
+    O=JobState;
+    return true;
+}
+
+'@
+          $c = $c.Replace($insertBefore, $impl + $insertBefore)
+
+          Set-Content -Path $hdr -Value $h -NoNewline
+          Set-Content -Path $cpp -Value $c -NoNewline
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $cpp $hdr
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'feat: materialize native MRQ render transport'
+            git push origin HEAD:feat/unreal-composite-production-operation
+          }
+
       - name: Verify runner identity
         shell: cmd
         run: |
