@@ -35,3 +35,23 @@ def test_result_is_immutable():
     result = normalize_blender_result("move_object", {"ok": False, "state": "blocked"})
     with pytest.raises(Exception):
         result.state = "applied"
+
+
+def test_legacy_transform_evidence_preserves_full_state():
+    raw = {
+        "status": "ok",
+        "object_name": "Goal_Left_post",
+        "location": [1.0, 2.0, 0.0],
+        "rotation_degrees": [0.0, 0.0, 0.0],
+    }
+    result = normalize_blender_result("inspect_object_transform", raw)
+    assert result.ok is True
+    assert result.state == raw
+    assert result.state["location"] == [1.0, 2.0, 0.0]
+
+
+def test_legacy_transform_not_found_is_failed_evidence_with_state():
+    raw = {"status": "object_not_found", "object_name": "Goal_Left_post"}
+    result = normalize_blender_result("inspect_object_transform", raw)
+    assert result.ok is True
+    assert result.state == raw
