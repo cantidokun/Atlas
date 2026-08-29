@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Optional
 
 from planning.blender_result_contract import normalize_blender_result
 
-from .controller_state import ControllerState, record_after, record_before, record_write
+from .controller_state import ControllerState, record_after, record_before, record_reconciled_after, record_write
 from .controller_checkpoint import snapshot_controller_state, restore_controller_state
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
@@ -23,14 +23,11 @@ class ControllerRuntime:
         """Restore controller history; optional evidence is reconciled, never trusted historically."""
         if not isinstance(payload, dict):
             raise ValueError("Controller checkpoint must be an object.")
-        # Historical AFTER is never trusted by the runtime. The lower-level
-        # checkpoint validator may still reject malformed checkpoints when used
-        # directly, but runtime recovery intentionally discards this field before
-        # validating/restoring operational history.
         operational_payload = deepcopy(payload)
         operational_payload["after"] = None
         state = restore_controller_state(operational_payload)
         state.after = None
+        state.recovery_reconciled = False
         runtime = cls(state.file_name)
         runtime.state = state
         if fresh_evidence is not None:
@@ -39,7 +36,7 @@ class ControllerRuntime:
             if fresh_evidence.get("error") or fresh_evidence.get("status") in _FAILURE_STATUSES or fresh_evidence.get("ok") is False:
                 raise ValueError("Fresh Blender evidence is unavailable.")
             if state.writes:
-                record_after(state, deepcopy(fresh_evidence))
+                record_reconciled_after(state, deepcopy(fresh_evidence))
             elif state.target is not None:
                 record_after(state, deepcopy(fresh_evidence))
         return runtime
@@ -52,12 +49,10 @@ class ControllerRuntime:
         """Adapt canonical results without changing the existing controller state shape."""
         if "ok" not in result and "status" in result:
             return deepcopy(result)
-
         if isinstance(normalized.state, dict):
             payload = deepcopy(dict(normalized.state))
             if payload:
                 return payload
-
         payload = deepcopy(dict(normalized.details))
         payload.setdefault("status", normalized.state)
         return payload
@@ -83,19 +78,13 @@ class ControllerRuntime:
             return self._error("ToolExecutionError", normalized.details)
 
         controller_result = self._controller_payload(result, normalized)
-
         try:
             if action["kind"] == "evidence":
                 record_before(self.state, controller_result)
             elif action["kind"] == "write":
                 if normalized.state != "moved" and controller_result.get("status") != "moved":
                     return self._error("InvalidWriteResult", result)
-                record_write(
-                    self.state,
-                    action["arguments"]["object_name"],
-                    action["arguments"]["location"],
-                    controller_result,
-                )
+                record_write(self.state, action["arguments"]["object_name"], action["arguments"]["location"], controller_result)
             elif action["kind"] == "verification":
                 record_after(self.state, controller_result)
         except (TypeError, ValueError, KeyError) as exc:
