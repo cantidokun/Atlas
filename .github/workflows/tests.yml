@@ -30,7 +30,7 @@ jobs:
 
   blender-integration:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat/')
-    runs-on: [self-hosted, Windows, X64, atlas-blender]
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 30
     steps:
       - name: Check out repository
