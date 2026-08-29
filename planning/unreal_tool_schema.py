@@ -34,6 +34,8 @@ UNREAL_TOOL_SCHEMAS = {
     "inspect_render_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
     "configure_render": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "width": int, "height": int, "start_frame": int, "end_frame": int, "output_directory": str, "output_format": str}),
     "verify_render_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "width": int, "height": int, "start_frame": int, "end_frame": int, "output_directory": str, "output_format": str}),
+    "submit_render": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "sequence_asset_path": str}),
+    "inspect_render_job": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "job_id": str}),
 }
 
 
@@ -73,19 +75,16 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
             if not status.strip():
                 raise ValueError("expected_compile_status must be a non-empty string")
             snapshot["expected_compile_status"] = status.strip()
-    for tool_name, field, label in (
-        ("apply_material_variant", "material_variant", "material_variant"),
-        ("verify_material_variant", "material_variant", "material_variant"),
-        ("apply_niagara_variant", "niagara_variant", "niagara_variant"),
-        ("verify_niagara_variant", "niagara_variant", "niagara_variant"),
-    ):
-        if tool == tool_name:
-            value = snapshot[field]
-            if not isinstance(value, dict) or set(value.keys()) != {"name"}:
-                raise ValueError(f"{label} must contain exactly name")
-            if not isinstance(value["name"], str) or not value["name"].strip():
-                raise ValueError(f"{label}.name must be a non-empty string")
-            snapshot[field] = {"name": value["name"].strip()}
+    if tool == "submit_render":
+        sequence_path = snapshot["sequence_asset_path"].strip()
+        if not sequence_path or not sequence_path.startswith("/"):
+            raise ValueError("sequence_asset_path must be a non-empty Unreal package path")
+        snapshot["sequence_asset_path"] = sequence_path
+    if tool == "inspect_render_job":
+        job_id = snapshot["job_id"].strip()
+        if not job_id:
+            raise ValueError("job_id must be a non-empty string")
+        snapshot["job_id"] = job_id
     for tool_name, field, axes, message in (
         ("set_actor_location", "location", {"x", "y", "z"}, "location coordinates must be numeric"),
         ("verify_actor_location", "expected_location", {"x", "y", "z"}, "expected location coordinates must be numeric"),
