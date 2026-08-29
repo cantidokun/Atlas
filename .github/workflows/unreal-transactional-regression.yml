@@ -1,0 +1,66 @@
+name: Unreal Transactional Regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Atlas ref to test"
+        required: true
+        default: "feat/unreal-composite-production-operation"
+      run_unreal:
+        description: "Run Unreal-side integration harness"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-unreal-transactional-regression
+  cancel-in-progress: false
+
+jobs:
+  python-regression:
+    name: Python transactional regression
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    steps:
+      - name: Check out requested Atlas ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Show runner environment
+        shell: cmd
+        run: |
+          echo Runner name: %RUNNER_NAME%
+          echo Workspace: %GITHUB_WORKSPACE%
+          python --version
+      - name: Run Unreal planning and transaction tests
+        shell: cmd
+        run: |
+          python -m pytest tests/test_unreal_plan_executor.py tests/test_unreal_production_recovery.py tests/test_unreal_transactional_executor.py -q
+
+  unreal-integration:
+    name: Unreal integration harness
+    if: ${{ inputs.run_unreal }}
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    needs: python-regression
+    steps:
+      - name: Check out requested Atlas ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Run Unreal transactional integration harness
+        shell: powershell
+        run: |
+          if (Test-Path ".\scripts\run_unreal_transactional_regression.ps1") {
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\scripts\run_unreal_transactional_regression.ps1"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "No Unreal transactional integration harness is installed yet."
+            Write-Host "Python transactional regression is the required gate for this workflow revision."
+          }
