@@ -1,5 +1,7 @@
 """Restart-boundary regression coverage for autonomous task sequencing."""
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from planning.autonomous_task_sequence import (
@@ -28,14 +30,14 @@ def test_sequence_checkpoint_rejects_changed_step_identity():
     checkpoint = AutonomousTaskSequenceCheckpoint("shot-001", ("create", "move"), 1)
     restored = AutonomousTaskSequenceCheckpoint.from_snapshot(checkpoint.snapshot())
 
-    def operation(name: str) -> ProductionOperationLifecycle:
-        return ProductionOperationLifecycle(name=name)
+    def operation() -> ProductionOperationLifecycle:
+        return MagicMock(spec=ProductionOperationLifecycle)
 
     with pytest.raises(ValueError, match="checkpoint step identity"):
         AutonomousTaskSequence.from_checkpoint(
             (
-                AutonomousTaskStep("create", operation("create")),
-                AutonomousTaskStep("delete", operation("delete")),
+                AutonomousTaskStep("create", operation()),
+                AutonomousTaskStep("delete", operation()),
             ),
             restored,
         )
