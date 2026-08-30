@@ -21,11 +21,12 @@ def _digest(value: Any) -> str:
 
 def _operation_identity(operation: ProductionOperationLifecycle) -> str:
     checkpoint = operation.task.checkpoint
+    revision = operation.task.revision
     return _digest(
         {
             "task_id": checkpoint.task_id,
-            "twin_id": operation.revision.twin_id,
-            "revision_id": operation.revision.revision_id,
+            "twin_id": revision.twin_id,
+            "revision_id": revision.revision_id,
         }
     )
 
