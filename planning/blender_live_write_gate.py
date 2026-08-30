@@ -5,6 +5,7 @@ from planning.action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_live_write_result import BlenderLiveWriteOutcome
 from planning.blender_write_authorization import BlenderWriteAuthorization
+from planning.blender_write_authorization_ledger import BlenderWriteAuthorizationLedger
 
 
 AuthoritativeVerifier = Callable[[ActionSpec, Any], Tuple[bool, Mapping[str, Any]]]
@@ -13,13 +14,26 @@ AuthoritativeVerifier = Callable[[ActionSpec, Any], Tuple[bool, Mapping[str, Any
 class BlenderLiveWriteGate:
     """Execute one authorization-bound Blender write and verify authoritative state."""
 
-    def __init__(self, boundary: BlenderExecutionBoundary, verifier: Optional[AuthoritativeVerifier] = None) -> None:
+    def __init__(
+        self,
+        boundary: BlenderExecutionBoundary,
+        verifier: Optional[AuthoritativeVerifier] = None,
+        authorization_ledger: Optional[BlenderWriteAuthorizationLedger] = None,
+    ) -> None:
         self._boundary = boundary
         self._verifier = verifier
+        self._authorization_ledger = authorization_ledger
 
     def execute(self, action: ActionSpec, authorization: BlenderWriteAuthorization) -> BlenderLiveWriteOutcome:
         if not authorization.matches(action):
             raise ValueError("Blender write authorization does not match action")
+
+        if self._authorization_ledger is not None and not self._authorization_ledger.consume(authorization):
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": False, "authorization_consumed": True},
+                "Blender write authorization has already been consumed",
+            )
+
         result, receipt = self._boundary.execute_authorized_write(action, authorization)
 
         # A failed executor result is terminal. Do not require a stronger receipt
