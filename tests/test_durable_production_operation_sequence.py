@@ -70,6 +70,21 @@ def test_rehydrated_sequence_resumes_at_first_unfinished_operation():
     assert resumed_first.state is ProductionOperationState.RUNNING
 
 
+def test_rehydrated_sequence_rejects_changed_operation_identity():
+    first = _operation(_task(CorrectiveTaskResult((), {"step": 1}, True), "task-1"))
+    second = _operation(_task(CorrectiveTaskResult((), {"step": 2}, False), "task-2"))
+    interrupted = DurableProductionOperationSequence((first, second)).run()
+
+    changed_first = _operation(_task(CorrectiveTaskResult((), {"step": 1}, True), "task-1"))
+    changed_second = _operation(_task(CorrectiveTaskResult((), {"step": 2}, True), "task-replaced"))
+
+    with pytest.raises(ValueError, match="operation identity mismatch"):
+        DurableProductionOperationSequence(
+            (changed_first, changed_second),
+            checkpoint=interrupted.checkpoint,
+        )
+
+
 def test_sequence_never_runs_later_operations_after_a_block():
     first = _operation(_task(CorrectiveTaskResult((), {"step": 1}, True), "task-1"))
     second = _operation(_task(CorrectiveTaskResult((), {"step": 2}, True), "task-2"), verified=False)
