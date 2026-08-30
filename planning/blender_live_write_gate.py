@@ -3,6 +3,7 @@ from typing import Any, Callable, Mapping, Optional, Tuple
 
 from planning.action_plan import ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
+from planning.blender_execution_journal import SQLiteBlenderExecutionJournal
 from planning.blender_live_write_result import BlenderLiveWriteOutcome
 from planning.blender_write_authorization import BlenderWriteAuthorization
 from planning.blender_write_authorization_ledger import BlenderWriteAuthorizationLedger
@@ -19,10 +20,12 @@ class BlenderLiveWriteGate:
         boundary: BlenderExecutionBoundary,
         verifier: Optional[AuthoritativeVerifier] = None,
         authorization_ledger: Optional[BlenderWriteAuthorizationLedger] = None,
+        execution_journal: Optional[SQLiteBlenderExecutionJournal] = None,
     ) -> None:
         self._boundary = boundary
         self._verifier = verifier
         self._authorization_ledger = authorization_ledger
+        self._execution_journal = execution_journal
 
     def execute(self, action: ActionSpec, authorization: BlenderWriteAuthorization) -> BlenderLiveWriteOutcome:
         if not authorization.matches(action):
@@ -34,12 +37,28 @@ class BlenderLiveWriteGate:
                 "Blender write authorization has already been consumed",
             )
 
-        result, receipt = self._boundary.execute_authorized_write(action, authorization)
+        if self._execution_journal is not None and not self._execution_journal.begin(action, authorization):
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": False, "execution_journaled": True},
+                "Blender write authorization already has a journaled execution attempt",
+            )
+
+        try:
+            result, receipt = self._boundary.execute_authorized_write(action, authorization)
+        except Exception as exc:
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, None, "BLOCKED", type(exc).__name__)
+            return BlenderLiveWriteOutcome.blocked(
+                {"receipt_authorized": False, "execution_error": type(exc).__name__},
+                "Blender execution failed closed",
+            )
 
         # A failed executor result is terminal. Do not require a stronger receipt
         # contract before reporting the failure, and never invoke authoritative
         # verification after an unsuccessful write.
         if not result.ok:
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, receipt, "BLOCKED")
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": False, "result": result},
                 "Blender executor did not establish a successful write",
@@ -49,6 +68,8 @@ class BlenderLiveWriteGate:
         # This is distinct from missing evidence (None), which remains compatible
         # with legacy adapters and is still subject to authoritative verification.
         if result.mutation_performed is False:
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, receipt, "BLOCKED")
             return BlenderLiveWriteOutcome.blocked(
                 {
                     "receipt_authorized": receipt.matches_authorization(authorization.authorization_id),
@@ -60,16 +81,22 @@ class BlenderLiveWriteGate:
             )
 
         if not receipt.matches_authorization(authorization.authorization_id):
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, receipt, "BLOCKED")
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": False},
                 "Blender write receipt is not bound to authorization",
             )
         if not receipt.matches(action.tool, action.arguments, result):
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, receipt, "BLOCKED")
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": True, "receipt_matches_execution": False},
                 "Blender write receipt does not bind the requested action and execution result",
             )
         if self._verifier is None:
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, receipt, "BLOCKED")
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": True, "receipt_matches_execution": True, "result": result},
                 "No authoritative Blender verifier is configured",
@@ -82,6 +109,8 @@ class BlenderLiveWriteGate:
                 raise TypeError("authoritative verifier must return a mapping of verification details")
             verification = dict(verification)
         except Exception as exc:
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, receipt, "BLOCKED", type(exc).__name__)
             return BlenderLiveWriteOutcome.blocked(
                 {
                     "receipt_authorized": True,
@@ -92,10 +121,14 @@ class BlenderLiveWriteGate:
                 "Authoritative Blender verification failed closed",
             )
         if not verified:
+            if self._execution_journal is not None:
+                self._execution_journal.complete(authorization, receipt, "BLOCKED")
             return BlenderLiveWriteOutcome.blocked(
                 {"receipt_authorized": True, "receipt_matches_execution": True, "result": result, **verification},
                 "Authoritative Blender state did not verify the requested write",
             )
+        if self._execution_journal is not None:
+            self._execution_journal.complete(authorization, receipt, "VERIFIED")
         return BlenderLiveWriteOutcome.verified(
             receipt,
             {"receipt_authorized": True, "receipt_matches_execution": True, "result": result, **verification},
