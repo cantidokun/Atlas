@@ -46,12 +46,13 @@ def test_fresh_authorization_is_distinct_after_recovery(tmp_path):
     assert new_auth.matches(new_action)
 
     result = admission.execute(new_action, new_auth)
-    assert result.status == "FAILED"
-    assert result.error_type == "RuntimeError"
+    assert result.status == "BLOCKED"
+    assert result.reason == "Blender execution failed closed"
 
     record = journal.get(new_auth.authorization_id)
     assert record is not None
     assert record["status"] == "COMPLETED"
-    assert record["outcome_status"] == "FAILED"
+    assert record["outcome_status"] == "BLOCKED"
+    assert record["error_type"] == "RuntimeError"
     assert boundary.calls == [(new_action, "fresh-auth")]
     journal.close()
