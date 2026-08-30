@@ -3,7 +3,7 @@
 from typing import Any, Callable, Mapping, Tuple
 
 from planning.action_plan import ActionSpec
-from planning.blender_execution_journal import SQLiteBlenderExecutionJournal
+from planning.blender_execution_journal import SQLiteBlenderExecutionJournal, _digest
 from planning.blender_write_authorization import BlenderWriteAuthorization
 
 
@@ -27,9 +27,9 @@ class BlenderExecutionRecovery:
         """Resolve an interrupted execution from authoritative Blender state.
 
         Recovery never calls the Blender write executor. A STARTED journal row is
-        first matched to the original authorization/tool/arguments identity; the
-        caller's verifier then decides whether the scene already reflects the
-        requested action. A positive decision closes the journal as VERIFIED.
+        matched to the original authorization/tool/arguments identity before the
+        verifier decides whether the scene already reflects the requested action.
+        A positive decision closes the journal as VERIFIED.
         """
         if not isinstance(action, ActionSpec):
             raise TypeError("action must be an ActionSpec")
@@ -47,6 +47,8 @@ class BlenderExecutionRecovery:
             raise RuntimeError("journaled execution is not interrupted")
         if record["tool"] != action.tool:
             raise RuntimeError("journaled execution tool does not match action")
+        if record["arguments_digest"] != _digest(action.arguments):
+            raise RuntimeError("journaled execution arguments do not match action")
 
         verified, details = verifier(action, record)
         if not isinstance(verified, bool):
