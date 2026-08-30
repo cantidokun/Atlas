@@ -11,14 +11,13 @@ from planning.blender_startup_reconciliation import BlenderStartupReconciliation
 class BlenderAutonomousAdmission:
     """Own runtime readiness and delegate authorized writes to the proven live gate."""
 
-    def __init__(
-        self,
-        write_gate: BlenderLiveWriteGate,
-        journal: SQLiteBlenderExecutionJournal,
-        recovery: BlenderExecutionRecovery,
-    ) -> None:
+    def __init__(self, write_gate: BlenderLiveWriteGate, journal: SQLiteBlenderExecutionJournal, recovery: BlenderExecutionRecovery) -> None:
         if not isinstance(write_gate, BlenderLiveWriteGate):
             raise TypeError("write_gate must be BlenderLiveWriteGate")
+        if not isinstance(journal, SQLiteBlenderExecutionJournal):
+            raise TypeError("journal must be SQLiteBlenderExecutionJournal")
+        if write_gate.execution_journal is not journal:
+            raise ValueError("autonomous admission requires the write gate to use the supplied durable execution journal")
         self._write_gate = write_gate
         self._startup = BlenderStartupReconciliation(journal, recovery)
 
