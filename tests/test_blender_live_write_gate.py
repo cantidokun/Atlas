@@ -1,6 +1,7 @@
 import pytest
 
 from action_plan import ActionSpec
+from planning.blender_execution_journal import SQLiteBlenderExecutionJournal
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_live_write_gate import BlenderLiveWriteGate
 from planning.blender_result_contract import BlenderExecutionResult
@@ -137,3 +138,25 @@ def test_live_gate_blocks_reuse_of_consumed_authorization_before_execution():
     assert "already been consumed" in second.reason
     assert boundary.calls == 1
     assert len(verifier_calls) == 1
+
+
+def test_live_gate_journals_verified_execution(tmp_path):
+    action = _action()
+    authorization = BlenderWriteAuthorization.issue(action, "journal-live-auth")
+    result, receipt = _successful_execution(action, authorization)
+    boundary = FakeBoundary((result, receipt))
+    journal = SQLiteBlenderExecutionJournal(str(tmp_path / "journal.sqlite3"))
+
+    gate = BlenderLiveWriteGate(
+        boundary,
+        lambda _action, _receipt: (True, {"authoritative": True}),
+        execution_journal=journal,
+    )
+    outcome = gate.execute(action, authorization)
+    record = journal.get("journal-live-auth")
+
+    assert outcome.status == "VERIFIED"
+    assert record["status"] == "COMPLETED"
+    assert record["outcome_status"] == "VERIFIED"
+    assert record["receipt_digest"] == receipt.result_digest
+    journal.close()
