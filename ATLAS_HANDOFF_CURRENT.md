@@ -1,17 +1,17 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 30, 2026 — Blender-agent development paused for the night after advancing the autonomous admission and restart-recovery boundary.  
+**Updated:** August 30, 2026 — end of coding session.  
 **Branch:** `feat/blender-coordinator-result-integrity-final`  
-**Latest documentation commit:** follows this update.  
+**Latest documentation commit:** `bfd21047` (README update); this handoff update follows.  
 **Purpose:** canonical resume point for the next Atlas development session.
 
 ## Current milestone
 
-**AUTONOMOUS ADMISSION / RESTART-RECOVERY BOUNDARY**
+**AUTONOMOUS ADMISSION / RESTART-RECOVERY / GENERALIZED SEQUENCE BOUNDARY**
 
-Atlas has moved from deterministic, authorization-bound Blender execution into a production-facing autonomous admission layer. The runtime now has a defined startup safety boundary: persisted interrupted executions must be reconciled before autonomous execution can become READY.
+Atlas has moved from deterministic, authorization-bound Blender execution into a production-facing autonomous admission layer. The runtime has a defined startup safety boundary: persisted interrupted executions must be reconciled before autonomous execution can become READY.
 
-The current work establishes:
+The established architecture covers:
 
 ```text
 runtime startup
@@ -26,7 +26,7 @@ runtime startup
  -> authoritative verification
 ```
 
-Failed reconciliation remains fail-closed. Saved authorization is never replayed; recovery establishes state and a subsequent action requires a fresh authorization.
+Failed reconciliation remains fail-closed. Saved authorization is never replayed; recovery establishes state and a subsequent action requires fresh authorization.
 
 ## Durable journal invariant
 
@@ -34,9 +34,9 @@ The autonomous admission boundary and `BlenderLiveWriteGate` must share the **sa
 
 The live-write path remains fail-closed and authorization-bound.
 
-## CI / workflow position
+## CI / workflow position at session close
 
-GitHub Actions is now a first-class Atlas development mechanism with two complementary tiers:
+GitHub Actions is the development gate with two complementary tiers:
 
 ```text
 GitHub-hosted Ubuntu
@@ -49,9 +49,13 @@ Self-hosted Windows runner
 
 Offline pytest does not constitute live Blender evidence. The self-hosted Windows/Blender workflow remains the authority for environment-dependent Blender behavior.
 
-The runner has previously demonstrated that it can execute the workflow on Windows, identify the configured runner, discover Blender, and launch `blender --version`.
+The latest established workflow for the current sequence work is **Atlas Tests #1037 — FAILED**. No newer successful workflow was established before this session ended.
 
-Recent failures were isolated to test-contract/fixture mismatches exposed by the newly enforced journal invariant. The production invariant itself is intentionally retained.
+### Failure state that must be resumed
+
+PR #42 / merge state `a052cf4` contains restart/identity tests expecting an `operation_identities` field/contract on `AutonomousTaskSequenceCheckpoint`, while the implementation present in that merge result still exposes the older checkpoint constructor/schema. The failure is therefore a test/implementation contract mismatch, not evidence that the intended identity-binding implementation is already present.
+
+Earlier in the session, several commits were described as implementing this identity binding, but the subsequent workflow inspection demonstrated that the change was not present in the actual PR merge result. **Do not rely on those earlier claims. Verify the actual branch/merge code before proceeding.**
 
 ## Architecture now established
 
@@ -71,7 +75,7 @@ Qwen proposal
  -> registry snapshot integrity validation
  -> canonical Digital Twin revision
  -> durable sequence rehydration
- -> resume identity validation
+ -> resume integrity validation
  -> fresh resume authorization
  -> authorized Blender continuation
  -> authoritative final verification
@@ -79,7 +83,7 @@ Qwen proposal
  -> COMPLETED / BLOCKED
 ```
 
-The autonomous startup boundary now sits above the execution/recovery path rather than bypassing it.
+The autonomous startup boundary sits above the execution/recovery path rather than bypassing it.
 
 Qwen proposes; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender is an execution target, never the authority.
 
@@ -97,7 +101,7 @@ The repository already contains generalized boundaries for:
 - Digital Twin registry identity and revision binding;
 - production completion authority;
 - persisted production sequence rehydration;
-- fail-closed resume identity validation;
+- fail-closed resume integrity validation;
 - autonomous startup admission and execution recovery.
 
 Previously proven live Blender capabilities include `set_object_rotation`, `move_object`, `delete_object`, `create_empty_marker`, and `move_object_to_collection`, with legitimate paths verified and adversarial paths blocked.
@@ -145,15 +149,17 @@ Do not reopen these mechanisms without new evidence of an architectural gap.
 - Saved authorization is never replayed.
 - Do not add generic test operations such as `set_value` to the production Blender capability catalog.
 - Avoid bespoke per-tool lifecycle orchestration in place of generalized runtime boundaries.
-- Do not introduce another checkpoint, authorization, receipt, or completion mechanism without demonstrating a concrete architectural gap.
+- Do not introduce another checkpoint, authorization, receipt, journal, registry, or completion mechanism without demonstrating a concrete architectural gap.
 - C++ interoperability remains a future architectural requirement; subsystem contracts should remain language-agnostic.
 - Photogrammetry is upstream of Blender; Atlas is exclusively concerned with soccer-field-related digital twins.
 
 ## End-of-session status
 
-**Development is paused until tomorrow.** No additional Blender-agent implementation should be started until the next session.
+**Development is paused here for today.** No further implementation should be started until the next coding session.
 
-The current frontier is the autonomous admission/restart-recovery boundary. The remaining CI work is to finish validating the latest fixture corrections against the current merge ref. Once the autonomous-admission suite is green, move upward into generalized autonomous task sequencing/orchestration rather than adding parallel safety mechanisms.
+The immediate blocker is the generalized autonomous sequence restart test contract on PR #42. The latest established workflow is #1037 and it is red because the merge result contains tests expecting `operation_identities` on `AutonomousTaskSequenceCheckpoint`, while the implementation in that merge result still uses the older checkpoint schema.
+
+Do not paper over this with test-only changes. First inspect the actual PR head/merge code and determine whether operation-identity binding belongs in the existing checkpoint contract. If it does, implement it in the real branch and preserve backward/integrity semantics deliberately. If it does not, revise the tests to match the actual architecture. In either case, require green CI before advancing.
 
 ## Next-session resume
 
@@ -164,10 +170,15 @@ python -m pytest -q
 
 Then:
 
-1. Check the newest GitHub Actions workflows.
-2. Resolve any remaining autonomous-admission fixture/test-contract failures.
-3. Confirm the self-hosted Windows/Blender workflow remains healthy.
-4. Once green, begin generalized autonomous task sequencing/orchestration.
-5. Preserve the existing authorization, journal, verification, checkpoint, registry, and completion boundaries.
+1. Check the newest GitHub Actions workflow for PR #42.
+2. Inspect the actual PR head and merge-ref implementation before changing checkpoint schemas.
+3. Reproduce/inspect the `operation_identities` failures locally.
+4. Resolve the implementation/test contract mismatch on the real branch.
+5. Run the offline suite locally.
+6. Confirm the self-hosted Windows/Blender workflow remains healthy.
+7. Require a current green Actions result before moving upward into generalized autonomous task sequencing/orchestration.
+8. Preserve the existing authorization, journal, verification, checkpoint, registry, and completion boundaries.
 
-**Important:** do not infer live Blender success from offline pytest results.
+**Important:** do not infer live Blender success from offline pytest results, and do not report a workflow as green unless a current GitHub Actions run confirms it.
+
+See `README.md` for the project-level status summary.
