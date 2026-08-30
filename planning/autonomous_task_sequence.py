@@ -1,6 +1,8 @@
 """Generalized autonomous task sequencing over existing production boundaries."""
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional, Tuple
 
@@ -12,19 +14,23 @@ def _operation_identity(operation: ProductionOperationLifecycle) -> str:
     task = operation.task
     checkpoint = task.checkpoint
     revision = task.revision
-    return "|".join(
-        (
-            str(checkpoint.task_id),
-            str(revision.twin_id),
-            str(revision.revision_id),
-        )
-    )
+    return "|".join((str(checkpoint.task_id), str(revision.twin_id), str(revision.revision_id)))
+
+
+def _checkpoint_digest(sequence_id: str, step_names: Tuple[str, ...], operation_identities: Tuple[str, ...], next_step_index: int) -> str:
+    payload = {
+        "sequence_id": sequence_id,
+        "step_names": list(step_names),
+        "operation_identities": list(operation_identities),
+        "next_step_index": next_step_index,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 @dataclass(frozen=True)
 class AutonomousTaskStep:
     """One ordered autonomous production step."""
-
     name: str
     operation: ProductionOperationLifecycle
 
@@ -37,12 +43,12 @@ class AutonomousTaskStep:
 
 @dataclass(frozen=True)
 class AutonomousTaskSequenceCheckpoint:
-    """Durable, execution-free position of an autonomous task sequence."""
-
+    """Tamper-evident, execution-free position of an autonomous task sequence."""
     sequence_id: str
     step_names: Tuple[str, ...]
     operation_identities: Tuple[str, ...]
     next_step_index: int
+    digest: str
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -50,35 +56,39 @@ class AutonomousTaskSequenceCheckpoint:
             "step_names": list(self.step_names),
             "operation_identities": list(self.operation_identities),
             "next_step_index": self.next_step_index,
+            "digest": self.digest,
         }
 
     @classmethod
     def from_snapshot(cls, snapshot: dict[str, Any]) -> "AutonomousTaskSequenceCheckpoint":
         if not isinstance(snapshot, dict):
             raise TypeError("sequence checkpoint must be a mapping")
-        if set(snapshot) != {"sequence_id", "step_names", "operation_identities", "next_step_index"}:
+        required = {"sequence_id", "step_names", "operation_identities", "next_step_index", "digest"}
+        if set(snapshot) != required:
             raise ValueError("invalid autonomous task sequence checkpoint")
         sequence_id = snapshot["sequence_id"]
         step_names = snapshot["step_names"]
         operation_identities = snapshot["operation_identities"]
         next_step_index = snapshot["next_step_index"]
+        digest = snapshot["digest"]
         if not isinstance(sequence_id, str) or not sequence_id.strip():
             raise ValueError("sequence_id must be a non-empty string")
-        if not isinstance(step_names, list) or not step_names or any(
-            not isinstance(name, str) or not name.strip() for name in step_names
-        ):
+        if not isinstance(step_names, list) or not step_names or any(not isinstance(name, str) or not name.strip() for name in step_names):
             raise ValueError("step_names must contain non-empty strings")
         if len(set(step_names)) != len(step_names):
             raise ValueError("step_names must be unique")
-        if not isinstance(operation_identities, list) or len(operation_identities) != len(step_names) or any(
-            not isinstance(identity, str) or not identity.strip() for identity in operation_identities
-        ):
+        if not isinstance(operation_identities, list) or len(operation_identities) != len(step_names) or any(not isinstance(identity, str) or not identity.strip() for identity in operation_identities):
             raise ValueError("operation_identities must contain one non-empty identity per step")
         if isinstance(next_step_index, bool) or not isinstance(next_step_index, int):
             raise TypeError("next_step_index must be an integer")
         if next_step_index < 0 or next_step_index > len(step_names):
             raise ValueError("next_step_index is outside the sequence")
-        return cls(sequence_id, tuple(step_names), tuple(operation_identities), next_step_index)
+        if not isinstance(digest, str) or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError("digest must be a lowercase SHA-256 hexadecimal string")
+        expected = _checkpoint_digest(sequence_id, tuple(step_names), tuple(operation_identities), next_step_index)
+        if digest != expected:
+            raise ValueError("autonomous task sequence checkpoint digest mismatch")
+        return cls(sequence_id, tuple(step_names), tuple(operation_identities), next_step_index, digest)
 
 
 @dataclass(frozen=True)
@@ -94,14 +104,7 @@ class AutonomousTaskSequenceResult:
 
 
 class AutonomousTaskSequence:
-    """Run an ordered task sequence without creating a second execution mechanism.
-
-    Existing production-operation lifecycle objects remain responsible for execution,
-    authorization, verification, receipts, and blocking. This coordinator only decides
-    which already-admitted operation is next. The checkpoint stores position and step
-    identity only; execution credentials and receipts remain owned by the operations.
-    """
-
+    """Run an ordered task sequence without creating a second execution mechanism."""
     def __init__(self, steps: Iterable[AutonomousTaskStep], sequence_id: str = "default") -> None:
         values = tuple(steps)
         if not values:
@@ -115,19 +118,13 @@ class AutonomousTaskSequence:
         self.next_step_index = 0
 
     def checkpoint(self) -> AutonomousTaskSequenceCheckpoint:
-        return AutonomousTaskSequenceCheckpoint(
-            self.sequence_id,
-            tuple(step.name for step in self.steps),
-            tuple(_operation_identity(step.operation) for step in self.steps),
-            self.next_step_index,
-        )
+        step_names = tuple(step.name for step in self.steps)
+        operation_identities = tuple(_operation_identity(step.operation) for step in self.steps)
+        digest = _checkpoint_digest(self.sequence_id, step_names, operation_identities, self.next_step_index)
+        return AutonomousTaskSequenceCheckpoint(self.sequence_id, step_names, operation_identities, self.next_step_index, digest)
 
     @classmethod
-    def from_checkpoint(
-        cls,
-        steps: Iterable[AutonomousTaskStep],
-        checkpoint: AutonomousTaskSequenceCheckpoint,
-    ) -> "AutonomousTaskSequence":
+    def from_checkpoint(cls, steps: Iterable[AutonomousTaskStep], checkpoint: AutonomousTaskSequenceCheckpoint) -> "AutonomousTaskSequence":
         if not isinstance(checkpoint, AutonomousTaskSequenceCheckpoint):
             raise TypeError("checkpoint must be an AutonomousTaskSequenceCheckpoint")
         sequence = cls(steps, sequence_id=checkpoint.sequence_id)
@@ -140,19 +137,13 @@ class AutonomousTaskSequence:
         sequence.next_step_index = checkpoint.next_step_index
         return sequence
 
-    def run(
-        self,
-        max_steps: int = 16,
-        before_step: Optional[Callable[[int, AutonomousTaskStep], None]] = None,
-        checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None,
-    ) -> AutonomousTaskSequenceResult:
+    def run(self, max_steps: int = 16, before_step: Optional[Callable[[int, AutonomousTaskStep], None]] = None, checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None) -> AutonomousTaskSequenceResult:
         if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
             raise ValueError("max_steps must be a positive integer")
         if before_step is not None and not callable(before_step):
             raise TypeError("before_step must be callable")
         if checkpoint_sink is not None and not callable(checkpoint_sink):
             raise TypeError("checkpoint_sink must be callable")
-
         completed = [step.name for step in self.steps[: self.next_step_index]]
         while self.next_step_index < len(self.steps):
             index = self.next_step_index
@@ -161,20 +152,9 @@ class AutonomousTaskSequence:
                 before_step(index, step)
             result = step.operation.run(max_steps=max_steps)
             if result.state is not ProductionOperationState.COMPLETED or result.receipt is None:
-                return AutonomousTaskSequenceResult(
-                    ProductionOperationState.BLOCKED,
-                    tuple(completed),
-                    index,
-                    f"autonomous task sequence blocked at step {index + 1}: {result.reason}",
-                )
+                return AutonomousTaskSequenceResult(ProductionOperationState.BLOCKED, tuple(completed), index, f"autonomous task sequence blocked at step {index + 1}: {result.reason}")
             completed.append(step.name)
             self.next_step_index = index + 1
             if checkpoint_sink is not None:
                 checkpoint_sink(self.checkpoint().snapshot())
-
-        return AutonomousTaskSequenceResult(
-            ProductionOperationState.COMPLETED,
-            tuple(completed),
-            self.next_step_index,
-            "all autonomous task steps completed with authoritative verification",
-        )
+        return AutonomousTaskSequenceResult(ProductionOperationState.COMPLETED, tuple(completed), self.next_step_index, "all autonomous task steps completed with authoritative verification")
