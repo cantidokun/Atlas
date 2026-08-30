@@ -34,7 +34,9 @@ def test_fresh_authorization_is_distinct_after_recovery(tmp_path):
     journal = SQLiteBlenderExecutionJournal(database)
     boundary = RecordingBoundary()
     admission = BlenderAutonomousAdmission(
-        BlenderLiveWriteGate(boundary), journal, BlenderExecutionRecovery(journal)
+        BlenderLiveWriteGate(boundary, execution_journal=journal),
+        journal,
+        BlenderExecutionRecovery(journal),
     )
     results = admission.startup(lambda action, record: (True, {"recovered": True}))
     assert results[0]["status"] == "VERIFIED"
