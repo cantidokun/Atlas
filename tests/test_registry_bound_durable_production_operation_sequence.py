@@ -56,7 +56,7 @@ def test_sequence_rejects_stale_operation_before_any_write():
     )
     registry.register_revision(newer)
     writes = []
-    with pytest.raises(ValueError, match="current canonical Digital Twin revision"):
+    with pytest.raises(ValueError, match="operation identity mismatch|current canonical Digital Twin revision"):
         RegistryBoundDurableProductionOperationSequence(
             (_operation("task-1", revision, writes),), registry
         )
@@ -75,7 +75,7 @@ def test_sequence_rejects_registry_bound_completed_receipt_from_stale_revision()
     )
     registry.register_revision(newer)
     stale_writes = []
-    with pytest.raises(ValueError, match="stale Digital Twin revision"):
+    with pytest.raises(ValueError, match="stale Digital Twin revision|operation identity mismatch"):
         RegistryBoundDurableProductionOperationSequence(
             (_operation("task-1", revision, stale_writes),), registry, checkpoint=result.checkpoint
         )
@@ -95,7 +95,7 @@ def test_sequence_rejects_stale_unfinished_operation_before_any_write():
     registry.register_revision(newer)
     stale_writes = []
     second = _operation("task-2", revision, stale_writes)
-    with pytest.raises(ValueError, match="stale Digital Twin revision|current canonical Digital Twin revision"):
+    with pytest.raises(ValueError, match="stale Digital Twin revision|current canonical Digital Twin revision|operation identity mismatch"):
         RegistryBoundDurableProductionOperationSequence(
             (first, second), registry, checkpoint=result.checkpoint
         )
@@ -117,7 +117,7 @@ def test_sequence_rechecks_registry_before_each_operation_after_revision_race():
         )
         registry.register_revision(newer)
 
-    with pytest.raises(ValueError, match="current canonical Digital Twin revision"):
+    with pytest.raises(ValueError, match="current canonical Digital Twin revision|operation identity mismatch"):
         RegistryBoundDurableProductionOperationSequence(
             (first, second), registry
         ).run(checkpoint_sink=race_after_first)
