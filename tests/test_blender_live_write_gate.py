@@ -5,6 +5,7 @@ from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_live_write_gate import BlenderLiveWriteGate
 from planning.blender_result_contract import BlenderExecutionResult
 from planning.blender_write_authorization import BlenderWriteAuthorization
+from planning.blender_write_authorization_ledger import BlenderWriteAuthorizationLedger
 
 
 class FakeBoundary:
@@ -112,3 +113,27 @@ def test_live_gate_blocks_when_authoritative_verification_rejects_mutation():
     assert "did not verify" in outcome.reason
     assert verifier_calls == [(action, receipt)]
     assert outcome.verification["authoritative"] is False
+
+
+def test_live_gate_blocks_reuse_of_consumed_authorization_before_execution():
+    action = _action()
+    authorization = BlenderWriteAuthorization.issue(action, "single-use-auth")
+    result, receipt = _successful_execution(action, authorization)
+    boundary = FakeBoundary((result, receipt))
+    verifier_calls = []
+
+    def verifier(received_action, received_receipt):
+        verifier_calls.append((received_action, received_receipt))
+        return True, {"authoritative": True}
+
+    ledger = BlenderWriteAuthorizationLedger()
+    gate = BlenderLiveWriteGate(boundary, verifier, ledger)
+
+    first = gate.execute(action, authorization)
+    second = gate.execute(action, authorization)
+
+    assert first.status == "VERIFIED"
+    assert second.status == "BLOCKED"
+    assert "already been consumed" in second.reason
+    assert boundary.calls == 1
+    assert len(verifier_calls) == 1
