@@ -15,7 +15,7 @@ class RecordingBoundary(BlenderExecutionBoundary):
 
     def execute_authorized_write(self, action, authorization):
         self.calls.append((action, authorization.authorization_id))
-        raise AssertionError("test boundary must not execute a live write")
+        raise RuntimeError("boundary execution failed")
 
 
 def _action(name):
@@ -45,15 +45,13 @@ def test_fresh_authorization_is_distinct_after_recovery(tmp_path):
     assert new_auth.authorization_id != old_auth.authorization_id
     assert new_auth.matches(new_action)
 
-    try:
-        admission.execute(new_action, new_auth)
-    except AssertionError as exc:
-        assert str(exc) == "test boundary must not execute a live write"
-    else:
-        raise AssertionError("fresh action unexpectedly bypassed the live boundary")
+    result = admission.execute(new_action, new_auth)
+    assert result.status == "FAILED"
+    assert result.error_type == "RuntimeError"
 
     record = journal.get(new_auth.authorization_id)
     assert record is not None
-    assert record["status"] == "STARTED"
+    assert record["status"] == "COMPLETED"
+    assert record["outcome_status"] == "FAILED"
     assert boundary.calls == [(new_action, "fresh-auth")]
     journal.close()
