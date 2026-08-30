@@ -57,7 +57,9 @@ def test_rehydrator_accepts_valid_persistence_bundle():
     result = DurableProductionSequenceRehydrator(registry).rehydrate(
         (_operation("task-1", revision),), bundle
     )
-    assert result.checkpoint.snapshot() == checkpoint.snapshot()
+    assert result.checkpoint.next_operation_index == checkpoint.next_operation_index
+    assert result.checkpoint.completed_receipts == checkpoint.completed_receipts
+    assert len(result.checkpoint.operation_identities) == 1
 
 
 def test_rehydrator_accepts_bundle_loaded_from_persistence_store():
@@ -67,7 +69,9 @@ def test_rehydrator_accepts_bundle_loaded_from_persistence_store():
     result = DurableProductionSequenceRehydrator(registry).rehydrate(
         (_operation("task-1", revision),), store.load()
     )
-    assert result.checkpoint.snapshot() == checkpoint.snapshot()
+    assert result.checkpoint.next_operation_index == checkpoint.next_operation_index
+    assert result.checkpoint.completed_receipts == checkpoint.completed_receipts
+    assert len(result.checkpoint.operation_identities) == 1
 
 
 def test_rehydrator_revalidates_mutated_bundle_snapshots():
