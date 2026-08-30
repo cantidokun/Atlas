@@ -137,6 +137,25 @@ class AutonomousTaskSequence:
         sequence.next_step_index = checkpoint.next_step_index
         return sequence
 
+    def run_admitted(
+        self,
+        admission_gate: Callable[[], bool],
+        max_steps: int = 16,
+        before_step: Optional[Callable[[int, AutonomousTaskStep], None]] = None,
+        checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None,
+    ) -> AutonomousTaskSequenceResult:
+        """Run only after the existing autonomous admission boundary is READY."""
+        if not callable(admission_gate):
+            raise TypeError("admission_gate must be callable")
+        if not admission_gate():
+            return AutonomousTaskSequenceResult(
+                ProductionOperationState.BLOCKED,
+                tuple(step.name for step in self.steps[: self.next_step_index]),
+                self.next_step_index,
+                "autonomous task sequence blocked: runtime admission rejected",
+            )
+        return self.run(max_steps=max_steps, before_step=before_step, checkpoint_sink=checkpoint_sink)
+
     def run(self, max_steps: int = 16, before_step: Optional[Callable[[int, AutonomousTaskStep], None]] = None, checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None) -> AutonomousTaskSequenceResult:
         if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
             raise ValueError("max_steps must be a positive integer")
