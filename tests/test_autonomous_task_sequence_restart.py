@@ -72,7 +72,7 @@ def test_sequence_checkpoint_rejects_tampered_snapshot():
 def test_sequence_checkpoint_rejects_out_of_range_resume_position():
     snapshot = checkpoint(next_step_index=1).snapshot()
     snapshot["next_step_index"] = 3
-    with pytest.raises(ValueError, match="digest mismatch"):
+    with pytest.raises(ValueError, match="next_step_index is outside the sequence"):
         AutonomousTaskSequenceCheckpoint.from_snapshot(snapshot)
 
 
