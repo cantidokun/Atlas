@@ -2,10 +2,16 @@
 
 from planning.action_plan import ActionSpec
 from planning.blender_autonomous_admission import BlenderAutonomousAdmission
+from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_execution_journal import SQLiteBlenderExecutionJournal
 from planning.blender_execution_recovery import BlenderExecutionRecovery
 from planning.blender_live_write_gate import BlenderLiveWriteGate
 from planning.blender_write_authorization import BlenderWriteAuthorization
+
+
+class FakeBoundary:
+    def execute_authorized_write(self, action, authorization):
+        raise AssertionError("restart recovery test must not execute a Blender write")
 
 
 def _action():
@@ -22,8 +28,10 @@ def test_unresolved_execution_survives_fresh_runtime_and_is_reconciled(tmp_path)
     first_journal.close()
 
     second_journal = SQLiteBlenderExecutionJournal(database)
+    boundary = BlenderExecutionBoundary(lambda _tool, _arguments: {"ok": True})
+    write_gate = BlenderLiveWriteGate(boundary)
     second_admission = BlenderAutonomousAdmission(
-        BlenderLiveWriteGate(), second_journal, BlenderExecutionRecovery(second_journal)
+        write_gate, second_journal, BlenderExecutionRecovery(second_journal)
     )
     assert second_admission.ready is False
 
