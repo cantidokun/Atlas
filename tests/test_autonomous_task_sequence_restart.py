@@ -90,3 +90,39 @@ def test_sequence_resumes_after_json_process_boundary_without_replaying_complete
     assert result.next_step_index == 2
     first_operation.run.assert_not_called()
     second_operation.run.assert_called_once()
+
+
+def test_sequence_admission_gate_blocks_without_running_operations():
+    first_operation = operation("task-1")
+    second_operation = operation("task-2")
+    sequence = AutonomousTaskSequence(
+        (AutonomousTaskStep("create", first_operation), AutonomousTaskStep("move", second_operation)),
+        sequence_id="shot-001",
+    )
+    result = sequence.run_admitted(lambda: False)
+    assert result.state is ProductionOperationState.BLOCKED
+    assert "runtime admission rejected" in result.reason
+    assert result.next_step_index == 0
+    first_operation.run.assert_not_called()
+    second_operation.run.assert_not_called()
+
+
+def test_sequence_admission_gate_allows_existing_sequence_path():
+    first_operation = operation("task-1")
+    first_operation.run.return_value = ProductionOperationResult(
+        state=ProductionOperationState.COMPLETED,
+        task_result=MagicMock(),
+        reason="authoritative verification accepted final evidence",
+        receipt=MagicMock(),
+    )
+    sequence = AutonomousTaskSequence((AutonomousTaskStep("create", first_operation),), sequence_id="shot-001")
+    result = sequence.run_admitted(lambda: True)
+    assert result.state is ProductionOperationState.COMPLETED
+    assert result.next_step_index == 1
+    first_operation.run.assert_called_once()
+
+
+def test_sequence_admission_gate_requires_callable():
+    sequence = AutonomousTaskSequence((AutonomousTaskStep("create", operation("task-1")),), sequence_id="shot-001")
+    with pytest.raises(TypeError, match="admission_gate must be callable"):
+        sequence.run_admitted(None)
