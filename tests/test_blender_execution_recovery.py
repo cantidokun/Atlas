@@ -53,7 +53,7 @@ def test_recovery_blocks_when_authoritative_state_does_not_match(tmp_path: Path)
     journal.close()
 
 
-def test_recovery_rejects_argument_identity_mismatch(tmp_path: Path):
+def test_recovery_rejects_tampered_journal_arguments(tmp_path: Path):
     journal = SQLiteBlenderExecutionJournal(str(tmp_path / "journal.sqlite"))
     action = _action()
     authorization = _authorization()
