@@ -1,39 +1,59 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 28, 2026 — Blender-agent development paused for the night after integrating GitHub Actions and establishing the self-hosted Windows/Blender smoke-test boundary.  
+**Updated:** August 30, 2026 — Blender-agent development paused for the night after advancing the autonomous admission and restart-recovery boundary.  
 **Branch:** `feat/blender-coordinator-result-integrity-final`  
-**Latest documentation commit:** `d5370a6526f5f2c5d6a3398253b74ba24df59cbc`  
+**Latest documentation commit:** follows this update.  
 **Purpose:** canonical resume point for the next Atlas development session.
 
-## Session milestone
+## Current milestone
 
-This session established the next major testing boundary for the Blender Agent:
+**AUTONOMOUS ADMISSION / RESTART-RECOVERY BOUNDARY**
+
+Atlas has moved from deterministic, authorization-bound Blender execution into a production-facing autonomous admission layer. The runtime now has a defined startup safety boundary: persisted interrupted executions must be reconciled before autonomous execution can become READY.
+
+The current work establishes:
 
 ```text
-GitHub-hosted Ubuntu CI
-    -> portable/offline Python regression tests
-
-GitHub Actions
-    -> self-hosted Windows runner
-    -> Blender smoke/integration tests
-    -> actual Blender environment
+runtime startup
+ -> durable execution journal inspection
+ -> unresolved execution discovery
+ -> authoritative reconciliation
+ -> VERIFIED / BLOCKED
+ -> READY only after successful reconciliation
+ -> fresh authorization
+ -> normal live-write gate
+ -> durable execution state
+ -> authoritative verification
 ```
 
-The self-hosted runner remains connected and available. It is intentionally idle when no workflow job targets its labels. The authoritative workflow is `.github/workflows/tests.yml`.
+Failed reconciliation remains fail-closed. Saved authorization is never replayed; recovery establishes state and a subsequent action requires a fresh authorization.
 
-## What was completed this session
+## Durable journal invariant
 
-1. Added GitHub Actions as a first-class Atlas development mechanism.
-2. Consolidated redundant test workflows into `.github/workflows/tests.yml`.
-3. Configured the portable CI tier for Python 3.12 and Atlas's declared test dependencies.
-4. Fixed package-relative controller imports exposed by CI.
-5. Added explicit setuptools package discovery for Atlas's current package layout.
-6. Added a dedicated self-hosted Windows/Blender CI job.
-7. Added `tests/blender/test_runner_smoke.py` to validate the runner environment and Blender executable before real scene integration testing.
-8. Isolated the smoke gate from the portable test suite so Blender-specific validation remains an explicit external-environment boundary.
-9. Continued strengthening the deterministic controller/recovery state machine, including fail-closed recovery semantics and retry-state handling.
+The autonomous admission boundary and `BlenderLiveWriteGate` must share the **same durable execution journal instance**. This closes the architectural gap where an autonomous write could otherwise be admitted without durable execution state.
 
-## Current architecture
+The live-write path remains fail-closed and authorization-bound.
+
+## CI / workflow position
+
+GitHub Actions is now a first-class Atlas development mechanism with two complementary tiers:
+
+```text
+GitHub-hosted Ubuntu
+    -> portable/offline Python regression suite
+
+Self-hosted Windows runner
+    -> Blender environment validation
+    -> live Blender integration/regression evidence
+```
+
+Offline pytest does not constitute live Blender evidence. The self-hosted Windows/Blender workflow remains the authority for environment-dependent Blender behavior.
+
+The runner has previously demonstrated that it can execute the workflow on Windows, identify the configured runner, discover Blender, and launch `blender --version`.
+
+Recent failures were isolated to test-contract/fixture mismatches exposed by the newly enforced journal invariant. The production invariant itself is intentionally retained.
+
+## Architecture now established
 
 The Blender Agent remains governed by:
 
@@ -53,52 +73,36 @@ Qwen proposal
  -> durable sequence rehydration
  -> resume identity validation
  -> fresh resume authorization
- -> resumed write
+ -> authorized Blender continuation
  -> authoritative final verification
  -> ProductionCompletionReceipt
  -> COMPLETED / BLOCKED
 ```
 
+The autonomous startup boundary now sits above the execution/recovery path rather than bypassing it.
+
 Qwen proposes; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender is an execution target, never the authority.
 
-## CI boundary
+## Proven capabilities / boundaries
 
-Portable CI should establish deterministic Python behavior. The self-hosted job exists specifically for environment-dependent validation that cannot be faithfully reproduced on GitHub-hosted Linux.
+The repository already contains generalized boundaries for:
 
-The current self-hosted smoke gate validates:
+- explicit Blender capability admission;
+- exact write authorization;
+- authorization-bound live writes;
+- independent authoritative verification;
+- immutable execution receipts;
+- corrective replanning from fresh evidence;
+- durable task checkpoints;
+- Digital Twin registry identity and revision binding;
+- production completion authority;
+- persisted production sequence rehydration;
+- fail-closed resume identity validation;
+- autonomous startup admission and execution recovery.
 
-- Windows execution;
-- GitHub Actions execution context;
-- presence of the configured runner identity;
-- discoverability of the Blender executable;
-- successful `blender --version` execution.
+Previously proven live Blender capabilities include `set_object_rotation`, `move_object`, `delete_object`, `create_empty_marker`, and `move_object_to_collection`, with legitimate paths verified and adversarial paths blocked.
 
-It intentionally performs **no scene mutation**. The next step is a controlled `.blend` fixture and real Atlas/Blender integration test.
-
-Do not claim a live Blender result from an offline pytest result. Live evidence must come from the self-hosted runner.
-
-## Existing proven live architecture
-
-Previously proven live gates remain authoritative, including:
-
-```text
-multi-operation composition
-stale authorization zero-write
-continuation stale-state zero-write
-continuation resume
-Durable checkpoint stale-state zero-write
-Durable checkpoint resume
-registry stale-revision zero-write
-registry durable resume
-Durable production sequence interruption/resume
-Durable production sequence final verification
-registry-bound stale-revision zero-write
-registry snapshot rehydration
-registry snapshot tamper fail-closed
-rehydrated registry stale-revision zero-write
-rehydrated registry completion
-rehydrated wrong-state block
-```
+Previously proven live gates include durable checkpoint resume, stale-state zero-write behavior, registry-bound stale-revision blocking, registry snapshot rehydration/tamper rejection, durable production sequence interruption/resume, and rehydrated production completion/blocking.
 
 Do not reopen these mechanisms without new evidence of an architectural gap.
 
@@ -106,16 +110,15 @@ Do not reopen these mechanisms without new evidence of an architectural gap.
 
 - `.github/workflows/tests.yml` — authoritative portable + self-hosted CI workflow.
 - `tests/blender/test_runner_smoke.py` — self-hosted Blender environment smoke gate.
-- `controller/controller_state.py` — deterministic controller state machine.
-- `controller/controller_checkpoint.py` — serializable checkpoint boundary.
-- `controller/controller_recovery.py` — fail-closed recovery/reconciliation boundary.
-- `controller/controller_runtime.py` — deterministic execution runtime.
 - `planning/blender_capability_catalog.py` — explicit Blender capability admission.
 - `planning/blender_write_authorization.py` — exact write authorization.
-- `planning/blender_live_write_gate.py` — authorization-bound write choke point.
+- `planning/blender_live_write_gate.py` — authorization-bound write choke point and durable journal boundary.
 - `planning/blender_live_verification.py` — authoritative post-write verification.
 - `planning/blender_execution_receipt.py` — immutable execution receipt.
 - `planning/blender_execution_boundary.py` — protected execution/corrective-replan boundary.
+- `planning/blender_execution_journal.py` — durable execution state.
+- `planning/blender_execution_recovery.py` — persisted execution recovery/reconciliation.
+- `planning/blender_autonomous_admission.py` — startup reconciliation and autonomous readiness boundary.
 - `planning/replan_authorization.py` — fresh-evidence corrective authorization.
 - `planning/production_task_checkpoint.py` — durable task checkpoint.
 - `planning/digital_twin_registry.py` — canonical Digital Twin identity/revision registry.
@@ -131,23 +134,26 @@ Do not reopen these mechanisms without new evidence of an architectural gap.
 - Qwen never receives direct Blender execution authority.
 - Only explicitly admitted Blender capabilities execute.
 - Corrective planning uses fresh authoritative state.
-- Stale or changed authorization fails closed.
+- Stale, changed, missing, or unbound authorization fails closed.
 - `VERIFIED` requires authoritative verification and an execution receipt.
-- `COMPLETED` requires authoritative verification and a `ProductionCompletionReceipt`.
+- `COMPLETED` requires authoritative verification and a production completion receipt.
 - Wrong authoritative state is `BLOCKED`, even after executor success.
-- Zero-write guarantees must be preserved on stale/unauthorized paths.
+- Autonomous execution is locked until startup reconciliation is complete.
+- Autonomous admission and the live-write gate must share the same durable execution journal.
+- Zero-write guarantees must be preserved on stale, unauthorized, and recovery-failure paths.
 - Persisted registry snapshots and sequence checkpoints must be validated before resumed execution.
 - Saved authorization is never replayed.
-- Do not introduce another checkpoint, authorization, receipt, or completion mechanism without demonstrating a concrete architectural gap.
+- Do not add generic test operations such as `set_value` to the production Blender capability catalog.
 - Avoid bespoke per-tool lifecycle orchestration in place of generalized runtime boundaries.
+- Do not introduce another checkpoint, authorization, receipt, or completion mechanism without demonstrating a concrete architectural gap.
 - C++ interoperability remains a future architectural requirement; subsystem contracts should remain language-agnostic.
 - Photogrammetry is upstream of Blender; Atlas is exclusively concerned with soccer-field-related digital twins.
 
 ## End-of-session status
 
-**Blender Agent development is paused for the night.** No further implementation should be started until the next session unless the user explicitly resumes development.
+**Development is paused until tomorrow.** No additional Blender-agent implementation should be started until the next session.
 
-The next meaningful validation boundary is the self-hosted Windows/Blender smoke gate, followed by creation of the controlled `.blend` integration fixture.
+The current frontier is the autonomous admission/restart-recovery boundary. The remaining CI work is to finish validating the latest fixture corrections against the current merge ref. Once the autonomous-admission suite is green, move upward into generalized autonomous task sequencing/orchestration rather than adding parallel safety mechanisms.
 
 ## Next-session resume
 
@@ -156,4 +162,12 @@ git pull --ff-only origin feat/blender-coordinator-result-integrity-final
 python -m pytest -q
 ```
 
-Then inspect the GitHub Actions self-hosted Blender job result. If the smoke gate is green, proceed to the real Blender fixture/integration layer. If it fails, fix the runner/environment boundary before adding scene-level tests.
+Then:
+
+1. Check the newest GitHub Actions workflows.
+2. Resolve any remaining autonomous-admission fixture/test-contract failures.
+3. Confirm the self-hosted Windows/Blender workflow remains healthy.
+4. Once green, begin generalized autonomous task sequencing/orchestration.
+5. Preserve the existing authorization, journal, verification, checkpoint, registry, and completion boundaries.
+
+**Important:** do not infer live Blender success from offline pytest results.
