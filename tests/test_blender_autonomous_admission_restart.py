@@ -28,8 +28,12 @@ def test_unresolved_execution_survives_fresh_runtime_and_is_reconciled(tmp_path)
     first_journal.close()
 
     second_journal = SQLiteBlenderExecutionJournal(database)
-    boundary = BlenderExecutionBoundary(lambda _tool, _arguments: {"ok": True})
-    write_gate = BlenderLiveWriteGate(boundary)
+    boundary = FakeBoundary()
+    write_gate = BlenderLiveWriteGate(
+        boundary,
+        lambda _action, _receipt: (True, {"authoritative": True}),
+        execution_journal=second_journal,
+    )
     second_admission = BlenderAutonomousAdmission(
         write_gate, second_journal, BlenderExecutionRecovery(second_journal)
     )
