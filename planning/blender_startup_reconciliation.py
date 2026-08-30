@@ -1,6 +1,6 @@
 """Startup reconciliation gate for autonomous Blender execution."""
 
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 from planning.blender_execution_journal import SQLiteBlenderExecutionJournal
 from planning.blender_execution_recovery import BlenderExecutionRecovery, RecoveryVerifier
@@ -23,7 +23,7 @@ class BlenderStartupReconciliation:
         return self._ready
 
     def reconcile(self, verifier: RecoveryVerifier) -> list[Mapping[str, Any]]:
-        """Reconcile every unresolved execution; readiness requires zero unresolved rows."""
+        """Reconcile every unresolved execution; readiness requires every result to be VERIFIED."""
         if not callable(verifier):
             raise TypeError("verifier must be callable")
         self._ready = False
@@ -31,7 +31,7 @@ class BlenderStartupReconciliation:
         for record in self._journal.list_unresolved():
             result = self._recovery.reconcile_record(record["authorization_id"], verifier)
             results.append(result)
-        self._ready = len(self._journal.list_unresolved()) == 0
+        self._ready = bool(all(result.get("status") == "VERIFIED" for result in results))
         return results
 
     def require_ready(self) -> None:
