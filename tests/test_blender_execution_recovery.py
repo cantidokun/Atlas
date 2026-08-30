@@ -58,10 +58,14 @@ def test_recovery_rejects_argument_identity_mismatch(tmp_path: Path):
     action = _action()
     authorization = _authorization()
     assert journal.begin(action, authorization) is True
-    altered = ActionSpec("move_object", {"object_name": "Ball", "location": [9.0, 9.0, 9.0]})
+    journal._connection.execute(
+        "UPDATE blender_execution_journal SET arguments_digest = ? WHERE authorization_id = ?",
+        ("tampered", authorization.authorization_id),
+    )
+    journal._connection.commit()
 
     with pytest.raises(RuntimeError, match="arguments do not match"):
-        BlenderExecutionRecovery(journal).reconcile(altered, authorization, lambda *_: (True, {}))
+        BlenderExecutionRecovery(journal).reconcile(action, authorization, lambda *_: (True, {}))
     journal.close()
 
 
