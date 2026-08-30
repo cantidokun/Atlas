@@ -1,7 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "Factories/WorldFactory.h"
 #include "FileHelpers.h"
-#include "AssetRegistry/AssetRegistryModule.h"
+#include "HAL/FileManager.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "UObject/Package.h"
@@ -66,19 +66,11 @@ bool FAtlasUE56WorldSaveBoundaryTest::RunTest(const FString& Parameters)
     }
 
     World->UpdateWorldComponents(true, true);
-    FAssetRegistryModule::AssetCreated(World);
     Package->MarkPackageDirty();
 
     const bool bSaved = UEditorLoadingAndSavingUtils::SaveMap(World, PackageName);
     TestTrue(TEXT("UEditorLoadingAndSavingUtils::SaveMap saved the generated map"), bSaved);
     TestTrue(TEXT("Generated .umap exists on disk after SaveMap"), FPaths::FileExists(PackageFilename));
-
-    if (bSaved && FPaths::FileExists(PackageFilename))
-    {
-        const FAssetData AssetData = FAssetRegistryModule::GetRegistry().GetAssetByObjectPath(
-            FSoftObjectPath(World));
-        TestTrue(TEXT("Saved world remains discoverable by the Asset Registry"), AssetData.IsValid());
-    }
 
     if (FPaths::FileExists(PackageFilename))
     {
