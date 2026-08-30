@@ -2,7 +2,12 @@
 
 import pytest
 
-from planning.autonomous_task_sequence import AutonomousTaskSequenceCheckpoint
+from planning.autonomous_task_sequence import (
+    AutonomousTaskSequence,
+    AutonomousTaskSequenceCheckpoint,
+    AutonomousTaskStep,
+)
+from planning.production_operation_lifecycle import ProductionOperationLifecycle
 
 
 def test_sequence_checkpoint_round_trips_json_native_state():
@@ -21,11 +26,19 @@ def test_sequence_checkpoint_round_trips_json_native_state():
 
 def test_sequence_checkpoint_rejects_changed_step_identity():
     checkpoint = AutonomousTaskSequenceCheckpoint("shot-001", ("create", "move"), 1)
-    snapshot = checkpoint.snapshot()
-    snapshot["step_names"] = ["create", "delete"]
+    restored = AutonomousTaskSequenceCheckpoint.from_snapshot(checkpoint.snapshot())
 
-    with pytest.raises(ValueError, match="unique|checkpoint"):
-        AutonomousTaskSequenceCheckpoint.from_snapshot(snapshot)
+    def operation(name: str) -> ProductionOperationLifecycle:
+        return ProductionOperationLifecycle(name=name)
+
+    with pytest.raises(ValueError, match="checkpoint step identity"):
+        AutonomousTaskSequence.from_checkpoint(
+            (
+                AutonomousTaskStep("create", operation("create")),
+                AutonomousTaskStep("delete", operation("delete")),
+            ),
+            restored,
+        )
 
 
 def test_sequence_checkpoint_rejects_out_of_range_resume_position():
