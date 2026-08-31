@@ -118,10 +118,13 @@ class AutonomousTaskSequence:
         self.next_step_index = 0
 
     def checkpoint(self) -> AutonomousTaskSequenceCheckpoint:
+        return self._checkpoint_for_index(self.next_step_index)
+
+    def _checkpoint_for_index(self, next_step_index: int) -> AutonomousTaskSequenceCheckpoint:
         step_names = tuple(step.name for step in self.steps)
         operation_identities = tuple(_operation_identity(step.operation) for step in self.steps)
-        digest = _checkpoint_digest(self.sequence_id, step_names, operation_identities, self.next_step_index)
-        return AutonomousTaskSequenceCheckpoint(self.sequence_id, step_names, operation_identities, self.next_step_index, digest)
+        digest = _checkpoint_digest(self.sequence_id, step_names, operation_identities, next_step_index)
+        return AutonomousTaskSequenceCheckpoint(self.sequence_id, step_names, operation_identities, next_step_index, digest)
 
     @classmethod
     def from_checkpoint(cls, steps: Iterable[AutonomousTaskStep], checkpoint: AutonomousTaskSequenceCheckpoint) -> "AutonomousTaskSequence":
@@ -173,7 +176,8 @@ class AutonomousTaskSequence:
             if result.state is not ProductionOperationState.COMPLETED or result.receipt is None:
                 return AutonomousTaskSequenceResult(ProductionOperationState.BLOCKED, tuple(completed), index, f"autonomous task sequence blocked at step {index + 1}: {result.reason}")
             completed.append(step.name)
-            self.next_step_index = index + 1
+            next_step_index = index + 1
             if checkpoint_sink is not None:
-                checkpoint_sink(self.checkpoint().snapshot())
+                checkpoint_sink(self._checkpoint_for_index(next_step_index).snapshot())
+            self.next_step_index = next_step_index
         return AutonomousTaskSequenceResult(ProductionOperationState.COMPLETED, tuple(completed), self.next_step_index, "all autonomous task steps completed with authoritative verification")
