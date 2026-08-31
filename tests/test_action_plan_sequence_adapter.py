@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from planning.action_plan import ActionPlan
+from planning.action_plan import ActionPlan, ActionSpec
 from planning.action_plan_sequence_adapter import ActionPlanSequenceAdapter
 from planning.production_operation_lifecycle import ProductionOperationLifecycle
 
@@ -11,12 +11,8 @@ from planning.production_operation_lifecycle import ProductionOperationLifecycle
 def authorized_plan():
     plan = ActionPlan([])
     plan.actions = [
-        __import__("planning.action_plan", fromlist=["ActionSpec"]).ActionSpec(
-            tool="create_collection", arguments={"name": "Field"}, name="create"
-        ),
-        __import__("planning.action_plan", fromlist=["ActionSpec"]).ActionSpec(
-            tool="move_object", arguments={"object": "Ball", "collection": "Field"}, name="move"
-        ),
+        ActionSpec(tool="create_collection", arguments={"name": "Field"}, name="create"),
+        ActionSpec(tool="move_object", arguments={"object": "Ball", "collection": "Field"}, name="move"),
     ]
     plan.authorize_with_id("auth-001")
     return plan
@@ -26,6 +22,23 @@ def test_adapter_requires_authorized_plan():
     plan = ActionPlan([])
     adapter = ActionPlanSequenceAdapter(lambda _action: MagicMock(spec=ProductionOperationLifecycle))
     with pytest.raises(RuntimeError, match="must be authorized"):
+        adapter.to_sequence(plan)
+
+
+def test_adapter_rejects_partially_executed_plan():
+    plan = authorized_plan()
+    plan.current_index = 1
+    plan.completed.append({"index": 0, "name": "create"})
+    adapter = ActionPlanSequenceAdapter(lambda _action: MagicMock(spec=ProductionOperationLifecycle))
+    with pytest.raises(RuntimeError, match="must be pristine"):
+        adapter.to_sequence(plan)
+
+
+def test_adapter_rejects_failed_plan():
+    plan = authorized_plan()
+    plan.failed = {"index": 0, "name": "create", "success": False}
+    adapter = ActionPlanSequenceAdapter(lambda _action: MagicMock(spec=ProductionOperationLifecycle))
+    with pytest.raises(RuntimeError, match="must be pristine"):
         adapter.to_sequence(plan)
 
 
