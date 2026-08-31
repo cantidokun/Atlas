@@ -13,12 +13,12 @@ OperationFactory = Callable[[ActionSpec], ProductionOperationLifecycle]
 
 @dataclass(frozen=True)
 class ActionPlanSequenceAdapter:
-    """Translate an already-authorized ActionPlan into production operations.
+    """Translate an already-authorized, pristine ActionPlan into production operations.
 
-    The adapter performs no execution or authorization itself. It requires the
-    ActionPlan to already be authorized and delegates operation construction to
-    the caller-provided factory, preserving the existing production lifecycle as
-    the execution boundary.
+    The adapter performs no execution, authorization, or resume. A partially
+    executed plan must use the established checkpoint/resume path rather than
+    being rebuilt as a new autonomous sequence, preventing replay of completed
+    actions under a fresh sequence identity.
     """
 
     operation_factory: OperationFactory
@@ -32,6 +32,8 @@ class ActionPlanSequenceAdapter:
             raise TypeError("action_plan must be an ActionPlan")
         if not action_plan.authorized:
             raise RuntimeError("Action plan must be authorized before production sequencing")
+        if action_plan.current_index != 0 or action_plan.completed or action_plan.failed is not None:
+            raise RuntimeError("Action plan must be pristine before production sequencing")
         operations: Sequence[AutonomousTaskStep] = tuple(
             AutonomousTaskStep(
                 action.name or action.tool,
