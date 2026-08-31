@@ -147,37 +147,63 @@ class AutonomousTaskSequence:
         before_step: Optional[Callable[[int, AutonomousTaskStep], None]] = None,
         checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> AutonomousTaskSequenceResult:
-        """Run only after the existing autonomous admission boundary is READY."""
+        """Run only while the existing autonomous admission boundary remains READY."""
         if not callable(admission_gate):
             raise TypeError("admission_gate must be callable")
-        if not admission_gate():
-            return AutonomousTaskSequenceResult(
-                ProductionOperationState.BLOCKED,
-                tuple(step.name for step in self.steps[: self.next_step_index]),
-                self.next_step_index,
-                "autonomous task sequence blocked: runtime admission rejected",
-            )
-        return self.run(max_steps=max_steps, before_step=before_step, checkpoint_sink=checkpoint_sink)
+        return self.run(
+            max_steps=max_steps,
+            before_step=before_step,
+            checkpoint_sink=checkpoint_sink,
+            admission_gate=admission_gate,
+        )
 
-    def run(self, max_steps: int = 16, before_step: Optional[Callable[[int, AutonomousTaskStep], None]] = None, checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None) -> AutonomousTaskSequenceResult:
+    def run(
+        self,
+        max_steps: int = 16,
+        before_step: Optional[Callable[[int, AutonomousTaskStep], None]] = None,
+        checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None,
+        admission_gate: Optional[Callable[[], bool]] = None,
+    ) -> AutonomousTaskSequenceResult:
         if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
             raise ValueError("max_steps must be a positive integer")
         if before_step is not None and not callable(before_step):
             raise TypeError("before_step must be callable")
         if checkpoint_sink is not None and not callable(checkpoint_sink):
             raise TypeError("checkpoint_sink must be callable")
+        if admission_gate is not None and not callable(admission_gate):
+            raise TypeError("admission_gate must be callable")
+
         completed = [step.name for step in self.steps[: self.next_step_index]]
         while self.next_step_index < len(self.steps):
             index = self.next_step_index
             step = self.steps[index]
+
+            if admission_gate is not None and not admission_gate():
+                return AutonomousTaskSequenceResult(
+                    ProductionOperationState.BLOCKED,
+                    tuple(completed),
+                    index,
+                    f"autonomous task sequence blocked before step {index + 1}: runtime admission rejected",
+                )
+
             if before_step is not None:
                 before_step(index, step)
             result = step.operation.run(max_steps=max_steps)
             if result.state is not ProductionOperationState.COMPLETED or result.receipt is None:
-                return AutonomousTaskSequenceResult(ProductionOperationState.BLOCKED, tuple(completed), index, f"autonomous task sequence blocked at step {index + 1}: {result.reason}")
+                return AutonomousTaskSequenceResult(
+                    ProductionOperationState.BLOCKED,
+                    tuple(completed),
+                    index,
+                    f"autonomous task sequence blocked at step {index + 1}: {result.reason}",
+                )
             completed.append(step.name)
             next_step_index = index + 1
             if checkpoint_sink is not None:
                 checkpoint_sink(self._checkpoint_for_index(next_step_index).snapshot())
             self.next_step_index = next_step_index
-        return AutonomousTaskSequenceResult(ProductionOperationState.COMPLETED, tuple(completed), self.next_step_index, "all autonomous task steps completed with authoritative verification")
+        return AutonomousTaskSequenceResult(
+            ProductionOperationState.COMPLETED,
+            tuple(completed),
+            self.next_step_index,
+            "all autonomous task steps completed with authoritative verification",
+        )
