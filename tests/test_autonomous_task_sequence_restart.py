@@ -92,6 +92,25 @@ def test_sequence_resumes_after_json_process_boundary_without_replaying_complete
     second_operation.run.assert_called_once()
 
 
+def test_sequence_checkpoint_sink_failure_does_not_advance_sequence():
+    first_operation = operation("task-1")
+    first_operation.run.return_value = ProductionOperationResult(
+        state=ProductionOperationState.COMPLETED,
+        task_result=MagicMock(),
+        reason="authoritative verification accepted final evidence",
+        receipt=MagicMock(),
+    )
+    sequence = AutonomousTaskSequence((AutonomousTaskStep("create", first_operation),), sequence_id="shot-001")
+
+    def failing_sink(_snapshot):
+        raise RuntimeError("durable checkpoint unavailable")
+
+    with pytest.raises(RuntimeError, match="durable checkpoint unavailable"):
+        sequence.run(checkpoint_sink=failing_sink)
+    assert sequence.next_step_index == 0
+    first_operation.run.assert_called_once()
+
+
 def test_sequence_admission_gate_blocks_without_running_operations():
     first_operation = operation("task-1")
     second_operation = operation("task-2")
