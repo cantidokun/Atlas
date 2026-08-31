@@ -34,6 +34,8 @@ class ActionPlanSequenceAdapter:
             raise RuntimeError("Action plan must be authorized before production sequencing")
         if action_plan.current_index != 0 or action_plan.completed or action_plan.failed is not None:
             raise RuntimeError("Action plan must be pristine before production sequencing")
+        if not action_plan.actions:
+            raise ValueError("Action plan must contain at least one action before production sequencing")
         operations: Sequence[AutonomousTaskStep] = tuple(
             AutonomousTaskStep(
                 action.name or action.tool,
