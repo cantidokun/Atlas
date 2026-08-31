@@ -42,6 +42,14 @@ def test_adapter_rejects_failed_plan():
         adapter.to_sequence(plan)
 
 
+def test_adapter_rejects_empty_authorized_plan():
+    plan = ActionPlan([])
+    plan.authorize_with_id("auth-empty")
+    adapter = ActionPlanSequenceAdapter(lambda _action: MagicMock(spec=ProductionOperationLifecycle))
+    with pytest.raises(ValueError, match="at least one action"):
+        adapter.to_sequence(plan)
+
+
 def test_adapter_maps_authorized_actions_in_order_without_execution():
     plan = authorized_plan()
     created = []
