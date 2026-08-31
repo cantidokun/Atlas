@@ -13,6 +13,7 @@ from typing import Any, Iterable, List
 
 from controller.blender_capabilities import BLENDER_CAPABILITIES
 from planning.action_plan import ActionPlan, ActionSpec
+from planning.autonomous_production_goal import AutonomousProductionGoal
 from planning.blender_tool_schema import validate_blender_tool_call
 
 
@@ -71,6 +72,18 @@ class BlenderTaskPlanner:
             )
 
         return ActionPlan(actions=validated)
+
+    def plan_goal(self, goal: AutonomousProductionGoal) -> ActionPlan:
+        """Compile a production goal through the same capability/schema gates."""
+        if not isinstance(goal, AutonomousProductionGoal):
+            raise BlenderPlanningError("goal must be an AutonomousProductionGoal")
+        return self.plan(
+            BlenderTaskIntent(
+                task_id=goal.goal_id,
+                objective=goal.objective,
+                actions=goal.actions,
+            )
+        )
 
     def capability_names(self) -> tuple[str, ...]:
         return tuple(sorted(self._capabilities))
