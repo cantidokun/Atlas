@@ -90,6 +90,24 @@ def test_real_unreal_heterogeneous_recovery_reassesses_and_replaces_only_niagara
             "heterogeneous-original-niagara-auth",
         )
         original_niagara = _variant(_state(niagara_original.evidence_ledger[0]), "niagara")
+
+        baseline = build_composite_actor_operation(
+            [TARGET_ENTITY_ID],
+            [
+                {
+                    "name": "apply_niagara_variant",
+                    "entity_ids": (TARGET_ENTITY_ID,),
+                    "variant": "none",
+                },
+            ],
+        )
+        executor.execute(
+            planner.plan_composite_actor_production(
+                _intent("heterogeneous-baseline"),
+                baseline,
+            ),
+            "heterogeneous-baseline-auth",
+        )
     except (UnrealAdapterError, NamedPipeTransportError) as exc:
         pytest.skip(f"Unreal heterogeneous fixture unavailable: {exc}")
 
