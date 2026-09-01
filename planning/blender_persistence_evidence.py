@@ -42,6 +42,8 @@ class BlenderPersistenceEvidence:
             raise TypeError("inspection result must be a BlenderExecutionResult")
         if inspection_result.tool != inspection_tool:
             raise ValueError("inspection tool does not match inspection result")
+        if not inspection_result.ok:
+            raise ValueError("persistence evidence requires a successful inspection")
 
         return cls(
             operation_tool=operation_tool,
