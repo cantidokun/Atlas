@@ -1,216 +1,181 @@
-ATLAS DEVELOPMENT HANDOFF — OVERNIGHT UPDATE
-Date: August 21, 2026
-Latest verified CI: 687 passed on Python 3.9 and 3.11
-Current Blender milestone: Qwen/Atlas reasoning boundary cleared; Blender adapter is next
+ATLAS DEVELOPMENT HANDOFF — SEPTEMBER 1, 2026 OVERNIGHT UPDATE
+
+Repository documentation branch:
+docs/sep1-2026-unreal-render-handoff
+
+GitHub main baseline at documentation start:
+b56aada — Add production goal planner regression
+
+Local development checkpoint reported by the development PC:
+f658e16 — feat: establish Unreal render artifact receipt pipeline
+
+Latest local regression reported:
+1033 passed, 5 skipped
+
+Latest local git diff --check:
+clean
 
 ============================================================
 1. PROJECT DIRECTION
 ============================================================
 
-Atlas is an AI-assisted sports virtual production and digital-twin platform.
-Blender is the first execution environment being brought to full agent operation.
-Unreal Engine is a planned complementary production environment.
-
-Dedicated photogrammetry software is an upstream stage that creates the initial
-3D reconstruction. Blender receives that reconstruction for analysis, cleanup,
-correction, optimization, and preparation. Photogrammetry is not a Blender
-responsibility.
-
-Core authority model:
+Atlas is an AI-assisted sports/soccer virtual-production and digital-twin platform.
+Blender and Unreal are execution environments around the canonical Atlas Digital Twin.
+Dedicated photogrammetry software remains an upstream reconstruction capability.
 
 Qwen / AI
     -> understand, reason, propose
 
 Python / Atlas
-    -> validate schemas, authorize, execute, track state, verify, recover
+    -> validate, authorize, execute, track state, verify, recover
 
-Blender
-    -> production execution through a controlled adapter
+Blender / Unreal
+    -> controlled production execution
 
 Independent verification
-    -> establish authoritative resulting state
+    -> establish what actually happened
 
-Qwen must never receive direct execution authority.
+Qwen must never receive direct production execution authority.
 
 ============================================================
 2. CURRENT BLENDER DEVELOPMENT STATE
 ============================================================
 
-The major pre-integration architecture is established:
+Blender remains an independent development track with the established intent,
+capability, authorization, execution, verification, evidence, receipt, recovery,
+and replanning architecture.
 
-Qwen reasoning
-    -> structured Blender reasoning
-    -> BlenderTaskIntent
-    -> capability/schema validation
-    -> authorized ActionPlan
-    -> controlled execution boundary
-    -> independent verification
-    -> verified agent state
-    -> evidence-driven replanning
-
-Established generic capabilities include:
-- ordered action/evidence plans
-- target-state evaluation
-- mandatory verification
-- authorization
-- deterministic future generation/execution
-- fail-closed recovery
-- authorized replan boundaries
-- runtime integrity/continuation checks
-- audit trail
-- immutable Blender execution receipts
-- task runtime policy
-
-Goalpost behavior is a proof fixture, not the generic architecture.
+The first controlled live Blender operation remains a separate future live gate.
+Do not infer Blender live readiness from the Unreal milestone.
 
 ============================================================
-3. QWEN / ATLAS REASONING BOUNDARY — CLEARED
+3. CURRENT UNREAL DEVELOPMENT STATE
 ============================================================
 
-Structured Qwen output is constrained before it can become an executable intent.
-The current contract validates structured reasoning and rejects malformed
-confidence, empty objective/observation/action/evidence fields, non-object
-arguments, and invalid structured output.
+The Unreal production transport and render boundary has now been exercised through
+real Unreal Engine 5.6 locally.
 
-Unknown Blender tools remain blocked by the canonical capability planner.
+The verified render workflow includes:
+- deterministic render configuration;
+- render-state verification;
+- Movie Render Queue submission;
+- dynamic job-ID binding;
+- asynchronous job inspection;
+- completed-job semantic verification;
+- MRQ output artifact discovery;
+- filesystem artifact existence and non-zero-size validation;
+- evidence-bound UnrealRenderReceipt issuance;
+- atomic UnrealRenderReceiptStore persistence and fail-closed reload validation.
 
-Agent-state/evidence-driven replanning consumes verified observations. If the
-objective is satisfied, replanning stops. Otherwise a new BlenderTaskIntent is
-produced for the normal planning and authorization path. An already-authorized
-plan is never silently mutated.
+Controlled live render proof:
 
-A recent test failure at 686 was traced to a stale test fixture using an old
-rotation argument shape. The test was corrected to the canonical schema and the
-next verified milestone was 687 passed.
+resolution: 640x360
+frame range: 1–2
+format: PNG
+output directory: Saved/AtlasRenderOutput
+
+The completed live job produced a real PNG artifact. Atlas returned that artifact
+through inspect_render_job and marked the completed inspection verified=True.
+
+A real evidence-bound render receipt was issued with these deterministic identities:
+
+evidence_digest:
+f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
+
+receipt_digest:
+f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
+
+SELF MATCH:
+True
 
 ============================================================
-4. REGRESSION STATUS
+4. RENDER RECEIPT BOUNDARY
 ============================================================
 
-Latest verified GitHub Actions baseline:
+UnrealRenderReceipt is engine-neutral and evidence-bound. It is issued from
+verified render-job inspection evidence rather than from a submission response.
 
-687 passed
-Python 3.9: PASS
-Python 3.11: PASS
+UnrealRenderReceiptStore provides durable persistence for the receipt identity.
+The Unreal runtime render-job registry remains in-memory.
 
-This count is the current baseline only. Every meaningful subsequent code
-change requires a fresh regression result before being called complete.
+Cross-process Unreal render-job recovery has NOT been implemented.
+Do not describe receipt persistence as runtime job persistence.
+
+The persisted receipt commits to the verified evidence through the existing
+canonical evidence-digest mechanism.
 
 ============================================================
-5. CURRENT ROADMAP
+5. TESTING STATUS
 ============================================================
 
-Stage 1 — Basic Blender Agent: COMPLETE
-Stage 2 — Reliable Evidence: COMPLETE
-Stage 3 — Mandatory Evidence Acquisition: COMPLETE
-Stage 4 — Evidence Validation / Recommendation Restraint: COMPLETE
-Stage 5 — General Evidence Planner: COMPLETE
-Stage 6 — Reliable Modification Control: COMPLETE
-Stage 7 — General Action Planning: COMPLETE
-Stage 8 — Conditional Action Planning: COMPLETE
-Stage 9 — Qwen/Atlas Reasoning Boundary: COMPLETE FOR CURRENT CONTRACT
+Latest local full Python regression:
 
-Stage 10 — Blender Adapter / Real Execution Bridge: CURRENT
+1033 passed
+5 skipped
 
-Stage 11 — First Controlled Live Blender Operation: NEXT LIVE GATE
+Latest local git diff --check:
+clean
 
+This is a development-PC result, not a statement about GitHub CI unless separately
+verified there.
+
+============================================================
+6. ROADMAP
+============================================================
+
+Blender:
+Stage 10 — Blender Adapter / Real Execution Bridge: IN PROGRESS
+Stage 11 — First Controlled Live Blender Operation: NEXT BLENDER LIVE GATE
 Stage 12 — Closed-loop Autonomous Blender Agent: FUTURE
 
-============================================================
-6. STAGE 10 OBJECTIVE
-============================================================
+Unreal:
+Unreal Engine Boundary: PROVEN LOCALLY
+Unreal Production Transport: PROVEN LOCALLY FOR CURRENT IMPLEMENTED CAPABILITIES
+Unreal Render / MRQ Boundary: PROVEN LOCALLY
+Render Artifact Verification: PROVEN LOCALLY
+Unreal Render Receipt: PROVEN LOCALLY
+Render Receipt Persistence: PROVEN LOCALLY
 
-Build the smallest coherent adapter that maps an already-authorized Atlas action
-to a controlled real Blender execution request and maps Blender's response/evidence
-back into Atlas.
-
-The adapter must preserve:
-- capability restrictions
-- exact validated arguments
-- authorization scope
-- deterministic execution
-- structured result normalization
-- independent verification
-- fail-closed behavior
-- evidence/state integration
-
-It must not become an unrestricted Python execution channel for Qwen.
-
-Reuse the existing planning, authorization, receipt, verification, and state
-machinery. Do not create a second bespoke execution architecture.
+Next Unreal increment:
+Integrate receipt creation and persistence into the higher-level Atlas Unreal render
+workflow, then expand capabilities only where a real capability gap justifies them.
 
 ============================================================
-7. LIVE BLENDER GATE
+7. PRODUCT / DIGITAL TWIN REMINDERS
 ============================================================
 
-Do not connect the user's real Blender environment until the adapter contract
-has focused offline tests and a fresh green CI result.
+Atlas owns the canonical Digital Twin.
 
-The first live proof should be deliberately small:
+Photogrammetry creates the initial reconstruction. Blender analyzes, cleans,
+corrects, optimizes, and prepares it. Unreal is a downstream controlled production
+execution environment.
 
-controlled Blender scene
-    -> inspect
-    -> one authorized operation
-    -> structured result
-    -> independent verification
-
-Then expand gradually toward multi-step closed-loop operation.
+Engine files, .blend files, levels, render jobs, receipts, and output artifacts are
+representations or production state, not canonical Digital Twin identity.
 
 ============================================================
-8. REQUIRED REGRESSION COVERAGE
+8. NON-REGRESSION RULES
 ============================================================
 
-Preserve coverage for:
-- already-satisfied -> zero writes
-- unsatisfied -> exact authorized action order
-- successful write -> verification mandatory
-- verification failure -> BLOCKED
-- action failure -> recovery gate
-- mutated arguments/result -> receipt mismatch
-- malformed executor result -> rejected
-- wrong result tool -> rejected
-- invalid continuation identity -> rejected
-- authorized fresh-evidence replan -> accepted
-- unauthorized replan -> rejected
-- malformed Qwen reasoning -> rejected
-- unknown/non-capability Blender tool -> rejected
-- adapter cannot bypass authorization
-- adapter preserves validated arguments
-- adapter normalizes executor results
-- adapter fails closed on malformed/ambiguous responses
-
-============================================================
-9. TOMORROW RESUME PROCEDURE
-============================================================
-
-1. Read ATLAS_HANDOFF_CURRENT.md.
-2. Inspect current branch/HEAD and confirm latest reasoning/replanning commits.
-3. Inspect newest CI result; do not assume 687 remains green after new code.
-4. Implement the smallest Blender adapter increment.
-5. Add focused offline tests.
-6. Run CI and diagnose actual logs.
-7. Keep fixing until green.
-8. Only then prepare the first controlled live Blender connection.
-
-============================================================
-10. PRODUCT REMINDERS
-============================================================
-
-Atlas is a sports/soccer digital-twin production platform.
-Photogrammetry is upstream of Blender.
-Blender analyzes, cleans, corrects, optimizes, and prepares the reconstruction.
-Unreal is a later complementary production environment.
-Canonical Digital Twin identity/state must remain distinct from .blend files,
-shot-specific variants, and temporary cinematic/VFX states.
-
-============================================================
-11. NON-REGRESSION RULES
-============================================================
-
-- Never give Qwen direct Blender execution authority.
+- Never give Qwen direct production execution authority.
 - Never automatically retry failed writes.
-- Never silently mutate an authorized plan during replanning.
-- Never declare completion from a write response alone.
-- Never make goalpost-specific logic the generic architecture.
-- Never skip testing after meaningful implementation changes.
-- Never connect live Blender before the adapter's focused tests are green.
+- Never silently mutate an authorized plan.
+- Never declare completion from a transport/write response alone.
+- Preserve independent verification and the evidence ledger.
+- Keep engine-specific behavior behind adapter/tool boundaries.
+- Treat artifact existence as independently verified evidence.
+- Preserve canonical Digital Twin identity separately from production artifacts.
+- Do not claim cross-process Unreal render-job recovery until separately implemented and verified.
+- Do not confuse local regression results with GitHub CI results.
+
+============================================================
+9. NEXT SESSION
+============================================================
+
+Read ATLAS_HANDOFF_CURRENT.md and UNREAL_AGENT_HANDOFF_CURRENT.md.
+Inspect the local branch/HEAD and origin/main before synchronizing work.
+The local Unreal checkpoint f658e16 must be preserved while reconciling with the
+newer origin/main history.
+
+Resume from the Unreal render receipt integration checkpoint. Do not rework the
+already-proven live render/artifact/receipt path without a concrete capability gap.
