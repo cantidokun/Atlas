@@ -67,7 +67,7 @@ else:
         "state": "transform_inspected",
         "details": {{
             "object_name": obj.name,
-            "rotation_degrees": [math.degrees(angle) for angle in obj.rotation_euler]
+            "rotation_degrees": [round(math.degrees(angle), 6) for angle in obj.rotation_euler]
         }}
     }}
 print("ATLAS_TRANSFORM_START")
@@ -149,7 +149,7 @@ else:
         "state": "rotated",
         "details": {{
             "object_name": obj.name,
-            "rotation_degrees": [math.degrees(angle) for angle in obj.rotation_euler]
+            "rotation_degrees": [round(math.degrees(angle), 6) for angle in obj.rotation_euler]
         }}
     }}
 print("ATLAS_ROTATION_START")
