@@ -76,3 +76,31 @@ class BlenderPersistenceEvidence:
             and _digest(expected_state) == self.expected_state_digest
             and _digest(observed_state) == self.observed_state_digest
         )
+
+
+def verify_blender_persistence(
+    operation_tool: str,
+    operation_arguments: Mapping[str, Any],
+    inspection_tool: str,
+    expected_state: Any,
+    observed_state: Any,
+    inspection_result: BlenderExecutionResult,
+) -> BlenderPersistenceEvidence:
+    """Create and validate persistence evidence for an independently inspected write."""
+    evidence = BlenderPersistenceEvidence.create(
+        operation_tool,
+        operation_arguments,
+        inspection_tool,
+        expected_state,
+        observed_state,
+        inspection_result,
+    )
+    if not evidence.matches(
+        operation_tool,
+        operation_arguments,
+        expected_state,
+        observed_state,
+        inspection_result,
+    ):
+        raise RuntimeError("Blender persistence evidence failed closed validation")
+    return evidence
