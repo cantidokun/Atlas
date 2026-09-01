@@ -8,6 +8,10 @@ from planning.action_authorization import ActionAuthorization
 from planning.action_plan import ActionPlan
 from planning.action_plan_sequence_adapter import ActionPlanSequenceAdapter
 from planning.autonomous_production_goal import AutonomousProductionGoal
+from planning.autonomous_production_goal_feedback import (
+    AutonomousProductionGoalFeedback,
+    ProposeReplacementGoal,
+)
 from planning.autonomous_production_goal_planner import AutonomousProductionGoalPlanner
 from planning.autonomous_production_goal_preparation import AutonomousProductionGoalPreparation
 from planning.autonomous_production_goal_run import AutonomousProductionGoalRun
@@ -69,6 +73,30 @@ class AutonomousProductionOrchestrator:
         if not isinstance(authorization, ActionAuthorization):
             raise RuntimeError("authorized goal plan is missing ActionAuthorization")
         return authorized_plan, authorization
+
+    def prepare_replan(
+        self,
+        feedback: AutonomousProductionGoalFeedback,
+        propose_goal: ProposeReplacementGoal,
+    ) -> tuple[AutonomousProductionGoal, ActionPlan, ActionAuthorization]:
+        """Turn authoritative feedback into a newly planned and authorized goal.
+
+        The proposal callback is the reasoning boundary: it receives only the
+        immutable feedback record and returns a declarative goal. Atlas then
+        recompiles and freshly authorizes that goal through the canonical path.
+        Prior authorization is never reused.
+        """
+        if not isinstance(feedback, AutonomousProductionGoalFeedback):
+            raise TypeError("feedback must be an AutonomousProductionGoalFeedback")
+        if not callable(propose_goal):
+            raise TypeError("propose_goal must be callable")
+        replacement = propose_goal(feedback)
+        if not isinstance(replacement, AutonomousProductionGoal):
+            raise TypeError("propose_goal must return an AutonomousProductionGoal")
+        action_plan, authorization = self.compile_goal(replacement)
+        if authorization.authorization_id == feedback.authorization_id:
+            raise RuntimeError("replacement goal must receive fresh authorization")
+        return replacement, action_plan, authorization
 
     def prepare_goal_with_context(
         self,
