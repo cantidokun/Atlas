@@ -51,6 +51,6 @@ def test_execution_boundary_does_not_expand_registered_capabilities():
     try:
         boundary.execute("not_registered", {})
     except ValueError as exc:
-        assert "No Blender process request builder" in str(exc)
+        assert "unsupported Blender tool" in str(exc)
     else:
         raise AssertionError("unregistered Blender capability was executable")
