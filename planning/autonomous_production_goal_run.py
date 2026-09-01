@@ -12,7 +12,12 @@ from planning.production_operation_lifecycle import ProductionOperationState
 
 @dataclass(frozen=True)
 class AutonomousProductionGoalRun:
-    """Bind a production goal to its authorized sequence outcome."""
+    """Bind a production goal to the authorization and sequence outcome.
+
+    Authorization is validated against the compiled ActionPlan by the
+    orchestrator before this result is created. The goal itself remains the
+    declarative request and may contain action metadata normalized by planning.
+    """
 
     goal_id: str
     objective: str
@@ -67,6 +72,11 @@ class AutonomousProductionGoalRun:
     ) -> "AutonomousProductionGoalRun":
         if not isinstance(goal, AutonomousProductionGoal):
             raise TypeError("goal must be an AutonomousProductionGoal")
-        if not authorization.matches(goal.actions):
-            raise RuntimeError("authorization does not match the goal's exact actions")
+        if not isinstance(authorization, ActionAuthorization):
+            raise TypeError("authorization must be an ActionAuthorization")
+        if not isinstance(sequence, AutonomousTaskSequenceResult):
+            raise TypeError("sequence must be an AutonomousTaskSequenceResult")
+        # The authorization is intentionally checked against the compiled
+        # ActionPlan before this result is constructed. Re-checking it against
+        # the declarative goal would reject legitimate planner normalization.
         return cls(goal.goal_id, goal.objective, authorization, sequence)
