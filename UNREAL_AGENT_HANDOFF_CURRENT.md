@@ -1,17 +1,16 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Date:** August 17, 2026
-**Focus:** Unreal Agent and its supporting architecture only
-**Current baseline:** `main`
-**Current Unreal work:** PR #10 — `feat: first Unreal Engine validation harness`
-**Unreal branch:** `feat/unreal-engine-harness`
-**PR #10 status:** Draft — **do not merge yet**
+**Updated:** September 1, 2026
+**Focus:** Unreal Agent and supporting architecture only
+**GitHub documentation branch:** `docs/sep1-2026-unreal-render-handoff`
+**GitHub main baseline at documentation start:** `b56aada`
+**Local development checkpoint reported by user:** `f658e16` — `feat: establish Unreal render artifact receipt pipeline`
+**Latest local regression reported by user:** **1033 passed, 5 skipped**
+**Latest local `git diff --check`:** clean
 
-## Current architectural position
+## Architectural position
 
-Atlas owns the canonical Digital Twin. Unreal is a production representation/execution environment around that canonical state.
-
-The Unreal control boundary is:
+Atlas owns the canonical Digital Twin. Unreal is a controlled production representation/execution environment around that canonical state.
 
 ```text
 Atlas intent
@@ -24,143 +23,130 @@ strict operation contract/schema
     ↓
 Atlas authorization
     ↓
-Unreal adapter
+Unreal adapter / transport
     ↓
-Unreal Engine
+Unreal Engine 5.6
     ↓
 independent evidence
     ↓
 Atlas verification
+    ↓
+render receipt / persisted receipt when applicable
 ```
 
-The Unreal Agent proposes and decomposes operations. It does not authorize or directly execute them. The existing Atlas authorization, deterministic execution, verification, recovery, and runtime-integrity architecture remains authoritative.
+The Unreal Agent proposes and decomposes operations. It does not authorize or directly execute them. Qwen likewise remains a reasoning/proposal source only.
 
-## Unreal architecture implemented today
+## Verified September 1 Unreal milestone
 
-The Unreal side now includes:
+The disposable Unreal harness and the production Unreal transport boundary have now been exercised through a real Unreal Engine 5.6 runtime.
 
-- `planning/unreal_agent.py`
-- `planning/unreal_capability_registry.py`
-- `planning/unreal_operation_contract.py`
-- `planning/unreal_task_planner.py`
-- Unreal adapter v0.1 boundary/design
-- dedicated regression tests for Unreal capabilities, operation schemas, structured-operation parsing, and task planning
+The verified render path includes:
 
-The capability model includes Actors, assets, materials, Niagara, Blueprint, Sequencer, rendering, and world inspection.
+- deterministic render configuration;
+- render-state verification;
+- Movie Render Queue submission;
+- dynamic job-ID binding from submission evidence;
+- asynchronous render-job inspection;
+- completed-job semantic verification;
+- MRQ output artifact discovery;
+- filesystem artifact existence and non-zero-size validation;
+- evidence-bound deterministic `UnrealRenderReceipt` creation;
+- atomic `UnrealRenderReceiptStore` persistence with fail-closed reload validation.
 
-The AI-facing operation contract requires exactly:
+Controlled live proof:
 
 ```text
-capability
-kind
-name
-arguments
-entity_ids
+resolution:       640x360
+frame range:      1–2
+output format:    PNG
+output directory: Saved/AtlasRenderOutput
 ```
 
-Malformed, ambiguous, unsupported, or mismatched payloads fail closed.
+The completed live render produced a real PNG artifact. `inspect_render_job` returned that artifact and was marked `verified=True` after the executor routed the inspection through render-job semantic verification.
 
-## Current real-Unreal milestone
-
-PR #10 adds a disposable Editor-only Unreal project:
+A real receipt was issued from that verified evidence:
 
 ```text
-unreal/AtlasUnrealHarness/
+evidence_digest:
+f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
+
+receipt_digest:
+f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
+
+SELF MATCH: True
 ```
 
-Target engine: **Unreal Engine 5.6**.
+Focused render/receipt coverage was expanded and the latest full local regression reached **1033 passed, 5 skipped**.
 
-Automation test:
+## Important implementation boundary
+
+The Unreal runtime render-job registry remains in-memory. The Atlas-side `UnrealRenderReceiptStore` provides durable receipt persistence, but **cross-process recovery of Unreal runtime render jobs is not implemented**.
+
+Do not represent receipt persistence as job persistence.
+
+## Proven render flow
 
 ```text
-Atlas.UnrealAgent.OperationBoundary
+render configuration
+      ↓
+configuration verification
+      ↓
+MRQ submission
+      ↓
+dynamic Unreal job ID
+      ↓
+async job inspection
+      ↓
+finished + successful state
+      ↓
+actual output_files[]
+      ↓
+filesystem artifact validation
+      ↓
+verified Unreal evidence
+      ↓
+deterministic evidence digest
+      ↓
+UnrealRenderReceipt
+      ↓
+atomic receipt persistence
 ```
 
-The test proves:
+The boundary is intentionally evidence-driven: a render-job success flag alone is insufficient to establish a completed production artifact.
 
-1. valid structured operation accepted;
-2. unsupported operation kind rejected fail-closed;
-3. Atlas entity ID preserved;
-4. Unreal Editor world available;
-5. temporary Actor created;
-6. Atlas entity mapping attached to Actor;
-7. authorized Actor write reaches Unreal state;
-8. state read back and verified;
-9. temporary Actor destroyed.
+## Current Unreal files / concepts
 
-Fixture entity:
+The current implementation includes the Unreal capability registry, task planner, production adapter/transport, render contract, render-job verifier, render receipt, and render receipt store, together with the Unreal 5.6 harness and focused tests.
 
-`FIELD_SURFACE`
+The render receipt remains engine-neutral and is derived from verified `inspect_render_job` evidence. The persisted receipt contains the receipt identity and evidence digest rather than duplicating the entire evidence ledger.
 
-Expected temporary Actor location:
+## Next development increment
 
-`X=100, Y=200, Z=300`
+The next Unreal task is **render receipt integration into the higher-level Atlas render execution workflow**:
 
-## Exact point to resume
+1. issue/persist receipts automatically after verified completion;
+2. add focused tests for that service boundary;
+3. preserve the engine-neutral receipt/store separation;
+4. only then expand Unreal capabilities where a real capability gap justifies them.
 
-The next required action is the **first actual Unreal Engine test**. No further architecture should be piled onto PR #10 until this gate is resolved.
+Blender remains an independent development track and should not be blocked by this Unreal receipt work.
 
-On the development PC:
+## Regression and safety rules
 
-```powershell
-cd <ATLAS_REPO>
-git fetch origin
-git checkout feat/unreal-engine-harness
-git pull
-cd .\unreal\AtlasUnrealHarness
-Start-Process ".\AtlasUnrealHarness.uproject"
-```
+- Never give Qwen direct production execution authority.
+- Never automatically retry failed writes.
+- Never silently mutate an authorized plan.
+- Never declare completion from a transport/write response alone.
+- Preserve independent verification and the evidence ledger.
+- Keep Unreal-specific behavior behind adapter/tool boundaries.
+- Treat output artifacts as evidence that must be independently validated.
+- Preserve canonical Digital Twin identity separately from Unreal assets, levels, render jobs, and output files.
+- Do not claim cross-process Unreal job recovery until separately implemented and verified.
+- Do not confuse local regression results with GitHub CI results.
+- Keep the disposable harness as a regression fixture rather than turning it into unrestricted production logic.
 
-Open the project in Unreal Engine 5.6.
+## Resume point
 
-In the Unreal Editor Automation Tests window, run:
+Read this handoff and `ATLAS_HANDOFF_CURRENT.md`, inspect the local branch/HEAD and `origin/main`, then continue from the **Unreal render receipt integration** checkpoint. The live UE 5.6 render/artifact/verification/receipt path is already proven locally and should not be reworked without a concrete capability gap.
 
-```text
-Atlas.UnrealAgent.OperationBoundary
-```
-
-No manual Actor/Blueprint/Niagara/material/level setup is required.
-
-If the test fails, preserve the test and diagnose the actual Unreal-side failure. Do not weaken or bypass the assertion.
-
-If it passes, record the result and proceed to production Unreal adapter transport design. Keep the harness as a disposable regression fixture.
-
-## Command-line alternative
-
-```powershell
-& "<UE_INSTALL>\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
-  "<ATLAS_REPO>\unreal\AtlasUnrealHarness\AtlasUnrealHarness.uproject" `
-  -unattended -nop4 -nosplash -nullrhi -NoSound `
-  -ExecCmds="Automation RunTests Atlas.UnrealAgent.OperationBoundary; Quit"
-```
-
-Use the locally installed Unreal executable path; do not hard-code it into Atlas.
-
-## Milestone status
-
-**Unreal Engine Boundary Smoke Test — READY FOR HUMAN TEST / NOT YET PASSED.**
-
-Python-side Unreal contracts have already been through the Atlas CI regression matrix. The remaining proof must occur inside the real Unreal Editor.
-
-## After the smoke test
-
-Do not turn the disposable harness directly into the production adapter. First prove the engine boundary, then:
-
-1. preserve the harness as a regression fixture;
-2. design production Unreal transport;
-3. connect Atlas authorization/evidence to the adapter;
-4. prove the first production Unreal capability;
-5. expand into Materials, Niagara, Blueprint, Sequencer, rendering, and Digital Twin synchronization only as justified by real capability gaps.
-
-## Architectural invariant
-
-```text
-Atlas owns the Twin.
-Unreal Agent reasons/plans.
-Atlas authorizes.
-Unreal adapter executes.
-Unreal provides evidence.
-Atlas verifies.
-```
-
-This handoff is the authoritative continuation point for the Unreal Agent work until superseded by a newer handoff.
+This handoff is the authoritative Unreal continuation point until superseded.
