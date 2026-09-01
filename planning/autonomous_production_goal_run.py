@@ -61,6 +61,35 @@ class AutonomousProductionGoalRun:
     def requires_follow_up(self) -> bool:
         return not self.completed
 
+    @property
+    def follow_up_reason(self) -> str | None:
+        """Return a stable machine-readable reason when another planning pass is needed."""
+        if self.completed:
+            return None
+        if self.state is ProductionOperationState.BLOCKED:
+            return self.reason
+        return "autonomous production goal did not reach a terminal completed state"
+
+    def follow_up_request(self) -> dict[str, Any] | None:
+        """Return planning-only context for a future evidence/replan decision.
+
+        This structure deliberately contains no executable tool call, capability,
+        authorization, or dispatch instruction.
+        """
+        if not self.requires_follow_up:
+            return None
+        return {
+            "goal_id": self.goal_id,
+            "objective": self.objective,
+            "state": self.state.value,
+            "completed_steps": list(self.completed_steps),
+            "next_step_index": self.next_step_index,
+            "authorization_id": self.authorization_id,
+            "plan_digest": self.plan_digest,
+            "reason": self.follow_up_reason,
+            "decision_required": True,
+        }
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "goal_id": self.goal_id,
@@ -73,6 +102,7 @@ class AutonomousProductionGoalRun:
                 "reason": self.sequence.reason,
             },
             "requires_follow_up": self.requires_follow_up,
+            "follow_up_reason": self.follow_up_reason,
         }
 
     @classmethod
