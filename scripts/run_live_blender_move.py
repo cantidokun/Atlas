@@ -17,7 +17,6 @@ from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_persistence_evidence import BlenderPersistenceEvidence
 from planning.blender_process_executor import BlenderProcessExecutor
-from planning.blender_result_contract import BlenderExecutionResult
 from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 
 
