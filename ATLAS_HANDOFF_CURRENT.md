@@ -26,6 +26,8 @@ Independent verification
 
 Qwen never receives direct production execution authority.
 
+Atlas development now has standing authorization to run the appropriate local tests, GitHub Actions workflows, action-runner tests, and relevant live validation required by the development task. Workflow execution no longer requires a separate per-run user authorization.
+
 ## Blender — verified September 1 milestone
 
 The first controlled real Blender mutation has now been **proven locally** through the Atlas execution boundary.
@@ -160,8 +162,7 @@ Preserve coverage for:
 - Treat artifact existence as independently verified evidence, not an implication of job success.
 - Do not claim cross-process Unreal render-job recovery unless it is separately implemented and verified.
 - Preserve the canonical Digital Twin as distinct from Unreal, Blender, photogrammetry outputs, and temporary production artifacts.
-- Do not run workflow/action-runner tests without explicit authorization.
 
 ## Resume point
 
-The Blender Stage 11 live gate is complete. Continue from the reusable closed-loop Blender execution boundary and begin Stage 12 with the smallest additional controlled capability that demonstrates genuine architectural progress. Keep Unreal render-receipt integration as the parallel Unreal track. Do not merge the Blender PR or invoke workflow/action-runner tests without explicit authorization.
+The Blender Stage 11 live gate is complete. Continue from the reusable closed-loop Blender execution boundary and begin Stage 12 with the smallest additional controlled capability that demonstrates genuine architectural progress. Keep Unreal render-receipt integration as the parallel Unreal track. Workflow/action-runner execution is authorized as part of normal development; run the relevant validation needed for each meaningful implementation increment.
