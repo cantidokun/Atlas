@@ -98,6 +98,17 @@ class AutonomousProductionOrchestrator:
             raise RuntimeError("replacement goal must receive fresh authorization")
         return replacement, action_plan, authorization
 
+    def prepare_replan_from_run(
+        self,
+        run: AutonomousProductionGoalRun,
+        evidence: Any,
+        propose_goal: ProposeReplacementGoal,
+    ) -> tuple[AutonomousProductionGoalFeedback, AutonomousProductionGoal, ActionPlan, ActionAuthorization]:
+        """Bridge an incomplete goal run into a fresh evidence-driven goal."""
+        feedback = AutonomousProductionGoalFeedback.from_run(run, evidence)
+        replacement, action_plan, authorization = self.prepare_replan(feedback, propose_goal)
+        return feedback, replacement, action_plan, authorization
+
     def prepare_goal_with_context(
         self,
         goal: AutonomousProductionGoal,
