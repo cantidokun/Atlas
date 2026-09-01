@@ -9,6 +9,7 @@ from planning.action_plan import ActionPlan
 from planning.action_plan_sequence_adapter import ActionPlanSequenceAdapter
 from planning.autonomous_production_goal import AutonomousProductionGoal
 from planning.autonomous_production_goal_planner import AutonomousProductionGoalPlanner
+from planning.autonomous_production_goal_preparation import AutonomousProductionGoalPreparation
 from planning.autonomous_production_goal_run import AutonomousProductionGoalRun
 from planning.autonomous_task_sequence import AutonomousTaskSequence, AutonomousTaskSequenceResult
 from planning.blender_autonomous_admission import BlenderAutonomousAdmission
@@ -68,6 +69,19 @@ class AutonomousProductionOrchestrator:
         if not isinstance(authorization, ActionAuthorization):
             raise RuntimeError("authorized goal plan is missing ActionAuthorization")
         return authorized_plan, authorization
+
+    def prepare_goal_with_context(
+        self,
+        goal: AutonomousProductionGoal,
+    ) -> tuple[ActionPlan, AutonomousProductionGoalPreparation]:
+        """Compile and authorize a goal, returning an execution-free audit record."""
+        action_plan, authorization = self.compile_goal(goal)
+        preparation = AutonomousProductionGoalPreparation.from_compilation(
+            goal,
+            action_plan,
+            authorization,
+        )
+        return action_plan, preparation
 
     def prepare_goal(self, goal: AutonomousProductionGoal, sequence_id: str = "default") -> AutonomousTaskSequence:
         """Compile, explicitly authorize, then adapt a fresh production goal."""
