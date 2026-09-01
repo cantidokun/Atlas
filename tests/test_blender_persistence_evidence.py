@@ -38,7 +38,11 @@ def test_persistence_evidence_binds_operation_and_fresh_state():
 
 
 def test_persistence_evidence_rejects_different_observed_state():
-    arguments = {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [0.25, 0.0, 0.0]}
+    arguments = {
+        "file_name": "fixture.blend",
+        "object_name": "Goal_Left_post",
+        "location": [0.25, 0.0, 0.0],
+    }
     expected_state = {"Goal_Left_post": [0.25, 0.0, 0.0]}
     observed_state = {"Goal_Left_post": [0.25, 0.0, 0.0]}
     inspection = _inspection([0.25, 0.0, 0.0])
@@ -51,6 +55,20 @@ def test_persistence_evidence_rejects_different_observed_state():
     assert not evidence.matches(
         "move_object", arguments, expected_state, changed_state, changed_inspection
     )
+
+
+def test_persistence_evidence_creation_rejects_mismatched_state():
+    inspection = _inspection([0.0, 0.0, 0.0])
+
+    with pytest.raises(ValueError, match="expected and observed state to match"):
+        BlenderPersistenceEvidence.create(
+            "move_object",
+            {"file_name": "fixture.blend", "object_name": "Goal_Left_post"},
+            "inspect_scene",
+            {"Goal_Left_post": [0.25, 0.0, 0.0]},
+            {"Goal_Left_post": [0.0, 0.0, 0.0]},
+            inspection,
+        )
 
 
 def test_persistence_evidence_requires_successful_inspection():
