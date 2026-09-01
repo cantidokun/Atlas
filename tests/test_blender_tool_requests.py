@@ -28,5 +28,5 @@ def test_inspect_scene_request_rejects_empty_file_name():
         build_inspect_scene_request("inspect_scene", {"file_name": "   "})
 
 
-def test_only_validated_capability_is_registered():
-    assert set(BLENDER_PROCESS_REQUEST_BUILDERS) == {"inspect_scene"}
+def test_current_validated_capabilities_are_registered():
+    assert set(BLENDER_PROCESS_REQUEST_BUILDERS) == {"inspect_scene", "move_object"}
