@@ -2,9 +2,9 @@
 
 ## Current state
 
-Atlas remains actively under development. The current repository tip before this handoff refresh is `482250596a9d6f358f43ce1cb35d53cd650fee38` (`docs: refresh Atlas handoff with current repository state`). No newer implementation commit was identified in the current repository history; the commits since the implementation baseline are handoff/documentation commits.
+Atlas remains actively under development. Workflow/action-runner testing is authorized as part of normal development and does not require separate per-run user authorization.
 
-**Workflow/action-runner testing remains explicitly paused.** Do not trigger, rerun, or approve workflow/action-runner tests until explicitly authorized. Offline-safe development may continue.
+The current repository tip before this handoff refresh is `482250596a9d6f358f43ce1cb35d53cd650fee38` (`docs: refresh Atlas handoff with current repository state`). No newer implementation commit was identified in the current repository history; the commits since the implementation baseline are handoff/documentation commits.
 
 ## Architecture
 
@@ -39,9 +39,9 @@ Photogrammetry remains upstream of Blender: dedicated photogrammetry software pr
 
 ## Tests and verification status
 
-**Latest development-session result:** **694 passed**. This is not a fresh GitHub Actions verification while runner testing is paused.
+**Latest development-session result:** **694 passed**.
 
-**Latest explicitly recorded verified CI baseline:** **687 passed**, with Python **3.9** and **3.11** green. Code added after that baseline must not be treated as CI-validated until a new authorized runner result exists.
+**Latest explicitly recorded verified CI baseline:** **687 passed**, with Python **3.9** and **3.11** green. Code added after that baseline must receive fresh regression validation before being treated as verified.
 
 Previously established live proof includes goalpost conditional execution and generic collection creation. Object rotation and marker creation remain subject to fresh live proof where applicable.
 
@@ -66,12 +66,6 @@ The adapter must:
 - never provide Qwen an arbitrary Python execution path.
 
 Reuse the existing planning, authorization, receipt, verification, and state machinery. Do not introduce a parallel execution architecture.
-
-## Offline-safe work during the runner pause
-
-Permitted work includes adapter contracts/schemas, deterministic request/result normalization, authorization-boundary checks, receipt/evidence-binding hardening, malformed/ambiguous response handling, runtime policy validation, continuation/recovery identity checks, static architecture/invariant checks, focused unit tests that do not invoke workflow/action-runner infrastructure, diagnostics, and documentation.
-
-Do not weaken authorization/verification or create a parallel execution path merely to avoid the runner.
 
 ## Required regression coverage
 
@@ -99,14 +93,13 @@ Preserve and extend coverage for:
 
 1. Read this handoff and `ATLAS_HANDOFF_CURRENT.md`.
 2. Inspect current `main`/HEAD and distinguish implementation commits from documentation commits since the 687-pass CI baseline.
-3. Do not inspect or run workflow/action-runner validation as an execution step until explicitly authorized.
-4. Reconfirm the 694-pass development result against the current checkout before treating it as a promotion candidate.
-5. Implement the smallest coherent Blender adapter increment.
-6. Add focused offline-safe tests for the adapter contract and failure modes.
-7. Once runner testing is explicitly authorized, obtain a fresh green CI result before live Blender integration.
-8. Prepare one controlled live Blender operation only after the adapter tests and authorized regression gate are green.
-9. Independently verify that live operation.
-10. Expand toward rotation/marker and then closed-loop autonomous Blender behavior only after their specific proof gates pass.
+3. Reconfirm the 694-pass development result against the current checkout before treating it as a promotion candidate.
+4. Implement the smallest coherent Blender adapter increment.
+5. Add focused tests for the adapter contract and failure modes.
+6. Run the appropriate GitHub Actions/workflow and local regression validation for the current code.
+7. Once the relevant regression gates are green, prepare one controlled live Blender operation.
+8. Independently verify that live operation.
+9. Expand toward rotation/marker and then closed-loop autonomous Blender behavior only after their specific proof gates pass.
 
 ## Do not regress
 
@@ -115,7 +108,5 @@ Preserve and extend coverage for:
 - Never silently mutate an authorized plan during replanning.
 - Never declare completion from a write response alone.
 - Never turn goalpost-specific behavior into the generic architecture.
-- Never trigger workflow/action-runner tests during the current pause.
-- Never represent 687 passed as validation of newer code.
-- Never represent 694 passed as fresh GitHub Actions verification without an actual authorized runner result.
-- Never connect live Blender until the adapter's focused tests and later authorized regression gates are green.
+- Never represent historical regression results as proof for later code.
+- Never connect live Blender before the adapter's focused tests and appropriate regression gates are green.
