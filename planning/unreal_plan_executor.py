@@ -13,6 +13,7 @@ from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_state_verifier import verify_actor_location, verify_actor_rotation, verify_actor_scale
 from planning.unreal_sequencer_verifier import verify_sequencer_playback_range
 from planning.unreal_render_contract import verify_render_config
+from planning.unreal_render_job_verifier import verify_render_job_completion
 from planning.unreal_task_planner import UnrealTaskPlan
 from planning.unreal_tool_schema import validate_unreal_tool_call
 
@@ -236,6 +237,48 @@ class UnrealPlanExecutor:
             try: self._capabilities.validate_operation(operation)
             except (KeyError,TypeError,ValueError) as exc: raise UnrealPlanExecutionError(f"Operation {index} ('{operation.name}') failed preflight: {self._format_preflight_error(exc)}") from exc
     @staticmethod
+    def _extract_job_id(value):
+        if isinstance(value, dict):
+            for key in ("job_id", "render_job_id"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip()
+            for key in ("render_job", "job", "render"):
+                candidate = value.get(key)
+                found = UnrealPlanExecutor._extract_job_id(candidate)
+                if found:
+                    return found
+            for candidate in value.values():
+                found = UnrealPlanExecutor._extract_job_id(candidate)
+                if found:
+                    return found
+        elif isinstance(value, (list, tuple)):
+            for candidate in value:
+                found = UnrealPlanExecutor._extract_job_id(candidate)
+                if found:
+                    return found
+        return None
+
+    @classmethod
+    def _resolve_dynamic_verification_arguments(cls, operation, previous_evidence):
+        arguments = dict(operation.arguments)
+        job_reference = arguments.get("job_id")
+
+        if job_reference == "$previous.submit_render.job_id":
+            if previous_evidence is None:
+                raise ValueError("verify_render_job requires preceding submit_render evidence")
+            if previous_evidence.operation_name != "submit_render":
+                raise ValueError("verify_render_job must follow submit_render")
+            job_id = cls._extract_job_id(previous_evidence.observed_state)
+            if not job_id:
+                raise ValueError(
+                    "submit_render evidence did not contain a non-empty job_id"
+                )
+            arguments["job_id"] = job_id
+
+        return arguments
+
+    @staticmethod
     def _verification_expectation(write_operation):
         a=write_operation.arguments
         if write_operation.name=="set_actor_location": return {"location":dict(a["location"])}
@@ -247,7 +290,7 @@ class UnrealPlanExecutor:
         if write_operation.name=="configure_render": return {key:a[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")}
         return {}
     @staticmethod
-    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range"}
+    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range","verify_render_job","inspect_render_job"}
     def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None,expected_start_frame=None,expected_end_frame=None):
         arguments=dict(operation.arguments); arguments["entity_ids"]=tuple(operation.entity_ids); arguments["authorization_id"]=authorization_id; validate_unreal_tool_call(operation.name,arguments)
         method_name=self._DISPATCH[operation.kind]; evidence=getattr(self._adapter,method_name)(operation,authorization_id); validate_evidence_for_operation(evidence,operation.name,tuple(operation.entity_ids))
@@ -259,7 +302,16 @@ class UnrealPlanExecutor:
             if expected_niagara_variant is not None: evidence=verify_niagara_variant(evidence,expected_niagara_variant)
             if operation.name == "verify_sequencer_playback_range" and expected_start_frame is not None and expected_end_frame is not None: evidence=verify_sequencer_playback_range(evidence,expected_start_frame,expected_end_frame)
             if operation.name == "verify_render_state": evidence=verify_render_config(evidence, {key: operation.arguments[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")})
-            if self._is_semantically_verified(operation,evidence): evidence=replace(evidence,verified=True)
+            if operation.name == "verify_render_job": evidence=verify_render_job_completion(evidence)
+
+        if operation.name == "inspect_render_job":
+            evidence=verify_render_job_completion(evidence)
+
+        if operation.name == "inspect_render_job" or (
+            operation.kind is UnrealOperationKind.VERIFY
+            and self._is_semantically_verified(operation,evidence)
+        ):
+            evidence=replace(evidence,verified=True)
         return evidence
     @staticmethod
     def _failure_context(operation): return dict(operation.arguments)
@@ -277,6 +329,17 @@ class UnrealPlanExecutor:
                 previous=plan.operations[index-1] if index else None
                 if previous is None or previous.kind not in (UnrealOperationKind.WRITE,UnrealOperationKind.READ): raise UnrealPlanExecutionError(f"Verify operation {index} ('{operation.name}') must follow a read or write")
                 if previous.kind is UnrealOperationKind.WRITE: expected=self._verification_expectation(previous)
+                if operation.name == "verify_render_job":
+                    operation=UnrealOperation(
+                        capability=operation.capability,
+                        kind=operation.kind,
+                        name=operation.name,
+                        arguments=self._resolve_dynamic_verification_arguments(
+                            operation,
+                            ledger[-1] if ledger else None,
+                        ),
+                        entity_ids=operation.entity_ids,
+                    )
             try: evidence=self._execute_one(operation,authorization_id,expected_location=expected.get("location"),expected_rotation=expected.get("rotation"),expected_scale=expected.get("scale"),expected_material_variant=expected.get("material_variant"),expected_niagara_variant=expected.get("niagara_variant"),expected_start_frame=expected.get("start_frame"),expected_end_frame=expected.get("end_frame"))
             except (UnrealAdapterError,ValueError,TypeError) as exc:
                 message=f"Operation {index} ('{operation.name}') failed: {exc}"; failure=UnrealPlanExecutionFailure(plan.intent_id,index,operation.name,tuple(ledger),message,tuple(operation.entity_ids),self._failure_context(operation),tuple(completed)); raise UnrealPlanExecutionError(message,failure=failure) from exc

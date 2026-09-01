@@ -53,10 +53,20 @@ DEFAULT_UNREAL_CAPABILITIES = (
         UnrealOperationKind.WRITE: frozenset({"entity_ids", "start_frame", "end_frame"}),
         UnrealOperationKind.VERIFY: frozenset({"entity_ids", "expected_start_frame", "expected_end_frame"}),
     }),
-    UnrealCapabilitySpec(UnrealCapability.RENDER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("render_state",), "Configure or verify controlled Unreal rendering operations.", argument_keys_by_kind={
+    UnrealCapabilitySpec(UnrealCapability.RENDER, frozenset({UnrealOperationKind.READ, UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}), ("render_state", "render_job_state"), "Configure, submit, inspect, or verify controlled Unreal rendering operations.", argument_keys_by_kind={
         UnrealOperationKind.READ: frozenset({"entity_ids"}),
         UnrealOperationKind.WRITE: frozenset({"entity_ids", "width", "height", "start_frame", "end_frame", "output_directory", "output_format"}),
         UnrealOperationKind.VERIFY: frozenset({"entity_ids", "width", "height", "start_frame", "end_frame", "output_directory", "output_format"}),
+    }, alternative_argument_keys_by_kind={
+        UnrealOperationKind.READ: (
+            frozenset({"entity_ids", "job_id"}),
+        ),
+        UnrealOperationKind.WRITE: (
+            frozenset({"entity_ids", "sequence_asset_path"}),
+        ),
+        UnrealOperationKind.VERIFY: (
+            frozenset({"entity_ids", "job_id"}),
+        ),
     }),
 )
 
@@ -112,12 +122,44 @@ class UnrealCapabilityRegistry:
             if not isinstance(variant, Mapping) or set(variant.keys()) != {"name"}: raise ValueError(f"{field} must contain exactly name")
             if not isinstance(variant["name"], str) or not variant["name"].strip(): raise ValueError(f"{field}.name must be a non-empty string")
         if operation.capability is UnrealCapability.RENDER:
-            from planning.unreal_render_contract import normalize_render_config
-            config={key: arguments[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format") if key in arguments}
-            if operation.kind is UnrealOperationKind.READ:
-                if config: raise ValueError("render READ operations must not include render configuration fields")
+            operation_name = operation.name
+            if operation_name == "inspect_render_job":
+                job_id = arguments.get("job_id")
+                if not isinstance(job_id, str) or not job_id.strip():
+                    raise ValueError("job_id must be a non-empty string")
+            elif operation_name == "submit_render":
+                sequence_asset_path = arguments.get("sequence_asset_path")
+                if (
+                    not isinstance(sequence_asset_path, str)
+                    or not sequence_asset_path.strip()
+                    or not sequence_asset_path.startswith("/")
+                ):
+                    raise ValueError("sequence_asset_path must be a non-empty Unreal package path")
+            elif operation_name == "verify_render_job":
+                job_id = arguments.get("job_id")
+                if not isinstance(job_id, str) or not job_id.strip():
+                    raise ValueError("job_id must be a non-empty string")
             else:
-                normalize_render_config(config)
+                from planning.unreal_render_contract import normalize_render_config
+                config = {
+                    key: arguments[key]
+                    for key in (
+                        "width",
+                        "height",
+                        "start_frame",
+                        "end_frame",
+                        "output_directory",
+                        "output_format",
+                    )
+                    if key in arguments
+                }
+                if operation.kind is UnrealOperationKind.READ:
+                    if config:
+                        raise ValueError(
+                            "render READ operations must not include render configuration fields"
+                        )
+                else:
+                    normalize_render_config(config)
         if operation.capability is UnrealCapability.BLUEPRINT:
             asset_path = arguments.get("asset_path")
             if not isinstance(asset_path, str) or not asset_path.strip() or not asset_path.startswith("/"):

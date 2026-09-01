@@ -18,7 +18,9 @@ public class AtlasUnrealTransport : ModuleRules
             "MovieScene",
             "KismetCompiler",
             "MovieRenderPipelineCore",
-            "MovieRenderPipelineRenderPasses"
+            "MovieRenderPipelineRenderPasses",
+            "MovieRenderPipelineEditor",
+            "AssetRegistry"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[] {

@@ -1,4 +1,5 @@
 #include "AtlasTransportServer.h"
+#include "HAL/CriticalSection.h"
 #include "AtlasUnrealTransport.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -19,9 +20,16 @@
 #include "UObject/MetaData.h"
 #include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
+#include "Misc/Paths.h"
 #include "MoviePipelinePrimaryConfig.h"
 #include "MoviePipelineOutputSetting.h"
 #include "MoviePipelineImageSequenceOutput.h"
+#include "MoviePipelineDeferredPasses.h"
+#include "MoviePipelineQueueSubsystem.h"
+#include "MoviePipelinePIEExecutor.h"
+#include "MoviePipelineExecutor.h"
+#include "MoviePipelineQueue.h"
+
 
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -30,6 +38,9 @@
 #endif
 
 const FString FAtlasTransportServer::PipeName = TEXT("\\\\.\\pipe\\AtlasUnrealTransport");
+
+FCriticalSection FAtlasTransportServer::RenderJobRegistryMutex;
+TMap<FString,TSharedPtr<FAtlasTransportServer::FRenderJobState>> FAtlasTransportServer::RenderJobRegistry;
 const int32 FAtlasTransportServer::MaxMessageSize = 1024 * 1024;
 
 namespace
@@ -240,12 +251,75 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
 {
     if (Request.RequestId.IsEmpty()) { OutError = TEXT("request_id cannot be empty"); return false; }
     if (Request.AuthorizationId.IsEmpty() || Request.AuthorizationId.TrimStartAndEnd().IsEmpty()) { OutError = TEXT("authorization_id cannot be empty"); return false; }
-    if (Request.EntityIds.Num() == 0) { OutError = TEXT("entity_ids cannot be empty"); return false; }
-    for (const FString& EntityId : Request.EntityIds) if (EntityId.IsEmpty() || EntityId.TrimStartAndEnd().IsEmpty()) { OutError = TEXT("entity_ids cannot contain empty strings"); return false; }
-    if (!Request.Arguments.IsValid()) { OutError = TEXT("arguments cannot be null"); return false; }
-    TArray<FString> ArgumentEntityIds; if (!Request.Arguments->TryGetStringArrayField(TEXT("entity_ids"), ArgumentEntityIds)) { OutError = TEXT("arguments.entity_ids must be an array of strings"); return false; }
-    if (ArgumentEntityIds.Num() != Request.EntityIds.Num()) { OutError = TEXT("arguments.entity_ids must match entity_ids"); return false; }
-    for (int32 Index = 0; Index < Request.EntityIds.Num(); ++Index) if (ArgumentEntityIds[Index] != Request.EntityIds[Index]) { OutError = TEXT("arguments.entity_ids must match entity_ids"); return false; }
+    const bool bIsWorldInspection =
+        Request.OperationName == TEXT("inspect_world");
+
+    if (!bIsWorldInspection)
+    {
+        if (Request.EntityIds.Num() == 0)
+        {
+            OutError = TEXT("entity_ids cannot be empty");
+            return false;
+        }
+
+        for (const FString& EntityId : Request.EntityIds)
+        {
+            if (EntityId.IsEmpty() || EntityId.TrimStartAndEnd().IsEmpty())
+            {
+                OutError = TEXT("entity_ids cannot contain empty strings");
+                return false;
+            }
+        }
+
+        if (!Request.Arguments.IsValid())
+        {
+            OutError = TEXT("arguments cannot be null");
+            return false;
+        }
+
+        TArray<FString> ArgumentEntityIds;
+
+        if (!Request.Arguments->TryGetStringArrayField(
+                TEXT("entity_ids"),
+                ArgumentEntityIds))
+        {
+            OutError =
+                TEXT("arguments.entity_ids must be an array of strings");
+            return false;
+        }
+
+        if (ArgumentEntityIds.Num() != Request.EntityIds.Num())
+        {
+            OutError =
+                TEXT("arguments.entity_ids must match entity_ids");
+            return false;
+        }
+
+        for (int32 Index = 0;
+             Index < Request.EntityIds.Num();
+             ++Index)
+        {
+            if (ArgumentEntityIds[Index] != Request.EntityIds[Index])
+            {
+                OutError =
+                    TEXT("arguments.entity_ids must match entity_ids");
+                return false;
+            }
+        }
+    }
+
+    if (Request.OperationName == TEXT("inspect_world"))
+    {
+        if (Request.Capability != TEXT("world") ||
+            Request.Kind != TEXT("inspect"))
+        {
+            OutError = TEXT("inspect_world requires world/inspect");
+            return false;
+        }
+
+        return true;
+    }
+
     if (Request.OperationName == TEXT("inspect_target_actors")) { if (Request.Capability != TEXT("inspect_actor") || Request.Kind != TEXT("read")) { OutError = TEXT("inspect_target_actors requires inspect_actor/read"); return false; } return true; }
     if (Request.OperationName == TEXT("set_actor_location"))
     {
@@ -352,6 +426,50 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
         if(!OutputFormat.Equals(TEXT("png"),ESearchCase::IgnoreCase)){OutError=TEXT("Only PNG output_format is supported by the initial Unreal render boundary");return false;}
         return true;
     }
+    if (Request.OperationName == TEXT("submit_render"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("write"))
+        {
+            OutError = TEXT("submit_render requires render/write");
+            return false;
+        }
+
+        if (Request.EntityIds.Num() != 1)
+        {
+            OutError = TEXT("submit_render requires exactly one entity_id");
+            return false;
+        }
+
+        FString JobId;
+        if (Request.Arguments->TryGetStringField(TEXT("job_id"), JobId) &&
+            JobId.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = TEXT("arguments.job_id must be a non-empty string when provided");
+            return false;
+        }
+
+        return true;
+    }
+
+    if (Request.OperationName == TEXT("inspect_render_job"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("read"))
+        {
+            OutError = TEXT("inspect_render_job requires render/read");
+            return false;
+        }
+
+        FString JobId;
+        if (!Request.Arguments->TryGetStringField(TEXT("job_id"), JobId) ||
+            JobId.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = TEXT("arguments.job_id must be a non-empty string");
+            return false;
+        }
+
+        return true;
+    }
+
     if (Request.OperationName == TEXT("verify_render_state"))
     {
         if (Request.Capability != TEXT("render") || Request.Kind != TEXT("verify")) { OutError = TEXT("verify_render_state requires render/verify"); return false; }
@@ -385,7 +503,7 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
 bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
 {
     OutResponse.RequestId=Request.RequestId; OutResponse.OperationName=Request.OperationName; OutResponse.EntityIds=Request.EntityIds; OutResponse.Source=TEXT("unreal-editor-atlas-transport");
-    const bool bSupported = Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata")||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("verify_render_state");
+    const bool bSupported = Request.OperationName==TEXT("inspect_world")||Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata")||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("submit_render")||Request.OperationName==TEXT("inspect_render_job")||Request.OperationName==TEXT("verify_render_state");
     if (!bSupported) { OutResponse.bSuccess=false; OutResponse.Error=FString::Printf(TEXT("Unsupported operation: %s"),*Request.OperationName); return false; }
     TSharedPtr<FGameThreadExecutionState> SharedState=MakeShareable(new FGameThreadExecutionState()); SharedState->Request=Request; SharedState->Response.RequestId=Request.RequestId; SharedState->Response.OperationName=Request.OperationName; SharedState->Response.EntityIds=Request.EntityIds; SharedState->Response.Source=TEXT("unreal-editor-atlas-transport");
     AsyncTask(ENamedThreads::GameThread,[SharedState](){FAtlasTransportServer::ExecuteOnGameThread(SharedState);});
@@ -401,7 +519,9 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     if (!IsInGameThread()) { S->Response.bSuccess=false; S->Response.Error=TEXT("ExecuteOnGameThread must be called on game thread"); S->bSuccess=false; S->bCompleted=true; S->CompletionEvent->Trigger(); return; }
     if (!GEngine || IsEngineExitRequested()) { S->Response.bSuccess=false; S->Response.Error=TEXT("Engine shutting down"); S->bSuccess=false; S->bCompleted=true; S->CompletionEvent->Trigger(); return; }
     bool bTaskSuccess=false;
-    if(S->Request.OperationName==TEXT("inspect_target_actors")) bTaskSuccess=InspectTargetActors(S->Request.EntityIds,S->ObservedState,S->Error);
+    if(S->Request.OperationName==TEXT("inspect_world")) bTaskSuccess=InspectWorld(S->ObservedState,S->Error);
+
+    else if(S->Request.OperationName==TEXT("inspect_target_actors")) bTaskSuccess=InspectTargetActors(S->Request.EntityIds,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("set_actor_location")) bTaskSuccess=SetActorLocation(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("set_actor_rotation")) bTaskSuccess=SetActorRotation(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("set_actor_scale")) bTaskSuccess=SetActorScale(S->Request,S->ObservedState,S->Error);
@@ -413,6 +533,8 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     else if(S->Request.OperationName==TEXT("inspect_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("inspect_render_state")) bTaskSuccess=InspectRenderState(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("configure_render")) bTaskSuccess=ConfigureRender(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("submit_render")) bTaskSuccess=SubmitRender(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("inspect_render_job")) bTaskSuccess=InspectRenderJob(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("compile_blueprint")) bTaskSuccess=CompileBlueprint(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("set_blueprint_metadata")) bTaskSuccess=SetBlueprintMetadata(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("verify_blueprint_state")) bTaskSuccess=InspectBlueprintState(S->Request,S->ObservedState,S->Error);
@@ -528,6 +650,156 @@ bool FAtlasTransportServer::SetSequencerPlaybackRange(const FTransportRequest& R
     E=TEXT("No Level Sequence actor with a valid sequence found in the active Unreal editor world"); return false;
 }
 
+bool FAtlasTransportServer::InspectWorld(
+    TSharedPtr<FJsonObject>& O,
+    FString& E)
+{
+    if(!IsInGameThread() || !GEngine || IsEngineExitRequested())
+    {
+        E=TEXT("Engine unavailable or operation is not on the game thread");
+        return false;
+    }
+
+    UWorld* World=nullptr;
+
+    for(const FWorldContext& Context : GEngine->GetWorldContexts())
+    {
+        if(Context.World() && IsValid(Context.World()))
+        {
+            World=Context.World();
+            if(Context.WorldType==EWorldType::Editor)
+            {
+                break;
+            }
+        }
+    }
+
+    if(!World || !IsValid(World))
+    {
+        E=TEXT("No valid world found");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> State=
+        MakeShareable(new FJsonObject);
+
+    State->SetStringField(
+        TEXT("world_name"),
+        World->GetName());
+
+    State->SetStringField(
+        TEXT("world_path"),
+        World->GetPathName());
+
+    FString WorldTypeString;
+
+    switch(World->WorldType)
+    {
+    case EWorldType::Editor:
+        WorldTypeString=TEXT("Editor");
+        break;
+
+    case EWorldType::Game:
+        WorldTypeString=TEXT("Game");
+        break;
+
+    case EWorldType::PIE:
+        WorldTypeString=TEXT("PIE");
+        break;
+
+    case EWorldType::EditorPreview:
+        WorldTypeString=TEXT("EditorPreview");
+        break;
+
+    case EWorldType::GamePreview:
+        WorldTypeString=TEXT("GamePreview");
+        break;
+
+    case EWorldType::GameRPC:
+        WorldTypeString=TEXT("GameRPC");
+        break;
+
+    case EWorldType::Inactive:
+        WorldTypeString=TEXT("Inactive");
+        break;
+
+    default:
+        WorldTypeString=TEXT("Unknown");
+        break;
+    }
+
+    State->SetStringField(
+        TEXT("world_type"),
+        WorldTypeString);
+
+    State->SetNumberField(
+        TEXT("actor_count"),
+        World->GetCurrentLevel()
+            ? World->GetCurrentLevel()->Actors.Num()
+            : 0);
+
+    TArray<TSharedPtr<FJsonValue>> Actors;
+
+    for(TActorIterator<AActor> ActorItr(World);
+        ActorItr;
+        ++ActorItr)
+    {
+        AActor* Actor=*ActorItr;
+
+        if(!Actor || !IsValid(Actor))
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> ActorState=
+            MakeShareable(new FJsonObject);
+
+        ActorState->SetStringField(
+            TEXT("name"),
+            Actor->GetName());
+
+        ActorState->SetStringField(
+            TEXT("class"),
+            Actor->GetClass()->GetName());
+
+        FVector Location=Actor->GetActorLocation();
+
+        TSharedPtr<FJsonObject> LocationObject=
+            MakeShareable(new FJsonObject);
+
+        LocationObject->SetNumberField(TEXT("x"),Location.X);
+        LocationObject->SetNumberField(TEXT("y"),Location.Y);
+        LocationObject->SetNumberField(TEXT("z"),Location.Z);
+
+        ActorState->SetObjectField(
+            TEXT("location"),
+            LocationObject);
+
+        TArray<TSharedPtr<FJsonValue>> Tags;
+
+        for(const FName& Tag : Actor->Tags)
+        {
+            Tags.Add(
+                MakeShareable(
+                    new FJsonValueString(Tag.ToString())));
+        }
+
+        ActorState->SetArrayField(
+            TEXT("tags"),
+            Tags);
+
+        Actors.Add(
+            MakeShareable(
+                new FJsonValueObject(ActorState)));
+    }
+
+    State->SetArrayField(
+        TEXT("actors"),
+        Actors);
+
+    O=State;
+    return true;
+}
 bool FAtlasTransportServer::InspectTargetActors(const TArray<FString>& IDs,TSharedPtr<FJsonObject>& O,FString& E)
 {
     if(!IsInGameThread()||!GEngine||IsEngineExitRequested()){E=TEXT("Engine unavailable or operation is not on the game thread");return false;} UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World)){E=TEXT("No valid world found");return false;} TSharedPtr<FJsonObject> State=MakeShareable(new FJsonObject);
@@ -747,16 +1019,52 @@ namespace
             OutError = TEXT("Only PNG output_format is supported by the initial Unreal render boundary");
             return false;
         }
-        UMoviePipelineImageSequenceOutput_PNG* Existing = Cast<UMoviePipelineImageSequenceOutput_PNG>(Config->FindSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass(), false, true));
+        UMoviePipelineDeferredPassBase* DeferredPass =
+            Cast<UMoviePipelineDeferredPassBase>(
+                Config->FindSettingByClass(
+                    UMoviePipelineDeferredPassBase::StaticClass(),
+                    false,
+                    true));
+
+        if (!DeferredPass)
+        {
+            DeferredPass =
+                Cast<UMoviePipelineDeferredPassBase>(
+                    Config->FindOrAddSettingByClass(
+                        UMoviePipelineDeferredPassBase::StaticClass(),
+                        false,
+                        true));
+        }
+
+        if (!DeferredPass || !IsValid(DeferredPass))
+        {
+            OutError = TEXT("Unable to add deferred Movie Render Pipeline pass");
+            return false;
+        }
+
+        UMoviePipelineImageSequenceOutput_PNG* Existing =
+            Cast<UMoviePipelineImageSequenceOutput_PNG>(
+                Config->FindSettingByClass(
+                    UMoviePipelineImageSequenceOutput_PNG::StaticClass(),
+                    false,
+                    true));
+
         if (!Existing)
         {
-            Existing = Cast<UMoviePipelineImageSequenceOutput_PNG>(Config->FindOrAddSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass(), false, true));
+            Existing =
+                Cast<UMoviePipelineImageSequenceOutput_PNG>(
+                    Config->FindOrAddSettingByClass(
+                        UMoviePipelineImageSequenceOutput_PNG::StaticClass(),
+                        false,
+                        true));
         }
+
         if (!Existing || !IsValid(Existing))
         {
             OutError = TEXT("Unable to add PNG Movie Render Pipeline output setting");
             return false;
         }
+
         return true;
     }
 }
@@ -797,12 +1105,392 @@ bool FAtlasTransportServer::ConfigureRender(const FTransportRequest& R,TSharedPt
     Setting->bUseCustomPlaybackRange=true;
     Setting->CustomStartFrame=FMath::RoundToInt(StartFrame);
     Setting->CustomEndFrame=FMath::RoundToInt(EndFrame);
-    Setting->OutputDirectory.Path=OutputDirectory.TrimStartAndEnd();
+    FString NormalizedOutputDirectory=OutputDirectory.TrimStartAndEnd();
+    if(FPaths::IsRelative(NormalizedOutputDirectory))
+    {
+        NormalizedOutputDirectory=
+            FPaths::ConvertRelativePathToFull(
+                FPaths::Combine(
+                    FPaths::ProjectDir(),
+                    NormalizedOutputDirectory));
+    }
+    Setting->OutputDirectory.Path=NormalizedOutputDirectory;
     Config->MarkPackageDirty();
     if(!Config->GetOutermost()->IsDirty()) Config->GetOutermost()->MarkPackageDirty();
+    UPackage* Package = Config->GetOutermost();
+    if(!Package || !IsValid(Package))
+    {
+        E=TEXT("Render config package is invalid");
+        return false;
+    }
+
+    const FString PackageFilename=
+        FPackageName::LongPackageNameToFilename(
+            Package->GetName(),
+            FPackageName::GetAssetPackageExtension());
+
+    FSavePackageArgs SaveArgs;
+    SaveArgs.TopLevelFlags=RF_Public|RF_Standalone;
+    SaveArgs.SaveFlags=SAVE_None;
+
+    if(!UPackage::SavePackage(
+        Package,
+        Config,
+        *PackageFilename,
+        SaveArgs))
+    {
+        E=FString::Printf(
+            TEXT("Failed to save render config package: %s"),
+            *PackageFilename);
+        return false;
+    }
     return InspectRenderState(R,O,E);
 }
 
+bool FAtlasTransportServer::SubmitRender(
+    const FTransportRequest& R,
+    TSharedPtr<FJsonObject>& O,
+    FString& E)
+{
+    if(!IsInGameThread() || !GEngine || IsEngineExitRequested())
+    {
+        E=TEXT("Engine unavailable or operation is not on the game thread");
+        return false;
+    }
+
+    if(R.EntityIds.Num()!=1)
+    {
+        E=TEXT("submit_render requires exactly one entity_id");
+        return false;
+    }
+
+    if(!R.Arguments.IsValid())
+    {
+        E=TEXT("submit_render requires arguments");
+        return false;
+    }
+
+    FString SequenceAssetPath;
+    if(!R.Arguments->TryGetStringField(TEXT("sequence_asset_path"),SequenceAssetPath) ||
+       SequenceAssetPath.TrimStartAndEnd().IsEmpty())
+    {
+        E=TEXT("submit_render requires arguments.sequence_asset_path");
+        return false;
+    }
+
+    ULevelSequence* Sequence=
+        LoadObject<ULevelSequence>(nullptr,*SequenceAssetPath);
+
+    if(!Sequence || !IsValid(Sequence))
+    {
+        E=FString::Printf(
+            TEXT("Level Sequence asset not found at sequence_asset_path: %s"),
+            *SequenceAssetPath);
+        return false;
+    }
+
+    UMoviePipelineQueueSubsystem* QueueSubsystem=
+        GEditor
+            ? GEditor->GetEditorSubsystem<UMoviePipelineQueueSubsystem>()
+            : nullptr;
+
+    if(!QueueSubsystem || !IsValid(QueueSubsystem))
+    {
+        E=TEXT("Movie Render Pipeline queue subsystem is unavailable");
+        return false;
+    }
+
+    UMoviePipelineQueue* Queue=QueueSubsystem->GetQueue();
+
+    if(!Queue || !IsValid(Queue))
+    {
+        E=TEXT("Movie Render Pipeline queue is unavailable");
+        return false;
+    }
+
+    /*
+     * Build the job from the Atlas request rather than requiring
+     * the editor's MRQ queue to have been manually populated.
+     */
+    UMoviePipelineExecutorJob* Job=
+        Queue->AllocateNewJob(
+            UMoviePipelineExecutorJob::StaticClass());
+
+    if(!Job || !IsValid(Job))
+    {
+        E=TEXT("Unable to allocate Movie Render Pipeline executor job");
+        return false;
+    }
+
+    Job->SetSequence(FSoftObjectPath(SequenceAssetPath));
+
+    const FSoftObjectPath RenderMapPath(
+        TEXT("/Game/AtlasTest/Generated/AtlasRenderFixture.AtlasRenderFixture"));
+
+    if (!RenderMapPath.IsValid())
+    {
+        Queue->DeleteJob(Job);
+        E=TEXT("Persistent Atlas render fixture map path is invalid");
+        return false;
+    }
+
+    Job->Map = RenderMapPath;
+
+    UMoviePipelinePrimaryConfig* AtlasConfig=
+        LoadAtlasRenderConfig(E);
+
+    if(!AtlasConfig)
+    {
+        Queue->DeleteJob(Job);
+        return false;
+    }
+
+    Job->SetConfiguration(AtlasConfig);
+
+    if(const UMoviePipelinePrimaryConfig* EffectiveConfig = Job->GetConfiguration())
+    {
+        if(const UMoviePipelineOutputSetting* EffectiveSetting =
+            Cast<UMoviePipelineOutputSetting>(
+                EffectiveConfig->FindSettingByClass(
+                    UMoviePipelineOutputSetting::StaticClass(),
+                    false,
+                    true)))
+        {
+            UE_LOG(
+                LogAtlasTransport,
+                Warning,
+                TEXT("ATLAS MRQ EFFECTIVE CONFIG: %dx%d frames=%d-%d output=%s"),
+                EffectiveSetting->OutputResolution.X,
+                EffectiveSetting->OutputResolution.Y,
+                EffectiveSetting->bUseCustomPlaybackRange
+                    ? EffectiveSetting->CustomStartFrame
+                    : 0,
+                EffectiveSetting->bUseCustomPlaybackRange
+                    ? EffectiveSetting->CustomEndFrame
+                    : 0,
+                *EffectiveSetting->OutputDirectory.Path);
+        }
+    }
+
+    const FString JobId=
+        FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+
+    TSharedPtr<FRenderJobState> JobState=
+        MakeShareable(new FRenderJobState());
+
+    JobState->JobId=JobId;
+    JobState->OperationName=R.OperationName;
+    JobState->Status=TEXT("submitted");
+    JobState->StatusMessage=TEXT("Render submitted");
+    JobState->Progress=0.0;
+    JobState->bSuccess=false;
+    JobState->bFinished=false;
+    JobState->bFailed=false;
+    JobState->SequenceAssetPath=SequenceAssetPath;
+
+    if (UMoviePipelineOutputSetting* OutputSetting =
+            GetAtlasRenderOutputSetting(AtlasConfig, E))
+    {
+        JobState->OutputDirectory = OutputSetting->OutputDirectory.Path;
+        JobState->OutputFormat = TEXT("png");
+    }
+
+    UMoviePipelinePIEExecutor* Executor=
+        NewObject<UMoviePipelinePIEExecutor>(GetTransientPackage());
+
+    if(!Executor || !IsValid(Executor))
+    {
+        Queue->DeleteJob(Job);
+        E=TEXT("Unable to create Movie Pipeline PIE executor");
+        return false;
+    }
+    JobState->Executor=Executor;
+    JobState->Job=Job;
+    Executor->OnIndividualJobStarted().AddLambda(
+        [JobId](UMoviePipelineExecutorJob* InJob)
+        {
+            FScopeLock Lock(&FAtlasTransportServer::RenderJobRegistryMutex);
+
+            TSharedPtr<FRenderJobState>* Found=
+                FAtlasTransportServer::RenderJobRegistry.Find(JobId);
+
+            if(Found && Found->IsValid())
+            {
+                (*Found)->Status=TEXT("rendering");
+                (*Found)->StatusMessage=TEXT("Render job started");
+                (*Found)->Progress=0.0;
+            }
+        });
+
+    Executor->OnIndividualJobWorkFinished().AddLambda(
+        [JobId](FMoviePipelineOutputData InOutputData)
+        {
+            FScopeLock Lock(&FAtlasTransportServer::RenderJobRegistryMutex);
+
+            TSharedPtr<FRenderJobState>* Found=
+                FAtlasTransportServer::RenderJobRegistry.Find(JobId);
+
+            if(Found && Found->IsValid())
+            {
+                (*Found)->Status=TEXT("finished");
+                (*Found)->StatusMessage=TEXT("Render job finished");
+                (*Found)->Progress=1.0;
+                (*Found)->bFinished=true;
+                (*Found)->bSuccess=InOutputData.bSuccess;
+                (*Found)->bFailed=!InOutputData.bSuccess;
+
+                if(InOutputData.bSuccess &&
+                   InOutputData.ShotData.Num()>0)
+                {
+                    for(const TPair<
+                        FMoviePipelinePassIdentifier,
+                        FMoviePipelineRenderPassOutputData>& PassData
+                        : InOutputData.ShotData[0].RenderPassData)
+                    {
+                        for(const FString& FilePath : PassData.Value.FilePaths)
+                        {
+                            if(!FilePath.TrimStartAndEnd().IsEmpty())
+                            {
+                                (*Found)->OutputFiles.AddUnique(FilePath);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+    Executor->OnExecutorFinished().AddLambda(
+        [JobId](UMoviePipelineExecutorBase* InExecutor,bool bSuccess)
+        {
+            FScopeLock Lock(&FAtlasTransportServer::RenderJobRegistryMutex);
+
+            TSharedPtr<FRenderJobState>* Found=
+                FAtlasTransportServer::RenderJobRegistry.Find(JobId);
+
+            if(Found && Found->IsValid())
+            {
+                (*Found)->bFinished=true;
+                (*Found)->bSuccess=bSuccess;
+                (*Found)->bFailed=!bSuccess;
+                (*Found)->Progress=1.0;
+                (*Found)->Status=
+                    bSuccess ? TEXT("finished") : TEXT("failed");
+                (*Found)->StatusMessage=
+                    bSuccess
+                        ? TEXT("Render executor finished successfully")
+                        : TEXT("Render executor finished with failure");
+            }
+        });
+
+    {
+        FScopeLock Lock(&RenderJobRegistryMutex);
+        RenderJobRegistry.Add(JobId,JobState);
+    }
+
+
+    AsyncTask(
+        ENamedThreads::GameThread,
+        [QueueSubsystem, Executor]()
+        {
+            if (QueueSubsystem && IsValid(QueueSubsystem) &&
+                Executor && IsValid(Executor))
+            {
+                QueueSubsystem->RenderQueueWithExecutorInstance(Executor);
+            }
+        });
+
+    TSharedPtr<FJsonObject> RenderJob=
+        MakeShareable(new FJsonObject);
+
+    RenderJob->SetStringField(TEXT("job_id"),JobId);
+    RenderJob->SetStringField(TEXT("status"),JobState->Status);
+    RenderJob->SetNumberField(TEXT("progress"),JobState->Progress);
+    RenderJob->SetStringField(TEXT("status_message"),JobState->StatusMessage);
+    RenderJob->SetStringField(TEXT("sequence_asset_path"),SequenceAssetPath);
+
+    TSharedPtr<FJsonObject> Entry=
+        MakeShareable(new FJsonObject);
+
+    Entry->SetStringField(TEXT("entity_id"),R.EntityIds[0]);
+    Entry->SetObjectField(TEXT("render_job"),RenderJob);
+
+    TSharedPtr<FJsonObject> State=
+        MakeShareable(new FJsonObject);
+
+    State->SetObjectField(R.EntityIds[0],Entry);
+
+    O=State;
+    return true;
+}
+bool FAtlasTransportServer::InspectRenderJob(
+    const FTransportRequest& R,
+    TSharedPtr<FJsonObject>& O,
+    FString& E)
+{
+    if(IsEngineExitRequested())
+    {
+        E=TEXT("Engine exit has been requested");
+        return false;
+    }
+
+    if(!R.Arguments.IsValid())
+    {
+        E=TEXT("inspect_render_job requires arguments");
+        return false;
+    }
+
+    FString JobId;
+
+    if(!R.Arguments->TryGetStringField(TEXT("job_id"),JobId) || JobId.IsEmpty())
+    {
+        E=TEXT("inspect_render_job requires arguments.job_id");
+        return false;
+    }
+
+    TSharedPtr<FRenderJobState> JobState;
+
+    {
+        FScopeLock Lock(&RenderJobRegistryMutex);
+
+        const TSharedPtr<FRenderJobState>* Found=
+            RenderJobRegistry.Find(JobId);
+
+        if(!Found || !Found->IsValid())
+        {
+            E=FString::Printf(
+                TEXT("Render job not found: %s"),
+                *JobId);
+            return false;
+        }
+
+        JobState=*Found;
+    }
+
+    TSharedPtr<FJsonObject> RenderJob=
+        MakeShareable(new FJsonObject);
+
+    RenderJob->SetStringField(TEXT("job_id"),JobState->JobId);
+    RenderJob->SetStringField(TEXT("status"),JobState->Status);
+    RenderJob->SetStringField(TEXT("status_message"),JobState->StatusMessage);
+    RenderJob->SetNumberField(TEXT("progress"),JobState->Progress);
+    RenderJob->SetBoolField(TEXT("success"),JobState->bSuccess);
+    RenderJob->SetBoolField(TEXT("finished"),JobState->bFinished);
+    RenderJob->SetBoolField(TEXT("failed"),JobState->bFailed);
+    RenderJob->SetStringField(TEXT("sequence_asset_path"),JobState->SequenceAssetPath);
+    RenderJob->SetStringField(TEXT("output_directory"),JobState->OutputDirectory);
+    RenderJob->SetStringField(TEXT("output_format"),JobState->OutputFormat);
+
+    TArray<TSharedPtr<FJsonValue>> OutputFiles;
+    for(const FString& FilePath : JobState->OutputFiles)
+    {
+        OutputFiles.Add(
+            MakeShareable(new FJsonValueString(FilePath)));
+    }
+    RenderJob->SetArrayField(TEXT("output_files"),OutputFiles);
+
+    O=RenderJob;
+    return true;
+}
 AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
 {
     if(!IsInGameThread()||!GEngine||IsEngineExitRequested())return nullptr; UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World))return nullptr; const FString TagToFind=FString::Printf(TEXT("atlas_entity:%s"),*EntityId); for(TActorIterator<AActor> ActorItr(World);ActorItr;++ActorItr){AActor* Actor=*ActorItr;if(Actor&&IsValid(Actor)&&Actor->Tags.Contains(FName(*TagToFind)))return Actor;} return nullptr;

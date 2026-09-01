@@ -34,6 +34,9 @@ UNREAL_TOOL_SCHEMAS = {
     "inspect_render_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str}),
     "configure_render": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "width": int, "height": int, "start_frame": int, "end_frame": int, "output_directory": str, "output_format": str}),
     "verify_render_state": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "width": int, "height": int, "start_frame": int, "end_frame": int, "output_directory": str, "output_format": str}),
+    "submit_render": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "sequence_asset_path": str}),
+    "inspect_render_job": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "job_id": str}),
+    "verify_render_job": UnrealToolSchema({"entity_ids": (list, tuple), "authorization_id": str, "job_id": str}),
 }
 
 

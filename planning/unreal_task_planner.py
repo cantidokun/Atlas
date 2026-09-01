@@ -35,6 +35,8 @@ class UnrealTaskPlanner:
     def plan_actor_location_sequence(self, intent, locations): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_actor_location_sequence(intent, locations))
     def plan_sequencer_playback_range(self, intent, start_frame, end_frame): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_sequencer_playback_range(intent, start_frame, end_frame))
     def plan_blueprint_compile(self, intent, asset_path): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_blueprint_compile(intent, asset_path))
+    def plan_render_submission(self, intent, sequence_asset_path): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_render_submission(intent, sequence_asset_path))
+    def plan_render_job_inspection(self, intent, job_id): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_render_job_inspection(intent, job_id))
     def plan_render_configuration(self, intent, render_config): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_render_configuration(intent, render_config))
     def plan_blueprint_metadata_mutation(self, intent, asset_path, metadata_key, metadata_value): self._validate_intent(intent); return UnrealTaskPlan(intent.intent_id, UnrealAgentPlanBuilder(self.capabilities).for_blueprint_metadata_mutation(intent, asset_path, metadata_key, metadata_value))
     def plan_composite_actor_production(self, intent: UnrealTaskIntent, composite: CompositeActorProductionOperation) -> UnrealTaskPlan:
@@ -108,6 +110,40 @@ class UnrealAgentPlanBuilder:
             self._operation(UnrealCapability.RENDER,UnrealOperationKind.WRITE,"configure_render",ids,payload),
             self._operation(UnrealCapability.RENDER,UnrealOperationKind.VERIFY,"verify_render_state",ids,payload),
         )
+    def for_render_submission(self, intent, sequence_asset_path):
+        ids=self._require_targets(intent)
+        sequence_asset_path=self._validate_asset_path(sequence_asset_path)
+        return (
+            self._operation(
+                UnrealCapability.RENDER,
+                UnrealOperationKind.WRITE,
+                "submit_render",
+                ids,
+                {"sequence_asset_path": sequence_asset_path},
+            ),
+            self._operation(
+                UnrealCapability.RENDER,
+                UnrealOperationKind.VERIFY,
+                "verify_render_job",
+                ids,
+                {"job_id": "$previous.submit_render.job_id"},
+            ),
+        )
+
+    def for_render_job_inspection(self, intent, job_id):
+        ids=self._require_targets(intent)
+        if not isinstance(job_id, str) or not job_id.strip():
+            raise ValueError("job_id must be a non-empty string")
+        return (
+            self._operation(
+                UnrealCapability.RENDER,
+                UnrealOperationKind.READ,
+                "inspect_render_job",
+                ids,
+                {"job_id": job_id.strip()},
+            ),
+        )
+
     def for_blueprint_compile(self, intent, asset_path):
         ids=self._require_targets(intent); asset_path=self._validate_asset_path(asset_path)
         return (

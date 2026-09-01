@@ -1,7 +1,12 @@
 """Deterministic render configuration contract for the Unreal Agent."""
 
+from pathlib import Path
+
 from dataclasses import dataclass, replace
 from typing import Mapping, Any
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+UNREAL_PROJECT_ROOT = PROJECT_ROOT / "unreal" / "AtlasUnrealHarness"
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,24 @@ def verify_render_config(evidence, expected):
             "output_format": state.get("output_format"),
         })
         expected_config = normalize_render_config(expected)
+
+        def canonicalize_output_directory(value: str) -> str:
+            path = Path(value.strip())
+            if not path.is_absolute():
+                path = UNREAL_PROJECT_ROOT / path
+            return str(path.resolve()).replace("\\", "/").rstrip("/")
+
+        actual = replace(
+            actual,
+            output_directory=canonicalize_output_directory(actual.output_directory),
+        )
+        expected_config = replace(
+            expected_config,
+            output_directory=canonicalize_output_directory(
+                expected_config.output_directory
+            ),
+        )
+
         if actual != expected_config:
             raise ValueError(
                 f"render state does not match expected configuration for entity '{entity_id}': "

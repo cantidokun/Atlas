@@ -4,7 +4,9 @@
 #include "MoviePipelinePrimaryConfig.h"
 #include "MoviePipelineOutputSetting.h"
 #include "MoviePipelineImageSequenceOutput.h"
+#include "MoviePipelineDeferredPasses.h"
 #include "Misc/PackageName.h"
+#include "Misc/Paths.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -53,8 +55,22 @@ int32 UAtlasRenderFixtureCommandlet::Main(const FString& Params)
     OutputSetting->bUseCustomPlaybackRange = true;
     OutputSetting->CustomStartFrame = 1;
     OutputSetting->CustomEndFrame = 120;
-    OutputSetting->OutputDirectory.Path = TEXT("/Game/AtlasTest/RenderOutput");
+    OutputSetting->OutputDirectory.Path =
+        FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AtlasRenderOutput"));
     OutputSetting->FileNameFormat = TEXT("AtlasRender_{frame_number}");
+
+    UMoviePipelineDeferredPassBase* DeferredPass =
+        Cast<UMoviePipelineDeferredPassBase>(
+            Config->FindOrAddSettingByClass(
+                UMoviePipelineDeferredPassBase::StaticClass(),
+                false,
+                true));
+
+    if (!DeferredPass)
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to create deferred render pass"));
+        return 1;
+    }
 
     UMoviePipelineImageSequenceOutput_PNG* PngOutput = Cast<UMoviePipelineImageSequenceOutput_PNG>(
         Config->FindOrAddSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass(), false, true));

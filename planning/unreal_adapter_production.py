@@ -61,6 +61,8 @@ class UnrealAdapterProduction:
             "verify_sequencer_playback_range": (UnrealCapability.SEQUENCER,"inspect_sequencer_state"),
             "verify_blueprint_state": (UnrealCapability.BLUEPRINT,"inspect_blueprint_state"),
             "verify_render_state": (UnrealCapability.RENDER,"inspect_render_state"),
+            "verify_render_job": (UnrealCapability.RENDER,"inspect_render_job"),
+            "inspect_render_job": (UnrealCapability.RENDER,"inspect_render_job"),
         }
         mapped=read_map.get(operation.name)
         if mapped:
@@ -68,6 +70,8 @@ class UnrealAdapterProduction:
             arguments={"entity_ids":tuple(operation.entity_ids)}
             if operation.capability is UnrealCapability.BLUEPRINT:
                 arguments["asset_path"] = operation.arguments["asset_path"]
+            elif operation.name in {"verify_render_job", "inspect_render_job"}:
+                arguments["job_id"] = operation.arguments["job_id"]
             transport_operation=UnrealOperation(capability=capability,kind=UnrealOperationKind.READ,name=name,arguments=arguments,entity_ids=tuple(operation.entity_ids))
             return self._execute(transport_operation,authorization_id,evidence_operation_name=operation.name)
         return self._execute(operation,authorization_id)

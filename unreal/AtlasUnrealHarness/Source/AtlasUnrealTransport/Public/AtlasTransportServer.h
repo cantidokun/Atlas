@@ -7,6 +7,9 @@
 #include "HAL/Event.h"
 #include "Dom/JsonObject.h"
 
+class UMoviePipelineExecutorBase;
+class UMoviePipelineExecutorJob;
+
 class FAtlasTransportServer : public FRunnable
 {
 public:
@@ -27,6 +30,31 @@ private:
     void* PipeHandle;
     struct FTransportRequest { FString RequestId; FString OperationName; FString Capability; FString Kind; TSharedPtr<FJsonObject> Arguments; TArray<FString> EntityIds; FString AuthorizationId; };
     struct FTransportResponse { FString RequestId; FString OperationName; TArray<FString> EntityIds; bool bSuccess; TSharedPtr<FJsonObject> ObservedState; FString Error; FString Source; };
+    struct FRenderJobState
+    {
+        FString JobId;
+        FString OperationName;
+        FString SequenceAssetPath;
+        FString Status;
+        FString StatusMessage;
+        double Progress;
+        FString OutputDirectory;
+        FString OutputFormat;
+        TArray<FString> OutputFiles;
+        bool bSuccess;
+        bool bFinished;
+        bool bFailed;
+        TWeakObjectPtr<UMoviePipelineExecutorBase> Executor;
+        TWeakObjectPtr<UMoviePipelineExecutorJob> Job;
+
+        FRenderJobState()
+            : Progress(0.0)
+            , bSuccess(false)
+            , bFinished(false)
+            , bFailed(false)
+        {
+        }
+    };
     struct FGameThreadExecutionState {
         FTransportRequest Request; FTransportResponse Response; FString Error; TSharedPtr<FJsonObject> ObservedState; FThreadSafeBool bCompleted; FThreadSafeBool bSuccess; FThreadSafeBool bCancelled; FEvent* CompletionEvent;
         FGameThreadExecutionState() : bCompleted(false), bSuccess(false), bCancelled(false), CompletionEvent(FPlatformProcess::GetSynchEventFromPool(false)) {}
@@ -34,6 +62,7 @@ private:
     };
     bool CreatePipeHandle(); void CloseNamedPipe(); bool WaitForClient(); bool ReadRequest(FString& OutJsonRequest); bool WriteResponse(const FString& JsonResponse); bool ParseRequest(const FString& JsonString,FTransportRequest& OutRequest); FString SerializeResponse(const FTransportResponse& Response); bool ValidateRequest(const FTransportRequest& Request,FString& OutError); bool ExecuteRequest(const FTransportRequest& Request,FTransportResponse& OutResponse);
     static void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
+    static bool InspectWorld(TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool InspectTargetActors(const TArray<FString>& EntityIds,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool SetActorLocation(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool SetActorRotation(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
@@ -52,6 +81,10 @@ private:
     static bool SetBlueprintMetadata(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool InspectRenderState(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool ConfigureRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool SubmitRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool InspectRenderJob(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool BuildBlueprintState(const FString& AssetPath,TSharedPtr<FJsonObject>& OutBlueprintState,FString& OutError);
     static AActor* FindActorByEntityId(const FString& EntityId);
+    static FCriticalSection RenderJobRegistryMutex;
+    static TMap<FString,TSharedPtr<FRenderJobState>> RenderJobRegistry;
 };
