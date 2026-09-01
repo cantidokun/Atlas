@@ -40,11 +40,13 @@ class BlenderPersistenceEvidence:
         if not isinstance(inspection_tool, str) or not inspection_tool.strip():
             raise ValueError("inspection tool must be a non-empty string")
         if not isinstance(inspection_result, BlenderExecutionResult):
-            raise TypeError("inspection result must be a BlenderExecutionResult")
+            raise TypeError("persistence evidence requires a BlenderExecutionResult")
         if inspection_result.tool != inspection_tool:
             raise ValueError("inspection tool does not match inspection result")
         if not inspection_result.ok:
             raise ValueError("persistence evidence requires a successful inspection")
+        if expected_state != observed_state:
+            raise ValueError("persistence evidence requires expected and observed state to match")
 
         return cls(
             operation_tool=operation_tool,
@@ -65,6 +67,8 @@ class BlenderPersistenceEvidence:
         if not isinstance(inspection_result, BlenderExecutionResult):
             return False
         if inspection_result.tool != self.inspection_tool or not inspection_result.ok:
+            return False
+        if expected_state != observed_state:
             return False
         return (
             operation_tool == self.operation_tool
