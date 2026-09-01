@@ -30,6 +30,7 @@ class BlenderPersistenceEvidence:
         operation_arguments: Mapping[str, Any],
         inspection_tool: str,
         expected_state: Any,
+        observed_state: Any,
         inspection_result: BlenderExecutionResult,
     ) -> "BlenderPersistenceEvidence":
         if not isinstance(operation_tool, str) or not operation_tool.strip():
@@ -50,7 +51,7 @@ class BlenderPersistenceEvidence:
             operation_arguments_digest=_digest(operation_arguments),
             inspection_tool=inspection_tool,
             expected_state_digest=_digest(expected_state),
-            observed_state_digest=_digest(inspection_result.details),
+            observed_state_digest=_digest(observed_state),
         )
 
     def matches(
@@ -58,6 +59,7 @@ class BlenderPersistenceEvidence:
         operation_tool: str,
         operation_arguments: Mapping[str, Any],
         expected_state: Any,
+        observed_state: Any,
         inspection_result: BlenderExecutionResult,
     ) -> bool:
         if not isinstance(inspection_result, BlenderExecutionResult):
@@ -68,5 +70,5 @@ class BlenderPersistenceEvidence:
             operation_tool == self.operation_tool
             and _digest(operation_arguments) == self.operation_arguments_digest
             and _digest(expected_state) == self.expected_state_digest
-            and _digest(inspection_result.details) == self.observed_state_digest
+            and _digest(observed_state) == self.observed_state_digest
         )
