@@ -1,6 +1,8 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from planning.blender_execution_receipt import BlenderExecutionReceipt
+from planning.blender_persistence_evidence import verify_blender_persistence
 from planning.blender_result_contract import BlenderExecutionResult
 from scripts.run_live_blender_move import run_live_move
 
@@ -37,6 +39,35 @@ class FakeBoundary:
         )
         receipt = BlenderExecutionReceipt.create(tool, arguments, result)
         return result, receipt
+
+    def execute_with_persistence(
+        self,
+        operation_tool,
+        operation_arguments,
+        inspection_tool,
+        inspection_arguments,
+        expected_state,
+        observed_state,
+    ):
+        operation_result, operation_receipt = self.execute_with_receipt(
+            operation_tool, operation_arguments
+        )
+        inspection_result = self.execute_verified(inspection_tool, inspection_arguments)
+        actual_state = observed_state(inspection_result)
+        persistence_evidence = verify_blender_persistence(
+            operation_tool,
+            operation_arguments,
+            inspection_tool,
+            expected_state,
+            actual_state,
+            inspection_result,
+        )
+        return SimpleNamespace(
+            operation_result=operation_result,
+            operation_receipt=operation_receipt,
+            inspection_result=inspection_result,
+            persistence_evidence=persistence_evidence,
+        )
 
 
 def test_live_harness_verifies_from_fresh_inspection_and_restores(monkeypatch, tmp_path):
