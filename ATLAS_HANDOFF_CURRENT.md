@@ -1,13 +1,14 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 1, 2026 — end of coding session.  
+**Updated:** September 1, 2026 — active development.  
 **Branch:** `feat/blender-coordinator-result-integrity-final`  
 **PR:** #42 (`Harden Blender execution result integrity`)  
+**Current head:** `8c4d32ee46c1768c05f4283876ae3c7d758e8676`  
 **Purpose:** canonical resume point for the next Atlas development session.
 
 ## Current milestone
 
-**AUTONOMOUS ADMISSION / RESTART-RECOVERY / GENERALIZED SEQUENCE / PRODUCTION-GOAL ORCHESTRATION**
+**AUTONOMOUS ADMISSION / RESTART-RECOVERY / GENERALIZED SEQUENCE / PRODUCTION-GOAL ORCHESTRATION / EVIDENCE-DRIVEN REPLANNING SEAM**
 
 Atlas has moved from deterministic, authorization-bound Blender execution into a production-facing autonomous admission, sequencing, and goal-orchestration layer. The runtime has a defined startup safety boundary: persisted interrupted executions must be reconciled before autonomous execution can become READY.
 
@@ -25,9 +26,14 @@ AutonomousProductionGoal
  -> autonomous admission
  -> ProductionOperationLifecycle
  -> authoritative completion
+ -> AutonomousProductionGoalRun
+ -> authoritative outcome evidence
+ -> AutonomousProductionGoalFeedback
+ -> replacement declarative goal proposal
+ -> canonical planning + fresh authorization
 ```
 
-A goal run can additionally produce an `AutonomousProductionGoalRun` audit result containing goal identity, objective, authorization identity/digest, sequence outcome, resume position, and a non-executable follow-up request when the run is blocked.
+The final feedback/replan step is planning-only. It creates a clean seam for a future agent to reason from verified evidence without reusing prior authorization or receiving direct execution authority.
 
 ## Safety and integrity invariants
 
@@ -43,8 +49,9 @@ A goal run can additionally produce an `AutonomousProductionGoalRun` audit resul
 - `BlenderAutonomousAdmission` and `BlenderLiveWriteGate` must share the same durable execution journal instance.
 - Saved authorization is never replayed; resumed/new writes require the normal authorization-bound path.
 - `ProductionOperationLifecycle` remains authoritative for `COMPLETED` versus `BLOCKED` and requires authoritative verification plus a production completion receipt.
-- The `AutonomousProductionGoalRun` result layer is audit/feedback context only and does not become a second execution or authorization system.
-- Follow-up requests contain no tool dispatch or executable arguments.
+- `AutonomousProductionGoalRun` and `AutonomousProductionGoalFeedback` are audit/feedback context only and do not become a second execution or authorization system.
+- Follow-up requests and feedback records contain no tool dispatch or executable authorization instructions.
+- A replacement goal receives fresh authorization through `compile_goal`; prior authorization identity is explicitly rejected from reuse.
 
 ## Current orchestration boundaries
 
@@ -71,7 +78,7 @@ Creates immutable authorization receipts bound to the exact compiled action sequ
 ### Goal orchestration
 `planning/autonomous_production_orchestrator.py`
 
-Composes goal planning, explicit authorization, autonomous admission, and sequence execution. It owns no separate execution, verification, journal, checkpoint, receipt, registry, or completion mechanism.
+Composes goal planning, explicit authorization, autonomous admission, sequence execution, and the planning-only replan bridge. It owns no separate execution, verification, journal, checkpoint, receipt, registry, or completion mechanism.
 
 ### Goal preparation / audit context
 `planning/autonomous_production_goal_preparation.py`
@@ -82,7 +89,17 @@ Execution-free binding of goal identity to the normalized authorized plan and au
 
 Audit-oriented outcome containing goal identity, authorization context, sequence state, progress, and structured non-executable follow-up information when needed.
 
-## CI / workflow position at session close
+### Evidence-driven feedback
+`planning/autonomous_production_goal_feedback.py`
+
+Binds a non-completed goal run to authoritative outcome evidence. `from_run()` refuses completed runs. The feedback record is immutable planning context and has no execution mechanism.
+
+### Corrective replan seam
+`AutonomousProductionOrchestrator.prepare_replan_from_run()`
+
+Hands the feedback record to an injected proposal callback, accepts only a new `AutonomousProductionGoal`, then recompiles and freshly authorizes it through the canonical goal-planning path. Reuse of the prior authorization identity is rejected.
+
+## CI / workflow position
 
 GitHub Actions is the development gate with two complementary tiers:
 
@@ -99,13 +116,13 @@ Offline pytest does not constitute live Blender evidence. The self-hosted Window
 
 ### Latest confirmed workflow
 
-**Atlas Tests #1133 — ✅ PASSED** on `0fd6a707`.
+**Atlas Tests #1150 — ✅ PASSED** on `8c4d32ee46c1768c05f4283876ae3c7d758e8676`.
 
 - `tests (3.12)` — passed.
-- `blender-integration` — skipped.
-- Therefore #1133 is green portable CI only and provides **no new live Blender evidence**.
+- `blender-integration` — skipped because this run was PR-triggered; the workflow's Blender job is currently conditioned on `push` to a `feat/**` branch.
+- Therefore #1150 is green portable CI only and provides **no new live Blender evidence**.
 
-An earlier workflow, #1117, exposed a real authorization-context test failure in the goal-run layer; that issue was corrected and subsequent workflows passed. Do not use the failed run as the current baseline.
+The self-hosted runner is available locally, but no live Blender result is claimed until the workflow executes the `push`-conditioned integration job and its result is inspected.
 
 ## Proven architecture / boundaries
 
@@ -124,7 +141,10 @@ Qwen / AI agent proposal
  -> fresh authoritative verification
  -> durable journal / checkpoint / recovery
  -> VERIFIED / BLOCKED / COMPLETED
- -> follow-up / corrective replan when objective remains unsatisfied
+ -> authoritative evidence
+ -> planning-only feedback
+ -> new declarative goal
+ -> canonical replan / fresh authorization
 ```
 
 Previously proven live Blender capabilities include `set_object_rotation`, `move_object`, `delete_object`, `create_empty_marker`, and `move_object_to_collection`, with legitimate paths verified and adversarial paths blocked.
@@ -137,10 +157,11 @@ Previously proven live gates include durable checkpoint resume, stale-state zero
 - `planning/action_plan_sequence_adapter.py` — authorized-pristine ActionPlan to autonomous sequence bridge.
 - `planning/autonomous_production_goal.py` — planning-only production-goal boundary.
 - `planning/autonomous_production_goal_planner.py` — production-goal compilation through canonical Blender planning validation.
-- `planning/autonomous_production_orchestrator.py` — high-level goal/action-plan orchestration façade.
+- `planning/autonomous_production_orchestrator.py` — high-level goal/action-plan orchestration façade and evidence-driven replan seam.
 - `planning/autonomous_production_goal_preparation.py` — execution-free prepared-goal record.
 - `planning/autonomous_production_goal_run.py` — audit-oriented goal-run result and non-executable follow-up context.
-- `tests/test_autonomous_production_orchestrator.py` — goal compilation, authorization, admission, execution, audit, and follow-up regressions.
+- `planning/autonomous_production_goal_feedback.py` — immutable authoritative evidence feedback context for incomplete runs.
+- `tests/test_autonomous_production_goal_feedback.py` — feedback creation, completion guard, fresh-authorization replan, and run-to-replan bridge regressions.
 
 Existing foundational boundaries remain in:
 
@@ -177,33 +198,33 @@ Existing foundational boundaries remain in:
 - A partially executed or failed `ActionPlan` must not be rebuilt as a fresh autonomous sequence; use the established resume/recovery path.
 - Do not introduce parallel authorization, receipt, journal, registry, checkpoint, or completion mechanisms without a demonstrated architectural gap.
 - Avoid bespoke per-tool lifecycle orchestration in place of generalized runtime boundaries.
-- Goal-run and follow-up records remain non-executable.
+- Goal-run and feedback records remain non-executable.
 - C++ interoperability remains a future architectural requirement; subsystem contracts should remain language-agnostic.
 - Photogrammetry is upstream of Blender; Atlas is exclusively concerned with soccer-field-related digital twins.
 - Do not infer live Blender success from offline pytest results.
 
 ## Session result
 
-This session advanced the production-goal orchestration surface from a validated goal planner into an execution-ready, authorization-aware, admission-gated orchestration boundary and added audit-oriented goal preparation/run context. The goal flow now has a clear seam for future evidence-driven feedback and corrective replanning without granting the planning layer execution authority.
+This session advanced the production-goal orchestration surface into an evidence-driven replanning seam. A blocked/incomplete goal run can now be paired with authoritative evidence, exposed to a proposal callback as planning-only feedback, and converted into a fresh declarative goal that must pass the existing capability validation and fresh authorization path.
 
-The final confirmed workflow for the current work is **Atlas Tests #1133 — passed** on `0fd6a707`; the Blender integration job was skipped.
+The latest confirmed workflow is **Atlas Tests #1150 — passed** on `8c4d32ee46c1768c05f4283876ae3c7d758e8676`; the Blender integration job was skipped because the run was PR-triggered.
 
-**Development is paused here for tonight.**
+The local self-hosted Windows Actions runner is available, but live Blender validation still requires a push-triggered workflow run executing the `blender-integration` job.
 
-## Next-session resume
+## Next development target
+
+The next step is to connect the feedback/replan seam to the existing authoritative verification/evidence sources and corrective execution boundaries without duplicating them. The proposal layer should remain declarative; Atlas must continue to compile, authorize, admit, execute, verify, persist, and recover through the existing boundaries.
+
+Do not bypass the established `ActionAuthorization`, `BlenderAutonomousAdmission`, journal, checkpoint, verification, receipt, registry, or completion mechanisms.
+
+## Resume
 
 ```powershell
 git pull --ff-only origin feat/blender-coordinator-result-integrity-final
 python -m pytest -q
 ```
 
-Then:
-
-1. Check the newest GitHub Actions workflow for PR #42 and the current branch head.
-2. Confirm whether the current head has dedicated green CI before treating later commits as validated.
-3. Inspect the self-hosted Windows/Blender runner result separately; portable CI is not live Blender evidence.
-4. Resume from the production-goal orchestration boundary, with the next architectural target being evidence/verification feedback into corrective replanning rather than another parallel execution/authorization system.
-5. Preserve existing authorization, admission, journal, verification, checkpoint, registry, and completion boundaries.
+Then inspect the current Actions runs and, because the self-hosted runner is available, establish a fresh push-triggered Blender integration result before claiming live Blender validation.
 
 **Important:** current green CI means only what the corresponding workflow actually ran. Never report a later SHA as green without a workflow result for that SHA.
 
