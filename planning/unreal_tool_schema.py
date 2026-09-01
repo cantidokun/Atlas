@@ -76,6 +76,10 @@ def validate_unreal_tool_call(tool: str, arguments: Dict[str, Any]) -> Dict[str,
             if not status.strip():
                 raise ValueError("expected_compile_status must be a non-empty string")
             snapshot["expected_compile_status"] = status.strip()
+    if tool in {"configure_render", "verify_render_state"}:
+        from planning.unreal_render_contract import normalize_render_config
+        normalized = normalize_render_config({key: snapshot[key] for key in ("width", "height", "start_frame", "end_frame", "output_directory", "output_format")})
+        snapshot.update({"width": normalized.width, "height": normalized.height, "start_frame": normalized.start_frame, "end_frame": normalized.end_frame, "output_directory": normalized.output_directory.strip(), "output_format": normalized.output_format.strip().lower()})
     for tool_name, field, label in (
         ("apply_material_variant", "material_variant", "material_variant"),
         ("verify_material_variant", "material_variant", "material_variant"),
