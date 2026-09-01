@@ -1,34 +1,42 @@
 from pathlib import Path
 
+from planning.blender_execution_receipt import BlenderExecutionReceipt
+from planning.blender_result_contract import BlenderExecutionResult
 from scripts.run_live_blender_move import run_live_move
 
 
-class FakeResult:
-    def __init__(self, *, objects=None, ok=True):
-        self.ok = ok
-        self.state = "inspected" if objects is not None else "moved"
-        self.details = {"objects": objects or []}
-
-
-class FakeReceipt:
-    def matches(self, tool, arguments, result):
-        return tool == "move_object" and result.ok is True
-
-
 class FakeBoundary:
-    calls = []
-    location = [1.0, 2.0, 3.0]
+    def __init__(self):
+        self.calls = []
+        self.location = [1.0, 2.0, 3.0]
 
     def execute_verified(self, tool, arguments):
         self.calls.append(("inspect", tool, dict(arguments)))
-        return FakeResult(
-            objects=[{"name": "Goal_Left_post", "location": list(self.location)}]
+        return BlenderExecutionResult(
+            tool=tool,
+            ok=True,
+            state="inspected",
+            details={
+                "objects": [
+                    {"name": "Goal_Left_post", "location": list(self.location)}
+                ]
+            },
         )
 
     def execute_with_receipt(self, tool, arguments):
         self.calls.append(("write", tool, dict(arguments)))
         self.location = list(arguments["location"])
-        return FakeResult(), FakeReceipt()
+        result = BlenderExecutionResult(
+            tool=tool,
+            ok=True,
+            state="moved",
+            details={
+                "object_name": arguments["object_name"],
+                "location": list(self.location),
+            },
+        )
+        receipt = BlenderExecutionReceipt.create(tool, arguments, result)
+        return result, receipt
 
 
 def test_live_harness_verifies_from_fresh_inspection_and_restores(monkeypatch, tmp_path):
