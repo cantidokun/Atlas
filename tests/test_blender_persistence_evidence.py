@@ -20,28 +20,36 @@ def test_persistence_evidence_binds_operation_and_fresh_state():
         "location": [0.25, 5.302, 0.0],
     }
     expected_state = {"Goal_Left_post": [0.25, 5.302, 0.0]}
+    observed_state = {"Goal_Left_post": [0.25, 5.302, 0.0]}
     inspection = _inspection([0.25, 5.302, 0.0])
 
     evidence = BlenderPersistenceEvidence.create(
-        "move_object", arguments, "inspect_scene", expected_state, inspection
+        "move_object",
+        arguments,
+        "inspect_scene",
+        expected_state,
+        observed_state,
+        inspection,
     )
 
     assert evidence.matches(
-        "move_object", arguments, expected_state, inspection
+        "move_object", arguments, expected_state, observed_state, inspection
     )
 
 
 def test_persistence_evidence_rejects_different_observed_state():
     arguments = {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [0.25, 0.0, 0.0]}
     expected_state = {"Goal_Left_post": [0.25, 0.0, 0.0]}
-    original_inspection = _inspection([0.25, 0.0, 0.0])
+    observed_state = {"Goal_Left_post": [0.25, 0.0, 0.0]}
+    inspection = _inspection([0.25, 0.0, 0.0])
     evidence = BlenderPersistenceEvidence.create(
-        "move_object", arguments, "inspect_scene", expected_state, original_inspection
+        "move_object", arguments, "inspect_scene", expected_state, observed_state, inspection
     )
 
+    changed_state = {"Goal_Left_post": [0.0, 0.0, 0.0]}
     changed_inspection = _inspection([0.0, 0.0, 0.0])
     assert not evidence.matches(
-        "move_object", arguments, expected_state, changed_inspection
+        "move_object", arguments, expected_state, changed_state, changed_inspection
     )
 
 
@@ -55,5 +63,10 @@ def test_persistence_evidence_requires_successful_inspection():
 
     with pytest.raises(ValueError, match="successful inspection"):
         BlenderPersistenceEvidence.create(
-            "move_object", {"file_name": "fixture.blend"}, "inspect_scene", {}, inspection
+            "move_object",
+            {"file_name": "fixture.blend"},
+            "inspect_scene",
+            {},
+            {},
+            inspection,
         )
