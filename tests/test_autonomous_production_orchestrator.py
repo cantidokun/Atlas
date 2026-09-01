@@ -8,11 +8,13 @@ from planning.action_authorization import ActionAuthorization
 from planning.action_plan_sequence_adapter import ActionPlanSequenceAdapter
 from planning.autonomous_production_goal import AutonomousProductionGoal
 from planning.autonomous_production_goal_planner import AutonomousProductionGoalPlanner
+from planning.autonomous_production_goal_run import AutonomousProductionGoalRun
 from planning.autonomous_production_orchestrator import AutonomousProductionOrchestrator
 from planning.blender_autonomous_admission import BlenderAutonomousAdmission
 from planning.blender_task_planner import BlenderTaskPlanner
 from planning.production_operation_lifecycle import ProductionOperationLifecycle
 from planning.production_operation_lifecycle import ProductionOperationState
+from planning.autonomous_task_sequence import AutonomousTaskSequenceResult
 
 
 class FakeAdmission(BlenderAutonomousAdmission):
@@ -105,7 +107,29 @@ def test_prepare_goal_uses_canonical_goal_planner_and_explicit_authorizer():
     sequence.steps[0].operation.run.assert_not_called()
 
 
-def test_prepare_goal_requires_goal_planner_and_authorizer():
+def test_compile_goal_returns_authorized_plan_without_execution():
+    goal = AutonomousProductionGoal(
+        "goal-1",
+        "inspect the scene",
+        (ActionSpec("inspect_scene", {"file_name": "scene.blend"}, name="inspect"),),
+    )
+    orchestrator = AutonomousProductionOrchestrator(
+        ActionPlanSequenceAdapter(lambda _action: MagicMock(spec=ProductionOperationLifecycle)),
+        FakeAdmission(True),
+        goal_planner=AutonomousProductionGoalPlanner(BlenderTaskPlanner()),
+        authorize=authorize_plan,
+    )
+
+    plan, authorization = orchestrator.compile_goal(goal)
+
+    assert plan.authorized is True
+    assert plan.authorization is authorization
+    assert authorization.matches(plan.actions)
+    assert plan.current_index == 0
+    assert plan.completed == []
+
+
+def test_compile_goal_requires_goal_planner_and_authorizer():
     goal = AutonomousProductionGoal(
         "goal-1",
         "inspect the scene",
@@ -113,7 +137,7 @@ def test_prepare_goal_requires_goal_planner_and_authorizer():
     )
     adapter = ActionPlanSequenceAdapter(lambda _action: MagicMock(spec=ProductionOperationLifecycle))
     with pytest.raises(RuntimeError, match="goal_planner is required"):
-        AutonomousProductionOrchestrator(adapter, FakeAdmission(True)).prepare_goal(goal)
+        AutonomousProductionOrchestrator(adapter, FakeAdmission(True)).compile_goal(goal)
 
     orchestrator = AutonomousProductionOrchestrator(
         adapter,
@@ -121,7 +145,7 @@ def test_prepare_goal_requires_goal_planner_and_authorizer():
         goal_planner=AutonomousProductionGoalPlanner(BlenderTaskPlanner()),
     )
     with pytest.raises(RuntimeError, match="authorize is required"):
-        orchestrator.prepare_goal(goal)
+        orchestrator.compile_goal(goal)
 
 
 def test_prepare_goal_rejects_authorizer_that_returns_wrong_type():
@@ -156,6 +180,58 @@ def test_prepare_goal_rejects_authorization_for_different_plan():
     )
     with pytest.raises(RuntimeError, match="does not match the exact action plan"):
         orchestrator.prepare_goal(goal)
+
+
+def test_run_goal_with_context_preserves_goal_and_authorization_identity():
+    goal = AutonomousProductionGoal(
+        "goal-1",
+        "inspect the scene",
+        (ActionSpec("inspect_scene", {"file_name": "scene.blend"}, name="inspect"),),
+    )
+    operation = MagicMock(spec=ProductionOperationLifecycle)
+    operation.run.return_value = MagicMock(
+        state=ProductionOperationState.COMPLETED,
+        receipt=MagicMock(),
+        reason="verified",
+    )
+    orchestrator = AutonomousProductionOrchestrator(
+        ActionPlanSequenceAdapter(lambda _action: operation),
+        FakeAdmission(True),
+        goal_planner=AutonomousProductionGoalPlanner(BlenderTaskPlanner()),
+        authorize=authorize_plan,
+    )
+
+    result = orchestrator.run_goal_with_context(goal, sequence_id="shot-001")
+
+    assert isinstance(result, AutonomousProductionGoalRun)
+    assert result.goal_id == "goal-1"
+    assert result.objective == "inspect the scene"
+    assert result.authorization.authorization_id == "goal-authorized"
+    assert result.completed is True
+    assert result.completed_steps == ("inspect",)
+    operation.run.assert_called_once()
+
+
+def test_goal_run_snapshot_is_audit_ready():
+    goal = AutonomousProductionGoal(
+        "goal-1",
+        "inspect the scene",
+        (ActionSpec("inspect_scene", {"file_name": "scene.blend"}, name="inspect"),),
+    )
+    authorization = ActionAuthorization.issue(list(goal.actions), "goal-authorized")
+    sequence = AutonomousTaskSequenceResult(
+        ProductionOperationState.COMPLETED,
+        ("inspect",),
+        1,
+        "verified",
+    )
+
+    result = AutonomousProductionGoalRun.from_goal(goal, authorization, sequence)
+    snapshot = result.snapshot()
+
+    assert snapshot["goal_id"] == "goal-1"
+    assert snapshot["authorization"]["authorization_id"] == "goal-authorized"
+    assert snapshot["sequence"]["completed_steps"] == ["inspect"]
 
 
 def test_run_blocks_before_execution_when_admission_is_not_ready():
