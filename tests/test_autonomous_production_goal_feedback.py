@@ -92,3 +92,28 @@ def test_replan_compiles_and_reauthorizes_replacement_goal():
     assert action_plan.actions[0].arguments == {"file_name": "corrected.blend"}
     assert authorization.authorization_id == "new-authorization"
     assert authorization.authorization_id != feedback.authorization_id
+
+
+def test_replan_from_run_carries_evidence_through_proposal_boundary():
+    run = _blocked_run()
+    evidence = {"verified": False, "failed_invariant": "object_at_target"}
+    orchestrator = object.__new__(AutonomousProductionOrchestrator)
+    object.__setattr__(orchestrator, "goal_planner", AutonomousProductionGoalPlanner(BlenderTaskPlanner()))
+    object.__setattr__(orchestrator, "authorize", lambda plan: ActionAuthorization.issue(plan.actions, "new-authorization"))
+    replacement = AutonomousProductionGoal(
+        "goal-2",
+        "repair and inspect the scene",
+        (ActionSpec("inspect_scene", {"file_name": "corrected.blend"}, name="inspect-corrected"),),
+    )
+
+    seen = []
+    feedback, goal, _plan, authorization = orchestrator.prepare_replan_from_run(
+        run,
+        evidence,
+        lambda incoming: (seen.append(incoming), replacement)[1],
+    )
+
+    assert feedback.evidence is evidence
+    assert seen == [feedback]
+    assert goal == replacement
+    assert authorization.authorization_id == "new-authorization"
