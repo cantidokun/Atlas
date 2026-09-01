@@ -1,11 +1,10 @@
 # Atlas Current Development Handoff
 
 **Updated:** September 1, 2026 — active Atlas development
-**GitHub documentation branch:** `docs/sep1-2026-unreal-render-handoff`
-**Latest GitHub main at handoff synchronization:** `b56aada` (`Add production goal planner regression`)
-**Latest local development checkpoint reported by user:** `f658e16` (`feat: establish Unreal render artifact receipt pipeline`)
-**Latest local full-suite result reported by user:** **1033 passed, 5 skipped**
-**Latest local `git diff --check`:** clean
+**Blender continuation branch:** `feat/blender-stage11-mainline`
+**Blender Stage 11 PR:** #49 — controlled live mutation harness
+**Latest Blender branch HEAD:** `c4e2e473926ef18944390e1f9ce7520bf1382b4c`
+**Latest known local full-suite result from the development PC:** **1033 passed, 5 skipped**
 
 ## Current state
 
@@ -27,9 +26,90 @@ Independent verification
 
 Qwen never receives direct production execution authority.
 
+## Blender — verified September 1 milestone
+
+The first controlled real Blender mutation has now been **proven locally** through the Atlas execution boundary.
+
+Controlled live proof:
+
+```text
+Blender:          4.4
+operation:        move_object
+object:           Goal_Left_post
+before:           [0.0, 5.302, 0.0]
+after:            [0.25, 5.302, 0.0]
+authorization:    atlas-stage11-live-mutation
+```
+
+The mutation launched a real Blender process, wrote the `.blend`, then performed a fresh independent Blender inspection. The persisted location matched the requested target. The fixture was then restored and independently verified at its original location.
+
+The execution path now establishes:
+
+```text
+explicit authorization
+        ↓
+validated Blender action
+        ↓
+real Blender execution
+        ↓
+immutable execution receipt
+        ↓
+fresh Blender inspection
+        ↓
+expected vs observed state comparison
+        ↓
+immutable persistence evidence
+        ↓
+verified action completion
+```
+
+The reusable Blender execution boundary now exposes a closed-loop primitive that returns the operation result, execution receipt, independent inspection result, and persistence evidence together. It deliberately does **not** create authorization; authorization remains owned by the planning layer.
+
+Persistence evidence fails closed when inspection is unsuccessful or expected and observed state differ.
+
+## Blender roadmap
+
+### Stage 1 — Basic Blender Agent
+**COMPLETE**
+
+### Stage 2 — Reliable Evidence
+**COMPLETE**
+
+### Stage 3 — Mandatory Evidence Acquisition
+**COMPLETE**
+
+### Stage 4 — Evidence Validation and Recommendation Restraint
+**COMPLETE**
+
+### Stage 5 — General Evidence Planner
+**COMPLETE**
+
+### Stage 6 — Reliable Modification Control
+**COMPLETE**
+
+### Stage 7 — General Action Planning
+**COMPLETE**
+
+### Stage 8 — Conditional Action Planning
+**COMPLETE**
+
+### Stage 9 — Qwen/Atlas Agent Reasoning Boundary
+**COMPLETE FOR CURRENT CONTRACT**
+
+### Stage 10 — Blender Adapter / Real Execution Bridge
+**COMPLETE FOR CURRENT CONTROLLED WRITE PATH**
+
+### Stage 11 — First Controlled Live Blender Operation
+**COMPLETE — PROVEN LOCALLY**
+
+### Stage 12 — Closed-loop Blender Agent
+**NEXT**
+
+Stage 12 should build on the reusable closed-loop primitive rather than creating another one-off live harness. The next increment should remain controlled and deterministic: broaden the execution contract to support additional already-proven Blender capabilities while preserving explicit authorization, independent inspection, persistence evidence, and fail-closed behavior.
+
 ## Unreal — verified September 1 milestone
 
-The local Unreal Engine 5.6 production boundary has now been exercised end to end.
+The local Unreal Engine 5.6 production boundary has also been exercised end to end.
 
 Verified capabilities include:
 
@@ -44,110 +124,30 @@ Verified capabilities include:
 - evidence-bound `UnrealRenderReceipt` creation;
 - atomic `UnrealRenderReceiptStore` persistence and fail-closed reload validation.
 
-Controlled live proof:
-
-```text
-resolution:       640x360
-frame range:      1–2
-output format:    PNG
-output directory: Saved/AtlasRenderOutput
-```
-
-The final completed live render produced a real PNG artifact. `inspect_render_job` returned the artifact and was marked `verified=True`.
-
-A receipt was successfully issued from that verified live evidence with:
-
-```text
-evidence_digest:
-f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
-
-receipt_digest:
-f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
-
-SELF MATCH: True
-```
-
 The Unreal runtime job registry remains in-memory. Durable receipt persistence is on the Atlas/Python side. Cross-process recovery of Unreal runtime jobs has **not** been implemented.
 
-## Render architecture now established
+## Required regression philosophy
 
-```text
-Atlas render intent
-        ↓
-render configuration
-        ↓
-configuration verification
-        ↓
-MRQ submission
-        ↓
-dynamic Unreal job identity
-        ↓
-asynchronous inspection
-        ↓
-completed + successful state
-        ↓
-actual output_files[]
-        ↓
-filesystem artifact verification
-        ↓
-verified Unreal evidence
-        ↓
-deterministic evidence digest
-        ↓
-UnrealRenderReceipt
-        ↓
-atomic receipt persistence
-```
+Preserve coverage for:
 
-A production-tool success response alone is not sufficient to establish completion.
-
-## Blender
-
-Blender remains an independent development track. The repository's earlier Blender architecture continues to provide structured intent, capability/schema validation, authorization, controlled execution, independent verification, evidence, receipts, recovery, and replanning.
-
-The next Blender live gate remains the first controlled real operation after the adapter-focused regression gate is fresh and green.
-
-## Regression status
-
-The latest local full-suite result reported from the development PC is:
-
-```text
-1033 passed, 5 skipped
-```
-
-The local working tree's `git diff --check` was clean at that checkpoint.
-
-This is a **local development result**, not a claim about the current GitHub `main` CI status.
-
-## Repository synchronization state
-
-The user's local branch is a safety branch named:
-
-```text
-backup-2026-09-01-atlas-render-work
-```
-
-with local HEAD:
-
-```text
-f658e16 feat: establish Unreal render artifact receipt pipeline
-```
-
-`origin/main` is currently at:
-
-```text
-b56aada Add production goal planner regression
-```
-
-The local branch and `origin/main` have diverged. Do not use a blind `git pull`, `reset --hard`, or destructive cleanup until the local render/receipt work is deliberately integrated.
-
-## Next development increment
-
-1. Integrate render-receipt creation and persistence into the higher-level Atlas Unreal render workflow.
-2. Add focused coverage for that service boundary.
-3. Preserve the engine-neutral receipt/store separation.
-4. Continue Unreal capability expansion only where a real capability gap justifies it.
-5. Independently continue the Blender adapter/live-operation track as appropriate.
+- already-satisfied state -> zero writes;
+- unsatisfied state -> exact authorized action order;
+- successful write -> verification remains mandatory;
+- verification failure -> `BLOCKED`;
+- action failure -> recovery gate;
+- mutated arguments/result -> receipt mismatch;
+- malformed executor result -> rejected;
+- wrong result tool -> rejected;
+- invalid continuation identity -> rejected;
+- authorized fresh-evidence replan -> accepted;
+- unauthorized replan -> rejected;
+- malformed Qwen reasoning -> rejected;
+- unknown/non-capability tool -> rejected;
+- Blender write without independent persistence evidence -> incomplete;
+- Blender expected/observed persistence mismatch -> rejected;
+- render job completion without artifacts -> rejected;
+- declared render artifacts that do not exist -> rejected;
+- tampered persisted render receipt -> rejected.
 
 ## Non-regression rules
 
@@ -159,9 +159,9 @@ The local branch and `origin/main` have diverged. Do not use a blind `git pull`,
 - Preserve independent verification and the evidence ledger.
 - Treat artifact existence as independently verified evidence, not an implication of job success.
 - Do not claim cross-process Unreal render-job recovery unless it is separately implemented and verified.
-- Do not confuse the local `1033 passed, 5 skipped` result with GitHub CI status.
 - Preserve the canonical Digital Twin as distinct from Unreal, Blender, photogrammetry outputs, and temporary production artifacts.
+- Do not run workflow/action-runner tests without explicit authorization.
 
 ## Resume point
 
-Read this file and `UNREAL_AGENT_HANDOFF_CURRENT.md`, inspect the local branch/HEAD and `origin/main`, then continue from the **Unreal render receipt integration** checkpoint. The live render/artifact/receipt path is already proven locally and should not be reworked without a concrete capability gap.
+The Blender Stage 11 live gate is complete. Continue from the reusable closed-loop Blender execution boundary and begin Stage 12 with the smallest additional controlled capability that demonstrates genuine architectural progress. Keep Unreal render-receipt integration as the parallel Unreal track. Do not merge the Blender PR or invoke workflow/action-runner tests without explicit authorization.
