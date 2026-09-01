@@ -72,8 +72,16 @@ def test_process_executor_rejects_invalid_request_builder_result():
         executor("inspect_scene", {})
 
 
-def test_process_executor_copies_arguments_before_builder_receives_them():
+def test_process_executor_copies_arguments_before_builder_receives_them(monkeypatch):
     observed = {}
+
+    def fake_run(command, blend_path, script, start_marker, end_marker, *, timeout):
+        return {"ok": True, "state": "inspected"}
+
+    monkeypatch.setattr(
+        "planning.blender_process_executor.run_checked_blender",
+        fake_run,
+    )
 
     def builder(tool, arguments):
         observed["arguments"] = arguments
