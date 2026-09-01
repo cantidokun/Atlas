@@ -53,10 +53,7 @@ def test_persistence_evidence_requires_successful_inspection():
         details={"error": "inspection failed"},
     )
 
-    evidence = BlenderPersistenceEvidence.create(
-        "move_object", {"file_name": "fixture.blend"}, "inspect_scene", {}, inspection
-    )
-
-    assert not evidence.matches(
-        "move_object", {"file_name": "fixture.blend"}, {}, inspection
-    )
+    with pytest.raises(ValueError, match="successful inspection"):
+        BlenderPersistenceEvidence.create(
+            "move_object", {"file_name": "fixture.blend"}, "inspect_scene", {}, inspection
+        )
