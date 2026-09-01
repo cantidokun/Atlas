@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 from planning.action_plan import ActionPlan, ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_execution_receipt import BlenderExecutionReceipt
-from planning.blender_persistence_evidence import BlenderPersistenceEvidence
+from planning.blender_persistence_evidence import verify_blender_persistence
 from planning.blender_process_executor import BlenderProcessExecutor
 from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 
@@ -86,7 +86,7 @@ def run_live_move(
         persisted = _object_location(post_result, object_name)
         expected_state = _persistence_state(object_name, target)
         observed_state = _persistence_state(object_name, persisted)
-        persistence_evidence = BlenderPersistenceEvidence.create(
+        verify_blender_persistence(
             action.tool,
             action.arguments,
             "inspect_scene",
@@ -94,16 +94,6 @@ def run_live_move(
             observed_state,
             post_result,
         )
-        if not persistence_evidence.matches(
-            action.tool,
-            action.arguments,
-            expected_state,
-            observed_state,
-            post_result,
-        ) or persisted != target:
-            raise RuntimeError(
-                f"independent persistence verification failed: expected {target}, got {persisted}"
-            )
 
         print("LIVE MUTATION VERIFIED")
         print(f"object={object_name}")
@@ -125,6 +115,8 @@ def run_live_move(
             restore_result, restore_receipt = boundary.execute_with_receipt("move_object", restore_args)
             if not restore_result.ok or not isinstance(restore_receipt, BlenderExecutionReceipt):
                 raise RuntimeError("fixture restoration returned unsuccessful result")
+            if not restore_receipt.matches("move_object", restore_args, restore_result):
+                raise RuntimeError("fixture restoration receipt did not match the request/result")
             restored = _object_location(
                 boundary.execute_verified("inspect_scene", inspect_args), object_name
             )
