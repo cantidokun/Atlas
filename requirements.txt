@@ -1,0 +1,2 @@
+# Atlas runtime dependencies are intentionally pinned as they are introduced.
+# Test tooling is installed by .github/workflows/atlas-tests.yml.

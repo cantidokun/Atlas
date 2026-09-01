@@ -7,6 +7,7 @@ this layer independent of bpy, subprocesses, or transport details.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
@@ -24,7 +25,7 @@ Checkpoint = Callable[[Dict[str, Any]], None]
 
 @dataclass(frozen=True)
 class BlenderExecutionStep:
-    """One observable coordinator outcome."""
+    """One isolated, observable coordinator outcome."""
 
     index: int
     tool: str
@@ -49,6 +50,13 @@ class BlenderExecutionCoordinator:
         self._verify = verify
         self._checkpoint = checkpoint
 
+    @staticmethod
+    def _execution_succeeded(result: Dict[str, Any]) -> bool:
+        """Interpret both current and legacy Blender result success contracts."""
+        if "ok" in result:
+            return result["ok"] is True
+        return "error" not in result and result.get("status") not in {"error", "failed", "failure"}
+
     def step(self) -> BlenderExecutionStep:
         if self.plan.blocked:
             raise BlenderExecutionError("Blender plan is blocked by a previous failure.")
@@ -61,14 +69,14 @@ class BlenderExecutionCoordinator:
         assert action is not None
         index = self.plan.current_index
 
-        result = self._execute(action.tool, dict(action.arguments))
+        result = self._execute(action.tool, deepcopy(action.arguments))
         if not isinstance(result, dict):
             raise BlenderExecutionError("Blender executor must return an object.")
 
-        execution_success = "error" not in result and result.get("status") not in {"error", "failed"}
+        execution_success = self._execution_succeeded(result)
         verified = execution_success
         if execution_success and self._verify is not None:
-            verified = bool(self._verify(action.tool, dict(action.arguments), result))
+            verified = bool(self._verify(action.tool, deepcopy(action.arguments), deepcopy(result)))
 
         self.plan.record_result(result, verified)
 
@@ -78,14 +86,19 @@ class BlenderExecutionCoordinator:
         return BlenderExecutionStep(
             index=index,
             tool=action.tool,
-            arguments=dict(action.arguments),
-            result=result,
+            arguments=deepcopy(action.arguments),
+            result=deepcopy(result),
             verified=verified,
             complete=self.plan.complete,
         )
 
     def run(self) -> list[BlenderExecutionStep]:
-        """Run until completion or a required-success action blocks the plan."""
+        """Run until completion or the plan becomes blocked."""
+        if self.plan.blocked:
+            raise BlenderExecutionError("Blender plan is blocked by a previous failure.")
+        if self.plan.complete:
+            return []
+
         steps: list[BlenderExecutionStep] = []
         while not self.plan.complete and not self.plan.blocked:
             steps.append(self.step())

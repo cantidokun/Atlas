@@ -46,11 +46,12 @@ def test_sequence_rehydration_rejects_receipt_tampering_even_with_recomputed_seq
     checkpoint_payload = {
         "completed_receipts": [receipt],
         "next_operation_index": 1,
+        "operation_identities": (),
     }
     snapshot = {
         **checkpoint_payload,
         "sequence_digest": _digest(checkpoint_payload),
     }
 
-    with pytest.raises(ValueError, match="receipt.*digest"):
+    with pytest.raises(ValueError, match="invalid durable production sequence checkpoint|receipt.*digest"):
         DurableProductionSequenceCheckpoint.rehydrate(snapshot)

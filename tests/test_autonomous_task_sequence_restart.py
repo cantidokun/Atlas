@@ -1,0 +1,171 @@
+"""Restart-boundary regression coverage for autonomous task sequencing."""
+
+import json
+from unittest.mock import MagicMock
+
+import pytest
+
+from planning.autonomous_task_sequence import (
+    AutonomousTaskSequence,
+    AutonomousTaskSequenceCheckpoint,
+    AutonomousTaskStep,
+    _checkpoint_digest,
+)
+from planning.production_operation_lifecycle import (
+    ProductionOperationLifecycle,
+    ProductionOperationResult,
+    ProductionOperationState,
+)
+
+
+def operation(task_id: str, twin_id: str = "twin-1", revision_id: str = "r1"):
+    value = MagicMock(spec=ProductionOperationLifecycle)
+    value.task = MagicMock()
+    value.task.checkpoint = MagicMock()
+    value.task.checkpoint.task_id = task_id
+    value.task.revision = MagicMock()
+    value.task.revision.twin_id = twin_id
+    value.task.revision.revision_id = revision_id
+    return value
+
+
+def checkpoint(sequence_id="shot-001", step_names=("create", "move"), identities=("identity-1", "identity-2"), next_step_index=1):
+    return AutonomousTaskSequenceCheckpoint(
+        sequence_id,
+        tuple(step_names),
+        tuple(identities),
+        next_step_index,
+        _checkpoint_digest(sequence_id, tuple(step_names), tuple(identities), next_step_index),
+    )
+
+
+def test_sequence_checkpoint_round_trips_json_native_state():
+    value = checkpoint("shot-001", ("create_collection", "move_object", "verify_render"), ("identity-1", "identity-2", "identity-3"), 2)
+    restored = AutonomousTaskSequenceCheckpoint.from_snapshot(json.loads(json.dumps(value.snapshot())))
+    assert restored == value
+    assert restored.step_names == ("create_collection", "move_object", "verify_render")
+    assert restored.operation_identities == ("identity-1", "identity-2", "identity-3")
+    assert restored.next_step_index == 2
+
+
+def test_sequence_checkpoint_rejects_changed_step_identity():
+    original = AutonomousTaskSequence((AutonomousTaskStep("create", operation("task-1")), AutonomousTaskStep("move", operation("task-2"))), sequence_id="shot-001")
+    restored = AutonomousTaskSequenceCheckpoint.from_snapshot(original.checkpoint().snapshot())
+    with pytest.raises(ValueError, match="checkpoint step identity"):
+        AutonomousTaskSequence.from_checkpoint((AutonomousTaskStep("create", operation("task-1")), AutonomousTaskStep("delete", operation("task-2"))), restored)
+
+
+def test_sequence_checkpoint_rejects_changed_operation_identity():
+    original = AutonomousTaskSequence((AutonomousTaskStep("create", operation("task-1", revision_id="r1")), AutonomousTaskStep("move", operation("task-2", revision_id="r1"))), sequence_id="shot-001")
+    restored = AutonomousTaskSequenceCheckpoint.from_snapshot(original.checkpoint().snapshot())
+    with pytest.raises(ValueError, match="checkpoint operation identity"):
+        AutonomousTaskSequence.from_checkpoint((AutonomousTaskStep("create", operation("task-1", revision_id="r1")), AutonomousTaskStep("move", operation("task-2", revision_id="r2"))), restored)
+
+
+def test_sequence_checkpoint_rejects_tampered_snapshot():
+    snapshot = checkpoint().snapshot()
+    snapshot["next_step_index"] = 2
+    with pytest.raises(ValueError, match="digest mismatch"):
+        AutonomousTaskSequenceCheckpoint.from_snapshot(snapshot)
+
+
+def test_sequence_checkpoint_rejects_out_of_range_resume_position():
+    snapshot = checkpoint(next_step_index=1).snapshot()
+    snapshot["next_step_index"] = 3
+    with pytest.raises(ValueError, match="next_step_index is outside the sequence"):
+        AutonomousTaskSequenceCheckpoint.from_snapshot(snapshot)
+
+
+def test_sequence_resumes_after_json_process_boundary_without_replaying_completed_step():
+    first_operation = operation("task-1")
+    second_operation = operation("task-2")
+    second_operation.run.return_value = ProductionOperationResult(state=ProductionOperationState.COMPLETED, task_result=MagicMock(), reason="authoritative verification accepted final evidence", receipt=MagicMock())
+    original = AutonomousTaskSequence((AutonomousTaskStep("create", first_operation), AutonomousTaskStep("move", second_operation)), sequence_id="shot-001")
+    original.next_step_index = 1
+    restored_checkpoint = AutonomousTaskSequenceCheckpoint.from_snapshot(json.loads(json.dumps(original.checkpoint().snapshot())))
+    resumed = AutonomousTaskSequence.from_checkpoint((AutonomousTaskStep("create", first_operation), AutonomousTaskStep("move", second_operation)), restored_checkpoint)
+    result = resumed.run()
+    assert result.completed
+    assert result.completed_steps == ("create", "move")
+    assert result.next_step_index == 2
+    first_operation.run.assert_not_called()
+    second_operation.run.assert_called_once()
+
+
+def test_sequence_checkpoint_sink_failure_does_not_advance_sequence():
+    first_operation = operation("task-1")
+    first_operation.run.return_value = ProductionOperationResult(
+        state=ProductionOperationState.COMPLETED,
+        task_result=MagicMock(),
+        reason="authoritative verification accepted final evidence",
+        receipt=MagicMock(),
+    )
+    sequence = AutonomousTaskSequence((AutonomousTaskStep("create", first_operation),), sequence_id="shot-001")
+
+    def failing_sink(_snapshot):
+        raise RuntimeError("durable checkpoint unavailable")
+
+    with pytest.raises(RuntimeError, match="durable checkpoint unavailable"):
+        sequence.run(checkpoint_sink=failing_sink)
+    assert sequence.next_step_index == 0
+    first_operation.run.assert_called_once()
+
+
+def test_sequence_admission_gate_blocks_without_running_operations():
+    first_operation = operation("task-1")
+    second_operation = operation("task-2")
+    sequence = AutonomousTaskSequence(
+        (AutonomousTaskStep("create", first_operation), AutonomousTaskStep("move", second_operation)),
+        sequence_id="shot-001",
+    )
+    result = sequence.run_admitted(lambda: False)
+    assert result.state is ProductionOperationState.BLOCKED
+    assert "runtime admission rejected" in result.reason
+    assert result.next_step_index == 0
+    first_operation.run.assert_not_called()
+    second_operation.run.assert_not_called()
+
+
+def test_sequence_admission_gate_allows_existing_sequence_path():
+    first_operation = operation("task-1")
+    first_operation.run.return_value = ProductionOperationResult(
+        state=ProductionOperationState.COMPLETED,
+        task_result=MagicMock(),
+        reason="authoritative verification accepted final evidence",
+        receipt=MagicMock(),
+    )
+    sequence = AutonomousTaskSequence((AutonomousTaskStep("create", first_operation),), sequence_id="shot-001")
+    result = sequence.run_admitted(lambda: True)
+    assert result.state is ProductionOperationState.COMPLETED
+    assert result.next_step_index == 1
+    first_operation.run.assert_called_once()
+
+
+def test_sequence_admission_gate_rechecks_before_each_step():
+    first_operation = operation("task-1")
+    second_operation = operation("task-2")
+    first_operation.run.return_value = ProductionOperationResult(
+        state=ProductionOperationState.COMPLETED,
+        task_result=MagicMock(),
+        reason="authoritative verification accepted final evidence",
+        receipt=MagicMock(),
+    )
+    states = iter((True, False))
+    sequence = AutonomousTaskSequence(
+        (AutonomousTaskStep("create", first_operation), AutonomousTaskStep("move", second_operation)),
+        sequence_id="shot-001",
+    )
+
+    result = sequence.run_admitted(lambda: next(states))
+
+    assert result.state is ProductionOperationState.BLOCKED
+    assert result.completed_steps == ("create",)
+    assert result.next_step_index == 1
+    first_operation.run.assert_called_once()
+    second_operation.run.assert_not_called()
+
+
+def test_sequence_admission_gate_requires_callable():
+    sequence = AutonomousTaskSequence((AutonomousTaskStep("create", operation("task-1")),), sequence_id="shot-001")
+    with pytest.raises(TypeError, match="admission_gate must be callable"):
+        sequence.run_admitted(None)

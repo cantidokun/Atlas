@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/blender-adapter-work
+      - feat/blender-coordinator-result-integrity-final
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   live-object-movement:
     name: live object movement (${{ matrix.case }})
-    runs-on: [self-hosted, windows, local-win]
+    runs-on: [self-hosted, Windows, X64]
     environment: local-testing
     strategy:
       fail-fast: false

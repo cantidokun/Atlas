@@ -48,17 +48,26 @@ class BlenderExecutionBoundary:
         action: ActionSpec,
         authorization: BlenderWriteAuthorization,
     ):
-        """Execute exactly one explicitly authorized Blender scene write."""
+        """Execute exactly one explicitly authorized Blender scene write.
+
+        This method deliberately does not perform authoritative post-write
+        verification. It normalizes the adapter result and binds it to an
+        authorization-specific receipt; BlenderLiveWriteGate owns the final
+        authoritative verification decision.
+        """
         if not isinstance(action, ActionSpec):
             raise TypeError("action must be an ActionSpec")
         if not isinstance(authorization, BlenderWriteAuthorization):
             raise TypeError("authorization must be BlenderWriteAuthorization")
         if not authorization.matches(action):
             raise RuntimeError("Blender write authorization is stale or invalid")
-        result, _ = self.execute_with_receipt(action.tool, action.arguments)
+
+        validated = validate_blender_tool_call(action.tool, action.arguments)
+        raw_result = self._executor(action.tool, validated)
+        result = normalize_blender_result(action.tool, raw_result)
         receipt = BlenderExecutionReceipt.create_authorized(
             action.tool,
-            action.arguments,
+            validated,
             result,
             authorization.authorization_id,
         )
@@ -76,10 +85,12 @@ class BlenderExecutionBoundary:
             raise RuntimeError("corrective replan authorization is stale or invalid")
 
         action = actions[0]
-        result, _ = self.execute_with_receipt(action.tool, action.arguments)
+        validated = validate_blender_tool_call(action.tool, action.arguments)
+        raw_result = self._executor(action.tool, validated)
+        result = normalize_blender_result(action.tool, raw_result)
         receipt = BlenderExecutionReceipt.create_authorized(
             action.tool,
-            action.arguments,
+            validated,
             result,
             authorization.authorization_id,
         )

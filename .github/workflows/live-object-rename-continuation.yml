@@ -2,7 +2,7 @@ name: Live Object Rename Continuation Regression
 
 on:
   push:
-    branches: [main]
+    branches: [feat/blender-coordinator-result-integrity-final]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -12,13 +12,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: atlas-live-rename-continuation-main
+  group: atlas-live-rename-continuation-feature
   cancel-in-progress: true
 
 jobs:
   live-rename-continuation:
     name: live rename continuation (${{ matrix.case }})
-    runs-on: [self-hosted, windows, local-win]
+    runs-on: [self-hosted, Windows, X64, atlas-blender]
     environment: local-testing
     strategy:
       fail-fast: false

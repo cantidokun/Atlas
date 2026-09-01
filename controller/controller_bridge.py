@@ -8,8 +8,8 @@ collected by the main agent loop.
 
 from typing import Any, Dict
 
-from controller_runtime import ControllerRuntime
-from controller_state import record_before
+from .controller_runtime import ControllerRuntime
+from .controller_state import record_before
 
 
 class ControllerBridge:

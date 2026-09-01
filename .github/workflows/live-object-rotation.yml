@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - feat/blender-adapter-work
+      - feat/blender-coordinator-result-integrity-final
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   live-object-rotation:
     name: live object rotation (${{ matrix.case }})
-    runs-on: [self-hosted, windows, local-win]
+    runs-on: [self-hosted, Windows, X64]
     environment: local-testing
     strategy:
       fail-fast: false

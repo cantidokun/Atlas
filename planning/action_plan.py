@@ -1,5 +1,6 @@
 """Generic deterministic action-plan primitives for Atlas."""
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -70,7 +71,14 @@ class ActionPlan:
         if not self.authorized:
             raise RuntimeError("Action plan execution requires valid authorization.")
         action = self.actions[self.current_index]
-        entry = {"index": self.current_index, "name": action.name or action.tool, "tool": action.tool, "arguments": action.arguments, "result": result, "success": bool(success)}
+        entry = {
+            "index": self.current_index,
+            "name": action.name or action.tool,
+            "tool": action.tool,
+            "arguments": deepcopy(action.arguments),
+            "result": deepcopy(result),
+            "success": bool(success),
+        }
         self.completed.append(entry)
         if success:
             self.current_index += 1
@@ -78,7 +86,7 @@ class ActionPlan:
             self.failed = entry
 
     def snapshot(self) -> Dict[str, Any]:
-        """Return serializable execution state for logging or evidence."""
+        """Return an isolated serializable execution state for logging or evidence."""
         next_action = self.next_action
         return {
             "current_index": self.current_index,
@@ -87,7 +95,15 @@ class ActionPlan:
             "blocked": self.blocked,
             "authorized": self.authorized,
             "authorization": self.authorization.snapshot() if self.authorization is not None else None,
-            "next_action": ({"name": next_action.name or next_action.tool, "tool": next_action.tool, "arguments": next_action.arguments} if next_action is not None else None),
-            "completed": list(self.completed),
-            "failure": self.failed,
+            "next_action": (
+                {
+                    "name": next_action.name or next_action.tool,
+                    "tool": next_action.tool,
+                    "arguments": deepcopy(next_action.arguments),
+                }
+                if next_action is not None
+                else None
+            ),
+            "completed": deepcopy(self.completed),
+            "failure": deepcopy(self.failed),
         }

@@ -2,29 +2,45 @@ name: Atlas Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
-    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.11"]
-
+        python-version: ["3.12"]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install test dependencies
-        run: python -m pip install --upgrade pip pytest requests
-
+      - name: Install package and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[test]'
       - name: Run offline test suite
-        run: python -m pytest -q
+        run: python -m pytest -q -m "not blender"
+
+  blender-integration:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat/')
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Report runner environment
+        shell: cmd
+        run: |
+          echo Runner: %RUNNER_NAME%
+          echo OS: %RUNNER_OS%
+          echo Workspace: %GITHUB_WORKSPACE%
+      - name: Run Blender runner smoke tests
+        shell: cmd
+        run: python -m pytest -q tests/blender/test_runner_smoke.py

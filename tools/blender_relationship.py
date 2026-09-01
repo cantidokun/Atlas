@@ -36,8 +36,8 @@ print("ATLAS_PARENT_END")
 
 
 def parent_object(file_name, child_name, parent_name):
-    blend_path = validate_blend_file(file_name)
-
+    # Authorization is checked before resolving the file so rejected requests
+    # cannot probe paths or touch the Blender process.
     if child_name != ALLOWED_CHILD:
         return {"status": "error", "error": "For safety, this tool can only parent Atlas_Marker."}
     if parent_name != ALLOWED_PARENT:
@@ -45,6 +45,7 @@ def parent_object(file_name, child_name, parent_name):
     if child_name == parent_name:
         return {"status": "error", "error": "An object cannot parent itself."}
 
+    blend_path = validate_blend_file(file_name)
     script = f"""
 import bpy
 import json

@@ -1,80 +1,99 @@
-"""Deterministic execution gate for the current authorized midpoint task.
+"""Deterministic execution gate for the current authorized midpoint task."""
 
-This module is intentionally separate from the Qwen prompt. Qwen may reason
-about the task, but once the task is in an authorized write workflow, Python
-owns the execution sequence.
-"""
+from copy import deepcopy
+from typing import Any, Callable, Dict, Optional
 
-from typing import Any, Callable, Dict
+from planning.blender_result_contract import normalize_blender_result
 
-from controller_state import ControllerState, record_after, record_before, record_write
-
+from .controller_state import ControllerState, record_after, record_before, record_reconciled_after, record_write
+from .controller_checkpoint import snapshot_controller_state, restore_controller_state
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+_FAILURE_STATUSES = {"error", "failed", "failure"}
 
 
 class ControllerRuntime:
     """Run the authorized midpoint workflow without delegating sequencing to Qwen."""
 
     def __init__(self, file_name: str):
-        self.state = ControllerState(
-            file_name=file_name,
-            object_a_name="Goal_Left_post",
-            object_b_name="Goal_Right_Post",
-        )
+        self.state = ControllerState(file_name=file_name, object_a_name="Goal_Left_post", object_b_name="Goal_Right_Post")
+
+    @classmethod
+    def from_checkpoint(cls, payload: Dict[str, Any], fresh_evidence: Optional[Dict[str, Any]] = None) -> "ControllerRuntime":
+        """Restore controller history; optional evidence is reconciled, never trusted historically."""
+        if not isinstance(payload, dict):
+            raise ValueError("Controller checkpoint must be an object.")
+        operational_payload = deepcopy(payload)
+        operational_payload["after"] = None
+        state = restore_controller_state(operational_payload)
+        state.after = None
+        state.recovery_reconciled = False
+        runtime = cls(state.file_name)
+        runtime.state = state
+        if fresh_evidence is not None:
+            if not isinstance(fresh_evidence, dict):
+                raise ValueError("Fresh Blender evidence must be an object.")
+            if fresh_evidence.get("error") or fresh_evidence.get("status") in _FAILURE_STATUSES or fresh_evidence.get("ok") is False:
+                raise ValueError("Fresh Blender evidence is unavailable.")
+            if state.writes:
+                record_reconciled_after(state, deepcopy(fresh_evidence))
+            elif state.target is not None:
+                record_after(state, deepcopy(fresh_evidence))
+        return runtime
+
+    def checkpoint(self) -> Dict[str, Any]:
+        return snapshot_controller_state(self.state)
+
+    @staticmethod
+    def _controller_payload(result: Dict[str, Any], normalized: Any) -> Dict[str, Any]:
+        """Adapt canonical results without changing the existing controller state shape."""
+        if "ok" not in result and "status" in result:
+            return deepcopy(result)
+        if isinstance(normalized.state, dict):
+            payload = deepcopy(dict(normalized.state))
+            if payload:
+                return payload
+        payload = deepcopy(dict(normalized.details))
+        payload.setdefault("status", normalized.state)
+        return payload
 
     def step(self, execute: ToolExecutor) -> Dict[str, Any]:
-        """Execute exactly the next required controller action."""
-        action = self._next_action()
-
+        action = deepcopy(self._next_action())
         if action["kind"] == "complete":
-            return {
-                "status": "complete",
-                "phase": self.state.phase,
-            }
+            return {"status": "complete", "phase": self.state.phase}
+        try:
+            result = execute(action["tool"], deepcopy(action["arguments"]))
+        except Exception as exc:
+            return self._error(type(exc).__name__, str(exc))
+        if not isinstance(result, dict):
+            return self._error("InvalidToolResult", "Tool result must be an object.")
 
-        result = execute(action["tool"], action["arguments"])
+        result = deepcopy(result)
+        try:
+            normalized = normalize_blender_result(action["tool"], result)
+        except (TypeError, ValueError) as exc:
+            return self._error(type(exc).__name__, str(exc))
 
-        if action["kind"] == "evidence":
-            if result.get("error"):
-                return {
-                    "status": "error",
-                    "phase": self.state.phase,
-                    "error": result,
-                }
-            record_before(self.state, result)
+        if not normalized.ok:
+            return self._error("ToolExecutionError", normalized.details)
 
-        elif action["kind"] == "write":
-            record_write(
-                self.state,
-                action["arguments"]["object_name"],
-                action["arguments"]["location"],
-                result,
-            )
-            if result.get("status") != "moved":
-                return {
-                    "status": "error",
-                    "phase": self.state.phase,
-                    "error": result,
-                }
+        controller_result = self._controller_payload(result, normalized)
+        try:
+            if action["kind"] == "evidence":
+                record_before(self.state, controller_result)
+            elif action["kind"] == "write":
+                if normalized.state != "moved" and controller_result.get("status") != "moved":
+                    return self._error("InvalidWriteResult", result)
+                record_write(self.state, action["arguments"]["object_name"], action["arguments"]["location"], controller_result)
+            elif action["kind"] == "verification":
+                record_after(self.state, controller_result)
+        except (TypeError, ValueError, KeyError) as exc:
+            return self._error(type(exc).__name__, str(exc))
+        return {"status": "complete" if self.state.complete else "progress", "phase": self.state.phase, "next_action": deepcopy(self._next_action())}
 
-        elif action["kind"] == "verification":
-            if result.get("error"):
-                return {
-                    "status": "error",
-                    "phase": self.state.phase,
-                    "error": result,
-                }
-            record_after(self.state, result)
-
-        return {
-            "status": "complete" if self.state.complete else "progress",
-            "phase": self.state.phase,
-            "next_action": self._next_action(),
-        }
+    def _error(self, error_type: str, message: Any) -> Dict[str, Any]:
+        return {"status": "error", "phase": self.state.phase, "error": {"type": error_type, "message": deepcopy(message)}}
 
     def _next_action(self) -> Dict[str, Any]:
-        """Avoid a Qwen decision between mandatory controller phases."""
-        from controller_state import next_required_action
-
+        from .controller_state import next_required_action
         return next_required_action(self.state)

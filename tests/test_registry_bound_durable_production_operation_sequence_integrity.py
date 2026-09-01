@@ -92,7 +92,7 @@ def test_registry_revision_change_blocks_resume_before_any_write():
     )
     registry.register_revision(newer)
     stale_writes = []
-    with pytest.raises(ValueError, match="stale Digital Twin revision"):
+    with pytest.raises(ValueError, match="operation identity mismatch"):
         RegistryBoundDurableProductionOperationSequence(
             (_operation("task-2", revision, stale_writes),), registry,
             checkpoint=result.checkpoint,

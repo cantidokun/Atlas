@@ -44,3 +44,16 @@ def test_authoritative_verification_blocks_failed_verifier():
     receipt = _receipt(action)
     ok, _ = verify_authoritative_write(action, receipt, lambda _: {"ok": False})
     assert ok is False
+
+
+def test_authoritative_verification_blocks_missing_expected_state():
+    action = _action()
+    receipt = _receipt(action)
+    ok, state = verify_authoritative_write(
+        action,
+        receipt,
+        lambda _: {"ok": True, "state": {"object_name": "Cube"}},
+    )
+    assert ok is False
+    assert state["verification_error"] == "missing_authoritative_fields"
+    assert "location" in state["missing_fields"]

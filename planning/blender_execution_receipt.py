@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any, Optional
 
 from planning.blender_result_contract import BlenderExecutionResult
 
@@ -34,6 +35,12 @@ def _coerce_result(tool: str, result: Any) -> BlenderExecutionResult:
     )
 
 
+def _normalize_arguments(arguments: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(arguments, Mapping):
+        raise TypeError("receipt arguments must be an object")
+    return dict(arguments)
+
+
 @dataclass(frozen=True)
 class BlenderExecutionReceipt:
     tool: str
@@ -45,12 +52,11 @@ class BlenderExecutionReceipt:
     def create(cls, tool: str, arguments: Mapping[str, Any], result: BlenderExecutionResult):
         if not isinstance(tool, str) or not tool.strip():
             raise ValueError("receipt tool must be a non-empty string")
-        if not isinstance(arguments, dict):
-            raise TypeError("receipt arguments must be an object")
+        normalized_arguments = _normalize_arguments(arguments)
         normalized = _coerce_result(tool, result)
         if normalized.tool != tool:
             raise ValueError("receipt tool does not match result tool")
-        return cls(tool, _digest(arguments), _digest({
+        return cls(tool, _digest(normalized_arguments), _digest({
             "tool": normalized.tool,
             "ok": normalized.ok,
             "state": normalized.state,
@@ -77,13 +83,14 @@ class BlenderExecutionReceipt:
 
     def matches(self, tool: str, arguments: Mapping[str, Any], result: BlenderExecutionResult) -> bool:
         try:
+            normalized_arguments = _normalize_arguments(arguments)
             normalized = _coerce_result(self.tool, result)
         except (TypeError, ValueError):
             return False
         if tool != self.tool or normalized.tool != self.tool:
             return False
         return (
-            _digest(arguments) == self.arguments_digest
+            _digest(normalized_arguments) == self.arguments_digest
             and _digest({
                 "tool": normalized.tool,
                 "ok": normalized.ok,
@@ -94,5 +101,7 @@ class BlenderExecutionReceipt:
 
     def matches_authorization(self, authorization_id: str) -> bool:
         if self.authorization_digest is None:
+            return False
+        if not isinstance(authorization_id, str) or not authorization_id.strip():
             return False
         return _digest(authorization_id) == self.authorization_digest

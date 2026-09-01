@@ -1,7 +1,20 @@
 """Structured result contract for Blender execution and verification."""
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
+
+
+_LEGACY_EVIDENCE_TOOLS = {
+    "inspect_scene",
+    "inspect_scene_health",
+    "inspect_object_relationship",
+    "inspect_object_transform",
+    "inspect_mesh",
+    "inspect_scene_settings",
+    "inspect_object_parent",
+    "inspect_object_collections",
+    "inspect_soccer_components",
+}
 
 
 @dataclass(frozen=True)
@@ -26,6 +39,14 @@ class BlenderExecutionResult:
             raise ValueError("result state object must not be empty")
         if not isinstance(self.details, dict):
             raise TypeError("result details must be an object")
+        mutation_performed = self.details.get("mutation_performed")
+        if mutation_performed is not None and not isinstance(mutation_performed, bool):
+            raise TypeError("result mutation_performed must be boolean")
+
+    @property
+    def mutation_performed(self) -> Optional[bool]:
+        """Return explicit mutation evidence when the adapter supplied it."""
+        return self.details.get("mutation_performed")
 
 
 def normalize_blender_result(tool: str, result: Any) -> BlenderExecutionResult:
@@ -37,11 +58,30 @@ def normalize_blender_result(tool: str, result: Any) -> BlenderExecutionResult:
         status = result["status"]
         if not isinstance(status, str) or not status.strip():
             raise ValueError("Blender result status must be a non-empty string")
-        result = {
-            "ok": status not in {"error", "failed", "failure"},
-            "state": result.get("state", status),
-            "details": {key: value for key, value in result.items() if key not in {"status", "state"}},
-        }
+
+        if tool in _LEGACY_EVIDENCE_TOOLS:
+            # Legacy read-only Blender tools return their complete evidence
+            # object directly, with ``status`` as one field of that object.
+            # Preserve the full object as state so downstream evidence
+            # evaluators can inspect location, rotation, object identity, etc.
+            result = {
+                "ok": status not in {"error", "failed", "failure"},
+                "state": dict(result),
+                "details": {},
+            }
+        else:
+            result = {
+                "ok": status not in {"error", "failed", "failure"},
+                "state": result.get("state", status),
+                "details": {key: value for key, value in result.items() if key not in {"status", "state"}},
+            }
+    elif "ok" not in result and "status" not in result and "error" not in result and tool in _LEGACY_EVIDENCE_TOOLS:
+        # Existing read-only Blender adapters historically return the evidence
+        # object directly. Preserve that established contract while routing it
+        # through the canonical result envelope. Error payloads must never take
+        # this compatibility path, otherwise an executor failure can look like
+        # successful evidence.
+        result = {"ok": True, "state": result, "details": {}}
 
     for key in ("ok", "state"):
         if key not in result:

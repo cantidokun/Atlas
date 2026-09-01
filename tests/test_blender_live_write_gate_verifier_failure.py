@@ -10,7 +10,17 @@ class _Boundary:
 
     def execute_authorized_write(self, action, authorization):
         self.calls += 1
-        result = type("Result", (), {"tool": action.tool, "ok": True, "state": "ok", "details": {}})()
+        result = type(
+            "Result",
+            (),
+            {
+                "tool": action.tool,
+                "ok": True,
+                "state": "ok",
+                "details": {},
+                "mutation_performed": True,
+            },
+        )()
         receipt = BlenderExecutionReceipt.create_authorized(
             action.tool,
             action.arguments,

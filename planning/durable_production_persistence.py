@@ -50,11 +50,11 @@ class DurableProductionPersistenceBundle:
         return cls(registry.snapshot(), checkpoint.snapshot(), normalized_identity, identity_digest)
 
     def snapshot(self) -> dict[str, Any]:
-        """Return the exact persisted state after revalidating every component."""
+        """Return canonical persisted state after revalidating every component."""
         registry_snapshot = dict(self.registry_snapshot)
-        checkpoint_snapshot = dict(self.checkpoint_snapshot)
+        checkpoint = DurableProductionSequenceCheckpoint.rehydrate(dict(self.checkpoint_snapshot))
+        checkpoint_snapshot = checkpoint.snapshot()
         DigitalTwinRegistry.from_snapshot(registry_snapshot)
-        DurableProductionSequenceCheckpoint.rehydrate(checkpoint_snapshot)
         result = {
             "registry_snapshot": registry_snapshot,
             "checkpoint_snapshot": checkpoint_snapshot,

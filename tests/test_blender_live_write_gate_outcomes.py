@@ -9,6 +9,7 @@ class FakeResult:
     ok = True
     state = "ok"
     details = {}
+    mutation_performed = True
 
 
 def _action():
