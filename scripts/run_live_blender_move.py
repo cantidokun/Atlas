@@ -14,7 +14,10 @@ from typing import Any, Dict, List
 
 from planning.action_plan import ActionPlan, ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
+from planning.blender_execution_receipt import BlenderExecutionReceipt
+from planning.blender_persistence_evidence import BlenderPersistenceEvidence
 from planning.blender_process_executor import BlenderProcessExecutor
+from planning.blender_result_contract import BlenderExecutionResult
 from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 
 
@@ -26,6 +29,10 @@ def _object_location(result: Any, object_name: str) -> List[float]:
             if isinstance(location, list) and len(location) == 3:
                 return [float(value) for value in location]
     raise RuntimeError(f"Independent inspection could not find '{object_name}'")
+
+
+def _persistence_state(object_name: str, location: List[float]) -> Dict[str, List[float]]:
+    return {object_name: list(location)}
 
 
 def run_live_move(
@@ -69,14 +76,32 @@ def run_live_move(
             raise RuntimeError("live mutation plan failed authorization")
         result, receipt = boundary.execute_with_receipt(action.tool, action.arguments)
         plan.record_result(result.__dict__, result.ok)
-        if not result.ok or not receipt.matches(action.tool, action.arguments, result):
+        if not result.ok or not isinstance(receipt, BlenderExecutionReceipt):
             raise RuntimeError("live mutation did not produce a valid execution receipt")
+        if not receipt.matches(action.tool, action.arguments, result):
+            raise RuntimeError("live mutation execution receipt did not match the request/result")
 
         # This is deliberately a second Blender process. The write response above
         # is not treated as persistence evidence.
         post_result = boundary.execute_verified("inspect_scene", inspect_args)
         persisted = _object_location(post_result, object_name)
-        if persisted != target:
+        expected_state = _persistence_state(object_name, target)
+        observed_state = _persistence_state(object_name, persisted)
+        persistence_evidence = BlenderPersistenceEvidence.create(
+            action.tool,
+            action.arguments,
+            "inspect_scene",
+            expected_state,
+            observed_state,
+            post_result,
+        )
+        if not persistence_evidence.matches(
+            action.tool,
+            action.arguments,
+            expected_state,
+            observed_state,
+            post_result,
+        ) or persisted != target:
             raise RuntimeError(
                 f"independent persistence verification failed: expected {target}, got {persisted}"
             )
@@ -86,6 +111,7 @@ def run_live_move(
         print(f"before={original}")
         print(f"after={persisted}")
         print(f"authorization={authorization_id}")
+        print("persistence_evidence=verified")
     except Exception as exc:
         mutation_error = exc
     finally:
@@ -97,8 +123,8 @@ def run_live_move(
                 "object_name": object_name,
                 "location": original,
             }
-            restore_result, _ = boundary.execute_with_receipt("move_object", restore_args)
-            if not restore_result.ok:
+            restore_result, restore_receipt = boundary.execute_with_receipt("move_object", restore_args)
+            if not restore_result.ok or not isinstance(restore_receipt, BlenderExecutionReceipt):
                 raise RuntimeError("fixture restoration returned unsuccessful result")
             restored = _object_location(
                 boundary.execute_verified("inspect_scene", inspect_args), object_name
