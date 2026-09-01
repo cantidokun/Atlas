@@ -8,6 +8,7 @@ from planning.action_authorization import ActionAuthorization
 from planning.action_plan_sequence_adapter import ActionPlanSequenceAdapter
 from planning.autonomous_production_goal import AutonomousProductionGoal
 from planning.autonomous_production_goal_planner import AutonomousProductionGoalPlanner
+from planning.autonomous_production_goal_preparation import AutonomousProductionGoalPreparation
 from planning.autonomous_production_goal_run import AutonomousProductionGoalRun
 from planning.autonomous_production_orchestrator import AutonomousProductionOrchestrator
 from planning.blender_autonomous_admission import BlenderAutonomousAdmission
@@ -129,7 +130,33 @@ def test_compile_goal_returns_authorized_plan_without_execution():
     assert plan.completed == []
 
 
-def test_compile_goal_requires_goal_planner_and_authorizer():
+def test_prepare_goal_with_context_preserves_compiled_plan_identity():
+    goal = AutonomousProductionGoal(
+        "goal-1",
+        "inspect the scene",
+        (ActionSpec("inspect_scene", {"file_name": "scene.blend"}, name="inspect"),),
+    )
+    orchestrator = AutonomousProductionOrchestrator(
+        ActionPlanSequenceAdapter(lambda _action: MagicMock(spec=ProductionOperationLifecycle)),
+        FakeAdmission(True),
+        goal_planner=AutonomousProductionGoalPlanner(BlenderTaskPlanner()),
+        authorize=authorize_plan,
+    )
+
+    plan, preparation = orchestrator.prepare_goal_with_context(goal)
+
+    assert isinstance(preparation, AutonomousProductionGoalPreparation)
+    assert preparation.goal_id == goal.goal_id
+    assert preparation.objective == goal.objective
+    assert preparation.action_names == ("inspect",)
+    assert preparation.action_count == 1
+    assert preparation.authorization_id == "goal-authorized"
+    assert preparation.plan_digest == plan.authorization.plan_digest
+    assert plan.current_index == 0
+    assert plan.completed == []
+
+
+def test_prepare_goal_requires_goal_planner_and_authorizer():
     goal = AutonomousProductionGoal(
         "goal-1",
         "inspect the scene",
