@@ -12,12 +12,7 @@ from planning.production_operation_lifecycle import ProductionOperationState
 
 @dataclass(frozen=True)
 class AutonomousProductionGoalRun:
-    """Bind a production goal to the authorization and sequence outcome.
-
-    Authorization is validated against the compiled ActionPlan by the
-    orchestrator before this result is created. The goal itself remains the
-    declarative request and may contain action metadata normalized by planning.
-    """
+    """Bind a production goal to the authorization and sequence outcome."""
 
     goal_id: str
     objective: str
@@ -47,8 +42,24 @@ class AutonomousProductionGoalRun:
         return self.sequence.completed_steps
 
     @property
+    def next_step_index(self) -> int:
+        return self.sequence.next_step_index
+
+    @property
     def reason(self) -> str:
         return self.sequence.reason
+
+    @property
+    def authorization_id(self) -> str:
+        return self.authorization.authorization_id
+
+    @property
+    def plan_digest(self) -> str:
+        return self.authorization.plan_digest
+
+    @property
+    def requires_follow_up(self) -> bool:
+        return not self.completed
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -61,6 +72,7 @@ class AutonomousProductionGoalRun:
                 "next_step_index": self.sequence.next_step_index,
                 "reason": self.sequence.reason,
             },
+            "requires_follow_up": self.requires_follow_up,
         }
 
     @classmethod
@@ -76,7 +88,4 @@ class AutonomousProductionGoalRun:
             raise TypeError("authorization must be an ActionAuthorization")
         if not isinstance(sequence, AutonomousTaskSequenceResult):
             raise TypeError("sequence must be an AutonomousTaskSequenceResult")
-        # The authorization is intentionally checked against the compiled
-        # ActionPlan before this result is constructed. Re-checking it against
-        # the declarative goal would reject legitimate planner normalization.
         return cls(goal.goal_id, goal.objective, authorization, sequence)
