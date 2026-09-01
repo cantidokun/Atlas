@@ -9,6 +9,7 @@ from planning.action_plan import ActionPlan
 from planning.action_plan_sequence_adapter import ActionPlanSequenceAdapter
 from planning.autonomous_production_goal import AutonomousProductionGoal
 from planning.autonomous_production_goal_planner import AutonomousProductionGoalPlanner
+from planning.autonomous_production_goal_run import AutonomousProductionGoalRun
 from planning.autonomous_task_sequence import AutonomousTaskSequence, AutonomousTaskSequenceResult
 from planning.blender_autonomous_admission import BlenderAutonomousAdmission
 
@@ -57,12 +58,21 @@ class AutonomousProductionOrchestrator:
         action_plan.authorize(authorization)
         return action_plan
 
-    def prepare_goal(self, goal: AutonomousProductionGoal, sequence_id: str = "default") -> AutonomousTaskSequence:
-        """Compile, explicitly authorize, then adapt a fresh production goal."""
+    def compile_goal(self, goal: AutonomousProductionGoal) -> tuple[ActionPlan, ActionAuthorization]:
+        """Compile and explicitly authorize a fresh production goal without execution."""
         if self.goal_planner is None:
             raise RuntimeError("goal_planner is required for goal orchestration")
         action_plan = self.goal_planner.compile(goal)
-        return self.prepare(self._authorize_plan(action_plan), sequence_id=sequence_id)
+        authorized_plan = self._authorize_plan(action_plan)
+        authorization = authorized_plan.authorization
+        if not isinstance(authorization, ActionAuthorization):
+            raise RuntimeError("authorized goal plan is missing ActionAuthorization")
+        return authorized_plan, authorization
+
+    def prepare_goal(self, goal: AutonomousProductionGoal, sequence_id: str = "default") -> AutonomousTaskSequence:
+        """Compile, explicitly authorize, then adapt a fresh production goal."""
+        action_plan, _authorization = self.compile_goal(goal)
+        return self.prepare(action_plan, sequence_id=sequence_id)
 
     def run(
         self,
@@ -97,3 +107,22 @@ class AutonomousProductionOrchestrator:
             before_step=before_step,
             checkpoint_sink=checkpoint_sink,
         )
+
+    def run_goal_with_context(
+        self,
+        goal: AutonomousProductionGoal,
+        sequence_id: str = "default",
+        max_steps: int = 16,
+        before_step: Optional[Callable[[int, Any], None]] = None,
+        checkpoint_sink: Optional[Callable[[dict[str, Any]], None]] = None,
+    ) -> AutonomousProductionGoalRun:
+        """Compile, authorize, execute, and retain goal/audit context for feedback loops."""
+        action_plan, authorization = self.compile_goal(goal)
+        sequence = self.prepare(action_plan, sequence_id=sequence_id)
+        result = sequence.run_admitted(
+            lambda: self.admission.ready,
+            max_steps=max_steps,
+            before_step=before_step,
+            checkpoint_sink=checkpoint_sink,
+        )
+        return AutonomousProductionGoalRun.from_goal(goal, authorization, result)
