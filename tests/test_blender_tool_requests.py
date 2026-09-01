@@ -29,4 +29,9 @@ def test_inspect_scene_request_rejects_empty_file_name():
 
 
 def test_current_validated_capabilities_are_registered():
-    assert set(BLENDER_PROCESS_REQUEST_BUILDERS) == {"inspect_scene", "move_object"}
+    assert set(BLENDER_PROCESS_REQUEST_BUILDERS) == {
+        "inspect_scene",
+        "inspect_object_transform",
+        "move_object",
+        "set_object_rotation",
+    }
