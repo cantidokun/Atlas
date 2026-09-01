@@ -15,7 +15,6 @@ from typing import Any, Dict, List
 from planning.action_plan import ActionPlan, ActionSpec
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_execution_receipt import BlenderExecutionReceipt
-from planning.blender_persistence_evidence import verify_blender_persistence
 from planning.blender_process_executor import BlenderProcessExecutor
 from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 
@@ -30,8 +29,8 @@ def _object_location(result: Any, object_name: str) -> List[float]:
     raise RuntimeError(f"Independent inspection could not find '{object_name}'")
 
 
-def _persistence_state(object_name: str, location: List[float]) -> Dict[str, List[float]]:
-    return {object_name: list(location)}
+def _persistence_state_from_result(result: Any, object_name: str) -> Dict[str, List[float]]:
+    return {object_name: _object_location(result, object_name)}
 
 
 def run_live_move(
@@ -73,33 +72,23 @@ def run_live_move(
     try:
         if not plan.authorized:
             raise RuntimeError("live mutation plan failed authorization")
-        result, receipt = boundary.execute_with_receipt(action.tool, action.arguments)
-        plan.record_result(result.__dict__, result.ok)
-        if not result.ok or not isinstance(receipt, BlenderExecutionReceipt):
-            raise RuntimeError("live mutation did not produce a valid execution receipt")
-        if not receipt.matches(action.tool, action.arguments, result):
-            raise RuntimeError("live mutation execution receipt did not match the request/result")
 
-        # This is deliberately a second Blender process. The write response above
-        # is not treated as persistence evidence.
-        post_result = boundary.execute_verified("inspect_scene", inspect_args)
-        persisted = _object_location(post_result, object_name)
-        expected_state = _persistence_state(object_name, target)
-        observed_state = _persistence_state(object_name, persisted)
-        verify_blender_persistence(
+        closed_loop = boundary.execute_with_persistence(
             action.tool,
             action.arguments,
             "inspect_scene",
-            expected_state,
-            observed_state,
-            post_result,
+            inspect_args,
+            {object_name: target},
+            lambda inspection: _persistence_state_from_result(inspection, object_name),
         )
+        plan.record_result(closed_loop.operation_result.__dict__, True)
 
         print("LIVE MUTATION VERIFIED")
         print(f"object={object_name}")
         print(f"before={original}")
-        print(f"after={persisted}")
+        print(f"after={_object_location(closed_loop.inspection_result, object_name)}")
         print(f"authorization={authorization_id}")
+        print("execution_receipt=verified")
         print("persistence_evidence=verified")
     except Exception as exc:
         mutation_error = exc
