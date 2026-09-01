@@ -139,3 +139,64 @@ def test_failed_execution_never_enters_closed_loop_inspection():
             lambda result: {},
         )
     assert calls == ["move_object"]
+
+
+def test_closed_loop_rotation_requires_independent_transform_inspection():
+    calls = []
+    rotation = [0.0, 0.0, 0.0]
+
+    def executor(tool, args):
+        calls.append((tool, dict(args)))
+        if tool == "set_object_rotation":
+            rotation[:] = list(args["rotation_degrees"])
+            return {
+                "ok": True,
+                "state": "rotated",
+                "details": {
+                    "object_name": "Goal_Left_post",
+                    "rotation_degrees": list(rotation),
+                },
+            }
+        assert tool == "inspect_object_transform"
+        return {
+            "ok": True,
+            "state": "transform_inspected",
+            "details": {
+                "object_name": "Goal_Left_post",
+                "rotation_degrees": list(rotation),
+            },
+        }
+
+    boundary = BlenderExecutionBoundary(executor)
+    closed_loop = boundary.execute_with_persistence(
+        "set_object_rotation",
+        {
+            "file_name": "fixture.blend",
+            "object_name": "Goal_Left_post",
+            "rotation_degrees": [0.0, 0.0, 15.0],
+        },
+        "inspect_object_transform",
+        {"file_name": "fixture.blend", "object_name": "Goal_Left_post"},
+        {"object_name": "Goal_Left_post", "rotation_degrees": [0.0, 0.0, 15.0]},
+        lambda result: {
+            "object_name": result.details["object_name"],
+            "rotation_degrees": result.details["rotation_degrees"],
+        },
+    )
+
+    assert isinstance(closed_loop, BlenderClosedLoopResult)
+    assert closed_loop.operation_result.state == "rotated"
+    assert closed_loop.inspection_result.state == "transform_inspected"
+    assert closed_loop.persistence_evidence.matches(
+        "set_object_rotation",
+        {
+            "file_name": "fixture.blend",
+            "object_name": "Goal_Left_post",
+            "rotation_degrees": [0.0, 0.0, 15.0],
+        },
+        "inspect_object_transform",
+        {"object_name": "Goal_Left_post", "rotation_degrees": [0.0, 0.0, 15.0]},
+        {"object_name": "Goal_Left_post", "rotation_degrees": [0.0, 0.0, 15.0]},
+        closed_loop.inspection_result,
+    )
+    assert [call[0] for call in calls] == ["set_object_rotation", "inspect_object_transform"]
