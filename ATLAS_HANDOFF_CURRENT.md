@@ -1,48 +1,86 @@
 # Atlas Current Development Handoff
 
-**Updated:** August 31, 2026 — end of coding session.  
+**Updated:** September 1, 2026 — end of coding session.  
 **Branch:** `feat/blender-coordinator-result-integrity-final`  
+**PR:** #42 (`Harden Blender execution result integrity`)  
 **Purpose:** canonical resume point for the next Atlas development session.
 
 ## Current milestone
 
-**AUTONOMOUS ADMISSION / RESTART-RECOVERY / GENERALIZED SEQUENCE / ACTION-PLAN BRIDGE**
+**AUTONOMOUS ADMISSION / RESTART-RECOVERY / GENERALIZED SEQUENCE / PRODUCTION-GOAL ORCHESTRATION**
 
-Atlas has moved from deterministic, authorization-bound Blender execution into a production-facing autonomous admission and sequencing layer. The runtime has a defined startup safety boundary: persisted interrupted executions must be reconciled before autonomous execution can become READY.
+Atlas has moved from deterministic, authorization-bound Blender execution into a production-facing autonomous admission, sequencing, and goal-orchestration layer. The runtime has a defined startup safety boundary: persisted interrupted executions must be reconciled before autonomous execution can become READY.
 
-The generalized sequence layer now has:
+The current composition is:
 
 ```text
-ActionPlan
- -> authorized + pristine validation
+AutonomousProductionGoal
+ -> AutonomousProductionGoalPlanner
+ -> BlenderTaskPlanner
+ -> validated ActionPlan
+ -> explicit ActionAuthorization
+ -> AutonomousProductionGoalPreparation
  -> ActionPlanSequenceAdapter
  -> AutonomousTaskSequence
- -> admission gate
+ -> autonomous admission
  -> ProductionOperationLifecycle
  -> authoritative completion
- -> tamper-evident checkpoint
- -> resume without replay
 ```
 
-The adapter does not execute or authorize. A partially executed or failed `ActionPlan` is rejected instead of being rebuilt as a fresh autonomous sequence, preserving the no-replay invariant.
+A goal run can additionally produce an `AutonomousProductionGoalRun` audit result containing goal identity, objective, authorization identity/digest, sequence outcome, resume position, and a non-executable follow-up request when the run is blocked.
 
-## Checkpoint integrity / persistence invariant
+## Safety and integrity invariants
 
-Autonomous sequence checkpoints bind:
+- Qwen / upstream reasoning proposes; Atlas validates, authorizes, executes, verifies, tracks, and recovers.
+- The goal layer is planning data only and cannot authorize or execute Blender work.
+- `BlenderTaskPlanner` remains the canonical capability and argument-schema validation path.
+- `ActionAuthorization` remains the exact write authorization boundary.
+- `ActionPlanSequenceAdapter` accepts only authorized, pristine plans and does not authorize or execute.
+- A partially executed or failed `ActionPlan` is rejected from fresh autonomous sequencing; established checkpoint/recovery must be used instead.
+- Autonomous admission is checked before every sequence step.
+- Autonomous sequence checkpoints bind sequence identity, ordered step names, operation identities, resume position, and a canonical SHA-256 digest.
+- Checkpoint persistence precedes in-memory sequence advancement.
+- `BlenderAutonomousAdmission` and `BlenderLiveWriteGate` must share the same durable execution journal instance.
+- Saved authorization is never replayed; resumed/new writes require the normal authorization-bound path.
+- `ProductionOperationLifecycle` remains authoritative for `COMPLETED` versus `BLOCKED` and requires authoritative verification plus a production completion receipt.
+- The `AutonomousProductionGoalRun` result layer is audit/feedback context only and does not become a second execution or authorization system.
+- Follow-up requests contain no tool dispatch or executable arguments.
 
-- sequence identity;
-- ordered step names;
-- production operation identities;
-- resume position;
-- canonical SHA-256 digest.
+## Current orchestration boundaries
 
-Checkpoint persistence is attempted before the in-memory sequence position advances. A persistence failure therefore cannot leave the coordinator falsely advertising durable progress.
+### Production goal
+`planning/autonomous_production_goal.py`
 
-Persisted checkpoint tampering, changed step identity, changed operation identity, and invalid resume positions fail closed.
+Normalized production objective plus declarative proposed actions. No execution authority.
 
-## Autonomous admission invariant
+### Goal planning
+`planning/autonomous_production_goal_planner.py`
 
-Autonomous execution remains locked until startup reconciliation succeeds. The autonomous admission boundary and the live-write gate must share the **same durable execution journal instance**. Recovery establishes state; saved authorization is never replayed; a subsequent action requires fresh authorization.
+Routes production goals into the existing `BlenderTaskPlanner` validation surface rather than introducing another validator.
+
+### Canonical Blender planning
+`planning/blender_task_planner.py`
+
+Rejects unknown capabilities and invalid tool arguments; normalizes actions into `ActionPlan`.
+
+### Authorization
+`planning/action_authorization.py`
+
+Creates immutable authorization receipts bound to the exact compiled action sequence by digest.
+
+### Goal orchestration
+`planning/autonomous_production_orchestrator.py`
+
+Composes goal planning, explicit authorization, autonomous admission, and sequence execution. It owns no separate execution, verification, journal, checkpoint, receipt, registry, or completion mechanism.
+
+### Goal preparation / audit context
+`planning/autonomous_production_goal_preparation.py`
+
+Execution-free binding of goal identity to the normalized authorized plan and authorization digest.
+
+`planning/autonomous_production_goal_run.py`
+
+Audit-oriented outcome containing goal identity, authorization context, sequence state, progress, and structured non-executable follow-up information when needed.
 
 ## CI / workflow position at session close
 
@@ -61,61 +99,48 @@ Offline pytest does not constitute live Blender evidence. The self-hosted Window
 
 ### Latest confirmed workflow
 
-**Atlas Tests #1069 — ✅ PASSED** on `ed60e739`.
+**Atlas Tests #1133 — ✅ PASSED** on `0fd6a707`.
 
-For #1069, the portable `tests (3.12)` job passed and `blender-integration` was skipped. Therefore #1069 is green portable CI, **not new live Blender evidence**.
+- `tests (3.12)` — passed.
+- `blender-integration` — skipped.
+- Therefore #1133 is green portable CI only and provides **no new live Blender evidence**.
 
-Subsequent autonomous-sequencing commits (`d08ed951`, `ed60e739` documentation checkpoint) were created after the validated code changes represented by earlier workflow runs. The latest branch head at session close must be checked at the start of the next session; do not infer that later commits are covered by #1069 unless GitHub explicitly reports a workflow for that SHA.
+An earlier workflow, #1117, exposed a real authorization-context test failure in the goal-run layer; that issue was corrected and subsequent workflows passed. Do not use the failed run as the current baseline.
 
 ## Proven architecture / boundaries
 
 ```text
 Qwen / AI agent proposal
- -> task/evidence/action validation
- -> explicit capability admission
+ -> structured Blender reasoning
+ -> AutonomousProductionGoal
+ -> capability + argument validation
+ -> ActionPlan
  -> exact authorization
- -> deterministic Blender execution
- -> immutable execution receipt
- -> fresh authoritative observation
- -> VERIFIED / BLOCKED or corrective replan
- -> durable execution journal
- -> durable checkpoint / sequence rehydration
- -> resume integrity validation
- -> autonomous startup admission
- -> autonomous multi-step sequencing
- -> production completion authority
- -> COMPLETED / BLOCKED
+ -> autonomous goal preparation
+ -> autonomous sequence
+ -> admission
+ -> deterministic production operation lifecycle
+ -> immutable execution receipt / completion receipt
+ -> fresh authoritative verification
+ -> durable journal / checkpoint / recovery
+ -> VERIFIED / BLOCKED / COMPLETED
+ -> follow-up / corrective replan when objective remains unsatisfied
 ```
-
-Qwen proposes; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender is an execution target, never the authority.
-
-## Proven capabilities / boundaries
-
-- explicit Blender capability admission;
-- exact write authorization;
-- authorization-bound live writes;
-- independent authoritative verification;
-- immutable execution receipts;
-- corrective replanning from fresh evidence;
-- durable task checkpoints;
-- Digital Twin registry identity and revision binding;
-- production completion authority;
-- persisted production sequence rehydration;
-- fail-closed resume integrity validation;
-- autonomous startup admission and execution recovery;
-- autonomous multi-step sequence integrity;
-- ActionPlan-to-autonomous-sequence adaptation with pristine-plan enforcement.
 
 Previously proven live Blender capabilities include `set_object_rotation`, `move_object`, `delete_object`, `create_empty_marker`, and `move_object_to_collection`, with legitimate paths verified and adversarial paths blocked.
 
 Previously proven live gates include durable checkpoint resume, stale-state zero-write behavior, registry-bound stale-revision blocking, registry snapshot rehydration/tamper rejection, durable production sequence interruption/resume, and rehydrated production completion/blocking.
 
-## Key files added/advanced in this phase
+## Key files advanced in this phase
 
-- `planning/autonomous_task_sequence.py` — ordered autonomous production sequencing, operation identity, checkpoint integrity, admission gating, and persistence-safe advancement.
-- `planning/action_plan_sequence_adapter.py` — explicit bridge from authorized pristine `ActionPlan` objects into autonomous production sequences.
-- `tests/test_autonomous_task_sequence_restart.py` — restart, tamper, operation-identity, admission, and checkpoint-persistence regressions.
-- `tests/test_action_plan_sequence_adapter.py` — authorization, pristine-plan, mapping, and factory-contract regressions.
+- `planning/autonomous_task_sequence.py` — ordered autonomous production sequencing, admission checks, checkpoint integrity, and persistence-safe progression.
+- `planning/action_plan_sequence_adapter.py` — authorized-pristine ActionPlan to autonomous sequence bridge.
+- `planning/autonomous_production_goal.py` — planning-only production-goal boundary.
+- `planning/autonomous_production_goal_planner.py` — production-goal compilation through canonical Blender planning validation.
+- `planning/autonomous_production_orchestrator.py` — high-level goal/action-plan orchestration façade.
+- `planning/autonomous_production_goal_preparation.py` — execution-free prepared-goal record.
+- `planning/autonomous_production_goal_run.py` — audit-oriented goal-run result and non-executable follow-up context.
+- `tests/test_autonomous_production_orchestrator.py` — goal compilation, authorization, admission, execution, audit, and follow-up regressions.
 
 Existing foundational boundaries remain in:
 
@@ -127,8 +152,6 @@ Existing foundational boundaries remain in:
 - `planning/blender_execution_journal.py`
 - `planning/blender_execution_recovery.py`
 - `planning/blender_autonomous_admission.py`
-- `planning/production_task_checkpoint.py`
-- `planning/digital_twin_registry.py`
 - `planning/production_operation_lifecycle.py`
 - `planning/production_completion_receipt.py`
 - `planning/durable_production_operation_sequence.py`
@@ -154,15 +177,18 @@ Existing foundational boundaries remain in:
 - A partially executed or failed `ActionPlan` must not be rebuilt as a fresh autonomous sequence; use the established resume/recovery path.
 - Do not introduce parallel authorization, receipt, journal, registry, checkpoint, or completion mechanisms without a demonstrated architectural gap.
 - Avoid bespoke per-tool lifecycle orchestration in place of generalized runtime boundaries.
+- Goal-run and follow-up records remain non-executable.
 - C++ interoperability remains a future architectural requirement; subsystem contracts should remain language-agnostic.
 - Photogrammetry is upstream of Blender; Atlas is exclusively concerned with soccer-field-related digital twins.
 - Do not infer live Blender success from offline pytest results.
 
 ## Session result
 
-This session successfully advanced the autonomous sequencing layer and established a concrete bridge from the existing `ActionPlan` representation into `AutonomousTaskSequence` without bypassing the production lifecycle. The latest confirmed workflow remains **#1069 — passed**; the self-hosted Blender integration job was skipped.
+This session advanced the production-goal orchestration surface from a validated goal planner into an execution-ready, authorization-aware, admission-gated orchestration boundary and added audit-oriented goal preparation/run context. The goal flow now has a clear seam for future evidence-driven feedback and corrective replanning without granting the planning layer execution authority.
 
-No coding should continue until the next session's initial CI check has been performed against the current branch head.
+The final confirmed workflow for the current work is **Atlas Tests #1133 — passed** on `0fd6a707`; the Blender integration job was skipped.
+
+**Development is paused here for tonight.**
 
 ## Next-session resume
 
@@ -173,13 +199,12 @@ python -m pytest -q
 
 Then:
 
-1. Check the newest GitHub Actions workflow for the current PR head.
-2. Verify whether the current branch head has a dedicated green workflow result.
-3. Confirm self-hosted Windows/Blender evidence before treating environment-dependent behavior as validated.
-4. Continue from the ActionPlan → autonomous sequence bridge toward production-goal orchestration.
-5. Preserve the existing authorization, journal, verification, checkpoint, registry, and completion boundaries.
-6. Keep the autonomous coordinator focused on orchestration rather than creative reasoning; the future planning/agent layer will provide the production goal and proposed actions.
+1. Check the newest GitHub Actions workflow for PR #42 and the current branch head.
+2. Confirm whether the current head has dedicated green CI before treating later commits as validated.
+3. Inspect the self-hosted Windows/Blender runner result separately; portable CI is not live Blender evidence.
+4. Resume from the production-goal orchestration boundary, with the next architectural target being evidence/verification feedback into corrective replanning rather than another parallel execution/authorization system.
+5. Preserve existing authorization, admission, journal, verification, checkpoint, registry, and completion boundaries.
 
-**Important:** current green CI means only what the corresponding workflow actually ran. Do not report a later SHA as green without a workflow result for that SHA.
+**Important:** current green CI means only what the corresponding workflow actually ran. Never report a later SHA as green without a workflow result for that SHA.
 
 See `README.md` for the project-level status summary.
