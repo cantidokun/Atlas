@@ -123,7 +123,11 @@ class AutonomousFutureRuntime:
                 return self._checkpoint()["snapshot"]
 
             if step.phase == "ACTION":
-                self.controller.execute_current(execute)
+                try:
+                    self.controller.execute_current(execute)
+                except Exception:
+                    self._checkpoint()
+                    return self.controller.snapshot()
                 self._checkpoint()
                 if self.controller.blocked:
                     return self.controller.snapshot()
