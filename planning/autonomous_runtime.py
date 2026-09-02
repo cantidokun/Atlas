@@ -20,12 +20,7 @@ ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 
 
 class AutonomousFutureRuntime:
-    """Drive a deterministic future while checkpointing every safe transition.
-
-    Every persisted continuation is bound to stable instructions, the exact
-    authorized future, and the exact controller snapshot at the checkpoint.
-    Resume therefore fails closed if any of those identities changed.
-    """
+    """Drive a deterministic future while checkpointing every safe transition."""
 
     def __init__(
         self,
@@ -34,6 +29,7 @@ class AutonomousFutureRuntime:
         runtime_context: RuntimeContext,
         controller: Optional[FutureExecutionController] = None,
         integrity: Optional[RuntimeIntegrity] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.state_store = state_store
         self.runtime_context = runtime_context
@@ -41,6 +37,7 @@ class AutonomousFutureRuntime:
         if controller is not None and controller.steps != steps:
             raise ValueError("Supplied controller does not match the authorized future.")
         self.steps = steps
+        self.metadata = dict(metadata or {})
         if integrity is not None:
             require_continuation_integrity(
                 integrity,
@@ -63,7 +60,7 @@ class AutonomousFutureRuntime:
             plan_digest=self.controller.plan_digest,
             state_digest=self._state_digest(snapshot),
         )
-        return self.state_store.save(self.controller, self.integrity)
+        return self.state_store.save(self.controller, self.integrity, self.metadata)
 
     def snapshot(self) -> Dict[str, Any]:
         return self.controller.snapshot()
@@ -96,6 +93,7 @@ class AutonomousFutureRuntime:
             runtime_context,
             controller=controller,
             integrity=integrity,
+            metadata=dict(envelope.get("metadata") or {}),
         )
 
     def resume(self) -> "AutonomousFutureRuntime":
