@@ -135,6 +135,54 @@ def _authorization_factory():
     return issue, counter
 
 
+def test_get_submitted_job_id_extracts_job_id():
+    workflow = UnrealRenderWorkflow(
+        FakeExecutor([]),
+        UnrealRenderReceiptStore(Path("receipt-job-id.json")),
+    )
+
+    submission = UnrealPlanExecutionResult(
+        "job-id-test",
+        (
+            _evidence({
+                ENTITY_ID: {
+                    "render_job": {
+                        "job_id": "job-workflow-1",
+                        "sequence_asset_path": SEQUENCE,
+                        "status": "queued",
+                        "finished": False,
+                        "success": False,
+                        "failed": False,
+                        "output_files": [],
+                    }
+                }
+            }),
+        ),
+        True,
+    )
+
+    assert workflow.get_submitted_job_id(submission) == "job-workflow-1"
+
+
+def test_get_submitted_job_id_rejects_unsuccessful_submission(tmp_path):
+    workflow = UnrealRenderWorkflow(
+        FakeExecutor([]),
+        UnrealRenderReceiptStore(tmp_path / "receipt-job-id.json"),
+    )
+
+    submission = UnrealPlanExecutionResult(
+        "job-id-test",
+        (),
+        False,
+    )
+
+    with pytest.raises(
+        UnrealRenderWorkflowError,
+        match="render submission did not produce successful evidence",
+    ):
+        workflow.get_submitted_job_id(submission)
+
+
 def test_workflow_polls_until_completed_and_persists_receipt(tmp_path):
     clock = RecordingClock()
     executor = FakeExecutor([

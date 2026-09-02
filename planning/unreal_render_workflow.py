@@ -114,6 +114,25 @@ class UnrealRenderWorkflow:
         authorization = self._authorize(plan, authorization_factory)
         return self.executor.execute_authorized(plan, authorization)
 
+
+    def get_submitted_job_id(self, submission: UnrealPlanExecutionResult) -> str:
+        """Extract the submitted render job ID from successful submission evidence."""
+        if not isinstance(submission, UnrealPlanExecutionResult):
+            raise TypeError("submission must be an UnrealPlanExecutionResult instance")
+
+        if not submission.success or not submission.evidence_ledger:
+            raise UnrealRenderWorkflowError(
+                "render submission did not produce successful evidence"
+            )
+
+        state = self._job_state(submission.evidence_ledger[-1])
+        job_id = state.get("job_id")
+        if not isinstance(job_id, str) or not job_id.strip():
+            raise UnrealRenderWorkflowError(
+                "render submission evidence did not contain a non-empty job_id"
+            )
+        return job_id.strip()
+
     @staticmethod
     def _job_state(evidence: UnrealEvidence) -> dict:
         state = evidence.observed_state
