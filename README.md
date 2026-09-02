@@ -2,25 +2,24 @@
 
 ## What Atlas is
 
-Atlas is an **AI-assisted sports virtual production and digital-twin platform** designed to turn captured sports footage and real-world environments into richer, controllable production experiences.
+Atlas is an **AI-assisted sports virtual production and digital-twin platform** designed to turn captured soccer footage and soccer-field-related real-world environments into richer, controllable production experiences.
 
 Blender and Unreal Engine are execution environments around Atlas's canonical Digital Twin. Dedicated photogrammetry software is an upstream reconstruction stage.
 
 ```text
-Real-world environment / captured sports footage
-                 ↓
-       Dedicated photogrammetry
-                 ↓
-        Initial 3D reconstruction
-                 ↓
-            Blender Agent
-       analyze / clean / correct
-              / optimize
-                 ↓
-          Prepared digital twin
-                 ↓
-            Unreal Agent
-       real-time production / VFX
+Real-world soccer environment / captured soccer footage
+                    ↓
+          Dedicated photogrammetry
+                    ↓
+           Initial 3D reconstruction
+                    ↓
+               Blender Agent
+        analyze / clean / correct / optimize
+                    ↓
+            Prepared digital twin
+                    ↓
+               Unreal Agent
+          real-time production / VFX
 ```
 
 Photogrammetry is an upstream reconstruction capability, not a Blender responsibility.
@@ -45,17 +44,51 @@ Qwen never receives direct production execution authority.
 
 ---
 
-# Current Atlas status — September 1, 2026
+# Current Atlas status — September 2, 2026
 
-Atlas has now proven a real Unreal Engine 5.6 production-render boundary locally, in addition to the established Blender planning and execution architecture.
+Atlas has now proven the core task-aware autonomous recovery loop against the real Blender 4.4 environment, including cross-process recovery after a durable action failure. The Unreal production/render boundary remains proven locally for the currently implemented capabilities.
 
-Latest local Python regression reported during the September 1 development session:
+The latest verified Blender sequence is:
 
-**1033 passed, 5 skipped**
+```text
+inspect authoritative state
+        ↓
+evaluate target
+        ↓
+issue immutable action authorization
+        ↓
+execute deterministic future
+        ↓
+controlled action failure
+        ↓
+BLOCKED durable checkpoint
+        ↓
+Python process restart
+        ↓
+reconstruct runtime + recovery gate + authorization
+        ↓
+acquire fresh authoritative evidence
+        ↓
+issue evidence-bound replan authorization
+        ↓
+execute replacement action
+        ↓
+fresh independent verification
+        ↓
+COMPLETE / restore fixture
+```
 
-`git diff --check` was clean at the same checkpoint.
+This proves that failed writes are not automatically retried and that recovery proceeds only from durable state, fresh evidence, and a separately bound replacement authorization.
 
-The Unreal render boundary has been exercised through the real UE 5.6 editor/runtime and now covers render configuration, configuration verification, render submission, dynamic render-job identity, asynchronous job inspection, output artifact discovery, artifact verification, and deterministic render receipts.
+## Latest local regression / CI checkpoint
+
+The corrected Stage 12 recovery implementation has passed the GitHub Actions offline test matrix on Python 3.9 and Python 3.11.
+
+The development branch is:
+
+`feat/blender-stage11-mainline`
+
+The active PR is #49 and remains draft/unmerged.
 
 ---
 
@@ -78,18 +111,58 @@ independent verification
       ↓
 immutable evidence / receipt
       ↓
-reassessment / replan
+reassessment / recovery / replan
 ```
 
-Blender remains an independent development track. Its process/adapter boundaries preserve capability restrictions, validated arguments, authorization scope, deterministic execution, independent verification, and fail-closed behavior.
+## Verified Blender Stage 12 capabilities
+
+The task-aware autonomous runtime now binds declarative `AtlasTaskDefinition` contracts to the existing checkpointed autonomous future runtime without introducing a second executor, authorization system, or engine-specific future controller.
+
+Verified behaviors include:
+
+- already-satisfied task → zero writes;
+- unsatisfied task → deterministic authorized action sequence;
+- successful action → fresh verification remains mandatory;
+- failed action → durable `BLOCKED` checkpoint;
+- fresh recovery evidence → required before recovery/replan;
+- recovery replacement → explicit `ReplanAuthorization` bound to fresh evidence and replacement actions;
+- replacement execution → a new task action authorization is created when writes remain necessary;
+- continuation integrity → altered runtime identity is rejected rather than repaired implicitly;
+- cross-process continuation after successful action → recovered authorization and fresh verification;
+- cross-process recovery after failed action → reconstructed blocked gate, recovered authorization, fresh evidence, explicit replan, replacement execution, and fresh final verification.
+
+### Live Blender recovery proof
+
+The real Blender 4.4 environment has now successfully completed the cross-process failure/recovery harness:
+
+```text
+LIVE AUTONOMOUS RECOVERY RESTART VERIFIED
+object=Goal_Left_post
+original=[0.0, 0.0, 0.0]
+recovered=[0.0, 0.0, 15.0]
+initial_authorization=atlas-stage12-autonomous-recovery-restart-initial
+replan_authorization=atlas-stage12-autonomous-recovery-restart-replan
+durable_failure_checkpoint=verified
+process_restart=verified
+authorization_recovered=verified
+fresh_recovery_evidence=verified
+replan_authorization=verified
+replacement_execution=verified
+fresh_final_verification=verified
+fixture_restored=[0.0, 0.0, 0.0]
+```
+
+The harness uses two separate Python processes. Phase 1 intentionally fails the first write before Blender is invoked and persists the `BLOCKED` state. Phase 2 reconstructs the runtime from disk, recovers the original action authorization, obtains fresh Blender evidence, authorizes a replacement action, executes it, independently verifies the result, and restores the original fixture state.
+
+The continuation-integrity layer is deliberately fail-closed. An earlier harness defect that changed the runtime context across the process boundary was rejected by the integrity check and was fixed at the harness level rather than weakening the guard.
 
 ---
 
 # Unreal Agent status
 
-Unreal production transport and rendering are no longer merely planned or unverified. The local UE 5.6 boundary has been exercised end to end.
+Unreal production transport and rendering are proven locally for the current implemented capabilities.
 
-The controlled render workflow now supports:
+The controlled render workflow supports:
 
 - deterministic render configuration;
 - render-state verification;
@@ -102,7 +175,7 @@ The controlled render workflow now supports:
 - evidence-bound deterministic `UnrealRenderReceipt` creation;
 - atomic `UnrealRenderReceiptStore` persistence with fail-closed reload validation.
 
-A real controlled render was executed using:
+A controlled local render was previously proven at:
 
 ```text
 resolution:       640x360
@@ -111,23 +184,7 @@ output format:    PNG
 output directory: Saved/AtlasRenderOutput
 ```
 
-The completed live job returned a real PNG artifact through `inspect_render_job`, and Atlas marked the completed inspection `verified=True`.
-
-A live `UnrealRenderReceipt` was then issued from that verified evidence. The verified session produced these deterministic identities:
-
-```text
-evidence_digest:
-f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
-
-receipt_digest:
-f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
-
-SELF MATCH: True
-```
-
-The receipt store has focused regression coverage for round-tripping, deterministic persistence, extra-field rejection, and digest tampering.
-
-The Unreal runtime job registry itself remains in-memory. Durable render-receipt persistence is an Atlas/Python concern; cross-process Unreal job recovery has **not** been implemented.
+The Unreal runtime job registry remains in-memory. Durable render-receipt persistence is an Atlas/Python concern; cross-process Unreal render-job recovery has **not** been implemented.
 
 ---
 
@@ -163,36 +220,56 @@ The Unreal runtime job registry itself remains in-memory. Durable render-receipt
 **COMPLETE FOR CURRENT CONTRACT**
 
 ### Stage 10 — Blender Adapter / Real Execution Bridge
-**IN PROGRESS**
+**COMPLETE FOR CURRENT IMPLEMENTED BOUNDARY**
 
 ### Stage 11 — First Controlled Live Blender Operation
-**NEXT BLENDER LIVE GATE**
+**COMPLETE**
 
-### Stage 12 — Closed-loop Blender Agent
-**FUTURE**
+### Stage 12 — Task-aware closed-loop autonomous Blender execution and recovery
+**COMPLETE FOR CURRENT CONTRACT**
 
-## Unreal
+### Stage 13 — Multi-step autonomous task execution
+**NEXT**
 
-### Unreal Engine Boundary
-**PROVEN LOCALLY**
+Stage 13 should extend the proven single-action task contract into deterministic multi-step execution while preserving per-plan authorization, exact sequencing, checkpoints, fresh verification, and fail-closed recovery.
 
-### Unreal Production Transport
-**PROVEN LOCALLY FOR CURRENT IMPLEMENTED CAPABILITIES**
+The first Stage 13 target should deliberately be small but genuinely multi-step, so the architecture can prove:
 
-### Unreal Render / MRQ Boundary
-**PROVEN LOCALLY**
+```text
+ACTION 1 succeeds
+      ↓
+checkpoint
+      ↓
+ACTION 2 succeeds/fails
+      ↓
+if failure: recover from actual partial-progress state
+      ↓
+fresh evidence
+      ↓
+explicit replan
+      ↓
+continue without blindly replaying completed work
+```
 
-### Render Artifact Verification
-**PROVEN LOCALLY**
+The Stage 13 audit must specifically test:
 
-### Unreal Render Receipt
-**PROVEN LOCALLY**
+1. per-step authorization remains bound to the intended plan;
+2. partial progress survives failure and process restart;
+3. recovery replans against current observed state rather than original assumptions;
+4. deterministic continuation reconstructs the exact multi-step position;
+5. no second execution or authorization system is introduced.
 
-### Render Receipt Persistence
-**PROVEN LOCALLY**
+### Stage 14 — Richer task composition and action dependencies
+**PLANNED**
 
-### Next Unreal increment
-Integrate receipt creation/persistence into the higher-level Atlas render execution workflow, then expand Unreal capabilities only where a real capability gap justifies them.
+### Stage 15 — Higher-level production tasks spanning multiple Blender operations
+**PLANNED**
+
+### Stage 16 — Qwen proposal integration into validated Atlas task planning
+**PLANNED**
+
+### Stage 17 — Shared autonomous production architecture across Blender and Unreal
+**PLANNED**
 
 ---
 
@@ -203,6 +280,8 @@ Atlas owns the canonical Digital Twin. Blender, Unreal, photogrammetry software,
 A `.blend` file, Unreal project, level, render configuration, or other DCC artifact is a representation/production state, not the canonical identity of the environment. Identity, provenance, revisions, production variants, and shot-specific changes remain explicit.
 
 Photogrammetry creates the initial reconstruction. Blender analyzes, cleans, corrects, optimizes, and prepares it for downstream production.
+
+Atlas remains exclusively focused on soccer-field-related digital twins and their production pipeline.
 
 ---
 
@@ -222,7 +301,16 @@ Preserve coverage for:
 - unsatisfied state → exact authorized action order;
 - successful write → verification remains mandatory;
 - verification failure → `BLOCKED`;
-- action failure → recovery gate;
+- action failure → durable `BLOCKED` checkpoint;
+- fresh recovery evidence → required before recovery/replan;
+- replacement plan → explicit replan authorization required;
+- replacement action tools → remain within the task contract;
+- partial-progress recovery → completed prior steps are not blindly replayed;
+- task target decision → deterministic future binding;
+- persisted task metadata → future consistency;
+- action authorization → exact task action binding;
+- cross-process continuation → recovered authorization and fresh verification;
+- cross-process blocked recovery → recovered gate + authorization before replan;
 - mutated arguments/result → receipt mismatch;
 - malformed executor result → rejected;
 - wrong result tool → rejected;
@@ -231,6 +319,8 @@ Preserve coverage for:
 - unauthorized replan → rejected;
 - malformed Qwen reasoning → rejected;
 - unknown/non-capability tool → rejected;
+- Blender write without independent persistence evidence → incomplete;
+- Blender expected/observed persistence mismatch → rejected;
 - render job completion without artifacts → rejected;
 - declared render artifacts that do not exist → rejected;
 - tampered persisted render receipt → rejected.
@@ -244,12 +334,17 @@ Preserve coverage for:
 - Do not allow action plans to execute without explicit authorization.
 - Do not allow Qwen to bypass Python-owned execution state.
 - Do not allow automatic retry after failed writes.
+- Never silently rewrite an authorized plan.
 - Keep Blender/Unreal-specific behavior behind adapter/tool boundaries.
 - Treat photogrammetry as an upstream reconstruction capability.
 - Preserve provenance and canonical Digital Twin identity.
 - Test every meaningful increment.
-- Keep the project handoffs synchronized with verified milestones.
+- Keep project handoffs synchronized with verified milestones.
 
 ## Resume point
 
-For the next session: read `ATLAS_HANDOFF_CURRENT.md` and `UNREAL_AGENT_HANDOFF_CURRENT.md`, inspect the current branch/HEAD and newest regression result, then continue from the **Unreal render receipt integration** checkpoint or the independently tracked Blender adapter/live-operation track. Do not claim cross-process Unreal job recovery unless it is separately implemented and verified.
+For the next session, read `ATLAS_HANDOFF_CURRENT.md` and the relevant Unreal handoff, inspect the current branch/HEAD and newest regression result, and then begin **Stage 13 — multi-step autonomous task execution with partial-progress recovery**.
+
+Do not expand Qwen autonomy yet. First prove that the existing Atlas-owned execution/recovery machinery scales from one action to several ordered actions without losing authorization boundaries, deterministic continuation, fresh verification, or fail-closed recovery.
+
+Do not claim cross-process Unreal render-job recovery unless it is separately implemented and verified.
