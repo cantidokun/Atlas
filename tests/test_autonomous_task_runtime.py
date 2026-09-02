@@ -45,7 +45,7 @@ def test_task_runtime_runs_action_then_fresh_verification(tmp_path):
         calls.append((tool, arguments))
         if tool == "inspect_scene":
             evidence_calls += 1
-            return {"ok": True, "state": "inspected", "details": {"ready": evidence_calls >= 2}}
+            return {"ok": True, "state": "inspected", "ready": evidence_calls >= 2}
         return {"ok": True, "state": "moved", "details": {"object_name": arguments["object_name"]}}
 
     runtime = AutonomousTaskRuntime.start(
@@ -69,7 +69,7 @@ def test_task_runtime_skips_write_when_target_is_already_satisfied(tmp_path):
 
     def execute(tool, arguments):
         calls.append((tool, arguments))
-        return {"ok": True, "state": "inspected", "details": {"ready": True}}
+        return {"ok": True, "state": "inspected", "ready": True}
 
     runtime = AutonomousTaskRuntime.start(
         _task(),
@@ -95,7 +95,7 @@ def test_task_runtime_blocks_when_fresh_verification_fails(tmp_path):
         calls.append((tool, arguments))
         if tool == "inspect_scene":
             evidence_calls += 1
-            return {"ok": True, "state": "inspected", "details": {"ready": evidence_calls == 1}}
+            return {"ok": True, "state": "inspected", "ready": evidence_calls == 1}
         return {"ok": True, "state": "moved", "details": {}}
 
     runtime = AutonomousTaskRuntime.start(
