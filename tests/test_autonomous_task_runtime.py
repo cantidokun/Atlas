@@ -95,7 +95,7 @@ def test_task_runtime_blocks_when_fresh_verification_fails(tmp_path):
         calls.append((tool, arguments))
         if tool == "inspect_scene":
             evidence_calls += 1
-            return {"ok": True, "state": "inspected", "ready": evidence_calls == 1}
+            return {"ok": True, "state": "inspected", "ready": False}
         return {"ok": True, "state": "moved", "details": {}}
 
     runtime = AutonomousTaskRuntime.start(
