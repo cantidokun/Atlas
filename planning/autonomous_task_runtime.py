@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from action_plan import ActionSpec
 from planning.action_authorization import ActionAuthorization
 from planning.autonomous_runtime import AutonomousFutureRuntime, ToolExecutor
+from planning.future_execution import FutureExecutionController
 from planning.future_generator import DeterministicFutureGenerator
 from planning.future_recovery import FutureRecoveryGate
 from planning.replan_authorization import ReplanAuthorization
@@ -45,30 +46,16 @@ class AutonomousTaskRuntime:
         ]
 
     @classmethod
-    def start(
-        cls,
-        task: AtlasTaskDefinition,
-        state_store: FutureRuntimeStateStore,
-        runtime_context: RuntimeContext,
-        executor: ToolExecutor,
-        authorization_id: str,
-    ) -> "AutonomousTaskRuntime":
-        """Run task preflight, authorize writes, and construct a continuation."""
+    def start(cls, task: AtlasTaskDefinition, state_store: FutureRuntimeStateStore, runtime_context: RuntimeContext, executor: ToolExecutor, authorization_id: str) -> "AutonomousTaskRuntime":
         orchestrator = prepare_task_runtime(task)
         evidence: Dict[str, Any] = {}
         while not orchestrator.evidence_complete:
             evidence = orchestrator.acquire_next_evidence(executor)
         target = orchestrator.evaluate_target_state(evidence)
         actions = cls._actions(task)
-        authorization = None
-        if not target.satisfied:
-            authorization = orchestrator.authorize_execution(authorization_id)
-
+        authorization = None if target.satisfied else orchestrator.authorize_execution(authorization_id)
         steps = DeterministicFutureGenerator(task.evaluator).generate(target.satisfied, actions)
-        metadata: Dict[str, Any] = {
-            "target_satisfied": target.satisfied,
-            "target_evaluation": target.snapshot(),
-        }
+        metadata: Dict[str, Any] = {"target_satisfied": target.satisfied, "target_evaluation": target.snapshot()}
         if authorization is not None:
             metadata["action_authorization"] = authorization.snapshot()
         runtime = AutonomousFutureRuntime(steps, state_store, runtime_context, metadata=metadata)
@@ -97,13 +84,7 @@ class AutonomousTaskRuntime:
             raise RuntimeError("persisted action authorization does not match the task action plan")
 
     @classmethod
-    def resume_from_store(
-        cls,
-        task: AtlasTaskDefinition,
-        state_store: FutureRuntimeStateStore,
-        runtime_context: RuntimeContext,
-        executor: ToolExecutor,
-    ) -> "AutonomousTaskRuntime":
+    def resume_from_store(cls, task: AtlasTaskDefinition, state_store: FutureRuntimeStateStore, runtime_context: RuntimeContext, executor: ToolExecutor) -> "AutonomousTaskRuntime":
         prepare_task_runtime(task)
         actions = cls._actions(task)
         envelope = state_store.load()
@@ -222,9 +203,7 @@ class AutonomousTaskRuntime:
             raise RuntimeError("replacement actions do not match the authorized replan")
         target = self.task.evaluator.evaluate(evidence)
         actions = list(authorized_actions)
-        execution_authorization = None
-        if not target.satisfied:
-            execution_authorization = ActionAuthorization.issue(actions, authorization.authorization_id)
+        execution_authorization = None if target.satisfied else ActionAuthorization.issue(actions, authorization.authorization_id)
         steps = DeterministicFutureGenerator(self.task.evaluator).generate(target.satisfied, actions)
         metadata: Dict[str, Any] = {
             "target_satisfied": target.satisfied,
@@ -233,14 +212,23 @@ class AutonomousTaskRuntime:
         }
         if execution_authorization is not None:
             metadata["action_authorization"] = execution_authorization.snapshot()
-        self.runtime = AutonomousFutureRuntime(steps, self.runtime.state_store, self.runtime.runtime_context, metadata=metadata)
+        controller = FutureExecutionController(steps)
+        controller.acknowledge({"recovery_evidence": True})
+        controller.acknowledge(target.snapshot())
+        if target.satisfied:
+            controller.acknowledge({"writes_skipped": True})
+        self.runtime = AutonomousFutureRuntime(
+            steps,
+            self.runtime.state_store,
+            self.runtime.runtime_context,
+            controller=controller,
+            metadata=metadata,
+        )
         self.authorization = execution_authorization
         self.current_actions = actions
         self.recovery_gate = None
         self.replan_authorization = None
         self._validate_persisted_binding(self.runtime, metadata, actions)
-        if not target.satisfied:
-            self.runtime = self.runtime.resume_with_checkpoint_index(2)
         return self
 
     def run_until_pause(self) -> Dict[str, Any]:
