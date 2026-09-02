@@ -250,7 +250,7 @@ def test_task_runtime_recovery_requires_fresh_evidence_and_new_authorization(tmp
         calls.append((tool, arguments))
         if tool == "inspect_scene":
             evidence_calls += 1
-            return {"ok": True, "state": "inspected", "ready": evidence_calls >= 2}
+            return {"ok": True, "state": "inspected", "ready": evidence_calls >= 3}
         move_attempts += 1
         if move_attempts == 1:
             raise RuntimeError("first write failed")
