@@ -114,15 +114,18 @@ def test_task_runtime_blocks_when_fresh_verification_fails(tmp_path):
     assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
 
 
-def test_task_runtime_blocks_when_fresh_evidence_raises(tmp_path):
+def test_task_runtime_verification_executor_exception_blocks(tmp_path):
     calls = []
+    evidence_calls = 0
 
     def execute(tool, arguments):
+        nonlocal evidence_calls
         calls.append((tool, arguments))
         if tool == "inspect_scene":
-            if len(calls) == 1:
-                return {"ok": True, "state": "inspected", "ready": False}
-            raise RuntimeError("fresh Blender evidence unavailable")
+            evidence_calls += 1
+            if evidence_calls == 2:
+                raise RuntimeError("verification transport failed")
+            return {"ok": True, "state": "inspected", "ready": False}
         return {"ok": True, "state": "moved", "details": {}}
 
     runtime = AutonomousTaskRuntime.start(
@@ -130,19 +133,23 @@ def test_task_runtime_blocks_when_fresh_evidence_raises(tmp_path):
         FutureRuntimeStateStore(tmp_path / "runtime.json"),
         _context(),
         execute,
-        authorization_id="test-evidence-exception",
+        authorization_id="test-verification-exception",
     )
 
     result = runtime.run_until_pause()
 
     assert result["blocked"] is True
-    assert result["failure"]["step_id"] == "verification.pending"
-    assert result["failure"]["result"]["satisfied"] is False
-    assert result["failure"]["result"]["exception_type"] == "RuntimeError"
+    assert result["failure"]["phase"] == "VERIFICATION"
+    assert result["failure"]["exception_type"] == "RuntimeError"
+    assert "verification transport failed" in result["failure"]["error"]
+    assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
 
 
 def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
     calls = []
+    store = FutureRuntimeStateStore(tmp_path / "runtime.json")
+    task = _task()
+    context = _context()
 
     def execute(tool, arguments):
         calls.append((tool, arguments))
@@ -150,9 +157,6 @@ def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
             return {"ok": True, "state": "inspected", "ready": False}
         return {"ok": True, "state": "moved", "details": {"object_name": arguments["object_name"]}}
 
-    store = FutureRuntimeStateStore(tmp_path / "runtime.json")
-    task = _task()
-    context = _context()
     runtime = AutonomousTaskRuntime.start(
         task,
         store,
@@ -161,19 +165,25 @@ def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
         authorization_id="test-resume",
     )
 
-    paused = runtime.runtime.run_until_pause(runtime._run_executor(), acknowledgements={
-        "evidence.authoritative": {"source": "test", "task": task.name},
-        "target.evaluated": {"satisfied": False},
-    })
-    assert paused["current_step"]["phase"] == "ACTION"
-
-    resumed = AutonomousTaskRuntime(
-        task=task,
-        runtime=runtime.runtime.resume(),
-        executor=execute,
-        authorization=runtime.authorization,
+    paused = runtime.runtime.run_until_pause(
+        runtime._run_executor(),
+        acknowledgements={
+            "evidence.authoritative": {"source": "test", "task": task.name},
+            "target.evaluated": {"satisfied": False},
+        },
     )
-    result = resumed.resume_and_run()
+    assert paused["current_step"]["phase"] == "VERIFICATION"
+    assert [tool for tool, _ in calls] == ["move_object"]
+
+    resumed_runtime = AutonomousTaskRuntime(
+        task,
+        runtime.runtime,
+        execute,
+        runtime.authorization,
+    )
+    result = resumed_runtime.resume_and_run()
 
     assert result["complete"] is True
-    assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
+    assert [tool for tool, _ in calls] == ["move_object", "inspect_scene"]
+    assert resumed_runtime.authorization is not None
+    assert resumed_runtime.authorization.authorization_id == "test-resume"
