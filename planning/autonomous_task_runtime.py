@@ -31,6 +31,13 @@ class AutonomousTaskRuntime:
     executor: ToolExecutor
     authorization: Optional[ActionAuthorization]
 
+    @staticmethod
+    def _actions(task: AtlasTaskDefinition):
+        return [
+            ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
+            for action in task.actions
+        ]
+
     @classmethod
     def start(
         cls,
@@ -48,10 +55,7 @@ class AutonomousTaskRuntime:
             evidence = orchestrator.acquire_next_evidence(executor)
 
         target = orchestrator.evaluate_target_state(evidence)
-        actions = [
-            ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
-            for action in task.actions
-        ]
+        actions = cls._actions(task)
         authorization = None
         if not target.satisfied:
             authorization = orchestrator.authorize_execution(authorization_id)
@@ -60,20 +64,54 @@ class AutonomousTaskRuntime:
             target.satisfied,
             actions,
         )
+        metadata = {}
+        if authorization is not None:
+            metadata["action_authorization"] = authorization.snapshot()
         runtime = AutonomousFutureRuntime(
             steps,
             state_store,
             runtime_context,
+            metadata=metadata,
         )
+        return cls(task, runtime, executor, authorization)
+
+    @classmethod
+    def resume_from_store(
+        cls,
+        task: AtlasTaskDefinition,
+        state_store: FutureRuntimeStateStore,
+        runtime_context: RuntimeContext,
+        executor: ToolExecutor,
+    ) -> "AutonomousTaskRuntime":
+        """Reconstruct a task runtime and exact authorization from durable state."""
+        prepare_task_runtime(task)
+        actions = cls._actions(task)
+        envelope = state_store.load()
+        runtime = AutonomousFutureRuntime.resume_from_store(
+            [
+                step
+                for step in DeterministicFutureGenerator(task.evaluator).generate_from_result(
+                    type("TargetResult", (), {"satisfied": envelope["snapshot"]["current_step"]["step_id"] == "writes.skipped"})(),
+                    actions,
+                )
+            ],
+            state_store,
+            runtime_context,
+        )
+        raw_authorization = (envelope.get("metadata") or {}).get("action_authorization")
+        authorization = None
+        if raw_authorization is not None:
+            authorization = ActionAuthorization.from_snapshot(raw_authorization)
+            if authorization.plan_digest != runtime.controller.plan_digest or not authorization.matches(actions):
+                raise RuntimeError("persisted action authorization does not match the authorized future")
+        elif runtime.controller.next_action is not None:
+            raise RuntimeError("persisted action authorization is missing for a pending write")
         return cls(task, runtime, executor, authorization)
 
     def _execute_authorized(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute only when the immutable task authorization still binds the call."""
         if self.authorization is not None:
-            authorized_actions = [
-                ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
-                for action in self.task.actions
-            ]
+            authorized_actions = self._actions(self.task)
             if not self.authorization.matches(authorized_actions):
                 raise RuntimeError("task action authorization no longer matches the task definition")
 
