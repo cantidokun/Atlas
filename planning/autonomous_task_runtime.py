@@ -80,41 +80,38 @@ class AutonomousTaskRuntime:
         return evidence
 
     def run_until_pause(self) -> Dict[str, Any]:
-        """Advance until completion, failure, or an unrecoverable external pause."""
-        acknowledgements = {
+        """Advance through actions, then acquire and evaluate fresh evidence."""
+        target_satisfied = self.runtime.steps[2].phase == "SKIP_WRITES"
+        acknowledgements: Dict[str, Dict[str, Any]] = {
             "evidence.authoritative": {
                 "source": "task_runtime",
                 "task": self.task.name,
             },
-            "target.evaluated": {"satisfied": self.runtime.snapshot()["current_step"]["phase"] == "SKIP_WRITES"},
+            "target.evaluated": {"satisfied": target_satisfied},
         }
-
-        # The target decision was already resolved during start(). Re-derive it
-        # from the deterministic future rather than querying Blender again.
-        current = self.runtime.snapshot()["current_step"]
-        target_satisfied = current["phase"] == "EVIDENCE"
-        if current["step_id"] == "evidence.authoritative":
-            # The generated future is always at evidence until these two
-            # acknowledgements are consumed; inspect the authorized future.
-            target_satisfied = self.runtime.steps[2]["phase"] == "SKIP_WRITES" if isinstance(self.runtime.steps[2], dict) else self.runtime.steps[2].phase == "SKIP_WRITES"
-
-        acknowledgements["target.evaluated"] = {"satisfied": target_satisfied}
         if target_satisfied:
             acknowledgements["writes.skipped"] = {"skipped": True}
 
-        verifications: Dict[str, Dict[str, Any]] = {}
-        evidence = self._verification()
-        result = self.task.evaluator.evaluate(evidence)
-        verifications["verification.pending"] = result.snapshot()
-        return self.runtime.run_until_pause(
+        paused = self.runtime.run_until_pause(
             self.executor,
             acknowledgements=acknowledgements,
-            verifications=verifications,
+        )
+        if paused.get("current_step", {}).get("phase") != "VERIFICATION":
+            return paused
+
+        evidence = self._verification()
+        result = self.task.evaluator.evaluate(evidence)
+        return self.runtime.run_until_pause(
+            self.executor,
+            verifications={"verification.pending": result.snapshot()},
         )
 
     def resume_and_run(self) -> Dict[str, Any]:
         """Resume the persisted continuation and provide fresh verification."""
         resumed = self.runtime.resume()
+        paused = resumed.run_until_pause(self.executor)
+        if paused.get("current_step", {}).get("phase") != "VERIFICATION":
+            return paused
         evidence = self._verification()
         result = self.task.evaluator.evaluate(evidence)
         return resumed.run_until_pause(
