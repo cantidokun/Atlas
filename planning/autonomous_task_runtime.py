@@ -64,7 +64,7 @@ class AutonomousTaskRuntime:
             target.satisfied,
             actions,
         )
-        metadata = {}
+        metadata: Dict[str, Any] = {"target_satisfied": target.satisfied}
         if authorization is not None:
             metadata["action_authorization"] = authorization.snapshot()
         runtime = AutonomousFutureRuntime(
@@ -87,18 +87,20 @@ class AutonomousTaskRuntime:
         prepare_task_runtime(task)
         actions = cls._actions(task)
         envelope = state_store.load()
+        metadata = envelope.get("metadata") or {}
+        target_satisfied = metadata.get("target_satisfied")
+        if not isinstance(target_satisfied, bool):
+            raise RuntimeError("persisted task target decision is missing or invalid")
+        steps = DeterministicFutureGenerator(task.evaluator).generate(
+            target_satisfied,
+            actions,
+        )
         runtime = AutonomousFutureRuntime.resume_from_store(
-            [
-                step
-                for step in DeterministicFutureGenerator(task.evaluator).generate_from_result(
-                    type("TargetResult", (), {"satisfied": envelope["snapshot"]["current_step"]["step_id"] == "writes.skipped"})(),
-                    actions,
-                )
-            ],
+            steps,
             state_store,
             runtime_context,
         )
-        raw_authorization = (envelope.get("metadata") or {}).get("action_authorization")
+        raw_authorization = metadata.get("action_authorization")
         authorization = None
         if raw_authorization is not None:
             authorization = ActionAuthorization.from_snapshot(raw_authorization)
