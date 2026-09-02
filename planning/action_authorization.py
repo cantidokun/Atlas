@@ -38,6 +38,19 @@ class ActionAuthorization:
         ).hexdigest()
         return cls(digest, authorization_id.strip())
 
+    @classmethod
+    def from_snapshot(cls, snapshot: Dict[str, Any]) -> "ActionAuthorization":
+        """Restore an authorization receipt without minting a new identity."""
+        if not isinstance(snapshot, dict):
+            raise TypeError("authorization snapshot must be a dictionary.")
+        plan_digest = snapshot.get("plan_digest")
+        authorization_id = snapshot.get("authorization_id")
+        if not isinstance(plan_digest, str) or not plan_digest:
+            raise ValueError("authorization snapshot is missing plan_digest")
+        if not isinstance(authorization_id, str) or not authorization_id.strip():
+            raise ValueError("authorization snapshot is missing authorization_id")
+        return cls(plan_digest, authorization_id.strip())
+
     def matches(self, actions: List[ActionSpec]) -> bool:
         if not isinstance(actions, list) or any(not isinstance(action, ActionSpec) for action in actions):
             return False
