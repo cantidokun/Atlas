@@ -1,8 +1,12 @@
-from action_plan import ActionSpec
+import json
 
+import pytest
+
+from action_plan import ActionSpec
 from planning.autonomous_task_runtime import AutonomousTaskRuntime
 from planning.evidence_plan import EvidenceRequest
 from planning.future_generator import DeterministicFutureGenerator
+from planning.replan_authorization import ReplanAuthorization
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
 from planning.target_state import StateInvariant, TargetStateEvaluator
@@ -214,21 +218,110 @@ def test_task_runtime_rejects_persisted_authorization_for_future_shape(tmp_path)
 
     envelope = store.load()
     envelope["metadata"]["action_authorization"]["plan_digest"] = "0" * 64
-    store.path.write_text(__import__("json").dumps(envelope), encoding="utf-8")
+    store.path.write_text(json.dumps(envelope), encoding="utf-8")
 
-    try:
+    with pytest.raises(RuntimeError, match="action plan"):
         AutonomousTaskRuntime.resume_from_store(task, store, _context(), lambda tool, arguments: {})
-    except RuntimeError as exc:
-        assert "action plan" in str(exc)
-    else:
-        raise AssertionError("resume accepted a mutated persisted action authorization")
 
 
 def test_deterministic_future_unsatisfied_branch_contains_action():
     task = _task()
     steps = DeterministicFutureGenerator(task.evaluator).generate(False, [
-        ActionSpec("move_object", {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [1, 2, 3]}, "move")
+        ActionSpec(
+            "move_object",
+            {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [1, 2, 3]},
+            "move",
+        )
     ])
     assert steps[2].phase == "ACTION"
     assert steps[2].step_id == "action.0"
     assert steps[3].phase == "VERIFICATION"
+
+
+def test_task_runtime_recovery_requires_fresh_evidence_and_new_authorization(tmp_path):
+    calls = []
+    move_attempts = 0
+    evidence_calls = 0
+    store = FutureRuntimeStateStore(tmp_path / "runtime.json")
+    task = _task()
+
+    def execute(tool, arguments):
+        nonlocal move_attempts, evidence_calls
+        calls.append((tool, arguments))
+        if tool == "inspect_scene":
+            evidence_calls += 1
+            return {"ok": True, "state": "inspected", "ready": evidence_calls >= 2}
+        move_attempts += 1
+        if move_attempts == 1:
+            raise RuntimeError("first write failed")
+        return {"ok": True, "state": "moved", "details": {"object_name": arguments["object_name"]}}
+
+    runtime = AutonomousTaskRuntime.start(
+        task,
+        store,
+        _context(),
+        execute,
+        authorization_id="initial-authorization",
+    )
+
+    failed = runtime.run_until_pause()
+    assert failed["blocked"] is True
+    assert runtime.recovery_gate is None
+
+    replacement = [
+        ActionSpec(
+            "move_object",
+            {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [2, 3, 4]},
+            "replacement",
+        )
+    ]
+    with pytest.raises(RuntimeError, match="Fresh authoritative"):
+        runtime.authorize_replan(replacement, "replacement-authorization")
+
+    recovery = runtime.recover_with_fresh_evidence()
+    assert recovery["decision"]["disposition"] == "REPLAN_REQUIRED"
+
+    receipt = runtime.authorize_replan(replacement, "replacement-authorization")
+    assert isinstance(receipt, ReplanAuthorization)
+
+    runtime.install_authorized_replan(receipt, replacement)
+    assert runtime.runtime.controller.current_step.phase == "ACTION"
+    result = runtime.run_until_pause()
+    assert result["complete"] is True
+    assert [tool for tool, _ in calls] == [
+        "inspect_scene",
+        "move_object",
+        "inspect_scene",
+        "move_object",
+        "inspect_scene",
+    ]
+
+
+def test_task_runtime_recovery_rejects_unauthorized_tools(tmp_path):
+    calls = []
+
+    def execute(tool, arguments):
+        calls.append((tool, arguments))
+        if tool == "inspect_scene":
+            return {"ok": True, "state": "inspected", "ready": False}
+        raise RuntimeError("write failed")
+
+    runtime = AutonomousTaskRuntime.start(
+        _task(),
+        FutureRuntimeStateStore(tmp_path / "runtime.json"),
+        _context(),
+        execute,
+        authorization_id="initial-authorization",
+    )
+    runtime.run_until_pause()
+    runtime.recover_with_fresh_evidence()
+
+    with pytest.raises(RuntimeError, match="unauthorized recovery action tools"):
+        runtime.authorize_replan(
+            [ActionSpec(
+                "delete_object",
+                {"file_name": "fixture.blend", "object_name": "Goal_Left_post"},
+                "delete",
+            )],
+            "bad-replan",
+        )
