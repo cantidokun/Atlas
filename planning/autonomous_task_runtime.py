@@ -35,6 +35,7 @@ class AutonomousTaskRuntime:
     authorization: Optional[ActionAuthorization]
     recovery_gate: Optional[FutureRecoveryGate] = None
     replan_authorization: Optional[ReplanAuthorization] = None
+    current_actions: Optional[List[ActionSpec]] = None
 
     @staticmethod
     def _actions(task: AtlasTaskDefinition) -> List[ActionSpec]:
@@ -79,7 +80,7 @@ class AutonomousTaskRuntime:
             metadata=metadata,
         )
         cls._validate_persisted_binding(runtime, metadata, actions)
-        return cls(task, runtime, executor, authorization)
+        return cls(task, runtime, executor, authorization, current_actions=actions)
 
     @staticmethod
     def _validate_persisted_binding(
@@ -145,14 +146,14 @@ class AutonomousTaskRuntime:
         recovery_gate = FutureRecoveryGate(runtime.controller) if runtime.controller.blocked else None
         if recovery_gate is not None:
             recovery_gate.classify_failure()
-        return cls(task, runtime, executor, authorization, recovery_gate=recovery_gate)
+        return cls(task, runtime, executor, authorization, recovery_gate=recovery_gate, current_actions=actions)
 
     def _execute_authorized(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute only when the immutable task authorization still binds the call."""
+        """Execute only when the immutable current authorization still binds the call."""
         if self.authorization is not None:
-            authorized_actions = self._actions(self.task)
+            authorized_actions = self.current_actions if self.current_actions is not None else self._actions(self.task)
             if not self.authorization.matches(authorized_actions):
-                raise RuntimeError("task action authorization no longer matches the task definition")
+                raise RuntimeError("task action authorization no longer matches the current authorized plan")
 
             next_action = self.runtime.snapshot().get("next_action")
             if next_action is None:
@@ -285,6 +286,7 @@ class AutonomousTaskRuntime:
             metadata=metadata,
         )
         self.authorization = execution_authorization
+        self.current_actions = actions
         self.recovery_gate = None
         self.replan_authorization = None
         self._validate_persisted_binding(self.runtime, metadata, actions)
@@ -322,6 +324,10 @@ class AutonomousTaskRuntime:
     def resume_and_run(self) -> Dict[str, Any]:
         """Resume the persisted continuation and provide fresh verification."""
         self.runtime = self.runtime.resume()
+        if self.runtime.controller.blocked:
+            self.recovery_gate = FutureRecoveryGate(self.runtime.controller)
+            self.recovery_gate.classify_failure()
+            return self.runtime.snapshot()
         paused = self.runtime.run_until_pause(self._run_executor())
         current_step = paused.get("current_step")
         if not isinstance(current_step, dict) or current_step.get("phase") != "VERIFICATION":
