@@ -178,19 +178,16 @@ def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
     assert paused["current_step"]["phase"] == "VERIFICATION"
     assert [tool for tool, _ in calls] == ["inspect_scene", "move_object"]
 
-    reloaded = AutonomousTaskRuntime(
+    reloaded = AutonomousTaskRuntime.resume_from_store(
         task,
-        runtime.runtime.__class__.resume_from_store(
-            runtime.runtime.steps,
-            store,
-            context,
-        ),
+        store,
+        context,
         execute,
-        runtime.authorization,
     )
+    assert reloaded.authorization is not None
+    assert reloaded.authorization.authorization_id == "test-resume"
+
     result = reloaded.resume_and_run()
 
     assert result["complete"] is True
     assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
-    assert reloaded.authorization is not None
-    assert reloaded.authorization.authorization_id == "test-resume"
