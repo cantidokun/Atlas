@@ -3,7 +3,7 @@
 **Updated:** September 2, 2026 — active Atlas development
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender Stage 11 PR:** #49 — controlled live mutation harness / Stage 12 continuation
-**Current Blender branch work:** task-aware autonomous runtime and restart recovery
+**Current Blender branch work:** task-aware autonomous runtime, restart recovery, and task recovery/replan seam
 
 ## Current state
 
@@ -101,6 +101,25 @@ fixture_restored=[0.0, 0.0, 15.0]
 
 The fixture was originally at `[0.0, 0.0, 15.0]`; the harness normalized it to `[0.0, 0.0, 0.0]` for phase 1 so the task necessarily exercised the write path, then restored the original `[0.0, 0.0, 15.0]` state after completion.
 
+## Blender — task recovery/replan seam implemented, live validation pending
+
+The task-aware runtime now binds the existing generic recovery protocol without creating a second execution or authorization boundary.
+
+Implemented behavior:
+
+- a failed autonomous write is durably checkpointed as `BLOCKED`;
+- `FutureRecoveryGate` classifies the failure and prohibits automatic retry;
+- fresh task evidence is required before recovery can proceed;
+- replacement actions are limited to the task's allowed action tools;
+- `ReplanAuthorization` binds replacement actions to the fresh recovery evidence;
+- a replacement future is generated only after explicit replan authorization;
+- a new `ActionAuthorization` is issued for the replacement future when writes remain necessary;
+- resumed task adapters retain the reconstructed runtime object so subsequent verification/recovery operates on the active continuation.
+
+The existing generic recovery gate already enforces fresh evidence and rejects automatic retry. fileciteturn631file0
+
+Regression coverage has been added for the autonomous task recovery path, including failed-write recovery, fresh-evidence gating, explicit replacement authorization, and unauthorized recovery tools. The current CI run is the validation gate for this increment.
+
 ## Unreal
 
 The local Unreal Engine 5.6 production boundary remains proven through deterministic render configuration, render-state verification, Movie Render Queue submission, dynamic job-ID binding, asynchronous job inspection, semantic completion verification, MRQ artifact discovery, filesystem artifact validation, and evidence-bound persistent render receipts.
@@ -115,7 +134,10 @@ Preserve coverage for:
 - unsatisfied state -> exact authorized action order;
 - successful write -> verification remains mandatory;
 - verification failure -> `BLOCKED`;
-- action failure -> recovery gate;
+- action failure -> durable `BLOCKED` checkpoint;
+- fresh recovery evidence -> required before recovery/replan;
+- replacement plan -> explicit replan authorization required;
+- replacement action tools -> remain within the task contract;
 - task target decision -> deterministic future binding;
 - persisted task metadata -> future consistency;
 - action authorization -> exact task action binding;
@@ -148,4 +170,4 @@ Preserve coverage for:
 
 ## Resume point
 
-Stage 11 live mutation is proven. Stage 12 task-aware autonomous runtime integration and cross-process Blender continuation are now proven locally. The next development step is to audit the generic recovery/replan path and determine whether the current continuation architecture can safely support task-level recovery without introducing a second execution or authorization boundary. Do not expand task autonomy until that recovery seam is audited and covered by regression tests.
+Stage 11 live mutation is proven. Stage 12 task-aware autonomous runtime integration and cross-process Blender continuation are proven locally. The task recovery/replan seam is now implemented and covered by regression tests, with live failure/replan validation still required. Do not expand task autonomy further until the recovery/replan path is exercised against real Blender failure and the resulting replacement action is independently verified.
