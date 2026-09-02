@@ -10,7 +10,7 @@ from planning.task_definition import AtlasTaskDefinition
 
 def _task():
     evaluator = TargetStateEvaluator(
-        [StateInvariant("ready", lambda evidence: bool(evidence.get("ready"))) ]
+        [StateInvariant("ready", lambda evidence: bool(evidence.get("ready")))]
     )
     return AtlasTaskDefinition(
         name="autonomous-runtime-test",
@@ -58,7 +58,7 @@ def test_task_runtime_runs_action_then_fresh_verification(tmp_path):
 
     result = runtime.run_until_pause()
 
-    assert result["current_step"]["phase"] == "COMPLETE"
+    assert result["complete"] is True
     assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
     assert runtime.authorization is not None
     assert runtime.authorization.authorization_id == "test-autonomous-runtime"
@@ -81,7 +81,7 @@ def test_task_runtime_skips_write_when_target_is_already_satisfied(tmp_path):
 
     result = runtime.run_until_pause()
 
-    assert result["current_step"]["phase"] == "COMPLETE"
+    assert result["complete"] is True
     assert [tool for tool, _ in calls] == ["inspect_scene", "inspect_scene"]
     assert runtime.authorization is None
 
@@ -109,5 +109,6 @@ def test_task_runtime_blocks_when_fresh_verification_fails(tmp_path):
     result = runtime.run_until_pause()
 
     assert result["blocked"] is True
-    assert result["current_step"]["phase"] == "VERIFICATION"
+    assert result["history"][-1]["phase"] == "VERIFICATION"
+    assert result["history"][-1]["status"] == "failed"
     assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
