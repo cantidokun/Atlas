@@ -2,6 +2,7 @@ from action_plan import ActionSpec
 
 from planning.autonomous_task_runtime import AutonomousTaskRuntime
 from planning.evidence_plan import EvidenceRequest
+from planning.future_generator import DeterministicFutureGenerator
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
 from planning.target_state import StateInvariant, TargetStateEvaluator
@@ -168,6 +169,11 @@ def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
         authorization_id="test-resume",
     )
 
+    metadata = store.load()["metadata"]
+    assert metadata["target_satisfied"] is False
+    assert runtime.runtime.steps[2].phase == "ACTION"
+    assert runtime.authorization is not None
+
     paused = runtime.runtime.run_until_pause(
         runtime._run_executor(),
         acknowledgements={
@@ -191,3 +197,38 @@ def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
 
     assert result["complete"] is True
     assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
+
+
+def test_task_runtime_rejects_persisted_authorization_for_future_shape(tmp_path):
+    store = FutureRuntimeStateStore(tmp_path / "runtime.json")
+    task = _task()
+
+    runtime = AutonomousTaskRuntime.start(
+        task,
+        store,
+        _context(),
+        lambda tool, arguments: {"ready": False},
+        authorization_id="test-invalid-binding",
+    )
+    assert runtime.authorization is not None
+
+    envelope = store.load()
+    envelope["metadata"]["action_authorization"]["plan_digest"] = "0" * 64
+    store.path.write_text(__import__("json").dumps(envelope), encoding="utf-8")
+
+    try:
+        AutonomousTaskRuntime.resume_from_store(task, store, _context(), lambda tool, arguments: {})
+    except RuntimeError as exc:
+        assert "action plan" in str(exc)
+    else:
+        raise AssertionError("resume accepted a mutated persisted action authorization")
+
+
+def test_deterministic_future_unsatisfied_branch_contains_action():
+    task = _task()
+    steps = DeterministicFutureGenerator(task.evaluator).generate(False, [
+        ActionSpec("move_object", {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [1, 2, 3]}, "move")
+    ])
+    assert steps[2].phase == "ACTION"
+    assert steps[2].step_id == "action.0"
+    assert steps[3].phase == "VERIFICATION"
