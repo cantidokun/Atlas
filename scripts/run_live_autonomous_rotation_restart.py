@@ -23,7 +23,6 @@ from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 from planning.object_rotation_task import object_rotation_task_definition
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
-from planning.task_runtime import prepare_task_runtime
 
 
 def _executor(blender_command: str) -> BlenderProcessExecutor:
@@ -91,20 +90,17 @@ def _phase_start(
         authorization_id=authorization_id,
     )
 
-    # Preflight already occurred inside AutonomousTaskRuntime.start(). Reacquire
-    # authoritative evidence only to make the checkpoint acknowledgement explicit;
-    # do not execute the evidence call twice through the runtime itself.
-    orchestrator = prepare_task_runtime(task)
-    evidence = orchestrator.acquire_next_evidence(runtime.executor)
-    target = orchestrator.evaluate_target_state(evidence)
-    if target.satisfied:
-        raise RuntimeError(f"phase 1 preflight unexpectedly satisfied target: {target.snapshot()}")
+    metadata = state_store.load().get("metadata") or {}
+    if metadata.get("target_satisfied") is not False:
+        raise RuntimeError(f"phase 1 preflight target decision is not unsatisfied: {metadata}")
+    if runtime.authorization is None or runtime.authorization.authorization_id != authorization_id:
+        raise RuntimeError("phase 1 did not establish the expected action authorization")
 
     paused = runtime.runtime.run_until_pause(
         runtime._run_executor(),
         acknowledgements={
             "evidence.authoritative": {"source": "live-restart-harness", "task": task.name},
-            "target.evaluated": {"satisfied": target.satisfied},
+            "target.evaluated": {"satisfied": False},
         },
     )
     if paused.get("current_step", {}).get("phase") != "VERIFICATION":
@@ -118,8 +114,7 @@ def _phase_start(
     if after != expected:
         raise RuntimeError(f"phase 1 mutation did not persist: expected {expected}, got {after}")
 
-    sidecar = _sidecar_path(state_path)
-    sidecar.write_text(
+    _sidecar_path(state_path).write_text(
         json.dumps({"object_name": object_name, "original_rotation": before}, sort_keys=True),
         encoding="utf-8",
     )
@@ -227,23 +222,9 @@ def main() -> int:
         if not args.state:
             raise SystemExit("--state is required with --phase")
         if args.phase == "start":
-            _phase_start(
-                args.blend,
-                args.blender,
-                args.object,
-                list(args.rotation),
-                args.authorization_id,
-                args.state,
-            )
+            _phase_start(args.blend, args.blender, args.object, list(args.rotation), args.authorization_id, args.state)
         else:
-            _phase_resume(
-                args.blend,
-                args.blender,
-                args.object,
-                list(args.rotation),
-                args.authorization_id,
-                args.state,
-            )
+            _phase_resume(args.blend, args.blender, args.object, list(args.rotation), args.authorization_id, args.state)
         return 0
 
     with tempfile.TemporaryDirectory(prefix="atlas-autonomous-restart-") as directory:
