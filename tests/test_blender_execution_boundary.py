@@ -194,7 +194,6 @@ def test_closed_loop_rotation_requires_independent_transform_inspection():
             "object_name": "Goal_Left_post",
             "rotation_degrees": [0.0, 0.0, 15.0],
         },
-        "inspect_object_transform",
         {"object_name": "Goal_Left_post", "rotation_degrees": [0.0, 0.0, 15.0]},
         {"object_name": "Goal_Left_post", "rotation_degrees": [0.0, 0.0, 15.0]},
         closed_loop.inspection_result,
