@@ -1,9 +1,9 @@
 """Durable runtime state for resumable Atlas futures.
 
-This layer persists only controller state, the immutable plan digest, and the
-runtime-continuation integrity receipt. It does not persist executable
-callables or allow a persisted snapshot to define a new future. The caller
-must supply the original FutureStep list when resuming.
+This layer persists controller state, the immutable plan digest, the runtime-
+continuation integrity receipt, and optional opaque continuation metadata. It
+never persists executable callables or allows persisted state to define a new
+future. The caller must supply the original FutureStep list when resuming.
 """
 
 from __future__ import annotations
@@ -31,8 +31,9 @@ class FutureRuntimeStateStore:
         self,
         controller: FutureExecutionController,
         integrity: Optional[RuntimeIntegrity] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Persist a controller snapshot and optional continuation receipt."""
+        """Persist controller state, integrity, and optional opaque metadata."""
         snapshot = controller.snapshot()
         envelope = {
             "version": self.VERSION,
@@ -43,6 +44,10 @@ class FutureRuntimeStateStore:
             if integrity.plan_digest != controller.plan_digest:
                 raise ValueError("runtime integrity plan digest does not match controller")
             envelope["runtime_integrity"] = integrity.to_dict()
+        if metadata is not None:
+            if not isinstance(metadata, dict):
+                raise TypeError("runtime metadata must be a dictionary.")
+            envelope["metadata"] = dict(metadata)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(prefix=f".{self.path.name}.", dir=str(self.path.parent))
         try:
@@ -70,6 +75,9 @@ class FutureRuntimeStateStore:
             raise RuntimeError("Future runtime state digest is inconsistent.")
         if "runtime_integrity" in envelope:
             RuntimeIntegrity.from_dict(envelope["runtime_integrity"])
+        metadata = envelope.get("metadata")
+        if metadata is not None and not isinstance(metadata, dict):
+            raise RuntimeError("Future runtime metadata must be an object.")
         return envelope
 
     def resume(self, steps: List[FutureStep]) -> FutureExecutionController:
