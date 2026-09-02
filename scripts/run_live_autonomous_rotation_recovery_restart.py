@@ -1,17 +1,8 @@
-"""Prove autonomous Blender recovery across a Python process restart.
-
-Phase 1 executes a task whose first write is intentionally failed before
-Blender is invoked. The resulting BLOCKED ACTION checkpoint is persisted.
-Phase 2 starts a fresh Python process, reconstructs the task runtime from the
-checkpoint, requires fresh Blender evidence, requires a new replan
-authorization, executes the replacement action, and independently verifies the
-result before restoring the original fixture state.
-"""
+"""Prove autonomous Blender recovery across a Python process restart."""
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -50,12 +41,7 @@ def _rotation(result: Dict[str, Any], object_name: str) -> List[float]:
     return [float(value) for value in values]
 
 
-def _set_rotation(
-    boundary: BlenderExecutionBoundary,
-    path: Path,
-    object_name: str,
-    rotation: List[float],
-) -> List[float]:
+def _set_rotation(boundary: BlenderExecutionBoundary, path: Path, object_name: str, rotation: List[float]) -> List[float]:
     inspect_args = {"file_name": str(path), "object_name": object_name}
     operation_args = {
         "file_name": str(path),
@@ -77,32 +63,19 @@ def _set_rotation(
 
 
 def _task(path: Path, object_name: str, expected: List[float]):
-    return object_rotation_task_definition(
-        str(path),
-        target_object=object_name,
-        target_rotation=expected,
-    )
+    return object_rotation_task_definition(str(path), target_object=object_name, target_rotation=expected)
 
 
-def _context(task_name: str, path: Path, phase: str) -> RuntimeContext:
+def _context(task_name: str, path: Path) -> RuntimeContext:
+    """Keep the continuation identity stable across both processes."""
     return RuntimeContext(
-        f"Recover a failed Blender rotation operation across a Python restart ({phase}).",
-        {"environment": "local-blender", "file": str(path), "task": task_name, "phase": phase},
+        "Recover a failed Blender rotation operation across a Python restart.",
+        {"environment": "local-blender", "file": str(path), "task": task_name},
     )
 
 
-def phase_failure(
-    path: Path,
-    blender_command: str,
-    object_name: str,
-    expected: List[float],
-    authorization_id: str,
-    state_file: Path,
-) -> None:
-    real_executor = BlenderProcessExecutor(
-        BLENDER_PROCESS_REQUEST_BUILDERS,
-        blender_command=blender_command,
-    )
+def phase_failure(path: Path, blender_command: str, object_name: str, expected: List[float], authorization_id: str, state_file: Path) -> None:
+    real_executor = BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=blender_command)
     boundary = BlenderExecutionBoundary(real_executor)
     inspect_args = {"file_name": str(path), "object_name": object_name}
     original_result = boundary.execute_verified("inspect_object_transform", inspect_args)
@@ -118,18 +91,12 @@ def phase_failure(
             raise RuntimeError(f"failed to normalize fixture: expected {neutral}, got {normalized}")
 
     task = _task(path, object_name, expected)
-    context = _context(task.name, path, "failure")
+    context = _context(task.name, path)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     if state_file.exists():
         state_file.unlink()
     store = FutureRuntimeStateStore(state_file)
-    runtime = AutonomousTaskRuntime.start(
-        task,
-        store,
-        context,
-        FailOnceExecutor(real_executor, "set_object_rotation"),
-        authorization_id=authorization_id,
-    )
+    runtime = AutonomousTaskRuntime.start(task, store, context, FailOnceExecutor(real_executor, "set_object_rotation"), authorization_id=authorization_id)
     runtime.runtime.checkpoint_metadata({"fixture_original_rotation": original})
 
     failed = runtime.run_until_pause()
@@ -152,23 +119,12 @@ def phase_failure(
     print(f"state_file={state_file}")
 
 
-def phase_recover(
-    path: Path,
-    blender_command: str,
-    object_name: str,
-    expected: List[float],
-    authorization_id: str,
-    replan_authorization_id: str,
-    state_file: Path,
-) -> None:
-    real_executor = BlenderProcessExecutor(
-        BLENDER_PROCESS_REQUEST_BUILDERS,
-        blender_command=blender_command,
-    )
+def phase_recover(path: Path, blender_command: str, object_name: str, expected: List[float], authorization_id: str, replan_authorization_id: str, state_file: Path) -> None:
+    real_executor = BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=blender_command)
     boundary = BlenderExecutionBoundary(real_executor)
     inspect_args = {"file_name": str(path), "object_name": object_name}
     task = _task(path, object_name, expected)
-    context = _context(task.name, path, "recovery")
+    context = _context(task.name, path)
     store = FutureRuntimeStateStore(state_file)
     runtime = AutonomousTaskRuntime.resume_from_store(task, store, context, real_executor)
 
@@ -190,17 +146,7 @@ def phase_recover(
     if recovery["decision"]["disposition"] != "REPLAN_REQUIRED":
         raise RuntimeError(f"fresh process recovery did not reach REPLAN_REQUIRED: {recovery}")
 
-    replacement = [
-        ActionSpec(
-            "set_object_rotation",
-            {
-                "file_name": str(path),
-                "object_name": object_name,
-                "rotation_degrees": expected,
-            },
-            "restart_replanned_set_object_rotation",
-        )
-    ]
+    replacement = [ActionSpec("set_object_rotation", {"file_name": str(path), "object_name": object_name, "rotation_degrees": expected}, "restart_replanned_set_object_rotation")]
     receipt = runtime.authorize_replan(replacement, replan_authorization_id)
     runtime.install_authorized_replan(receipt, replacement)
     result = runtime.run_until_pause()
@@ -244,35 +190,16 @@ def main() -> int:
     parser.add_argument("--replan-authorization-id", default="atlas-stage12-autonomous-recovery-restart-replan")
     parser.add_argument("--state-file", default="Saved/atlas-autonomous-recovery-restart.json")
     args = parser.parse_args()
-
     blend_path = Path(args.blend)
     state_file = Path(args.state_file)
     expected = [float(value) for value in args.rotation]
-
     try:
         if not blend_path.is_file():
             raise FileNotFoundError(f"Blender fixture not found: {blend_path}")
-        if len(expected) != 3:
-            raise ValueError("rotation must contain exactly three values")
         if args.phase == "failure":
-            phase_failure(
-                blend_path,
-                args.blender,
-                args.object,
-                expected,
-                args.authorization_id,
-                state_file,
-            )
+            phase_failure(blend_path, args.blender, args.object, expected, args.authorization_id, state_file)
         else:
-            phase_recover(
-                blend_path,
-                args.blender,
-                args.object,
-                expected,
-                args.authorization_id,
-                args.replan_authorization_id,
-                state_file,
-            )
+            phase_recover(blend_path, args.blender, args.object, expected, args.authorization_id, args.replan_authorization_id, state_file)
     except Exception as exc:
         print(f"LIVE AUTONOMOUS RECOVERY RESTART FAILED: {exc}")
         return 1
