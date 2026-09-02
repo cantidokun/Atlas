@@ -49,11 +49,11 @@ class AutonomousTaskRuntime:
             evidence = result
 
         target = orchestrator.evaluate_target_state(evidence)
-        authorization = None
         actions = [
             ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
             for action in task.actions
         ]
+        authorization = None
         if not target.satisfied:
             authorization = orchestrator.authorize_execution(authorization_id)
 
@@ -67,6 +67,27 @@ class AutonomousTaskRuntime:
             runtime_context,
         )
         return cls(task, runtime, executor, authorization)
+
+    def _execute_authorized(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute only when the immutable task authorization still binds the call."""
+        if self.authorization is not None:
+            authorized_actions = [
+                ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
+                for action in self.task.actions
+            ]
+            if not self.authorization.matches(authorized_actions):
+                raise RuntimeError("task action authorization no longer matches the task definition")
+
+            next_action = self.runtime.snapshot().get("next_action")
+            if next_action is None:
+                raise RuntimeError("no authorized action is pending")
+            if next_action.get("tool") != tool or next_action.get("arguments") != arguments:
+                raise RuntimeError("autonomous action does not match the authorized future")
+
+        return self.executor(tool, arguments)
+
+    def _run_executor(self) -> ToolExecutor:
+        return self._execute_authorized
 
     def _verification(self) -> Dict[str, Any]:
         """Acquire fresh authoritative evidence and return the evaluator input."""
@@ -93,7 +114,7 @@ class AutonomousTaskRuntime:
             acknowledgements["writes.skipped"] = {"skipped": True}
 
         paused = self.runtime.run_until_pause(
-            self.executor,
+            self._run_executor(),
             acknowledgements=acknowledgements,
         )
         if paused.get("current_step", {}).get("phase") != "VERIFICATION":
@@ -102,19 +123,19 @@ class AutonomousTaskRuntime:
         evidence = self._verification()
         result = self.task.evaluator.evaluate(evidence)
         return self.runtime.run_until_pause(
-            self.executor,
+            self._run_executor(),
             verifications={"verification.pending": result.snapshot()},
         )
 
     def resume_and_run(self) -> Dict[str, Any]:
         """Resume the persisted continuation and provide fresh verification."""
         resumed = self.runtime.resume()
-        paused = resumed.run_until_pause(self.executor)
+        paused = resumed.run_until_pause(self._run_executor())
         if paused.get("current_step", {}).get("phase") != "VERIFICATION":
             return paused
         evidence = self._verification()
         result = self.task.evaluator.evaluate(evidence)
         return resumed.run_until_pause(
-            self.executor,
+            self._run_executor(),
             verifications={"verification.pending": result.snapshot()},
         )
