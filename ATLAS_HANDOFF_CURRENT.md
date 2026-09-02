@@ -33,15 +33,9 @@ The first controlled real Blender mutation was proven locally through the Atlas 
 
 ## Blender — Stage 12 task-aware runtime
 
-The reusable closed-loop Blender execution boundary already existed and remains unchanged. The actual architectural gap was the missing task-level binding between:
+The reusable closed-loop Blender execution boundary already existed and remains unchanged. The actual architectural gap was the missing task-level binding between declarative `AtlasTaskDefinition` contracts and the existing checkpointed autonomous future runtime.
 
-- declarative `AtlasTaskDefinition` contracts;
-- the existing target evaluator and action authorization;
-- the existing deterministic future generator;
-- the existing checkpointed `AutonomousFutureRuntime`; and
-- fresh task evidence at the verification checkpoint.
-
-`planning/autonomous_task_runtime.py` now provides that narrow binding. It does not introduce another mutation boundary, receipt model, authorization system, or engine-specific future controller.
+`planning/autonomous_task_runtime.py` now provides that narrow binding. It reuses the existing task validation, target-state evaluator, immutable action authorization, deterministic future generator, autonomous continuation state, and supplied engine executor.
 
 The adapter:
 
@@ -50,27 +44,21 @@ The adapter:
 3. evaluates the target state;
 4. issues the existing immutable `ActionAuthorization` when writes are required;
 5. generates the existing deterministic future;
-6. executes the authorized future through the supplied executor;
-7. acquires fresh authoritative evidence after the action or zero-write decision;
-8. evaluates the fresh evidence; and
-9. completes only when verification succeeds, otherwise remaining blocked.
+6. binds each autonomous write to the authorized task action and current deterministic future step;
+7. executes through the supplied executor;
+8. acquires fresh authoritative evidence after the action or zero-write decision;
+9. evaluates the fresh evidence; and
+10. completes only when verification succeeds, otherwise remaining blocked.
 
-The action executor path is bound back to the immutable task authorization and deterministic future before a write is dispatched.
+The Blender rotation task contract is parameterized for live use while preserving its existing defaults and accepts the canonical Blender inspection result shape.
 
-The Blender rotation task contract is parameterized for live use while preserving its existing defaults and now accepts the canonical Blender result shape in its evaluator.
-
-Focused tests cover:
-
-- authorized mutation;
-- already-satisfied zero-write behavior;
-- failed fresh verification -> `BLOCKED`;
-- canonical Blender inspection result normalization.
+Focused tests cover authorized mutation, already-satisfied zero-write behavior, failed fresh verification -> `BLOCKED`, and canonical Blender inspection result normalization.
 
 ## Blender live proof next gate
 
-`scripts/run_live_autonomous_rotation.py` provides the next controlled proof. It uses the declarative rotation task, `AutonomousTaskRuntime`, the production Blender process executor, and the existing persistence boundary for fixture restoration.
+`scripts/run_live_autonomous_rotation.py` provides the controlled real-engine proof. It uses the declarative rotation task, `AutonomousTaskRuntime`, the production Blender process executor, and the existing persistence boundary for fixture restoration.
 
-The intended proof is:
+Expected proof:
 
 ```text
 fresh Blender evidence
@@ -135,4 +123,4 @@ Preserve coverage for:
 
 ## Resume point
 
-Stage 11 live mutation is proven. Stage 12 task-aware autonomous runtime integration is implemented and under validation. The immediate next gate is real Blender execution through `AutonomousTaskRuntime`; after that, continue expanding the autonomous path only where the existing architecture has a demonstrable gap.
+Stage 11 live mutation is proven. Stage 12 task-aware autonomous runtime integration is implemented and passing the focused/full offline CI gate for the previous increment, with final live validation still pending on the development PC. Continue from `scripts/run_live_autonomous_rotation.py`; after live proof, audit continuation/resume behavior and recovery before expanding task autonomy further.
