@@ -3,19 +3,22 @@
 The generic autonomous future runtime intentionally knows nothing about task
 verification semantics. This adapter owns that task-level binding: it acquires
 initial evidence, evaluates the target, requires authorization for writes,
-creates the deterministic future, and supplies fresh task evidence at the
-verification checkpoint.
+creates the deterministic future, supplies fresh task evidence at verification,
+and exposes the existing fail-closed recovery/replan protocol without creating a
+second executor or authorization system.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from action_plan import ActionSpec
 from planning.action_authorization import ActionAuthorization
 from planning.autonomous_runtime import AutonomousFutureRuntime, ToolExecutor
 from planning.future_generator import DeterministicFutureGenerator
+from planning.future_recovery import FutureRecoveryGate
+from planning.replan_authorization import ReplanAuthorization
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
 from planning.task_definition import AtlasTaskDefinition
@@ -30,9 +33,11 @@ class AutonomousTaskRuntime:
     runtime: AutonomousFutureRuntime
     executor: ToolExecutor
     authorization: Optional[ActionAuthorization]
+    recovery_gate: Optional[FutureRecoveryGate] = None
+    replan_authorization: Optional[ReplanAuthorization] = None
 
     @staticmethod
-    def _actions(task: AtlasTaskDefinition):
+    def _actions(task: AtlasTaskDefinition) -> List[ActionSpec]:
         return [
             ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
             for action in task.actions
@@ -60,10 +65,7 @@ class AutonomousTaskRuntime:
         if not target.satisfied:
             authorization = orchestrator.authorize_execution(authorization_id)
 
-        steps = DeterministicFutureGenerator(task.evaluator).generate(
-            target.satisfied,
-            actions,
-        )
+        steps = DeterministicFutureGenerator(task.evaluator).generate(target.satisfied, actions)
         metadata: Dict[str, Any] = {
             "target_satisfied": target.satisfied,
             "target_evaluation": target.snapshot(),
@@ -83,7 +85,7 @@ class AutonomousTaskRuntime:
     def _validate_persisted_binding(
         runtime: AutonomousFutureRuntime,
         metadata: Dict[str, Any],
-        actions,
+        actions: List[ActionSpec],
     ) -> None:
         """Require one internally consistent persisted task/future binding."""
         target_satisfied = metadata.get("target_satisfied")
@@ -123,10 +125,7 @@ class AutonomousTaskRuntime:
         target_satisfied = metadata.get("target_satisfied")
         if not isinstance(target_satisfied, bool):
             raise RuntimeError("persisted task target decision is missing or invalid")
-        steps = DeterministicFutureGenerator(task.evaluator).generate(
-            target_satisfied,
-            actions,
-        )
+        steps = DeterministicFutureGenerator(task.evaluator).generate(target_satisfied, actions)
         raw_authorization = metadata.get("action_authorization")
         authorization = None
         if target_satisfied:
@@ -139,15 +138,14 @@ class AutonomousTaskRuntime:
             if not authorization.matches(actions):
                 raise RuntimeError("persisted action authorization does not match the task action plan")
 
-        runtime = AutonomousFutureRuntime.resume_from_store(
-            steps,
-            state_store,
-            runtime_context,
-        )
+        runtime = AutonomousFutureRuntime.resume_from_store(steps, state_store, runtime_context)
         if runtime.metadata != metadata:
             raise RuntimeError("persisted task metadata changed during runtime reconstruction")
         cls._validate_persisted_binding(runtime, metadata, actions)
-        return cls(task, runtime, executor, authorization)
+        recovery_gate = FutureRecoveryGate(runtime.controller) if runtime.controller.blocked else None
+        if recovery_gate is not None:
+            recovery_gate.classify_failure()
+        return cls(task, runtime, executor, authorization, recovery_gate=recovery_gate)
 
     def _execute_authorized(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute only when the immutable task authorization still binds the call."""
@@ -200,14 +198,106 @@ class AutonomousTaskRuntime:
         except Exception as exc:
             return self._verification_failure(exc)
 
+    def _ensure_recovery_gate(self) -> FutureRecoveryGate:
+        if not self.runtime.controller.blocked:
+            raise RuntimeError("Recovery can only begin after the autonomous future is blocked.")
+        if self.recovery_gate is None:
+            self.recovery_gate = FutureRecoveryGate(self.runtime.controller)
+            self.recovery_gate.classify_failure()
+        return self.recovery_gate
+
+    def recover_with_fresh_evidence(self) -> Dict[str, Any]:
+        """Acquire fresh task evidence and advance a blocked future to replanning."""
+        gate = self._ensure_recovery_gate()
+        if gate.fresh_evidence_acquired:
+            return gate.snapshot()
+        evidence = self._verification()
+        gate.record_fresh_evidence(evidence)
+        gate.advance_after_fresh_evidence()
+        self.replan_authorization = None
+        self.runtime.checkpoint_metadata({"recovery": gate.snapshot()})
+        return gate.snapshot()
+
+    def authorize_replan(
+        self,
+        authorized_actions: List[ActionSpec],
+        authorization_id: str,
+    ) -> ReplanAuthorization:
+        """Authorize a replacement action list only against fresh task evidence."""
+        gate = self._ensure_recovery_gate()
+        if not gate.fresh_evidence_acquired:
+            raise RuntimeError("Fresh authoritative recovery evidence is required before replanning.")
+        if not isinstance(authorized_actions, list) or any(
+            not isinstance(action, ActionSpec) for action in authorized_actions
+        ):
+            raise TypeError("authorized_actions must be a list of ActionSpec objects.")
+        allowed = set(self.task.allowed_action_tools)
+        unauthorized = {action.tool for action in authorized_actions} - allowed
+        if unauthorized:
+            raise RuntimeError(f"unauthorized recovery action tools: {sorted(unauthorized)}")
+        receipt = ReplanAuthorization.issue(
+            gate.authorize_replan(), authorized_actions, authorization_id
+        )
+        self.replan_authorization = receipt
+        return receipt
+
+    def install_authorized_replan(
+        self,
+        authorization: ReplanAuthorization,
+        authorized_actions: List[ActionSpec],
+    ) -> "AutonomousTaskRuntime":
+        """Replace a failed future only after explicit recovery authorization."""
+        gate = self._ensure_recovery_gate()
+        if self.replan_authorization != authorization:
+            raise RuntimeError("Replan authorization does not match the current recovery authorization.")
+        if not gate.fresh_evidence_acquired:
+            raise RuntimeError("Fresh authoritative recovery evidence is required before replanning.")
+        if not isinstance(authorized_actions, list) or any(
+            not isinstance(action, ActionSpec) for action in authorized_actions
+        ):
+            raise TypeError("authorized_actions must be a list of ActionSpec objects.")
+        allowed = set(self.task.allowed_action_tools)
+        unauthorized = {action.tool for action in authorized_actions} - allowed
+        if unauthorized:
+            raise RuntimeError(f"unauthorized recovery action tools: {sorted(unauthorized)}")
+        evidence = gate.authorize_replan()
+        if not authorization.matches(evidence, authorized_actions):
+            raise RuntimeError("replacement actions do not match the authorized replan")
+
+        target = self.task.evaluator.evaluate(evidence)
+        actions = list(authorized_actions)
+        execution_authorization = None
+        if not target.satisfied:
+            execution_authorization = ActionAuthorization.issue(actions, authorization.authorization_id)
+
+        steps = DeterministicFutureGenerator(self.task.evaluator).generate(target.satisfied, actions)
+        metadata: Dict[str, Any] = {
+            "target_satisfied": target.satisfied,
+            "target_evaluation": target.snapshot(),
+            "replanned_from": authorization.snapshot(),
+        }
+        if execution_authorization is not None:
+            metadata["action_authorization"] = execution_authorization.snapshot()
+        self.runtime = AutonomousFutureRuntime(
+            steps,
+            self.runtime.state_store,
+            self.runtime.runtime_context,
+            metadata=metadata,
+        )
+        self.authorization = execution_authorization
+        self.recovery_gate = None
+        self.replan_authorization = None
+        self._validate_persisted_binding(self.runtime, metadata, actions)
+        return self
+
     def run_until_pause(self) -> Dict[str, Any]:
         """Advance through actions, then acquire and evaluate fresh evidence."""
+        if self.runtime.controller.blocked:
+            return self.runtime.snapshot()
+
         target_satisfied = self.runtime.steps[2].phase == "SKIP_WRITES"
         acknowledgements: Dict[str, Dict[str, Any]] = {
-            "evidence.authoritative": {
-                "source": "task_runtime",
-                "task": self.task.name,
-            },
+            "evidence.authoritative": {"source": "task_runtime", "task": self.task.name},
             "target.evaluated": {"satisfied": target_satisfied},
         }
         if target_satisfied:
