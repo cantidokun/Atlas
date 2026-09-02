@@ -3,12 +3,13 @@
 Phase 1 performs the real Blender mutation and stops at the persisted verification
 checkpoint. Phase 2 starts a fresh Python process, reconstructs the task runtime
 from durable state, recovers the exact authorization, performs fresh verification,
-and restores the Blender fixture through the existing persistence boundary.
+and restores the Blender fixture to its recorded pre-mutation rotation.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 import tempfile
@@ -60,6 +61,10 @@ def _task(path: Path, object_name: str, rotation_degrees: List[float]):
     )
 
 
+def _sidecar_path(state_path: str) -> Path:
+    return Path(f"{state_path}.fixture.json")
+
+
 def _phase_start(
     blend_path: str,
     blender_command: str,
@@ -103,6 +108,12 @@ def _phase_start(
     if after != expected:
         raise RuntimeError(f"phase 1 mutation did not persist: expected {expected}, got {after}")
 
+    sidecar = _sidecar_path(state_path)
+    sidecar.write_text(
+        json.dumps({"object_name": object_name, "original_rotation": before}, sort_keys=True),
+        encoding="utf-8",
+    )
+
     print("LIVE AUTONOMOUS RESTART PHASE 1 VERIFIED")
     print(f"object={object_name}")
     print(f"before={before}")
@@ -122,6 +133,15 @@ def _phase_resume(
 ) -> None:
     path = Path(blend_path)
     state_store = FutureRuntimeStateStore(state_path)
+    sidecar = _sidecar_path(state_path)
+    if not sidecar.is_file():
+        raise RuntimeError("pre-mutation fixture state sidecar is missing")
+    recorded = json.loads(sidecar.read_text(encoding="utf-8"))
+    original = recorded.get("original_rotation")
+    if recorded.get("object_name") != object_name or not isinstance(original, list) or len(original) != 3:
+        raise RuntimeError("pre-mutation fixture state sidecar is invalid")
+    original = [float(value) for value in original]
+
     task = _task(path, object_name, rotation_degrees)
     context = _context(path, task.name, object_name)
     resumed = AutonomousTaskRuntime.resume_from_store(
@@ -152,11 +172,11 @@ def _phase_resume(
         {
             "file_name": str(path),
             "object_name": object_name,
-            "rotation_degrees": [0.0, 0.0, 0.0],
+            "rotation_degrees": original,
         },
         "inspect_object_transform",
         inspect_args,
-        {"object_name": object_name, "rotation_degrees": [0.0, 0.0, 0.0]},
+        {"object_name": object_name, "rotation_degrees": original},
         lambda inspection: {
             "object_name": object_name,
             "rotation_degrees": _rotation(
@@ -169,8 +189,8 @@ def _phase_resume(
         {"details": dict(restored.inspection_result.details)},
         object_name,
     )
-    if restored_rotation != [0.0, 0.0, 0.0]:
-        raise RuntimeError(f"fixture restoration failed: {restored_rotation}")
+    if restored_rotation != original:
+        raise RuntimeError(f"fixture restoration failed: expected {original}, got {restored_rotation}")
 
     print("LIVE AUTONOMOUS RESTART VERIFIED")
     print(f"object={object_name}")
