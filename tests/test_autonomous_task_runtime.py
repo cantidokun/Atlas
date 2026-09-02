@@ -140,8 +140,8 @@ def test_task_runtime_verification_executor_exception_blocks(tmp_path):
 
     assert result["blocked"] is True
     assert result["failure"]["phase"] == "VERIFICATION"
-    assert result["failure"]["exception_type"] == "RuntimeError"
-    assert "verification transport failed" in result["failure"]["error"]
+    assert result["failure"]["result"]["exception_type"] == "RuntimeError"
+    assert "verification transport failed" in result["failure"]["result"]["error"]
     assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
 
 
@@ -173,7 +173,7 @@ def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
         },
     )
     assert paused["current_step"]["phase"] == "VERIFICATION"
-    assert [tool for tool, _ in calls] == ["move_object"]
+    assert [tool for tool, _ in calls] == ["inspect_scene", "move_object"]
 
     reloaded = AutonomousTaskRuntime(
         task,
@@ -188,6 +188,6 @@ def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
     result = reloaded.resume_and_run()
 
     assert result["complete"] is True
-    assert [tool for tool, _ in calls] == ["move_object", "inspect_scene"]
+    assert [tool for tool, _ in calls] == ["inspect_scene", "move_object", "inspect_scene"]
     assert reloaded.authorization is not None
     assert reloaded.authorization.authorization_id == "test-resume"
