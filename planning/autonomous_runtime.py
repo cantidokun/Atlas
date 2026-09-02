@@ -62,6 +62,14 @@ class AutonomousFutureRuntime:
         )
         return self.state_store.save(self.controller, self.integrity, self.metadata)
 
+    def checkpoint_metadata(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge JSON-serializable continuation metadata and checkpoint atomically."""
+        if not isinstance(updates, dict):
+            raise TypeError("runtime metadata updates must be a dictionary.")
+        self.metadata.update(updates)
+        envelope = self._checkpoint()
+        return dict(envelope.get("metadata") or {})
+
     def snapshot(self) -> Dict[str, Any]:
         return self.controller.snapshot()
 
