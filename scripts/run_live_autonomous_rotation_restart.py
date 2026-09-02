@@ -23,6 +23,7 @@ from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 from planning.object_rotation_task import object_rotation_task_definition
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
+from planning.task_runtime import prepare_task_runtime
 
 
 def _executor(blender_command: str) -> BlenderProcessExecutor:
@@ -90,11 +91,20 @@ def _phase_start(
         authorization_id=authorization_id,
     )
 
+    # Preflight already occurred inside AutonomousTaskRuntime.start(). Reacquire
+    # authoritative evidence only to make the checkpoint acknowledgement explicit;
+    # do not execute the evidence call twice through the runtime itself.
+    orchestrator = prepare_task_runtime(task)
+    evidence = orchestrator.acquire_next_evidence(runtime.executor)
+    target = orchestrator.evaluate_target_state(evidence)
+    if target.satisfied:
+        raise RuntimeError(f"phase 1 preflight unexpectedly satisfied target: {target.snapshot()}")
+
     paused = runtime.runtime.run_until_pause(
         runtime._run_executor(),
         acknowledgements={
             "evidence.authoritative": {"source": "live-restart-harness", "task": task.name},
-            "target.evaluated": {"satisfied": False},
+            "target.evaluated": {"satisfied": target.satisfied},
         },
     )
     if paused.get("current_step", {}).get("phase") != "VERIFICATION":
