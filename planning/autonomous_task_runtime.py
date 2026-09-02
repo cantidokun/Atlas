@@ -320,14 +320,14 @@ class AutonomousTaskRuntime:
 
     def resume_and_run(self) -> Dict[str, Any]:
         """Resume the persisted continuation and provide fresh verification."""
-        resumed = self.runtime.resume()
-        paused = resumed.run_until_pause(self._run_executor())
+        self.runtime = self.runtime.resume()
+        paused = self.runtime.run_until_pause(self._run_executor())
         if paused.get("current_step", {}).get("phase") != "VERIFICATION":
             return paused
         verification = self._perform_verification()
         if verification is None:
-            return resumed.snapshot()
-        return resumed.run_until_pause(
+            return self.runtime.snapshot()
+        return self.runtime.run_until_pause(
             self._run_executor(),
             verifications={"verification.pending": verification},
         )
