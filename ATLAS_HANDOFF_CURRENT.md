@@ -3,7 +3,7 @@
 **Updated:** September 2, 2026 — active Atlas development
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender Stage 11 PR:** #49 — controlled live mutation harness / Stage 12 continuation
-**Current Blender branch work:** task-aware autonomous runtime seam
+**Current Blender branch work:** task-aware autonomous runtime and restart recovery
 
 ## Current state
 
@@ -33,7 +33,7 @@ The first controlled real Blender mutation was proven locally through the Atlas 
 
 ## Blender — Stage 12 task-aware runtime
 
-The reusable closed-loop Blender execution boundary already existed and remains unchanged. The actual architectural gap was the missing task-level binding between declarative `AtlasTaskDefinition` contracts and the existing checkpointed autonomous future runtime.
+The reusable closed-loop Blender execution boundary remains unchanged. The architectural gap was the missing task-level binding between declarative `AtlasTaskDefinition` contracts and the existing checkpointed autonomous future runtime.
 
 `planning/autonomous_task_runtime.py` now provides that narrow binding. It reuses the existing task validation, target-state evaluator, immutable action authorization, deterministic future generator, autonomous continuation state, and supplied engine executor.
 
@@ -43,42 +43,63 @@ The adapter:
 2. acquires authoritative pre-action evidence;
 3. evaluates the target state;
 4. issues the existing immutable `ActionAuthorization` when writes are required;
-5. generates the existing deterministic future;
-6. binds each autonomous write to the authorized task action and current deterministic future step;
-7. executes through the supplied executor;
-8. acquires fresh authoritative evidence after the action or zero-write decision;
-9. evaluates the fresh evidence; and
+5. generates the existing deterministic future from that resolved decision;
+6. persists the task target evaluation and write authorization as task-level continuation metadata;
+7. binds each autonomous write to the authorized task action and current deterministic future step;
+8. executes through the supplied executor;
+9. acquires fresh authoritative evidence after the action or zero-write decision; and
 10. completes only when verification succeeds, otherwise remaining blocked.
 
-The Blender rotation task contract is parameterized for live use while preserving its existing defaults and accepts the canonical Blender inspection result shape.
+The runtime explicitly keeps action authorization digests distinct from deterministic future-plan digests. It rejects inconsistent persisted task/future bindings instead of attempting to repair them implicitly.
 
-Focused tests cover authorized mutation, already-satisfied zero-write behavior, failed fresh verification -> `BLOCKED`, and canonical Blender inspection result normalization.
+## Blender — verified Stage 12 live autonomous mutation
 
-## Blender live proof next gate
+The controlled live task-aware rotation proof was established locally against Blender 4.4. The proof demonstrated real evidence acquisition, target-state evaluation, explicit action authorization, deterministic autonomous execution, real Blender mutation, fresh independent verification, and fixture restoration through the existing closed-loop persistence boundary.
 
-`scripts/run_live_autonomous_rotation.py` provides the controlled real-engine proof. It uses the declarative rotation task, `AutonomousTaskRuntime`, the production Blender process executor, and the existing persistence boundary for fixture restoration.
+## Blender — verified Stage 12 cross-process restart recovery
 
-Expected proof:
+The restart harness `scripts/run_live_autonomous_rotation_restart.py` was successfully executed locally on the development PC across two separate Python processes.
+
+Verified sequence:
 
 ```text
-fresh Blender evidence
+phase 1 preflight evidence
         ↓
-task target evaluation
+target evaluated unsatisfied
         ↓
-explicit action authorization
+write authorization persisted
         ↓
-deterministic autonomous future
+action executed in real Blender
         ↓
-real Blender mutation
+fresh verification checkpoint persisted
         ↓
-fresh independent Blender evidence
+Python process terminated
         ↓
-target verification
+fresh Python process reconstructed runtime
+        ↓
+exact authorization recovered from durable state
+        ↓
+fresh Blender verification
         ↓
 COMPLETE
+        ↓
+fixture restored and independently verified
 ```
 
-The fixture is restored afterward through the existing closed-loop persistence boundary and independently verified.
+Observed live proof included:
+
+```text
+LIVE AUTONOMOUS RESTART PHASE 1 VERIFIED
+checkpoint=verification
+process_restart=ready
+LIVE AUTONOMOUS RESTART VERIFIED
+durable_checkpoint=verified
+authorization_recovered=verified
+fresh_verification=verified
+fixture_restored=[0.0, 0.0, 15.0]
+```
+
+The fixture was originally at `[0.0, 0.0, 15.0]`; the harness normalized it to `[0.0, 0.0, 0.0]` for phase 1 so the task necessarily exercised the write path, then restored the original `[0.0, 0.0, 15.0]` state after completion.
 
 ## Unreal
 
@@ -95,6 +116,10 @@ Preserve coverage for:
 - successful write -> verification remains mandatory;
 - verification failure -> `BLOCKED`;
 - action failure -> recovery gate;
+- task target decision -> deterministic future binding;
+- persisted task metadata -> future consistency;
+- action authorization -> exact task action binding;
+- cross-process continuation -> recovered authorization and fresh verification;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
@@ -123,4 +148,4 @@ Preserve coverage for:
 
 ## Resume point
 
-Stage 11 live mutation is proven. Stage 12 task-aware autonomous runtime integration is implemented and passing the focused/full offline CI gate for the previous increment, with final live validation still pending on the development PC. Continue from `scripts/run_live_autonomous_rotation.py`; after live proof, audit continuation/resume behavior and recovery before expanding task autonomy further.
+Stage 11 live mutation is proven. Stage 12 task-aware autonomous runtime integration and cross-process Blender continuation are now proven locally. The next development step is to audit the generic recovery/replan path and determine whether the current continuation architecture can safely support task-level recovery without introducing a second execution or authorization boundary. Do not expand task autonomy until that recovery seam is audited and covered by regression tests.
