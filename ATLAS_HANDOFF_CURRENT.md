@@ -1,10 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 1, 2026 — active Atlas development
+**Updated:** September 2, 2026 — active Atlas development
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender Stage 11 PR:** #49 — controlled live mutation harness
-**Latest Blender branch HEAD:** `c4e2e473926ef18944390e1f9ce7520bf1382b4c`
-**Latest known local full-suite result from the development PC:** **1033 passed, 5 skipped**
+**Latest Blender branch HEAD:** `1b226df40e3f89f44e209ab2654e546a102248e0`
 
 ## Current state
 
@@ -28,11 +27,11 @@ Qwen never receives direct production execution authority.
 
 Atlas development now has standing authorization to run the appropriate local tests, GitHub Actions workflows, action-runner tests, and relevant live validation required by the development task. Workflow execution no longer requires a separate per-run user authorization.
 
-## Blender — verified September 1 milestone
+## Blender — verified September 1 milestones
 
-The first controlled real Blender mutation has now been **proven locally** through the Atlas execution boundary.
+The first controlled real Blender mutation has been **proven locally** through the Atlas execution boundary.
 
-Controlled live proof:
+Controlled live movement proof:
 
 ```text
 Blender:          4.4
@@ -43,31 +42,64 @@ after:            [0.25, 5.302, 0.0]
 authorization:    atlas-stage11-live-mutation
 ```
 
-The mutation launched a real Blender process, wrote the `.blend`, then performed a fresh independent Blender inspection. The persisted location matched the requested target. The fixture was then restored and independently verified at its original location.
-
-The execution path now establishes:
+Controlled live rotation proof:
 
 ```text
-explicit authorization
-        ↓
-validated Blender action
-        ↓
-real Blender execution
-        ↓
-immutable execution receipt
-        ↓
-fresh Blender inspection
-        ↓
-expected vs observed state comparison
-        ↓
-immutable persistence evidence
-        ↓
-verified action completion
+Blender:          4.4
+operation:        set_object_rotation
+object:           Goal_Left_post
+before:           [0.0, 0.0, 0.0]
+after:            [0.0, 0.0, 15.0]
+authorization:    atlas-stage12-live-rotation
+execution_receipt: verified
+persistence_evidence: verified
+fixture_restored: [0.0, 0.0, 0.0]
 ```
+
+Both live paths launched real Blender, wrote the `.blend`, performed fresh independent inspection, compared expected and observed state, and restored the fixture where mutation testing was used.
 
 The reusable Blender execution boundary now exposes a closed-loop primitive that returns the operation result, execution receipt, independent inspection result, and persistence evidence together. It deliberately does **not** create authorization; authorization remains owned by the planning layer.
 
 Persistence evidence fails closed when inspection is unsuccessful or expected and observed state differ.
+
+## Stage 12 — Closed-loop Blender Agent
+
+**IN PROGRESS**
+
+Source audit confirmed that the reusable closed-loop mutation boundary already existed, so no duplicate mutation layer was added.
+
+The missing integration identified by the audit was narrower: the generic `AutonomousFutureRuntime` already persisted deterministic futures and continuation integrity, but it expected verification results to be supplied externally. Meanwhile `AtlasTaskDefinition` already held the authoritative evidence requests, target-state evaluator, action list, write policy, and verification policy.
+
+A new task-level adapter now binds those existing systems:
+
+```text
+AtlasTaskDefinition
+        ↓
+initial authoritative evidence
+        ↓
+target-state evaluation
+        ↓
+explicit action authorization
+        ↓
+deterministic future generation
+        ↓
+AutonomousFutureRuntime checkpointing
+        ↓
+authorized Blender execution
+        ↓
+fresh task-defined evidence acquisition
+        ↓
+target-state verification
+        ↓
+COMPLETE or BLOCKED
+```
+
+Implemented in:
+
+- `planning/autonomous_task_runtime.py` — task-aware bridge into the generic autonomous continuation runtime;
+- `tests/test_autonomous_task_runtime.py` — focused coverage for authorized mutation, zero-write behavior, and failed fresh verification.
+
+The adapter does not add engine-specific logic to `AutonomousFutureRuntime`, does not replace `BlenderExecutionBoundary`, and does not create a second authorization or receipt system.
 
 ## Blender roadmap
 
@@ -105,9 +137,15 @@ Persistence evidence fails closed when inspection is unsuccessful or expected an
 **COMPLETE — PROVEN LOCALLY**
 
 ### Stage 12 — Closed-loop Blender Agent
-**NEXT**
+**IN PROGRESS**
 
-Stage 12 should build on the reusable closed-loop primitive rather than creating another one-off live harness. The next increment should remain controlled and deterministic: broaden the execution contract to support additional already-proven Blender capabilities while preserving explicit authorization, independent inspection, persistence evidence, and fail-closed behavior.
+### Immediate next gates
+
+1. Keep the new task/runtime binding green across the full offline regression suite on Python 3.9 and 3.11.
+2. Exercise the task-aware autonomous path against a real Blender fixture, not only fake executors.
+3. Verify a real zero-write case and a real authorized-write case through the task definition path.
+4. Verify a real failed postcondition produces `BLOCKED` without an automatic retry.
+5. Extend continuation/recovery only where the current architecture demonstrates a real gap; do not duplicate existing receipt, authorization, or future-state infrastructure.
 
 ## Unreal — verified September 1 milestone
 
@@ -165,4 +203,4 @@ Preserve coverage for:
 
 ## Resume point
 
-The Blender Stage 11 live gate is complete. Continue from the reusable closed-loop Blender execution boundary and begin Stage 12 with the smallest additional controlled capability that demonstrates genuine architectural progress. Keep Unreal render-receipt integration as the parallel Unreal track. Workflow/action-runner execution is authorized as part of normal development; run the relevant validation needed for each meaningful implementation increment.
+Stage 11 live Blender proof is complete. Stage 12 is now being advanced through the task-aware autonomous runtime seam described above. The next meaningful proof is real Blender execution through `AtlasTaskDefinition` rather than another isolated mutation harness. Keep Unreal render-receipt integration as the parallel Unreal track. Workflow/action-runner execution is authorized as part of normal development; run the relevant validation needed for each meaningful implementation increment.
