@@ -45,8 +45,7 @@ class AutonomousTaskRuntime:
 
         evidence: Dict[str, Any] = {}
         while not orchestrator.evidence_complete:
-            result = orchestrator.acquire_next_evidence(executor)
-            evidence = result
+            evidence = orchestrator.acquire_next_evidence(executor)
 
         target = orchestrator.evaluate_target_state(evidence)
         actions = [
@@ -100,6 +99,28 @@ class AutonomousTaskRuntime:
                 raise RuntimeError(str(evidence["error"]))
         return evidence
 
+    def _verification_failure(self, exc: Exception) -> Dict[str, Any]:
+        """Record a verification acquisition failure as a fail-closed runtime block."""
+        step = self.runtime.controller.current_step
+        if step is None or step.phase != "VERIFICATION":
+            raise exc
+        failure = {
+            "satisfied": False,
+            "error": str(exc),
+            "exception_type": type(exc).__name__,
+        }
+        return self.runtime.run_until_pause(
+            self._run_executor(),
+            verifications={"verification.pending": failure},
+        )
+
+    def _perform_verification(self) -> Optional[Dict[str, Any]]:
+        try:
+            evidence = self._verification()
+            return self.task.evaluator.evaluate(evidence).snapshot()
+        except Exception as exc:
+            return self._verification_failure(exc)
+
     def run_until_pause(self) -> Dict[str, Any]:
         """Advance through actions, then acquire and evaluate fresh evidence."""
         target_satisfied = self.runtime.steps[2].phase == "SKIP_WRITES"
@@ -120,11 +141,12 @@ class AutonomousTaskRuntime:
         if paused.get("current_step", {}).get("phase") != "VERIFICATION":
             return paused
 
-        evidence = self._verification()
-        result = self.task.evaluator.evaluate(evidence)
+        verification = self._perform_verification()
+        if verification is None:
+            return self.runtime.snapshot()
         return self.runtime.run_until_pause(
             self._run_executor(),
-            verifications={"verification.pending": result.snapshot()},
+            verifications={"verification.pending": verification},
         )
 
     def resume_and_run(self) -> Dict[str, Any]:
@@ -133,9 +155,10 @@ class AutonomousTaskRuntime:
         paused = resumed.run_until_pause(self._run_executor())
         if paused.get("current_step", {}).get("phase") != "VERIFICATION":
             return paused
-        evidence = self._verification()
-        result = self.task.evaluator.evaluate(evidence)
+        verification = self._perform_verification()
+        if verification is None:
+            return resumed.snapshot()
         return resumed.run_until_pause(
             self._run_executor(),
-            verifications={"verification.pending": result.snapshot()},
+            verifications={"verification.pending": verification},
         )
