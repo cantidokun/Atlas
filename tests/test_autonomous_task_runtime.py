@@ -147,14 +147,17 @@ def test_task_runtime_verification_executor_exception_blocks(tmp_path):
 
 def test_task_runtime_resume_reuses_persisted_authorized_future(tmp_path):
     calls = []
+    moved = False
     store = FutureRuntimeStateStore(tmp_path / "runtime.json")
     task = _task()
     context = _context()
 
     def execute(tool, arguments):
+        nonlocal moved
         calls.append((tool, arguments))
         if tool == "inspect_scene":
-            return {"ok": True, "state": "inspected", "ready": False}
+            return {"ok": True, "state": "inspected", "ready": moved}
+        moved = True
         return {"ok": True, "state": "moved", "details": {"object_name": arguments["object_name"]}}
 
     runtime = AutonomousTaskRuntime.start(
