@@ -55,11 +55,9 @@ class AutonomousTaskRuntime:
     ) -> "AutonomousTaskRuntime":
         """Run task preflight, authorize writes, and construct a continuation."""
         orchestrator = prepare_task_runtime(task)
-
         evidence: Dict[str, Any] = {}
         while not orchestrator.evidence_complete:
             evidence = orchestrator.acquire_next_evidence(executor)
-
         target = orchestrator.evaluate_target_state(evidence)
         actions = cls._actions(task)
         authorization = None
@@ -73,22 +71,12 @@ class AutonomousTaskRuntime:
         }
         if authorization is not None:
             metadata["action_authorization"] = authorization.snapshot()
-        runtime = AutonomousFutureRuntime(
-            steps,
-            state_store,
-            runtime_context,
-            metadata=metadata,
-        )
+        runtime = AutonomousFutureRuntime(steps, state_store, runtime_context, metadata=metadata)
         cls._validate_persisted_binding(runtime, metadata, actions)
         return cls(task, runtime, executor, authorization, current_actions=actions)
 
     @staticmethod
-    def _validate_persisted_binding(
-        runtime: AutonomousFutureRuntime,
-        metadata: Dict[str, Any],
-        actions: List[ActionSpec],
-    ) -> None:
-        """Require one internally consistent persisted task/future binding."""
+    def _validate_persisted_binding(runtime: AutonomousFutureRuntime, metadata: Dict[str, Any], actions: List[ActionSpec]) -> None:
         target_satisfied = metadata.get("target_satisfied")
         if not isinstance(target_satisfied, bool):
             raise RuntimeError("persisted task target decision is missing or invalid")
@@ -97,13 +85,11 @@ class AutonomousTaskRuntime:
             raise RuntimeError("persisted task target decision does not match the generated future")
         if not target_satisfied and expected_step.phase != "ACTION":
             raise RuntimeError("persisted task target decision does not match the generated future")
-
         raw_authorization = metadata.get("action_authorization")
         if target_satisfied:
             if raw_authorization is not None:
                 raise RuntimeError("satisfied task cannot persist write authorization")
             return
-
         if not isinstance(raw_authorization, dict):
             raise RuntimeError("unsatisfied task is missing persisted action authorization")
         authorization = ActionAuthorization.from_snapshot(raw_authorization)
@@ -118,7 +104,6 @@ class AutonomousTaskRuntime:
         runtime_context: RuntimeContext,
         executor: ToolExecutor,
     ) -> "AutonomousTaskRuntime":
-        """Reconstruct a task runtime and exact authorization from durable state."""
         prepare_task_runtime(task)
         actions = cls._actions(task)
         envelope = state_store.load()
@@ -138,7 +123,6 @@ class AutonomousTaskRuntime:
             authorization = ActionAuthorization.from_snapshot(raw_authorization)
             if not authorization.matches(actions):
                 raise RuntimeError("persisted action authorization does not match the task action plan")
-
         runtime = AutonomousFutureRuntime.resume_from_store(steps, state_store, runtime_context)
         if runtime.metadata != metadata:
             raise RuntimeError("persisted task metadata changed during runtime reconstruction")
@@ -154,20 +138,17 @@ class AutonomousTaskRuntime:
             authorized_actions = self.current_actions if self.current_actions is not None else self._actions(self.task)
             if not self.authorization.matches(authorized_actions):
                 raise RuntimeError("task action authorization no longer matches the current authorized plan")
-
             next_action = self.runtime.snapshot().get("next_action")
             if next_action is None:
                 raise RuntimeError("no authorized action is pending")
             if next_action.get("tool") != tool or next_action.get("arguments") != arguments:
                 raise RuntimeError("autonomous action does not match the authorized future")
-
         return self.executor(tool, arguments)
 
     def _run_executor(self) -> ToolExecutor:
         return self._execute_authorized
 
     def _verification(self) -> Dict[str, Any]:
-        """Acquire fresh authoritative evidence and return the evaluator input."""
         evidence: Dict[str, Any] = {}
         for request in self.task.evidence:
             evidence = self.executor(request.tool, dict(request.arguments))
@@ -178,19 +159,11 @@ class AutonomousTaskRuntime:
         return evidence
 
     def _verification_failure(self, exc: Exception) -> Dict[str, Any]:
-        """Record a verification acquisition failure as a fail-closed runtime block."""
         step = self.runtime.controller.current_step
         if step is None or step.phase != "VERIFICATION":
             raise exc
-        failure = {
-            "satisfied": False,
-            "error": str(exc),
-            "exception_type": type(exc).__name__,
-        }
-        return self.runtime.run_until_pause(
-            self._run_executor(),
-            verifications={"verification.pending": failure},
-        )
+        failure = {"satisfied": False, "error": str(exc), "exception_type": type(exc).__name__}
+        return self.runtime.run_until_pause(self._run_executor(), verifications={"verification.pending": failure})
 
     def _perform_verification(self) -> Optional[Dict[str, Any]]:
         try:
@@ -208,7 +181,6 @@ class AutonomousTaskRuntime:
         return self.recovery_gate
 
     def recover_with_fresh_evidence(self) -> Dict[str, Any]:
-        """Acquire fresh task evidence and advance a blocked future to replanning."""
         gate = self._ensure_recovery_gate()
         if gate.fresh_evidence_acquired:
             return gate.snapshot()
@@ -219,43 +191,27 @@ class AutonomousTaskRuntime:
         self.runtime.checkpoint_metadata({"recovery": gate.snapshot()})
         return gate.snapshot()
 
-    def authorize_replan(
-        self,
-        authorized_actions: List[ActionSpec],
-        authorization_id: str,
-    ) -> ReplanAuthorization:
-        """Authorize a replacement action list only against fresh task evidence."""
+    def authorize_replan(self, authorized_actions: List[ActionSpec], authorization_id: str) -> ReplanAuthorization:
         gate = self._ensure_recovery_gate()
         if not gate.fresh_evidence_acquired:
             raise RuntimeError("Fresh authoritative recovery evidence is required before replanning.")
-        if not isinstance(authorized_actions, list) or any(
-            not isinstance(action, ActionSpec) for action in authorized_actions
-        ):
+        if not isinstance(authorized_actions, list) or any(not isinstance(action, ActionSpec) for action in authorized_actions):
             raise TypeError("authorized_actions must be a list of ActionSpec objects.")
         allowed = set(self.task.allowed_action_tools)
         unauthorized = {action.tool for action in authorized_actions} - allowed
         if unauthorized:
             raise RuntimeError(f"unauthorized recovery action tools: {sorted(unauthorized)}")
-        receipt = ReplanAuthorization.issue(
-            gate.authorize_replan(), authorized_actions, authorization_id
-        )
+        receipt = ReplanAuthorization.issue(gate.authorize_replan(), authorized_actions, authorization_id)
         self.replan_authorization = receipt
         return receipt
 
-    def install_authorized_replan(
-        self,
-        authorization: ReplanAuthorization,
-        authorized_actions: List[ActionSpec],
-    ) -> "AutonomousTaskRuntime":
-        """Replace a failed future only after explicit recovery authorization."""
+    def install_authorized_replan(self, authorization: ReplanAuthorization, authorized_actions: List[ActionSpec]) -> "AutonomousTaskRuntime":
         gate = self._ensure_recovery_gate()
         if self.replan_authorization != authorization:
             raise RuntimeError("Replan authorization does not match the current recovery authorization.")
         if not gate.fresh_evidence_acquired:
             raise RuntimeError("Fresh authoritative recovery evidence is required before replanning.")
-        if not isinstance(authorized_actions, list) or any(
-            not isinstance(action, ActionSpec) for action in authorized_actions
-        ):
+        if not isinstance(authorized_actions, list) or any(not isinstance(action, ActionSpec) for action in authorized_actions):
             raise TypeError("authorized_actions must be a list of ActionSpec objects.")
         allowed = set(self.task.allowed_action_tools)
         unauthorized = {action.tool for action in authorized_actions} - allowed
@@ -264,13 +220,11 @@ class AutonomousTaskRuntime:
         evidence = gate.authorize_replan()
         if not authorization.matches(evidence, authorized_actions):
             raise RuntimeError("replacement actions do not match the authorized replan")
-
         target = self.task.evaluator.evaluate(evidence)
         actions = list(authorized_actions)
         execution_authorization = None
         if not target.satisfied:
             execution_authorization = ActionAuthorization.issue(actions, authorization.authorization_id)
-
         steps = DeterministicFutureGenerator(self.task.evaluator).generate(target.satisfied, actions)
         metadata: Dict[str, Any] = {
             "target_satisfied": target.satisfied,
@@ -279,24 +233,19 @@ class AutonomousTaskRuntime:
         }
         if execution_authorization is not None:
             metadata["action_authorization"] = execution_authorization.snapshot()
-        self.runtime = AutonomousFutureRuntime(
-            steps,
-            self.runtime.state_store,
-            self.runtime.runtime_context,
-            metadata=metadata,
-        )
+        self.runtime = AutonomousFutureRuntime(steps, self.runtime.state_store, self.runtime.runtime_context, metadata=metadata)
         self.authorization = execution_authorization
         self.current_actions = actions
         self.recovery_gate = None
         self.replan_authorization = None
         self._validate_persisted_binding(self.runtime, metadata, actions)
+        if not target.satisfied:
+            self.runtime = self.runtime.resume_with_checkpoint_index(2)
         return self
 
     def run_until_pause(self) -> Dict[str, Any]:
-        """Advance through actions, then acquire and evaluate fresh evidence."""
         if self.runtime.controller.blocked:
             return self.runtime.snapshot()
-
         target_satisfied = self.runtime.steps[2].phase == "SKIP_WRITES"
         acknowledgements: Dict[str, Dict[str, Any]] = {
             "evidence.authoritative": {"source": "task_runtime", "task": self.task.name},
@@ -304,25 +253,16 @@ class AutonomousTaskRuntime:
         }
         if target_satisfied:
             acknowledgements["writes.skipped"] = {"skipped": True}
-
-        paused = self.runtime.run_until_pause(
-            self._run_executor(),
-            acknowledgements=acknowledgements,
-        )
+        paused = self.runtime.run_until_pause(self._run_executor(), acknowledgements=acknowledgements)
         current_step = paused.get("current_step")
         if not isinstance(current_step, dict) or current_step.get("phase") != "VERIFICATION":
             return paused
-
         verification = self._perform_verification()
         if verification is None:
             return self.runtime.snapshot()
-        return self.runtime.run_until_pause(
-            self._run_executor(),
-            verifications={"verification.pending": verification},
-        )
+        return self.runtime.run_until_pause(self._run_executor(), verifications={"verification.pending": verification})
 
     def resume_and_run(self) -> Dict[str, Any]:
-        """Resume the persisted continuation and provide fresh verification."""
         self.runtime = self.runtime.resume()
         if self.runtime.controller.blocked:
             self.recovery_gate = FutureRecoveryGate(self.runtime.controller)
@@ -335,7 +275,4 @@ class AutonomousTaskRuntime:
         verification = self._perform_verification()
         if verification is None:
             return self.runtime.snapshot()
-        return self.runtime.run_until_pause(
-            self._run_executor(),
-            verifications={"verification.pending": verification},
-        )
+        return self.runtime.run_until_pause(self._run_executor(), verifications={"verification.pending": verification})
