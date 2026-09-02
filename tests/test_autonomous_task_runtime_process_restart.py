@@ -60,12 +60,14 @@ def test_recovery_reconstructs_blocked_gate_and_authorization_after_restart(tmp_
 
     calls = []
     replacement_attempts = 0
+    verification_calls = 0
 
     def second_process_execute(tool, arguments):
-        nonlocal replacement_attempts
+        nonlocal replacement_attempts, verification_calls
         calls.append(tool)
         if tool == "inspect_scene":
-            return {"ok": True, "ready": False}
+            verification_calls += 1
+            return {"ok": True, "ready": verification_calls >= 2}
         replacement_attempts += 1
         return {"ok": True, "state": "moved"}
 
