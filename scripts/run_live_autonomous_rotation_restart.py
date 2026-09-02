@@ -1,9 +1,11 @@
 """Prove task-aware autonomous Blender recovery across a Python process restart.
 
-Phase 1 performs the real Blender mutation and stops at the persisted verification
-checkpoint. Phase 2 starts a fresh Python process, reconstructs the task runtime
-from durable state, recovers the exact authorization, performs fresh verification,
-and restores the Blender fixture to its recorded pre-mutation rotation.
+Phase 1 records the original fixture state, normalizes the target object to a
+known non-target rotation, performs the real Blender mutation, and stops at the
+persisted verification checkpoint. Phase 2 starts a fresh Python process,
+reconstructs the task runtime from durable state, recovers the exact
+authorization, performs fresh verification, and restores the recorded original
+fixture rotation.
 """
 
 from __future__ import annotations
@@ -65,6 +67,35 @@ def _sidecar_path(state_path: str) -> Path:
     return Path(f"{state_path}.fixture.json")
 
 
+def _set_rotation(
+    boundary: BlenderExecutionBoundary,
+    path: Path,
+    object_name: str,
+    rotation_degrees: List[float],
+) -> List[float]:
+    inspect_args = {"file_name": str(path), "object_name": object_name}
+    restore_args = {
+        "file_name": str(path),
+        "object_name": object_name,
+        "rotation_degrees": [float(value) for value in rotation_degrees],
+    }
+    result = boundary.execute_with_persistence(
+        "set_object_rotation",
+        restore_args,
+        "inspect_object_transform",
+        inspect_args,
+        {"object_name": object_name, "rotation_degrees": [float(value) for value in rotation_degrees]},
+        lambda inspection: {
+            "object_name": object_name,
+            "rotation_degrees": _rotation(
+                {"details": dict(inspection.details)},
+                object_name,
+            ),
+        },
+    )
+    return _rotation({"details": dict(result.inspection_result.details)}, object_name)
+
+
 def _phase_start(
     blend_path: str,
     blender_command: str,
@@ -77,8 +108,22 @@ def _phase_start(
     state_store = FutureRuntimeStateStore(state_path)
     boundary = _boundary(blender_command)
     inspect_args = {"file_name": str(path), "object_name": object_name}
+
     before_result = boundary.execute_verified("inspect_object_transform", inspect_args)
-    before = _rotation({"details": dict(before_result.details)}, object_name)
+    original = _rotation({"details": dict(before_result.details)}, object_name)
+
+    expected = [float(value) for value in rotation_degrees]
+    if original == expected:
+        neutral = list(original)
+        neutral[2] = neutral[2] - 15.0 if abs(neutral[2] - expected[2]) > 1e-6 else expected[2] - 15.0
+        if neutral == expected:
+            neutral[2] -= 1.0
+        normalized = _set_rotation(boundary, path, object_name, neutral)
+        if normalized != neutral:
+            raise RuntimeError(f"failed to normalize fixture before phase 1: expected {neutral}, got {normalized}")
+        before = neutral
+    else:
+        before = original
 
     task = _task(path, object_name, rotation_degrees)
     context = _context(path, task.name, object_name)
@@ -108,20 +153,20 @@ def _phase_start(
     if len([entry for entry in paused.get("history", []) if entry.get("phase") == "ACTION"]) != 1:
         raise RuntimeError("phase 1 did not execute exactly one authorized action")
 
-    expected = [float(value) for value in rotation_degrees]
     inspect_after = boundary.execute_verified("inspect_object_transform", inspect_args)
     after = _rotation({"details": dict(inspect_after.details)}, object_name)
     if after != expected:
         raise RuntimeError(f"phase 1 mutation did not persist: expected {expected}, got {after}")
 
     _sidecar_path(state_path).write_text(
-        json.dumps({"object_name": object_name, "original_rotation": before}, sort_keys=True),
+        json.dumps({"object_name": object_name, "original_rotation": original, "phase1_rotation": before}, sort_keys=True),
         encoding="utf-8",
     )
 
     print("LIVE AUTONOMOUS RESTART PHASE 1 VERIFIED")
     print(f"object={object_name}")
     print(f"before={before}")
+    print(f"original={original}")
     print(f"after={after}")
     print(f"authorization={authorization_id}")
     print("checkpoint=verification")
@@ -172,28 +217,7 @@ def _phase_resume(
     if final_rotation != expected:
         raise RuntimeError(f"resumed mutation verification failed: expected {expected}, got {final_rotation}")
 
-    restored = boundary.execute_with_persistence(
-        "set_object_rotation",
-        {
-            "file_name": str(path),
-            "object_name": object_name,
-            "rotation_degrees": original,
-        },
-        "inspect_object_transform",
-        inspect_args,
-        {"object_name": object_name, "rotation_degrees": original},
-        lambda inspection: {
-            "object_name": object_name,
-            "rotation_degrees": _rotation(
-                {"details": dict(inspection.details)},
-                object_name,
-            ),
-        },
-    )
-    restored_rotation = _rotation(
-        {"details": dict(restored.inspection_result.details)},
-        object_name,
-    )
+    restored_rotation = _set_rotation(boundary, path, object_name, original)
     if restored_rotation != original:
         raise RuntimeError(f"fixture restoration failed: expected {original}, got {restored_rotation}")
 
