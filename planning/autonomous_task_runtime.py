@@ -307,7 +307,8 @@ class AutonomousTaskRuntime:
             self._run_executor(),
             acknowledgements=acknowledgements,
         )
-        if paused.get("current_step", {}).get("phase") != "VERIFICATION":
+        current_step = paused.get("current_step")
+        if not isinstance(current_step, dict) or current_step.get("phase") != "VERIFICATION":
             return paused
 
         verification = self._perform_verification()
@@ -322,7 +323,8 @@ class AutonomousTaskRuntime:
         """Resume the persisted continuation and provide fresh verification."""
         self.runtime = self.runtime.resume()
         paused = self.runtime.run_until_pause(self._run_executor())
-        if paused.get("current_step", {}).get("phase") != "VERIFICATION":
+        current_step = paused.get("current_step")
+        if not isinstance(current_step, dict) or current_step.get("phase") != "VERIFICATION":
             return paused
         verification = self._perform_verification()
         if verification is None:
