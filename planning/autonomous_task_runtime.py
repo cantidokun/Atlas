@@ -64,7 +64,10 @@ class AutonomousTaskRuntime:
             target.satisfied,
             actions,
         )
-        metadata: Dict[str, Any] = {"target_satisfied": target.satisfied}
+        metadata: Dict[str, Any] = {
+            "target_satisfied": target.satisfied,
+            "target_evaluation": target.snapshot(),
+        }
         if authorization is not None:
             metadata["action_authorization"] = authorization.snapshot()
         runtime = AutonomousFutureRuntime(
@@ -73,7 +76,36 @@ class AutonomousTaskRuntime:
             runtime_context,
             metadata=metadata,
         )
+        cls._validate_persisted_binding(runtime, metadata, actions)
         return cls(task, runtime, executor, authorization)
+
+    @staticmethod
+    def _validate_persisted_binding(
+        runtime: AutonomousFutureRuntime,
+        metadata: Dict[str, Any],
+        actions,
+    ) -> None:
+        """Require one internally consistent persisted task/future binding."""
+        target_satisfied = metadata.get("target_satisfied")
+        if not isinstance(target_satisfied, bool):
+            raise RuntimeError("persisted task target decision is missing or invalid")
+        expected_step = runtime.steps[2]
+        if target_satisfied and expected_step.phase != "SKIP_WRITES":
+            raise RuntimeError("persisted task target decision does not match the generated future")
+        if not target_satisfied and expected_step.phase != "ACTION":
+            raise RuntimeError("persisted task target decision does not match the generated future")
+
+        raw_authorization = metadata.get("action_authorization")
+        if target_satisfied:
+            if raw_authorization is not None:
+                raise RuntimeError("satisfied task cannot persist write authorization")
+            return
+
+        if not isinstance(raw_authorization, dict):
+            raise RuntimeError("unsatisfied task is missing persisted action authorization")
+        authorization = ActionAuthorization.from_snapshot(raw_authorization)
+        if not authorization.matches(actions):
+            raise RuntimeError("persisted action authorization does not match the task action plan")
 
     @classmethod
     def resume_from_store(
@@ -95,19 +127,26 @@ class AutonomousTaskRuntime:
             target_satisfied,
             actions,
         )
+        raw_authorization = metadata.get("action_authorization")
+        authorization = None
+        if target_satisfied:
+            if raw_authorization is not None:
+                raise RuntimeError("satisfied task cannot resume with write authorization")
+        else:
+            if not isinstance(raw_authorization, dict):
+                raise RuntimeError("unsatisfied task cannot resume without persisted action authorization")
+            authorization = ActionAuthorization.from_snapshot(raw_authorization)
+            if not authorization.matches(actions):
+                raise RuntimeError("persisted action authorization does not match the task action plan")
+
         runtime = AutonomousFutureRuntime.resume_from_store(
             steps,
             state_store,
             runtime_context,
         )
-        raw_authorization = metadata.get("action_authorization")
-        authorization = None
-        if raw_authorization is not None:
-            authorization = ActionAuthorization.from_snapshot(raw_authorization)
-            if authorization.plan_digest != runtime.controller.plan_digest or not authorization.matches(actions):
-                raise RuntimeError("persisted action authorization does not match the authorized future")
-        elif runtime.controller.next_action is not None:
-            raise RuntimeError("persisted action authorization is missing for a pending write")
+        if runtime.metadata != metadata:
+            raise RuntimeError("persisted task metadata changed during runtime reconstruction")
+        cls._validate_persisted_binding(runtime, metadata, actions)
         return cls(task, runtime, executor, authorization)
 
     def _execute_authorized(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
