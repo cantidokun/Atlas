@@ -10,8 +10,14 @@ TARGET_OBJECT = "Atlas_Rotation_Candidate"
 TARGET_ROTATION = [0.0, 0.0, 90.0]
 
 
+def _semantic_evidence(evidence: Dict[str, Any]) -> Dict[str, Any]:
+    details = evidence.get("details")
+    return dict(details) if isinstance(details, dict) else evidence
+
+
 def _rotation_matches(evidence: Dict[str, Any], target_rotation: List[float]) -> bool:
-    actual = evidence.get("rotation_degrees")
+    semantic = _semantic_evidence(evidence)
+    actual = semantic.get("rotation_degrees")
     if not isinstance(actual, list) or len(actual) != 3:
         return False
     return all(abs(float(got) - wanted) <= 1e-4 for got, wanted in zip(actual, target_rotation))
@@ -23,7 +29,10 @@ def object_rotation_target_evaluator(
 ) -> TargetStateEvaluator:
     rotation = list(TARGET_ROTATION if target_rotation is None else target_rotation)
     return TargetStateEvaluator([
-        StateInvariant("target_object_exists", lambda evidence: evidence.get("object_name") == target_object),
+        StateInvariant(
+            "target_object_exists",
+            lambda evidence: _semantic_evidence(evidence).get("object_name") == target_object,
+        ),
         StateInvariant("target_rotation", lambda evidence: _rotation_matches(evidence, rotation)),
     ])
 
