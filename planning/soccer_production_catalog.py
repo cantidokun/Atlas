@@ -7,7 +7,7 @@ authorize actions, schedule runtime, or provide a second recovery path.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Tuple
 
 from planning.soccer_production_templates import BroadcastGoalPreparationTemplate
 
@@ -20,6 +20,7 @@ class SoccerProductionWorkflowSpec:
     objective: str
     template_name: str
     required_parameters: Tuple[str, ...]
+    version: int = 1
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -32,6 +33,8 @@ class SoccerProductionWorkflowSpec:
             raise ValueError("workflow spec parameters must contain non-empty strings")
         if len(set(self.required_parameters)) != len(self.required_parameters):
             raise ValueError("workflow spec parameters must be unique")
+        if not isinstance(self.version, int) or isinstance(self.version, bool) or self.version < 1:
+            raise ValueError("workflow spec version must be a positive integer")
 
     def snapshot(self) -> Dict[str, Any]:
         return {
@@ -39,6 +42,7 @@ class SoccerProductionWorkflowSpec:
             "objective": self.objective,
             "template_name": self.template_name,
             "required_parameters": list(self.required_parameters),
+            "version": self.version,
         }
 
 
@@ -52,6 +56,7 @@ _BROADCAST_GOAL = SoccerProductionWorkflowSpec(
         "target_location",
         "target_rotation",
     ),
+    version=1,
 )
 
 
