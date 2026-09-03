@@ -6,34 +6,58 @@ This workspace is for continued development of the Atlas Unreal Agent only. It s
 
 ## Current gate
 
-The real Unreal Engine 5.6 smoke test has **PASSED**:
+The real Unreal Engine 5.6 smoke test has passed, and the first real Unreal production/render-receipt paths have been proven. Development has now progressed into the agent-to-controller trust boundary.
 
-`Atlas.UnrealAgent.OperationBoundary`
+The current controller-layer focused suite is green. The next engine-dependent gate is intentionally not being run until the source-level host integration is complete.
 
-The disposable harness remains a confirmed real-engine regression fixture. Development has now progressed beyond the engine smoke test into the real production transport, actor write/restore, and recovery-coordination boundary.
+## Current milestone — September 2, 2026
 
-## Current milestone — August 22, 2026
+The explicit model-to-controller path now has a host-owned execution context:
 
-The first real production Unreal execution path has been proven against the running Unreal Editor.
+```text
+model response
+ ↓
+ATLAS_CONTROLLER_REQUEST
+ ↓
+AgentControllerIntent
+ ↓
+AgentTaskRequest
+ ↓
+AgentControllerHost
+ ↓
+AgentControllerLoopAdapter
+ ↓
+AgentEntrypointRuntime
+ ↓
+AgentProcessRuntime
+ ↓
+capability admission
+ ↓
+capability execution
+ ↓
+provider integration
+```
 
-Passed live integration coverage includes:
+The host owns trusted provider context for one agent execution. Trusted Unreal context is installed from an already-authorized production artifact and authoritative Unreal task intent.
 
-- production plan executor actor-location write and restore;
-- recovery coordinator reassessment of live Unreal state without retrying the mutation.
+The focused controller/agent suite currently reports:
 
-The Python regression suite is also green at the latest reported full run, and the focused Windows Named Pipe timeout/failure boundaries have passed.
+```text
+62 passed
+```
 
-This establishes the first real process-boundary proof but does **not** establish broad arbitrary Unreal production-task execution.
+No workflow/action-runner tests were run.
 
 ## Architectural invariants
 
 - Atlas owns the canonical Digital Twin.
 - The Unreal Agent reasons and plans; it does not authorize.
 - Atlas authorization remains authoritative.
+- The host-owned execution context may carry already-authorized state, but it does not create authorization.
+- The model cannot create, replace, or select trusted authorization state through its response payload.
 - The Unreal adapter executes authorized operations.
 - Unreal provides independent execution evidence.
 - Atlas verifies that evidence independently.
-- The disposable Unreal harness is a regression fixture, not the production adapter.
 - The Unreal adapter remains stateless.
 - Mutation failures and uncertain state require fresh authoritative evidence before recovery.
 - Automatic mutation retry is prohibited.
@@ -43,12 +67,12 @@ This establishes the first real process-boundary proof but does **not** establis
 1. Preserve existing Unreal contracts and fail-closed behavior.
 2. Do not weaken, remove, bypass, or rewrite tests merely to make them pass.
 3. Do not modify Blender-specific implementation or tests unless a shared-interface change is demonstrably required and explicitly reviewed.
-4. Preserve the disposable Unreal harness and keep `Atlas.UnrealAgent.OperationBoundary` passing after relevant changes.
+4. Preserve the disposable Unreal harness and keep the established smoke-test behavior intact after relevant changes.
 5. Prefer small, deterministic changes with regression coverage.
 6. Keep Unreal-specific code and tests clearly scoped.
-7. Treat `UNREAL_AGENT_HANDOFF_CURRENT.md` as the authoritative continuation context.
+7. Treat `UNREAL_AGENT_HANDOFF_CURRENT.md` as the authoritative Unreal continuation context.
 8. For complex changes, audit before editing and verify affected tests before committing when test execution is authorized.
-9. Do not introduce a second authorization authority inside Unreal.
+9. Do not introduce a second authorization authority inside Unreal or the generic controller layer.
 10. Do not revisit AdapterExecutionBridge or Option B.
 11. Do not change the existing Named Pipe wire protocol.
 12. Do not introduce entity discovery or an Atlas-side entity cache.
@@ -59,34 +83,30 @@ This establishes the first real process-boundary proof but does **not** establis
 
 ## Existing Unreal work
 
-The current architecture includes the Unreal Agent planning boundary, capability registry, strict operation contract, deterministic task planning, engine-neutral evidence contract, production adapter boundary, Windows Named Pipe transport, plan executor, recovery policy, reassessment decision/planner, recovery orchestrator/coordinator, and the disposable Unreal Engine 5.6 validation harness.
+The current architecture includes the Unreal Agent planning boundary, capability registry, strict operation contract, deterministic task planning, engine-neutral evidence contract, production adapter boundary, Windows Named Pipe transport, plan executor, recovery policy, reassessment decision/planner, recovery orchestrator/coordinator, disposable Unreal Engine 5.6 validation harness, heterogeneous production boundary, render receipt verification, and provider-neutral controller capability runtime.
 
-## Production transport milestone — PASSED
+## Controller trust-boundary milestone — PASSED
 
-The Python Named Pipe transport has been hardened against indefinite response-read blocking without changing the wire protocol.
+The current source-level controller boundary proves:
 
-Current transport behavior:
+1. model output is recognized only through the explicit `ATLAS_CONTROLLER_REQUEST` marker;
+2. the request is parsed into a typed `AgentControllerIntent`;
+3. the intent becomes the canonical `AgentTaskRequest`;
+4. the host provides the controller runtime and execution context;
+5. trusted provider state is resolved from the model request's provider only;
+6. model-supplied context cannot override trusted context values;
+7. trusted Unreal context requires an already-authorized production plan and matching authoritative task intent;
+8. provider context cannot be replaced inside the same execution context;
+9. legacy Blender/Qwen paths remain separate from controller execution.
 
-- bounded connection availability timeout;
-- client pipe handle opened with `FILE_FLAG_OVERLAPPED`;
-- request write performed through overlapped I/O with stable request-buffer lifetime;
-- bounded allocated response buffer;
-- Windows overlapped response I/O;
-- bounded `READ_TIMEOUT_MS` for pending response reads;
-- explicit pywin32 result-code handling for `ERROR_IO_PENDING`;
-- timeout cancellation before handle cleanup;
-- server disconnect classification;
-- existing `NamedPipeTransportError` propagation;
-- existing JSON request/response framing preserved exactly.
+## Current Unreal production boundary
 
-The focused timeout/cancellation/disconnect regression coverage has passed.
-
-## First real production capability — PASSED
-
-The first real production Unreal path uses the `FIELD_SURFACE` entity mapping and proves:
+The existing Unreal production architecture remains:
 
 ```text
-Atlas operation
+Atlas plan
+    ↓
+authorization
     ↓
 production adapter
     ↓
@@ -94,61 +114,49 @@ Windows Named Pipe
     ↓
 real Unreal Editor
     ↓
-Actor state mutation
+execution
     ↓
-independent readback/evidence
+fresh evidence
     ↓
-verification
+independent verification
 ```
 
-The real plan-executor write/restore test passed.
+The successful render receipt proof remains part of the established live boundary. The newer host/controller path is not yet a live Unreal proof.
 
-The real recovery-coordinator test also passed and demonstrated that fresh live reassessment does not silently retry the failed mutation.
+## Blueprint status
 
-## Confirmed implementation boundary
-
-Python currently declares/plans multiple Unreal operations, including inspection, material, and verification operations. The current Unreal C++ transport server has a narrower executable surface.
-
-Treat unsupported operations as an explicit implementation boundary. Do not infer that a declared Python capability is already executable in Unreal.
-
-The next production capability must be selected and implemented end-to-end rather than broadening the server spec speculatively.
-
-## Verified engine milestone
-
-The disposable Unreal Engine 5.6.1 harness compiled and passed `Atlas.UnrealAgent.OperationBoundary` after exposing and fixing the missing transform-root defect in the controlled temporary Actor. The assertion was preserved rather than weakened.
-
-## Unreal fixture convention
-
-The current real integration uses the exact Atlas entity mapping/tag:
+Blueprint remains a separate engine-dependent milestone. Its intended narrow production sequence is:
 
 ```text
-FIELD_SURFACE
+READ   inspect_blueprint_state
+WRITE  set_blueprint_metadata
+WRITE  compile_blueprint
+VERIFY verify_blueprint_state
 ```
 
-If a live integration reports `Actor not found for entity_id: FIELD_SURFACE`, verify the Unreal Actor's exact Atlas mapping/tag first. Do not add entity discovery or change the Python entity contract to compensate for a fixture configuration error.
+The previously identified live issue is persistence of Blueprint metadata in the returned evidence shape. Do not expand into arbitrary Blueprint graph authoring until the narrow metadata/compile boundary is independently green.
+
+## Next development phase
+
+When development resumes, continue with the smallest safe source-level integration that connects the actual Atlas agent-facing runtime to `AgentControllerHost` without changing the existing Blender/Qwen tool behavior.
+
+Then develop the synthetic proof that a real already-authorized Unreal production artifact can cross:
+
+```text
+host
+ ↓
+agent request
+ ↓
+controller admission
+ ↓
+Unreal production integration
+```
+
+Only after that source-level boundary is stable should a live Unreal controller-to-production test be considered.
 
 ## Git/workspace separation
 
 The Unreal Aider workspace remains isolated from the Blender development workspace. Work on Unreal should occur from the dedicated Unreal development checkout/branch. Do not point Aider at the Blender checkout.
-
-## Next development phase
-
-The next implementation milestone is **multi-operation production execution with failure containment**.
-
-Develop and regression-test the smallest reusable path that proves:
-
-1. read/evidence operations precede mutation;
-2. authorization binds the exact ordered operations;
-3. each operation produces correctly bound evidence;
-4. successful operations advance deterministically;
-5. a later failure prevents unsafe continuation;
-6. completed targets are preserved accurately;
-7. recovery performs fresh read-only reassessment;
-8. reassessment never silently retries the previous mutation;
-9. replacement execution requires explicit authorization;
-10. completion requires independent verification.
-
-Only after this Python-side boundary is green should the next expanded multi-operation scenario be run against the real Unreal Editor.
 
 ## Aider handoff
 
