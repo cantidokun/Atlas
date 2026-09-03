@@ -8,6 +8,7 @@ the strict provider-output parser before leaving this module.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Protocol
 
