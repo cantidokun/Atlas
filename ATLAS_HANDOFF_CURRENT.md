@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow live-verified, target-state and catalog contract coverage extended, and semantic workflow provenance bound through autonomous recovery/replan
+**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow catalog and provenance boundaries live-verified; CI regressions from the typed-contract expansion repaired
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
 **Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals, reusable composition fragments, self-contained workflow templates, a canonical declarative workflow catalog, and provenance-safe compilation/recovery into the existing autonomous task runtime
@@ -108,21 +108,33 @@ The templates validate transform shape and finite numeric values before composit
 
 ### Live Stage 15 reusable workflow proof — VERIFIED
 
-`scripts/run_live_production_task.py` was successfully executed against the real Blender 4.4 environment using the self-contained `BroadcastGoalPreparationTemplate.production_task()` path.
+`scripts/run_live_production_task.py` was successfully executed by the user against the real Blender 4.4 environment using the **versioned workflow catalog -> canonical production task -> existing autonomous task runtime** path.
 
-The proof verified:
+Confirmed output:
 
-- reusable workflow-template identity;
-- semantic soccer-production objective;
-- reusable fragment composition;
-- explicit semantic fragment dependencies;
-- canonical executable action dependencies;
-- multi-operation production-task compilation;
-- existing autonomous task runtime execution;
-- independent final verification;
-- fixture restoration.
+```text
+LIVE VERSIONED SOCCER PRODUCTION WORKFLOW VERIFIED
+object=Goal_Left_post
+workflow=broadcast-goal-preparation
+objective=Prepare the soccer goal for a broadcast shot.
+target_location=[0.25, 5.302, 0.0]
+target_rotation=[0.0, 0.0, 15.0]
+domain=soccer-production
+workflow_catalog=verified
+workflow_version=1
+workflow_parameter_contract=verified
+workflow_template=verified
+fragment_composition=verified
+fragment_dependencies=verified
+multi_operation_composition=verified
+dependency_validation=verified
+existing_task_runtime=verified
+independent_final_verification=verified
+fixture_restored_location=[0.0, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
+```
 
-The confirmed live target was `Goal_Left_post`, moved to `[0.25, 5.302, 0.0]` and rotated to `[0.0, 0.0, 15.0]`, then restored to `[0.0, 5.302, 0.0]` and `[0.0, 0.0, 0.0]`.
+The live proof therefore establishes the catalog resolution boundary, version identity, typed parameter contract, reusable template construction, fragment composition, dependency validation, existing autonomous runtime execution, independent verification, and fixture restoration on the actual local Blender environment.
 
 ### Target-state evaluator coverage — EXTENDED
 
@@ -132,7 +144,7 @@ The reusable workflow test suite directly exercises the evaluator attached by `B
 - a position mismatch fails the overall target state while preserving the independently passing orientation invariant;
 - malformed authoritative evidence raises the target-state evaluation error rather than being treated as satisfied.
 
-### Canonical soccer-production workflow catalog — ADDED AND HARDENED
+### Canonical soccer-production workflow catalog — HARDENED
 
 `planning/soccer_production_catalog.py` provides a declarative catalog for reusable soccer-production workflows. It currently exposes the canonical `broadcast-goal-preparation` workflow with a stable objective, template identity, required parameter contract, and **version 1** contract marker.
 
@@ -147,9 +159,9 @@ target_location -> vector3
 target_rotation -> vector3
 ```
 
-Parameter kinds are validated before template construction, and transform shape plus finite-number validation remains enforced by the canonical template layer.
+Parameter kinds are validated before template construction. Vector parameters must also contain exactly three finite numeric values, with booleans rejected as numeric vectors. This establishes a fail-closed proposal parameter boundary before template instantiation.
 
-`compile_soccer_production_workflow(...)` now resolves the versioned catalog entry, constructs the canonical production task, and carries the exact workflow descriptor plus normalized proposal parameters into task metadata. This preserves workflow identity as semantic provenance while keeping execution, authorization, scheduling, and recovery outside the catalog.
+`compile_soccer_production_workflow(...)` resolves the versioned catalog entry, constructs the canonical production task, and carries the exact workflow descriptor plus normalized proposal parameters into task metadata. This preserves workflow identity as semantic provenance while keeping execution, authorization, scheduling, and recovery outside the catalog.
 
 ### Autonomous recovery provenance — HARDENED
 
@@ -165,13 +177,14 @@ Regression coverage now includes:
 - deep-copy isolation between task metadata and persisted runtime metadata;
 - versioned workflow contract propagation into the compiled production task;
 - normalized parameter provenance without mutating proposal inputs;
-- preservation of the single `AtlasTaskDefinition` contract after catalog compilation.
+- preservation of the single `AtlasTaskDefinition` contract after catalog compilation;
+- non-finite and boolean vector rejection at the catalog validation boundary.
 
 ## CI
 
-GitHub Actions `Atlas Tests` run **#1337** completed successfully for commit `2f84e10123501eb64146bd5ae1ca53659185b774`, which contains the live-verified reusable workflow implementation and live harness alignment.
+GitHub Actions `Atlas Tests` run **#1362** for commit `2baf79b559b602736fb97052b3290d3f88f3bb02` exposed three contract-test regressions caused by the typed catalog expansion: stale expected snapshot data, stale constructor calls missing `parameter_kinds`, and a test asserting `domain` on the semantic task's metadata instead of on its `domain` field. Those were corrected without weakening the implementation.
 
-The current branch head is `20cd5bd9dc805a71c4d0d54b248245ab88d0565f`. No workflow run is currently associated with that exact head, so the new provenance and catalog-compilation commits must not yet be described as CI-green.
+The current branch head is `af4e3210cd2bdbe5680bedef0e1ee2f323a6211b`. No workflow run is currently associated with that exact head, so it is **not yet CI-green**. The live versioned workflow proof is independent and was successfully completed locally by the user.
 
 PR #49 remains open, draft, and unmerged. Do not merge it unless explicitly requested.
 
@@ -215,6 +228,7 @@ Preserve coverage for:
 - reusable workflow catalog -> exact-name, version, immutability, typed parameter-contract, and compilation-provenance validation;
 - semantic task provenance -> retained across start, resume, and authorized replan;
 - tampered persisted semantic provenance -> rejected;
+- catalog vector semantics -> finite numeric validation before template construction;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
@@ -242,7 +256,7 @@ Preserve coverage for:
 
 ## Resume point
 
-**Next: continue Stage 15 by exercising and hardening the versioned workflow-to-task boundary and recovery provenance through the available test/live validation path, then assess whether the abstraction is mature enough to close Stage 15. Stage 16 remains deferred until that audit is complete.**
+**Next: complete the Stage 15 audit by obtaining CI validation for the repaired contract suite, then exercise recovery using the versioned catalog-produced task so catalog provenance and semantic metadata are proven together across a blocked replan path. Stage 16 remains deferred until this audit is complete.**
 
 Do not expand Qwen autonomy yet.
 
