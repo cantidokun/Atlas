@@ -6,12 +6,13 @@ authorize actions, schedule runtime, or provide a second recovery path.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+import math
 from copy import deepcopy
+from dataclasses import dataclass, replace
 from typing import Any, Dict, Tuple
 
-from planning.soccer_production_templates import BroadcastGoalPreparationTemplate
 from planning.production_task import ProductionTaskDefinition
+from planning.soccer_production_templates import BroadcastGoalPreparationTemplate
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,8 @@ def validate_soccer_production_workflow_parameters(
                 raise TypeError(f"workflow parameter {parameter_name} must be a list or tuple")
             if len(value) != 3:
                 raise ValueError(f"workflow parameter {parameter_name} must contain three values")
+            if any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(float(item)) for item in value):
+                raise ValueError(f"workflow parameter {parameter_name} must contain finite numeric values")
         else:
             raise RuntimeError(f"workflow contract declares unsupported parameter kind: {kind}")
     return spec
