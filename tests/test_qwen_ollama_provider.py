@@ -62,7 +62,6 @@ def test_defaults_target_local_ollama_and_qwen():
 def test_propose_uses_catalog_bound_schema_and_exposes_no_tools():
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
     provider = OllamaQwenProvider(session=session)
-
     proposal = provider.propose("Prepare this soccer goal for a broadcast shot.")
 
     assert proposal.workflow == "broadcast-goal-preparation"
@@ -98,11 +97,10 @@ def test_system_prompt_separates_canonical_workflow_name_and_version():
     provider.propose("Prepare the soccer goal for a broadcast shot.")
     system_prompt = session.calls[0][1]["json"]["messages"][0]["content"]
     assert "workflow=broadcast-goal-preparation; version=1" in system_prompt
-    assert "separate version field" in system_prompt
-    assert "broadcast-goal-preparation@1" in system_prompt
+    assert "version field must be the numeric catalog version" in system_prompt
+    assert "Never emit an empty required string" in system_prompt
     assert "file_name:string" in system_prompt
     assert "target_location:vector3" in system_prompt
-    assert "Never emit an empty" in system_prompt
 
 
 def test_context_is_sent_as_prompt_only():
@@ -181,6 +179,14 @@ def test_provider_rejects_missing_required_parameter_before_release():
     del payload["parameters"]["target_rotation"]
     provider = _provider(payload)
     with pytest.raises(QwenProviderError, match="missing required parameters"):
+        provider.propose("Prepare the soccer goal.")
+
+
+def test_provider_rejects_invalid_vector_before_release():
+    payload = _payload()
+    payload["parameters"]["target_location"] = [0.0, 5.302]
+    provider = _provider(payload)
+    with pytest.raises(QwenProviderError, match="target_location must contain three values"):
         provider.propose("Prepare the soccer goal.")
 
 
