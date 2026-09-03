@@ -15,6 +15,9 @@ from controller.agent_entrypoint_runtime import (
 from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.trusted_unreal_context import TrustedUnrealContext
+from planning.unreal_production_controller_integration import (
+    UnrealProductionControllerIntegration,
+)
 
 
 class AgentControllerHost:
@@ -66,6 +69,43 @@ class AgentControllerHost:
         self._loop = AgentControllerLoopAdapter(
             self._runtime,
             execution_context=self._execution_context,
+        )
+
+    @classmethod
+    def for_unreal_production(
+        cls,
+        integration: UnrealProductionControllerIntegration,
+        trusted_context: TrustedUnrealContext,
+    ) -> "AgentControllerHost":
+        """Build a host bound to one real Unreal production integration.
+
+        The integration must already embody the production execution boundary,
+        while the trusted context must already contain the host-approved
+        authorization, intent, and sequence binding. This constructor performs
+        no planning or authorization itself.
+        """
+        if not isinstance(
+            integration,
+            UnrealProductionControllerIntegration,
+        ):
+            raise TypeError(
+                "integration must be a UnrealProductionControllerIntegration instance"
+            )
+
+        if not isinstance(trusted_context, TrustedUnrealContext):
+            raise TypeError(
+                "trusted_context must be a TrustedUnrealContext instance"
+            )
+
+        process = AtlasAgentProcessRuntime(
+            unreal_production=integration,
+        )
+        execution_context = AgentExecutionContext()
+        execution_context.install_unreal(trusted_context)
+
+        return cls(
+            process=process,
+            execution_context=execution_context,
         )
 
     @property
