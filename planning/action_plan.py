@@ -1,16 +1,27 @@
 """Generic deterministic action-plan primitives for Atlas."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
 class ActionSpec:
-    """One authorized action in an execution plan."""
+    """One authorized action in an execution plan.
+
+    ``depends_on`` names actions that must have completed successfully before
+    this action can execute. Dependencies are declarative; execution remains
+    deterministic and serial in the supplied action-list order.
+    """
+
     tool: str
     arguments: Dict[str, Any]
     name: str = ""
     requires_success: bool = True
+    depends_on: Tuple[str, ...] = ()
+
+    def dependency_names(self) -> Tuple[str, ...]:
+        """Return normalized dependency names without changing declaration order."""
+        return tuple(str(item).strip() for item in self.depends_on)
 
 
 @dataclass
@@ -70,7 +81,7 @@ class ActionPlan:
         if not self.authorized:
             raise RuntimeError("Action plan execution requires valid authorization.")
         action = self.actions[self.current_index]
-        entry = {"index": self.current_index, "name": action.name or action.tool, "tool": action.tool, "arguments": action.arguments, "result": result, "success": bool(success)}
+        entry = {"index": self.current_index, "name": action.name or action.tool, "tool": action.tool, "arguments": action.arguments, "depends_on": list(action.dependency_names()), "result": result, "success": bool(success)}
         self.completed.append(entry)
         if success:
             self.current_index += 1
@@ -87,7 +98,7 @@ class ActionPlan:
             "blocked": self.blocked,
             "authorized": self.authorized,
             "authorization": self.authorization.snapshot() if self.authorization is not None else None,
-            "next_action": ({"name": next_action.name or next_action.tool, "tool": next_action.tool, "arguments": next_action.arguments} if next_action is not None else None),
+            "next_action": ({"name": next_action.name or next_action.tool, "tool": next_action.tool, "arguments": next_action.arguments, "depends_on": list(next_action.dependency_names())} if next_action is not None else None),
             "completed": list(self.completed),
             "failure": self.failed,
         }
