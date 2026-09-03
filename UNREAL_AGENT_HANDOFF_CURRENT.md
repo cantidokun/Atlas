@@ -1,46 +1,111 @@
 # Atlas Unreal Agent — Current Development Handoff
 
-**Updated:** August 27, 2026
-**Branch:** `feat/unreal-composite-production-operation`
-**Latest pushed Blueprint commit:** `d783ebd` — `Implement Unreal Blueprint production integration`
+**Updated:** September 2, 2026
+**Branch:** `integrate-origin-main-with-render-receipt`
+**Controller-boundary checkpoint:** focused host/controller suite green
 
 ## Current checkpoint
 
-Development is paused for the night. The Unreal Blueprint production boundary is actively being hardened and is **not yet green**.
+The Unreal Agent development has now progressed through the **agent-to-controller trust boundary**. The Python/controller side is green for the current focused tests, while live Unreal Blueprint production remains a separate, still-open engine-dependent milestone.
 
-The important distinction at this checkpoint is that the real Blueprint mutation now executes successfully. The remaining failure is in the evidence shape returned after the mutation, not in the transport write itself.
-
-## Verified repository state
-
-The broader Atlas regression checkpoint reached:
+The important distinction is:
 
 ```text
-735 passed
+controller-layer green
+≠
+live Unreal Blueprint boundary green
 ```
 
-The dedicated real Blueprint integration suite currently reports:
+The controller path now has a host-owned execution context capable of carrying already-authorized Unreal production state into the explicit agent/controller request path.
+
+## What is completed
+
+### Provider-neutral controller boundary
+
+The explicit request path is:
 
 ```text
-1 failed, 2 passed
+model response
+ ↓
+ATLAS_CONTROLLER_REQUEST
+ ↓
+AgentControllerIntent
+ ↓
+AgentTaskRequest
+ ↓
+AgentControllerHost
+ ↓
+AgentControllerLoopAdapter
+ ↓
+AgentEntrypointRuntime
+ ↓
+AgentProcessRuntime
+ ↓
+capability admission
+ ↓
+capability execution
+ ↓
+UnrealProductionControllerIntegration
 ```
 
-The remaining failure is:
+Ordinary Blender/Qwen reasoning and tool execution remain outside this controller path.
+
+### Trusted execution context
+
+`AgentExecutionContext` is host-owned and scoped to one agent execution.
+
+It carries already-authorized provider context and does not create authorization. Provider selection comes only from the parsed controller request. Model-supplied capability, intent metadata, or context values cannot create or replace trusted state.
+
+Within one execution context, provider context replacement is prohibited. Replacement requires a new execution context.
+
+### Trusted Unreal binding
+
+`TrustedUnrealContext` binds:
 
 ```text
-test_real_unreal_blueprint_metadata_mutation_persists_after_compile
+UnrealAuthorizedProductionPlan
++ authoritative UnrealTaskIntent
++ approved sequence asset path
 ```
 
-The failure is:
+The authorization's plan intent ID must match the authoritative Unreal task intent ID before the context can be installed.
+
+### Host lifecycle
+
+`AgentControllerHost` owns the controller runtime, process runtime, loop adapter, and execution context. It also provides the explicit Unreal production composition point for an already-authorized production integration/context pair.
+
+This is the source-level foundation required before permitting real model-driven Unreal production execution.
+
+## Latest validated test state
+
+Focused controller/agent boundary suite:
 
 ```text
-KeyError: 'metadata'
+62 passed
 ```
 
-Specifically, the production mutation succeeds and the executor returns `result.success is True`, but the Blueprint state evidence at `evidence_ledger[1]` does not yet contain the expected `metadata` object.
+The validated scope includes:
 
-## What was completed tonight
+- controller intent parsing
+- nested explicit request extraction
+- trusted context behavior
+- trusted Unreal context validation
+- execution-context provider binding
+- controller loop adapter
+- agent controller host lifecycle
+- synthetic agent-to-controller end-to-end behavior
 
-The Blueprint production path now includes:
+No live Unreal workflow/action-runner test was run for this checkpoint.
+
+## Existing live Unreal proof
+
+The previously established live Unreal proof remains the reference for the existing production/render boundary, including the Named Pipe transport, real Unreal execution, independent evidence, and render receipt verification.
+
+Those live results do not automatically validate the newer model-to-controller host path.
+
+## Blueprint production milestone
+
+The narrow Blueprint production sequence remains:
 
 ```text
 READ   inspect_blueprint_state
@@ -49,35 +114,9 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The planner produces the controlled metadata mutation sequence and the executor's execution-shape validation has been adjusted so the Blueprint mutation/compile sequence can execute through the intended production boundary.
+The remaining live Blueprint issue previously identified is that the post-mutation Blueprint evidence must expose persisted metadata under the `metadata` field. The mutation/compile execution itself had already succeeded; the failure was in the evidence shape.
 
-The real Unreal transport now recognizes and executes `set_blueprint_metadata`.
-
-The deterministic fixture is committed:
-
-```text
-/Game/AtlasTest/BP_AtlasTest.BP_AtlasTest
-```
-
-Repository asset:
-
-```text
-unreal/AtlasUnrealHarness/Content/AtlasTest/BP_AtlasTest.uasset
-```
-
-The UE 5.6 harness was rebuilt successfully after adding the required metadata/save-package implementation dependencies.
-
-## Exact remaining fix
-
-`BuildBlueprintState()` in:
-
-```text
-unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp
-```
-
-must serialize Blueprint metadata into the observed state.
-
-The intended evidence shape is:
+The intended evidence remains:
 
 ```json
 {
@@ -92,103 +131,57 @@ The intended evidence shape is:
 }
 ```
 
-The source already includes the metadata dependency. The next session should verify that the committed implementation actually populates the `metadata` JSON object from the Blueprint's metadata map, rebuild the harness, and rerun the real integration suite.
+Do not expand into arbitrary Blueprint graph authoring until this narrow production boundary is green.
 
-## Next commands
+## Next development gate
 
-From `Atlas-Unreal-Aider`:
+When development resumes, first finish the source-level integration between the actual agent-facing runtime and `AgentControllerHost` without disturbing the existing Blender/Qwen path.
 
-```powershell
-git pull --ff-only origin feat/unreal-composite-production-operation
-```
+Then, after that boundary is explicitly ready, the next engine-dependent gate is the live Unreal controller-to-production execution test using a real pre-authorized `TrustedUnrealContext`.
 
-Confirm Unreal is running:
+The live Blueprint evidence issue should be revalidated separately and must not be conflated with controller-layer success.
 
-```powershell
-Get-Process UnrealEditor -ErrorAction SilentlyContinue |
-    Select-Object ProcessName,Id,Path
-```
+## Architectural progression
 
-Build:
-
-```powershell
-& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" `
-  AtlasUnrealHarnessEditor `
-  Win64 `
-  Development `
-  -Project="$PWD\unreal\AtlasUnrealHarness\AtlasUnrealHarness.uproject" `
-  -WaitMutex `
-  -architecture=x64
-```
-
-Run the focused suite:
-
-```powershell
-python -m pytest tests/test_unreal_blueprint_real_integration.py -q
-```
-
-Target:
+The intended provider path remains:
 
 ```text
-3 passed
-```
-
-After that, run the complete Python regression suite before declaring the Blueprint boundary green.
-
-## Architectural rule
-
-Do not expand into arbitrary Blueprint graph authoring until the narrow metadata/compile production boundary is completely green.
-
-The intended progression remains:
-
-1. prove Blueprint inspection
-2. prove controlled metadata mutation
-3. prove compilation
-4. independently verify persisted metadata and compile state
-5. prove failure/recovery semantics
-6. freeze the Blueprint production contract
-7. expand incrementally into component/variable/node/pin authoring
-
-Every capability must preserve:
-
-```text
+Atlas task intent
+ ↓
 plan
  ↓
 authorization
+ ↓
+trusted host context
+ ↓
+explicit model/controller request
+ ↓
+capability admission
  ↓
 production execution
  ↓
 fresh evidence
  ↓
 independent verification
+ ↓
+recovery if required
 ```
 
-A successful write is never proof of the resulting state.
-
-## Next major production boundary
-
-After Blueprint is production-complete, the next major boundary is Render:
-
-```text
-READ   inspect_render_state
-WRITE  configure_render
-VERIFY verify_render_state
-```
-
-Movie Render Queue execution should be layered on top only after deterministic render configuration verification exists.
+Every capability must preserve this control philosophy.
 
 ## Architectural invariants
 
 - Atlas owns the canonical Digital Twin.
 - Atlas plans and authorizes.
-- Unreal executes.
-- Unreal provides evidence.
-- Atlas independently verifies evidence.
-- Verification is never satisfied by echoing requested write arguments.
+- Qwen proposes/reasons; it is never the execution authority.
+- Unreal executes authorized operations.
+- Unreal provides evidence; Atlas independently verifies it.
+- Successful writes are never proof of resulting state.
 - Recovery requires fresh evidence.
-- Replacement requires a new exact authorization.
+- Replacement requires fresh exact authorization.
 - The Unreal Agent does not become a second autonomous authority.
 - Preserve the Named Pipe wire protocol.
 - Keep Unreal isolated from Blender and the action/workflow runner.
+- Do not introduce entity discovery or an Atlas-side entity cache to compensate for fixture problems.
 - Do not weaken fail-closed validation.
-- Preserve language-agnostic subsystem boundaries so performance-critical components can later be replaced incrementally with C++ implementations.
+- Preserve language-agnostic subsystem contracts for future C++ replacement of performance-sensitive components.
