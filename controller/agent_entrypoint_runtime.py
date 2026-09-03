@@ -66,6 +66,17 @@ class AtlasAgentEntrypointRuntime:
         """Return the execution context owned by this entrypoint."""
         return self._execution_context
 
+    def bind_execution_context(
+        self,
+        execution_context: AgentExecutionContext,
+    ) -> None:
+        """Bind an explicitly supplied host context to this runtime."""
+        if not isinstance(execution_context, AgentExecutionContext):
+            raise TypeError(
+                "execution_context must be an AgentExecutionContext instance"
+            )
+        self._execution_context = execution_context
+
     def dispatch(self, request: AgentTaskRequest) -> AgentEntrypointExecution:
         """Classify one request and execute it only when the route is controller-owned."""
         if not isinstance(request, AgentTaskRequest):
