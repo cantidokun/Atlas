@@ -10,6 +10,7 @@ second executor or authorization system.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
@@ -50,6 +51,11 @@ class AutonomousTaskRuntime:
             )
             for action in task.actions
         ]
+
+    @staticmethod
+    def _task_metadata(task: AtlasTaskDefinition) -> Dict[str, Any]:
+        """Copy semantic task metadata into the continuation envelope."""
+        return deepcopy(task.metadata or {})
 
     @staticmethod
     def _completed_action_names(controller: FutureExecutionController) -> Set[str]:
@@ -106,18 +112,29 @@ class AutonomousTaskRuntime:
         actions = cls._actions(task)
         authorization = None if target.satisfied else orchestrator.authorize_execution(authorization_id)
         steps = DeterministicFutureGenerator(task.evaluator).generate(target.satisfied, actions)
-        metadata: Dict[str, Any] = {"target_satisfied": target.satisfied, "target_evaluation": target.snapshot()}
+        metadata: Dict[str, Any] = {
+            "target_satisfied": target.satisfied,
+            "target_evaluation": target.snapshot(),
+            "task_metadata": cls._task_metadata(task),
+        }
         if authorization is not None:
             metadata["action_authorization"] = authorization.snapshot()
         runtime = AutonomousFutureRuntime(steps, state_store, runtime_context, metadata=metadata)
-        cls._validate_persisted_binding(runtime, metadata, actions)
+        cls._validate_persisted_binding(runtime, metadata, actions, task=task)
         return cls(task, runtime, executor, authorization, current_actions=actions)
 
     @staticmethod
-    def _validate_persisted_binding(runtime: AutonomousFutureRuntime, metadata: Dict[str, Any], actions: List[ActionSpec]) -> None:
+    def _validate_persisted_binding(
+        runtime: AutonomousFutureRuntime,
+        metadata: Dict[str, Any],
+        actions: List[ActionSpec],
+        task: Optional[AtlasTaskDefinition] = None,
+    ) -> None:
         target_satisfied = metadata.get("target_satisfied")
         if not isinstance(target_satisfied, bool):
             raise RuntimeError("persisted task target decision is missing or invalid")
+        if task is not None and metadata.get("task_metadata") != AutonomousTaskRuntime._task_metadata(task):
+            raise RuntimeError("persisted task semantic metadata does not match the task definition")
         expected_step = runtime.steps[2]
         if target_satisfied and expected_step.phase != "SKIP_WRITES":
             raise RuntimeError("persisted task target decision does not match the generated future")
@@ -143,12 +160,15 @@ class AutonomousTaskRuntime:
         actions = cls._actions(task)
         envelope = state_store.load()
         metadata = envelope.get("metadata") or {}
+        if metadata.get("task_metadata") != cls._task_metadata(task):
+            raise RuntimeError("persisted task semantic metadata does not match the task definition")
         target_satisfied = metadata.get("target_satisfied")
         if not isinstance(target_satisfied, bool):
             raise RuntimeError("persisted task target decision is missing or invalid")
         steps = DeterministicFutureGenerator(task.evaluator).generate(target_satisfied, actions)
         raw_authorization = metadata.get("action_authorization")
         authorization = None
+        inherited_dependencies = tuple(envelope.get("snapshot", {}).get("inherited_dependencies", ()))
         if target_satisfied:
             if raw_authorization is not None:
                 raise RuntimeError("satisfied task cannot resume with write authorization")
@@ -156,12 +176,12 @@ class AutonomousTaskRuntime:
             if not isinstance(raw_authorization, dict):
                 raise RuntimeError("unsatisfied task cannot resume without persisted action authorization")
             authorization = ActionAuthorization.from_snapshot(raw_authorization)
-            if not authorization.matches(actions):
+            if not authorization.matches(actions, inherited_dependencies=inherited_dependencies):
                 raise RuntimeError("persisted action authorization does not match the task action plan")
         runtime = AutonomousFutureRuntime.resume_from_store(steps, state_store, runtime_context)
         if runtime.metadata != metadata:
             raise RuntimeError("persisted task metadata changed during runtime reconstruction")
-        cls._validate_persisted_binding(runtime, metadata, actions)
+        cls._validate_persisted_binding(runtime, metadata, actions, task=task)
         recovery_gate = FutureRecoveryGate(runtime.controller) if runtime.controller.blocked else None
         if recovery_gate is not None:
             recovery_gate.classify_failure()
@@ -286,6 +306,7 @@ class AutonomousTaskRuntime:
             "target_satisfied": target.satisfied,
             "target_evaluation": target.snapshot(),
             "replanned_from": authorization.snapshot(),
+            "task_metadata": self._task_metadata(self.task),
         }
         if execution_authorization is not None:
             metadata["action_authorization"] = execution_authorization.snapshot()
@@ -305,7 +326,7 @@ class AutonomousTaskRuntime:
         self.current_actions = actions
         self.recovery_gate = None
         self.replan_authorization = None
-        self._validate_persisted_binding(self.runtime, metadata, actions)
+        self._validate_persisted_binding(self.runtime, metadata, actions, task=self.task)
         return self
 
     def run_until_pause(self) -> Dict[str, Any]:
