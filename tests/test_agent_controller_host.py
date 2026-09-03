@@ -208,4 +208,4 @@ def test_host_factory_routes_real_model_request_to_registered_unreal_integration
         captured["request"].context["sequence_asset_path"]
         == trusted.sequence_asset_path
     )
-    assert captured["request"].intent == "forged-model-intent"
+    assert result.classified.request.intent == "forged-model-intent"
