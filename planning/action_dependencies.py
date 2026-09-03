@@ -14,29 +14,45 @@ def validate_action_dependencies(actions: List[ActionSpec]) -> None:
 
     The action list remains the execution and authorization order. Dependencies
     may constrain that order but never reorder it or introduce parallelism.
+
+    Dependency-free legacy action lists are accepted unchanged. Once a task
+    declares dependencies, action names must be unique so dependency references
+    are deterministic.
     """
     if not isinstance(actions, list):
         raise TypeError("actions must be a list of ActionSpec objects")
     if any(not isinstance(action, ActionSpec) for action in actions):
         raise TypeError("actions must contain only ActionSpec objects")
 
+    has_dependencies = any(action.dependency_names() for action in actions)
     names: Dict[str, int] = {}
+    duplicates: Set[str] = set()
     for index, action in enumerate(actions):
         name = (action.name or action.tool).strip()
         if not name:
             raise ActionDependencyError("every action must have a non-empty name or tool")
         if name in names:
-            raise ActionDependencyError(f"duplicate action name: {name}")
-        names[name] = index
+            duplicates.add(name)
+        else:
+            names[name] = index
+
+    if has_dependencies and duplicates:
+        raise ActionDependencyError(
+            f"dependency-bearing action plan has ambiguous names: {sorted(duplicates)}"
+        )
+
+    if not has_dependencies:
+        return
 
     for index, action in enumerate(actions):
         dependencies = action.dependency_names()
         if len(dependencies) != len(set(dependencies)):
             raise ActionDependencyError(f"action {index} declares duplicate dependencies")
+        action_name = (action.name or action.tool).strip()
         for dependency in dependencies:
             if not dependency:
                 raise ActionDependencyError(f"action {index} declares an empty dependency")
-            if dependency == (action.name or action.tool).strip():
+            if dependency == action_name:
                 raise ActionDependencyError(f"action {index} cannot depend on itself")
             dependency_index = names.get(dependency)
             if dependency_index is None:
@@ -46,9 +62,6 @@ def validate_action_dependencies(actions: List[ActionSpec]) -> None:
                     f"action {index} depends on a later action: {dependency}"
                 )
 
-    # The positional rule above establishes an acyclic topological order. Keep
-    # an explicit traversal here so future extensions cannot accidentally
-    # weaken cycle detection by changing the validation strategy.
     graph: Dict[str, Set[str]] = {
         (action.name or action.tool).strip(): set(action.dependency_names())
         for action in actions
