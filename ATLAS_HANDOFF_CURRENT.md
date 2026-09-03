@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow live-verified, target-state regression coverage extended, and canonical workflow catalog added
+**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow live-verified, target-state regression coverage extended, and canonical versioned workflow catalog added
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
 **Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals, reusable composition fragments, self-contained workflow templates, and a canonical declarative workflow catalog compiled into the existing autonomous task runtime
@@ -134,17 +134,17 @@ The reusable workflow test suite directly exercises the evaluator attached by `B
 
 ### Canonical soccer-production workflow catalog — ADDED
 
-`planning/soccer_production_catalog.py` now provides a small declarative catalog for reusable soccer-production workflows. It currently exposes the canonical `broadcast-goal-preparation` workflow with a stable objective, template identity, and required parameter contract.
+`planning/soccer_production_catalog.py` provides a declarative catalog for reusable soccer-production workflows. It currently exposes the canonical `broadcast-goal-preparation` workflow with a stable objective, template identity, required parameter contract, and **version 1** contract marker.
 
-The catalog supports exact-name resolution and typed template construction while rejecting missing or unexpected parameters. It only constructs declarative templates; it does not execute, authorize, schedule, or recover work.
+The catalog supports exact-name resolution and validated template construction while rejecting missing or unexpected parameters. Workflow descriptors are immutable and parameter definitions must be unique. The catalog only constructs declarative templates; it does not execute, authorize, schedule, or recover work.
 
-This establishes a controlled resolution surface that can later accept an AI-generated workflow proposal without allowing proposal text to become execution authority.
+The version marker establishes a stable contract identity for a future AI proposal-resolution layer without granting proposal text any execution authority.
 
 ## CI
 
 GitHub Actions `Atlas Tests` run **#1337** completed successfully for commit `2f84e10123501eb64146bd5ae1ca53659185b774`, which contains the live-verified reusable workflow implementation and live harness alignment.
 
-The subsequent commits are test/documentation/catalog follow-ups. The latest branch head is expected to receive its own workflow run before it is described as CI-green; until that run appears, only the verified `#1337` result should be cited as CI evidence.
+The subsequent commits are test/documentation/catalog follow-ups. The latest branch head is `60561fd88b6a68802e1c9447e1f78125ed520cc6`, and no workflow run is currently associated with that exact head, so it must not yet be described as CI-green.
 
 ## Unreal
 
@@ -183,7 +183,7 @@ Preserve coverage for:
 - production-task metadata -> remain descriptive, never executable;
 - fragment semantics -> retained through composition without creating execution authority;
 - reusable workflow target-state evaluation -> authoritative matching and fail-closed mismatch behavior;
-- reusable workflow catalog -> exact-name and parameter-contract validation;
+- reusable workflow catalog -> exact-name, version, immutability, and parameter-contract validation;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
