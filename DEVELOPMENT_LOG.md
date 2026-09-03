@@ -1,8 +1,8 @@
 # Atlas Development Log
 
-## September 3, 2026 — Qwen Proposal, Atlas Authorization, Runtime, and Cross-Process Recovery
+## September 3, 2026 — Qwen Proposal, Atlas Authorization, Runtime, Recovery, and Artifact Lineage
 
-Atlas advanced through the full Stage 16 Qwen integration boundary and live-verified Qwen-originated recovery across a Python process restart.
+Atlas completed the current Stage 16 Qwen integration contract and advanced into Stage 17 production-artifact lineage.
 
 ### Stage 16 provider milestone
 
@@ -69,28 +69,13 @@ The live mutation targeted `Goal_Left_post` at `[0.5, 5.302, 0.0]` with rotation
 
 ### Qwen-originated cross-process recovery — LIVE VERIFIED
 
-`scripts/run_live_qwen_production_recovery_restart.py` now exercises the established Atlas recovery path with persisted Qwen provenance.
+`scripts/run_live_qwen_production_recovery_restart.py` exercises the established Atlas recovery path with persisted Qwen provenance.
 
-Phase 1:
-- obtains a live Qwen proposal;
-- validates and compiles it through the trusted catalog;
-- obtains Atlas authorization;
-- executes the first real action in Blender;
-- intentionally fails the later action before Blender is invoked;
-- persists the blocked continuation plus Qwen provenance.
+Phase 1 obtains a live Qwen proposal, crosses normal Atlas authorization, executes the first real Blender action, intentionally fails the later action before Blender invocation, and persists the blocked continuation plus Qwen provenance.
 
-Phase 2:
-- starts a fresh Python process;
-- reconstructs the persisted Qwen handoff through canonical validation/recompilation;
-- reconstructs the existing Atlas runtime and original authorization;
-- acquires fresh authoritative evidence;
-- derives only the unfinished action from the persisted authorized workflow;
-- explicitly issues a new Atlas replan authorization;
-- executes the replacement action;
-- independently verifies the complete target state;
-- restores the fixture.
+Phase 2 starts a fresh Python process, reconstructs the canonical handoff, obtains a fresh Qwen recovery recommendation, validates that recommendation against the persisted task contract, acquires fresh authoritative evidence, derives only the unfinished action from the persisted authorized workflow, explicitly issues a new Atlas replan authorization, executes the replacement action, independently verifies the complete target state, and restores the fixture.
 
-User-verified output:
+User-verified output included:
 
 ```text
 LIVE QWEN PRODUCTION RECOVERY VERIFIED
@@ -100,22 +85,44 @@ workflow_version=1
 qwen_provenance_recovered=verified
 initial_authorization_recovered=verified
 process_restart=verified
+qwen_recovery_recommendation=verified
+qwen_recovery_recommendation_advisory_only=verified
 fresh_recovery_evidence=verified
 qwen_workflow_target_revalidated=verified
 completed_prerequisite_not_replayed=verified
+replan_authorization=atlas-qwen-recovery-replan
 replacement_execution=verified
 independent_final_verification=verified
+fixture_restored_location=[0.25, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-This establishes that Qwen-originated work can cross a process boundary without giving Qwen recovery authority. Atlas still owns recovery classification, evidence acquisition, replan authorization, execution, and final verification.
+This establishes that Qwen can participate in recovery reasoning without receiving recovery authority. Atlas still owns recovery classification, evidence acquisition, replan authorization, execution, and final verification.
+
+GitHub Actions Atlas Tests #1439 passed after the live-guided recovery increment.
 
 ### Recovery architecture rule
 
 Do not add a Qwen-specific executor, authorization system, scheduler, or recovery controller. Qwen remains an intent/proposal source; Atlas remains the sole production authority and recovery owner.
 
-### CI note
+## Stage 17 — Production artifact lineage foundation
 
-A CI run after the initial recovery changes exposed one assertion-message mismatch (`615 passed, 1 failed`). The test expectation was corrected. A subsequent CI result for the newest correction commit has not yet been reported, so CI should not be described as green until a fresh run confirms it.
+The next architectural gap identified after Stage 16 was provenance between the canonical Digital Twin and its concrete production representations. Atlas already had task provenance, evidence, and engine-specific receipts, but no small reusable cross-engine lineage contract.
+
+`planning/production_artifact.py` introduces `ProductionArtifactManifest` as a non-executable lineage record. It binds:
+
+- a stable canonical Digital Twin identifier;
+- a concrete artifact representation and path;
+- upstream source-artifact relationships;
+- workflow/version/parameter provenance;
+- independently generated evidence and receipt digests;
+- engine and engine-version metadata.
+
+The manifest is deterministic and independently digestable, supports fail-closed reconstruction from persisted snapshots, rejects malformed or unknown fields, and rejects self-referential or duplicate source relationships.
+
+`tests/test_production_artifact.py` provides regression coverage. The manifest deliberately exposes no execution, authorization, scheduling, or recovery behavior.
+
+This is an architectural foundation, not a claim that the complete production asset graph is finished.
 
 ## Stage 15 — Semantic Soccer Production Tasks
 
@@ -154,4 +161,5 @@ Cross-process Unreal render-job recovery remains unimplemented.
 - Keep engine-specific execution behind adapter/tool boundaries.
 - Preserve canonical Digital Twin identity separately from DCC/engine artifacts.
 - Keep dependency-aware execution serial until concurrency is independently justified.
+- Keep lineage/provenance separate from execution authority.
 - Keep project handoffs and readmes synchronized with verified milestones.
