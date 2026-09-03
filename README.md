@@ -48,7 +48,7 @@ Qwen never receives direct production execution authority.
 
 # Current Atlas status — September 3, 2026
 
-Stage 13 multi-step autonomous partial-progress recovery is fully live-verified against Blender 4.4 and passed GitHub Actions. Stage 14 dependency-aware task composition is implemented at the validation, authorization, structured-planning, deterministic-future, and checkpoint execution layers; its dedicated real-Blender proof remains the final acceptance step.
+Stage 13 multi-step autonomous partial-progress recovery is fully live-verified against Blender 4.4 and passed GitHub Actions. Stage 14 dependency-aware task composition is now live-proven for the serial dependency path and is being extended through cross-process dependency-aware recovery.
 
 ## Stage 13 verified proof
 
@@ -120,7 +120,9 @@ Implemented foundation:
 - the structured task-plan JSON schema accepts optional `depends_on` declarations;
 - structured task-plan validation carries dependencies into `ActionSpec` and validates them before authorization;
 - `FutureExecutionController` derives dependency completion from successful future checkpoints rather than executor result payloads;
-- regression coverage covers dependency validation, authorization binding, structured-plan propagation, and fail-closed dependency execution.
+- inherited prerequisites proven complete by an earlier authorized continuation can be explicitly carried into a recovery replan;
+- inherited dependency state is included in the deterministic future integrity digest and persisted snapshot;
+- regression coverage covers dependency validation, authorization binding, structured-plan propagation, checkpoint-derived dependency completion, and inherited-prerequisite recovery semantics.
 
 The current execution model is deliberately serial:
 
@@ -140,28 +142,66 @@ checkpoint
 
 Atlas is not scheduling independent branches in parallel yet. Concurrency remains a later architectural decision.
 
-## Live Stage 14 proof target
+## Live Stage 14 serial proof — VERIFIED
 
-A dedicated real-Blender harness is present at:
+`scripts/run_live_dependency_task.py` was successfully executed against the real Blender 4.4 environment.
 
-`scripts/run_live_dependency_task.py`
-
-It performs a small soccer-field-related task against the real Blender fixture with:
+Observed proof:
 
 ```text
-prepare_location
-      ↓
-prepare_rotation
-      depends_on = prepare_location
+LIVE AUTONOMOUS DEPENDENCY TASK VERIFIED
+object=Goal_Left_post
+original_location=[0.0, 5.302, 0.0]
+target_location=[0.25, 5.302, 0.0]
+target_rotation=[0.0, 0.0, 15.0]
+explicit_dependency=prepare_rotation->prepare_location
+dependency_validation=verified
+dependency_authorization=verified
+dependency_execution_order=verified
+fresh_final_verification=verified
+fixture_restored_location=[0.0, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-The harness routes writes through the existing persistence boundary, performs independent evidence acquisition, verifies the final state, and restores the fixture.
+This proves explicit dependency metadata survives validation, authorization, real serial Blender execution, independent verification, and fixture restoration.
 
-Stage 14 is not complete until this live proof passes and the current regression matrix is green.
+## Stage 14 dependency-aware recovery — NEXT PROOF
 
----
+A dedicated two-process harness is present at:
 
-# Unreal Agent status
+`scripts/run_live_dependency_recovery.py`
+
+Its purpose is to prove:
+
+```text
+prepare_location succeeds
+        ↓
+checkpoint
+        ↓
+prepare_rotation fails
+        ↓
+BLOCKED
+        ↓
+process restart
+        ↓
+fresh evidence
+        ↓
+recover completed prerequisite
+        ↓
+explicit replan authorization
+        ↓
+execute dependent replacement action
+        ↓
+fresh independent verification
+```
+
+The recovery implementation explicitly carries the proven `prepare_location` prerequisite into the replacement future rather than treating it as nonexistent after the original plan is replaced.
+
+## CI
+
+A new `Atlas Tests` workflow is running for the dependency/recovery implementation series. Stage 14 must not be marked complete until the current matrix is green and the dependency-aware recovery proof passes.
+
+## Unreal Agent status
 
 Unreal production transport and rendering are proven locally for the current implemented capabilities:
 
@@ -277,6 +317,7 @@ Preserve coverage for:
 - dependency references → validated before execution;
 - dependency-aware authorization → exact plan binding;
 - dependency completion → derived from successful future checkpoints;
+- inherited dependency completion → explicitly recorded and integrity-bound;
 - cross-process continuation → recovered authorization and fresh verification;
 - cross-process blocked recovery → recovered gate + authorization before replan;
 - mutated arguments/result → receipt mismatch;
@@ -314,14 +355,17 @@ Preserve coverage for:
 
 Complete **Stage 14 — dependency-aware task composition**.
 
-First obtain a green CI result for the current dependency foundation. Then run:
+Next run the dependency-aware recovery proof as two processes:
 
 ```powershell
-python -m scripts.run_live_dependency_task --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+python -m scripts.run_live_dependency_recovery --phase failure --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+python -m scripts.run_live_dependency_recovery --phase recover --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
 ```
 
-Only after the live dependency proof passes should Atlas evaluate whether independent branches warrant a future concurrency stage.
+Do not mark Stage 14 complete until the two-process recovery proof and the current CI matrix are both green. Only after that should Atlas evaluate safe scheduling of independent branches.
 
 Do not expand Qwen autonomy yet.
 
 Do not claim cross-process Unreal render-job recovery unless it is separately implemented and verified.
+
+PR #49 remains draft/unmerged.
