@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 Qwen provider, Atlas authorization handoff, and runtime-boundary integration implemented
+**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 Qwen provider, Atlas authorization handoff, runtime boundary, and first end-to-end mutation harness implemented
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
 **Stage status:** Stage 15 COMPLETE FOR CURRENT CONTRACT; Stage 16 IN PROGRESS
@@ -52,7 +52,7 @@ Stage 15 therefore closes for the current contract.
 
 ## CI checkpoint
 
-GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Stage 16 provider tests passed run **#1383** for commit `bcbf3c76be2b4737783233b681f0b7f47113318d`. Run **#1384** passed for the subsequent provider-to-catalog revision. Run **#1394** exposed three stale provider-test expectations while the live smoke test also exposed model-generated invalid parameter values; both classes of issues have since been corrected. The live Qwen proposal-only smoke was subsequently user-verified successfully. Qwen handoff/runtime-boundary commits are awaiting current CI results.
+GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Stage 16 provider tests passed run **#1383** for commit `bcbf3c76be2b4737783233b681f0b7f47113318d`. Run **#1384** passed for the subsequent provider-to-catalog revision. Run **#1394** exposed three stale provider-test expectations while the live smoke test also exposed model-generated invalid parameter values; both classes of issues have since been corrected. The live Qwen proposal-only smoke was subsequently user-verified successfully. The latest Qwen handoff/runtime commits do not yet have a reported workflow result in the connector.
 
 ## Stage 16 — Qwen proposal integration IN PROGRESS
 
@@ -83,7 +83,8 @@ Implemented:
 - `planning/authorized_task_runtime.py` adds a generic bootstrap seam that accepts only an already-issued Atlas `ActionAuthorization`, verifies exact action-plan binding, acquires authoritative initial evidence, evaluates the target, and constructs the existing `AutonomousTaskRuntime` without minting a second receipt;
 - the bootstrap fails closed for invalid authorization type, action-plan mismatch, or an already-satisfied target with write authorization;
 - `tests/test_authorized_task_runtime.py` covers reuse of the exact pre-issued receipt, exact-plan binding, satisfied-target rejection, and validation before evidence acquisition;
-- `scripts/run_live_qwen_production_runtime_boundary.py` provides the next live proof: local Qwen proposal, trusted compilation, existing Atlas authorization, authoritative Blender inspection, and construction of the existing autonomous runtime, stopping before the first ACTION write and explicitly checking the Blender fixture remains unchanged.
+- `scripts/run_live_qwen_production_runtime_boundary.py` provides the no-write live proof through runtime construction and verifies the Blender fixture is unchanged before the `ACTION` phase;
+- `scripts/run_live_qwen_production_runtime.py` provides the first full Qwen-authorized mutation path: live proposal -> trusted catalog -> Atlas-issued authorization -> existing autonomous runtime -> Blender mutation -> independent final verification -> exact fixture restoration.
 
 ### Live Stage 16 proposal-only smoke test — VERIFIED
 
@@ -102,15 +103,11 @@ execution=not_attempted
 blender_mutation=not_attempted
 ```
 
-### Stage 16 controlled authorization handoff
+### Stage 16 authorization/runtime boundary
 
-The live provider result can now be converted into an explicit Atlas authorization through `QwenProductionTaskHandoff`. Atlas, not Qwen, issues the `ActionAuthorization`; authorization is detached from model output and bound to the canonical compiled action plan. Integrity is rechecked before this boundary is crossed.
+The Qwen proposal now has a controlled route into Atlas authority. `QwenProductionTaskHandoff` performs provenance and canonical-recompile checks before delegating to the existing Atlas authorization path. `planning.authorized_task_runtime.start_authorized_task_runtime(...)` then consumes that already-issued authorization and constructs the existing `AutonomousTaskRuntime`. Initial Blender evidence is read through `BlenderExecutionBoundary`; the bootstrap itself performs no mutation.
 
-### Stage 16 existing-runtime boundary
-
-The runtime boundary is now implemented without creating a Qwen-specific runtime. The generic `planning.authorized_task_runtime.start_authorized_task_runtime(...)` function consumes an Atlas-issued authorization receipt and creates the existing `AutonomousTaskRuntime`. Initial Blender evidence is read through the established `BlenderExecutionBoundary`; no write occurs during bootstrap. The live boundary harness verifies the fixture state before and after bootstrap and stops before `ACTION`.
-
-The intended authority flow is now:
+The complete architectural flow is:
 
 ```text
 Qwen
@@ -133,14 +130,34 @@ generic pre-authorized runtime bootstrap
   ↓
 existing AutonomousTaskRuntime
   ↓
-existing Blender execution / verification / recovery
+existing Blender execution
+  ↓
+fresh independent verification
+  ↓
+fixture restoration
 ```
 
 There is still no Qwen execution engine, Qwen authorization receipt, parallel scheduler, or alternate recovery path.
 
-### Stage 16 next work
+### Next live commands
 
-Run and validate `scripts/run_live_qwen_production_runtime_boundary.py` against the local Blender 4.4 installation. A successful proof establishes the complete live boundary through runtime construction while stopping before the first write. After that, the next checkpoint is a real Qwen-authorized Blender mutation using the existing runtime, with fresh independent verification and exact fixture restoration; failure/recovery should then reuse the already-proven recovery machinery rather than adding Qwen-specific recovery logic.
+From the Atlas repository on the local Windows machine:
+
+```powershell
+cd "C:\Users\Gavin's PC\Desktop\Atlas"
+git pull
+python -m scripts.run_live_qwen_production_runtime_boundary --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+```
+
+A successful boundary proof should show `qwen_proposal=verified`, `atlas_authorization=verified`, `existing_task_runtime=verified`, `authorized_future_constructed=verified`, `action_execution=not_attempted`, and unchanged fixture transforms.
+
+Then the full end-to-end mutation proof:
+
+```powershell
+python -m scripts.run_live_qwen_production_runtime --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+```
+
+A successful full proof must show live Qwen proposal validation, Atlas authorization, existing runtime execution, independent final verification, and exact fixture restoration. This is the first point at which Qwen will have driven a real Blender mutation, but only through Atlas's already-established authority and verification boundaries.
 
 ## Unreal
 
@@ -172,4 +189,4 @@ PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly reque
 
 ## Resume point
 
-**Continue Stage 16 by live-validating `scripts/run_live_qwen_production_runtime_boundary.py`. The proof must stop after construction of the existing Atlas autonomous runtime and demonstrate that Qwen's proposal and Atlas authorization have crossed the boundary without any Blender write. Once verified, perform the first Qwen-authorized Blender mutation through the existing runtime, then independently verify and restore the fixture.**
+**Continue Stage 16 by running and validating `scripts/run_live_qwen_production_runtime_boundary.py`, then the full `scripts/run_live_qwen_production_runtime.py`. Do not add a Qwen-specific runtime or authorization system. After the full mutation proof succeeds, extend the same Qwen proposal/handoff contract into the already-proven failure/recovery machinery and verify that recovery remains Atlas-owned, explicitly authorized, independently verified, and free of automatic write retries.**
