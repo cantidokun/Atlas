@@ -112,3 +112,54 @@ def test_trusted_provider_is_optional(monkeypatch):
     )
 
     assert captured["trusted_context_provider"] is None
+
+
+def test_controller_marker_is_not_reinterpreted_as_a_blender_tool(monkeypatch):
+    captured = {}
+
+    def fake_bridge(runtime, content, **kwargs):
+        captured["content"] = content
+        return "controller-execution"
+
+    monkeypatch.setattr(
+        loop,
+        "submit_controller_request_from_model_output",
+        fake_bridge,
+    )
+
+    runtime = _runtime()
+    adapter = loop.AgentControllerLoopAdapter(runtime)
+
+    content = (
+        "ATLAS_CONTROLLER_REQUEST: "
+        + '{"capability": "production", "provider": "unreal"}'
+    )
+
+    result = adapter.process_model_response(content)
+
+    assert result == "controller-execution"
+    assert captured["content"] == content
+
+
+def test_controller_adapter_does_not_supply_authorization_itself(monkeypatch):
+    captured = {}
+
+    def fake_bridge(runtime, content, **kwargs):
+        captured.update(kwargs)
+        return "execution"
+
+    monkeypatch.setattr(
+        loop,
+        "submit_controller_request_from_model_output",
+        fake_bridge,
+    )
+
+    runtime = _runtime()
+    adapter = loop.AgentControllerLoopAdapter(runtime)
+
+    adapter.process_model_response(
+        "ATLAS_CONTROLLER_REQUEST: "
+        + '{"capability": "production", "provider": "unreal"}'
+    )
+
+    assert captured["trusted_context_provider"] is None
