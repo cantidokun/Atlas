@@ -8,10 +8,12 @@ from typing import Any, Dict, List, Mapping, Optional, Protocol
 
 import requests
 
-from planning.soccer_production_catalog import available_soccer_production_workflows
+from planning.soccer_production_catalog import (
+    available_soccer_production_workflows,
+    validate_soccer_production_workflow_parameters,
+)
 from qwen.production_proposal import QwenProductionProposal
 from qwen.provider_output import parse_qwen_production_output
-from qwen.structured_plan import PRODUCTION_PROPOSAL_JSON_SCHEMA
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_QWEN_MODEL = "qwen3:8b"
@@ -107,11 +109,11 @@ class OllamaQwenProvider:
             "You do not have access to Blender, Unreal, files, executors, tools, authorization, "
             "persistence, scheduling, or recovery.\n"
             "Return exactly one JSON object matching the supplied schema.\n"
-            "The workflow field must be copied exactly from the canonical catalog. The version "
-            "field must be the numeric catalog version and must never be combined with the workflow name.\n"
-            "Every required parameter must be populated. Use values explicitly present in the objective "
-            "or verified context. Never emit an empty required string, a missing required parameter, "
-            "or invented placeholder data.\n"
+            "The workflow field must be copied exactly from the canonical catalog. The version field "
+            "must be the numeric catalog version and must never be combined with the workflow name.\n"
+            "Every required parameter must be populated with a non-empty value of the declared type. "
+            "Use values explicitly present in the objective or verified context. Never emit an empty "
+            "required string, a missing required parameter, or invented placeholder data.\n"
             "Canonical catalog:\n"
             f"{catalog_text}\n"
             "Do not emit actions, tool calls, executor names, authorization requests, file writes, "
@@ -136,6 +138,20 @@ class OllamaQwenProvider:
                 raise ValueError("Qwen provider history message content must be strings.")
             normalized.append({"role": role, "content": content})
         return normalized
+
+    @staticmethod
+    def _validate_semantic_proposal(proposal: QwenProductionProposal) -> QwenProductionProposal:
+        try:
+            validate_soccer_production_workflow_parameters(
+                proposal.workflow,
+                proposal.parameters,
+                version=proposal.version,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise QwenProviderError(
+                f"Ollama Qwen returned a proposal rejected by the Atlas catalog: {exc}"
+            ) from exc
+        return proposal
 
     def propose(
         self,
@@ -180,7 +196,10 @@ class OllamaQwenProvider:
         if not isinstance(content, (str, bytes, bytearray, dict)):
             raise QwenProviderError("Ollama Qwen response message is missing proposal content.")
         try:
-            return parse_qwen_production_output(content)
+            proposal = parse_qwen_production_output(content)
+            return self._validate_semantic_proposal(proposal)
+        except QwenProviderError:
+            raise
         except (TypeError, ValueError) as exc:
             raise QwenProviderError(f"Ollama Qwen returned an invalid production proposal: {exc}") from exc
 
