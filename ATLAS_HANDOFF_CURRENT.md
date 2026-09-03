@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified.
+**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified; Qwen-guided recovery recommendation binding implemented but not yet live-verified.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
 **Current stage:** Stage 16 — IN PROGRESS
@@ -44,66 +44,11 @@ target_rotation -> vector3
 
 ## Stage 16 — Qwen integration
 
-### Verified: proposal, authorization, runtime, and real Blender mutation
+### Verified: proposal, authorization, runtime, real Blender mutation, and cross-process recovery
 
-The local proposal-only Qwen smoke was user-verified, and the full Qwen-authorized production runtime was subsequently verified against Blender 4.4.
+The local proposal-only Qwen smoke and full Qwen-authorized production runtime were user-verified against Blender 4.4.
 
-```text
-LIVE QWEN-AUTHORIZED SOCCER PRODUCTION RUNTIME VERIFIED
-object=Goal_Left_post
-workflow=broadcast-goal-preparation
-workflow_version=1
-qwen_proposal=verified
-catalog_validation=verified
-semantic_task=verified
-atlas_authorization=verified
-authorization_id=atlas-qwen-production-runtime-live
-existing_task_runtime=verified
-blender_execution=verified
-independent_final_verification=verified
-```
-
-The live mutation targeted the verified Qwen workflow parameters and the harness restored the fixture afterward.
-
-### Verified: durable Qwen recovery across Python restart
-
-`qwen/production_handoff.py` supports `QwenProductionTaskHandoff.from_snapshot(...)` for cross-process continuation. The persisted proposal is revalidated and recompiled through the trusted catalog/compiler, and persisted semantic/compiled snapshots plus digests must match exactly. Persisted handoffs remain inert until Atlas explicitly authorizes work.
-
-`scripts/run_live_qwen_production_recovery_restart.py` was user-verified in two phases:
-
-```text
-Phase 1
-Qwen proposal
-  ↓
-trusted catalog validation
-  ↓
-Atlas authorization
-  ↓
-existing AutonomousTaskRuntime
-  ↓
-first Blender action succeeds
-  ↓
-later action deliberately fails before Blender invocation
-  ↓
-durable continuation + Qwen provenance checkpoint
-
-Phase 2 — fresh Python process
-persisted Qwen handoff reconstruction
-  ↓
-existing Atlas continuation recovery
-  ↓
-fresh authoritative evidence
-  ↓
-explicit replan authorization
-  ↓
-unfinished action replacement
-  ↓
-fresh independent verification
-  ↓
-fixture restoration
-```
-
-User-verified recovery signals:
+The two-process Qwen-originated recovery proof was also user-verified:
 
 ```text
 LIVE QWEN PRODUCTION RECOVERY VERIFIED
@@ -116,28 +61,37 @@ process_restart=verified
 fresh_recovery_evidence=verified
 qwen_workflow_target_revalidated=verified
 completed_prerequisite_not_replayed=verified
+replan_authorization=atlas-qwen-recovery-replan
 replacement_execution=verified
 independent_final_verification=verified
 fixture_restored_location=[0.25, 5.302, 0.0]
 fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-This is the current highest verified Qwen milestone. Qwen-originated work now survives a process boundary while Atlas retains sole authority over recovery classification, evidence, replan authorization, execution, and final verification.
+This proves that Qwen-originated work can cross a Python restart while Atlas retains sole authority over recovery classification, fresh evidence, replan authorization, execution, and final verification.
 
-## Current architectural direction
+### Implemented: Qwen-guided recovery recommendation binding
 
-The next useful increment is not a new Qwen executor or recovery engine. The existing proven Qwen workflow proposal contract should be used to express recovery intent where appropriate, while Atlas derives the executable unfinished action from the persisted authorized task, validates dependency constraints, issues the explicit replan authorization, and performs the write through the existing runtime.
+`QwenProductionTaskHandoff.validate_recovery_recommendation(...)` now validates a fresh Qwen production recommendation against the exact persisted canonical task. A changed workflow, version, object, target, dependency-bearing task contract, or other compiled-task difference is rejected before replan authorization.
 
-Do not create a Qwen-specific execution engine, authorization system, scheduler, or recovery system.
-Do not introduce parallel execution until dependency semantics justify it independently.
+The model therefore cannot expand recovery scope simply by proposing a new action or target. Atlas derives the executable unfinished action from the persisted authorized task and continues to use the existing recovery authorization/runtime path.
+
+Targeted regression coverage verifies matching recommendations and fail-closed target/object changes.
 
 ## Next verification gate
 
-The newest recovery-related code has not yet received a fresh reported CI result after the latest correction commit. Obtain a fresh offline CI result before treating the branch as regression-clean.
+The latest local suite before this guided-recovery increment was **616 passed in 1.43s**. Pull the newest branch and rerun:
 
-Then continue by hardening the Qwen-to-recovery proposal boundary and add tests proving that a model cannot expand a recovery replan beyond the unfinished authorized scope or alter inherited prerequisites.
+```powershell
+cd "C:\Users\Gavin's PC\Desktop\Atlas"
+git pull
+python -m pytest -q -m "not integration"
+```
 
-Recovery must remain Atlas-owned, require fresh authoritative evidence, require explicit replan authorization, preserve completed prerequisites, and never automatically retry failed writes.
+After the suite is green, the next live proof should make a fresh Qwen recommendation during Phase 2 recovery, validate it through `validate_recovery_recommendation(...)`, then let Atlas derive and explicitly authorize only the unfinished replacement action.
+
+Do not create a Qwen-specific execution engine, authorization system, scheduler, or recovery system.
+Do not introduce parallel execution until dependency semantics justify it independently.
 
 ## Unreal status
 
