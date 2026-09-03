@@ -4,6 +4,8 @@ import difflib
 import re
 
 from tools import TOOLS
+from controller.agent_controller_loop import AgentControllerLoopAdapter
+from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
 
 
 
@@ -1158,6 +1160,15 @@ READ_ONLY_TOOL_NAMES = {
 
 tool_execution_history = []
 
+# Generic controller bridge for explicit model-emitted controller intent.
+# No trusted authorization provider is supplied here. Protected
+# controller capabilities therefore remain fail-closed until a trusted
+# in-process authorization/context source is deliberately connected.
+agent_controller_runtime = AtlasAgentEntrypointRuntime()
+agent_controller_loop = AgentControllerLoopAdapter(
+    agent_controller_runtime
+)
+
 
 def task_explicitly_authorizes_modification(messages):
     """Detect explicit authorization in the current user task."""
@@ -1367,6 +1378,57 @@ for step in range(MAX_REASONING_STEPS):
 
     result = response.json()
     assistant_message = result["message"]
+
+    # ------------------------------------------------------------
+    # EXPLICIT GENERIC CONTROLLER REQUEST
+    # ------------------------------------------------------------
+    # This hook is opt-in. Ordinary Blender responses continue through
+    # the existing reasoning/evidence/tool path unchanged.
+    controller_content = assistant_message.get("content", "")
+    controller_execution = agent_controller_loop.process_model_response(
+        controller_content
+    )
+
+    if controller_execution is not None:
+        print(
+            "\n========== ATLAS CONTROLLER EXECUTION =========="
+        )
+        print(controller_execution)
+
+        # The controller path owns this response. Never reinterpret an
+        # explicit controller request as a Blender final answer or Blender
+        # tool call, regardless of whether the controller accepted it.
+        messages.append(assistant_message)
+
+        if controller_execution.controller_executed:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "The requested controller capability was processed "
+                        "by the Atlas controller runtime. Continue reasoning "
+                        "using the controller result already returned to "
+                        "the runtime. Do not fabricate authorization or "
+                        "controller execution state."
+                    )
+                }
+            )
+        else:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "The explicit controller request was not executed "
+                        "by the Atlas controller runtime. Do not reinterpret "
+                        "it as a Blender tool request or fabricate execution "
+                        "or authorization state. Continue reasoning from "
+                        "the actual controller result."
+                    )
+                }
+            )
+
+        continue
+
 
     print(json.dumps(assistant_message, indent=2))
 
