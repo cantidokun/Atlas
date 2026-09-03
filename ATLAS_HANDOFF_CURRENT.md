@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified; Qwen-guided recovery recommendation binding is implemented and CI-verified, with the new live recommendation call awaiting user-side Blender/Ollama verification.
+**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified, including a fresh Qwen recovery recommendation; Stage 17 production-artifact lineage foundation added.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
-**Current stage:** Stage 16 — IN PROGRESS
+**Current stage:** Stage 17 — production artifact lineage, IN PROGRESS
 
 ## Authority model
 
@@ -42,13 +42,13 @@ target_location -> vector3
 target_rotation -> vector3
 ```
 
-## Stage 16 — Qwen integration
+## Stage 16 — Qwen integration — VERIFIED FOR CURRENT CONTRACT
 
-### Verified: proposal, authorization, runtime, real Blender mutation, and cross-process recovery
+The local proposal-only Qwen smoke, full Qwen-authorized Blender mutation, and two-process recovery were user-verified against Blender 4.4.
 
-The local proposal-only Qwen smoke and full Qwen-authorized production runtime were user-verified against Blender 4.4.
+The recovery proof additionally makes a fresh Phase 2 Qwen recommendation after process restart. Atlas validates that recommendation against the persisted canonical task, treats it as advisory only, derives the unfinished executable action from the persisted authorized task, and uses the existing Atlas replan/recovery path.
 
-The two-process Qwen-originated recovery proof was also user-verified:
+User-verified output includes:
 
 ```text
 LIVE QWEN PRODUCTION RECOVERY VERIFIED
@@ -58,6 +58,8 @@ workflow_version=1
 qwen_provenance_recovered=verified
 initial_authorization_recovered=verified
 process_restart=verified
+qwen_recovery_recommendation=verified
+qwen_recovery_recommendation_advisory_only=verified
 fresh_recovery_evidence=verified
 qwen_workflow_target_revalidated=verified
 completed_prerequisite_not_replayed=verified
@@ -68,43 +70,28 @@ fixture_restored_location=[0.25, 5.302, 0.0]
 fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-This proves that Qwen-originated work can cross a Python restart while Atlas retains sole authority over recovery classification, fresh evidence, replan authorization, execution, and final verification.
+GitHub Actions Atlas Tests **#1439 passed** after this live-verification increment.
 
-### Implemented and CI-verified: Qwen-guided recovery recommendation binding
+## Stage 17 — Production artifact lineage
 
-`QwenProductionTaskHandoff.validate_recovery_recommendation(...)` validates a fresh Qwen production recommendation against the exact persisted canonical task. A changed workflow, version, object, target, dependency-bearing task contract, or other compiled-task difference is rejected before replan authorization.
+A new non-executable foundation is now present in `planning/production_artifact.py`:
 
-The live restart harness now makes a fresh Phase 2 call to Qwen after process restart. The recommendation is validated as advisory intent only. Atlas does not consume model-supplied actions, authorization, tools, or recovery instructions; it derives the executable unfinished `ActionSpec` from the persisted canonical task and continues through the existing `recover_with_fresh_evidence(...)` → `authorize_replan(...)` → `install_authorized_replan(...)` path.
+`ProductionArtifactManifest` binds a production representation to a canonical Digital Twin identifier while preserving upstream source-artifact relationships, workflow provenance, evidence digests, receipt digests, and engine/version metadata.
 
-GitHub Actions **Atlas Tests #1438 is green** on the implementing commit. The pre-change local baseline was **619 passed in 1.57s**. The new Phase 2 Qwen recommendation call itself still requires the next user-side live verification with Ollama + Blender.
+The manifest is immutable, deterministic, independently digestable, reconstructable from persisted snapshots, and fail-closed on tampering or malformed fields. It intentionally exposes no execution, authorization, scheduling, or recovery behavior.
 
-## Next verification gate
+Regression coverage is in `tests/test_production_artifact.py`.
 
-Pull the latest branch and rerun the existing local suite:
+This establishes lineage as a cross-engine provenance contract rather than conflating `.blend` files, Unreal projects, render outputs, or receipts with canonical Digital Twin identity.
 
-```powershell
-cd "C:\Users\Gavin's PC\Desktop\Atlas"
-git pull
-python -m pytest -q -m "not integration"
-```
+## Next work
 
-Then perform the two-process live recovery proof. Phase 1 remains unchanged; Phase 2 now requires the local Ollama service and will ask Qwen for a recovery recommendation before Atlas derives the unfinished action.
+Integrate `ProductionArtifactManifest` into the existing evidence/receipt paths, beginning with a narrow Blender production-artifact lineage proof and then the corresponding Unreal boundary.
 
-```powershell
-python -m scripts.run_live_qwen_production_recovery_restart --phase failure --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+The first integration should link the canonical Digital Twin identifier, input artifact lineage, workflow provenance, and independently verified output artifact without changing execution authority or introducing another runtime.
 
-python -m scripts.run_live_qwen_production_recovery_restart --phase recover --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-```
-
-Expected new Phase 2 markers include:
-
-```text
-qwen_recovery_recommendation=verified
-qwen_recovery_recommendation_advisory_only=verified
-```
-
-Do not create a Qwen-specific execution engine, authorization system, scheduler, or recovery system.
-Do not introduce parallel execution until dependency semantics justify it independently.
+Do not create a second execution, authorization, scheduler, or recovery system for lineage tracking.
+Do not introduce parallel execution until dependency semantics independently justify it.
 
 ## Unreal status
 
