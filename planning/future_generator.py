@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from action_plan import ActionSpec
+from planning.action_dependencies import validate_action_dependencies
 from planning.target_state import TargetStateEvaluator
 
 
@@ -47,8 +48,9 @@ class DeterministicFutureGenerator:
     * target satisfied -> SKIP_WRITES -> VERIFY/COMPLETE
     * target unsatisfied -> each authorized action -> VERIFY -> COMPLETE
 
-    Callers must supply the target decision explicitly. A missing decision is
-    rejected so the future cannot silently assume that writes are necessary.
+    Action dependencies are constraints on the already-authorized action list.
+    Atlas deliberately does not reorder or parallelize actions here; the list
+    remains the single deterministic execution and authorization order.
     """
 
     def __init__(self, evaluator: TargetStateEvaluator):
@@ -61,6 +63,7 @@ class DeterministicFutureGenerator:
             "name": action.name or action.tool,
             "tool": action.tool,
             "arguments": dict(action.arguments),
+            "depends_on": list(action.dependency_names()),
         }
 
     def generate(self, target_satisfied: Optional[bool], actions: List[ActionSpec]) -> List[FutureStep]:
@@ -72,6 +75,7 @@ class DeterministicFutureGenerator:
             raise TypeError("actions must be a list of ActionSpec objects.")
         if any(not isinstance(action, ActionSpec) for action in actions):
             raise TypeError("actions must contain only ActionSpec objects.")
+        validate_action_dependencies(actions)
 
         steps: List[FutureStep] = [
             FutureStep(0, "evidence.authoritative", "EVIDENCE", "Use authoritative evidence already acquired."),
@@ -92,7 +96,7 @@ class DeterministicFutureGenerator:
                     sequence=2 + index,
                     step_id=f"action.{index}",
                     phase="ACTION",
-                    description=f"Execute authorized action {index + 1} only after all prior required steps succeed.",
+                    description=f"Execute authorized action {index + 1} only after all declared dependencies and prior required steps succeed.",
                     action=self._action_payload(index, action),
                 )
             )
