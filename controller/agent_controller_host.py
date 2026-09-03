@@ -13,6 +13,7 @@ from controller.agent_entrypoint_runtime import (
     AtlasAgentEntrypointRuntime,
 )
 from controller.agent_execution_context import AgentExecutionContext
+from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.trusted_unreal_context import TrustedUnrealContext
 
 
@@ -24,6 +25,7 @@ class AgentControllerHost:
         *,
         runtime: Optional[AtlasAgentEntrypointRuntime] = None,
         execution_context: Optional[AgentExecutionContext] = None,
+        process: Optional[AtlasAgentProcessRuntime] = None,
     ) -> None:
         if runtime is not None and not isinstance(
             runtime,
@@ -31,6 +33,14 @@ class AgentControllerHost:
         ):
             raise TypeError(
                 "runtime must be an AtlasAgentEntrypointRuntime instance"
+            )
+
+        if process is not None and not isinstance(
+            process,
+            AtlasAgentProcessRuntime,
+        ):
+            raise TypeError(
+                "process must be an AtlasAgentProcessRuntime instance"
             )
 
         if execution_context is not None and not isinstance(
@@ -41,7 +51,17 @@ class AgentControllerHost:
                 "execution_context must be an AgentExecutionContext instance"
             )
 
-        self._runtime = runtime or AtlasAgentEntrypointRuntime()
+        if runtime is not None and process is not None:
+            raise ValueError(
+                "provide runtime or process, not both"
+            )
+
+        if runtime is None:
+            runtime = AtlasAgentEntrypointRuntime(
+                process or AtlasAgentProcessRuntime()
+            )
+
+        self._runtime = runtime
         self._execution_context = (
             execution_context or AgentExecutionContext()
         )
@@ -53,6 +73,10 @@ class AgentControllerHost:
     @property
     def runtime(self) -> AtlasAgentEntrypointRuntime:
         return self._runtime
+
+    @property
+    def process(self) -> AtlasAgentProcessRuntime:
+        return self._runtime._process
 
     @property
     def execution_context(self) -> AgentExecutionContext:
