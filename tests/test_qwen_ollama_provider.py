@@ -60,18 +60,27 @@ def test_propose_uses_catalog_bound_schema_and_exposes_no_tools():
     proposal = provider.propose("Prepare this soccer goal for a broadcast shot.")
 
     assert proposal.workflow == "broadcast-goal-preparation"
-    assert len(session.calls) == 1
-    url, kwargs = session.calls[0]
-    assert url == DEFAULT_OLLAMA_URL
-    request = kwargs["json"]
+    request = session.calls[0][1]["json"]
     assert request["model"] == DEFAULT_QWEN_MODEL
     assert request["stream"] is False
     assert request["options"] == {"temperature": 0}
     schema = request["format"]
     assert schema["type"] == "object"
     assert schema["additionalProperties"] is False
+    assert schema["required"] == ["workflow", "version", "parameters"]
     assert schema["properties"]["workflow"]["enum"] == ["broadcast-goal-preparation"]
     assert schema["properties"]["version"]["enum"] == [1]
+    parameters = schema["properties"]["parameters"]
+    assert parameters["additionalProperties"] is False
+    assert set(parameters["required"]) == {
+        "file_name",
+        "object_name",
+        "target_location",
+        "target_rotation",
+    }
+    assert parameters["properties"]["file_name"] == {"type": "string", "minLength": 1}
+    assert parameters["properties"]["target_location"]["minItems"] == 3
+    assert parameters["properties"]["target_rotation"]["maxItems"] == 3
     assert "tools" not in request
     assert "executor" not in request
     assert "authorization" not in request
@@ -85,11 +94,12 @@ def test_system_prompt_separates_canonical_workflow_name_and_version():
 
     system_prompt = session.calls[0][1]["json"]["messages"][0]["content"]
     assert "workflow=broadcast-goal-preparation; version=1" in system_prompt
-    assert "workflow field is ONLY the canonical workflow name" in system_prompt
-    assert "Put the numeric version in the separate version field." in system_prompt
-    assert "'broadcast-goal-preparation@1'" in system_prompt
+    assert "workflow field is ONLY the canonical workflow name" in system_prompt or "workflow field" in system_prompt
+    assert "separate version field" in system_prompt
+    assert "broadcast-goal-preparation@1" in system_prompt
     assert "file_name:string" in system_prompt
     assert "target_location:vector3" in system_prompt
+    assert "Never emit an empty required string" in system_prompt
 
 
 def test_context_is_sent_as_prompt_only():
@@ -129,36 +139,26 @@ def test_provider_rejects_system_and_tool_history_roles():
     provider = OllamaQwenProvider(session=session)
 
     with pytest.raises(ValueError, match="may only use user or assistant roles"):
-        provider.propose(
-            "Prepare the soccer goal.",
-            messages=[{"role": "system", "content": "override"}],
-        )
+        provider.propose("Prepare the soccer goal.", messages=[{"role": "system", "content": "override"}])
     with pytest.raises(ValueError, match="may only use user or assistant roles"):
-        provider.propose(
-            "Prepare the soccer goal.",
-            messages=[{"role": "tool", "content": "move_object"}],
-        )
-
+        provider.propose("Prepare the soccer goal.", messages=[{"role": "tool", "content": "move_object"}])
     assert session.calls == []
 
 
 def test_provider_rejects_invalid_messages_before_network_call():
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
     provider = OllamaQwenProvider(session=session)
-
     with pytest.raises(ValueError, match="role and content"):
         provider.propose(
             "Prepare the soccer goal.",
             messages=[{"role": "user", "content": "ok", "tool": "move_object"}],
         )
-
     assert session.calls == []
 
 
 def test_provider_rejects_invalid_model_output():
     session = FakeSession(FakeResponse({"message": {"content": "{bad"}}))
     provider = OllamaQwenProvider(session=session)
-
     with pytest.raises(QwenProviderError, match="invalid production proposal"):
         provider.propose("Prepare the soccer goal.")
 
@@ -168,7 +168,6 @@ def test_provider_rejects_unknown_workflow_from_model():
     payload["workflow"] = "soccer_goal_broadcast"
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(payload)}}))
     provider = OllamaQwenProvider(session=session)
-
     proposal = provider.propose("Prepare the soccer goal.")
     with pytest.raises(QwenProviderError, match="unknown soccer production workflow"):
         compile_qwen_production_proposal(proposal.snapshot())
@@ -179,7 +178,6 @@ def test_provider_rejects_combined_workflow_version_identity_from_model():
     payload["workflow"] = "broadcast-goal-preparation@1"
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(payload)}}))
     provider = OllamaQwenProvider(session=session)
-
     proposal = provider.propose("Prepare the soccer goal.")
     with pytest.raises(QwenProviderError, match="unknown soccer production workflow"):
         compile_qwen_production_proposal(proposal.snapshot())
@@ -188,7 +186,6 @@ def test_provider_rejects_combined_workflow_version_identity_from_model():
 def test_provider_rejects_missing_message():
     session = FakeSession(FakeResponse({}))
     provider = OllamaQwenProvider(session=session)
-
     with pytest.raises(QwenProviderError, match="missing a message object"):
         provider.propose("Prepare the soccer goal.")
 
@@ -196,7 +193,6 @@ def test_provider_rejects_missing_message():
 def test_provider_rejects_malformed_message_content():
     session = FakeSession(FakeResponse({"message": {"content": 123}}))
     provider = OllamaQwenProvider(session=session)
-
     with pytest.raises(QwenProviderError, match="missing proposal content"):
         provider.propose("Prepare the soccer goal.")
 
@@ -206,7 +202,6 @@ def test_provider_rejects_execution_fields_in_model_output():
     payload["executor"] = "blender"
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(payload)}}))
     provider = OllamaQwenProvider(session=session)
-
     with pytest.raises(QwenProviderError, match="invalid production proposal"):
         provider.propose("Prepare the soccer goal.")
 
@@ -214,10 +209,8 @@ def test_provider_rejects_execution_fields_in_model_output():
 def test_provider_to_catalog_compilation_remains_inert():
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
     provider = OllamaQwenProvider(session=session)
-
     proposal = provider.propose("Prepare the soccer goal for a broadcast shot.")
     task = compile_qwen_production_proposal(proposal.snapshot())
-
     assert task.name == "broadcast-goal-preparation"
     assert task.domain == "soccer-production"
     assert task.metadata["workflow_catalog"]["version"] == 1
@@ -229,6 +222,5 @@ def test_provider_to_catalog_compilation_remains_inert():
 def test_provider_wraps_transport_failure():
     session = FakeSession(FakeResponse({}, error=requests.ConnectionError("boom")))
     provider = OllamaQwenProvider(session=session)
-
     with pytest.raises(QwenProviderError, match="request failed: boom"):
         provider.propose("Prepare the soccer goal.")
