@@ -9,6 +9,7 @@ from planning.unreal_adapter_production import UnrealAdapterProduction
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
 from planning.unreal_plan_executor import UnrealPlanExecutor
 from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeAdapter
+from tests.test_trusted_unreal_context import _authorized
 from tests.test_unreal_heterogeneous_production import ProductionTransport
 
 
@@ -26,7 +27,10 @@ def test_unreal_production_registers_as_named_capability():
         CapabilityRequest(
             capability="production",
             provider="unreal",
-            context={"production": True},
+            context={
+                "production": True,
+                "authorized_production": _authorized(),
+            },
         )
     )
     assert capability is not None
@@ -53,8 +57,36 @@ def test_unreal_production_capability_does_not_match_without_explicit_context():
     assert dispatcher.resolve(
         CapabilityRequest(
             capability="production",
+            provider="unreal",
+            context={"production": True},
+        )
+    ) is None
+    assert dispatcher.resolve(
+        CapabilityRequest(
+            capability="production",
             provider="blender",
             context={"production": True},
+        )
+    ) is None
+
+
+def test_unreal_production_capability_rejects_forged_authorization():
+    dispatcher = ControllerCapabilityDispatcher()
+    integration = UnrealProductionControllerIntegration(
+        UnrealProductionRuntimeAdapter(
+            UnrealPlanExecutor(UnrealAdapterProduction(ProductionTransport(), "capability-forged-test"))
+        )
+    )
+    register_unreal_production_capability(dispatcher, integration)
+
+    assert dispatcher.resolve(
+        CapabilityRequest(
+            capability="production",
+            provider="unreal",
+            context={
+                "production": True,
+                "authorized_production": "FORGED",
+            },
         )
     ) is None
 
