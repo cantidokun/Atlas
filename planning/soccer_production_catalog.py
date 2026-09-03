@@ -6,10 +6,12 @@ authorize actions, schedule runtime, or provide a second recovery path.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from copy import deepcopy
 from typing import Any, Dict, Tuple
 
 from planning.soccer_production_templates import BroadcastGoalPreparationTemplate
+from planning.production_task import ProductionTaskDefinition
 
 
 @dataclass(frozen=True)
@@ -155,10 +157,38 @@ def build_soccer_production_workflow(
     raise RuntimeError(f"workflow catalog entry has no builder: {spec.name}")
 
 
+def compile_soccer_production_workflow(
+    name: str,
+    parameters: Dict[str, Any],
+    version: int | None = None,
+) -> ProductionTaskDefinition:
+    """Compile a versioned workflow proposal into the canonical semantic task.
+
+    The resolved workflow descriptor and normalized proposal parameters become
+    semantic provenance on the single production-task contract. No execution,
+    authorization, scheduling, or recovery behavior is introduced here.
+    """
+    spec = validate_soccer_production_workflow_parameters(name, parameters, version=version)
+    template = build_soccer_production_workflow(name, parameters, version=spec.version)
+    task = template.production_task()
+    metadata = deepcopy(task.metadata or {})
+    metadata["workflow_catalog"] = spec.snapshot()
+    metadata["workflow_parameters"] = {
+        parameter_name: (
+            list(parameters[parameter_name])
+            if kind == "vector3"
+            else parameters[parameter_name]
+        )
+        for parameter_name, kind in spec.parameter_kinds
+    }
+    return replace(task, metadata=metadata)
+
+
 __all__ = [
     "SoccerProductionWorkflowSpec",
     "available_soccer_production_workflows",
     "build_soccer_production_workflow",
+    "compile_soccer_production_workflow",
     "get_soccer_production_workflow",
     "validate_soccer_production_workflow_parameters",
 ]
