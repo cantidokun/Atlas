@@ -80,6 +80,11 @@ def _context(path: Path) -> RuntimeContext:
     )
 
 
+def _resolve_state_file(raw: str) -> Path:
+    path = Path(raw)
+    return path if path.is_absolute() else (Path.cwd() / path).resolve()
+
+
 def phase_failure(path: Path, blender: str, object_name: str, state_file: Path) -> None:
     boundary = BlenderExecutionBoundary(
         BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=blender)
@@ -110,6 +115,8 @@ def phase_failure(path: Path, blender: str, object_name: str, state_file: Path) 
     metadata = store.load()["metadata"]
     if metadata["task_metadata"]["workflow_catalog"]["version"] != 1:
         raise RuntimeError("versioned workflow provenance was not persisted")
+    if not state_file.is_file():
+        raise RuntimeError(f"versioned workflow checkpoint file was not created: {state_file}")
 
     class FailRotation:
         def __init__(self, delegate: Any) -> None:
@@ -124,6 +131,8 @@ def phase_failure(path: Path, blender: str, object_name: str, state_file: Path) 
     failed = runtime.run_until_pause()
     if failed.get("blocked") is not True or failed.get("failure", {}).get("step_id") != "action.1":
         raise RuntimeError(f"versioned workflow did not fail at rotation action: {failed}")
+    if not state_file.is_file():
+        raise RuntimeError(f"versioned workflow failure checkpoint disappeared: {state_file}")
 
     print("LIVE VERSIONED WORKFLOW RECOVERY PHASE 1 VERIFIED")
     print(f"object={object_name}")
@@ -134,10 +143,13 @@ def phase_failure(path: Path, blender: str, object_name: str, state_file: Path) 
     print("action_1=completed")
     print("action_2=controlled_failure")
     print("partial_progress_checkpoint=verified")
+    print(f"state_file={state_file}")
     print("process_restart=ready")
 
 
 def phase_recover(path: Path, blender: str, object_name: str, state_file: Path) -> None:
+    if not state_file.is_file():
+        raise FileNotFoundError(f"versioned workflow checkpoint not found: {state_file} (cwd={Path.cwd()})")
     boundary = BlenderExecutionBoundary(
         BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=blender)
     )
@@ -242,11 +254,12 @@ def main() -> int:
     parser.add_argument("--state-file", default="Saved/atlas-live-versioned-workflow-recovery.json")
     args = parser.parse_args()
     path = Path(args.blend)
+    state_file = _resolve_state_file(args.state_file)
     try:
         if args.phase == "failure":
-            phase_failure(path, args.blender, args.object, Path(args.state_file))
+            phase_failure(path, args.blender, args.object, state_file)
         else:
-            phase_recover(path, args.blender, args.object, Path(args.state_file))
+            phase_recover(path, args.blender, args.object, state_file)
     except Exception as exc:
         print(f"LIVE VERSIONED WORKFLOW RECOVERY FAILED: {exc}")
         return 1
