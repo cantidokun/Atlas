@@ -20,6 +20,7 @@ class SoccerProductionWorkflowSpec:
     objective: str
     template_name: str
     required_parameters: Tuple[str, ...]
+    parameter_kinds: Tuple[Tuple[str, str], ...]
     version: int = 1
 
     def __post_init__(self) -> None:
@@ -33,6 +34,17 @@ class SoccerProductionWorkflowSpec:
             raise ValueError("workflow spec parameters must contain non-empty strings")
         if len(set(self.required_parameters)) != len(self.required_parameters):
             raise ValueError("workflow spec parameters must be unique")
+        if any(
+            not isinstance(name, str) or not name.strip()
+            or not isinstance(kind, str) or not kind.strip()
+            for name, kind in self.parameter_kinds
+        ):
+            raise ValueError("workflow spec parameter kinds must contain non-empty name and kind strings")
+        parameter_names = [name for name, _ in self.parameter_kinds]
+        if len(parameter_names) != len(set(parameter_names)):
+            raise ValueError("workflow spec parameter kind names must be unique")
+        if set(parameter_names) != set(self.required_parameters):
+            raise ValueError("workflow spec parameter kinds must exactly match required parameters")
         if not isinstance(self.version, int) or isinstance(self.version, bool) or self.version < 1:
             raise ValueError("workflow spec version must be a positive integer")
 
@@ -42,6 +54,7 @@ class SoccerProductionWorkflowSpec:
             "objective": self.objective,
             "template_name": self.template_name,
             "required_parameters": list(self.required_parameters),
+            "parameter_kinds": {name: kind for name, kind in self.parameter_kinds},
             "version": self.version,
         }
 
@@ -55,6 +68,12 @@ _BROADCAST_GOAL = SoccerProductionWorkflowSpec(
         "object_name",
         "target_location",
         "target_rotation",
+    ),
+    parameter_kinds=(
+        ("file_name", "string"),
+        ("object_name", "string"),
+        ("target_location", "vector3"),
+        ("target_rotation", "vector3"),
     ),
     version=1,
 )
@@ -98,6 +117,18 @@ def validate_soccer_production_workflow_parameters(
     unexpected = sorted(set(parameters) - set(spec.required_parameters))
     if unexpected:
         raise ValueError(f"workflow {name} received unexpected parameters: {unexpected}")
+    for parameter_name, kind in spec.parameter_kinds:
+        value = parameters[parameter_name]
+        if kind == "string":
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"workflow parameter {parameter_name} must be a non-empty string")
+        elif kind == "vector3":
+            if not isinstance(value, (list, tuple)):
+                raise TypeError(f"workflow parameter {parameter_name} must be a list or tuple")
+            if len(value) != 3:
+                raise ValueError(f"workflow parameter {parameter_name} must contain three values")
+        else:
+            raise RuntimeError(f"workflow contract declares unsupported parameter kind: {kind}")
     return spec
 
 
@@ -114,22 +145,11 @@ def build_soccer_production_workflow(
     spec = validate_soccer_production_workflow_parameters(name, parameters, version=version)
 
     if spec.name == _BROADCAST_GOAL.name:
-        target_location = parameters["target_location"]
-        target_rotation = parameters["target_rotation"]
-        for field_name, values in (
-            ("target_location", target_location),
-            ("target_rotation", target_rotation),
-        ):
-            if not isinstance(values, (list, tuple)):
-                raise TypeError(f"workflow {field_name} must be a list or tuple")
-            if len(values) != 3:
-                raise ValueError(f"workflow {field_name} must contain three values")
-
         return BroadcastGoalPreparationTemplate(
             file_name=parameters["file_name"],
             object_name=parameters["object_name"],
-            target_location=tuple(target_location),
-            target_rotation=tuple(target_rotation),
+            target_location=tuple(parameters["target_location"]),
+            target_rotation=tuple(parameters["target_rotation"]),
         )
 
     raise RuntimeError(f"workflow catalog entry has no builder: {spec.name}")
