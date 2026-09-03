@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 2, 2026 — end-of-session development checkpoint
+**Updated:** September 3, 2026 — Stage 13 live verification checkpoint
 **Blender continuation branch:** `feat/blender-stage11-mainline`
-**Blender Stage 11 PR:** #49 — now carrying the Stage 12 task-aware autonomous runtime/recovery increment
-**Current Blender branch work:** Stage 12 proven; Stage 13 multi-step autonomous task execution is next
+**Blender PR:** #49 — open, draft, unmerged
+**Current Blender branch work:** Stage 13 multi-step autonomous task execution is proven; Stage 14 dependency-aware task composition is next
 
 ## Current state
 
@@ -31,131 +31,78 @@ Atlas development has standing authorization to run appropriate local tests, Git
 
 The first controlled real Blender mutation was proven locally through the Atlas execution boundary using Blender 4.4. `Goal_Left_post` was rotated from `[0.0, 0.0, 0.0]` to `[0.0, 0.0, 15.0]`, independently inspected after save, and restored to its original rotation.
 
-## Blender — verified Stage 12 task-aware runtime
+## Blender — verified Stage 12 task-aware runtime and recovery
 
-`planning/autonomous_task_runtime.py` provides the narrow adapter between declarative `AtlasTaskDefinition` contracts and the existing checkpointed autonomous future runtime.
+`planning/autonomous_task_runtime.py` provides the narrow adapter between declarative `AtlasTaskDefinition` contracts and the existing checkpointed autonomous future runtime. It reuses the existing task validation, target evaluator, immutable action authorization, deterministic future generator, continuation state, recovery gate, replan authorization, and supplied engine executor rather than introducing parallel control systems.
 
-It reuses, rather than duplicates, the existing task validation, target evaluator, immutable action authorization, deterministic future generator, continuation state, recovery gate, replan authorization, and supplied engine executor.
+Stage 12 proved task-aware autonomous mutation, mandatory fresh verification, durable continuation after successful execution, and cross-process recovery after a durable action failure with fresh evidence and explicit replacement authorization.
 
-Verified behavior includes:
+During validation, continuation integrity correctly rejected a temporary harness defect in which Phase 2 supplied a different runtime-context identity. The harness was corrected; the integrity guard was not weakened.
 
-1. acquire authoritative pre-action evidence;
-2. evaluate the target state;
-3. issue immutable `ActionAuthorization` when writes are required;
-4. generate the deterministic future from the resolved target decision;
-5. persist task-level continuation metadata;
-6. bind autonomous writes to the authorized current task action and future step;
-7. execute through the supplied execution boundary;
-8. acquire fresh authoritative evidence after mutation or zero-write completion;
-9. remain blocked when verification fails rather than guessing;
-10. distinguish action-authorization digests from future-plan digests.
+## Blender — Stage 13: multi-step autonomous task execution with partial-progress recovery
 
-Already-satisfied state therefore follows a real zero-write path, while unsatisfied state follows the authorized write path.
+Stage 13 is now **fully live-verified** against the real Blender 4.4 environment and the GitHub Actions regression suite.
 
-## Blender — verified live autonomous mutation
+The implementation first identified and corrected a real structural gap: `AutonomousTaskRuntime` previously overwrote multiple task evidence results instead of preserving them as a deterministic evidence bundle. Multiple evidence requests are now retained by stable request/tool keys, preserving backward compatibility for single-request tasks.
 
-The task-aware rotation harness was successfully executed against the real Blender 4.4 installation. It demonstrated real evidence acquisition, target evaluation, immutable authorization, deterministic autonomous mutation, fresh independent verification, and fixture restoration.
+Regression coverage now proves that a later action failure does not replay an earlier successful action and that multi-request evidence remains available to target evaluation and verification.
 
-## Blender — verified cross-process continuation after successful action
+### Live Phase 1
 
-`scripts/run_live_autonomous_rotation_restart.py` was successfully executed across two separate Python processes.
+`scripts/run_live_autonomous_multistep_recovery_restart.py --phase failure` was executed successfully.
 
-Verified sequence:
+Observed:
 
 ```text
-preflight evidence
-    -> target evaluation
-    -> write authorization
-    -> real Blender mutation
-    -> fresh verification checkpoint
-    -> Python process restart
-    -> runtime reconstruction
-    -> authorization recovery
-    -> fresh Blender verification
-    -> COMPLETE
-```
-
-This proves durable continuation after successful execution and fresh-process verification.
-
-## Blender — verified live recovery/replan
-
-`scripts/run_live_autonomous_rotation_recovery.py` was successfully executed against Blender 4.4.
-
-Observed proof:
-
-```text
-LIVE AUTONOMOUS RECOVERY VERIFIED
+LIVE AUTONOMOUS MULTISTEP RECOVERY PHASE 1 VERIFIED
 object=Goal_Left_post
-original=[0.0, 0.0, 15.0]
-recovered=[0.0, 0.0, 15.0]
-initial_authorization=atlas-stage12-autonomous-recovery-initial
-replan_authorization=atlas-stage12-autonomous-recovery-replan
-controlled_failure=checkpointed
-fresh_recovery_evidence=verified
-replan_authorization=verified
-replacement_execution=verified
-fresh_final_verification=verified
-fixture_restored=[0.0, 0.0, 15.0]
+original_location=[0.0, 5.302, 0.0]
+original_rotation=[0.0, 0.0, 0.0]
+action_1=completed
+action_2=controlled_failure
+partial_progress_checkpoint=verified
+process_restart=ready
 ```
 
-This proves that an autonomous write failure can produce a durable `BLOCKED` state, require fresh evidence, require an explicitly bound replacement authorization, execute the replacement action, and independently verify the recovered state.
+This proves that the first real Blender mutation completed, the second action failed in a controlled manner before its Blender write, and durable state recorded the partial-progress boundary.
 
-Automatic retry remains prohibited.
+### Live Phase 2
 
-## Blender — verified cross-process recovery after durable ACTION failure
-
-`scripts/run_live_autonomous_rotation_recovery_restart.py` was successfully executed across two separate Python processes.
-
-Phase 1 intentionally failed the first write before Blender was invoked and persisted the blocked ACTION state. Phase 2 started as a fresh Python process and successfully:
+A fresh Python process then executed:
 
 ```text
-load durable state
-    -> validate continuation integrity
-    -> reconstruct blocked runtime
-    -> reconstruct recovery gate
-    -> recover original action authorization
-    -> acquire fresh Blender evidence
-    -> issue evidence-bound replan authorization
-    -> install replacement future
-    -> execute replacement mutation in Blender
-    -> independently verify final state
-    -> restore fixture
-```
-
-Observed live proof:
-
-```text
-LIVE AUTONOMOUS RECOVERY RESTART VERIFIED
+LIVE AUTONOMOUS MULTISTEP RECOVERY VERIFIED
 object=Goal_Left_post
-original=[0.0, 0.0, 0.0]
-recovered=[0.0, 0.0, 15.0]
-initial_authorization=atlas-stage12-autonomous-recovery-restart-initial
-replan_authorization=atlas-stage12-autonomous-recovery-restart-replan
-durable_failure_checkpoint=verified
+original_location=[0.0, 5.302, 0.0]
+original_rotation=[0.0, 0.0, 0.0]
+recovered_location=[0.25, 5.302, 0.0]
+recovered_rotation=[0.0, 0.0, 15.0]
+initial_authorization=atlas-stage13-multistep-initial
+replan_authorization=atlas-stage13-multistep-replan
+multi_request_evidence=verified
+action_1_not_replayed=verified
+durable_partial_progress=verified
 process_restart=verified
-authorization_recovered=verified
 fresh_recovery_evidence=verified
-replan_authorization=verified
 replacement_execution=verified
 fresh_final_verification=verified
-fixture_restored=[0.0, 0.0, 0.0]
+fixture_restored_location=[0.0, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-This is the completed Stage 12 recovery proof. The failed action is not replayed. The fresh process does not infer recovery from the original plan; it reconstructs the durable blocked state and requires fresh evidence plus a new authorization boundary before replacement execution.
+This is the completed Stage 13 proof. Atlas reconstructed the durable blocked state in a new process, recovered the original authorization, acquired fresh multi-source evidence, issued a new evidence-bound replan authorization, executed only the unfinished replacement action, independently verified both final properties, and restored the fixture.
 
-During validation, the continuation-integrity layer correctly rejected a temporary harness defect in which Phase 2 supplied a different runtime-context identity. The harness was corrected; the integrity guard was not weakened.
+The critical safety property is proven: **completed action 1 was not replayed after action 2 failed.**
 
-## Stage 12 regression / CI state
+## CI checkpoint
 
-The corrected recovery implementation has passed the GitHub Actions Atlas Tests workflow on Python 3.9 and Python 3.11.
-
-The latest documentation-only synchronization commit is `6d7821f`; earlier implementation commits include `0c780b1` for continuation-context preservation across the live recovery restart harness.
+The exact Stage 13 branch head `361b97e685f815e54c22fcd65c29968a783ff73f` passed the GitHub Actions `Atlas Tests` workflow successfully (run `#1251`).
 
 PR #49 remains **open, draft, and unmerged**.
 
-## Architecture audit conclusion before Stage 13
+## Architecture audit after Stage 13
 
-The current recovery architecture has a single coherent execution/authorization path:
+The current execution path remains a single coherent authority chain:
 
 ```text
 AtlasTaskDefinition
@@ -175,74 +122,53 @@ ReplanAuthorization
 Replacement future + new ActionAuthorization
 ```
 
-Do not introduce a second recovery engine, second authorization system, or engine-specific future controller.
+The future controller already represents multiple ordered actions and durable continuation indexes. The next architectural gap is that ordering is currently encoded primarily by list position. `ActionSpec` has no explicit dependency semantics, while the deterministic future generator serializes the supplied action list into a linear path.
 
-The next architectural question is no longer whether a single action can recover. It is whether the same machinery scales safely to **multiple ordered actions with partial progress**.
+Do not replace the existing execution or authorization architecture. Extend it with explicit task-composition semantics while keeping execution deterministic and serial for the first Stage 14 increment.
 
-## Next session — Stage 13: multi-step autonomous task execution
+## Next session — Stage 14: dependency-aware task composition
 
-Start by auditing the existing controller/runtime against a deliberately small multi-step task. Do not begin by expanding Qwen autonomy.
+Begin with an audit of `ActionSpec`, `ActionPlan`, `ActionAuthorization`, `DeterministicFutureGenerator`, `FutureExecutionController`, `AtlasTaskDefinition`, and the task-aware runtime against a small soccer-field-related Blender task whose actions have explicit prerequisites.
 
-The first Stage 13 task should contain at least two genuinely ordered write actions and a final verification. A useful initial shape is:
+The initial Stage 14 objective is **not** parallel execution. It is to make dependencies explicit and validated while preserving the current serial execution model.
+
+A useful conceptual shape is:
 
 ```text
 inspect authoritative state
         ↓
 target evaluation
         ↓
-authorized plan [ACTION 1, ACTION 2]
+authorized dependency graph
         ↓
-ACTION 1
+prepare_geometry
         ↓
-checkpoint
+update_material
         ↓
-ACTION 2
-        ↓
-fresh verification
-        ↓
-COMPLETE
-```
-
-Then deliberately prove the harder failure case:
-
-```text
-ACTION 1 succeeds
-        ↓
-checkpoint
-        ↓
-ACTION 2 fails
-        ↓
-BLOCKED
-        ↓
-process restart
-        ↓
-fresh evidence
-        ↓
-replan from actual partial-progress state
-        ↓
-continue without blindly replaying ACTION 1
+configure_render
         ↓
 fresh verification
         ↓
 COMPLETE
 ```
 
-Stage 13 acceptance criteria:
+Stage 14 acceptance criteria should include:
 
-- per-plan authorization remains bound to the exact ordered action list;
-- each continuation checkpoint identifies the true completed prefix;
-- a failed later action cannot cause successful earlier actions to be blindly replayed;
-- recovery replans from fresh observed state, not the original assumed state;
-- cross-process restart reconstructs the exact multi-step continuation position;
-- replacement actions remain within the task contract;
-- fresh final verification remains mandatory;
-- no second execution/authorization system is introduced.
+- dependencies are explicit rather than inferred only from list position;
+- dependency references are validated and deterministic;
+- cycles and unknown dependency IDs are rejected before execution;
+- authorization remains bound to the exact dependency-aware plan;
+- deterministic serial execution still produces one unambiguous next action;
+- partial-progress recovery respects dependency completion state;
+- replans cannot introduce actions outside the task contract;
+- fresh verification remains mandatory;
+- no second execution or authorization system is introduced.
 
-Prefer a small soccer-field-related Blender task for the first implementation, not a broad production workflow. The purpose is to test orchestration semantics, not add unnecessary engine capability.
+Do not introduce parallel execution yet. Once dependency semantics are proven, a later stage can evaluate whether independent branches are safe to schedule concurrently.
 
 ## Unreal
 
-The local Unreal Engine 5.6 production boundary remains proven through deterministic render configuration, render-state verification, Movie Render Queue submission, dynamic job-ID binding, asynchronous job inspection, semantic completion verification, MRQ artifact discovery, filesystem artifact validation, and evidence-bound persistent render receipts.
+The local Unreal Engine 5.6 production boundary remains proven through deterministic render configuration, render-state verification, Movie Render Queue submission, dynamic job-ID binding, asynchronous render-job inspection, semantic completion verification, MRQ artifact discovery, filesystem artifact validation, and evidence-bound persistent render receipts.
 
 The Unreal runtime job registry remains in-memory. Cross-process Unreal render-job recovery is not implemented.
 
@@ -259,11 +185,15 @@ Preserve coverage for:
 - replacement plan -> explicit replan authorization required;
 - replacement action tools -> remain within the task contract;
 - partial-progress recovery -> completed prior actions are not blindly replayed;
+- multi-request task evidence -> retained as deterministic evidence bundle;
 - task target decision -> deterministic future binding;
 - persisted task metadata -> future consistency;
 - action authorization -> exact task action binding;
 - cross-process continuation -> recovered authorization and fresh verification;
 - cross-process blocked recovery -> recovered gate + authorization before replan;
+- dependency graph -> unknown references rejected;
+- dependency graph -> cycles rejected;
+- dependency-aware authorization -> exact plan binding;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
@@ -292,8 +222,8 @@ Preserve coverage for:
 
 ## Resume point
 
-**Tomorrow: begin Stage 13 — multi-step autonomous task execution with partial-progress recovery.**
+**Next: begin Stage 14 — dependency-aware task composition.**
 
-First inspect the current `FutureExecutionController`, `AutonomousFutureRuntime`, `AutonomousTaskRuntime`, `FutureRecoveryGate`, `ReplanAuthorization`, and existing recovery tests together. Identify any assumptions that implicitly treat the future as single-action. Then implement the smallest two-action soccer-field-related Blender task that exposes those assumptions, add regression coverage, run the offline matrix, and only then create the live multi-step proof.
+First inspect the current action/task primitives together, define the smallest explicit dependency representation that preserves serial determinism, add structural regression coverage, run the offline matrix, and only then extend to a live Blender proof.
 
 PR #49 remains draft/unmerged.
