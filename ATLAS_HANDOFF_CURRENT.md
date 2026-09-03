@@ -69,6 +69,8 @@ Implemented:
 - `FutureExecutionController` derives dependency completion from its own successful execution checkpoints rather than executor result payloads;
 - regression coverage covers dependency validation, authorization binding, structured-plan propagation, and fail-closed dependency execution.
 
+Dependency-free legacy action plans remain valid.
+
 The execution model remains deliberately serial:
 
 ```text
@@ -85,11 +87,9 @@ one next action at a time
 checkpoint
 ```
 
-Dependency-free legacy plans remain valid.
+## Stage 14 — live proof target
 
-## Stage 14 — current live proof
-
-A dedicated real-Blender harness is now present at:
+A dedicated real-Blender harness is present at:
 
 `scripts/run_live_dependency_task.py`
 
@@ -102,11 +102,13 @@ prepare_rotation
       depends_on = prepare_location
 ```
 
-The harness routes writes through the existing persistence boundary, performs independent evidence acquisition, verifies the final state, and restores the fixture. Stage 14 is not complete until this live proof passes.
+The harness routes writes through the existing persistence boundary, performs independent evidence acquisition, verifies the final state, and restores the fixture.
+
+The live proof is the remaining acceptance step for Stage 14.
 
 ## CI
 
-The latest Stage 14 regression run is currently in progress on branch `feat/blender-stage11-mainline`. Do not mark Stage 14 complete until the current matrix is green and the live dependency proof has passed.
+The latest Stage 14 regression series is running on branch `feat/blender-stage11-mainline`. Stage 14 must not be marked complete until the current matrix is green and the live dependency harness passes.
 
 ## Unreal
 
@@ -168,12 +170,16 @@ Preserve coverage for:
 
 **Next: complete Stage 14 with the real Blender dependency proof.**
 
-After CI is green, run:
+From the Atlas repository folder:
 
 ```powershell
 python -m scripts.run_live_dependency_task --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
 ```
 
-Do not expand Qwen autonomy yet. After the live dependency proof passes, audit whether dependency-aware checkpoint/recovery semantics justify a later concurrency stage; do not implement concurrency merely because the graph permits it.
+After a successful live proof and green CI, audit whether the dependency model supports a later concurrency stage. Do not introduce parallel execution merely because independent branches exist.
+
+Do not expand Qwen autonomy yet.
+
+Do not claim cross-process Unreal render-job recovery unless it is separately implemented and verified.
 
 PR #49 remains draft/unmerged.
