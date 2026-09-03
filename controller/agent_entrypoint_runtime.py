@@ -9,7 +9,10 @@ returned to the caller without execution.
 from dataclasses import dataclass
 from typing import Optional
 
-from controller.agent_process_runtime import AgentProcessRouteContext, AtlasAgentProcessRuntime
+from controller.agent_process_runtime import (
+    AgentProcessRouteContext,
+    AtlasAgentProcessRuntime,
+)
 from controller.agent_task_request import AgentTaskRequest
 from controller.capability_execution import CapabilityExecutionResult
 
@@ -29,10 +32,23 @@ class AgentEntrypointExecution:
 class AtlasAgentEntrypointRuntime:
     """Execute explicit controller-owned agent requests without touching legacy routes."""
 
-    def __init__(self, process: AtlasAgentProcessRuntime) -> None:
+    def __init__(
+        self,
+        process: Optional[AtlasAgentProcessRuntime] = None,
+    ) -> None:
+        if process is None:
+            process = AtlasAgentProcessRuntime()
+
         if not isinstance(process, AtlasAgentProcessRuntime):
-            raise TypeError("process must be an AtlasAgentProcessRuntime instance")
+            raise TypeError(
+                "process must be an AtlasAgentProcessRuntime instance"
+            )
         self._process = process
+
+    @property
+    def process(self) -> AtlasAgentProcessRuntime:
+        """Return the process runtime owned by this entrypoint."""
+        return self._process
 
     def dispatch(self, request: AgentTaskRequest) -> AgentEntrypointExecution:
         """Classify one request and execute it only when the route is controller-owned."""
