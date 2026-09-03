@@ -1,10 +1,4 @@
-"""Proposal-only Ollama provider for Atlas soccer-production workflows.
-
-The provider boundary can ask a local Qwen model for a semantic production
-proposal, but it exposes no Atlas executor, authorization, persistence, or
-recovery capability to the model. The returned text is always routed through
-the strict provider-output parser before leaving this module.
-"""
+"""Proposal-only Ollama provider for Atlas soccer-production workflows."""
 
 from __future__ import annotations
 
@@ -28,16 +22,12 @@ class QwenProviderError(RuntimeError):
 
 
 class HttpSession(Protocol):
-    """Minimal requests-compatible interface used for deterministic testing."""
-
     def post(self, url: str, **kwargs: Any) -> Any:
         ...
 
 
 @dataclass(frozen=True)
 class OllamaQwenProvider:
-    """Call Ollama for proposal-only Qwen output."""
-
     url: str = DEFAULT_OLLAMA_URL
     model: str = DEFAULT_QWEN_MODEL
     timeout: float = 120.0
@@ -62,27 +52,42 @@ class OllamaQwenProvider:
 
     @classmethod
     def _structured_schema(cls) -> Dict[str, Any]:
-        """Build a schema whose workflow/version values are catalog-derived."""
         catalog = cls._catalog()
-        workflow_names = [item["name"] for item in catalog]
-        versions = sorted({item["version"] for item in catalog})
-        schema = {
+        if not catalog:
+            raise QwenProviderError("Atlas soccer-production catalog is empty.")
+        if len(catalog) != 1:
+            raise QwenProviderError(
+                "Ollama provider currently requires exactly one catalog workflow."
+            )
+        spec = catalog[0]
+        parameter_properties: Dict[str, Any] = {}
+        for name, kind in spec["parameter_kinds"].items():
+            if kind == "string":
+                parameter_properties[name] = {"type": "string", "minLength": 1}
+            elif kind == "vector3":
+                parameter_properties[name] = {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                }
+            else:
+                raise QwenProviderError(f"Unsupported catalog parameter kind: {kind}")
+        return {
             "type": "object",
             "additionalProperties": False,
             "required": ["workflow", "version", "parameters"],
             "properties": {
-                "workflow": {
-                    "type": "string",
-                    "enum": workflow_names,
+                "workflow": {"type": "string", "enum": [spec["name"]]},
+                "version": {"type": "integer", "enum": [spec["version"]]},
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": list(spec["required_parameters"]),
+                    "properties": parameter_properties,
                 },
-                "version": {
-                    "type": "integer",
-                    "enum": versions,
-                },
-                "parameters": deepcopy(PRODUCTION_PROPOSAL_JSON_SCHEMA["properties"]["parameters"]),
             },
         }
-        return schema
 
     @classmethod
     def _system_prompt(cls) -> str:
@@ -102,13 +107,13 @@ class OllamaQwenProvider:
             "You do not have access to Blender, Unreal, files, executors, tools, authorization, "
             "persistence, scheduling, or recovery.\n"
             "Return exactly one JSON object matching the supplied schema.\n"
-            "The workflow field is ONLY the canonical workflow name. Put the numeric version in the "
-            "separate version field. NEVER combine them (for example, do not output "
-            "'broadcast-goal-preparation@1').\n"
+            "The workflow field must be copied exactly from the canonical catalog. The version "
+            "field must be the numeric catalog version and must never be combined with the workflow name.\n"
+            "Every required parameter must be populated. Use values explicitly present in the objective "
+            "or verified context. Never emit an empty required string, a missing required parameter, "
+            "or invented placeholder data.\n"
             "Canonical catalog:\n"
             f"{catalog_text}\n"
-            "Use the exact workflow spelling from the catalog. Do not invent aliases, synonyms, "
-            "new workflow names, or combined name/version strings.\n"
             "Do not emit actions, tool calls, executor names, authorization requests, file writes, "
             "or recovery instructions.\n"
         )
@@ -139,7 +144,6 @@ class OllamaQwenProvider:
         context: Optional[str] = None,
         messages: Optional[List[Mapping[str, str]]] = None,
     ) -> QwenProductionProposal:
-        """Request one proposal and return only the validated semantic proposal."""
         if not isinstance(objective, str) or not objective.strip():
             raise ValueError("Qwen production objective must be a non-empty string.")
         if context is not None and not isinstance(context, str):
@@ -148,13 +152,11 @@ class OllamaQwenProvider:
         user_content = objective
         if context:
             user_content = f"{objective}\n\nVerified context:\n{context}"
-
         request_messages: List[Dict[str, str]] = [
             {"role": "system", "content": self._system_prompt()},
             *self._history_messages(messages),
             {"role": "user", "content": user_content},
         ]
-
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": request_messages,
@@ -162,13 +164,8 @@ class OllamaQwenProvider:
             "format": self._structured_schema(),
             "options": {"temperature": 0},
         }
-
         try:
-            response = self._session().post(
-                self.url,
-                json=payload,
-                timeout=self.timeout,
-            )
+            response = self._session().post(self.url, json=payload, timeout=self.timeout)
             response.raise_for_status()
             response_body = response.json()
         except (requests.RequestException, ValueError, TypeError) as exc:
@@ -182,7 +179,6 @@ class OllamaQwenProvider:
         content = message.get("content")
         if not isinstance(content, (str, bytes, bytearray, dict)):
             raise QwenProviderError("Ollama Qwen response message is missing proposal content.")
-
         try:
             return parse_qwen_production_output(content)
         except (TypeError, ValueError) as exc:
