@@ -50,3 +50,14 @@ def test_rejects_execution_fields_after_provider_parsing():
 def test_accepts_already_decoded_json_object():
     proposal = parse_qwen_production_output(_payload())
     assert proposal.parameters["object_name"] == "Goal_Left_post"
+
+
+def test_proposal_snapshots_are_detached_from_input():
+    payload = _payload()
+    proposal = parse_qwen_production_output(payload)
+    payload["parameters"]["target_location"][0] = 999.0
+    snapshot = proposal.snapshot()
+    snapshot["parameters"]["target_location"][0] = 888.0
+
+    assert proposal.parameters["target_location"] == [0.25, 5.302, 0.0]
+    assert proposal.snapshot()["parameters"]["target_location"] == [0.25, 5.302, 0.0]
