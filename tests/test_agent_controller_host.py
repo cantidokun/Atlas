@@ -1,0 +1,121 @@
+"""Tests for the host-owned agent controller lifecycle."""
+
+import pytest
+
+from controller.agent_controller_host import AgentControllerHost
+from controller.agent_controller_intent import AgentControllerIntent
+from controller.agent_execution_context import AgentExecutionContext
+from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
+from controller.agent_trusted_context import AgentTrustedContext
+from controller.trusted_unreal_context import TrustedUnrealContext
+
+
+def _runtime():
+    return AtlasAgentEntrypointRuntime()
+
+
+def _trusted_unreal_context():
+    from tests.test_trusted_unreal_context import _authorized, _intent
+
+    intent = _intent("host-lifecycle")
+    authorized = _authorized(intent.intent_id)
+
+    return TrustedUnrealContext(
+        authorized_production=authorized,
+        intent=intent,
+        sequence_asset_path="/Game/Trusted/Sequence",
+    )
+
+
+def test_host_creates_isolated_runtime_and_execution_context():
+    host = AgentControllerHost()
+
+    assert isinstance(host.runtime, AtlasAgentEntrypointRuntime)
+    assert isinstance(host.execution_context, AgentExecutionContext)
+    assert host.loop.runtime is host.runtime
+    assert host.execution_context.has("unreal") is False
+
+
+def test_host_accepts_existing_dependencies():
+    runtime = _runtime()
+    context = AgentExecutionContext()
+
+    host = AgentControllerHost(
+        runtime=runtime,
+        execution_context=context,
+    )
+
+    assert host.runtime is runtime
+    assert host.execution_context is context
+
+
+def test_host_rejects_wrong_dependency_types():
+    with pytest.raises(
+        TypeError,
+        match="AtlasAgentEntrypointRuntime",
+    ):
+        AgentControllerHost(runtime=object())
+
+    with pytest.raises(
+        TypeError,
+        match="AgentExecutionContext",
+    ):
+        AgentControllerHost(execution_context=object())
+
+
+def test_host_installs_trusted_unreal_context():
+    host = AgentControllerHost()
+    trusted = _trusted_unreal_context()
+
+    host.install_unreal_context(trusted)
+
+    exported = host.execution_context.context_for_request("unreal")
+
+    assert exported["authorized_production"] is trusted.authorized_production
+    assert exported["intent"] is trusted.intent
+    assert exported["sequence_asset_path"] == "/Game/Trusted/Sequence"
+
+
+def test_host_routes_provider_from_model_intent_to_installed_context():
+    host = AgentControllerHost()
+    trusted = AgentTrustedContext.from_values({"approved": True})
+    host.execution_context.install("unreal", trusted)
+
+    captured = {}
+
+    def fake_process(content):
+        captured["content"] = content
+        return None
+
+    host.loop.process_model_response = fake_process
+    result = host.process_model_response("ATLAS_CONTROLLER_REQUEST: {}")
+
+    assert result is None
+    assert captured["content"] == "ATLAS_CONTROLLER_REQUEST: {}"
+
+
+def test_execution_context_provider_binding_does_not_use_model_context():
+    host = AgentControllerHost()
+    trusted = AgentTrustedContext.from_values({"approved": True})
+    host.execution_context.install("unreal", trusted)
+
+    from controller.agent_controller_response_bridge import (
+        submit_controller_request_from_model_output,
+    )
+
+    request = (
+        'ATLAS_CONTROLLER_REQUEST: '
+        '{"capability":"production","provider":"unreal",'
+        '"context":{"approved":false,"forged":"model"}}'
+    )
+
+    result = submit_controller_request_from_model_output(
+        host.runtime,
+        request,
+        trusted_context_provider=lambda intent: host.execution_context.get(
+            intent.provider
+        ) or AgentTrustedContext.empty(),
+    )
+
+    assert result is not None
+    assert result.controller_executed is False
