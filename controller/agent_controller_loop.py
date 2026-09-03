@@ -15,6 +15,7 @@ from controller.agent_controller_response_bridge import (
     TrustedContextProvider,
     submit_controller_request_from_model_output,
 )
+from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_entrypoint_runtime import (
     AgentEntrypointExecution,
     AtlasAgentEntrypointRuntime,
@@ -29,14 +30,41 @@ class AgentControllerLoopAdapter:
         runtime: AtlasAgentEntrypointRuntime,
         *,
         trusted_context_provider: Optional[TrustedContextProvider] = None,
+        execution_context: Optional[AgentExecutionContext] = None,
     ) -> None:
         if not isinstance(runtime, AtlasAgentEntrypointRuntime):
             raise TypeError(
                 "runtime must be an AtlasAgentEntrypointRuntime"
             )
 
+        if (
+            trusted_context_provider is not None
+            and execution_context is not None
+        ):
+            raise ValueError(
+                "provide trusted_context_provider or execution_context, not both"
+            )
+
+        if execution_context is not None and not isinstance(
+            execution_context,
+            AgentExecutionContext,
+        ):
+            raise TypeError(
+                "execution_context must be an AgentExecutionContext instance"
+            )
+
         self._runtime = runtime
-        self._trusted_context_provider = trusted_context_provider
+        self._execution_context = execution_context
+
+        if execution_context is not None:
+            self._trusted_context_provider = (
+                lambda intent: execution_context.get(
+                    intent.provider
+                )
+                or AgentTrustedContext.empty()
+            )
+        else:
+            self._trusted_context_provider = trusted_context_provider
 
     @property
     def runtime(self) -> AtlasAgentEntrypointRuntime:
