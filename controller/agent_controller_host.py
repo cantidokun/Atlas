@@ -57,9 +57,7 @@ class AgentControllerHost:
             )
 
         if runtime is None:
-            runtime = AtlasAgentEntrypointRuntime(
-                process or AtlasAgentProcessRuntime()
-            )
+            runtime = AtlasAgentEntrypointRuntime(process)
 
         self._runtime = runtime
         self._execution_context = (
@@ -76,7 +74,7 @@ class AgentControllerHost:
 
     @property
     def process(self) -> AtlasAgentProcessRuntime:
-        return self._runtime._process
+        return self._runtime.process
 
     @property
     def execution_context(self) -> AgentExecutionContext:
