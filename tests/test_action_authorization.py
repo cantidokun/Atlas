@@ -1,3 +1,5 @@
+import pytest
+
 from planning.action_authorization import ActionAuthorization
 from planning.action_plan import ActionSpec
 
@@ -46,16 +48,37 @@ def test_authorization_rejects_changed_order():
 
 
 def test_authorization_rejects_fabricated_or_invalid_inputs():
-    try:
+    with pytest.raises(ValueError):
         ActionAuthorization.issue([], "")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("blank authorization id must be rejected")
 
-    try:
+    with pytest.raises(TypeError):
         ActionAuthorization.issue([object()], "approval-004")
-    except TypeError:
-        pass
-    else:
-        raise AssertionError("non-ActionSpec entries must be rejected")
+
+
+def test_authorization_binds_inherited_dependencies():
+    actions = [
+        ActionSpec(
+            "rotate",
+            {"angle": 15},
+            "replanned_rotation",
+            depends_on=("prepare_location",),
+        )
+    ]
+
+    with pytest.raises(ValueError, match="unknown action"):
+        ActionAuthorization.issue(actions, "approval-inherited")
+
+    receipt = ActionAuthorization.issue(
+        actions,
+        "approval-inherited",
+        inherited_dependencies=("prepare_location",),
+    )
+    assert receipt.matches(
+        actions,
+        inherited_dependencies=("prepare_location",),
+    )
+    assert not receipt.matches(actions)
+    assert not receipt.matches(
+        actions,
+        inherited_dependencies=("other_completed_action",),
+    )
