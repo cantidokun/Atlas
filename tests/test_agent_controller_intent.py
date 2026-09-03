@@ -125,3 +125,20 @@ ATLAS_CONTROLLER_REQUEST:
 ["production"]
 """
         )
+
+
+def test_requested_intent_is_model_metadata_not_authorization():
+    intent = parse_agent_controller_intent(
+        {
+            "capability": "production",
+            "provider": "unreal",
+            "intent": "render-field-production",
+            "context": {
+                "production": True,
+            },
+        }
+    )
+
+    assert intent.requested_intent == "render-field-production"
+    assert intent.intent == intent.requested_intent
+    assert "authorized_production" not in intent.context

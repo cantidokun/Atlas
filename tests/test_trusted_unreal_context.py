@@ -274,3 +274,19 @@ def test_real_authorization_cannot_be_replaced_by_model_context():
     assert merged["authorized_production"] is authorized
     assert merged["intent"] is intent
     assert merged["sequence_asset_path"] == "/Game/TrustedSequence"
+
+
+def test_trusted_context_exposes_authoritative_unreal_intent():
+    intent = _intent("authoritative-intent")
+    authorized = _authorized(intent.intent_id)
+
+    context = TrustedUnrealContext(
+        authorized_production=authorized,
+        intent=intent,
+        sequence_asset_path="/Game/Trusted/Sequence",
+    )
+
+    trusted = context.to_trusted_agent_context()
+
+    assert trusted.get("intent") is intent
+    assert trusted.get("authorized_production") is authorized

@@ -27,6 +27,11 @@ class AgentControllerIntent:
     context: dict[str, Any]
     intent: Optional[str]
 
+    @property
+    def requested_intent(self) -> Optional[str]:
+        """Model-declared intent metadata; never an authorization source."""
+        return self.intent
+
     def to_task_request(self) -> AgentTaskRequest:
         """Convert this validated intent into the canonical task request."""
         return AgentTaskRequest(
