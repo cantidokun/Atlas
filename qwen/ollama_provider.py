@@ -67,6 +67,25 @@ class OllamaQwenProvider:
             "or recovery instructions.\n"
         )
 
+    @staticmethod
+    def _history_messages(messages: Optional[List[Mapping[str, str]]]) -> List[Dict[str, str]]:
+        if messages is None:
+            return []
+        if not isinstance(messages, list):
+            raise ValueError("Qwen provider messages must be a list.")
+        normalized: List[Dict[str, str]] = []
+        for message in messages:
+            if not isinstance(message, Mapping) or set(message) != {"role", "content"}:
+                raise ValueError("Qwen provider history messages must contain only role and content.")
+            role = message["role"]
+            content = message["content"]
+            if role not in {"user", "assistant"}:
+                raise ValueError("Qwen provider history messages may only use user or assistant roles.")
+            if not isinstance(content, str):
+                raise ValueError("Qwen provider history message content must be strings.")
+            normalized.append({"role": role, "content": content})
+        return normalized
+
     def propose(
         self,
         objective: str,
@@ -79,30 +98,16 @@ class OllamaQwenProvider:
             raise ValueError("Qwen production objective must be a non-empty string.")
         if context is not None and not isinstance(context, str):
             raise ValueError("Qwen production context must be a string when provided.")
-        if messages is not None:
-            if not isinstance(messages, list) or any(
-                not isinstance(message, Mapping)
-                or set(message) != {"role", "content"}
-                or not isinstance(message["role"], str)
-                or not isinstance(message["content"], str)
-                for message in messages
-            ):
-                raise ValueError("Qwen provider messages must contain only role and content strings.")
-            request_messages: List[Dict[str, str]] = [
-                {"role": str(message["role"]), "content": str(message["content"])}
-                for message in messages
-            ]
-            if not request_messages or request_messages[0]["role"] != "system":
-                request_messages.insert(0, {"role": "system", "content": self._system_prompt()})
-            request_messages.append({"role": "user", "content": objective})
-        else:
-            user_content = objective
-            if context:
-                user_content = f"{objective}\n\nVerified context:\n{context}"
-            request_messages = [
-                {"role": "system", "content": self._system_prompt()},
-                {"role": "user", "content": user_content},
-            ]
+
+        user_content = objective
+        if context:
+            user_content = f"{objective}\n\nVerified context:\n{context}"
+
+        request_messages: List[Dict[str, str]] = [
+            {"role": "system", "content": self._system_prompt()},
+            *self._history_messages(messages),
+            {"role": "user", "content": user_content},
+        ]
 
         payload: Dict[str, Any] = {
             "model": self.model,
