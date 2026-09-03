@@ -6,8 +6,12 @@ from controller.agent_controller_host import AgentControllerHost
 from controller.agent_controller_intent import AgentControllerIntent
 from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
+from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.agent_trusted_context import AgentTrustedContext
 from controller.trusted_unreal_context import TrustedUnrealContext
+from planning.unreal_production_controller_integration import (
+    UnrealProductionControllerIntegration,
+)
 
 
 def _runtime():
@@ -31,6 +35,7 @@ def test_host_creates_isolated_runtime_and_execution_context():
     host = AgentControllerHost()
 
     assert isinstance(host.runtime, AtlasAgentEntrypointRuntime)
+    assert isinstance(host.process, AtlasAgentProcessRuntime)
     assert isinstance(host.execution_context, AgentExecutionContext)
     assert host.loop.runtime is host.runtime
     assert host.execution_context.has("unreal") is False
@@ -46,6 +51,7 @@ def test_host_accepts_existing_dependencies():
     )
 
     assert host.runtime is runtime
+    assert host.process is runtime.process
     assert host.execution_context is context
 
 
@@ -55,6 +61,12 @@ def test_host_rejects_wrong_dependency_types():
         match="AtlasAgentEntrypointRuntime",
     ):
         AgentControllerHost(runtime=object())
+
+    with pytest.raises(
+        TypeError,
+        match="AtlasAgentProcessRuntime",
+    ):
+        AgentControllerHost(process=object())
 
     with pytest.raises(
         TypeError,
@@ -112,10 +124,46 @@ def test_execution_context_provider_binding_does_not_use_model_context():
     result = submit_controller_request_from_model_output(
         host.runtime,
         request,
-        trusted_context_provider=lambda intent: host.execution_context.get(
-            intent.provider
-        ) or AgentTrustedContext.empty(),
+        trusted_context_provider=host.execution_context.context_for_controller_intent,
     )
 
     assert result is not None
     assert result.controller_executed is False
+
+
+def test_unreal_production_factory_binds_real_integration_and_trusted_context(
+    monkeypatch,
+):
+    integration = object.__new__(UnrealProductionControllerIntegration)
+    trusted = _trusted_unreal_context()
+
+    host = AgentControllerHost.for_unreal_production(
+        integration,
+        trusted,
+    )
+
+    assert host.process is host.runtime.process
+    assert host.process.runtime is not None
+    assert host.execution_context.get("unreal") is not None
+    assert (
+        host.execution_context.get("unreal").get("authorized_production")
+        is trusted.authorized_production
+    )
+
+
+def test_unreal_production_factory_requires_typed_dependencies():
+    trusted = _trusted_unreal_context()
+
+    with pytest.raises(
+        TypeError,
+        match="UnrealProductionControllerIntegration",
+    ):
+        AgentControllerHost.for_unreal_production(object(), trusted)
+
+    integration = object.__new__(UnrealProductionControllerIntegration)
+
+    with pytest.raises(
+        TypeError,
+        match="TrustedUnrealContext",
+    ):
+        AgentControllerHost.for_unreal_production(integration, object())
