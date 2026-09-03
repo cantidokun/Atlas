@@ -1,7 +1,5 @@
 """Focused regression for the Unreal controller-host factory."""
 
-import pytest
-
 from controller.agent_controller_host import AgentControllerHost
 from controller.agent_controller_response_bridge import (
     submit_controller_request_from_model_output,
@@ -71,8 +69,10 @@ def test_factory_routes_model_request_through_registered_unreal_integration(
 def test_factory_does_not_create_authorization_from_model_output(monkeypatch):
     integration = object.__new__(UnrealProductionControllerIntegration)
     trusted = _trusted_unreal_context()
+    executed = {"value": False}
 
     def fake_execute(request: CapabilityRequest):
+        executed["value"] = True
         return request
 
     monkeypatch.setattr(integration, "execute", fake_execute)
@@ -90,9 +90,5 @@ def test_factory_does_not_create_authorization_from_model_output(monkeypatch):
     )
 
     assert result is not None
-    assert result.controller_executed is True
-    request = result.result.value
-    assert request.context["production"] is False
-    assert request.context["authorized_production"] is trusted.authorized_production
-    assert request.context["intent"] is trusted.intent
-    assert request.context["sequence_asset_path"] == trusted.sequence_asset_path
+    assert result.controller_executed is False
+    assert executed["value"] is False
