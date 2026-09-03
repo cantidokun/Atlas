@@ -30,12 +30,16 @@ def test_inherited_dependency_is_accepted_only_when_explicitly_proven():
 
 
 def test_inherited_dependency_is_part_of_future_integrity():
-    actions = [ActionSpec("rotate", {}, "prepare_rotation", depends_on=("prepare_location",))]
+    dependent_actions = [ActionSpec("rotate", {}, "prepare_rotation", depends_on=("prepare_location",))]
+    independent_actions = [ActionSpec("rotate", {}, "prepare_rotation")]
     first = FutureExecutionController(
-        _steps(actions, ("prepare_location",)),
+        _steps(dependent_actions, ("prepare_location",)),
         inherited_dependencies=("prepare_location",),
     )
-    second = FutureExecutionController(_steps(actions), inherited_dependencies=())
+    second = FutureExecutionController(
+        _steps(independent_actions),
+        inherited_dependencies=(),
+    )
     assert first.plan_digest != second.plan_digest
 
 
