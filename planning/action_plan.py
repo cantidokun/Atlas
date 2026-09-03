@@ -20,8 +20,12 @@ class ActionSpec:
     depends_on: Tuple[str, ...] = ()
 
     def dependency_names(self) -> Tuple[str, ...]:
-        """Return normalized dependency names without changing declaration order."""
-        return tuple(str(item).strip() for item in self.depends_on)
+        """Return normalized dependency names without silently coercing types."""
+        if not isinstance(self.depends_on, tuple):
+            raise TypeError("depends_on must be a tuple of action names")
+        if any(not isinstance(item, str) for item in self.depends_on):
+            raise TypeError("depends_on must contain only strings")
+        return tuple(item.strip() for item in self.depends_on)
 
 
 @dataclass
