@@ -9,18 +9,17 @@ Ordinary model responses return None and remain available to the existing
 agent tool loop unchanged.
 """
 
-from typing import Any, Mapping, Optional
+from typing import Optional
 
 from controller.agent_controller_response_bridge import (
     TrustedContextProvider,
     submit_controller_request_from_model_output,
 )
-from controller.agent_controller_intent import AgentControllerIntent
-from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_entrypoint_runtime import (
     AgentEntrypointExecution,
     AtlasAgentEntrypointRuntime,
 )
+from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_trusted_context import AgentTrustedContext
 from controller.trusted_unreal_context import TrustedUnrealContext
 
@@ -56,15 +55,15 @@ class AgentControllerLoopAdapter:
                 "execution_context must be an AgentExecutionContext instance"
             )
 
-        # The real agent-facing loop always owns an execution context when
-        # callers have not supplied a legacy provider callback. The default
-        # context is deliberately empty, so protected capabilities remain
-        # fail-closed until the host installs already-authorized state.
+        # When the normal agent-facing construction path supplies neither
+        # legacy callback nor explicit context, use the context owned by the
+        # entrypoint runtime. This makes the runtime lifecycle authoritative
+        # while retaining the empty fail-closed default.
         if (
             execution_context is None
             and trusted_context_provider is None
         ):
-            execution_context = AgentExecutionContext()
+            execution_context = runtime.execution_context
 
         self._runtime = runtime
         self._execution_context = execution_context
