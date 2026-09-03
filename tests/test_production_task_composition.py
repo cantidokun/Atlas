@@ -31,6 +31,7 @@ def test_compose_preserves_fragment_and_action_order():
                 depends_on=("position_goal",),
             ),
         ),
+        depends_on=("position",),
     )
 
     production = compose_production_task(
@@ -42,6 +43,7 @@ def test_compose_preserves_fragment_and_action_order():
     )
 
     assert production.snapshot()["metadata"]["fragments"] == ["position", "orientation"]
+    assert production.snapshot()["metadata"]["fragment_specs"][1]["depends_on"] == ["position"]
     assert [action.name for action in production.actions] == ["position_goal", "orient_goal"]
     assert production.actions[1].dependency_names() == ("position_goal",)
     assert production.compile().actions == production.actions
@@ -58,6 +60,38 @@ def test_compose_rejects_duplicate_fragments():
             evaluator=_evaluator(),
             allowed_action_tools=("move_object",),
         )
+
+
+def test_compose_rejects_unknown_or_later_fragment_dependency():
+    first = ProductionTaskFragment("first")
+    later = ProductionTaskFragment("later", depends_on=("first",))
+    unknown = ProductionTaskFragment("unknown", depends_on=("missing",))
+
+    with pytest.raises(ValueError, match="unknown or later fragment: first"):
+        compose_production_task(
+            name="later-first",
+            objective="Prepare a soccer production task.",
+            fragments=(later, first),
+            evaluator=_evaluator(),
+            allowed_action_tools=("move_object",),
+        )
+
+    with pytest.raises(ValueError, match="unknown or later fragment: missing"):
+        compose_production_task(
+            name="unknown",
+            objective="Prepare a soccer production task.",
+            fragments=(unknown,),
+            evaluator=_evaluator(),
+            allowed_action_tools=("move_object",),
+        )
+
+
+def test_fragment_rejects_self_and_duplicate_dependencies():
+    with pytest.raises(ValueError, match="cannot depend on itself"):
+        ProductionTaskFragment("self", depends_on=("self",))
+
+    with pytest.raises(ValueError, match="dependencies must be unique"):
+        ProductionTaskFragment("duplicate", depends_on=("base", "base"))
 
 
 def test_compose_validates_dependencies_through_canonical_task_contract():
