@@ -234,7 +234,13 @@ class AutonomousTaskRuntime:
         unauthorized = {action.tool for action in authorized_actions} - allowed
         if unauthorized:
             raise RuntimeError(f"unauthorized recovery action tools: {sorted(unauthorized)}")
-        receipt = ReplanAuthorization.issue(gate.authorize_replan(), authorized_actions, authorization_id)
+        inherited_dependencies = tuple(sorted(self._completed_action_names(self.runtime.controller)))
+        receipt = ReplanAuthorization.issue(
+            gate.authorize_replan(),
+            authorized_actions,
+            authorization_id,
+            inherited_dependencies=inherited_dependencies,
+        )
         self.replan_authorization = receipt
         return receipt
 
@@ -251,11 +257,15 @@ class AutonomousTaskRuntime:
         if unauthorized:
             raise RuntimeError(f"unauthorized recovery action tools: {sorted(unauthorized)}")
         evidence = gate.authorize_replan()
-        if not authorization.matches(evidence, authorized_actions):
+        inherited_dependencies = tuple(sorted(self._completed_action_names(self.runtime.controller)))
+        if not authorization.matches(
+            evidence,
+            authorized_actions,
+            inherited_dependencies=inherited_dependencies,
+        ):
             raise RuntimeError("replacement actions do not match the authorized replan")
         target = self.task.evaluator.evaluate(evidence)
         actions = list(authorized_actions)
-        inherited_dependencies = tuple(sorted(self._completed_action_names(self.runtime.controller)))
         execution_authorization = None if target.satisfied else ActionAuthorization.issue(actions, authorization.authorization_id)
         steps = DeterministicFutureGenerator(self.task.evaluator).generate(
             target.satisfied,
