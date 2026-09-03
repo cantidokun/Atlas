@@ -14,6 +14,7 @@ from controller.agent_entrypoint_runtime import (
 )
 from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
+from controller.agent_task_request import AgentTaskRequest
 from controller.trusted_unreal_context import TrustedUnrealContext
 from planning.unreal_production_controller_integration import (
     UnrealProductionControllerIntegration,
@@ -137,3 +138,20 @@ class AgentControllerHost:
     ) -> Optional[AgentEntrypointExecution]:
         """Process one model response at the controller boundary."""
         return self._loop.process_model_response(content)
+
+    def dispatch(
+        self,
+        request: AgentTaskRequest,
+    ) -> AgentEntrypointExecution:
+        """Dispatch one explicit controller request through the host runtime.
+
+        This is the drop-in entrypoint seam for agent-facing code. The host
+        retains ownership of the process runtime and trusted execution
+        context while delegating request classification/execution to the
+        existing entrypoint runtime.
+        """
+        if not isinstance(request, AgentTaskRequest):
+            raise TypeError(
+                "request must be an AgentTaskRequest instance"
+            )
+        return self._runtime.dispatch(request)
