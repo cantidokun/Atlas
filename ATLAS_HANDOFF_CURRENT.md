@@ -1,18 +1,18 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 semantic workflow catalog, provenance, and live cross-process recovery fully verified
+**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 proposal-only Qwen boundary implemented
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Stage status:** Stage 15 COMPLETE FOR CURRENT CONTRACT; Stage 16 Qwen proposal integration is now the next development stage
+**Stage status:** Stage 15 COMPLETE FOR CURRENT CONTRACT; Stage 16 IN PROGRESS
 
 ## Current authority model
 
 ```text
 Qwen / AI
-  -> reason and propose structured production tasks
+  -> reason and propose structured production intent
 
 Python / Atlas
-  -> validate, authorize, execute, track state, verify, recover
+  -> validate, resolve, authorize, execute, track state, verify, recover
 
 Blender / Unreal
   -> controlled production execution
@@ -29,17 +29,9 @@ Stage 15 introduced a semantic production-goal layer without introducing a secon
 
 Reusable `ProductionTaskFragment` composition supports named fragment ordering, semantic fragment dependencies, fragment-level evidence/actions, deliverables, constraints, and descriptive metadata. Executable ordering remains governed by `ActionSpec.depends_on` and the existing deterministic future controller.
 
-Canonical soccer-production templates currently include:
+Canonical soccer-production templates currently include `GoalPositionTemplate`, `GoalOrientationTemplate`, and `BroadcastGoalPreparationTemplate`.
 
-- `GoalPositionTemplate`
-- `GoalOrientationTemplate`
-- `BroadcastGoalPreparationTemplate`
-
-The reusable broadcast workflow owns its target-state evaluator and composes the position and orientation operations into the existing Atlas task contract.
-
-### Canonical workflow catalog
-
-`planning/soccer_production_catalog.py` now provides a declarative, versioned catalog for reusable soccer-production workflows. Current contract:
+`planning/soccer_production_catalog.py` provides the canonical versioned workflow catalog. Current contract:
 
 ```text
 broadcast-goal-preparation@1
@@ -50,113 +42,61 @@ target_location -> vector3
 target_rotation -> vector3
 ```
 
-The catalog validates exact workflow identity, version, required parameters, unexpected parameters, parameter kinds, vector shape, and finite numeric values before template construction.
+The catalog validates exact identity/version, required and unexpected parameters, declared parameter kinds, vector shape, and finite numeric values before template construction. Compilation records the exact catalog descriptor and normalized parameters as semantic provenance.
 
-`compile_soccer_production_workflow(...)` resolves the versioned catalog entry, constructs the canonical semantic production task, and records the exact workflow descriptor plus normalized parameters as semantic provenance. The catalog does not execute, authorize, schedule, or recover work.
+`AutonomousTaskRuntime` persists task metadata at start and authorized replan, and resume/reconstruction requires semantic metadata to match the task definition. Tampered semantic provenance fails closed.
 
-### Autonomous semantic provenance
+The real Blender 4.4 environment live-verified the catalog -> semantic task -> existing autonomous runtime path and a two-process failure/recovery path. The recovery proof verified version identity, typed parameter contract, semantic provenance recovery, no replay of the completed prerequisite, fresh recovery evidence, explicit replan authorization, replacement execution, independent final verification, and fixture restoration.
 
-`AutonomousTaskRuntime` now persists task metadata into continuation state at task start and authorized replan. Resume/reconstruction verifies that persisted semantic metadata matches the supplied task definition. Authorized replans retain the original semantic task metadata. Tampered semantic provenance fails closed.
+Stage 15 therefore closes for the current contract.
 
-This preserves workflow identity across normal continuation and recovery without creating a second recovery mechanism.
+## CI checkpoint
 
-### Live reusable workflow — VERIFIED
+GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Earlier Stage 15 commits also passed runs #1365, #1366, #1367, and #1368. Run #1362 failed because stale catalog tests did not yet include the typed parameter contract; those regressions were corrected.
 
-The real Blender 4.4 environment successfully executed the catalog-defined workflow through the existing autonomous runtime:
+The Stage 15 live recovery itself was user-verified against Blender 4.4.
 
-```text
-LIVE VERSIONED SOCCER PRODUCTION WORKFLOW VERIFIED
-workflow=broadcast-goal-preparation
-workflow_version=1
-workflow_parameter_contract=verified
-workflow_catalog=verified
-workflow_template=verified
-fragment_composition=verified
-fragment_dependencies=verified
-multi_operation_composition=verified
-dependency_validation=verified
-existing_task_runtime=verified
-independent_final_verification=verified
-```
+## Stage 16 — Qwen proposal integration IN PROGRESS
 
-The target object was `Goal_Left_post`, moved to `[0.25, 5.302, 0.0]`, rotated to `[0.0, 0.0, 15.0]`, independently verified, and restored.
+Stage 16 now begins at the proposal-resolution boundary rather than the execution layer.
 
-### Live cross-process versioned workflow recovery — VERIFIED
+Implemented:
 
-The recovery proof was executed against real Blender 4.4 across two Python processes.
+- `qwen/production_proposal.py` defines `QwenProductionProposal` as an intent-only envelope containing `workflow`, optional `version`, and `parameters`;
+- `validate_qwen_production_proposal(...)` rejects malformed proposal shapes and unknown top-level fields before catalog resolution;
+- `compile_qwen_production_proposal(...)` resolves the proposal exclusively through the trusted Stage 15 soccer-production catalog and returns one canonical `ProductionTaskDefinition`;
+- catalog validation remains responsible for workflow identity, version, required parameters, parameter kinds, vector shape, and finite numeric values;
+- Qwen proposal input cannot specify an executor, authorization ID, scheduling instruction, recovery operation, or arbitrary tool invocation;
+- regression coverage proves malformed Qwen envelopes, unknown workflows, bad parameter kinds, and attempted execution fields are rejected;
+- successful Qwen compilation retains workflow/version and normalized parameter provenance in the resulting task metadata.
 
-Phase 1 deliberately failed the second production operation after the first prerequisite action completed. The durable checkpoint preserved workflow version, typed parameter contract, and semantic provenance.
-
-Phase 2 reconstructed the workflow from persisted catalog provenance in a fresh process and verified:
-
-- `broadcast-goal-preparation@1` identity recovered;
-- workflow parameter contract recovered;
-- semantic provenance recovered;
-- completed prerequisite was not replayed;
-- process restart recovery succeeded;
-- fresh authoritative evidence was required;
-- explicit replan authorization was required;
-- replacement execution succeeded;
-- fresh final verification succeeded;
-- fixture restoration succeeded.
-
-User-confirmed live output:
-
-```text
-LIVE VERSIONED WORKFLOW RECOVERY VERIFIED
-workflow=broadcast-goal-preparation
-workflow_version=1
-workflow_parameter_contract=verified
-semantic_provenance_recovered=verified
-completed_prerequisite_not_replayed=verified
-process_restart=verified
-fresh_recovery_evidence=verified
-replan_authorization=verified
-replacement_execution=verified
-fresh_final_verification=verified
-fixture_restored_location=[0.25, 5.302, 0.0]
-fixture_restored_rotation=[0.0, 0.0, 0.0]
-```
-
-The restored location value `[0.25, 5.302, 0.0]` reflects the fixture's pre-test state at the time of this run; the verified recovery path restored that observed original state exactly.
-
-## CI
-
-GitHub Actions `Atlas Tests` passed after the Stage 15 repair series, including run **#1370** for commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Earlier Stage 15 commits also passed runs #1365, #1366, #1367, and #1368. The earlier run #1362 failed because older catalog tests had not yet been updated for the typed parameter contract; those regressions were corrected.
-
-The latest Stage 15 live-recovery harness fix is included in the green #1370 validation checkpoint.
-
-## Stage 16 — NEXT
-
-Stage 16 begins Qwen proposal integration.
-
-The intended boundary is:
+The intended Stage 16 flow is:
 
 ```text
 Qwen
   ↓
-reason about a soccer-production objective
+reason about soccer-production objective
   ↓
-propose structured workflow/task
+propose workflow + version + parameters
   ↓
-Atlas parses and validates proposal
+Atlas validates proposal envelope
   ↓
-Atlas resolves allowed catalog/template/task contract
+Atlas resolves trusted catalog contract
   ↓
-Atlas derives evidence + actions + dependencies
+Atlas constructs one ProductionTaskDefinition
   ↓
-Atlas authorizes
-  ↓
-existing autonomous runtime executes
-  ↓
-independent verification
-  ↓
-existing recovery/replan protocol
+existing Atlas authorization/runtime/verification/recovery
 ```
 
-Qwen is a proposal/reasoning layer only. It must not receive direct tool execution, authorization, persistence, recovery, or scheduler authority.
+This is a proposal adapter, not an autonomous Qwen executor. Qwen still cannot authorize, execute, persist, recover, or choose arbitrary tools.
 
-Stage 16 should therefore begin with a proposal adapter/validator around the existing structured Qwen contract and the Stage 15 workflow catalog, not with a new executor.
+### Next Stage 16 work
+
+The next step is to connect an actual Qwen/structured-output provider boundary to `QwenProductionProposal` while keeping provider output untrusted and inert until Atlas validation succeeds. The provider adapter must normalize model output into the narrow proposal envelope and must not expose runtime/executor APIs.
+
+After that boundary is proven, we can add a controlled end-to-end test showing model proposal -> Atlas validation -> catalog resolution -> canonical task construction, with execution still separately gated by Atlas.
+
+Do not expand Qwen autonomy beyond proposal generation and proposal parsing at this point.
 
 ## Unreal
 
@@ -187,4 +127,4 @@ PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly reque
 
 ## Resume point
 
-**Begin Stage 16: Qwen proposal integration into the validated Stage 15 workflow/task planning boundary.** Preserve Qwen as proposal-only and route all resulting work through Atlas validation, authorization, the existing autonomous runtime, and independent verification. No new execution engine or parallel path should be introduced.
+**Continue Stage 16 by integrating a provider-facing structured Qwen output boundary into the proposal-only adapter. Keep provider/model output untrusted and inert until Atlas validates it against the Stage 15 catalog; no Qwen execution or authorization autonomy yet.**
