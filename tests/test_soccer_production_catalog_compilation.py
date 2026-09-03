@@ -56,6 +56,11 @@ def test_catalog_compilation_resolves_explicit_version_and_preserves_single_task
     )
 
     assert task.name == "broadcast-goal-preparation"
-    assert task.metadata["domain"] == "soccer-production"
+    assert task.domain == "soccer-production"
     assert len(task.actions) == 2
     assert [action.name for action in task.actions] == ["position_goal", "orient_goal"]
+
+    compiled = task.compile()
+    assert compiled.metadata["domain"] == "soccer-production"
+    assert compiled.metadata["workflow_catalog"]["version"] == 1
+    assert compiled.metadata["workflow_parameters"] == _parameters()
