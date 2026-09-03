@@ -72,11 +72,15 @@ def test_production_task_uses_existing_autonomous_runtime(tmp_path):
         {"environment": "test", "task": production.name},
     )
     writes = []
+    ready = False
 
     def execute(tool, arguments):
+        nonlocal ready
         if tool == "inspect_scene":
-            return {"ready": False}
+            return {"ready": ready}
         writes.append(tool)
+        if tool == "set_object_rotation":
+            ready = True
         return {"ok": True}
 
     runtime = AutonomousTaskRuntime.start(
@@ -86,5 +90,7 @@ def test_production_task_uses_existing_autonomous_runtime(tmp_path):
         execute,
         authorization_id="production-task-authorization",
     )
-    assert runtime.run_until_pause()["blocked"] is False
+    result = runtime.run_until_pause()
+
+    assert result["complete"] is True
     assert writes == ["move_object", "set_object_rotation"]
