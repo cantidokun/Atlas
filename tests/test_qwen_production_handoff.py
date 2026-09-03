@@ -106,3 +106,12 @@ def test_qwen_handoff_rejects_tampered_persisted_compiled_digest():
 
     with pytest.raises(QwenProductionHandoffError, match="compiled_task_digest integrity"):
         QwenProductionTaskHandoff.from_snapshot(persisted)
+
+
+def test_qwen_handoff_rejects_persisted_runtime_state_that_requests_execution():
+    handoff = QwenProductionTaskHandoff.from_proposal(VALID_PROPOSAL)
+    persisted = handoff.snapshot()
+    persisted["authorization"] = "atlas-issued"
+
+    with pytest.raises(QwenProductionHandoffError, match="unexpected runtime state"):
+        QwenProductionTaskHandoff.from_snapshot(persisted)
