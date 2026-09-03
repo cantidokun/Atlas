@@ -80,7 +80,6 @@ class GoalOrientationTemplate:
     file_name: str
     object_name: str
     target_rotation: Tuple[float, float, float]
-    depends_on: Tuple[str, ...] = ("position-goal",)
 
     def __post_init__(self) -> None:
         if not str(self.file_name).strip():
@@ -90,10 +89,6 @@ class GoalOrientationTemplate:
         if len(self.target_rotation) != 3:
             raise ValueError("workflow target_rotation must contain three values")
         _finite_transform(self.target_rotation, "target_rotation")
-        if any(not isinstance(item, str) or not item.strip() for item in self.depends_on):
-            raise ValueError("workflow fragment dependencies must contain non-empty strings")
-        if len(set(self.depends_on)) != len(self.depends_on):
-            raise ValueError("workflow fragment dependencies must be unique")
 
     @property
     def name(self) -> str:
@@ -133,7 +128,7 @@ class GoalOrientationTemplate:
             deliverables=self.deliverables,
             constraints=self.constraints,
             metadata={"production_phase": "orientation"},
-            depends_on=self.depends_on,
+            depends_on=("position-goal",),
         )
 
 
