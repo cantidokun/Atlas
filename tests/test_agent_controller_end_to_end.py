@@ -199,10 +199,9 @@ ATLAS_CONTROLLER_REQUEST:
 }
 """
 
-    with pytest.raises(
-        TypeError,
-        match="UnrealAuthorizedProductionPlan",
-    ):
-        adapter.process_model_response(model_response)
+    execution = adapter.process_model_response(model_response)
 
+    assert execution is not None
+    assert execution.controller_executed is False
+    assert execution.result is None
     assert captured == {}
