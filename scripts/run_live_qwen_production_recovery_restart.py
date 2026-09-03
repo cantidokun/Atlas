@@ -17,17 +17,16 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from action_plan import ActionSpec
+from planning.authorized_task_runtime import start_authorized_task_runtime
 from planning.autonomous_task_runtime import AutonomousTaskRuntime
 from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_process_executor import BlenderProcessExecutor
 from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
-from planning.blender_process_executor import BlenderProcessExecutor
-from planning.blender_execution_boundary import BlenderExecutionBoundary
+from planning.replan_authorization import ReplanAuthorization
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
-from planning.replan_authorization import ReplanAuthorization
 from qwen.ollama_provider import OllamaQwenProvider
-from qwen.production_handoff import QwenProductionHandoffError, QwenProductionTaskHandoff
+from qwen.production_handoff import QwenProductionTaskHandoff
 from scripts.run_live_production_task import BlenderProductionExecutor, _object_location, _object_rotation
 
 
@@ -141,8 +140,8 @@ def phase_failure(args: argparse.Namespace) -> int:
             f"proposal_location={qwen_target_location}, proposal_rotation={qwen_target_rotation}"
         )
 
-    action_plan, authorization = handoff.authorize(args.authorization_id)
-    runtime = __import__("planning.authorized_task_runtime", fromlist=["start_authorized_task_runtime"]).start_authorized_task_runtime(
+    _, authorization = handoff.authorize(args.authorization_id)
+    runtime = start_authorized_task_runtime(
         handoff.compiled_task,
         FutureRuntimeStateStore(state_file),
         RuntimeContext(
@@ -175,8 +174,8 @@ def phase_failure(args: argparse.Namespace) -> int:
     failed = runtime.run_until_pause()
     if failed.get("blocked") is not True:
         raise RuntimeError(f"Qwen-originated failure did not block the continuation: {failed}")
-    snapshot = state_file.read_text(encoding="utf-8")
-    if "qwen_handoff" not in snapshot:
+    persisted = FutureRuntimeStateStore(state_file).load()
+    if not isinstance((persisted.get("metadata") or {}).get("qwen_handoff"), dict):
         raise RuntimeError("Qwen handoff provenance was not persisted with the blocked continuation")
 
     print("LIVE QWEN PRODUCTION RECOVERY PHASE 1 VERIFIED")
@@ -207,10 +206,7 @@ def phase_recover(args: argparse.Namespace) -> int:
     persisted_handoff = metadata.get("qwen_handoff")
     if not isinstance(persisted_handoff, dict):
         raise RuntimeError("persisted Qwen handoff provenance is missing")
-    try:
-        handoff = QwenProductionTaskHandoff.from_snapshot(persisted_handoff)
-    except QwenProductionHandoffError:
-        raise
+    handoff = QwenProductionTaskHandoff.from_snapshot(persisted_handoff)
 
     original_location = metadata.get("fixture_original_location")
     original_rotation = metadata.get("fixture_original_rotation")
