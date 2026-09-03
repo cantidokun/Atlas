@@ -20,7 +20,12 @@ from planning.target_state import TargetStateEvaluator
 
 @dataclass(frozen=True)
 class ProductionTaskFragment:
-    """Named semantic production fragment containing declarative work."""
+    """Named semantic production fragment containing declarative work.
+
+    ``depends_on`` describes semantic fragment ordering only. It is validated
+    during composition and persisted as metadata; executable ordering remains
+    governed by the ActionSpec dependency graph in the canonical task contract.
+    """
 
     name: str
     evidence: Tuple[EvidenceRequest, ...] = ()
@@ -28,6 +33,7 @@ class ProductionTaskFragment:
     deliverables: Tuple[str, ...] = ()
     constraints: Tuple[str, ...] = ()
     metadata: Optional[Dict[str, Any]] = None
+    depends_on: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -36,6 +42,12 @@ class ProductionTaskFragment:
             raise ValueError("production fragment deliverables must contain non-empty strings")
         if any(not isinstance(item, str) or not item.strip() for item in self.constraints):
             raise ValueError("production fragment constraints must contain non-empty strings")
+        if any(not isinstance(item, str) or not item.strip() for item in self.depends_on):
+            raise ValueError("production fragment dependencies must contain non-empty strings")
+        if len(set(self.depends_on)) != len(self.depends_on):
+            raise ValueError("production fragment dependencies must be unique")
+        if self.name in self.depends_on:
+            raise ValueError("production fragment cannot depend on itself")
 
     def snapshot(self) -> Dict[str, Any]:
         """Return a durable semantic description without adding execution state."""
@@ -62,6 +74,7 @@ class ProductionTaskFragment:
             "deliverables": list(self.deliverables),
             "constraints": list(self.constraints),
             "metadata": deepcopy(self.metadata or {}),
+            "depends_on": list(self.depends_on),
         }
 
 
@@ -98,6 +111,11 @@ def compose_production_task(
     for fragment in fragment_list:
         if fragment.name in seen_names:
             raise ValueError(f"duplicate production fragment name: {fragment.name}")
+        for dependency in fragment.depends_on:
+            if dependency not in seen_names:
+                raise ValueError(
+                    f"production fragment {fragment.name} depends on unknown or later fragment: {dependency}"
+                )
         seen_names.add(fragment.name)
         evidence.extend(fragment.evidence)
         actions.extend(fragment.actions)
