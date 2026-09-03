@@ -250,5 +250,6 @@ class FutureExecutionController:
         return {"complete": True, "history": list(self.history), "plan_digest": self._plan_digest}
 
     def snapshot(self) -> Dict[str, Any]:
+        self._ensure_integrity()
         step = self.current_step
         return {"current_index": self.current_index, "total_steps": len(self.steps), "complete": self.complete, "blocked": self.blocked, "current_step": step.snapshot() if step is not None else None, "next_action": self.next_action, "failure": self.failed, "history": list(self.history), "inherited_dependencies": list(self.inherited_dependencies), "plan_digest": self._plan_digest}
