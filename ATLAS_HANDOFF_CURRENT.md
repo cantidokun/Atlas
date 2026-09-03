@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — end-of-night freeze. Stage 15 complete for current contract; Stage 16 Qwen provider, Atlas authorization handoff, runtime boundary, and first end-to-end mutation harness implemented but not yet live-verified.
+**Updated:** September 3, 2026 — Qwen Stage 16 runtime verified; durable Qwen recovery/restart path implemented but not yet live-verified.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
 **Current stage:** Stage 16 — IN PROGRESS
@@ -44,7 +44,7 @@ target_rotation -> vector3
 
 ## Stage 16 — Qwen integration
 
-### Verified
+### Verified: proposal, authorization, runtime, and real Blender mutation
 
 The local proposal-only Qwen smoke was user-verified:
 
@@ -61,70 +61,100 @@ execution=not_attempted
 blender_mutation=not_attempted
 ```
 
-This proves live Qwen communication, structured extraction, provider/catalog validation, and semantic task compilation without Blender mutation.
-
-### Implemented but not yet user-verified
-
-`qwen/production_handoff.py` provides a provenance-bound handoff from validated Qwen intent into the existing Atlas authorization mechanism.
-
-It rechecks proposal, semantic-task, and compiled-task integrity and independently recompiles the proposal before authorizing. Model-supplied authorization fields are rejected. No executor or recovery authority is exposed.
-
-`planning/authorized_task_runtime.py` provides a generic bootstrap for an already-issued Atlas `ActionAuthorization`. It verifies the exact action-plan binding, acquires authoritative initial evidence, evaluates the target, and constructs the existing `AutonomousTaskRuntime`. It is not a second execution or authorization system.
-
-Live harnesses now exist for:
+The full Qwen-authorized production runtime was subsequently user-verified:
 
 ```text
-scripts/run_live_qwen_production_handoff.py
-scripts/run_live_qwen_production_runtime_boundary.py
-scripts/run_live_qwen_production_runtime.py
+LIVE QWEN-AUTHORIZED SOCCER PRODUCTION RUNTIME VERIFIED
+object=Goal_Left_post
+workflow=broadcast-goal-preparation
+workflow_version=1
+qwen_proposal=verified
+catalog_validation=verified
+semantic_task=verified
+atlas_authorization=verified
+authorization_id=atlas-qwen-production-runtime-live
+existing_task_runtime=verified
+blender_execution=verified
+independent_final_verification=verified
 ```
 
-The intended full chain is:
+The live mutation targeted the verified Qwen workflow parameters and the harness restored the fixture afterward.
+
+### Implemented: durable Qwen recovery handoff
+
+`qwen/production_handoff.py` now supports `QwenProductionTaskHandoff.from_snapshot(...)` for cross-process continuation. Recovery never trusts persisted semantic task objects as executable authority: the persisted proposal is revalidated and recompiled through the current trusted catalog/compiler, and the persisted semantic/compiled snapshots plus digests must match exactly. Persisted handoffs must still be in their inert `authorization=not_requested` / `execution=not_attempted` state.
+
+`scripts/run_live_qwen_production_recovery_restart.py` now provides a two-phase live proof:
 
 ```text
-Qwen
+Phase 1
+Qwen proposal
   ↓
-structured proposal
+trusted catalog validation
   ↓
-provider + trusted catalog validation
-  ↓
-QwenProductionProposal
-  ↓
-ProductionTaskDefinition
-  ↓
-AtlasTaskDefinition
-  ↓
-QwenProductionTaskHandoff
-  ↓
-existing Atlas ActionAuthorization
+Atlas authorization
   ↓
 existing AutonomousTaskRuntime
   ↓
-controlled Blender execution
+first Blender action succeeds
+  ↓
+later Blender action is deliberately failed before invocation
+  ↓
+durable continuation + Qwen provenance checkpoint
+
+Phase 2 — fresh Python process
+persisted Qwen handoff reconstruction
+  ↓
+existing Atlas continuation recovery
+  ↓
+fresh authoritative evidence
+  ↓
+explicit replan authorization
+  ↓
+unfinished action replacement
   ↓
 fresh independent verification
   ↓
 fixture restoration
 ```
 
-The **first full Qwen-authorized Blender mutation harness is implemented but has not yet been user-verified**.
+The recovery harness and handoff reconstruction tests are implemented. The two-process Blender recovery proof is **not yet user-verified**.
 
-## Next session — exact resume point
+## Next live milestone
 
-Run the following from the Atlas repository on the Windows development machine:
+From the Atlas repository on the Windows development machine, after pulling the latest branch:
 
 ```powershell
 cd "C:\Users\Gavin's PC\Desktop\Atlas"
 git pull
-python -m scripts.run_live_qwen_production_runtime_boundary --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-python -m scripts.run_live_qwen_production_runtime --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
 ```
 
-The boundary proof must establish that Qwen-driven semantic intent reaches Atlas authorization and the existing runtime without a write before the `ACTION` phase.
+With Ollama running locally, run Phase 1 and leave its state file in place:
 
-The full proof must establish real Blender mutation, fresh independent verification, and exact fixture restoration.
+```powershell
+python -m scripts.run_live_qwen_production_recovery_restart --phase failure --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+```
 
-After that proof succeeds, extend the same Qwen proposal/handoff contract into the **existing Atlas failure/recovery machinery**. Recovery must remain Atlas-owned, require fresh authoritative evidence, require explicit replan authorization, preserve completed prerequisites, and never automatically retry failed writes.
+Then start a fresh Python process in the same repository and run Phase 2:
+
+```powershell
+python -m scripts.run_live_qwen_production_recovery_restart --phase recover --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+```
+
+Expected proof signals include:
+
+```text
+qwen_provenance_recovered=verified
+initial_authorization_recovered=verified
+process_restart=verified
+fresh_recovery_evidence=verified
+qwen_workflow_target_revalidated=verified
+completed_prerequisite_not_replayed=verified
+replacement_execution=verified
+independent_final_verification=verified
+```
+
+Recovery must remain Atlas-owned, require fresh authoritative evidence, require explicit replan authorization, preserve completed prerequisites, and never automatically retry failed writes.
 
 Do not create a Qwen-specific execution engine, authorization system, scheduler, or recovery system.
 Do not introduce parallel execution until dependency semantics justify it independently.
@@ -156,7 +186,7 @@ Atlas owns the canonical Digital Twin. Photogrammetry is upstream reconstruction
 
 ## Documentation state
 
-The root `README.md`, `docs/ATLAS_ARCHITECTURE_CONTRACT.md`, `ATLAS_HANDOFF_CONTEXT.txt`, `UNREAL_AGENT_HANDOFF_CURRENT.md`, `docs/OPENHANDS_TRANSITION_GUIDE.md`, and `DEVELOPMENT_LOG.md` were synchronized to this checkpoint before development was stopped for the night.
+This handoff records the current Stage 16 position. The durable Qwen recovery implementation is present; its live two-process Blender proof remains the next verification gate.
 
 ## PR status
 
