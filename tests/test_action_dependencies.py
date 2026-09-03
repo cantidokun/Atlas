@@ -3,6 +3,7 @@ import pytest
 from action_plan import ActionSpec
 from planning.action_authorization import ActionAuthorization
 from planning.action_dependencies import ActionDependencyError, validate_action_dependencies
+from planning.future_execution import FutureExecutionController
 from planning.future_generator import DeterministicFutureGenerator
 from planning.target_state import StateInvariant, TargetStateEvaluator
 
@@ -30,6 +31,7 @@ def test_dependencies_are_explicit_and_preserve_serial_order():
         "clean_mesh",
         "prepare_render",
     ]
+    assert steps[2].action["depends_on"] == []
     assert steps[3].action["depends_on"] == ["create_mesh"]
     assert steps[4].action["depends_on"] == ["clean_mesh"]
 
@@ -59,6 +61,21 @@ def test_unknown_self_and_duplicate_dependencies_are_rejected():
         ])
 
 
+def test_dependency_on_optional_failure_action_is_rejected():
+    actions = [
+        ActionSpec("prepare_mesh", {}, "prepare_mesh", requires_success=False),
+        ActionSpec("clean_mesh", {}, "clean_mesh", depends_on=("prepare_mesh",)),
+    ]
+    with pytest.raises(ActionDependencyError, match="does not require success"):
+        validate_action_dependencies(actions)
+
+
+def test_non_string_dependency_is_rejected():
+    actions = [ActionSpec("a", {}, "a", depends_on=(1,))]
+    with pytest.raises(TypeError, match="contain only strings"):
+        validate_action_dependencies(actions)
+
+
 def test_dependency_changes_are_bound_into_action_authorization():
     first = [
         ActionSpec("a", {}, "a"),
@@ -71,3 +88,36 @@ def test_dependency_changes_are_bound_into_action_authorization():
     authorization = ActionAuthorization.issue(first, "dependency-auth")
     assert authorization.matches(first)
     assert not authorization.matches(second)
+
+
+def test_future_controller_blocks_when_dependency_checkpoint_is_missing():
+    actions = _valid_actions()
+    steps = _generator().generate(False, actions)
+    controller = FutureExecutionController(steps)
+    controller.acknowledge({"evidence_complete": True})
+    controller.acknowledge({"satisfied": False})
+
+    # Bypass normal serial progress only inside the unit test to prove the
+    # execution controller itself remains fail-closed at the dependency gate.
+    controller.history.append({
+        "sequence": 2,
+        "step_id": "action.0",
+        "phase": "ACTION",
+        "status": "failed",
+        "action_name": "create_mesh",
+    })
+    controller.current_index = 3
+
+    with pytest.raises(RuntimeError, match="dependencies are not satisfied"):
+        controller.execute_current(lambda tool, arguments: {"ok": True})
+    assert controller.blocked is True
+    assert controller.failed["missing_dependencies"] == ["create_mesh"]
+
+
+def test_dependency_free_legacy_plan_remains_valid():
+    actions = [
+        ActionSpec("move_object", {"object_name": "A"}),
+        ActionSpec("move_object", {"object_name": "B"}),
+    ]
+    validate_action_dependencies(actions)
+    assert ActionAuthorization.issue(actions, "legacy").matches(actions)
