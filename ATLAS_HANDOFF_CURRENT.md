@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 proposal-only Qwen boundary implemented
+**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 proposal-only Qwen provider integration implemented
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
 **Stage status:** Stage 15 COMPLETE FOR CURRENT CONTRACT; Stage 16 IN PROGRESS
@@ -52,7 +52,7 @@ Stage 15 therefore closes for the current contract.
 
 ## CI checkpoint
 
-GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Earlier Stage 15 commits also passed runs #1365, #1366, #1367, and #1368. Run #1362 failed because stale catalog tests did not yet include the typed parameter contract; those regressions were corrected.
+GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Stage 16 provider tests subsequently passed run **#1383** for commit `bcbf3c76be2b4737783233b681f0b7f47113318d`; run **#1382** failed for an intermediate provider revision and was superseded by #1383. Run **#1384** is the current validation run for the latest provider-to-catalog test revision.
 
 The Stage 15 live recovery itself was user-verified against Blender 4.4.
 
@@ -63,12 +63,19 @@ Stage 16 now begins at the proposal-resolution boundary rather than the executio
 Implemented:
 
 - `qwen/production_proposal.py` defines `QwenProductionProposal` as an intent-only envelope containing `workflow`, optional `version`, and `parameters`;
+- proposal values are defensively copied so caller mutation cannot silently alter the semantic request after validation;
 - `validate_qwen_production_proposal(...)` rejects malformed proposal shapes and unknown top-level fields before catalog resolution;
 - `compile_qwen_production_proposal(...)` resolves the proposal exclusively through the trusted Stage 15 soccer-production catalog and returns one canonical `ProductionTaskDefinition`;
 - catalog validation remains responsible for workflow identity, version, required parameters, parameter kinds, vector shape, and finite numeric values;
 - Qwen proposal input cannot specify an executor, authorization ID, scheduling instruction, recovery operation, or arbitrary tool invocation;
-- regression coverage proves malformed Qwen envelopes, unknown workflows, bad parameter kinds, and attempted execution fields are rejected;
-- successful Qwen compilation retains workflow/version and normalized parameter provenance in the resulting task metadata.
+- regression coverage proves malformed Qwen envelopes, unknown workflows, bad parameter kinds, attempted execution fields, malformed JSON, invalid UTF-8, and detached proposal snapshots are rejected or safely isolated;
+- `qwen/provider_output.py` is the strict decoded-provider-output adapter and never exposes execution capabilities;
+- `qwen/ollama_provider.py` now provides the actual local Ollama/Qwen provider boundary at `http://localhost:11434/api/chat` with `qwen3:8b` defaults;
+- the Ollama boundary requests a structured response using `PRODUCTION_PROPOSAL_JSON_SCHEMA`, disables streaming, uses deterministic temperature `0`, and sends no Atlas tools to the model;
+- provider history accepts only `user`/`assistant` messages and cannot replace or inject a system message, so the Atlas proposal-only system contract remains provider-owned;
+- provider responses are accepted only after strict proposal parsing; malformed provider responses and transport failures become `QwenProviderError`;
+- `scripts/run_live_qwen_production_proposal.py` provides a live local smoke test that contacts Qwen, validates the proposal, resolves the trusted catalog, and compiles a semantic task while explicitly stopping before authorization, persistence, execution, recovery, or Blender mutation;
+- provider-to-catalog regression coverage proves the complete offline handoff remains inert and canonical.
 
 The intended Stage 16 flow is:
 
@@ -77,7 +84,11 @@ Qwen
   ↓
 reason about soccer-production objective
   ↓
-propose workflow + version + parameters
+Ollama structured-output provider
+  ↓
+strict provider-output parser
+  ↓
+QwenProductionProposal
   ↓
 Atlas validates proposal envelope
   ↓
@@ -88,13 +99,23 @@ Atlas constructs one ProductionTaskDefinition
 existing Atlas authorization/runtime/verification/recovery
 ```
 
-This is a proposal adapter, not an autonomous Qwen executor. Qwen still cannot authorize, execute, persist, recover, or choose arbitrary tools.
+Ollama's current API supports passing a JSON schema in the chat `format` field and returning a non-streaming response, which is the mechanism used by the provider boundary. This constrains model output shape but does not make the model trusted; Atlas catalog validation remains the authority boundary. urlOllama API documentationhttps://docs.ollama.com/api/chat
 
-### Next Stage 16 work
+### Live Stage 16 smoke test
 
-The next step is to connect an actual Qwen/structured-output provider boundary to `QwenProductionProposal` while keeping provider output untrusted and inert until Atlas validation succeeds. The provider adapter must normalize model output into the narrow proposal envelope and must not expose runtime/executor APIs.
+From the Atlas repository on the local Windows machine:
 
-After that boundary is proven, we can add a controlled end-to-end test showing model proposal -> Atlas validation -> catalog resolution -> canonical task construction, with execution still separately gated by Atlas.
+```powershell
+cd "C:\Users\Gavin's PC\Desktop\Atlas"
+git pull
+python -m scripts.run_live_qwen_production_proposal
+```
+
+This test is intentionally proposal-only. A successful result proves live model/provider communication, structured proposal extraction, Atlas proposal validation, catalog resolution, and semantic task construction. It must not perform a Blender write.
+
+### Stage 16 next work
+
+The next meaningful proof is a live local Qwen proposal against the real installed `qwen3:8b` endpoint using the new smoke harness. After that, Stage 16 can extend the proposal contract to multiple trusted soccer-production workflows while preserving the same catalog authority and execution boundary.
 
 Do not expand Qwen autonomy beyond proposal generation and proposal parsing at this point.
 
@@ -127,4 +148,4 @@ PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly reque
 
 ## Resume point
 
-**Continue Stage 16 by integrating a provider-facing structured Qwen output boundary into the proposal-only adapter. Keep provider/model output untrusted and inert until Atlas validates it against the Stage 15 catalog; no Qwen execution or authorization autonomy yet.**
+**Continue Stage 16 by running and validating the live local Qwen proposal-only smoke test. Preserve the rule that model output is untrusted and inert until Atlas validates it against the Stage 15 catalog; no Qwen execution or authorization autonomy yet.**
