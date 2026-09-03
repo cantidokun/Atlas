@@ -70,9 +70,6 @@ class QwenProductionTaskHandoff:
         except (KeyError, TypeError, ValueError) as exc:
             raise QwenProductionHandoffError(str(exc)) from exc
 
-        # The canonical semantic task and its compiled task are the only
-        # objects allowed across this boundary. Bind their detached snapshots so
-        # later mutation of a mutable metadata dictionary fails closed.
         proposal_snapshot = validated.snapshot()
         semantic_snapshot = _task_snapshot(semantic_task)
         compiled_snapshot = _compiled_snapshot(compiled_task)
@@ -87,41 +84,26 @@ class QwenProductionTaskHandoff:
 
     @classmethod
     def from_snapshot(cls, snapshot: Any) -> "QwenProductionTaskHandoff":
-        """Reconstruct a previously persisted handoff and fail closed on drift.
-
-        Recovery state is not trusted as executable authority. The persisted
-        proposal is revalidated and recompiled through the current canonical
-        catalog/compiler, then every persisted provenance snapshot and digest is
-        required to match that rebuilt handoff exactly.
-        """
+        """Reconstruct a persisted handoff and fail closed on provenance drift."""
         if not isinstance(snapshot, dict):
             raise QwenProductionHandoffError("Persisted Qwen production handoff is malformed.")
         required = {
-            "proposal",
-            "semantic_task",
-            "compiled_task",
-            "proposal_digest",
-            "semantic_task_digest",
-            "compiled_task_digest",
-            "authorization",
-            "execution",
+            "proposal", "semantic_task", "compiled_task",
+            "proposal_digest", "semantic_task_digest", "compiled_task_digest",
+            "authorization", "execution",
         }
         if set(snapshot) != required:
             raise QwenProductionHandoffError("Persisted Qwen production handoff fields are invalid.")
         if snapshot["authorization"] != "not_requested" or snapshot["execution"] != "not_attempted":
             raise QwenProductionHandoffError("Persisted Qwen production handoff has unexpected runtime state.")
         if any(not isinstance(snapshot[name], str) or not snapshot[name].strip() for name in (
-            "proposal_digest",
-            "semantic_task_digest",
-            "compiled_task_digest",
+            "proposal_digest", "semantic_task_digest", "compiled_task_digest"
         )):
             raise QwenProductionHandoffError("Persisted Qwen production handoff digests are invalid.")
-
         try:
             handoff = cls.from_proposal(snapshot["proposal"])
         except (TypeError, ValueError, KeyError) as exc:
             raise QwenProductionHandoffError("Persisted Qwen production proposal is invalid.") from exc
-
         rebuilt = handoff.snapshot()
         for field in ("proposal", "semantic_task", "compiled_task"):
             if rebuilt[field] != snapshot[field]:
@@ -144,16 +126,12 @@ class QwenProductionTaskHandoff:
             compiled_snapshot = _compiled_snapshot(self.compiled_task)
         except (AttributeError, TypeError, ValueError) as exc:
             raise QwenProductionHandoffError("Qwen production handoff is malformed.") from exc
-
         if _canonical_digest(proposal_snapshot) != self.proposal_digest:
             raise QwenProductionHandoffError("Qwen production proposal integrity check failed.")
         if _canonical_digest(semantic_snapshot) != self.semantic_task_digest:
             raise QwenProductionHandoffError("Qwen semantic task integrity check failed.")
         if _canonical_digest(compiled_snapshot) != self.compiled_task_digest:
             raise QwenProductionHandoffError("Qwen compiled task integrity check failed.")
-
-        # Recompile independently from the preserved proposal and require the
-        # canonical task/provenance shape to remain byte-for-byte equivalent.
         rebuilt_semantic = compile_qwen_production_proposal(proposal_snapshot)
         rebuilt_compiled = rebuilt_semantic.compile()
         if _task_snapshot(rebuilt_semantic) != semantic_snapshot:
@@ -161,22 +139,31 @@ class QwenProductionTaskHandoff:
         if _compiled_snapshot(rebuilt_compiled) != compiled_snapshot:
             raise QwenProductionHandoffError("Qwen compiled task provenance no longer matches the canonical compiler.")
 
+    def validate_recovery_recommendation(self, proposal: Any) -> QwenProductionProposal:
+        """Accept only a recovery recommendation identical to this task contract.
+
+        The recommendation is advisory. Atlas derives the executable replacement
+        action from the persisted task and authorizes it separately.
+        """
+        self.verify_integrity()
+        candidate = proposal if isinstance(proposal, QwenProductionProposal) else validate_qwen_production_proposal(proposal)
+        candidate_handoff = QwenProductionTaskHandoff.from_proposal(candidate)
+        if candidate_handoff.semantic_task.snapshot() != self.semantic_task.snapshot():
+            raise QwenProductionHandoffError("Qwen recovery recommendation changed the canonical production task.")
+        if candidate_handoff.compiled_task.snapshot() != self.compiled_task.snapshot():
+            raise QwenProductionHandoffError("Qwen recovery recommendation changed the executable task contract.")
+        return candidate
+
     def task_plan_proposal(self) -> TaskPlanProposal:
         """Create the existing planner proposal without granting authorization."""
         self.verify_integrity()
-        return TaskPlanProposal(
-            evidence=list(self.compiled_task.evidence),
-            actions=list(self.compiled_task.actions),
-        )
+        return TaskPlanProposal(evidence=list(self.compiled_task.evidence), actions=list(self.compiled_task.actions))
 
     def authorize(self, authorization_id: str) -> Tuple[ActionPlan, ActionAuthorization]:
         """Explicitly authorize this exact task through the existing Atlas path."""
         self.verify_integrity()
         proposal = self.task_plan_proposal()
-        _, action_plan = instantiate_authorized_plans(
-            proposal,
-            authorization_id=authorization_id,
-        )
+        _, action_plan = instantiate_authorized_plans(proposal, authorization_id=authorization_id)
         authorization = action_plan.authorization
         if not isinstance(authorization, ActionAuthorization):
             raise QwenProductionHandoffError("Atlas authorization path did not return an ActionAuthorization.")
@@ -196,7 +183,4 @@ class QwenProductionTaskHandoff:
         }
 
 
-__all__ = [
-    "QwenProductionHandoffError",
-    "QwenProductionTaskHandoff",
-]
+__all__ = ["QwenProductionHandoffError", "QwenProductionTaskHandoff"]
