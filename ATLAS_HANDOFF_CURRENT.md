@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 2, 2026
+**Updated:** September 3, 2026
 **Current branch:** `integrate-origin-main-with-render-receipt`
-**Latest controller-boundary commit:** `cb9e18c` — `feat: restore agent entrypoint compatibility and expose process runtime`
+**Latest controller-boundary commit:** `e6a0975b` — `test: align unauthenticated Unreal request with fail-closed admission`
 
 ## Current milestone
 
@@ -31,7 +31,7 @@ The model is never the authorization source. Trusted provider context is install
 
 ### Explicit model-to-controller request boundary
 
-The agent-facing controller seam now includes:
+The agent-facing controller seam includes:
 
 - `controller/agent_controller_intent.py`
 - `controller/agent_controller_response_bridge.py`
@@ -56,7 +56,7 @@ The parser accepts nested JSON payloads and does not execute anything. The bridg
 
 ### Host-owned trusted execution context
 
-`AgentExecutionContext` now owns trusted provider state for one agent execution. It can install typed `TrustedUnrealContext` instances or other typed `AgentTrustedContext` values.
+`AgentExecutionContext` owns trusted provider state for one agent execution. It can install typed `TrustedUnrealContext` instances or other typed `AgentTrustedContext` values.
 
 Trusted context resolution follows this rule:
 
@@ -86,7 +86,7 @@ AgentControllerLoopAdapter
 
 The host can optionally accept an existing process/runtime, and provides a typed Unreal production factory binding an already-authorized `UnrealProductionControllerIntegration` and `TrustedUnrealContext`.
 
-This is the intended host-side composition point for future real model-driven Unreal execution.
+The host is now the agent-facing controller composition seam. It exposes the runtime and loop for compatibility while keeping the execution context host-owned.
 
 ### Unreal trust binding
 
@@ -102,15 +102,32 @@ approved sequence asset path
 
 The binding validates that the authorized production plan and authoritative intent share the same intent ID. Model-supplied context cannot replace these trusted values at the controller boundary.
 
+### Synthetic host-to-Unreal composition boundary
+
+The synthetic integration path now exercises the real Atlas controller stack through a typed Unreal production integration with only the irreversible external execution replaced by a deterministic test seam.
+
+The validated path proves:
+
+```text
+model request
+ -> host
+ -> trusted context
+ -> Unreal capability admission
+ -> Unreal controller integration
+ -> synthetic execution seam
+```
+
+A forged model authorization/context cannot replace the host-installed `UnrealAuthorizedProductionPlan`, authoritative intent, or sequence asset path. An Unreal production request without host-installed authorization fails closed and does not invoke the integration.
+
 ## Latest validated controller test state
 
 The focused host/controller regression checkpoint completed successfully:
 
 ```text
-62 passed
+86 passed in 1.03s
 ```
 
-This validates the current intent parsing, trusted context, host lifecycle, loop adapter, Unreal trusted-context binding, and synthetic end-to-end controller boundary.
+This checkpoint includes the host entrypoint seam, host-owned execution context, Unreal trusted-context binding, protected Unreal capability admission, agent wiring, intent preservation, real in-memory Unreal controller integration, and the synthetic host-to-Unreal end-to-end path.
 
 No live Unreal/action-runner test was run as part of this checkpoint.
 
@@ -137,14 +154,11 @@ The next Unreal-dependent gate remains the real Blueprint integration suite. Do 
 
 ## Next development step
 
-When development resumes:
-
-1. Bring the local branch to the latest pushed commit.
-2. Review the host/controller changes as a single integrated boundary.
-3. Wire the host-owned execution context into the actual agent-facing runtime in the smallest safe way, without changing the existing Blender/Qwen tool path.
-4. Create a synthetic real-object production request proving the host can carry an already-authorized Unreal production artifact into the controller path.
-5. Only when that source-level path is stable should the live Unreal controller execution gate be authorized and run.
-6. Separately complete and revalidate the live Blueprint metadata evidence boundary.
+1. Audit the remaining host/Unreal integration surface for another isolated, testable boundary improvement without invoking the live action runner.
+2. Keep the host-owned trust model explicit for every agent-to-controller entrypoint, including any future explicit dispatch path.
+3. Strengthen the provider-specific execution contract only where the change can be validated with deterministic in-memory tests.
+4. Keep the live Blueprint metadata/evidence correction separate from controller-host work.
+5. Only run the live Unreal/action-runner gate when explicitly authorized.
 
 ## Architectural invariants
 
