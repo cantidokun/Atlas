@@ -103,9 +103,13 @@ class QwenProductionTaskHandoff:
             "proposal_digest",
             "semantic_task_digest",
             "compiled_task_digest",
+            "authorization",
+            "execution",
         }
         if set(snapshot) != required:
             raise QwenProductionHandoffError("Persisted Qwen production handoff fields are invalid.")
+        if snapshot["authorization"] != "not_requested" or snapshot["execution"] != "not_attempted":
+            raise QwenProductionHandoffError("Persisted Qwen production handoff has unexpected runtime state.")
         if any(not isinstance(snapshot[name], str) or not snapshot[name].strip() for name in (
             "proposal_digest",
             "semantic_task_digest",
