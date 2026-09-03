@@ -29,8 +29,6 @@ from planning.replan_authorization import ReplanAuthorization
 class BlenderTaskExecutor:
     """Route task writes through persistence and reads through verification."""
 
-    WRITE_TOOLS = {"move_object", "set_object_rotation"}
-
     def __init__(self, boundary: BlenderExecutionBoundary) -> None:
         self.boundary = boundary
 
@@ -193,18 +191,16 @@ def phase_failure(
         {
             "fixture_original_location": original_location,
             "fixture_original_rotation": original_rotation,
+            "fixture_target_location": target_location,
+            "fixture_target_rotation": target_rotation,
         }
     )
-
-    calls = 0
 
     class FailSecondAction:
         def __init__(self, delegate):
             self.delegate = delegate
 
         def __call__(self, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-            nonlocal calls
-            calls += 1
             if tool == "set_object_rotation":
                 raise RuntimeError("controlled second-action failure")
             return self.delegate(tool, arguments)
@@ -236,27 +232,29 @@ def phase_recover(
     state_file: Path,
     authorization_id: str,
     replan_authorization_id: str,
-    target_location: List[float],
-    target_rotation: List[float],
 ) -> None:
     real_executor = BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=blender_command)
     boundary = BlenderExecutionBoundary(real_executor)
-    task = _task(path, object_name, target_location, target_rotation)
     store = FutureRuntimeStateStore(state_file)
+    persisted = store.load().get("metadata") or {}
+    original_location = persisted.get("fixture_original_location")
+    original_rotation = persisted.get("fixture_original_rotation")
+    target_location = persisted.get("fixture_target_location")
+    target_rotation = persisted.get("fixture_target_rotation")
+    if not all(isinstance(value, list) and len(value) == 3 for value in (original_location, original_rotation, target_location, target_rotation)):
+        raise RuntimeError("persisted multi-step fixture state is incomplete")
+    original_location = [float(value) for value in original_location]
+    original_rotation = [float(value) for value in original_rotation]
+    target_location = [float(value) for value in target_location]
+    target_rotation = [float(value) for value in target_rotation]
+
+    task = _task(path, object_name, target_location, target_rotation)
     runtime = AutonomousTaskRuntime.resume_from_store(
         task,
         store,
         _context(path, task.name),
         BlenderTaskExecutor(boundary),
     )
-
-    persisted = store.load().get("metadata") or {}
-    original_location = persisted.get("fixture_original_location")
-    original_rotation = persisted.get("fixture_original_rotation")
-    if not isinstance(original_location, list) or not isinstance(original_rotation, list):
-        raise RuntimeError("persisted fixture restoration state is missing")
-    original_location = [float(value) for value in original_location]
-    original_rotation = [float(value) for value in original_rotation]
 
     snapshot = runtime.runtime.snapshot()
     if snapshot.get("failure", {}).get("step_id") != "action.1":
@@ -362,12 +360,11 @@ def main() -> int:
 
     expected_rotation = [float(value) for value in args.rotation]
     try:
-        inspector = BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=args.blender)
-        boundary = BlenderExecutionBoundary(inspector)
-        original_location = _object_location(boundary.execute_verified("inspect_scene", {"file_name": str(path)}), args.object)
-        target_location = [original_location[0] + args.delta_x, original_location[1], original_location[2]]
-
         if args.phase == "failure":
+            inspector = BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=args.blender)
+            boundary = BlenderExecutionBoundary(inspector)
+            original_location = _object_location(boundary.execute_verified("inspect_scene", {"file_name": str(path)}), args.object)
+            target_location = [original_location[0] + args.delta_x, original_location[1], original_location[2]]
             phase_failure(
                 path,
                 args.blender,
@@ -385,8 +382,6 @@ def main() -> int:
                 Path(args.state_file),
                 args.authorization_id,
                 args.replan_authorization_id,
-                target_location,
-                expected_rotation,
             )
     except Exception as exc:
         print(f"LIVE AUTONOMOUS MULTISTEP RECOVERY FAILED: {exc}")
