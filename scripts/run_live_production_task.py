@@ -48,7 +48,7 @@ class BlenderProductionExecutor:
                 "inspect_scene",
                 {"file_name": arguments["file_name"]},
                 {object_name: {"location": [float(value) for value in arguments["location"]]}},
-                lambda inspection: {object_name: {"location": _object_location(inspection, object_name)},
+                lambda inspection: {object_name: {"location": _object_location(inspection, object_name)}},
             )
             return dict(result.operation_result.details)
         if tool == "set_object_rotation":
