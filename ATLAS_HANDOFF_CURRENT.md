@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 14 live dependency proof + dependency-aware recovery implementation in progress
+**Updated:** September 3, 2026 — Stage 14 dependency-aware recovery live-verified
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 13 is complete; Stage 14 dependency-aware task composition has a successful live serial proof and is now being extended through cross-process dependency-aware recovery
+**Current Blender branch work:** Stage 14 dependency-aware task composition is live-verified through serial execution and two-process recovery
 
 ## Current authority model
 
@@ -44,7 +44,9 @@ Implemented foundation:
 - structured task-plan validation accepts optional `depends_on` declarations without granting execution authority;
 - `FutureExecutionController` derives dependency completion from successful future checkpoints rather than executor result payloads;
 - inherited prerequisites proven complete by an earlier authorized continuation can be explicitly carried into a recovery replan;
-- inherited dependency state is included in the deterministic future integrity digest and persisted snapshot.
+- inherited dependency state is included in the deterministic future integrity digest and persisted snapshot;
+- legacy dependency-free authorization digest compatibility is preserved for existing durable receipts;
+- future-controller snapshot calls fail closed when inherited dependency state is mutated after authorization.
 
 The execution model remains serial and deterministic:
 
@@ -85,41 +87,38 @@ fixture_restored_rotation=[0.0, 0.0, 0.0]
 
 This proves that explicit dependency metadata reaches the real Blender task, authorization, execution order, independent verification, and fixture restoration.
 
-### Stage 14 dependency-aware recovery — NEXT PROOF
+### Stage 14 dependency-aware recovery — VERIFIED
 
-A dedicated two-process harness is now present at:
+`scripts/run_live_dependency_recovery.py` has now been successfully executed across two separate Python processes against the real Blender 4.4 environment.
 
-`scripts/run_live_dependency_recovery.py`
+Phase 1 created the durable blocked checkpoint after the first action succeeded and the dependent second action failed. Phase 2 reconstructed that continuation after restart, acquired fresh evidence, explicitly authorized the recovery replan, carried the completed prerequisite forward as inherited dependency state, executed only the replacement dependent action, independently verified the final target, and restored the fixture.
 
-Its purpose is to prove the harder case:
+Observed proof:
 
 ```text
-prepare_location succeeds
-        ↓
-checkpoint
-        ↓
-prepare_rotation fails
-        ↓
-BLOCKED
-        ↓
-process restart
-        ↓
-fresh evidence
-        ↓
-recover the completed prerequisite
-        ↓
-explicit replan authorization
-        ↓
-execute dependent replacement action
-        ↓
-fresh independent verification
+LIVE AUTONOMOUS DEPENDENCY RECOVERY VERIFIED
+object=Goal_Left_post
+target_location=[0.25, 5.302, 0.0]
+target_rotation=[0.0, 0.0, 15.0]
+explicit_dependency=prepare_rotation->prepare_location
+dependency_checkpoint_recovered=verified
+completed_prerequisite_not_replayed=verified
+process_restart=verified
+fresh_recovery_evidence=verified
+dependency_replan_authorization=verified
+dependent_replacement_execution=verified
+fresh_final_verification=verified
+fixture_restored_location=[0.0, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-The recovery model explicitly carries `prepare_location` as an inherited prerequisite so the replacement action does not have to pretend that its prerequisite disappeared merely because the original action sequence was replaced.
+This closes the current Stage 14 recovery proof: a replacement action may depend on a previously completed prerequisite without replaying that prerequisite, and that inherited state is itself authorization- and integrity-bound.
 
 ## CI
 
-The latest dependency implementation has generated a new `Atlas Tests` workflow run on the development branch. Do not mark Stage 14 complete until the current matrix is green and the dependency-aware recovery proof passes.
+The first CI run on the dependency recovery patch exposed two defects in the newly added regression tests: one attempted to construct an intentionally invalid dependency plan for a digest comparison, and one asserted snapshot integrity without invoking the controller's integrity gate. Both were corrected. The affected run had `521 passed, 2 failed` on both Python matrix legs; the production recovery path itself had already passed the live Blender proof above.
+
+A fresh `Atlas Tests` run is expected from the corrected head. Do not describe Stage 14 as regression-green until the current matrix reports success.
 
 ## Unreal
 
@@ -180,21 +179,9 @@ Preserve coverage for:
 
 ## Resume point
 
-**Next: complete the Stage 14 dependency-aware recovery proof.**
+**Next: audit the completed Stage 14 dependency architecture and advance to Stage 15 higher-level production tasks spanning multiple Blender operations.**
 
-From the Atlas repository folder, run Phase 1:
-
-```powershell
-python -m scripts.run_live_dependency_recovery --phase failure --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-```
-
-Then, in the fresh process, run Phase 2:
-
-```powershell
-python -m scripts.run_live_dependency_recovery --phase recover --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-```
-
-Only after the recovery proof and current CI matrix are green should Atlas evaluate a later concurrency stage.
+Before moving into Stage 15, require the corrected current CI matrix to be green. Then design Stage 15 around production-task abstractions rather than another isolated mutation harness. The next structural focus is to represent meaningful soccer-production goals as validated task graphs while retaining the same Atlas authority, evidence, authorization, deterministic execution, recovery, and independent verification boundaries.
 
 Do not expand Qwen autonomy yet.
 
