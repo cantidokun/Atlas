@@ -1,9 +1,46 @@
 import pytest
 
-from planning.soccer_production_templates import BroadcastGoalPreparationTemplate
+from planning.soccer_production_templates import (
+    BroadcastGoalPreparationTemplate,
+    GoalOrientationTemplate,
+    GoalPositionTemplate,
+)
 
 
-def test_broadcast_goal_template_builds_reusable_dependent_fragments():
+def test_goal_position_template_builds_reusable_fragment():
+    template = GoalPositionTemplate(
+        file_name="scene.blend",
+        object_name="Goal_Left_post",
+        target_location=(1.0, 2.0, 3.0),
+    )
+
+    fragment = template.fragment()
+
+    assert template.name == "position-goal"
+    assert fragment.name == "position-goal"
+    assert fragment.actions[0].name == "position_goal"
+    assert fragment.actions[0].arguments["location"] == [1.0, 2.0, 3.0]
+    assert fragment.depends_on == ()
+
+
+def test_goal_orientation_template_preserves_explicit_dependency():
+    template = GoalOrientationTemplate(
+        file_name="scene.blend",
+        object_name="Goal_Left_post",
+        target_rotation=(0.0, 0.0, 15.0),
+    )
+
+    fragment = template.fragment()
+
+    assert template.name == "orient-goal"
+    assert fragment.name == "orient-goal"
+    assert fragment.depends_on == ("position-goal",)
+    assert fragment.actions[0].name == "orient_goal"
+    assert fragment.actions[0].dependency_names() == ("position_goal",)
+    assert fragment.actions[0].arguments["rotation_degrees"] == [0.0, 0.0, 15.0]
+
+
+def test_broadcast_goal_template_composes_atomic_goal_templates():
     template = BroadcastGoalPreparationTemplate(
         file_name="scene.blend",
         object_name="Goal_Left_post",
