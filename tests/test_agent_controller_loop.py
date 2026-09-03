@@ -5,6 +5,8 @@ import pytest
 
 import controller.agent_controller_loop as loop
 from controller.agent_controller_intent import AgentControllerIntent
+from controller.agent_execution_context import AgentExecutionContext
+from controller.agent_trusted_context import AgentTrustedContext
 
 
 def _runtime():
@@ -62,9 +64,9 @@ def test_controller_response_is_delegated(monkeypatch):
         fake_bridge,
     )
 
-    trusted_provider = lambda intent: {
-        "trusted": True,
-    }
+    trusted_provider = lambda intent: AgentTrustedContext.from_values(
+        {"trusted": True}
+    )
 
     runtime = _runtime()
     adapter = loop.AgentControllerLoopAdapter(
@@ -83,6 +85,7 @@ def test_controller_response_is_delegated(monkeypatch):
     assert captured["runtime"] is runtime
     assert captured["content"] == model_response
     assert captured["kwargs"]["trusted_context_provider"] is trusted_provider
+    assert adapter.execution_context is None
 
 
 def test_runtime_property_exposes_execution_runtime():
@@ -92,7 +95,7 @@ def test_runtime_property_exposes_execution_runtime():
     assert adapter.runtime is runtime
 
 
-def test_trusted_provider_is_optional(monkeypatch):
+def test_default_adapter_owns_empty_execution_context(monkeypatch):
     captured = {}
 
     def fake_bridge(runtime, content, **kwargs):
@@ -112,7 +115,48 @@ def test_trusted_provider_is_optional(monkeypatch):
         "No controller request here."
     )
 
-    assert captured["trusted_context_provider"] is None
+    assert isinstance(adapter.execution_context, AgentExecutionContext)
+    assert adapter.execution_context.has("unreal") is False
+    assert callable(captured["trusted_context_provider"])
+
+    intent = AgentControllerIntent(
+        capability="production",
+        provider="unreal",
+        context={"approved": True},
+        intent="model-request",
+    )
+
+    assert (
+        captured["trusted_context_provider"](intent).to_request_context()
+        == {}
+    )
+
+
+def test_trusted_provider_is_optional_when_explicitly_supplied(monkeypatch):
+    captured = {}
+
+    def fake_bridge(runtime, content, **kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(
+        loop,
+        "submit_controller_request_from_model_output",
+        fake_bridge,
+    )
+
+    runtime = _runtime()
+    trusted_provider = lambda intent: AgentTrustedContext.empty()
+    adapter = loop.AgentControllerLoopAdapter(
+        runtime,
+        trusted_context_provider=trusted_provider,
+    )
+
+    adapter.process_model_response(
+        "No controller request here."
+    )
+
+    assert captured["trusted_context_provider"] is trusted_provider
 
 
 def test_controller_marker_is_not_reinterpreted_as_a_blender_tool(monkeypatch):
@@ -163,13 +207,13 @@ def test_controller_adapter_does_not_supply_authorization_itself(monkeypatch):
         + '{"capability": "production", "provider": "unreal"}'
     )
 
-    assert captured["trusted_context_provider"] is None
+    assert isinstance(
+        captured["trusted_context_provider"],
+        type(loop.AgentControllerLoopAdapter(runtime). _trusted_context_provider),
+    )
 
 
 def test_adapter_can_use_host_execution_context(monkeypatch):
-    from controller.agent_execution_context import AgentExecutionContext
-    from controller.agent_trusted_context import AgentTrustedContext
-
     captured = {}
 
     def fake_bridge(runtime, content, **kwargs):
@@ -215,9 +259,22 @@ def test_adapter_can_use_host_execution_context(monkeypatch):
     assert trusted.get("approved") is True
 
 
-def test_adapter_rejects_two_trusted_context_sources():
-    from controller.agent_execution_context import AgentExecutionContext
+def test_adapter_can_install_typed_trusted_context_into_owned_context():
+    runtime = _runtime()
+    adapter = loop.AgentControllerLoopAdapter(runtime)
 
+    trusted = AgentTrustedContext.from_values(
+        {
+            "approved": True,
+        }
+    )
+
+    adapter.install_trusted_context("unreal", trusted)
+
+    assert adapter.execution_context.get("unreal") is trusted
+
+
+def test_adapter_rejects_two_trusted_context_sources():
     runtime = _runtime()
 
     with pytest.raises(
@@ -226,6 +283,6 @@ def test_adapter_rejects_two_trusted_context_sources():
     ):
         loop.AgentControllerLoopAdapter(
             runtime,
-            trusted_context_provider=lambda intent: None,
+            trusted_context_provider=lambda intent: AgentTrustedContext.empty(),
             execution_context=AgentExecutionContext(),
         )
