@@ -1,33 +1,33 @@
-ATLAS DEVELOPMENT HANDOFF — SEPTEMBER 1, 2026 OVERNIGHT UPDATE
+ATLAS DEVELOPMENT HANDOFF — SEPTEMBER 3, 2026 END-OF-NIGHT CHECKPOINT
 
-Repository documentation branch:
-docs/sep1-2026-unreal-render-handoff
+Active repository branch:
+feat/blender-stage11-mainline
 
-GitHub main baseline at documentation start:
-b56aada — Add production goal planner regression
+PR:
+#49 — open, draft, unmerged
 
-Local development checkpoint reported by the development PC:
-f658e16 — feat: establish Unreal render artifact receipt pipeline
-
-Latest local regression reported:
-1033 passed, 5 skipped
-
-Latest local git diff --check:
-clean
+Current development stage:
+Stage 16 — Qwen proposal integration into Atlas authority/runtime boundary — IN PROGRESS
 
 ============================================================
 1. PROJECT DIRECTION
 ============================================================
 
-Atlas is an AI-assisted sports/soccer virtual-production and digital-twin platform.
-Blender and Unreal are execution environments around the canonical Atlas Digital Twin.
-Dedicated photogrammetry software remains an upstream reconstruction capability.
+Atlas is an AI-assisted virtual-production and digital-twin platform focused exclusively on soccer-field-related digital twins and their production pipeline.
+
+Dedicated photogrammetry software creates the initial reconstruction. Blender analyzes, cleans, corrects, optimizes, and prepares that reconstruction. Unreal is a downstream controlled production environment.
+
+Atlas owns the canonical Digital Twin. Blender files, Unreal projects/levels, render jobs, receipts, and output artifacts are production representations/state, not canonical identity.
+
+============================================================
+2. AUTHORITY MODEL
+============================================================
 
 Qwen / AI
-    -> understand, reason, propose
+    -> reason and propose structured production intent
 
 Python / Atlas
-    -> validate, authorize, execute, track state, verify, recover
+    -> validate, resolve, authorize, execute, track state, verify, recover
 
 Blender / Unreal
     -> controlled production execution
@@ -35,147 +35,147 @@ Blender / Unreal
 Independent verification
     -> establish what actually happened
 
-Qwen must never receive direct production execution authority.
+Qwen never receives direct production execution or authorization authority.
 
 ============================================================
-2. CURRENT BLENDER DEVELOPMENT STATE
+3. BLENDER POSITION
 ============================================================
 
-Blender remains an independent development track with the established intent,
-capability, authorization, execution, verification, evidence, receipt, recovery,
-and replanning architecture.
+Stage 11:
+- first controlled live Blender operation — VERIFIED.
 
-The first controlled live Blender operation remains a separate future live gate.
-Do not infer Blender live readiness from the Unreal milestone.
+Stage 12:
+- task-aware autonomous execution and recovery — COMPLETE FOR CURRENT CONTRACT.
+
+Stage 13:
+- multi-step partial-progress recovery — COMPLETE FOR CURRENT CONTRACT; live verified and CI-proven.
+
+Stage 14:
+- dependency-aware task composition — COMPLETE FOR CURRENT CONTRACT; serial execution and cross-process recovery live verified.
+
+Stage 15:
+- semantic soccer-production tasks, reusable fragments/templates, target-state evaluation, versioned catalog, semantic provenance persistence — COMPLETE FOR CURRENT CONTRACT; live verified.
+
+Stage 16:
+- Qwen proposal/provider integration — IN PROGRESS.
+
+Current Stage 16 catalog contract:
+
+broadcast-goal-preparation@1
+
+file_name       -> string
+object_name     -> string
+target_location -> vector3
+target_rotation -> vector3
 
 ============================================================
-3. CURRENT UNREAL DEVELOPMENT STATE
+4. STAGE 16 QWEN CHECKPOINT
 ============================================================
 
-The Unreal production transport and render boundary has now been exercised through
-real Unreal Engine 5.6 locally.
+Implemented:
+- intent-only QwenProductionProposal;
+- strict provider-output validation;
+- local Ollama/Qwen provider boundary using catalog-bound structured JSON output;
+- canonical catalog validation before proposal release;
+- provenance-bound QwenProductionTaskHandoff;
+- rejection of model-supplied authorization IDs/execution fields;
+- delegation to the existing Atlas ActionAuthorization path;
+- generic pre-authorized task-runtime bootstrap using an Atlas-issued ActionAuthorization;
+- no Qwen-specific executor, scheduler, authorization system, or recovery system;
+- live end-to-end mutation harness prepared but not yet user-verified.
 
-The verified render workflow includes:
+User-verified live milestone:
+
+LIVE QWEN PRODUCTION PROPOSAL VERIFIED
+workflow=broadcast-goal-preparation
+workflow_version=1
+workflow_parameter_contract=verified
+proposal_validation=verified
+catalog_resolution=verified
+semantic_task_compilation=verified
+execution_authorization=not_requested
+execution=not_attempted
+blender_mutation=not_attempted
+
+This proves live Qwen communication, structured proposal extraction, trusted catalog validation, and semantic task compilation. It deliberately performed no Blender mutation.
+
+The next verification chain is:
+
+Qwen
+ -> validated proposal
+ -> canonical production task
+ -> provenance-bound handoff
+ -> Atlas ActionAuthorization
+ -> existing AutonomousTaskRuntime
+ -> Blender execution boundary
+ -> fresh independent verification
+ -> restoration
+
+The first full Qwen-authorized mutation harness is implemented but has not yet been user-verified.
+
+============================================================
+5. UNREAL POSITION
+============================================================
+
+Unreal Engine 5.6 local production boundary is proven for the implemented render workflow:
 - deterministic render configuration;
 - render-state verification;
-- Movie Render Queue submission;
+- MRQ submission;
 - dynamic job-ID binding;
 - asynchronous job inspection;
-- completed-job semantic verification;
-- MRQ output artifact discovery;
-- filesystem artifact existence and non-zero-size validation;
-- evidence-bound UnrealRenderReceipt issuance;
-- atomic UnrealRenderReceiptStore persistence and fail-closed reload validation.
+- semantic completion verification;
+- output artifact discovery and filesystem validation;
+- evidence-bound UnrealRenderReceipt;
+- durable receipt persistence with fail-closed reload validation.
 
-Controlled live render proof:
+Controlled proof was 640x360, frames 1–2, PNG output.
 
-resolution: 640x360
-frame range: 1–2
-format: PNG
-output directory: Saved/AtlasRenderOutput
-
-The completed live job produced a real PNG artifact. Atlas returned that artifact
-through inspect_render_job and marked the completed inspection verified=True.
-
-A real evidence-bound render receipt was issued with these deterministic identities:
-
-evidence_digest:
-f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
-
-receipt_digest:
-f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
-
-SELF MATCH:
-True
+Cross-process Unreal render-job recovery is NOT implemented.
+Receipt persistence must not be described as job persistence.
 
 ============================================================
-4. RENDER RECEIPT BOUNDARY
+6. TESTING / CI
 ============================================================
 
-UnrealRenderReceipt is engine-neutral and evidence-bound. It is issued from
-verified render-job inspection evidence rather than from a submission response.
+Previously verified local full regression checkpoint:
+1033 passed, 5 skipped.
 
-UnrealRenderReceiptStore provides durable persistence for the receipt identity.
-The Unreal runtime render-job registry remains in-memory.
+That number belongs to the earlier local checkpoint and must not be represented as the result of the newest Stage 16 commits.
 
-Cross-process Unreal render-job recovery has NOT been implemented.
-Do not describe receipt persistence as runtime job persistence.
-
-The persisted receipt commits to the verified evidence through the existing
-canonical evidence-digest mechanism.
+Current newest Stage 16 handoff/runtime commits have not yet received a reported GitHub Actions result at this documentation checkpoint.
 
 ============================================================
-5. TESTING STATUS
+7. NON-REGRESSION RULES
 ============================================================
 
-Latest local full Python regression:
-
-1033 passed
-5 skipped
-
-Latest local git diff --check:
-clean
-
-This is a development-PC result, not a statement about GitHub CI unless separately
-verified there.
-
-============================================================
-6. ROADMAP
-============================================================
-
-Blender:
-Stage 10 — Blender Adapter / Real Execution Bridge: IN PROGRESS
-Stage 11 — First Controlled Live Blender Operation: NEXT BLENDER LIVE GATE
-Stage 12 — Closed-loop Autonomous Blender Agent: FUTURE
-
-Unreal:
-Unreal Engine Boundary: PROVEN LOCALLY
-Unreal Production Transport: PROVEN LOCALLY FOR CURRENT IMPLEMENTED CAPABILITIES
-Unreal Render / MRQ Boundary: PROVEN LOCALLY
-Render Artifact Verification: PROVEN LOCALLY
-Unreal Render Receipt: PROVEN LOCALLY
-Render Receipt Persistence: PROVEN LOCALLY
-
-Next Unreal increment:
-Integrate receipt creation and persistence into the higher-level Atlas Unreal render
-workflow, then expand capabilities only where a real capability gap justifies them.
-
-============================================================
-7. PRODUCT / DIGITAL TWIN REMINDERS
-============================================================
-
-Atlas owns the canonical Digital Twin.
-
-Photogrammetry creates the initial reconstruction. Blender analyzes, cleans,
-corrects, optimizes, and prepares it. Unreal is a downstream controlled production
-execution environment.
-
-Engine files, .blend files, levels, render jobs, receipts, and output artifacts are
-representations or production state, not canonical Digital Twin identity.
-
-============================================================
-8. NON-REGRESSION RULES
-============================================================
-
-- Never give Qwen direct production execution authority.
+- Never give Qwen direct execution or authorization authority.
+- Never allow model-supplied authorization IDs or receipts to become Atlas authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from a transport/write response alone.
 - Preserve independent verification and the evidence ledger.
 - Keep engine-specific behavior behind adapter/tool boundaries.
-- Treat artifact existence as independently verified evidence.
-- Preserve canonical Digital Twin identity separately from production artifacts.
+- Keep dependency-aware execution serial until concurrency is independently justified.
+- Preserve canonical Digital Twin identity separately from engine/DCC artifacts.
 - Do not claim cross-process Unreal render-job recovery until separately implemented and verified.
-- Do not confuse local regression results with GitHub CI results.
 
 ============================================================
-9. NEXT SESSION
+8. END-OF-NIGHT RESUME POINT
 ============================================================
 
-Read ATLAS_HANDOFF_CURRENT.md and UNREAL_AGENT_HANDOFF_CURRENT.md.
-Inspect the local branch/HEAD and origin/main before synchronizing work.
-The local Unreal checkpoint f658e16 must be preserved while reconciling with the
-newer origin/main history.
+Read:
+- ATLAS_HANDOFF_CURRENT.md
+- README.md
+- UNREAL_AGENT_HANDOFF_CURRENT.md
+- docs/ATLAS_ARCHITECTURE_CONTRACT.md
+- docs/OPENHANDS_TRANSITION_GUIDE.md
 
-Resume from the Unreal render receipt integration checkpoint. Do not rework the
-already-proven live render/artifact/receipt path without a concrete capability gap.
+Then continue Stage 16 from the Qwen runtime proofs:
+
+1. run the no-write Qwen runtime boundary proof;
+2. run the full Qwen-authorized Blender mutation proof;
+3. independently verify exact fixture restoration;
+4. only after that extend Qwen into the established failure/recovery machinery.
+
+Do not create a second Qwen execution, authorization, scheduler, or recovery system.
+Do not merge PR #49 unless explicitly requested.
