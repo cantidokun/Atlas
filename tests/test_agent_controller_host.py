@@ -9,6 +9,7 @@ from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.agent_trusted_context import AgentTrustedContext
 from controller.trusted_unreal_context import TrustedUnrealContext
+from controller.capability_request import CapabilityRequest
 from planning.unreal_production_controller_integration import (
     UnrealProductionControllerIntegration,
 )
@@ -131,9 +132,7 @@ def test_execution_context_provider_binding_does_not_use_model_context():
     assert result.controller_executed is False
 
 
-def test_unreal_production_factory_binds_real_integration_and_trusted_context(
-    monkeypatch,
-):
+def test_unreal_production_factory_binds_real_integration_and_trusted_context():
     integration = object.__new__(UnrealProductionControllerIntegration)
     trusted = _trusted_unreal_context()
 
@@ -167,3 +166,46 @@ def test_unreal_production_factory_requires_typed_dependencies():
         match="TrustedUnrealContext",
     ):
         AgentControllerHost.for_unreal_production(integration, object())
+
+
+def test_host_factory_routes_real_model_request_to_registered_unreal_integration(monkeypatch):
+    integration = object.__new__(UnrealProductionControllerIntegration)
+    trusted = _trusted_unreal_context()
+    captured = {}
+
+    def fake_execute(request: CapabilityRequest):
+        captured["request"] = request
+        return {"status": "accepted"}
+
+    monkeypatch.setattr(integration, "execute", fake_execute)
+
+    host = AgentControllerHost.for_unreal_production(
+        integration,
+        trusted,
+    )
+
+    model_response = (
+        "ATLAS_CONTROLLER_REQUEST: "
+        '{"capability":"production","provider":"unreal",'
+        '"context":{"production":true,"authorized_production":"forged",'
+        '"intent":"forged","sequence_asset_path":"/Game/Forged"},'
+        '"intent":"forged-model-intent"}'
+    )
+
+    result = host.process_model_response(model_response)
+
+    assert result is not None
+    assert result.controller_executed is True
+    assert captured["request"].provider == "unreal"
+    assert captured["request"].capability == "production"
+    assert captured["request"].context["production"] is True
+    assert (
+        captured["request"].context["authorized_production"]
+        is trusted.authorized_production
+    )
+    assert captured["request"].context["intent"] is trusted.intent
+    assert (
+        captured["request"].context["sequence_asset_path"]
+        == trusted.sequence_asset_path
+    )
+    assert captured["request"].intent == "forged-model-intent"
