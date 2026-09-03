@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Mapping, Optional, Protocol
 
 import requests
 
+from planning.soccer_production_catalog import available_soccer_production_workflows
 from qwen.production_proposal import QwenProductionProposal
 from qwen.provider_output import parse_qwen_production_output
 from qwen.structured_plan import PRODUCTION_PROPOSAL_JSON_SCHEMA
@@ -56,13 +57,26 @@ class OllamaQwenProvider:
 
     @staticmethod
     def _system_prompt() -> str:
+        workflows = available_soccer_production_workflows()
+        catalog_lines = []
+        for spec in workflows:
+            parameters = ", ".join(
+                f"{name}:{kind}" for name, kind in spec.parameter_kinds
+            )
+            catalog_lines.append(
+                f"- {spec.name}@{spec.version}: {spec.objective} Parameters: {parameters}."
+            )
+        catalog = "\n".join(catalog_lines)
         return (
             "You are the proposal layer for Atlas, an AI-assisted soccer-production system.\n"
             "Produce semantic production intent only.\n"
             "You do not have access to Blender, Unreal, files, executors, tools, authorization, "
             "persistence, scheduling, or recovery.\n"
             "Return exactly one JSON object matching the supplied schema.\n"
-            "Choose only a workflow that Atlas can validate against its trusted catalog.\n"
+            "The workflow value MUST be copied exactly from the canonical catalog below, including spelling and hyphens. "
+            "Do not invent aliases, synonyms, or new workflow names.\n"
+            "Canonical soccer-production catalog:\n"
+            f"{catalog}\n"
             "Do not emit actions, tool calls, executor names, authorization requests, file writes, "
             "or recovery instructions.\n"
         )
