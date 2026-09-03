@@ -13,6 +13,7 @@ def test_catalog_exposes_stable_broadcast_goal_workflow():
     assert [workflow.name for workflow in workflows] == ["broadcast-goal-preparation"]
     assert workflows[0].objective == "Prepare the soccer goal for a broadcast shot."
     assert workflows[0].template_name == "BroadcastGoalPreparationTemplate"
+    assert workflows[0].version == 1
     assert workflows[0].required_parameters == (
         "file_name",
         "object_name",
@@ -34,6 +35,7 @@ def test_catalog_resolves_workflow_by_exact_name():
             "target_location",
             "target_rotation",
         ],
+        "version": 1,
     }
 
     with pytest.raises(KeyError, match="unknown soccer production workflow"):
@@ -78,4 +80,26 @@ def test_catalog_rejects_missing_and_unexpected_parameters():
                 "target_rotation": [0.0, 0.0, 15.0],
                 "execute": True,
             },
+        )
+
+
+def test_catalog_rejects_invalid_spec_versions():
+    from planning.soccer_production_catalog import SoccerProductionWorkflowSpec
+
+    with pytest.raises(ValueError, match="positive integer"):
+        SoccerProductionWorkflowSpec(
+            name="invalid",
+            objective="Prepare a soccer production workflow.",
+            template_name="ExampleTemplate",
+            required_parameters=("file_name",),
+            version=0,
+        )
+
+    with pytest.raises(ValueError, match="positive integer"):
+        SoccerProductionWorkflowSpec(
+            name="invalid",
+            objective="Prepare a soccer production workflow.",
+            template_name="ExampleTemplate",
+            required_parameters=("file_name",),
+            version=True,
         )
