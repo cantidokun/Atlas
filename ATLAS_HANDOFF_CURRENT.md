@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified, including a fresh Qwen recovery recommendation; Stage 17 production-artifact lineage foundation added.
+**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery, including live Qwen-guided recovery recommendation binding, are live-verified; Stage 17 artifact-lineage foundation is implemented and regression-tested.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
-**Current stage:** Stage 17 — production artifact lineage, IN PROGRESS
+**Current stage:** Stage 17 — IN PROGRESS
 
 ## Authority model
 
@@ -23,13 +23,15 @@ Independent verification
 
 Qwen never receives direct production execution or authorization authority.
 
-## Stage 13–15 baseline
+## Stage 13–16 baseline
 
 Stage 13 multi-step partial-progress recovery is complete for the current contract and live verified against Blender 4.4.
 
 Stage 14 dependency-aware task composition is complete for the current contract. Dependency validation, exact authorization binding, serial deterministic execution, inherited prerequisite handling, and cross-process dependency-aware recovery have been implemented and live verified.
 
 Stage 15 semantic soccer-production tasks are complete for the current contract. `ProductionTaskDefinition`, reusable fragments, target-state evaluation, canonical soccer-production templates, the versioned catalog, and semantic provenance persistence are established and live verified.
+
+Stage 16 Qwen integration is live verified through proposal, Atlas authorization, real Blender mutation, cross-process recovery, and a fresh Qwen-guided recovery recommendation that remains advisory-only.
 
 Current catalog contract:
 
@@ -42,19 +44,13 @@ target_location -> vector3
 target_rotation -> vector3
 ```
 
-## Stage 16 — Qwen integration — VERIFIED FOR CURRENT CONTRACT
+## Stage 16 — Qwen integration — LIVE VERIFIED
 
-The local proposal-only Qwen smoke, full Qwen-authorized Blender mutation, and two-process recovery were user-verified against Blender 4.4.
+The complete Qwen-authorized Blender path and two-process recovery path have been user-verified. During recovery, a fresh Qwen recommendation is obtained after process restart and validated against the persisted canonical task. Atlas then derives and authorizes only the unfinished action through the existing recovery runtime.
 
-The recovery proof additionally makes a fresh Phase 2 Qwen recommendation after process restart. Atlas validates that recommendation against the persisted canonical task, treats it as advisory only, derives the unfinished executable action from the persisted authorized task, and uses the existing Atlas replan/recovery path.
-
-User-verified output includes:
+The live recovery proof included:
 
 ```text
-LIVE QWEN PRODUCTION RECOVERY VERIFIED
-object=Goal_Left_post
-workflow=broadcast-goal-preparation
-workflow_version=1
 qwen_provenance_recovered=verified
 initial_authorization_recovered=verified
 process_restart=verified
@@ -63,58 +59,36 @@ qwen_recovery_recommendation_advisory_only=verified
 fresh_recovery_evidence=verified
 qwen_workflow_target_revalidated=verified
 completed_prerequisite_not_replayed=verified
-replan_authorization=atlas-qwen-recovery-replan
 replacement_execution=verified
 independent_final_verification=verified
-fixture_restored_location=[0.25, 5.302, 0.0]
-fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-GitHub Actions Atlas Tests **#1439 passed** after this live-verification increment.
+No Qwen execution, authorization, scheduler, or recovery subsystem was introduced.
 
 ## Stage 17 — Production artifact lineage
 
-A new non-executable foundation is now present in `planning/production_artifact.py`:
+`planning/production_artifact.py` defines `ProductionArtifactManifest`, a provenance-only contract connecting a production representation to the canonical Atlas Digital Twin, source artifacts, workflow provenance, verification evidence, execution receipts, engine metadata, and a deterministic integrity digest.
 
-`ProductionArtifactManifest` binds a production representation to a canonical Digital Twin identifier while preserving upstream source-artifact relationships, workflow provenance, evidence digests, receipt digests, and engine/version metadata.
+The Blender bridge `ProductionArtifactManifest.from_blender_closed_loop(...)` accepts only existing `BlenderExecutionReceipt` and `BlenderPersistenceEvidence` objects. It does not execute, authorize, or verify work itself.
 
-The manifest is immutable, deterministic, independently digestable, reconstructable from persisted snapshots, and fail-closed on tampering or malformed fields. It intentionally exposes no execution, authorization, scheduling, or recovery behavior.
+Regression coverage now proves verified Blender receipt/evidence binding, deterministic lineage, round-trip persistence, tamper detection, self-reference rejection, unknown-field rejection, and absence of execution/authorization APIs.
 
-Regression coverage is in `tests/test_production_artifact.py`.
+## Next verification gate
 
-This establishes lineage as a cross-engine provenance contract rather than conflating `.blend` files, Unreal projects, render outputs, or receipts with canonical Digital Twin identity.
+The next live proof should use a real `BlenderExecutionBoundary.execute_with_persistence(...)` result to construct a `ProductionArtifactManifest`, then independently verify and persist the manifest. The proof should establish that the recorded lineage points to the same canonical Digital Twin and verified artifact path without introducing another execution or authorization layer.
 
-## Next work
-
-Integrate `ProductionArtifactManifest` into the existing evidence/receipt paths, beginning with a narrow Blender production-artifact lineage proof and then the corresponding Unreal boundary.
-
-The first integration should link the canonical Digital Twin identifier, input artifact lineage, workflow provenance, and independently verified output artifact without changing execution authority or introducing another runtime.
-
-Do not create a second execution, authorization, scheduler, or recovery system for lineage tracking.
-Do not introduce parallel execution until dependency semantics independently justify it.
-
-## Unreal status
-
-The Unreal Engine 5.6 render boundary remains locally proven for the implemented capabilities: deterministic configuration, render-state verification, MRQ submission, dynamic job IDs, asynchronous inspection, semantic completion verification, artifact discovery/validation, evidence-bound `UnrealRenderReceipt`, and durable receipt persistence.
-
-Cross-process Unreal render-job recovery is **not implemented**. Receipt persistence must not be described as runtime job persistence.
-
-## Resolution / Digital Twin
-
-Atlas is intended for soccer source footage including 4K/UHD. Resolution changes execution-resource requirements, not the orchestration contract. Preserve high-resolution provenance while using appropriate intermediates/proxies.
-
-Atlas owns the canonical Digital Twin. Photogrammetry is upstream reconstruction; Blender analyzes/cleans/corrects/prepares; Unreal is downstream production execution. DCC/engine files remain representations or production state, not canonical identity.
+After that, extend the same provenance contract to the existing Unreal receipt boundary. Cross-process Unreal render-job recovery remains a separate, unimplemented capability and must not be implied by receipt persistence.
 
 ## Non-regression rules
 
-- Qwen remains proposal-only until Atlas validates and authorizes.
+- Qwen remains proposal-only.
 - Never accept model-supplied authorization IDs or receipts as authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from transport/write success alone.
 - Preserve independent verification and the evidence ledger.
 - Keep engine-specific behavior behind adapter/tool boundaries.
-- Keep dependency-aware execution serial.
+- Keep dependency-aware execution serial until concurrency is independently justified.
 - Preserve canonical Digital Twin identity separately from production artifacts.
 - Do not claim cross-process Unreal job recovery unless separately implemented and verified.
 
