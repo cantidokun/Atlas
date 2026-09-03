@@ -41,7 +41,13 @@ class AutonomousTaskRuntime:
     @staticmethod
     def _actions(task: AtlasTaskDefinition) -> List[ActionSpec]:
         return [
-            ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
+            ActionSpec(
+                action.tool,
+                dict(action.arguments),
+                action.name,
+                action.requires_success,
+                action.dependency_names(),
+            )
             for action in task.actions
         ]
 
