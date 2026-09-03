@@ -131,7 +131,10 @@ class AutonomousTaskRuntime:
         if not isinstance(raw_authorization, dict):
             raise RuntimeError("unsatisfied task is missing persisted action authorization")
         authorization = ActionAuthorization.from_snapshot(raw_authorization)
-        if not authorization.matches(actions):
+        if not authorization.matches(
+            actions,
+            inherited_dependencies=runtime.controller.inherited_dependencies,
+        ):
             raise RuntimeError("persisted action authorization does not match the task action plan")
 
     @classmethod
@@ -168,7 +171,10 @@ class AutonomousTaskRuntime:
         """Execute only when the immutable current authorization still binds the call."""
         if self.authorization is not None:
             authorized_actions = self.current_actions if self.current_actions is not None else self._actions(self.task)
-            if not self.authorization.matches(authorized_actions):
+            if not self.authorization.matches(
+                authorized_actions,
+                inherited_dependencies=self.runtime.controller.inherited_dependencies,
+            ):
                 raise RuntimeError("task action authorization no longer matches the current authorized plan")
             next_action = self.runtime.snapshot().get("next_action")
             if next_action is None:
@@ -266,7 +272,11 @@ class AutonomousTaskRuntime:
             raise RuntimeError("replacement actions do not match the authorized replan")
         target = self.task.evaluator.evaluate(evidence)
         actions = list(authorized_actions)
-        execution_authorization = None if target.satisfied else ActionAuthorization.issue(actions, authorization.authorization_id)
+        execution_authorization = None if target.satisfied else ActionAuthorization.issue(
+            actions,
+            authorization.authorization_id,
+            inherited_dependencies=inherited_dependencies,
+        )
         steps = DeterministicFutureGenerator(self.task.evaluator).generate(
             target.satisfied,
             actions,
