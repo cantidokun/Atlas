@@ -85,6 +85,53 @@ class QwenProductionTaskHandoff:
             compiled_task_digest=_canonical_digest(compiled_snapshot),
         )
 
+    @classmethod
+    def from_snapshot(cls, snapshot: Any) -> "QwenProductionTaskHandoff":
+        """Reconstruct a previously persisted handoff and fail closed on drift.
+
+        Recovery state is not trusted as executable authority. The persisted
+        proposal is revalidated and recompiled through the current canonical
+        catalog/compiler, then every persisted provenance snapshot and digest is
+        required to match that rebuilt handoff exactly.
+        """
+        if not isinstance(snapshot, dict):
+            raise QwenProductionHandoffError("Persisted Qwen production handoff is malformed.")
+        required = {
+            "proposal",
+            "semantic_task",
+            "compiled_task",
+            "proposal_digest",
+            "semantic_task_digest",
+            "compiled_task_digest",
+        }
+        if set(snapshot) != required:
+            raise QwenProductionHandoffError("Persisted Qwen production handoff fields are invalid.")
+        if any(not isinstance(snapshot[name], str) or not snapshot[name].strip() for name in (
+            "proposal_digest",
+            "semantic_task_digest",
+            "compiled_task_digest",
+        )):
+            raise QwenProductionHandoffError("Persisted Qwen production handoff digests are invalid.")
+
+        try:
+            handoff = cls.from_proposal(snapshot["proposal"])
+        except (TypeError, ValueError, KeyError) as exc:
+            raise QwenProductionHandoffError("Persisted Qwen production proposal is invalid.") from exc
+
+        rebuilt = handoff.snapshot()
+        for field in ("proposal", "semantic_task", "compiled_task"):
+            if rebuilt[field] != snapshot[field]:
+                raise QwenProductionHandoffError(
+                    f"Persisted Qwen production {field.replace('_', ' ')} no longer matches the canonical compiler."
+                )
+        for field in ("proposal_digest", "semantic_task_digest", "compiled_task_digest"):
+            if rebuilt[field] != snapshot[field]:
+                raise QwenProductionHandoffError(
+                    f"Persisted Qwen production {field.replace('_', ' ')} integrity check failed."
+                )
+        handoff.verify_integrity()
+        return handoff
+
     def verify_integrity(self) -> None:
         """Recompute the entire handoff binding and fail closed on any drift."""
         try:
