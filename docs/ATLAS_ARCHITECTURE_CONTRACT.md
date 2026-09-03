@@ -76,6 +76,22 @@ Authorization binds to the exact action plan, including dependency declarations 
 
 A Qwen proposal never constitutes an authorization receipt. Atlas must explicitly create the authorization after validating the canonical task.
 
+## Lineage boundary
+
+`planning/production_artifact.py` provides a non-executable `ProductionArtifactManifest` for provenance between the canonical Digital Twin and concrete production representations.
+
+A lineage record may bind:
+
+- the stable canonical Digital Twin identifier;
+- the production representation and artifact path;
+- upstream source-artifact identifiers;
+- workflow/version/parameter provenance;
+- independent evidence digests;
+- execution-receipt digests;
+- engine/version metadata.
+
+Lineage is not authority. A manifest cannot execute, authorize, schedule, or recover work, and it cannot replace independent verification or an execution receipt. A `.blend`, Unreal project, render output, or receipt remains a representation/state artifact rather than canonical Digital Twin identity.
+
 ## Continuation and recovery
 
 Durable continuation must bind runtime identity, future state, semantic task provenance, and the exact authorization required for the pending future.
@@ -104,35 +120,29 @@ Completed prerequisites are recovered from trusted successful checkpoints rather
 - Stage 13 multi-step partial-progress recovery — complete for current contract and live verified.
 - Stage 14 dependency-aware serial execution and cross-process recovery — complete for current contract and live verified.
 - Stage 15 semantic soccer-production task composition, target-state evaluation, versioned catalog, and provenance persistence — complete for current contract and live verified.
-- Stage 16 Qwen provider/proposal integration — in progress.
+- Stage 16 Qwen provider/proposal integration, Atlas authorization handoff, live Blender mutation, and Qwen-guided cross-process recovery — complete for current contract and live verified.
+- Stage 17 production artifact lineage foundation — implemented with regression coverage; integration into live evidence/receipt paths remains in progress.
 
 ### Stage 16 verified boundary
 
-The local Qwen proposal-only smoke has been user-verified:
+The current Qwen flow is:
 
 ```text
 Qwen
   -> Ollama structured output
-  -> catalog validation
+  -> strict provider-output validation
+  -> trusted catalog validation
   -> QwenProductionProposal
   -> ProductionTaskDefinition
-  -> semantic task compilation
-```
-
-The smoke deliberately stopped before authorization and execution and produced no Blender mutation.
-
-The authorization/runtime handoff is now implemented but awaits the user's live runtime proof:
-
-```text
-validated Qwen proposal
-  -> provenance-bound QwenProductionTaskHandoff
-  -> existing Atlas ActionAuthorization
-  -> pre-authorized generic task-runtime bootstrap
+  -> AtlasTaskDefinition
+  -> QwenProductionTaskHandoff
+  -> Atlas ActionAuthorization
   -> existing AutonomousTaskRuntime
-  -> existing Blender boundary
+  -> Blender execution boundary
+  -> fresh independent verification
 ```
 
-The first full Qwen-authorized mutation harness has been implemented but is not yet live-verified by the user.
+The live cross-process recovery proof additionally verifies that a fresh Qwen recovery recommendation is advisory only. Atlas validates it against the persisted canonical task and derives the unfinished executable action itself.
 
 ## Engine boundaries
 
@@ -150,6 +160,8 @@ Atlas is intended to support 4K/UHD soccer source footage. Resolution affects pr
 
 A new production capability is not considered live-proven until appropriate zero-write, authorized-write, independent verification, and failure/recovery cases pass with evidence matching the declared contract.
 
+Stage 17 lineage integration therefore requires a live proof that a verified production artifact can be associated with canonical Digital Twin identity and existing workflow/evidence/receipt provenance without changing execution authority.
+
 ## Non-regression rules
 
 - Preserve the evidence ledger.
@@ -161,3 +173,4 @@ A new production capability is not considered live-proven until appropriate zero
 - Do not claim cross-process Unreal job recovery until separately implemented and verified.
 - Keep the canonical Digital Twin distinct from DCC/engine production artifacts.
 - Keep photogrammetry as upstream reconstruction, with Blender handling analysis/cleanup/correction/preparation.
+- Keep lineage/provenance separate from execution authority.
