@@ -15,11 +15,13 @@ from controller.agent_controller_response_bridge import (
     TrustedContextProvider,
     submit_controller_request_from_model_output,
 )
+from controller.agent_controller_intent import AgentControllerIntent
 from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_entrypoint_runtime import (
     AgentEntrypointExecution,
     AtlasAgentEntrypointRuntime,
 )
+from controller.agent_trusted_context import AgentTrustedContext
 
 
 class AgentControllerLoopAdapter:
@@ -58,10 +60,7 @@ class AgentControllerLoopAdapter:
 
         if execution_context is not None:
             self._trusted_context_provider = (
-                lambda intent: execution_context.get(
-                    intent.provider
-                )
-                or AgentTrustedContext.empty()
+                execution_context.context_for_controller_intent
             )
         else:
             self._trusted_context_provider = trusted_context_provider
