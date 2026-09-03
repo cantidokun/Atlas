@@ -124,3 +124,153 @@ def test_context_exports_authorized_values():
     )
     assert trusted.get("intent") is intent
     assert trusted.get("sequence_asset_path") == "/Game/TestSequence"
+
+
+def test_real_authorized_production_context_preserves_exact_authorization():
+    from planning.unreal_composite_operation import (
+        CompositeActorProductionOperation,
+    )
+    from planning.unreal_production_operation import (
+        UnrealProductionSpec,
+        build_unreal_production_plan,
+    )
+    from planning.unreal_production_planning_boundary import (
+        authorize_production_plan,
+    )
+    from planning.unreal_render_contract import UnrealRenderConfig
+
+    intent = _intent("real-intent-1")
+
+    composite = CompositeActorProductionOperation(
+        entity_ids=("FIELD_SURFACE",),
+        operations=(
+            {
+                "name": "set_actor_location",
+                "entity_ids": ("FIELD_SURFACE",),
+                "location": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                },
+            },
+        ),
+    )
+
+    render_config = UnrealRenderConfig(
+        width=64,
+        height=64,
+        start_frame=1,
+        end_frame=1,
+        output_directory="/Game/TestOutput",
+        output_format="png",
+    )
+
+    spec = UnrealProductionSpec(
+        composite=composite,
+        start_frame=1,
+        end_frame=1,
+        render_config=render_config,
+    )
+
+    production = build_unreal_production_plan(intent, spec)
+
+    authorized = authorize_production_plan(
+        production,
+        "trusted-test-authorization",
+    )
+
+    context = TrustedUnrealContext(
+        authorized_production=authorized,
+        intent=intent,
+        sequence_asset_path="/Game/TestSequence",
+    )
+
+    trusted = context.to_trusted_agent_context()
+
+    assert (
+        trusted.get("authorized_production")
+        is authorized
+    )
+    assert trusted.get("authorized_production").production is production
+    assert (
+        trusted.get("authorized_production").authorization.plan_digest
+        == authorized.authorization.plan_digest
+    )
+    assert trusted.get("intent") is intent
+    assert trusted.get("sequence_asset_path") == "/Game/TestSequence"
+
+
+def test_real_authorization_cannot_be_replaced_by_model_context():
+    from planning.unreal_composite_operation import (
+        CompositeActorProductionOperation,
+    )
+    from planning.unreal_production_operation import (
+        UnrealProductionSpec,
+        build_unreal_production_plan,
+    )
+    from planning.unreal_production_planning_boundary import (
+        authorize_production_plan,
+    )
+    from planning.unreal_render_contract import UnrealRenderConfig
+
+    intent = _intent("override-test")
+
+    composite = CompositeActorProductionOperation(
+        entity_ids=("FIELD_SURFACE",),
+        operations=(
+            {
+                "name": "set_actor_location",
+                "entity_ids": ("FIELD_SURFACE",),
+                "location": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                },
+            },
+        ),
+    )
+
+    render_config = UnrealRenderConfig(
+        width=64,
+        height=64,
+        start_frame=1,
+        end_frame=1,
+        output_directory="/Game/TestOutput",
+        output_format="png",
+    )
+
+    spec = UnrealProductionSpec(
+        composite=composite,
+        start_frame=1,
+        end_frame=1,
+        render_config=render_config,
+    )
+
+    production = build_unreal_production_plan(intent, spec)
+
+    authorized = authorize_production_plan(
+        production,
+        "trusted-test-authorization",
+    )
+
+    context = TrustedUnrealContext(
+        authorized_production=authorized,
+        intent=intent,
+        sequence_asset_path="/Game/TrustedSequence",
+    )
+
+    trusted = context.to_trusted_agent_context()
+
+    model_context = {
+        "production": True,
+        "authorized_production": "MODEL_FORGED_AUTHORIZATION",
+        "intent": "MODEL_FORGED_INTENT",
+        "sequence_asset_path": "/Game/AttackerSequence",
+    }
+
+    merged = dict(model_context)
+    merged.update(trusted.to_request_context())
+
+    assert merged["authorized_production"] is authorized
+    assert merged["intent"] is intent
+    assert merged["sequence_asset_path"] == "/Game/TrustedSequence"
