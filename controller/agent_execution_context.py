@@ -9,6 +9,7 @@ output as a source of trusted state.
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+from controller.agent_controller_intent import AgentControllerIntent
 from controller.agent_trusted_context import AgentTrustedContext
 from controller.trusted_unreal_context import TrustedUnrealContext
 
@@ -70,6 +71,27 @@ class AgentExecutionContext:
             return {}
 
         return context.to_request_context()
+
+    def context_for_controller_intent(
+        self,
+        intent: AgentControllerIntent,
+    ) -> AgentTrustedContext:
+        """Resolve trusted context from the parsed model request's provider.
+
+        The provider is used only to select an already-installed trusted
+        context. The model-declared capability, intent metadata, and context
+        values never select or create trusted state.
+        """
+        if not isinstance(intent, AgentControllerIntent):
+            raise TypeError(
+                "intent must be an AgentControllerIntent instance"
+            )
+
+        context = self.get(intent.provider)
+        if context is None:
+            return AgentTrustedContext.empty()
+
+        return context
 
     def has(self, provider: str) -> bool:
         if not isinstance(provider, str) or not provider.strip():
