@@ -11,11 +11,9 @@ from planning.blender_execution_boundary import BlenderExecutionBoundary
 from planning.blender_process_executor import BlenderProcessExecutor
 from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 from planning.production_task import ProductionTaskDefinition
-from planning.production_task_composition import compose_production_task
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
 from planning.soccer_production_templates import BroadcastGoalPreparationTemplate
-from planning.target_state import StateInvariant, TargetStateEvaluator
 
 
 def _object_location(result: Any, object_name: str) -> List[float]:
@@ -79,21 +77,7 @@ def _production_task(
         target_location=tuple(target_location),
         target_rotation=tuple(target_rotation),
     )
-    evaluator = TargetStateEvaluator([
-        StateInvariant("goal_position_ready", lambda evidence: _object_location(evidence["scene"], object_name) == target_location),
-        StateInvariant("goal_orientation_ready", lambda evidence: _object_rotation(evidence["transform"], object_name) == target_rotation),
-    ])
-    return compose_production_task(
-        name=template.name,
-        objective=template.objective,
-        fragments=template.fragments(),
-        evaluator=evaluator,
-        allowed_action_tools=("move_object", "set_object_rotation"),
-        domain="soccer-production",
-        deliverables=template.deliverables,
-        constraints=template.constraints,
-        metadata={"workflow_template": template.name},
-    )
+    return template.production_task()
 
 
 def main() -> int:
