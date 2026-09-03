@@ -53,7 +53,7 @@ def test_defaults_target_local_ollama_and_qwen():
     assert DEFAULT_QWEN_MODEL == "qwen3:8b"
 
 
-def test_propose_uses_structured_schema_and_exposes_no_tools():
+def test_propose_uses_catalog_bound_schema_and_exposes_no_tools():
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
     provider = OllamaQwenProvider(session=session)
 
@@ -67,22 +67,27 @@ def test_propose_uses_structured_schema_and_exposes_no_tools():
     assert request["model"] == DEFAULT_QWEN_MODEL
     assert request["stream"] is False
     assert request["options"] == {"temperature": 0}
-    assert request["format"]["type"] == "object"
-    assert request["format"]["additionalProperties"] is False
+    schema = request["format"]
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["workflow"]["enum"] == ["broadcast-goal-preparation"]
+    assert schema["properties"]["version"]["enum"] == [1]
     assert "tools" not in request
     assert "executor" not in request
     assert "authorization" not in request
 
 
-def test_system_prompt_exposes_exact_canonical_workflow_identity():
+def test_system_prompt_separates_canonical_workflow_name_and_version():
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
     provider = OllamaQwenProvider(session=session)
 
     provider.propose("Prepare the soccer goal for a broadcast shot.")
 
     system_prompt = session.calls[0][1]["json"]["messages"][0]["content"]
-    assert "broadcast-goal-preparation@1" in system_prompt
-    assert "Do not invent aliases, synonyms, or new workflow names." in system_prompt
+    assert "workflow=broadcast-goal-preparation; version=1" in system_prompt
+    assert "workflow field is ONLY the canonical workflow name" in system_prompt
+    assert "Put the numeric version in the separate version field." in system_prompt
+    assert "'broadcast-goal-preparation@1'" in system_prompt
     assert "file_name:string" in system_prompt
     assert "target_location:vector3" in system_prompt
 
@@ -161,6 +166,17 @@ def test_provider_rejects_invalid_model_output():
 def test_provider_rejects_unknown_workflow_from_model():
     payload = _payload()
     payload["workflow"] = "soccer_goal_broadcast"
+    session = FakeSession(FakeResponse({"message": {"content": json.dumps(payload)}}))
+    provider = OllamaQwenProvider(session=session)
+
+    proposal = provider.propose("Prepare the soccer goal.")
+    with pytest.raises(QwenProviderError, match="unknown soccer production workflow"):
+        compile_qwen_production_proposal(proposal.snapshot())
+
+
+def test_provider_rejects_combined_workflow_version_identity_from_model():
+    payload = _payload()
+    payload["workflow"] = "broadcast-goal-preparation@1"
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(payload)}}))
     provider = OllamaQwenProvider(session=session)
 
