@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import FutureStep
@@ -86,8 +86,12 @@ class AutonomousFutureRuntime:
         if raw_integrity is None:
             raise RuntimeError("runtime continuation integrity receipt is missing")
         integrity = RuntimeIntegrity.from_dict(raw_integrity)
+        snapshot = envelope["snapshot"]
+        inherited = tuple(snapshot.get("inherited_dependencies", []))
         controller = FutureExecutionController.resume_from_snapshot(
-            steps, envelope["snapshot"]
+            steps,
+            snapshot,
+            inherited_dependencies=inherited,
         )
         require_continuation_integrity(
             integrity,
