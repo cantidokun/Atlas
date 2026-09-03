@@ -30,6 +30,8 @@ class HttpSession(Protocol):
 
 @dataclass(frozen=True)
 class OllamaQwenProvider:
+    """Call Ollama for proposal-only Qwen output."""
+
     url: str = DEFAULT_OLLAMA_URL
     model: str = DEFAULT_QWEN_MODEL
     timeout: float = 120.0
@@ -204,9 +206,4 @@ class OllamaQwenProvider:
             raise QwenProviderError(f"Ollama Qwen returned an invalid production proposal: {exc}") from exc
 
 
-__all__ = [
-    "DEFAULT_OLLAMA_URL",
-    "DEFAULT_QWEN_MODEL",
-    "OllamaQwenProvider",
-    "QwenProviderError",
-]
+__all__ = ["DEFAULT_OLLAMA_URL", "DEFAULT_QWEN_MODEL", "OllamaQwenProvider", "QwenProviderError"]
