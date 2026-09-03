@@ -1,11 +1,11 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 Qwen provider, Atlas authorization handoff, runtime boundary, and first end-to-end mutation harness implemented
-**Blender continuation branch:** `feat/blender-stage11-mainline`
-**Blender PR:** #49 — open, draft, unmerged
-**Stage status:** Stage 15 COMPLETE FOR CURRENT CONTRACT; Stage 16 IN PROGRESS
+**Updated:** September 3, 2026 — end-of-night freeze. Stage 15 complete for current contract; Stage 16 Qwen provider, Atlas authorization handoff, runtime boundary, and first end-to-end mutation harness implemented but not yet live-verified.
+**Active branch:** `feat/blender-stage11-mainline`
+**PR #49:** open, draft, unmerged
+**Current stage:** Stage 16 — IN PROGRESS
 
-## Current authority model
+## Authority model
 
 ```text
 Qwen / AI
@@ -21,17 +21,17 @@ Independent verification
   -> establish what actually happened
 ```
 
-Qwen never receives direct production execution authority. Atlas remains the authority layer.
+Qwen never receives direct production execution or authorization authority.
 
-## Stage 15 — COMPLETE FOR CURRENT CONTRACT
+## Stage 13–15 baseline
 
-Stage 15 introduced a semantic production-goal layer without introducing a second execution engine. `ProductionTaskDefinition` represents meaningful soccer-production objectives with objective, domain, deliverables, constraints, evidence, ordered actions, target evaluation, and an action-tool allowlist. It compiles directly into the existing `AtlasTaskDefinition`, preserving the single canonical autonomous runtime.
+Stage 13 multi-step partial-progress recovery is complete for the current contract and live verified against Blender 4.4.
 
-Reusable `ProductionTaskFragment` composition supports named fragment ordering, semantic fragment dependencies, fragment-level evidence/actions, deliverables, constraints, and descriptive metadata. Executable ordering remains governed by `ActionSpec.depends_on` and the existing deterministic future controller.
+Stage 14 dependency-aware task composition is complete for the current contract. Dependency validation, exact authorization binding, serial deterministic execution, inherited prerequisite handling, and cross-process dependency-aware recovery have been implemented and live verified.
 
-Canonical soccer-production templates currently include `GoalPositionTemplate`, `GoalOrientationTemplate`, and `BroadcastGoalPreparationTemplate`.
+Stage 15 semantic soccer-production tasks are complete for the current contract. `ProductionTaskDefinition`, reusable fragments, target-state evaluation, canonical soccer-production templates, the versioned catalog, and semantic provenance persistence are established and live verified.
 
-`planning/soccer_production_catalog.py` provides the canonical versioned workflow catalog. Current contract:
+Current catalog contract:
 
 ```text
 broadcast-goal-preparation@1
@@ -42,53 +42,11 @@ target_location -> vector3
 target_rotation -> vector3
 ```
 
-The catalog validates exact identity/version, required and unexpected parameters, declared parameter kinds, vector shape, and finite numeric values before template construction. Compilation records the exact catalog descriptor and normalized parameters as semantic provenance.
+## Stage 16 — Qwen integration
 
-`AutonomousTaskRuntime` persists task metadata at start and authorized replan, and resume/reconstruction requires semantic metadata to match the task definition. Tampered semantic provenance fails closed.
+### Verified
 
-The real Blender 4.4 environment live-verified the catalog -> semantic task -> existing autonomous runtime path and a two-process failure/recovery path. The recovery proof verified version identity, typed parameter contract, semantic provenance recovery, no replay of the completed prerequisite, fresh recovery evidence, explicit replan authorization, replacement execution, independent final verification, and fixture restoration.
-
-Stage 15 therefore closes for the current contract.
-
-## CI checkpoint
-
-GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Stage 16 provider tests passed run **#1383** for commit `bcbf3c76be2b4737783233b681f0b7f47113318d`. Run **#1384** passed for the subsequent provider-to-catalog revision. Run **#1394** exposed three stale provider-test expectations while the live smoke test also exposed model-generated invalid parameter values; both classes of issues have since been corrected. The live Qwen proposal-only smoke was subsequently user-verified successfully. The latest Qwen handoff/runtime commits do not yet have a reported workflow result in the connector.
-
-## Stage 16 — Qwen proposal integration IN PROGRESS
-
-Stage 16 begins at the proposal-resolution boundary rather than the execution layer.
-
-Implemented:
-
-- `qwen/production_proposal.py` defines `QwenProductionProposal` as an intent-only envelope containing `workflow`, optional `version`, and `parameters`;
-- proposal values are defensively isolated so caller mutation cannot silently alter the semantic request after validation;
-- `validate_qwen_production_proposal(...)` rejects malformed proposal shapes and unknown top-level fields before catalog resolution;
-- `compile_qwen_production_proposal(...)` resolves the proposal exclusively through the trusted Stage 15 soccer-production catalog and returns one canonical `ProductionTaskDefinition`;
-- catalog validation remains responsible for workflow identity, version, required parameters, parameter kinds, vector shape, and finite numeric values;
-- Qwen proposal input cannot specify an executor, authorization ID, scheduling instruction, recovery operation, or arbitrary tool invocation;
-- `qwen/provider_output.py` is the strict decoded-provider-output adapter and never exposes execution capabilities;
-- `qwen/ollama_provider.py` provides the actual local Ollama/Qwen provider boundary at `http://localhost:11434/api/chat` with `qwen3:8b` defaults;
-- the provider requests structured output with a schema derived from the trusted live catalog, including exact workflow/version enums and required parameter names/types;
-- provider history accepts only `user`/`assistant` turns and cannot inject a system or tool role;
-- after parsing, provider output is semantically validated against the trusted catalog before the proposal is released from the provider boundary;
-- invalid model values such as empty required strings, missing parameters, unknown workflow names, and combined name/version identifiers fail closed as `QwenProviderError`;
-- `scripts/run_live_qwen_production_proposal.py` provides a proposal-only live smoke test and is confirmed by the user to work locally without Blender mutation;
-- provider-to-catalog regression coverage proves the proposal path remains canonical and inert;
-- `qwen/production_handoff.py` creates an explicit provenance-bound handoff from validated Qwen proposal to canonical semantic and compiled Atlas task definitions;
-- handoff integrity checks re-hash proposal, semantic task, and compiled task snapshots and independently recompile the proposal before Atlas authorization;
-- the handoff rejects model-supplied authorization fields and contains no executor or recovery API;
-- handoff authorization delegates to the existing `TaskPlanProposal` / `instantiate_authorized_plans(...)` / `ActionAuthorization` path;
-- `tests/test_qwen_production_handoff.py` covers inert construction, existing-path reuse, model-authorization rejection, no-execution surface, provenance tampering, and fail-closed authorization;
-- `scripts/run_live_qwen_production_handoff.py` provides the live Qwen -> semantic task -> explicit Atlas authorization proof, stopping before tool execution;
-- `planning/authorized_task_runtime.py` adds a generic bootstrap seam that accepts only an already-issued Atlas `ActionAuthorization`, verifies exact action-plan binding, acquires authoritative initial evidence, evaluates the target, and constructs the existing `AutonomousTaskRuntime` without minting a second receipt;
-- the bootstrap fails closed for invalid authorization type, action-plan mismatch, or an already-satisfied target with write authorization;
-- `tests/test_authorized_task_runtime.py` covers reuse of the exact pre-issued receipt, exact-plan binding, satisfied-target rejection, and validation before evidence acquisition;
-- `scripts/run_live_qwen_production_runtime_boundary.py` provides the no-write live proof through runtime construction and verifies the Blender fixture is unchanged before the `ACTION` phase;
-- `scripts/run_live_qwen_production_runtime.py` provides the first full Qwen-authorized mutation path: live proposal -> trusted catalog -> Atlas-issued authorization -> existing autonomous runtime -> Blender mutation -> independent final verification -> exact fixture restoration.
-
-### Live Stage 16 proposal-only smoke test — VERIFIED
-
-The user successfully verified the local Qwen proposal-only smoke:
+The local proposal-only Qwen smoke was user-verified:
 
 ```text
 LIVE QWEN PRODUCTION PROPOSAL VERIFIED
@@ -103,11 +61,25 @@ execution=not_attempted
 blender_mutation=not_attempted
 ```
 
-### Stage 16 authorization/runtime boundary
+This proves live Qwen communication, structured extraction, provider/catalog validation, and semantic task compilation without Blender mutation.
 
-The Qwen proposal now has a controlled route into Atlas authority. `QwenProductionTaskHandoff` performs provenance and canonical-recompile checks before delegating to the existing Atlas authorization path. `planning.authorized_task_runtime.start_authorized_task_runtime(...)` then consumes that already-issued authorization and constructs the existing `AutonomousTaskRuntime`. Initial Blender evidence is read through `BlenderExecutionBoundary`; the bootstrap itself performs no mutation.
+### Implemented but not yet user-verified
 
-The complete architectural flow is:
+`qwen/production_handoff.py` provides a provenance-bound handoff from validated Qwen intent into the existing Atlas authorization mechanism.
+
+It rechecks proposal, semantic-task, and compiled-task integrity and independently recompiles the proposal before authorizing. Model-supplied authorization fields are rejected. No executor or recovery authority is exposed.
+
+`planning/authorized_task_runtime.py` provides a generic bootstrap for an already-issued Atlas `ActionAuthorization`. It verifies the exact action-plan binding, acquires authoritative initial evidence, evaluates the target, and constructs the existing `AutonomousTaskRuntime`. It is not a second execution or authorization system.
+
+Live harnesses now exist for:
+
+```text
+scripts/run_live_qwen_production_handoff.py
+scripts/run_live_qwen_production_runtime_boundary.py
+scripts/run_live_qwen_production_runtime.py
+```
+
+The intended full chain is:
 
 ```text
 Qwen
@@ -118,75 +90,74 @@ provider + trusted catalog validation
   ↓
 QwenProductionProposal
   ↓
-trusted catalog compilation
+ProductionTaskDefinition
   ↓
-ProductionTaskDefinition / AtlasTaskDefinition
+AtlasTaskDefinition
   ↓
 QwenProductionTaskHandoff
   ↓
 existing Atlas ActionAuthorization
   ↓
-generic pre-authorized runtime bootstrap
-  ↓
 existing AutonomousTaskRuntime
   ↓
-existing Blender execution
+controlled Blender execution
   ↓
 fresh independent verification
   ↓
 fixture restoration
 ```
 
-There is still no Qwen execution engine, Qwen authorization receipt, parallel scheduler, or alternate recovery path.
+The **first full Qwen-authorized Blender mutation harness is implemented but has not yet been user-verified**.
 
-### Next live commands
+## Next session — exact resume point
 
-From the Atlas repository on the local Windows machine:
+Run the following from the Atlas repository on the Windows development machine:
 
 ```powershell
 cd "C:\Users\Gavin's PC\Desktop\Atlas"
 git pull
 python -m scripts.run_live_qwen_production_runtime_boundary --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-```
-
-A successful boundary proof should show `qwen_proposal=verified`, `atlas_authorization=verified`, `existing_task_runtime=verified`, `authorized_future_constructed=verified`, `action_execution=not_attempted`, and unchanged fixture transforms.
-
-Then the full end-to-end mutation proof:
-
-```powershell
 python -m scripts.run_live_qwen_production_runtime --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
 ```
 
-A successful full proof must show live Qwen proposal validation, Atlas authorization, existing runtime execution, independent final verification, and exact fixture restoration. This is the first point at which Qwen will have driven a real Blender mutation, but only through Atlas's already-established authority and verification boundaries.
+The boundary proof must establish that Qwen-driven semantic intent reaches Atlas authorization and the existing runtime without a write before the `ACTION` phase.
 
-## Unreal
+The full proof must establish real Blender mutation, fresh independent verification, and exact fixture restoration.
 
-The local Unreal Engine 5.6 production boundary remains proven for the implemented capabilities: deterministic render configuration, render-state verification, Movie Render Queue submission, dynamic job-ID binding, asynchronous inspection, semantic completion verification, MRQ artifact discovery, filesystem validation, and evidence-bound persistent render receipts.
+After that proof succeeds, extend the same Qwen proposal/handoff contract into the **existing Atlas failure/recovery machinery**. Recovery must remain Atlas-owned, require fresh authoritative evidence, require explicit replan authorization, preserve completed prerequisites, and never automatically retry failed writes.
 
-Cross-process Unreal render-job recovery is not implemented.
+Do not create a Qwen-specific execution engine, authorization system, scheduler, or recovery system.
+Do not introduce parallel execution until dependency semantics justify it independently.
 
-## Resolution / 4K direction
+## Unreal status
 
-Atlas is intended to operate on source soccer footage including 4K/UHD. The existing 640x360 Unreal render is a controlled boundary test, not a source-footage maximum. Resolution affects decode, tracking, memory, storage, reconstruction, compositing, and render throughput, but does not change the core Atlas orchestration model.
+The Unreal Engine 5.6 render boundary remains locally proven for the implemented capabilities: deterministic configuration, render-state verification, MRQ submission, dynamic job IDs, asynchronous inspection, semantic completion verification, artifact discovery/validation, evidence-bound `UnrealRenderReceipt`, and durable receipt persistence.
 
-Use resolution-aware workload/resource handling rather than a separate 4K architecture. Preserve the original high-resolution source as authoritative and use proxies/intermediates where appropriate without weakening provenance or evidence.
+Cross-process Unreal render-job recovery is **not implemented**. Receipt persistence must not be described as runtime job persistence.
+
+## Resolution / Digital Twin
+
+Atlas is intended for soccer source footage including 4K/UHD. Resolution changes execution-resource requirements, not the orchestration contract. Preserve high-resolution provenance while using appropriate intermediates/proxies.
+
+Atlas owns the canonical Digital Twin. Photogrammetry is upstream reconstruction; Blender analyzes/cleans/corrects/prepares; Unreal is downstream production execution. DCC/engine files remain representations or production state, not canonical identity.
 
 ## Non-regression rules
 
-- Never give Qwen direct production execution authority.
-- Never allow model-supplied authorization IDs or receipts to become Atlas authority.
+- Qwen remains proposal-only until Atlas validates and authorizes.
+- Never accept model-supplied authorization IDs or receipts as authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
-- Never declare completion from a transport/write response alone.
-- Keep engine-specific behavior behind adapter/tool boundaries.
+- Never declare completion from transport/write success alone.
 - Preserve independent verification and the evidence ledger.
-- Do not introduce parallel execution until dependency semantics are independently proven safe.
-- Preserve the canonical Digital Twin as distinct from Unreal, Blender, photogrammetry outputs, and temporary production artifacts.
+- Keep engine-specific behavior behind adapter/tool boundaries.
+- Keep dependency-aware execution serial.
+- Preserve canonical Digital Twin identity separately from production artifacts.
+- Do not claim cross-process Unreal job recovery unless separately implemented and verified.
+
+## Documentation state
+
+The root `README.md`, `docs/ATLAS_ARCHITECTURE_CONTRACT.md`, `ATLAS_HANDOFF_CONTEXT.txt`, `UNREAL_AGENT_HANDOFF_CURRENT.md`, `docs/OPENHANDS_TRANSITION_GUIDE.md`, and `DEVELOPMENT_LOG.md` were synchronized to this checkpoint before development was stopped for the night.
 
 ## PR status
 
 PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly requested.**
-
-## Resume point
-
-**Continue Stage 16 by running and validating `scripts/run_live_qwen_production_runtime_boundary.py`, then the full `scripts/run_live_qwen_production_runtime.py`. Do not add a Qwen-specific runtime or authorization system. After the full mutation proof succeeds, extend the same Qwen proposal/handoff contract into the already-proven failure/recovery machinery and verify that recovery remains Atlas-owned, explicitly authorized, independently verified, and free of automatic write retries.**
