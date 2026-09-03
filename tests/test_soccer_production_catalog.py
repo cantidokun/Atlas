@@ -35,6 +35,12 @@ def test_catalog_resolves_workflow_by_exact_name():
             "target_location",
             "target_rotation",
         ],
+        "parameter_kinds": {
+            "file_name": "string",
+            "object_name": "string",
+            "target_location": "vector3",
+            "target_rotation": "vector3",
+        },
         "version": 1,
     }
 
@@ -92,6 +98,7 @@ def test_catalog_rejects_invalid_spec_versions():
             objective="Prepare a soccer production workflow.",
             template_name="ExampleTemplate",
             required_parameters=("file_name",),
+            parameter_kinds=(("file_name", "string"),),
             version=0,
         )
 
@@ -101,5 +108,6 @@ def test_catalog_rejects_invalid_spec_versions():
             objective="Prepare a soccer production workflow.",
             template_name="ExampleTemplate",
             required_parameters=("file_name",),
+            parameter_kinds=(("file_name", "string"),),
             version=True,
         )
