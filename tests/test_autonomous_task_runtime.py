@@ -224,6 +224,96 @@ def test_task_runtime_rejects_persisted_authorization_for_future_shape(tmp_path)
         AutonomousTaskRuntime.resume_from_store(task, store, _context(), lambda tool, arguments: {})
 
 
+def test_task_runtime_rejects_tampered_semantic_metadata(tmp_path):
+    store = FutureRuntimeStateStore(tmp_path / "runtime.json")
+    task = _task()
+
+    AutonomousTaskRuntime.start(
+        task,
+        store,
+        _context(),
+        lambda tool, arguments: {"ready": False},
+        authorization_id="test-semantic-binding",
+    )
+
+    envelope = store.load()
+    envelope["metadata"]["task_metadata"] = {"production_task": "tampered-production-goal"}
+    store.path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="semantic metadata"):
+        AutonomousTaskRuntime.resume_from_store(task, store, _context(), lambda tool, arguments: {})
+
+
+def test_task_runtime_replan_preserves_semantic_metadata(tmp_path):
+    calls = []
+    move_attempts = 0
+    evidence_calls = 0
+    store = FutureRuntimeStateStore(tmp_path / "runtime.json")
+    evaluator = TargetStateEvaluator(
+        [StateInvariant("ready", lambda evidence: bool(evidence.get("ready")))]
+    )
+    task = AtlasTaskDefinition(
+        name="production-goal-runtime",
+        evidence=(EvidenceRequest("inspect_scene", {"file_name": "fixture.blend"}, "scene"),),
+        actions=(
+            ActionSpec(
+                "move_object",
+                {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [1, 2, 3]},
+                "move",
+            ),
+        ),
+        evaluator=evaluator,
+        allowed_action_tools={"move_object"},
+        allow_writes=True,
+        verify_after_action=True,
+        metadata={
+            "production_task": "broadcast-goal-preparation",
+            "domain": "soccer-production",
+            "workflow_catalog": {"name": "broadcast-goal-preparation", "version": 1},
+            "workflow_parameters": {
+                "file_name": "fixture.blend",
+                "object_name": "Goal_Left_post",
+                "target_location": [1, 2, 3],
+                "target_rotation": [0, 0, 15],
+            },
+        },
+    )
+
+    def execute(tool, arguments):
+        nonlocal move_attempts, evidence_calls
+        calls.append((tool, arguments))
+        if tool == "inspect_scene":
+            evidence_calls += 1
+            return {"ready": evidence_calls >= 3}
+        move_attempts += 1
+        if move_attempts == 1:
+            raise RuntimeError("first write failed")
+        return {"ok": True}
+
+    runtime = AutonomousTaskRuntime.start(
+        task,
+        store,
+        _context(),
+        execute,
+        authorization_id="initial-authorization",
+    )
+    assert runtime.run_until_pause()["blocked"] is True
+
+    replacement = [
+        ActionSpec(
+            "move_object",
+            {"file_name": "fixture.blend", "object_name": "Goal_Left_post", "location": [2, 3, 4]},
+            "replacement",
+        )
+    ]
+    runtime.recover_with_fresh_evidence()
+    authorization = runtime.authorize_replan(replacement, "replacement-authorization")
+    runtime.install_authorized_replan(authorization, replacement)
+
+    persisted = store.load()["metadata"]
+    assert persisted["task_metadata"] == task.metadata
+
+
 def test_deterministic_future_unsatisfied_branch_contains_action():
     task = _task()
     steps = DeterministicFutureGenerator(task.evaluator).generate(False, [
