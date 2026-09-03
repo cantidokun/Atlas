@@ -5,6 +5,7 @@ from planning.soccer_production_catalog import (
     available_soccer_production_workflows,
     build_soccer_production_workflow,
     get_soccer_production_workflow,
+    validate_soccer_production_workflow_parameters,
 )
 
 
@@ -93,3 +94,55 @@ def test_catalog_builder_accepts_explicit_supported_version():
     )
 
     assert template.name == "broadcast-goal-preparation"
+
+
+def test_catalog_validates_parameter_envelope_without_instantiating_template():
+    spec = validate_soccer_production_workflow_parameters(
+        "broadcast-goal-preparation",
+        {
+            "file_name": "scene.blend",
+            "object_name": "Goal_Left_post",
+            "target_location": [1.0, 2.0, 3.0],
+            "target_rotation": [0.0, 0.0, 15.0],
+        },
+        version=1,
+    )
+
+    assert spec.name == "broadcast-goal-preparation"
+    assert spec.version == 1
+
+    with pytest.raises(TypeError, match="parameters must be a dictionary"):
+        validate_soccer_production_workflow_parameters("broadcast-goal-preparation", [], version=1)
+
+    with pytest.raises(ValueError, match="missing required parameters"):
+        validate_soccer_production_workflow_parameters(
+            "broadcast-goal-preparation",
+            {"file_name": "scene.blend"},
+            version=1,
+        )
+
+
+def test_catalog_builder_rejects_malformed_transform_containers_before_template_construction():
+    with pytest.raises(TypeError, match="target_location must be a list or tuple"):
+        build_soccer_production_workflow(
+            "broadcast-goal-preparation",
+            {
+                "file_name": "scene.blend",
+                "object_name": "Goal_Left_post",
+                "target_location": "1,2,3",
+                "target_rotation": [0.0, 0.0, 15.0],
+            },
+            version=1,
+        )
+
+    with pytest.raises(TypeError, match="target_rotation must be a list or tuple"):
+        build_soccer_production_workflow(
+            "broadcast-goal-preparation",
+            {
+                "file_name": "scene.blend",
+                "object_name": "Goal_Left_post",
+                "target_location": [0.0, 5.302, 0.0],
+                "target_rotation": {"x": 0.0, "y": 0.0, "z": 15.0},
+            },
+            version=1,
+        )
