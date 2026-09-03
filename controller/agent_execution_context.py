@@ -20,6 +20,20 @@ class AgentExecutionContext:
 
     _contexts: dict[str, AgentTrustedContext] = field(default_factory=dict)
 
+    def _install(
+        self,
+        provider: str,
+        context: AgentTrustedContext,
+    ) -> None:
+        normalized_provider = provider.strip().lower()
+
+        if normalized_provider in self._contexts:
+            raise ValueError(
+                f"trusted context for provider '{normalized_provider}' is already installed; create a new execution context for replacement"
+            )
+
+        self._contexts[normalized_provider] = context
+
     def install_unreal(
         self,
         context: TrustedUnrealContext,
@@ -30,7 +44,7 @@ class AgentExecutionContext:
                 "context must be a TrustedUnrealContext instance"
             )
 
-        self._contexts["unreal"] = context.to_trusted_agent_context()
+        self._install("unreal", context.to_trusted_agent_context())
 
     def install(
         self,
@@ -48,7 +62,7 @@ class AgentExecutionContext:
                 "context must be an AgentTrustedContext instance"
             )
 
-        self._contexts[provider.strip().lower()] = context
+        self._install(provider, context)
 
     def get(
         self,
