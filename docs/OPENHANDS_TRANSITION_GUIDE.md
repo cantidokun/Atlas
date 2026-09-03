@@ -1,183 +1,82 @@
 # OpenHands Transition Guide
 
-This guide records the planned transition from the current ChatGPT/GitHub/local-machine Atlas development workflow to an OpenHands-assisted local development workflow.
+This guide records the planned transition to an OpenHands-assisted Atlas development workflow. It is now aligned with the September 3, 2026 Atlas architecture.
 
-## Core rule
+## Current Atlas position
 
-Keep **Atlas-Unreal-Aider** and the **Blender Agent** as separate repositories. OpenHands may eventually work across both repositories from one controlled local workspace, but the repositories must not be merged merely to enable agent coordination.
+**Active branch:** `feat/blender-stage11-mainline`  
+**PR #49:** open, draft, unmerged  
+**Current development stage:** Stage 16 — Qwen proposal integration into Atlas-owned authorization/runtime boundary.
 
-## Target workspace
-
-```text
-C:\Atlas-Development\
-│
-├── Atlas-Unreal-Aider\
-│   └── .git\
-│
-└── Blender-Agent\
-    └── .git\
-```
-
-Each repository retains its own Git history, dependencies, issues, CI, release process, and development environment. Cross-system integration should use explicit interfaces/contracts.
-
-## Current Atlas checkout
-
-The Atlas-Unreal-Aider checkout has historically been:
+The current control model is:
 
 ```text
-C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider
+Qwen / AI
+    -> reason and propose structured production intent
+
+Python / Atlas
+    -> validate, resolve, authorize, execute, track state, verify, recover
+
+Blender / Unreal
+    -> controlled production execution
+
+Independent verification
+    -> establish what actually happened
 ```
 
-Verify the actual path before beginning the transition.
+Qwen must never receive direct execution or authorization authority.
 
-## Transition sequence
+## Current proven architecture
 
-### 1. Prepare a safe environment
+Atlas has live-proven generic autonomous execution, partial-progress recovery, dependency-aware serial recovery, semantic soccer-production tasks, and a versioned soccer-production catalog.
 
-Do not give OpenHands unrestricted access to the Windows machine. Start with a disposable workspace, then the Atlas repository, and only later add broader Unreal/Blender capabilities.
+The current Stage 16 Qwen chain is:
 
-### 2. Install WSL 2
-
-Verify:
-
-```powershell
-wsl --version
+```text
+Qwen
+  -> Ollama structured output
+  -> provider validation
+  -> trusted soccer-production catalog
+  -> QwenProductionProposal
+  -> ProductionTaskDefinition
+  -> AtlasTaskDefinition
+  -> QwenProductionTaskHandoff
+  -> existing Atlas ActionAuthorization
+  -> existing AutonomousTaskRuntime
+  -> controlled Blender execution
+  -> fresh independent verification
 ```
 
-If needed:
+The local proposal-only Qwen smoke test has been user-verified. The first full Qwen-authorized Blender mutation harness is implemented but has not yet been user-verified.
 
-```powershell
-wsl --install -d Ubuntu
-```
+## Repository boundaries
 
-Verify:
+Keep the Blender and Unreal codebases/repositories separate. Cross-system work should use explicit contracts and adapters rather than merged implementation state.
 
-```bash
-wsl --list
-```
+Atlas owns the canonical Digital Twin. Photogrammetry remains upstream reconstruction; Blender handles analysis/cleanup/correction/preparation; Unreal is downstream production execution.
 
-Confirm current OpenHands/Windows requirements when the transition begins.
-
-### 3. Install Docker Desktop
-
-Use Docker Desktop for Windows with the WSL 2 based engine enabled.
-
-Then enable the Ubuntu distribution under:
-
-**Settings → Resources → WSL Integration**
-
-### 4. Install OpenHands
-
-Use the current official OpenHands installation method. The command expected when this guide was created was:
-
-```bash
-uv tool install openhands --python 3.12
-```
-
-Verify:
-
-```bash
-openhands --help
-```
-
-OpenHands installation commands may change; verify current documentation at transition time.
-
-### 5. Test with a disposable directory
-
-Create:
-
-```powershell
-mkdir C:\Atlas-OpenHands-Test
-```
-
-Then in WSL:
-
-```bash
-cd /mnt/c/Atlas-OpenHands-Test
-```
-
-Use OpenHands' current local-workspace/mount procedure. The historical command was:
-
-```bash
-openhands serve --mount-cwd
-```
-
-Verify that:
-
-- OpenHands launches.
-- The LLM connection works.
-- The agent can see the mounted workspace.
-- The agent can create and modify files.
-- Changes appear on the Windows host.
-- Docker/WSL isolation behaves as expected.
-
-Do not connect the production Atlas repository or Unreal during this phase.
-
-### 6. Connect Atlas-Unreal-Aider
-
-After the disposable test succeeds:
-
-```bash
-cd "/mnt/c/Users/Gavin's PC/Desktop/Atlas-Unreal-Aider"
-git status
-git branch --show-current
-```
-
-Before any modification, confirm the correct branch and working-tree state.
-
-First agent tasks should be read-only:
-
-> Inspect the Atlas repository and report the current Git branch, working-tree status, repository structure, major development documentation, and current architectural areas. Do not modify anything.
-
-Then:
-
-> Identify the current Atlas planning/runtime architecture and list the relevant files and relationships. Do not modify anything.
-
-### 7. Establish Atlas operating rules
-
-OpenHands should follow these rules:
+## Safe OpenHands operating rules
 
 1. Preserve repository boundaries.
-2. Do not merge Atlas-Unreal-Aider with the Blender Agent.
-3. Treat C++ interoperability as a core Atlas architectural requirement.
-4. Prefer language-neutral subsystem contracts.
-5. Avoid unnecessary Python-specific coupling in core contracts.
-6. Keep Python for AI, reasoning, orchestration, experimentation, and suitable tooling.
-7. Keep performance-sensitive components viable for future C++ implementations.
-8. Preserve authorization and runtime boundaries.
-9. Never weaken tests solely to make a change pass.
-10. Prefer solving established GitHub issues instead of creating unnecessary parallel work.
-11. Avoid unrelated modifications.
-12. Inspect current documentation and issue history before major architectural changes.
-13. Make coherent, reviewable commits.
-14. Do not reset, discard, or overwrite unrelated user work.
-15. Preserve system safety and human-control boundaries.
-16. Prefer incremental changes over speculative rewrites.
+2. Treat C++ interoperability as a core architectural requirement.
+3. Prefer language-neutral subsystem contracts.
+4. Preserve Atlas-owned authorization, runtime, verification, evidence, and recovery boundaries.
+5. Never weaken tests merely to make a change pass.
+6. Inspect current handoffs/docs/issues before major architectural changes.
+7. Avoid unrelated modifications.
+8. Do not reset, discard, or overwrite unrelated user work.
+9. Make coherent, reviewable commits.
+10. Increase autonomy progressively and only after deterministic validation.
+11. Do not give Qwen, OpenHands, or an external model direct production authority merely for convenience.
+12. Do not introduce a second execution engine, authorization system, scheduler, or recovery system when an existing Atlas path already exists.
 
-## C++ interoperability requirement
+## C++ interoperability
 
-Atlas should evolve as a Python-first/hybrid system rather than as a Python implementation that later requires a wholesale rewrite.
+Atlas remains Python-first/hybrid, not Python-locked.
 
-Python is appropriate for:
+Python is appropriate for AI/LLM interaction, reasoning, high-level planning, orchestration, experimentation, tooling, and suitable Blender automation.
 
-- AI/LLM interaction
-- reasoning
-- high-level planning
-- orchestration
-- experimentation
-- tooling
-- Blender automation where Blender's Python API is the appropriate interface
-
-C++ should remain viable for:
-
-- performance-critical runtime components
-- geometry and spatial computation
-- high-performance vision
-- simulation
-- concurrency
-- GPU-facing systems
-- Unreal integration
-- other performance-sensitive execution paths
+C++ must remain viable for performance-critical runtime, geometry/spatial computation, high-performance vision, simulation, concurrency, GPU-facing systems, Unreal integration, and other native-sensitive paths.
 
 Prefer:
 
@@ -189,42 +88,27 @@ Language-neutral contract
 C++ implementation
 ```
 
-over Python-specific assumptions that make later native replacement difficult.
+over Python-specific contracts that make later native replacement difficult.
 
 ## Progressive access model
 
 ### Level 1 — Source access
 
-OpenHands can inspect and modify the Atlas source repository, use Git, and update documentation.
+OpenHands may inspect and modify the Atlas repository, update documentation, and use Git.
 
 ### Level 2 — Build/test access
 
-Add compilers, unit tests, static analysis, and other deterministic validation.
+Add deterministic tests, static analysis, and builds as appropriate.
 
-### Level 3 — Unreal access
+### Level 3 — Controlled Unreal access
 
-Only after Levels 1–2 are reliable. Determine which Unreal operations can run inside the OpenHands environment and which require a controlled host-side bridge.
+Only after source/test work is reliable. Determine which operations require the Windows host and whether a controlled bridge is required.
 
 ### Level 4 — Broader production execution
 
-Do not enable unrestricted external/production authority merely to simplify development. This requires separate architectural and security review.
+Do not enable unrestricted production authority. This requires separate architectural and security review.
 
-## Unreal execution boundary
-
-OpenHands having access to a local repository does not automatically mean it can safely control every Windows application.
-
-Determine:
-
-1. Which Atlas builds run inside OpenHands.
-2. Which tests run there.
-3. Which Unreal commands require the Windows host.
-4. Whether a controlled host-side bridge is needed.
-5. What permissions the bridge requires.
-6. How results return to OpenHands.
-
-Do not weaken Docker/WSL isolation just to make Unreal access convenient.
-
-## Git discipline
+## Current development workflow
 
 Before work:
 
@@ -233,11 +117,7 @@ git status
 git branch --show-current
 ```
 
-Before substantial edits:
-
-- confirm repository and branch
-- inspect relevant issues/docs
-- understand existing local changes
+Inspect `ATLAS_HANDOFF_CURRENT.md`, `README.md`, `docs/ATLAS_ARCHITECTURE_CONTRACT.md`, and the relevant engine handoff before major work.
 
 After work:
 
@@ -246,153 +126,82 @@ git status
 git diff
 ```
 
-Do not overwrite unrelated local work. Do not reset or discard user changes without explicit authorization.
+Keep changes bounded and preserve unrelated local work.
 
-## Eventual autonomous development loop
+## Autonomous development loop
 
-Once the environment is mature, a high-level task may look like:
-
-> Continue Atlas development toward the next established milestone. Inspect the current issues and repository state, determine the highest-priority solvable item, implement it, run the appropriate tests, fix failures, update documentation, and commit the completed work. Do not modify the Blender repository unless the change genuinely crosses an established contract.
-
-Desired loop:
+A mature OpenHands task may follow:
 
 ```text
 Inspect
   ↓
-Determine next work
+Determine next established milestone
   ↓
 Implement
   ↓
-Test
+Run appropriate tests
   ↓
-Diagnose
-  ↓
-Fix
+Diagnose/fix
   ↓
 Retest
   ↓
-Update documentation
+Update handoffs/readmes
   ↓
 Commit
-  ↓
-Continue
 ```
 
-Human oversight remains appropriate for major architecture, destructive operations, production access, and significant cross-system changes.
+The next established Atlas milestone is not chosen by the model alone. It must remain consistent with the authoritative handoff and architecture contract.
 
-## Long-term division of labor
+## Current Stage 16 rule
 
-```text
-                    YOU
-                     │
-          Architecture / priorities
-                     │
-                     ▼
-                 ChatGPT
-                     │
-             reasoning / review
-                     │
-                     ▼
-                OpenHands
-                     │
-        implementation / execution
-                     │
-       ┌─────────────┴─────────────┐
-       │                           │
-Atlas-Unreal-Aider            Blender Agent
-       │                           │
-    Unreal                      Blender
-       │                           │
-       └─────────────┬─────────────┘
-                     │
-                 GitHub
-```
+Until the full Qwen-authorized Blender runtime proof is live-verified:
 
-- ChatGPT: architecture, strategic reasoning, difficult design decisions, review, and planning.
-- OpenHands: persistent implementation, repository operations, local builds/tests, and iterative debugging.
-- GitHub: source control, issues, branches, commits, pull requests, and history.
-- Unreal/Blender: actual execution environments.
+- keep Qwen proposal-only at the model boundary;
+- do not let model output create an authorization receipt directly;
+- use `QwenProductionTaskHandoff` for provenance/integrity checking;
+- reuse the existing Atlas `ActionAuthorization` mechanism;
+- reuse the existing `AutonomousTaskRuntime`;
+- do not introduce Qwen-specific execution or recovery logic;
+- do not automatically retry failed writes;
+- require fresh independent verification after writes.
+
+After the runtime proof succeeds, extend the same boundary into the already-proven Atlas recovery/replan machinery.
+
+## Unreal boundary
+
+The Unreal Engine 5.6 render/artifact/verification/receipt path remains proven locally. Cross-process Unreal render-job recovery is not implemented. Durable receipt persistence must not be described as job persistence.
 
 ## Transition checklist
 
-### Preparation
-
-- [ ] Confirm current Atlas-Unreal-Aider path.
-- [ ] Confirm working-tree state.
-- [ ] Confirm branch.
-- [ ] Confirm GitHub access.
-- [ ] Install/verify WSL 2.
-- [ ] Install/verify Docker Desktop.
-- [ ] Verify Docker WSL integration.
-- [ ] Install/verify OpenHands.
-- [ ] Configure the selected LLM provider/model.
-
-### Safe validation
-
-- [ ] Test OpenHands using a disposable directory.
-- [ ] Verify file mounting.
-- [ ] Verify edits appear on the Windows host.
-- [ ] Verify Git commands work.
-- [ ] Verify the agent does not access unrelated files.
-
-### Atlas connection
-
-- [ ] Connect Atlas-Unreal-Aider.
-- [ ] Perform read-only inspection.
-- [ ] Verify branch and working-tree awareness.
-- [ ] Add Atlas operating rules.
-- [ ] Test a small reversible change.
-- [ ] Build/test it.
-- [ ] Review the Git diff.
-- [ ] Commit only after verification.
-
-### Expanded environment
-
-- [ ] Determine available Unreal operations.
-- [ ] Establish any controlled Unreal bridge.
-- [ ] Add Blender-Agent as a second independent repository only when ready.
-- [ ] Define/verify cross-repository contracts.
-- [ ] Test cross-repository awareness without merging repositories.
-
-### Autonomous operation
-
-- [ ] Establish issue-selection rules.
-- [ ] Establish branch/commit rules.
-- [ ] Establish test requirements.
-- [ ] Establish human-approval boundaries.
-- [ ] Establish failure/recovery behavior.
-- [ ] Establish production-access restrictions.
-- [ ] Begin with bounded autonomous tasks.
+- [ ] Confirm the actual Atlas checkout path.
+- [ ] Confirm branch and working-tree state.
+- [ ] Read current Atlas and Unreal handoffs.
+- [ ] Verify OpenHands in a disposable workspace before granting Atlas access.
+- [ ] Preserve Docker/WSL isolation.
+- [ ] Start with read-only Atlas inspection.
+- [ ] Add build/test access before engine control.
+- [ ] Use controlled host bridges for operations that cannot safely run inside the OpenHands environment.
+- [ ] Keep Blender and Unreal repository boundaries explicit.
 - [ ] Increase autonomy only after reliability is demonstrated.
 
 ## Important principles
 
 ### Keep repositories separate
 
-The Unreal and Blender projects remain separate repositories.
+Do not merge Blender and Unreal repositories merely to make agent coordination easier.
 
 ### Keep interfaces stable
 
 Cross-system communication should use explicit contracts rather than shared implementation assumptions.
 
-### Keep C++ migration possible
-
-Do not allow Python implementation details to become permanent architectural contracts.
-
 ### Keep humans in control of high-impact decisions
 
-Autonomy should increase progressively.
-
-### Prefer solving issues
-
-Use the established GitHub issue backlog and solve appropriate issues rather than indefinitely deferring them.
+Autonomy increases only as reliability is proven.
 
 ### Preserve development safety
 
-A more autonomous agent does not mean unrestricted access to the entire Windows machine.
+Greater agent autonomy does not mean unrestricted Windows-machine access.
 
 ## Reference note
 
-This guide describes the planned transition as of August 2026. OpenHands, Docker, WSL, and related tooling may change. Verify current installation/configuration instructions from official documentation when the transition begins.
-
-The architectural principles in this document are more important than any specific installation command.
+Installation commands for OpenHands, Docker, WSL, and related tooling may change. Verify current official instructions when the transition actually begins. The Atlas architectural boundaries in this document are the durable requirements.
