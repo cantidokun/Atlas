@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 13 live verification + Stage 14 dependency foundation
+**Updated:** September 3, 2026 — Stage 13 complete; Stage 14 dependency-aware task composition in progress
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 13 multi-step autonomous recovery is proven; Stage 14 dependency-aware task composition is in progress
+**Current Blender branch work:** Stage 13 multi-step autonomous recovery is proven; Stage 14 dependency-aware task composition is implemented at the validation/authorization/runtime layer and awaiting live proof
 
 ## Current authority model
 
@@ -21,17 +21,13 @@ Independent verification
   -> establish what actually happened
 ```
 
-Qwen never receives direct production execution authority.
+Qwen never receives direct production execution authority. Atlas development has standing authorization to run appropriate local tests, GitHub Actions workflows, action-runner tests, and relevant live validation required by the development task.
 
-Atlas development has standing authorization to run appropriate local tests, GitHub Actions workflows, action-runner tests, and relevant live validation required by the development task.
+## Verified Blender — Stage 13
 
-## Blender — verified Stage 13
+Stage 13 is fully live-verified against Blender 4.4 and GitHub Actions. The two-process harness used `Goal_Left_post` with two ordered writes: move the object, then set its rotation.
 
-Stage 13 is fully live-verified against Blender 4.4. The two-process proof used `Goal_Left_post` with two ordered writes: move the object, then set its rotation.
-
-Phase 1 completed action 1, deliberately failed action 2 before its Blender write, and persisted the partial-progress checkpoint. Phase 2 started in a fresh Python process, reconstructed the blocked runtime and authorization, acquired fresh multi-request evidence, issued an evidence-bound replan authorization, executed only the unfinished action 2, independently verified the final location and rotation, and restored the fixture.
-
-Observed proof:
+Phase 1 completed action 1, deliberately failed action 2 before its Blender write, and persisted the partial-progress checkpoint. Phase 2 started in a fresh Python process, reconstructed the blocked runtime and authorization, acquired fresh multi-request evidence, issued an evidence-bound replan authorization, executed only action 2, independently verified both target properties, and restored the fixture.
 
 ```text
 LIVE AUTONOMOUS MULTISTEP RECOVERY VERIFIED
@@ -53,62 +49,76 @@ fixture_restored_location=[0.0, 5.302, 0.0]
 fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-The critical safety property is proven: completed action 1 is not blindly replayed after action 2 fails.
-
-The exact Stage 13 head `361b97e685f815e54c22fcd65c29968a783ff73f` also passed GitHub Actions `Atlas Tests` run `#1251`.
+The exact Stage 13 head `361b97e685f815e54c22fcd65c29968a783ff73f` passed GitHub Actions `Atlas Tests` run `#1251`.
 
 ## Stage 14 — dependency-aware task composition
 
-Stage 14 has now started from the proven Stage 13 architecture. The initial design deliberately does **not** introduce parallel execution.
+The first Stage 14 increment adds explicit prerequisite semantics without adding a scheduler or parallel execution engine.
 
-Implemented foundation:
+Implemented:
 
-- `ActionSpec` now supports declarative `depends_on` action names;
-- dependency metadata is included in action-plan execution state;
-- `ActionAuthorization` binds its digest to dependency declarations, so authorized dependencies cannot be silently changed;
-- `planning/action_dependencies.py` validates dependency-bearing plans before execution;
-- `AtlasTaskDefinition` validates dependency declarations;
-- `DeterministicFutureGenerator` preserves the authorized serial action order and carries dependency metadata into future steps;
-- `PlanningOrchestrator` and `AutonomousTaskRuntime` preserve dependency metadata when reconstructing action specifications;
-- dependency regression coverage checks valid serial dependencies, later-action dependencies, unknown/self/duplicate dependencies, and authorization mismatch after dependency mutation.
+- `ActionSpec.depends_on` declares prerequisite action names;
+- dependency declarations are preserved in action-plan and future-step state;
+- dependency-bearing plans require unambiguous action names;
+- unknown, later, self, duplicate, malformed, and unsafe optional-action dependencies are rejected;
+- `ActionAuthorization` includes dependency declarations in its digest;
+- `ReplanAuthorization` also includes and validates dependency declarations;
+- `AtlasTaskDefinition`, `PlanningOrchestrator`, and `AutonomousTaskRuntime` preserve dependencies during reconstruction;
+- the structured task-plan JSON schema accepts optional `depends_on` declarations;
+- structured task-plan validation carries dependencies into `ActionSpec` and rejects invalid dependency graphs;
+- `FutureExecutionController` derives dependency completion from its own successful execution checkpoints rather than executor result payloads;
+- regression coverage covers dependency validation, authorization binding, structured-plan propagation, and fail-closed dependency execution.
 
-The design rule is intentional: dependency semantics constrain the exact authorized order, but the current executor remains serial and deterministic. No scheduler or second execution system has been introduced.
-
-### Current dependency model
+The execution model remains deliberately serial:
 
 ```text
-authorized action list
+explicit dependencies
         ↓
-explicit prerequisite declarations
+validated action order
         ↓
-validated topological order
+exact authorization digest
         ↓
-serial deterministic future
+deterministic future
         ↓
-checkpoint after each completed action
+one next action at a time
         ↓
-fresh verification
+checkpoint
 ```
 
-Dependency-free legacy action lists remain valid. Dependency-bearing plans must use unambiguous action names; references to later, unknown, self, or duplicated dependencies are rejected.
+Dependency-free legacy plans remain valid.
 
-## Stage 14 next validation
+## Stage 14 — current live proof
 
-GitHub Actions `Atlas Tests` run `#1263` is currently queued on the latest dependency-validation change (`d650029...`). Do not treat Stage 14 as complete until the new matrix passes.
+A dedicated real-Blender harness is now present at:
 
-After CI is green, add a deliberately small soccer-field-related Blender task with explicit prerequisites and prove the dependency metadata survives authorization, checkpointing, and process reconstruction. Keep execution serial for this increment.
+`scripts/run_live_dependency_task.py`
+
+It performs a small soccer-field-related task against the real Blender fixture with:
+
+```text
+prepare_location
+      ↓
+prepare_rotation
+      depends_on = prepare_location
+```
+
+The harness routes writes through the existing persistence boundary, performs independent evidence acquisition, verifies the final state, and restores the fixture. Stage 14 is not complete until this live proof passes.
+
+## CI
+
+The latest Stage 14 regression run is currently in progress on branch `feat/blender-stage11-mainline`. Do not mark Stage 14 complete until the current matrix is green and the live dependency proof has passed.
 
 ## Unreal
 
-The local Unreal Engine 5.6 production boundary remains proven for the current implemented capabilities: deterministic render configuration, render-state verification, Movie Render Queue submission, dynamic job-ID binding, asynchronous job inspection, semantic completion verification, MRQ artifact discovery, filesystem artifact validation, and evidence-bound persistent render receipts.
+The local Unreal Engine 5.6 production boundary remains proven for the implemented capabilities: deterministic render configuration, render-state verification, Movie Render Queue submission, dynamic job-ID binding, asynchronous inspection, semantic completion verification, MRQ artifact discovery, filesystem validation, and evidence-bound persistent render receipts.
 
 Cross-process Unreal render-job recovery is not implemented.
 
 ## Resolution / 4K direction
 
-Atlas is intended to work with source footage including 4K/UHD. The 640x360 Unreal render proof is a controlled boundary test, not a source-footage limit. Resolution affects decode, tracking, memory, storage, reconstruction, compositing, and render throughput, but it does not change the core Atlas authority/orchestration model.
+Atlas is intended to operate on source soccer footage including 4K/UHD. The existing 640x360 Unreal render is a controlled boundary test, not a source-footage maximum. Resolution affects decode, tracking, memory, storage, reconstruction, compositing, and render throughput, but does not change the core Atlas orchestration model.
 
-Plan resolution-aware workload/resource handling rather than a separate 4K architecture. Preserve the original high-resolution source as authoritative and use proxies/intermediates where appropriate without weakening evidence or provenance.
+Use resolution-aware workload/resource handling rather than a separate 4K architecture. Preserve the original high-resolution source as authoritative and use proxies/intermediates where appropriate without weakening provenance or evidence.
 
 ## Required regression philosophy
 
@@ -124,9 +134,9 @@ Preserve coverage for:
 - replacement action tools -> remain within the task contract;
 - partial-progress recovery -> completed prior steps are not blindly replayed;
 - multi-request task evidence -> retained as a deterministic evidence bundle;
-- dependency graph -> unknown references rejected;
-- dependency graph -> cycles/later references rejected;
+- dependency references -> validated before execution;
 - dependency-aware authorization -> exact plan binding;
+- dependency completion -> derived from successful future checkpoints;
 - cross-process continuation -> recovered authorization and fresh verification;
 - cross-process blocked recovery -> recovered gate + authorization before replan;
 - mutated arguments/result -> receipt mismatch;
@@ -151,14 +161,19 @@ Preserve coverage for:
 - Never declare completion from a transport/write response alone.
 - Keep engine-specific behavior behind adapter/tool boundaries.
 - Preserve independent verification and the evidence ledger.
-- Treat artifact existence as independently verified evidence, not an implication of job success.
-- Preserve the canonical Digital Twin as distinct from Unreal, Blender, photogrammetry outputs, and temporary production artifacts.
 - Do not introduce parallel execution until dependency semantics are independently proven safe.
+- Preserve the canonical Digital Twin as distinct from Unreal, Blender, photogrammetry outputs, and temporary production artifacts.
 
 ## Resume point
 
-**Next: complete Stage 14 dependency validation.**
+**Next: complete Stage 14 with the real Blender dependency proof.**
 
-First obtain a green CI result for the dependency foundation. Then construct and live-verify the smallest soccer-field-related Blender task whose actions declare explicit prerequisites. Confirm dependency metadata survives authorization, deterministic future generation, checkpoints, and cross-process reconstruction. Only after that should Atlas evaluate safe scheduling of independent branches.
+After CI is green, run:
+
+```powershell
+python -m scripts.run_live_dependency_task --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+```
+
+Do not expand Qwen autonomy yet. After the live dependency proof passes, audit whether dependency-aware checkpoint/recovery semantics justify a later concurrency stage; do not implement concurrency merely because the graph permits it.
 
 PR #49 remains draft/unmerged.
