@@ -4,10 +4,11 @@ Phase 1 obtains a live Qwen proposal, crosses the normal Atlas handoff and
 authorization boundary, executes the first real Blender action, intentionally
 fails the later action before Blender is invoked, and persists both the Atlas
 continuation and Qwen provenance. Phase 2 starts a fresh Python process,
-reconstructs the canonical Qwen handoff from persisted provenance, resumes the
-existing Atlas runtime, acquires fresh evidence, explicitly authorizes only the
-unfinished replacement action, verifies the final state independently, and
-restores the fixture.
+reconstructs the canonical Qwen handoff from persisted provenance, asks Qwen
+for advisory recovery intent, validates that recommendation against the
+persisted task contract, resumes the existing Atlas runtime, acquires fresh
+evidence, explicitly authorizes only the unfinished replacement action, verifies
+the final state independently, and restores the fixture.
 """
 
 from __future__ import annotations
@@ -98,6 +99,37 @@ def _proposal_target(handoff: QwenProductionTaskHandoff) -> tuple[List[float], L
     return [float(value) for value in location], [float(value) for value in rotation]
 
 
+def _live_provider(args: argparse.Namespace) -> OllamaQwenProvider:
+    return OllamaQwenProvider(
+        url=args.url or "http://localhost:11434/api/chat",
+        model=args.model or "qwen3:8b",
+        timeout=args.timeout,
+    )
+
+
+def _recovery_recommendation(
+    provider: OllamaQwenProvider,
+    handoff: QwenProductionTaskHandoff,
+    path: Path,
+    object_name: str,
+    target_location: List[float],
+    target_rotation: List[float],
+) -> None:
+    objective = (
+        f"Recover the interrupted soccer production objective for file {path} and object {object_name}. "
+        f"Continue toward target_location {target_location} and target_rotation {target_rotation}."
+    )
+    context = (
+        f"Verified persisted task: workflow={handoff.proposal.workflow}; version={handoff.proposal.version}; "
+        f"file_name={path}; object_name={object_name}; target_location={target_location}; "
+        f"target_rotation={target_rotation}. The prior continuation is blocked after a completed prerequisite. "
+        "Recovery intent is advisory only. Return the same canonical workflow proposal and values; "
+        "do not emit actions, tools, authorization, executor instructions, or new scope."
+    )
+    recommendation = provider.propose(objective, context=context)
+    handoff.validate_recovery_recommendation(recommendation)
+
+
 def phase_failure(args: argparse.Namespace) -> int:
     path = Path(args.blend)
     state_file = Path(args.state_file)
@@ -124,11 +156,7 @@ def phase_failure(args: argparse.Namespace) -> int:
         "Use only the canonical Atlas broadcast-goal-preparation workflow. "
         "Return workflow and numeric version separately."
     )
-    provider = OllamaQwenProvider(
-        url=args.url or "http://localhost:11434/api/chat",
-        model=args.model or "qwen3:8b",
-        timeout=args.timeout,
-    )
+    provider = _live_provider(args)
 
     proposal = provider.propose(objective, context=context)
     handoff = QwenProductionTaskHandoff.from_proposal(proposal)
@@ -240,6 +268,16 @@ def phase_recover(args: argparse.Namespace) -> int:
     if runtime.authorization is None or runtime.authorization.authorization_id != args.authorization_id:
         raise RuntimeError("Qwen-originated Atlas authorization was not recovered")
 
+    provider = _live_provider(args)
+    _recovery_recommendation(
+        provider,
+        handoff,
+        path,
+        args.object,
+        target_location,
+        target_rotation,
+    )
+
     recovery = runtime.recover_with_fresh_evidence()
     if recovery["decision"]["disposition"] != "REPLAN_REQUIRED":
         raise RuntimeError(f"Qwen-originated recovery did not reach REPLAN_REQUIRED: {recovery}")
@@ -294,6 +332,8 @@ def phase_recover(args: argparse.Namespace) -> int:
     print("qwen_provenance_recovered=verified")
     print("initial_authorization_recovered=verified")
     print("process_restart=verified")
+    print("qwen_recovery_recommendation=verified")
+    print("qwen_recovery_recommendation_advisory_only=verified")
     print("fresh_recovery_evidence=verified")
     print("qwen_workflow_target_revalidated=verified")
     print("completed_prerequisite_not_replayed=verified")
