@@ -56,27 +56,58 @@ class OllamaQwenProvider:
         return self.session if self.session is not None else requests
 
     @staticmethod
-    def _system_prompt() -> str:
-        workflows = available_soccer_production_workflows()
+    def _catalog() -> List[Mapping[str, Any]]:
+        return [spec.snapshot() for spec in available_soccer_production_workflows()]
+
+    @classmethod
+    def _structured_schema(cls) -> Dict[str, Any]:
+        """Build a schema whose workflow/version values are catalog-derived."""
+        catalog = cls._catalog()
+        workflow_names = [item["name"] for item in catalog]
+        versions = sorted({item["version"] for item in catalog})
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workflow", "version", "parameters"],
+            "properties": {
+                "workflow": {
+                    "type": "string",
+                    "enum": workflow_names,
+                },
+                "version": {
+                    "type": "integer",
+                    "enum": versions,
+                },
+                "parameters": deepcopy(PRODUCTION_PROPOSAL_JSON_SCHEMA["properties"]["parameters"]),
+            },
+        }
+        return schema
+
+    @classmethod
+    def _system_prompt(cls) -> str:
+        catalog = cls._catalog()
         catalog_lines = []
-        for spec in workflows:
+        for spec in catalog:
             parameters = ", ".join(
-                f"{name}:{kind}" for name, kind in spec.parameter_kinds
+                f"{name}:{kind}" for name, kind in spec["parameter_kinds"].items()
             )
             catalog_lines.append(
-                f"- {spec.name}@{spec.version}: {spec.objective} Parameters: {parameters}."
+                f"- workflow={spec['name']}; version={spec['version']}; objective={spec['objective']}; parameters={parameters}."
             )
-        catalog = "\n".join(catalog_lines)
+        catalog_text = "\n".join(catalog_lines)
         return (
             "You are the proposal layer for Atlas, an AI-assisted soccer-production system.\n"
             "Produce semantic production intent only.\n"
             "You do not have access to Blender, Unreal, files, executors, tools, authorization, "
             "persistence, scheduling, or recovery.\n"
             "Return exactly one JSON object matching the supplied schema.\n"
-            "The workflow value MUST be copied exactly from the canonical catalog below, including spelling and hyphens. "
-            "Do not invent aliases, synonyms, or new workflow names.\n"
-            "Canonical soccer-production catalog:\n"
-            f"{catalog}\n"
+            "The workflow field is ONLY the canonical workflow name. Put the numeric version in the "
+            "separate version field. NEVER combine them (for example, do not output "
+            "'broadcast-goal-preparation@1').\n"
+            "Canonical catalog:\n"
+            f"{catalog_text}\n"
+            "Use the exact workflow spelling from the catalog. Do not invent aliases, synonyms, "
+            "new workflow names, or combined name/version strings.\n"
             "Do not emit actions, tool calls, executor names, authorization requests, file writes, "
             "or recovery instructions.\n"
         )
@@ -127,7 +158,7 @@ class OllamaQwenProvider:
             "model": self.model,
             "messages": request_messages,
             "stream": False,
-            "format": PRODUCTION_PROPOSAL_JSON_SCHEMA,
+            "format": self._structured_schema(),
             "options": {"temperature": 0},
         }
 
