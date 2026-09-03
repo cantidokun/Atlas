@@ -45,12 +45,47 @@ class AutonomousTaskRuntime:
             for action in task.actions
         ]
 
+    @staticmethod
+    def _evidence_key(tool: str, name: str) -> str:
+        return name.strip() or tool
+
+    @classmethod
+    def _bundle_evidence(
+        cls,
+        task: AtlasTaskDefinition,
+        results: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if len(results) != len(task.evidence):
+            raise RuntimeError("task evidence results do not match the task evidence contract")
+        if len(results) == 1:
+            return results[0]
+        bundle: Dict[str, Any] = {}
+        for request, result in zip(task.evidence, results):
+            key = cls._evidence_key(request.tool, request.name)
+            if key in bundle:
+                raise RuntimeError(f"duplicate task evidence key: {key}")
+            bundle[key] = result
+        return bundle
+
+    @classmethod
+    def _acquire_task_evidence(
+        cls,
+        task: AtlasTaskDefinition,
+        orchestrator: Any,
+        executor: ToolExecutor,
+    ) -> Dict[str, Any]:
+        results: List[Dict[str, Any]] = []
+        while not orchestrator.evidence_complete:
+            result = orchestrator.acquire_next_evidence(executor)
+            if not isinstance(result, dict):
+                raise TypeError("Task evidence executor must return a dictionary.")
+            results.append(result)
+        return cls._bundle_evidence(task, results)
+
     @classmethod
     def start(cls, task: AtlasTaskDefinition, state_store: FutureRuntimeStateStore, runtime_context: RuntimeContext, executor: ToolExecutor, authorization_id: str) -> "AutonomousTaskRuntime":
         orchestrator = prepare_task_runtime(task)
-        evidence: Dict[str, Any] = {}
-        while not orchestrator.evidence_complete:
-            evidence = orchestrator.acquire_next_evidence(executor)
+        evidence = cls._acquire_task_evidence(task, orchestrator, executor)
         target = orchestrator.evaluate_target_state(evidence)
         actions = cls._actions(task)
         authorization = None if target.satisfied else orchestrator.authorize_execution(authorization_id)
@@ -130,14 +165,15 @@ class AutonomousTaskRuntime:
         return self._execute_authorized
 
     def _verification(self) -> Dict[str, Any]:
-        evidence: Dict[str, Any] = {}
+        results: List[Dict[str, Any]] = []
         for request in self.task.evidence:
             evidence = self.executor(request.tool, dict(request.arguments))
             if not isinstance(evidence, dict):
                 raise TypeError("Task evidence executor must return a dictionary.")
             if "error" in evidence:
                 raise RuntimeError(str(evidence["error"]))
-        return evidence
+            results.append(evidence)
+        return self._bundle_evidence(self.task, results)
 
     def _verification_failure(self, exc: Exception) -> Dict[str, Any]:
         step = self.runtime.controller.current_step
