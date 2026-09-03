@@ -80,6 +80,64 @@ def test_broadcast_goal_template_builds_self_contained_production_task():
     assert compiled.metadata["workflow_template"] == "broadcast-goal-preparation"
 
 
+def test_broadcast_goal_template_target_evaluator_accepts_matching_evidence():
+    template = BroadcastGoalPreparationTemplate(
+        file_name="scene.blend",
+        object_name="Goal_Left_post",
+        target_location=(1.0, 2.0, 3.0),
+        target_rotation=(0.0, 0.0, 15.0),
+    )
+
+    production = template.production_task()
+    result = production.evaluator.evaluate({
+        "scene": {
+            "objects": [
+                {"name": "Goal_Left_post", "location": [1.0, 2.0, 3.0]},
+            ],
+        },
+        "transform": {
+            "object_name": "Goal_Left_post",
+            "rotation_degrees": [0.0, 0.0, 15.0],
+        },
+    })
+
+    assert result.satisfied is True
+    assert result.failed == []
+    assert result.invariants == {
+        "goal_position_ready": True,
+        "goal_orientation_ready": True,
+    }
+
+
+def test_broadcast_goal_template_target_evaluator_fails_closed_on_mismatch():
+    template = BroadcastGoalPreparationTemplate(
+        file_name="scene.blend",
+        object_name="Goal_Left_post",
+        target_location=(1.0, 2.0, 3.0),
+        target_rotation=(0.0, 0.0, 15.0),
+    )
+
+    production = template.production_task()
+    result = production.evaluator.evaluate({
+        "scene": {
+            "objects": [
+                {"name": "Goal_Left_post", "location": [1.0, 2.5, 3.0]},
+            ],
+        },
+        "transform": {
+            "object_name": "Goal_Left_post",
+            "rotation_degrees": [0.0, 0.0, 15.0],
+        },
+    })
+
+    assert result.satisfied is False
+    assert result.failed == ["goal_position_ready"]
+    assert result.invariants == {
+        "goal_position_ready": False,
+        "goal_orientation_ready": True,
+    }
+
+
 def test_broadcast_goal_template_instances_are_independent():
     first = BroadcastGoalPreparationTemplate(
         file_name="first.blend",
