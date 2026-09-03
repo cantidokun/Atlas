@@ -27,10 +27,17 @@ def _action_payload(action: ActionSpec) -> Dict[str, Any]:
 
 
 def _plan_digest(actions: List[ActionSpec], inherited_dependencies: Iterable[str] = ()) -> str:
-    payload = {
-        "actions": [_action_payload(action) for action in actions],
-        "inherited_dependencies": list(_normalize_inherited_dependencies(inherited_dependencies)),
-    }
+    inherited = _normalize_inherited_dependencies(inherited_dependencies)
+    action_payloads = [_action_payload(action) for action in actions]
+    # Preserve the pre-dependency digest format for ordinary plans so durable
+    # authorization receipts created before Stage 14 remain resumable.
+    if not inherited:
+        payload: Any = action_payloads
+    else:
+        payload = {
+            "actions": action_payloads,
+            "inherited_dependencies": list(inherited),
+        }
     return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
 
 
