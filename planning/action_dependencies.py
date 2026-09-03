@@ -26,6 +26,7 @@ def validate_action_dependencies(actions: List[ActionSpec]) -> None:
 
     has_dependencies = any(action.dependency_names() for action in actions)
     names: Dict[str, int] = {}
+    name_to_action: Dict[str, ActionSpec] = {}
     duplicates: Set[str] = set()
     for index, action in enumerate(actions):
         name = (action.name or action.tool).strip()
@@ -35,6 +36,7 @@ def validate_action_dependencies(actions: List[ActionSpec]) -> None:
             duplicates.add(name)
         else:
             names[name] = index
+            name_to_action[name] = action
 
     if has_dependencies and duplicates:
         raise ActionDependencyError(
@@ -60,6 +62,10 @@ def validate_action_dependencies(actions: List[ActionSpec]) -> None:
             if dependency_index >= index:
                 raise ActionDependencyError(
                     f"action {index} depends on a later action: {dependency}"
+                )
+            if not name_to_action[dependency].requires_success:
+                raise ActionDependencyError(
+                    f"action {index} depends on action that does not require success: {dependency}"
                 )
 
     graph: Dict[str, Set[str]] = {
