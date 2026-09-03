@@ -104,7 +104,7 @@ def test_qwen_handoff_rejects_tampered_persisted_compiled_digest():
     persisted = handoff.snapshot()
     persisted["compiled_task_digest"] = "tampered"
 
-    with pytest.raises(QwenProductionHandoffError, match="compiled_task_digest integrity"):
+    with pytest.raises(QwenProductionHandoffError, match="compiled task digest integrity"):
         QwenProductionTaskHandoff.from_snapshot(persisted)
 
 
