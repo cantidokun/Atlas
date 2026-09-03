@@ -207,9 +207,16 @@ def test_controller_adapter_does_not_supply_authorization_itself(monkeypatch):
         + '{"capability": "production", "provider": "unreal"}'
     )
 
-    assert isinstance(
-        captured["trusted_context_provider"],
-        type(loop.AgentControllerLoopAdapter(runtime). _trusted_context_provider),
+    assert callable(captured["trusted_context_provider"])
+    intent = AgentControllerIntent(
+        capability="production",
+        provider="unreal",
+        context={"authorized": True},
+        intent="model-request",
+    )
+    assert (
+        captured["trusted_context_provider"](intent).to_request_context()
+        == {}
     )
 
 
