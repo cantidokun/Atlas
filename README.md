@@ -48,7 +48,7 @@ Qwen never receives direct production execution authority.
 
 # Current Atlas status — September 3, 2026
 
-Stage 13 multi-step autonomous partial-progress recovery is now fully live-verified against Blender 4.4 and passed GitHub Actions. Stage 14 dependency-aware task composition is in progress.
+Stage 13 multi-step autonomous partial-progress recovery is fully live-verified against Blender 4.4 and passed GitHub Actions. Stage 14 dependency-aware task composition is implemented at the validation, authorization, structured-planning, deterministic-future, and checkpoint execution layers; its dedicated real-Blender proof remains the final acceptance step.
 
 ## Stage 13 verified proof
 
@@ -111,22 +111,23 @@ Stage 14 extends the proven linear action model with explicit prerequisites whil
 Implemented foundation:
 
 - `ActionSpec.depends_on` declares prerequisite action names;
-- dependency metadata is carried into action-plan and future-step state;
+- dependency declarations are preserved in action-plan and deterministic-future state;
 - dependency-bearing plans require unambiguous action names;
 - unknown, later, self, duplicate, malformed, and unsafe optional-action dependencies are rejected;
 - `ActionAuthorization` includes dependency declarations in its plan digest;
 - `ReplanAuthorization` includes and validates dependency declarations;
 - `AtlasTaskDefinition`, `PlanningOrchestrator`, and `AutonomousTaskRuntime` preserve dependency information during reconstruction;
 - the structured task-plan JSON schema accepts optional `depends_on` declarations;
-- structured task-plan validation carries dependencies into `ActionSpec` and rejects invalid dependency graphs;
-- `FutureExecutionController` derives dependency completion from successful future checkpoints rather than executor result payloads.
+- structured task-plan validation carries dependencies into `ActionSpec` and validates them before authorization;
+- `FutureExecutionController` derives dependency completion from successful future checkpoints rather than executor result payloads;
+- regression coverage covers dependency validation, authorization binding, structured-plan propagation, and fail-closed dependency execution.
 
-The execution model remains:
+The current execution model is deliberately serial:
 
 ```text
 explicit dependencies
         ↓
-validated serial order
+validated action order
         ↓
 exact authorization digest
         ↓
@@ -137,7 +138,7 @@ one next action at a time
 checkpoint
 ```
 
-Atlas is **not** scheduling independent branches in parallel yet. Concurrency remains a later architectural decision that will only follow dependency, checkpoint, recovery, and evidence validation.
+Atlas is not scheduling independent branches in parallel yet. Concurrency remains a later architectural decision.
 
 ## Live Stage 14 proof target
 
@@ -313,13 +314,13 @@ Preserve coverage for:
 
 Complete **Stage 14 — dependency-aware task composition**.
 
-First obtain a green CI result for the current dependency foundation. Then run the real Blender dependency proof:
+First obtain a green CI result for the current dependency foundation. Then run:
 
 ```powershell
 python -m scripts.run_live_dependency_task --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
 ```
 
-Only after that proof passes should Atlas evaluate safe scheduling of independent branches.
+Only after the live dependency proof passes should Atlas evaluate whether independent branches warrant a future concurrency stage.
 
 Do not expand Qwen autonomy yet.
 
