@@ -61,6 +61,25 @@ def test_broadcast_goal_template_composes_atomic_goal_templates():
     assert fragments[1].actions[0].arguments["rotation_degrees"] == [0.0, 0.0, 15.0]
 
 
+def test_broadcast_goal_template_builds_self_contained_production_task():
+    template = BroadcastGoalPreparationTemplate(
+        file_name="scene.blend",
+        object_name="Goal_Left_post",
+        target_location=(1.0, 2.0, 3.0),
+        target_rotation=(0.0, 0.0, 15.0),
+    )
+
+    production = template.production_task()
+    compiled = production.compile()
+
+    assert production.name == "broadcast-goal-preparation"
+    assert production.objective == "Prepare the soccer goal for a broadcast shot."
+    assert production.domain == "soccer-production"
+    assert production.deliverables == ("broadcast-ready goal transform", "broadcast-ready goal position", "broadcast-ready goal orientation")
+    assert compiled.actions == production.actions
+    assert compiled.metadata["workflow_template"] == "broadcast-goal-preparation"
+
+
 def test_broadcast_goal_template_instances_are_independent():
     first = BroadcastGoalPreparationTemplate(
         file_name="first.blend",
@@ -116,4 +135,14 @@ def test_goal_templates_reject_non_finite_transform_values():
             file_name="scene.blend",
             object_name="Goal_Left_post",
             target_rotation=(0.0, math.nan, 15.0),
+        )
+
+
+def test_goal_orientation_template_cannot_override_its_semantic_dependency():
+    with pytest.raises(TypeError):
+        GoalOrientationTemplate(
+            file_name="scene.blend",
+            object_name="Goal_Left_post",
+            target_rotation=(0.0, 0.0, 15.0),
+            depends_on=("other-fragment",),
         )
