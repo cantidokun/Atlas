@@ -171,3 +171,35 @@ def test_controller_intent_binding_requires_typed_intent():
         match="AgentControllerIntent",
     ):
         context.context_for_controller_intent(object())
+
+
+def test_trusted_context_cannot_be_replaced_within_one_execution():
+    context = AgentExecutionContext()
+    first = AgentTrustedContext.from_values({"approved": True})
+    second = AgentTrustedContext.from_values({"approved": False})
+
+    context.install("unreal", first)
+
+    with pytest.raises(
+        ValueError,
+        match="already installed",
+    ):
+        context.install("unreal", second)
+
+    assert context.get("unreal") is first
+
+
+def test_unreal_install_cannot_replace_existing_context():
+    context = AgentExecutionContext()
+    first = _trusted_unreal_context()
+    second = _trusted_unreal_context()
+
+    context.install_unreal(first)
+
+    with pytest.raises(
+        ValueError,
+        match="already installed",
+    ):
+        context.install_unreal(second)
+
+    assert context.context_for_request("unreal")["intent"] is first.intent
