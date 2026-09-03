@@ -4,6 +4,7 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
+from planning.action_dependencies import validate_action_dependencies
 from planning.action_plan import ActionSpec
 
 
@@ -34,6 +35,7 @@ class ActionAuthorization:
             raise ValueError("authorization_id must be a non-empty string.")
         if not isinstance(actions, list) or any(not isinstance(action, ActionSpec) for action in actions):
             raise TypeError("actions must be a list of ActionSpec objects.")
+        validate_action_dependencies(actions)
         digest = hashlib.sha256(
             _canonical([_action_payload(action) for action in actions]).encode("utf-8")
         ).hexdigest()
@@ -54,6 +56,10 @@ class ActionAuthorization:
 
     def matches(self, actions: List[ActionSpec]) -> bool:
         if not isinstance(actions, list) or any(not isinstance(action, ActionSpec) for action in actions):
+            return False
+        try:
+            validate_action_dependencies(actions)
+        except (TypeError, ValueError):
             return False
         digest = hashlib.sha256(
             _canonical([_action_payload(action) for action in actions]).encode("utf-8")
