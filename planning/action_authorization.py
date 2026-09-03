@@ -17,6 +17,7 @@ def _action_payload(action: ActionSpec) -> Dict[str, Any]:
         "arguments": dict(action.arguments),
         "name": action.name,
         "requires_success": action.requires_success,
+        "depends_on": list(action.dependency_names()),
     }
 
 
