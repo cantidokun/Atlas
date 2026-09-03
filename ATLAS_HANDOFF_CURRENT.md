@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified; Qwen-guided recovery recommendation binding implemented but not yet live-verified.
+**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified; Qwen-guided recovery recommendation binding is implemented and CI-verified, with the new live recommendation call awaiting user-side Blender/Ollama verification.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
 **Current stage:** Stage 16 — IN PROGRESS
@@ -70,17 +70,17 @@ fixture_restored_rotation=[0.0, 0.0, 0.0]
 
 This proves that Qwen-originated work can cross a Python restart while Atlas retains sole authority over recovery classification, fresh evidence, replan authorization, execution, and final verification.
 
-### Implemented: Qwen-guided recovery recommendation binding
+### Implemented and CI-verified: Qwen-guided recovery recommendation binding
 
-`QwenProductionTaskHandoff.validate_recovery_recommendation(...)` now validates a fresh Qwen production recommendation against the exact persisted canonical task. A changed workflow, version, object, target, dependency-bearing task contract, or other compiled-task difference is rejected before replan authorization.
+`QwenProductionTaskHandoff.validate_recovery_recommendation(...)` validates a fresh Qwen production recommendation against the exact persisted canonical task. A changed workflow, version, object, target, dependency-bearing task contract, or other compiled-task difference is rejected before replan authorization.
 
-The model therefore cannot expand recovery scope simply by proposing a new action or target. Atlas derives the executable unfinished action from the persisted authorized task and continues to use the existing recovery authorization/runtime path.
+The live restart harness now makes a fresh Phase 2 call to Qwen after process restart. The recommendation is validated as advisory intent only. Atlas does not consume model-supplied actions, authorization, tools, or recovery instructions; it derives the executable unfinished `ActionSpec` from the persisted canonical task and continues through the existing `recover_with_fresh_evidence(...)` → `authorize_replan(...)` → `install_authorized_replan(...)` path.
 
-Targeted regression coverage verifies matching recommendations and fail-closed target/object changes.
+GitHub Actions **Atlas Tests #1438 is green** on the implementing commit. The pre-change local baseline was **619 passed in 1.57s**. The new Phase 2 Qwen recommendation call itself still requires the next user-side live verification with Ollama + Blender.
 
 ## Next verification gate
 
-The latest local suite before this guided-recovery increment was **616 passed in 1.43s**. Pull the newest branch and rerun:
+Pull the latest branch and rerun the existing local suite:
 
 ```powershell
 cd "C:\Users\Gavin's PC\Desktop\Atlas"
@@ -88,7 +88,20 @@ git pull
 python -m pytest -q -m "not integration"
 ```
 
-After the suite is green, the next live proof should make a fresh Qwen recommendation during Phase 2 recovery, validate it through `validate_recovery_recommendation(...)`, then let Atlas derive and explicitly authorize only the unfinished replacement action.
+Then perform the two-process live recovery proof. Phase 1 remains unchanged; Phase 2 now requires the local Ollama service and will ask Qwen for a recovery recommendation before Atlas derives the unfinished action.
+
+```powershell
+python -m scripts.run_live_qwen_production_recovery_restart --phase failure --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+
+python -m scripts.run_live_qwen_production_recovery_restart --phase recover --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+```
+
+Expected new Phase 2 markers include:
+
+```text
+qwen_recovery_recommendation=verified
+qwen_recovery_recommendation_advisory_only=verified
+```
 
 Do not create a Qwen-specific execution engine, authorization system, scheduler, or recovery system.
 Do not introduce parallel execution until dependency semantics justify it independently.
