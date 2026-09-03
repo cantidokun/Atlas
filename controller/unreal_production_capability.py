@@ -1,20 +1,23 @@
 """Registration helper for the Unreal production controller capability."""
 
-from typing import Any
-
 from controller.capability_dispatch import ControllerCapabilityDispatcher
 from controller.capability_request import CapabilityRequest
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
+from planning.unreal_production_planning_boundary import UnrealAuthorizedProductionPlan
 
 
 def unreal_production_task(request: CapabilityRequest) -> bool:
-    """Identify explicit Unreal production requests without granting execution authority."""
+    """Match only explicitly requested production backed by trusted authorization."""
     if not isinstance(request, CapabilityRequest):
         raise TypeError("request must be a CapabilityRequest")
     return (
         request.normalized_provider == "unreal"
-        and request.context.get("production") is True
         and request.normalized_capability == "production"
+        and request.context.get("production") is True
+        and isinstance(
+            request.context.get("authorized_production"),
+            UnrealAuthorizedProductionPlan,
+        )
     )
 
 
