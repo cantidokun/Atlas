@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 higher-level production-task composition live-verified
+**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow live-verified and target-state regression coverage extended
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals and reusable composition fragments compiled into the existing autonomous task runtime
+**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals, reusable composition fragments, and self-contained workflow templates compiled into the existing autonomous task runtime
 
 ## Current authority model
 
@@ -96,25 +96,48 @@ Reusable `ProductionTaskFragment` composition now supports:
 
 Fragment dependencies are semantic composition constraints. Executable ordering remains governed by the canonical `ActionSpec.depends_on` graph and the existing future controller.
 
-### Stage 15 live proof — VERIFIED
+### Reusable soccer-production workflow templates — VERIFIED
 
-`scripts/run_live_production_task.py` has now been successfully executed against the real Blender 4.4 environment using the composed fragment path. The proof verified:
+`planning/soccer_production_templates.py` is the canonical reusable workflow-template module. It currently provides:
 
-- higher-level soccer production objective;
+- `GoalPositionTemplate` — atomic goal-position fragment;
+- `GoalOrientationTemplate` — atomic goal-orientation fragment with a fixed semantic dependency on `position-goal` and an executable dependency on `position_goal`;
+- `BroadcastGoalPreparationTemplate` — composed two-phase workflow for preparing a soccer goal for a broadcast shot.
+
+The templates validate transform shape and finite numeric values before composition. The broadcast template now owns construction of its semantic `ProductionTaskDefinition`, including its target-state evaluator, deliverables, constraints, metadata, and allowlisted action tools, while still compiling into the existing Atlas task contract rather than creating a second runtime.
+
+### Live Stage 15 reusable workflow proof — VERIFIED
+
+`scripts/run_live_production_task.py` was successfully executed against the real Blender 4.4 environment using the self-contained `BroadcastGoalPreparationTemplate.production_task()` path.
+
+The proof verified:
+
+- reusable workflow-template identity;
+- semantic soccer-production objective;
 - reusable fragment composition;
-- explicit fragment dependency handling;
-- multi-operation canonical task compilation;
+- explicit semantic fragment dependencies;
+- canonical executable action dependencies;
+- multi-operation production-task compilation;
 - existing autonomous task runtime execution;
 - independent final verification;
 - fixture restoration.
 
-The confirmed live target was `Goal_Left_post`, moved by `+0.25` on X and rotated by `+15` degrees on Z, then restored to its original transform.
+The confirmed live target was `Goal_Left_post`, moved to `[0.25, 5.302, 0.0]` and rotated to `[0.0, 0.0, 15.0]`, then restored to `[0.0, 5.302, 0.0]` and `[0.0, 0.0, 0.0]`.
 
-CI run #1318 passed on the verified branch state before the subsequent semantic-fragment extension. Re-verify the exact branch head before describing the latest commit as CI-green.
+### Target-state evaluator coverage — EXTENDED
+
+The reusable workflow test suite now directly exercises the evaluator attached by `BroadcastGoalPreparationTemplate.production_task()`:
+
+- matching authoritative evidence satisfies both position and orientation invariants;
+- a position mismatch fails the overall target state while preserving the independently passing orientation invariant.
+
+This strengthens the semantic workflow boundary without altering execution or authorization semantics.
 
 ## CI
 
-The dependency-recovery implementation previously produced a matrix run with `521 passed, 2 failed`; those failures were confined to the new inherited-dependency regression tests and were subsequently corrected. The corrected Stage 15 composition milestone passed GitHub Actions run #1318 on commit `c070ed0`. New commits after that run require their own CI verification.
+GitHub Actions `Atlas Tests` run **#1337** completed successfully for commit `2f84e10123501eb64146bd5ae1ca53659185b774`, which contains the live-verified reusable workflow implementation and live harness alignment.
+
+The current branch head is `cb9716eee847b7cbf1080325908b25b91ec22016`, a test-only follow-up extending target-state evaluator coverage. At the time of this handoff update, no workflow run or combined status is yet associated with that exact commit, so the current head must not be described as CI-green until its own run appears.
 
 ## Unreal
 
@@ -152,6 +175,7 @@ Preserve coverage for:
 - production-task dependencies -> remain authorization-bound;
 - production-task metadata -> remain descriptive, never executable;
 - fragment semantics -> retained through composition without creating execution authority;
+- reusable workflow target-state evaluation -> authoritative matching and fail-closed mismatch behavior;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
