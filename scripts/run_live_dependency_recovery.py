@@ -120,6 +120,7 @@ def phase_failure(path: Path, blender: str, object_name: str, state_file: Path) 
     target_location = [original_location[0] + 0.25, original_location[1], original_location[2]]
     target_rotation = [original_rotation[0], original_rotation[1], original_rotation[2] + 15.0]
     task = _task(path, object_name, target_location, target_rotation)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.unlink(missing_ok=True)
     store = FutureRuntimeStateStore(state_file)
     runtime = AutonomousTaskRuntime.start(task, store, _context(path), executor, "atlas-stage14-dependency-recovery-initial")
@@ -140,14 +141,15 @@ def phase_failure(path: Path, blender: str, object_name: str, state_file: Path) 
 
     runtime.executor = FailDependentAction(runtime.executor)
     failed = runtime.run_until_pause()
-    snapshot = store.load()["snapshot"]
     if failed.get("blocked") is not True or failed.get("failure", {}).get("step_id") != "action.1":
         raise RuntimeError(f"dependent action did not fail at action.1: {failed}")
+    snapshot = store.load()["snapshot"]
     if snapshot.get("current_index") != 3 or snapshot.get("failure", {}).get("step_id") != "action.1":
         raise RuntimeError(f"dependency recovery checkpoint invalid: {snapshot}")
-    next_action = snapshot.get("current_step", {})
-    if not isinstance(next_action, dict):
-        raise RuntimeError("missing failed checkpoint")
+    # A blocked controller deliberately exposes no current step; the failed
+    # action is represented by the durable failure/history checkpoint above.
+    if snapshot.get("history", [])[-1].get("step_id") != "action.1":
+        raise RuntimeError("failed action checkpoint is missing from history")
 
     print("LIVE AUTONOMOUS DEPENDENCY RECOVERY PHASE 1 VERIFIED")
     print(f"object={object_name}")
@@ -194,9 +196,6 @@ def phase_recover(path: Path, blender: str, object_name: str, state_file: Path) 
     if not isinstance(receipt, ReplanAuthorization):
         raise RuntimeError("missing replan authorization")
     runtime.install_authorized_replan(receipt, replacement)
-    # The replacement plan intentionally names the completed prerequisite from
-    # the original task. The recovery runtime must accept this only because the
-    # durable partial-progress checkpoint proves prepare_location succeeded.
     result = runtime.run_until_pause()
     if result.get("complete") is not True or result.get("blocked") is True:
         raise RuntimeError(f"dependency-aware recovery did not complete: {result}")
