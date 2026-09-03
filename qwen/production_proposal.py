@@ -8,6 +8,7 @@ authorization, scheduling, or recovery behavior is exposed here.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -23,15 +24,20 @@ class QwenProductionProposal:
     parameters: Dict[str, Any]
     version: Optional[int] = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "parameters", deepcopy(self.parameters))
+
     def snapshot(self) -> Dict[str, Any]:
-        return {
+        """Return a detached, JSON-friendly snapshot of the proposal."""
+        snapshot = {
             "workflow": self.workflow,
             "version": self.version,
-            "parameters": {
-                key: list(value) if isinstance(value, tuple) else value
-                for key, value in self.parameters.items()
-            },
+            "parameters": deepcopy(self.parameters),
         }
+        for key, value in snapshot["parameters"].items():
+            if isinstance(value, tuple):
+                snapshot["parameters"][key] = list(value)
+        return snapshot
 
 
 class QwenProductionProposalError(ValueError):
@@ -50,14 +56,26 @@ def validate_qwen_production_proposal(proposal: Any) -> QwenProductionProposal:
         )
     workflow = proposal.get("workflow")
     if not isinstance(workflow, str) or not workflow.strip():
-        raise QwenProductionProposalError("Qwen production proposal workflow must be a non-empty string.")
+        raise QwenProductionProposalError(
+            "Qwen production proposal workflow must be a non-empty string."
+        )
     version = proposal.get("version")
-    if version is not None and (not isinstance(version, int) or isinstance(version, bool) or version < 1):
-        raise QwenProductionProposalError("Qwen production proposal version must be a positive integer.")
+    if version is not None and (
+        not isinstance(version, int) or isinstance(version, bool) or version < 1
+    ):
+        raise QwenProductionProposalError(
+            "Qwen production proposal version must be a positive integer."
+        )
     parameters = proposal.get("parameters")
     if not isinstance(parameters, dict):
-        raise QwenProductionProposalError("Qwen production proposal parameters must be an object.")
-    return QwenProductionProposal(workflow=workflow, parameters=dict(parameters), version=version)
+        raise QwenProductionProposalError(
+            "Qwen production proposal parameters must be an object."
+        )
+    return QwenProductionProposal(
+        workflow=workflow,
+        parameters=parameters,
+        version=version,
+    )
 
 
 def compile_qwen_production_proposal(proposal: Any) -> ProductionTaskDefinition:
