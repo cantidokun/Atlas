@@ -2,6 +2,9 @@ import copy
 
 import pytest
 
+from planning.blender_execution_receipt import BlenderExecutionReceipt
+from planning.blender_persistence_evidence import BlenderPersistenceEvidence
+from planning.blender_result_contract import BlenderExecutionResult
 from planning.production_artifact import ProductionArtifactError, ProductionArtifactManifest
 
 
@@ -30,6 +33,32 @@ VALID = {
 }
 
 
+def _verified_blender_pair():
+    arguments = {"file_name": "scene.blend", "object_name": "Goal_Left_post", "location": [0.25, 5.302, 0.0]}
+    result = BlenderExecutionResult(
+        tool="move_object",
+        ok=True,
+        state="moved",
+        details={"object_name": "Goal_Left_post", "location": [0.25, 5.302, 0.0]},
+    )
+    inspection = BlenderExecutionResult(
+        tool="inspect_scene",
+        ok=True,
+        state="inspected",
+        details={"Goal_Left_post": {"location": [0.25, 5.302, 0.0]}},
+    )
+    receipt = BlenderExecutionReceipt.create("move_object", arguments, result)
+    evidence = BlenderPersistenceEvidence.create(
+        "move_object",
+        arguments,
+        "inspect_scene",
+        {"Goal_Left_post": {"location": [0.25, 5.302, 0.0]}},
+        {"Goal_Left_post": {"location": [0.25, 5.302, 0.0]}},
+        inspection,
+    )
+    return receipt, evidence
+
+
 def test_manifest_binds_artifact_to_canonical_digital_twin():
     manifest = ProductionArtifactManifest.from_snapshot(VALID)
     snapshot = manifest.snapshot()
@@ -37,6 +66,37 @@ def test_manifest_binds_artifact_to_canonical_digital_twin():
     assert snapshot["representation_type"] == "blender-scene"
     assert snapshot["source_artifact_ids"] == ["photogrammetry-reconstruction-v004"]
     assert manifest.digest()
+
+
+def test_manifest_binds_verified_blender_receipt_and_persistence_evidence():
+    receipt, evidence = _verified_blender_pair()
+    manifest = ProductionArtifactManifest.from_blender_closed_loop(
+        artifact_id="blender-goal-v002",
+        canonical_digital_twin_id="soccer-twin-001",
+        representation_type="blender-scene",
+        artifact_path="production/goal_scene.blend",
+        operation_receipt=receipt,
+        persistence_evidence=evidence,
+        workflow_provenance=VALID["workflow_provenance"],
+        source_artifact_ids=("photogrammetry-reconstruction-v004",),
+        engine_version="4.4",
+    )
+    assert manifest.evidence_digests == (evidence.digest(),)
+    assert manifest.digest()
+    assert manifest.snapshot()["canonical_digital_twin_id"] == "soccer-twin-001"
+
+
+def test_manifest_rejects_unverified_blender_inputs():
+    receipt, _ = _verified_blender_pair()
+    with pytest.raises(TypeError, match="BlenderPersistenceEvidence"):
+        ProductionArtifactManifest.from_blender_closed_loop(
+            artifact_id="blender-goal-v002",
+            canonical_digital_twin_id="soccer-twin-001",
+            representation_type="blender-scene",
+            artifact_path="production/goal_scene.blend",
+            operation_receipt=receipt,
+            persistence_evidence=object(),
+        )
 
 
 def test_manifest_digest_is_deterministic():
