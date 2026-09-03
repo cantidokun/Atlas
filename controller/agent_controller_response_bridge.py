@@ -9,7 +9,7 @@ generic agent submission seam.
 The model output is never treated as an authorization source.
 """
 
-from typing import Any, Callable, Mapping, Optional
+from typing import Callable, Optional
 
 from controller.agent_controller_intent import (
     AgentControllerIntent,
@@ -19,12 +19,13 @@ from controller.agent_entrypoint_runtime import (
     AgentEntrypointExecution,
     AtlasAgentEntrypointRuntime,
 )
+from controller.agent_trusted_context import AgentTrustedContext
 from controller.agent_submission import submit_agent_task
 
 
 TrustedContextProvider = Callable[
     [AgentControllerIntent],
-    Mapping[str, Any],
+    AgentTrustedContext,
 ]
 
 
@@ -55,11 +56,15 @@ def submit_controller_request_from_model_output(
 
     if trusted_context_provider is not None:
         trusted_context = trusted_context_provider(intent)
-        if not isinstance(trusted_context, Mapping):
+
+        if not isinstance(trusted_context, AgentTrustedContext):
             raise TypeError(
-                "trusted_context_provider must return a mapping"
+                "trusted_context_provider must return an AgentTrustedContext"
             )
-        context.update(trusted_context)
+
+        context.update(
+            trusted_context.to_request_context()
+        )
 
     return submit_agent_task(
         runtime,
