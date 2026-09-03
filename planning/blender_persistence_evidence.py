@@ -77,6 +77,16 @@ class BlenderPersistenceEvidence:
             and _digest(observed_state) == self.observed_state_digest
         )
 
+    def digest(self) -> str:
+        """Return the deterministic integrity digest for this evidence record."""
+        return _digest({
+            "operation_tool": self.operation_tool,
+            "operation_arguments_digest": self.operation_arguments_digest,
+            "inspection_tool": self.inspection_tool,
+            "expected_state_digest": self.expected_state_digest,
+            "observed_state_digest": self.observed_state_digest,
+        })
+
 
 def verify_blender_persistence(
     operation_tool: str,
