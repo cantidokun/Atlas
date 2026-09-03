@@ -13,7 +13,7 @@ from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 from planning.production_task import ProductionTaskDefinition
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
-from planning.soccer_production_templates import BroadcastGoalPreparationTemplate
+from planning.soccer_production_catalog import compile_soccer_production_workflow
 
 
 def _object_location(result: Any, object_name: str) -> List[float]:
@@ -48,7 +48,7 @@ class BlenderProductionExecutor:
                 "inspect_scene",
                 {"file_name": arguments["file_name"]},
                 {object_name: {"location": [float(value) for value in arguments["location"]]}},
-                lambda inspection: {object_name: {"location": _object_location(inspection, object_name)}},
+                lambda inspection: {object_name: {"location": _object_location(inspection, object_name)},
             )
             return dict(result.operation_result.details)
         if tool == "set_object_rotation":
@@ -71,13 +71,16 @@ def _production_task(
     target_location: List[float],
     target_rotation: List[float],
 ) -> ProductionTaskDefinition:
-    template = BroadcastGoalPreparationTemplate(
-        file_name=str(path),
-        object_name=object_name,
-        target_location=tuple(target_location),
-        target_rotation=tuple(target_rotation),
+    return compile_soccer_production_workflow(
+        "broadcast-goal-preparation",
+        {
+            "file_name": str(path),
+            "object_name": object_name,
+            "target_location": list(target_location),
+            "target_rotation": list(target_rotation),
+        },
+        version=1,
     )
-    return template.production_task()
 
 
 def main() -> int:
@@ -108,6 +111,8 @@ def main() -> int:
         target_rotation = [original_rotation[0], original_rotation[1], original_rotation[2] + 15.0]
         production = _production_task(path, args.object, target_location, target_rotation)
         task = production.compile()
+        if task.metadata.get("workflow_catalog", {}).get("version") != 1:
+            raise RuntimeError("compiled workflow catalog provenance is missing version 1")
         state_file.unlink(missing_ok=True)
         runtime = AutonomousTaskRuntime.start(
             task,
@@ -117,7 +122,7 @@ def main() -> int:
                 {"environment": "local-blender", "file": str(path), "task": production.name},
             ),
             executor,
-            "atlas-stage15-soccer-workflow-template",
+            "atlas-stage15-soccer-workflow-catalog",
         )
         runtime.runtime.checkpoint_metadata({"production_task": production.snapshot()})
         result = runtime.run_until_pause()
@@ -157,13 +162,16 @@ def main() -> int:
             raise RuntimeError("reusable-workflow fixture restoration verification failed")
 
         state_file.unlink(missing_ok=True)
-        print("LIVE REUSABLE SOCCER PRODUCTION WORKFLOW VERIFIED")
+        print("LIVE VERSIONED SOCCER PRODUCTION WORKFLOW VERIFIED")
         print(f"object={args.object}")
         print(f"workflow={production.name}")
         print(f"objective={production.objective}")
         print(f"target_location={target_location}")
         print(f"target_rotation={target_rotation}")
         print(f"domain={production.domain}")
+        print("workflow_catalog=verified")
+        print("workflow_version=1")
+        print("workflow_parameter_contract=verified")
         print("workflow_template=verified")
         print("fragment_composition=verified")
         print("fragment_dependencies=verified")
@@ -175,7 +183,7 @@ def main() -> int:
         print(f"fixture_restored_rotation={restored_rotation}")
     except Exception as exc:
         state_file.unlink(missing_ok=True)
-        print(f"LIVE REUSABLE SOCCER PRODUCTION WORKFLOW FAILED: {exc}")
+        print(f"LIVE VERSIONED SOCCER PRODUCTION WORKFLOW FAILED: {exc}")
         return 1
     return 0
 
