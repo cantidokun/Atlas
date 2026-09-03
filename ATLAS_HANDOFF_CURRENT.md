@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Qwen Stage 16 runtime verified; durable Qwen recovery/restart path implemented but not yet live-verified.
+**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery live-verified.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
 **Current stage:** Stage 16 — IN PROGRESS
@@ -46,22 +46,7 @@ target_rotation -> vector3
 
 ### Verified: proposal, authorization, runtime, and real Blender mutation
 
-The local proposal-only Qwen smoke was user-verified:
-
-```text
-LIVE QWEN PRODUCTION PROPOSAL VERIFIED
-workflow=broadcast-goal-preparation
-workflow_version=1
-workflow_parameter_contract=verified
-proposal_validation=verified
-catalog_resolution=verified
-semantic_task_compilation=verified
-execution_authorization=not_requested
-execution=not_attempted
-blender_mutation=not_attempted
-```
-
-The full Qwen-authorized production runtime was subsequently user-verified:
+The local proposal-only Qwen smoke was user-verified, and the full Qwen-authorized production runtime was subsequently verified against Blender 4.4.
 
 ```text
 LIVE QWEN-AUTHORIZED SOCCER PRODUCTION RUNTIME VERIFIED
@@ -80,11 +65,11 @@ independent_final_verification=verified
 
 The live mutation targeted the verified Qwen workflow parameters and the harness restored the fixture afterward.
 
-### Implemented: durable Qwen recovery handoff
+### Verified: durable Qwen recovery across Python restart
 
-`qwen/production_handoff.py` now supports `QwenProductionTaskHandoff.from_snapshot(...)` for cross-process continuation. Recovery never trusts persisted semantic task objects as executable authority: the persisted proposal is revalidated and recompiled through the current trusted catalog/compiler, and the persisted semantic/compiled snapshots plus digests must match exactly. Persisted handoffs must still be in their inert `authorization=not_requested` / `execution=not_attempted` state.
+`qwen/production_handoff.py` supports `QwenProductionTaskHandoff.from_snapshot(...)` for cross-process continuation. The persisted proposal is revalidated and recompiled through the trusted catalog/compiler, and persisted semantic/compiled snapshots plus digests must match exactly. Persisted handoffs remain inert until Atlas explicitly authorizes work.
 
-`scripts/run_live_qwen_production_recovery_restart.py` now provides a two-phase live proof:
+`scripts/run_live_qwen_production_recovery_restart.py` was user-verified in two phases:
 
 ```text
 Phase 1
@@ -98,7 +83,7 @@ existing AutonomousTaskRuntime
   ↓
 first Blender action succeeds
   ↓
-later Blender action is deliberately failed before invocation
+later action deliberately fails before Blender invocation
   ↓
 durable continuation + Qwen provenance checkpoint
 
@@ -118,32 +103,13 @@ fresh independent verification
 fixture restoration
 ```
 
-The recovery harness and handoff reconstruction tests are implemented. The two-process Blender recovery proof is **not yet user-verified**.
-
-## Next live milestone
-
-From the Atlas repository on the Windows development machine, after pulling the latest branch:
-
-```powershell
-cd "C:\Users\Gavin's PC\Desktop\Atlas"
-git pull
-```
-
-With Ollama running locally, run Phase 1 and leave its state file in place:
-
-```powershell
-python -m scripts.run_live_qwen_production_recovery_restart --phase failure --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-```
-
-Then start a fresh Python process in the same repository and run Phase 2:
-
-```powershell
-python -m scripts.run_live_qwen_production_recovery_restart --phase recover --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-```
-
-Expected proof signals include:
+User-verified recovery signals:
 
 ```text
+LIVE QWEN PRODUCTION RECOVERY VERIFIED
+object=Goal_Left_post
+workflow=broadcast-goal-preparation
+workflow_version=1
 qwen_provenance_recovered=verified
 initial_authorization_recovered=verified
 process_restart=verified
@@ -152,12 +118,26 @@ qwen_workflow_target_revalidated=verified
 completed_prerequisite_not_replayed=verified
 replacement_execution=verified
 independent_final_verification=verified
+fixture_restored_location=[0.25, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-Recovery must remain Atlas-owned, require fresh authoritative evidence, require explicit replan authorization, preserve completed prerequisites, and never automatically retry failed writes.
+This is the current highest verified Qwen milestone. Qwen-originated work now survives a process boundary while Atlas retains sole authority over recovery classification, evidence, replan authorization, execution, and final verification.
+
+## Current architectural direction
+
+The next useful increment is not a new Qwen executor or recovery engine. The existing proven Qwen workflow proposal contract should be used to express recovery intent where appropriate, while Atlas derives the executable unfinished action from the persisted authorized task, validates dependency constraints, issues the explicit replan authorization, and performs the write through the existing runtime.
 
 Do not create a Qwen-specific execution engine, authorization system, scheduler, or recovery system.
 Do not introduce parallel execution until dependency semantics justify it independently.
+
+## Next verification gate
+
+The newest recovery-related code has not yet received a fresh reported CI result after the latest correction commit. Obtain a fresh offline CI result before treating the branch as regression-clean.
+
+Then continue by hardening the Qwen-to-recovery proposal boundary and add tests proving that a model cannot expand a recovery replan beyond the unfinished authorized scope or alter inherited prerequisites.
+
+Recovery must remain Atlas-owned, require fresh authoritative evidence, require explicit replan authorization, preserve completed prerequisites, and never automatically retry failed writes.
 
 ## Unreal status
 
@@ -183,10 +163,6 @@ Atlas owns the canonical Digital Twin. Photogrammetry is upstream reconstruction
 - Keep dependency-aware execution serial.
 - Preserve canonical Digital Twin identity separately from production artifacts.
 - Do not claim cross-process Unreal job recovery unless separately implemented and verified.
-
-## Documentation state
-
-This handoff records the current Stage 16 position. The durable Qwen recovery implementation is present; its live two-process Blender proof remains the next verification gate.
 
 ## PR status
 
