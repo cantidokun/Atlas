@@ -56,6 +56,6 @@ def test_catalog_compilation_resolves_explicit_version_and_preserves_single_task
     )
 
     assert task.name == "broadcast-goal-preparation"
-    assert task.domain if hasattr(task, "domain") else True
+    assert task.metadata["domain"] == "soccer-production"
     assert len(task.actions) == 2
     assert [action.name for action in task.actions] == ["position_goal", "orient_goal"]
