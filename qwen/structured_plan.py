@@ -29,6 +29,10 @@ TASK_PLAN_JSON_SCHEMA = {
                     "tool": {"type": "string"},
                     "arguments": {"type": "object"},
                     "name": {"type": "string"},
+                    "depends_on": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                 },
             },
         },
