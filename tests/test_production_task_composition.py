@@ -63,6 +63,7 @@ def test_compose_rejects_duplicate_fragments():
 def test_compose_validates_dependencies_through_canonical_task_contract():
     fragment = ProductionTaskFragment(
         "broken",
+        evidence=(EvidenceRequest("inspect_scene", {"file_name": "scene.blend"}, "scene"),),
         actions=(ActionSpec("move_object", {}, "orient_goal", depends_on=("missing",)),),
     )
 
