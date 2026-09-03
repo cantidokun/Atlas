@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 14 dependency-aware recovery live-verified
+**Updated:** September 3, 2026 — Stage 15 higher-level production-task composition in progress
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 14 dependency-aware task composition is live-verified through serial execution and two-process recovery
+**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals compiled into the existing autonomous task runtime
 
 ## Current authority model
 
@@ -68,57 +68,40 @@ checkpoint
 
 `scripts/run_live_dependency_task.py` was successfully executed against the real Blender 4.4 environment.
 
-Observed proof:
+### Live Stage 14 dependency-aware recovery — VERIFIED
 
-```text
-LIVE AUTONOMOUS DEPENDENCY TASK VERIFIED
-object=Goal_Left_post
-original_location=[0.0, 5.302, 0.0]
-target_location=[0.25, 5.302, 0.0]
-target_rotation=[0.0, 0.0, 15.0]
-explicit_dependency=prepare_rotation->prepare_location
-dependency_validation=verified
-dependency_authorization=verified
-dependency_execution_order=verified
-fresh_final_verification=verified
-fixture_restored_location=[0.0, 5.302, 0.0]
-fixture_restored_rotation=[0.0, 0.0, 0.0]
+`scripts/run_live_dependency_recovery.py` was successfully executed across two separate Python processes against the real Blender 4.4 environment. The completed `prepare_location` prerequisite was inherited by the replacement rotation action without replaying the completed write.
+
+## Stage 15 — higher-level production tasks
+
+Stage 15 introduces a semantic production-goal layer rather than another execution layer. `ProductionTaskDefinition` represents a meaningful soccer-production objective with:
+
+- human-readable `objective`;
+- production `domain`;
+- explicit `deliverables`;
+- explicit `constraints`;
+- evidence requests and multi-operation `ActionSpec` sequences;
+- existing target evaluator and action-tool allowlist.
+
+A production task compiles directly to one existing `AtlasTaskDefinition`. Execution, authorization, checkpointing, recovery, and independent verification remain owned by the already-proven generic runtime.
+
+Production-task construction now validates its action allowlist and dependency graph before compilation. Semantic metadata is carried into the compiled task for future higher-level planning without granting the metadata execution authority.
+
+### Stage 15 live proof — READY TO RUN
+
+`scripts/run_live_production_task.py` now provides the first end-to-end proof harness. It constructs a semantic soccer-production goal for `Goal_Left_post`, compiles it to the existing task contract, executes its dependent move/rotation operations through the real Blender persistence boundary, performs independent final verification, and restores the fixture.
+
+Run from the Atlas repository folder:
+
+```powershell
+python -m scripts.run_live_production_task --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
 ```
 
-This proves that explicit dependency metadata reaches the real Blender task, authorization, execution order, independent verification, and fixture restoration.
-
-### Stage 14 dependency-aware recovery — VERIFIED
-
-`scripts/run_live_dependency_recovery.py` has now been successfully executed across two separate Python processes against the real Blender 4.4 environment.
-
-Phase 1 created the durable blocked checkpoint after the first action succeeded and the dependent second action failed. Phase 2 reconstructed that continuation after restart, acquired fresh evidence, explicitly authorized the recovery replan, carried the completed prerequisite forward as inherited dependency state, executed only the replacement dependent action, independently verified the final target, and restored the fixture.
-
-Observed proof:
-
-```text
-LIVE AUTONOMOUS DEPENDENCY RECOVERY VERIFIED
-object=Goal_Left_post
-target_location=[0.25, 5.302, 0.0]
-target_rotation=[0.0, 0.0, 15.0]
-explicit_dependency=prepare_rotation->prepare_location
-dependency_checkpoint_recovered=verified
-completed_prerequisite_not_replayed=verified
-process_restart=verified
-fresh_recovery_evidence=verified
-dependency_replan_authorization=verified
-dependent_replacement_execution=verified
-fresh_final_verification=verified
-fixture_restored_location=[0.0, 5.302, 0.0]
-fixture_restored_rotation=[0.0, 0.0, 0.0]
-```
-
-This closes the current Stage 14 recovery proof: a replacement action may depend on a previously completed prerequisite without replaying that prerequisite, and that inherited state is itself authorization- and integrity-bound.
+Do not mark Stage 15 live-verified until the command completes successfully and the current CI matrix is green.
 
 ## CI
 
-The first CI run on the dependency recovery patch exposed two defects in the newly added regression tests: one attempted to construct an intentionally invalid dependency plan for a digest comparison, and one asserted snapshot integrity without invoking the controller's integrity gate. Both were corrected. The affected run had `521 passed, 2 failed` on both Python matrix legs; the production recovery path itself had already passed the live Blender proof above.
-
-A fresh `Atlas Tests` run is expected from the corrected head. Do not describe Stage 14 as regression-green until the current matrix reports success.
+The dependency-recovery implementation previously produced a matrix run with `521 passed, 2 failed`; those failures were confined to the new inherited-dependency regression tests and were subsequently corrected. The latest Stage 15 changes will produce a new CI run; verify the exact branch head before describing CI as green.
 
 ## Unreal
 
@@ -152,6 +135,9 @@ Preserve coverage for:
 - inherited dependency completion -> explicitly recorded and integrity-bound;
 - cross-process continuation -> recovered authorization and fresh verification;
 - cross-process blocked recovery -> recovered gate + authorization before replan;
+- production-task semantics -> compile to the existing task contract;
+- production-task dependencies -> remain authorization-bound;
+- production-task metadata -> remain descriptive, never executable;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
@@ -179,9 +165,7 @@ Preserve coverage for:
 
 ## Resume point
 
-**Next: audit the completed Stage 14 dependency architecture and advance to Stage 15 higher-level production tasks spanning multiple Blender operations.**
-
-Before moving into Stage 15, require the corrected current CI matrix to be green. Then design Stage 15 around production-task abstractions rather than another isolated mutation harness. The next structural focus is to represent meaningful soccer-production goals as validated task graphs while retaining the same Atlas authority, evidence, authorization, deterministic execution, recovery, and independent verification boundaries.
+**Next: run the Stage 15 live production-task proof, then perform the structural audit for reusable production-task graphs and determine the next increment toward validated Qwen task planning.**
 
 Do not expand Qwen autonomy yet.
 
