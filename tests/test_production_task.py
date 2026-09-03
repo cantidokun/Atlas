@@ -28,7 +28,10 @@ def _production_task():
         ),
         evaluator=evaluator,
         allowed_action_tools=("move_object", "set_object_rotation"),
-        metadata={"domain": "soccer-production"},
+        domain="soccer-production",
+        deliverables=("broadcast-ready goal transform",),
+        constraints=("preserve canonical scene", "verify final transform"),
+        metadata={"team": "blender-agent"},
     )
 
 
@@ -41,6 +44,9 @@ def test_production_task_compiles_to_existing_task_contract():
     assert task.allowed_action_tools == {"move_object", "set_object_rotation"}
     assert task.metadata["production_task"] == "prepare-broadcast-goal"
     assert task.metadata["objective"] == "Prepare the soccer goal for a broadcast shot."
+    assert task.metadata["domain"] == "soccer-production"
+    assert task.metadata["deliverables"] == ["broadcast-ready goal transform"]
+    assert task.metadata["constraints"] == ["preserve canonical scene", "verify final transform"]
 
 
 def test_production_task_rejects_empty_objective():
@@ -56,11 +62,27 @@ def test_production_task_rejects_empty_objective():
         )
 
 
-def test_production_task_preserves_dependency_metadata_in_snapshot():
+def test_production_task_rejects_unsafe_dependencies():
+    task = _production_task()
+    with pytest.raises(ValueError, match="unknown action"):
+        ProductionTaskDefinition(
+            name=task.name,
+            objective=task.objective,
+            evidence=task.evidence,
+            actions=(ActionSpec("move_object", {}, "orient_goal", depends_on=("missing",)),),
+            evaluator=task.evaluator,
+            allowed_action_tools=("move_object",),
+        )
+
+
+def test_production_task_preserves_semantic_and_dependency_metadata_in_snapshot():
     snapshot = _production_task().snapshot()
 
+    assert snapshot["domain"] == "soccer-production"
+    assert snapshot["deliverables"] == ["broadcast-ready goal transform"]
+    assert snapshot["constraints"] == ["preserve canonical scene", "verify final transform"]
     assert snapshot["actions"][1]["depends_on"] == ["position_goal"]
-    assert snapshot["metadata"] == {"domain": "soccer-production"}
+    assert snapshot["metadata"] == {"team": "blender-agent"}
 
 
 def test_production_task_uses_existing_autonomous_runtime(tmp_path):
@@ -72,15 +94,19 @@ def test_production_task_uses_existing_autonomous_runtime(tmp_path):
         {"environment": "test", "task": production.name},
     )
     writes = []
-    ready = False
+    location = None
+    rotation = None
 
     def execute(tool, arguments):
-        nonlocal ready
+        nonlocal location, rotation
         if tool == "inspect_scene":
+            ready = location == [1, 2, 3] and rotation == [0, 0, 15]
             return {"ready": ready}
         writes.append(tool)
-        if tool == "set_object_rotation":
-            ready = True
+        if tool == "move_object":
+            location = [1, 2, 3]
+        elif tool == "set_object_rotation":
+            rotation = [0, 0, 15]
         return {"ok": True}
 
     runtime = AutonomousTaskRuntime.start(
@@ -94,3 +120,5 @@ def test_production_task_uses_existing_autonomous_runtime(tmp_path):
 
     assert result["complete"] is True
     assert writes == ["move_object", "set_object_rotation"]
+    assert location == [1, 2, 3]
+    assert rotation == [0, 0, 15]
