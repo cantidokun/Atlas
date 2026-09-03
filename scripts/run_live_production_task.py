@@ -1,4 +1,4 @@
-"""Prove a higher-level soccer production task through the existing Atlas runtime."""
+"""Prove a higher-level composed soccer production task through Atlas."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from planning.blender_process_executor import BlenderProcessExecutor
 from planning.blender_tool_requests import BLENDER_PROCESS_REQUEST_BUILDERS
 from planning.evidence_plan import EvidenceRequest
 from planning.production_task import ProductionTaskDefinition
+from planning.production_task_composition import ProductionTaskFragment, compose_production_task
 from planning.runtime_context import RuntimeContext
 from planning.runtime_state import FutureRuntimeStateStore
 from planning.target_state import StateInvariant, TargetStateEvaluator
@@ -29,12 +30,12 @@ def _object_location(result: Any, object_name: str) -> List[float]:
 def _object_rotation(result: Any, object_name: str) -> List[float]:
     details = result.details if hasattr(result, "details") else result
     if details.get("object_name") != object_name:
-        raise RuntimeError("Unexpected transform inspection object")
+        raise RuntimeError("Unexpected transform object")
     return [float(value) for value in details["rotation_degrees"]]
 
 
 class BlenderProductionExecutor:
-    """Use the proven Blender adapter and persistence boundary for a production task."""
+    """Use the proven Blender adapter and persistence boundary."""
 
     def __init__(self, boundary: BlenderExecutionBoundary) -> None:
         self.boundary = boundary
@@ -72,26 +73,29 @@ def _production_task(path: Path, object_name: str, target_location: List[float],
         StateInvariant("goal_position_ready", lambda evidence: _object_location(evidence["scene"], object_name) == target_location),
         StateInvariant("goal_orientation_ready", lambda evidence: _object_rotation(evidence["transform"], object_name) == target_rotation),
     ])
-    return ProductionTaskDefinition(
+    position = ProductionTaskFragment(
+        "position-goal",
+        evidence=(EvidenceRequest("inspect_scene", {"file_name": str(path)}, "scene"),),
+        actions=(ActionSpec(
+            "move_object",
+            {"file_name": str(path), "object_name": object_name, "location": target_location},
+            "position_goal",
+        ),),
+    )
+    orientation = ProductionTaskFragment(
+        "orient-goal",
+        evidence=(EvidenceRequest("inspect_object_transform", {"file_name": str(path), "object_name": object_name}, "transform"),),
+        actions=(ActionSpec(
+            "set_object_rotation",
+            {"file_name": str(path), "object_name": object_name, "rotation_degrees": target_rotation},
+            "orient_goal",
+            depends_on=("position_goal",),
+        ),),
+    )
+    return compose_production_task(
         name="prepare-broadcast-goal",
         objective="Prepare the soccer goal for a broadcast shot.",
-        evidence=(
-            EvidenceRequest("inspect_scene", {"file_name": str(path)}, "scene"),
-            EvidenceRequest("inspect_object_transform", {"file_name": str(path), "object_name": object_name}, "transform"),
-        ),
-        actions=(
-            ActionSpec(
-                "move_object",
-                {"file_name": str(path), "object_name": object_name, "location": target_location},
-                "position_goal",
-            ),
-            ActionSpec(
-                "set_object_rotation",
-                {"file_name": str(path), "object_name": object_name, "rotation_degrees": target_rotation},
-                "orient_goal",
-                depends_on=("position_goal",),
-            ),
-        ),
+        fragments=(position, orientation),
         evaluator=evaluator,
         allowed_action_tools=("move_object", "set_object_rotation"),
         domain="soccer-production",
@@ -105,13 +109,13 @@ def main() -> int:
     parser.add_argument("--blender", default="blender")
     parser.add_argument("--blend", default="atlas_live_mutation.blend")
     parser.add_argument("--object", default="Goal_Left_post")
-    parser.add_argument("--state-file", default="Saved/atlas-live-production-task.json")
+    parser.add_argument("--state-file", default="Saved/atlas-live-composed-production-task.json")
     args = parser.parse_args()
 
     path = Path(args.blend)
     state_file = Path(args.state_file)
     if not path.is_file():
-        print(f"LIVE PRODUCTION TASK FAILED: Blender fixture not found: {path}")
+        print(f"LIVE COMPOSED PRODUCTION TASK FAILED: Blender fixture not found: {path}")
         return 1
 
     transport = BlenderProcessExecutor(BLENDER_PROCESS_REQUEST_BUILDERS, blender_command=args.blender)
@@ -119,34 +123,30 @@ def main() -> int:
     executor = BlenderProductionExecutor(boundary)
 
     try:
-        original_location = _object_location(
-            boundary.execute_verified("inspect_scene", {"file_name": str(path)}), args.object
-        )
+        original_location = _object_location(boundary.execute_verified("inspect_scene", {"file_name": str(path)}), args.object)
         original_rotation = _object_rotation(
             boundary.execute_verified("inspect_object_transform", {"file_name": str(path), "object_name": args.object}),
             args.object,
         )
         target_location = [original_location[0] + 0.25, original_location[1], original_location[2]]
         target_rotation = [original_rotation[0], original_rotation[1], original_rotation[2] + 15.0]
-
         production = _production_task(path, args.object, target_location, target_rotation)
         task = production.compile()
-        store = FutureRuntimeStateStore(state_file)
         state_file.unlink(missing_ok=True)
         runtime = AutonomousTaskRuntime.start(
             task,
-            store,
+            FutureRuntimeStateStore(state_file),
             RuntimeContext(
-                "Execute a higher-level soccer production goal through Atlas.",
+                "Execute a composed higher-level soccer production goal through Atlas.",
                 {"environment": "local-blender", "file": str(path), "task": production.name},
             ),
             executor,
-            "atlas-stage15-production-task",
+            "atlas-stage15-composed-production-task",
         )
         runtime.runtime.checkpoint_metadata({"production_task": production.snapshot()})
         result = runtime.run_until_pause()
         if result.get("complete") is not True or result.get("blocked") is True:
-            raise RuntimeError(f"production task did not complete: {result}")
+            raise RuntimeError(f"composed production task did not complete: {result}")
 
         final_location = _object_location(boundary.execute_verified("inspect_scene", {"file_name": str(path)}), args.object)
         final_rotation = _object_rotation(
@@ -154,7 +154,7 @@ def main() -> int:
             args.object,
         )
         if final_location != target_location or final_rotation != target_rotation:
-            raise RuntimeError("final independent production-task verification failed")
+            raise RuntimeError("final independent composed-task verification failed")
 
         boundary.execute_with_persistence(
             "move_object",
@@ -178,15 +178,16 @@ def main() -> int:
             args.object,
         )
         if restored_location != original_location or restored_rotation != original_rotation:
-            raise RuntimeError("production-task fixture restoration verification failed")
+            raise RuntimeError("composed-task fixture restoration verification failed")
 
         state_file.unlink(missing_ok=True)
-        print("LIVE AUTONOMOUS PRODUCTION TASK VERIFIED")
+        print("LIVE AUTONOMOUS COMPOSED PRODUCTION TASK VERIFIED")
         print(f"object={args.object}")
         print(f"objective={production.objective}")
         print(f"target_location={target_location}")
         print(f"target_rotation={target_rotation}")
         print(f"domain={production.domain}")
+        print("fragment_composition=verified")
         print("multi_operation_composition=verified")
         print("dependency_validation=verified")
         print("existing_task_runtime=verified")
@@ -195,7 +196,7 @@ def main() -> int:
         print(f"fixture_restored_rotation={restored_rotation}")
     except Exception as exc:
         state_file.unlink(missing_ok=True)
-        print(f"LIVE PRODUCTION TASK FAILED: {exc}")
+        print(f"LIVE COMPOSED PRODUCTION TASK FAILED: {exc}")
         return 1
     return 0
 
