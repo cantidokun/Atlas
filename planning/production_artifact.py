@@ -13,6 +13,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
+from planning.blender_execution_receipt import BlenderExecutionReceipt
+from planning.blender_persistence_evidence import BlenderPersistenceEvidence
+
 
 class ProductionArtifactError(ValueError):
     """Raised when a production-artifact lineage record is invalid."""
@@ -62,11 +65,9 @@ class ProductionArtifactManifest:
         _require_text(self.artifact_path, "artifact_path")
         if not isinstance(self.manifest_version, int) or isinstance(self.manifest_version, bool) or self.manifest_version < 1:
             raise ProductionArtifactError("manifest_version must be a positive integer")
-        normalized_sources = _require_text_tuple(self.source_artifact_ids, "source_artifact_ids")
-        object.__setattr__(self, "source_artifact_ids", normalized_sources)
+        object.__setattr__(self, "source_artifact_ids", _require_text_tuple(self.source_artifact_ids, "source_artifact_ids"))
         for field in ("evidence_digests", "receipt_digests"):
-            values = _require_text_tuple(getattr(self, field), field)
-            object.__setattr__(self, field, values)
+            object.__setattr__(self, field, _require_text_tuple(getattr(self, field), field))
         for field in ("engine", "engine_version"):
             value = getattr(self, field)
             if value is not None:
@@ -77,6 +78,49 @@ class ProductionArtifactManifest:
             raise ProductionArtifactError("metadata must be a dictionary when provided")
         if self.artifact_id in self.source_artifact_ids:
             raise ProductionArtifactError("artifact_id cannot reference itself as a source")
+
+    @classmethod
+    def from_blender_closed_loop(
+        cls,
+        *,
+        artifact_id: str,
+        canonical_digital_twin_id: str,
+        representation_type: str,
+        artifact_path: str,
+        operation_receipt: BlenderExecutionReceipt,
+        persistence_evidence: BlenderPersistenceEvidence,
+        workflow_provenance: Optional[Dict[str, Any]] = None,
+        source_artifact_ids: Tuple[str, ...] = (),
+        engine: str = "Blender",
+        engine_version: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "ProductionArtifactManifest":
+        """Bind a verified Blender write to artifact lineage.
+
+        Only already-created immutable receipt/evidence objects are accepted;
+        this method performs no execution, verification, or authorization.
+        """
+        if not isinstance(operation_receipt, BlenderExecutionReceipt):
+            raise TypeError("operation_receipt must be a BlenderExecutionReceipt")
+        if not isinstance(persistence_evidence, BlenderPersistenceEvidence):
+            raise TypeError("persistence_evidence must be a BlenderPersistenceEvidence")
+        return cls(
+            artifact_id=artifact_id,
+            canonical_digital_twin_id=canonical_digital_twin_id,
+            representation_type=representation_type,
+            artifact_path=artifact_path,
+            source_artifact_ids=source_artifact_ids,
+            workflow_provenance=workflow_provenance,
+            evidence_digests=(persistence_evidence.digest(),),
+            receipt_digests=(_canonical_digest({
+                "tool": operation_receipt.tool,
+                "arguments_digest": operation_receipt.arguments_digest,
+                "result_digest": operation_receipt.result_digest,
+            }),),
+            engine=engine,
+            engine_version=engine_version,
+            metadata=metadata,
+        )
 
     def snapshot(self) -> Dict[str, Any]:
         """Return detached, deterministic lineage data without the derived digest."""
@@ -112,18 +156,9 @@ class ProductionArtifactManifest:
         if not isinstance(snapshot, dict):
             raise ProductionArtifactError("production artifact manifest snapshot must be a dictionary")
         required = {
-            "manifest_version",
-            "artifact_id",
-            "canonical_digital_twin_id",
-            "representation_type",
-            "artifact_path",
-            "source_artifact_ids",
-            "workflow_provenance",
-            "evidence_digests",
-            "receipt_digests",
-            "engine",
-            "engine_version",
-            "metadata",
+            "manifest_version", "artifact_id", "canonical_digital_twin_id", "representation_type",
+            "artifact_path", "source_artifact_ids", "workflow_provenance", "evidence_digests",
+            "receipt_digests", "engine", "engine_version", "metadata",
         }
         if set(snapshot) != required:
             raise ProductionArtifactError("production artifact manifest fields are invalid")
