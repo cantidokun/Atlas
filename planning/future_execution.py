@@ -121,18 +121,20 @@ class FutureExecutionController:
 
     def _record(self, step: FutureStep, status: str, result: Any = None) -> None:
         entry = {"sequence": step.sequence, "step_id": step.step_id, "phase": step.phase, "status": status}
+        if step.phase == "ACTION" and step.action:
+            entry["action_name"] = step.action.get("name")
+            entry["depends_on"] = list(step.action.get("depends_on", []))
         if result is not None:
             entry["result"] = result
         self.history.append(entry)
 
     def _completed_action_names(self) -> set:
         return {
-            entry["result"].get("name")
+            entry["action_name"]
             for entry in self.history
             if entry.get("phase") == "ACTION"
             and entry.get("status") == "succeeded"
-            and isinstance(entry.get("result"), dict)
-            and isinstance(entry["result"].get("name"), str)
+            and isinstance(entry.get("action_name"), str)
         }
 
     def _dependency_failure(self, step: FutureStep) -> Optional[Dict[str, Any]]:
