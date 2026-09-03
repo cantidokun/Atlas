@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Tuple
 
 from planning.action_dependencies import validate_action_dependencies
 from planning.action_plan import ActionSpec
@@ -10,6 +10,10 @@ from planning.action_plan import ActionSpec
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _normalize_inherited_dependencies(names: Iterable[str]) -> Tuple[str, ...]:
+    return tuple(sorted({str(name).strip() for name in names if str(name).strip()}))
 
 
 def _action_payload(action: ActionSpec) -> Dict[str, Any]:
@@ -22,6 +26,14 @@ def _action_payload(action: ActionSpec) -> Dict[str, Any]:
     }
 
 
+def _plan_digest(actions: List[ActionSpec], inherited_dependencies: Iterable[str] = ()) -> str:
+    payload = {
+        "actions": [_action_payload(action) for action in actions],
+        "inherited_dependencies": list(_normalize_inherited_dependencies(inherited_dependencies)),
+    }
+    return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class ActionAuthorization:
     """Immutable proof that a specific action plan was explicitly authorized."""
@@ -30,16 +42,20 @@ class ActionAuthorization:
     authorization_id: str
 
     @classmethod
-    def issue(cls, actions: List[ActionSpec], authorization_id: str) -> "ActionAuthorization":
+    def issue(
+        cls,
+        actions: List[ActionSpec],
+        authorization_id: str,
+        *,
+        inherited_dependencies: Iterable[str] = (),
+    ) -> "ActionAuthorization":
         if not isinstance(authorization_id, str) or not authorization_id.strip():
             raise ValueError("authorization_id must be a non-empty string.")
         if not isinstance(actions, list) or any(not isinstance(action, ActionSpec) for action in actions):
             raise TypeError("actions must be a list of ActionSpec objects.")
-        validate_action_dependencies(actions)
-        digest = hashlib.sha256(
-            _canonical([_action_payload(action) for action in actions]).encode("utf-8")
-        ).hexdigest()
-        return cls(digest, authorization_id.strip())
+        inherited = _normalize_inherited_dependencies(inherited_dependencies)
+        validate_action_dependencies(actions, satisfied_dependencies=inherited)
+        return cls(_plan_digest(actions, inherited), authorization_id.strip())
 
     @classmethod
     def from_snapshot(cls, snapshot: Dict[str, Any]) -> "ActionAuthorization":
@@ -54,17 +70,20 @@ class ActionAuthorization:
             raise ValueError("authorization snapshot is missing authorization_id")
         return cls(plan_digest, authorization_id.strip())
 
-    def matches(self, actions: List[ActionSpec]) -> bool:
+    def matches(
+        self,
+        actions: List[ActionSpec],
+        *,
+        inherited_dependencies: Iterable[str] = (),
+    ) -> bool:
         if not isinstance(actions, list) or any(not isinstance(action, ActionSpec) for action in actions):
             return False
         try:
-            validate_action_dependencies(actions)
+            inherited = _normalize_inherited_dependencies(inherited_dependencies)
+            validate_action_dependencies(actions, satisfied_dependencies=inherited)
         except (TypeError, ValueError):
             return False
-        digest = hashlib.sha256(
-            _canonical([_action_payload(action) for action in actions]).encode("utf-8")
-        ).hexdigest()
-        return self.plan_digest == digest
+        return self.plan_digest == _plan_digest(actions, inherited)
 
     def snapshot(self) -> Dict[str, str]:
         return {
