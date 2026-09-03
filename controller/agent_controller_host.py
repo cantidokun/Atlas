@@ -69,9 +69,7 @@ class AgentControllerHost:
         elif execution_context is None:
             execution_context = runtime.execution_context
         elif execution_context is not runtime.execution_context:
-            raise ValueError(
-                "execution_context must be the context owned by runtime"
-            )
+            runtime.bind_execution_context(execution_context)
 
         self._runtime = runtime
         self._execution_context = execution_context
