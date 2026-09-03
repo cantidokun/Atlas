@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow live-verified, target-state regression coverage extended, and canonical versioned workflow catalog added
+**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow live-verified, target-state and catalog contract coverage extended, and semantic workflow provenance bound through autonomous recovery/replan
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals, reusable composition fragments, self-contained workflow templates, and a canonical declarative workflow catalog compiled into the existing autonomous task runtime
+**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals, reusable composition fragments, self-contained workflow templates, a canonical declarative workflow catalog, and provenance-safe compilation/recovery into the existing autonomous task runtime
 
 ## Current authority model
 
@@ -132,19 +132,48 @@ The reusable workflow test suite directly exercises the evaluator attached by `B
 - a position mismatch fails the overall target state while preserving the independently passing orientation invariant;
 - malformed authoritative evidence raises the target-state evaluation error rather than being treated as satisfied.
 
-### Canonical soccer-production workflow catalog — ADDED
+### Canonical soccer-production workflow catalog — ADDED AND HARDENED
 
 `planning/soccer_production_catalog.py` provides a declarative catalog for reusable soccer-production workflows. It currently exposes the canonical `broadcast-goal-preparation` workflow with a stable objective, template identity, required parameter contract, and **version 1** contract marker.
 
-The catalog supports exact-name resolution and validated template construction while rejecting missing or unexpected parameters. Workflow descriptors are immutable and parameter definitions must be unique. The catalog only constructs declarative templates; it does not execute, authorize, schedule, or recover work.
+The catalog supports exact-name resolution and validated template construction while rejecting missing or unexpected parameters. Workflow descriptors are immutable and parameter definitions must be unique. Typed parameter contracts currently declare:
 
-The version marker establishes a stable contract identity for a future AI proposal-resolution layer without granting proposal text any execution authority.
+```text
+broadcast-goal-preparation@1
+
+file_name       -> string
+object_name     -> string
+target_location -> vector3
+target_rotation -> vector3
+```
+
+Parameter kinds are validated before template construction, and transform shape plus finite-number validation remains enforced by the canonical template layer.
+
+`compile_soccer_production_workflow(...)` now resolves the versioned catalog entry, constructs the canonical production task, and carries the exact workflow descriptor plus normalized proposal parameters into task metadata. This preserves workflow identity as semantic provenance while keeping execution, authorization, scheduling, and recovery outside the catalog.
+
+### Autonomous recovery provenance — HARDENED
+
+`AutonomousTaskRuntime` now copies `AtlasTaskDefinition.metadata` into persisted continuation metadata at task start and on authorized replan. Resume and continuation binding require persisted semantic metadata to match the current task definition. Recovery therefore cannot silently drop production-workflow provenance, and tampered semantic metadata fails closed before continuation.
+
+The generic runtime remains unchanged as the sole checkpointed execution engine; this is a task-binding integrity improvement, not a second recovery path.
+
+Regression coverage now includes:
+
+- semantic metadata persistence at task start;
+- semantic metadata preservation across authorized recovery/replan;
+- tampered semantic metadata rejection on resume;
+- deep-copy isolation between task metadata and persisted runtime metadata;
+- versioned workflow contract propagation into the compiled production task;
+- normalized parameter provenance without mutating proposal inputs;
+- preservation of the single `AtlasTaskDefinition` contract after catalog compilation.
 
 ## CI
 
 GitHub Actions `Atlas Tests` run **#1337** completed successfully for commit `2f84e10123501eb64146bd5ae1ca53659185b774`, which contains the live-verified reusable workflow implementation and live harness alignment.
 
-The subsequent commits are test/documentation/catalog follow-ups. The latest branch head is `60561fd88b6a68802e1c9447e1f78125ed520cc6`, and no workflow run is currently associated with that exact head, so it must not yet be described as CI-green.
+The current branch head is `20cd5bd9dc805a71c4d0d54b248245ab88d0565f`. No workflow run is currently associated with that exact head, so the new provenance and catalog-compilation commits must not yet be described as CI-green.
+
+PR #49 remains open, draft, and unmerged. Do not merge it unless explicitly requested.
 
 ## Unreal
 
@@ -183,7 +212,9 @@ Preserve coverage for:
 - production-task metadata -> remain descriptive, never executable;
 - fragment semantics -> retained through composition without creating execution authority;
 - reusable workflow target-state evaluation -> authoritative matching and fail-closed mismatch behavior;
-- reusable workflow catalog -> exact-name, version, immutability, and parameter-contract validation;
+- reusable workflow catalog -> exact-name, version, immutability, typed parameter-contract, and compilation-provenance validation;
+- semantic task provenance -> retained across start, resume, and authorized replan;
+- tampered persisted semantic provenance -> rejected;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
@@ -211,7 +242,7 @@ Preserve coverage for:
 
 ## Resume point
 
-**Next: continue Stage 15 by expanding reusable soccer-production workflow composition and recovery semantics while preserving the single canonical Atlas task/runtime path. Stage 16 remains deferred until the production-task abstraction is structurally mature.**
+**Next: continue Stage 15 by exercising and hardening the versioned workflow-to-task boundary and recovery provenance through the available test/live validation path, then assess whether the abstraction is mature enough to close Stage 15. Stage 16 remains deferred until that audit is complete.**
 
 Do not expand Qwen autonomy yet.
 
