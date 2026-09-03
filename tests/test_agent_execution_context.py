@@ -3,6 +3,7 @@
 
 import pytest
 
+from controller.agent_controller_intent import AgentControllerIntent
 from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_trusted_context import AgentTrustedContext
 from controller.trusted_unreal_context import TrustedUnrealContext
@@ -117,3 +118,56 @@ def test_agent_execution_context_does_not_authorize():
     assert context.context_for_request("unreal")[
         "authorized_production"
     ] == "already-authorized"
+
+
+def test_controller_intent_resolves_context_by_provider_only():
+    context = AgentExecutionContext()
+    unreal = AgentTrustedContext.from_values({"approved": True})
+    blender = AgentTrustedContext.from_values({"approved": False})
+
+    context.install("unreal", unreal)
+    context.install("blender", blender)
+
+    intent = AgentControllerIntent(
+        capability="production",
+        provider="UNREAL",
+        context={
+            "approved": False,
+            "provider": "blender",
+        },
+        intent="forged-model-intent",
+    )
+
+    resolved = context.context_for_controller_intent(intent)
+
+    assert resolved is unreal
+    assert resolved.get("approved") is True
+
+
+def test_controller_intent_without_provider_gets_no_trusted_context():
+    context = AgentExecutionContext()
+    context.install(
+        "unreal",
+        AgentTrustedContext.from_values({"approved": True}),
+    )
+
+    intent = AgentControllerIntent(
+        capability="production",
+        provider=None,
+        context={"approved": True},
+        intent="unreal",
+    )
+
+    resolved = context.context_for_controller_intent(intent)
+
+    assert resolved.to_request_context() == {}
+
+
+def test_controller_intent_binding_requires_typed_intent():
+    context = AgentExecutionContext()
+
+    with pytest.raises(
+        TypeError,
+        match="AgentControllerIntent",
+    ):
+        context.context_for_controller_intent(object())
