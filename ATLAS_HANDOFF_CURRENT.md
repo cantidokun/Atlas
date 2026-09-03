@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 13 complete; Stage 14 dependency-aware task composition in progress
+**Updated:** September 3, 2026 — Stage 14 live dependency proof + dependency-aware recovery implementation in progress
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 13 multi-step autonomous recovery is proven; Stage 14 dependency-aware task composition is implemented at the validation/authorization/runtime layer and awaiting live proof
+**Current Blender branch work:** Stage 13 is complete; Stage 14 dependency-aware task composition has a successful live serial proof and is now being extended through cross-process dependency-aware recovery
 
 ## Current authority model
 
@@ -29,86 +29,97 @@ Stage 13 is fully live-verified against Blender 4.4 and GitHub Actions. The two-
 
 Phase 1 completed action 1, deliberately failed action 2 before its Blender write, and persisted the partial-progress checkpoint. Phase 2 started in a fresh Python process, reconstructed the blocked runtime and authorization, acquired fresh multi-request evidence, issued an evidence-bound replan authorization, executed only action 2, independently verified both target properties, and restored the fixture.
 
+## Stage 14 — dependency-aware task composition
+
+Stage 14 adds explicit prerequisite semantics without introducing parallel execution.
+
+Implemented foundation:
+
+- `ActionSpec.depends_on` declares prerequisite action names;
+- dependency declarations are preserved in action-plan and deterministic-future state;
+- dependency-bearing plans require unambiguous action names;
+- unknown, later, self, duplicate, malformed, and unsafe optional-action dependencies are rejected;
+- `ActionAuthorization` and `ReplanAuthorization` bind dependency declarations into their digests;
+- `AtlasTaskDefinition`, `PlanningOrchestrator`, and `AutonomousTaskRuntime` preserve dependency information during reconstruction;
+- structured task-plan validation accepts optional `depends_on` declarations without granting execution authority;
+- `FutureExecutionController` derives dependency completion from successful future checkpoints rather than executor result payloads;
+- inherited prerequisites proven complete by an earlier authorized continuation can be explicitly carried into a recovery replan;
+- inherited dependency state is included in the deterministic future integrity digest and persisted snapshot.
+
+The execution model remains serial and deterministic:
+
 ```text
-LIVE AUTONOMOUS MULTISTEP RECOVERY VERIFIED
+explicit dependencies
+        ↓
+validated order
+        ↓
+exact authorization
+        ↓
+deterministic future
+        ↓
+one action at a time
+        ↓
+checkpoint
+```
+
+### Live Stage 14 serial proof — VERIFIED
+
+`scripts/run_live_dependency_task.py` was successfully executed against the real Blender 4.4 environment.
+
+Observed proof:
+
+```text
+LIVE AUTONOMOUS DEPENDENCY TASK VERIFIED
 object=Goal_Left_post
 original_location=[0.0, 5.302, 0.0]
-original_rotation=[0.0, 0.0, 0.0]
-recovered_location=[0.25, 5.302, 0.0]
-recovered_rotation=[0.0, 0.0, 15.0]
-initial_authorization=atlas-stage13-multistep-initial
-replan_authorization=atlas-stage13-multistep-replan
-multi_request_evidence=verified
-action_1_not_replayed=verified
-durable_partial_progress=verified
-process_restart=verified
-fresh_recovery_evidence=verified
-replacement_execution=verified
+target_location=[0.25, 5.302, 0.0]
+target_rotation=[0.0, 0.0, 15.0]
+explicit_dependency=prepare_rotation->prepare_location
+dependency_validation=verified
+dependency_authorization=verified
+dependency_execution_order=verified
 fresh_final_verification=verified
 fixture_restored_location=[0.0, 5.302, 0.0]
 fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-The exact Stage 13 head `361b97e685f815e54c22fcd65c29968a783ff73f` passed GitHub Actions `Atlas Tests` run `#1251`.
+This proves that explicit dependency metadata reaches the real Blender task, authorization, execution order, independent verification, and fixture restoration.
 
-## Stage 14 — dependency-aware task composition
+### Stage 14 dependency-aware recovery — NEXT PROOF
 
-The first Stage 14 increment adds explicit prerequisite semantics without adding a scheduler or parallel execution engine.
+A dedicated two-process harness is now present at:
 
-Implemented:
+`scripts/run_live_dependency_recovery.py`
 
-- `ActionSpec.depends_on` declares prerequisite action names;
-- dependency declarations are preserved in action-plan and future-step state;
-- dependency-bearing plans require unambiguous action names;
-- unknown, later, self, duplicate, malformed, and unsafe optional-action dependencies are rejected;
-- `ActionAuthorization` includes dependency declarations in its digest;
-- `ReplanAuthorization` also includes and validates dependency declarations;
-- `AtlasTaskDefinition`, `PlanningOrchestrator`, and `AutonomousTaskRuntime` preserve dependencies during reconstruction;
-- the structured task-plan JSON schema accepts optional `depends_on` declarations;
-- structured task-plan validation carries dependencies into `ActionSpec` and rejects invalid dependency graphs;
-- `FutureExecutionController` derives dependency completion from its own successful execution checkpoints rather than executor result payloads;
-- regression coverage covers dependency validation, authorization binding, structured-plan propagation, and fail-closed dependency execution.
-
-Dependency-free legacy action plans remain valid.
-
-The execution model remains deliberately serial:
+Its purpose is to prove the harder case:
 
 ```text
-explicit dependencies
-        ↓
-validated action order
-        ↓
-exact authorization digest
-        ↓
-deterministic future
-        ↓
-one next action at a time
+prepare_location succeeds
         ↓
 checkpoint
+        ↓
+prepare_rotation fails
+        ↓
+BLOCKED
+        ↓
+process restart
+        ↓
+fresh evidence
+        ↓
+recover the completed prerequisite
+        ↓
+explicit replan authorization
+        ↓
+execute dependent replacement action
+        ↓
+fresh independent verification
 ```
 
-## Stage 14 — live proof target
-
-A dedicated real-Blender harness is present at:
-
-`scripts/run_live_dependency_task.py`
-
-It performs a small soccer-field-related task against the real Blender fixture with:
-
-```text
-prepare_location
-      ↓
-prepare_rotation
-      depends_on = prepare_location
-```
-
-The harness routes writes through the existing persistence boundary, performs independent evidence acquisition, verifies the final state, and restores the fixture.
-
-The live proof is the remaining acceptance step for Stage 14.
+The recovery model explicitly carries `prepare_location` as an inherited prerequisite so the replacement action does not have to pretend that its prerequisite disappeared merely because the original action sequence was replaced.
 
 ## CI
 
-The latest Stage 14 regression series is running on branch `feat/blender-stage11-mainline`. Stage 14 must not be marked complete until the current matrix is green and the live dependency harness passes.
+The latest dependency implementation has generated a new `Atlas Tests` workflow run on the development branch. Do not mark Stage 14 complete until the current matrix is green and the dependency-aware recovery proof passes.
 
 ## Unreal
 
@@ -139,6 +150,7 @@ Preserve coverage for:
 - dependency references -> validated before execution;
 - dependency-aware authorization -> exact plan binding;
 - dependency completion -> derived from successful future checkpoints;
+- inherited dependency completion -> explicitly recorded and integrity-bound;
 - cross-process continuation -> recovered authorization and fresh verification;
 - cross-process blocked recovery -> recovered gate + authorization before replan;
 - mutated arguments/result -> receipt mismatch;
@@ -168,15 +180,21 @@ Preserve coverage for:
 
 ## Resume point
 
-**Next: complete Stage 14 with the real Blender dependency proof.**
+**Next: complete the Stage 14 dependency-aware recovery proof.**
 
-From the Atlas repository folder:
+From the Atlas repository folder, run Phase 1:
 
 ```powershell
-python -m scripts.run_live_dependency_task --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+python -m scripts.run_live_dependency_recovery --phase failure --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
 ```
 
-After a successful live proof and green CI, audit whether the dependency model supports a later concurrency stage. Do not introduce parallel execution merely because independent branches exist.
+Then, in the fresh process, run Phase 2:
+
+```powershell
+python -m scripts.run_live_dependency_recovery --phase recover --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
+```
+
+Only after the recovery proof and current CI matrix are green should Atlas evaluate a later concurrency stage.
 
 Do not expand Qwen autonomy yet.
 
