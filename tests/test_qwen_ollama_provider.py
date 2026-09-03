@@ -9,6 +9,7 @@ from qwen.ollama_provider import (
     OllamaQwenProvider,
     QwenProviderError,
 )
+from qwen.production_proposal import compile_qwen_production_proposal
 
 
 class FakeResponse:
@@ -168,6 +169,21 @@ def test_provider_rejects_execution_fields_in_model_output():
 
     with pytest.raises(QwenProviderError, match="invalid production proposal"):
         provider.propose("Prepare the soccer goal.")
+
+
+def test_provider_to_catalog_compilation_remains_inert():
+    session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
+    provider = OllamaQwenProvider(session=session)
+
+    proposal = provider.propose("Prepare the soccer goal for a broadcast shot.")
+    task = compile_qwen_production_proposal(proposal.snapshot())
+
+    assert task.name == "broadcast-goal-preparation"
+    assert task.domain == "soccer-production"
+    assert task.metadata["workflow_catalog"]["version"] == 1
+    assert len(task.actions) == 2
+    assert not hasattr(proposal, "executor")
+    assert not hasattr(proposal, "authorization")
 
 
 def test_provider_wraps_transport_failure():
