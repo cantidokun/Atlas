@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 proposal-only Qwen provider integration implemented
+**Updated:** September 3, 2026 — Stage 15 complete for current contract; Stage 16 proposal-only Qwen provider integration implemented and hardened
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
 **Stage status:** Stage 15 COMPLETE FOR CURRENT CONTRACT; Stage 16 IN PROGRESS
@@ -52,7 +52,7 @@ Stage 15 therefore closes for the current contract.
 
 ## CI checkpoint
 
-GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Stage 16 provider tests subsequently passed run **#1383** for commit `bcbf3c76be2b4737783233b681f0b7f47113318d`; run **#1382** failed for an intermediate provider revision and was superseded by #1383. Run **#1384** passed for the provider-to-catalog test revision. The newest provider/catalog prompt refinement is awaiting its own CI result.
+GitHub Actions `Atlas Tests` run **#1370** passed for the Stage 15 recovery-harness stabilization commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Stage 16 provider tests passed run **#1383** for commit `bcbf3c76be2b4737783233b681f0b7f47113318d`. Run **#1382** failed for an intermediate provider revision and was superseded. Run **#1384** passed for the subsequent provider-to-catalog revision. Run **#1394** exposed three stale provider-test expectations while the live smoke test also exposed model-generated invalid parameter values; both classes of issues have since been corrected. The newest provider-hardening commits are awaiting their own CI results.
 
 The Stage 15 live recovery itself was user-verified against Blender 4.4.
 
@@ -68,23 +68,25 @@ Implemented:
 - `compile_qwen_production_proposal(...)` resolves the proposal exclusively through the trusted Stage 15 soccer-production catalog and returns one canonical `ProductionTaskDefinition`;
 - catalog validation remains responsible for workflow identity, version, required parameters, parameter kinds, vector shape, and finite numeric values;
 - Qwen proposal input cannot specify an executor, authorization ID, scheduling instruction, recovery operation, or arbitrary tool invocation;
-- regression coverage proves malformed Qwen envelopes, unknown workflows, bad parameter kinds, attempted execution fields, malformed JSON, invalid UTF-8, and detached proposal snapshots are rejected or safely isolated;
 - `qwen/provider_output.py` is the strict decoded-provider-output adapter and never exposes execution capabilities;
 - `qwen/ollama_provider.py` provides the actual local Ollama/Qwen provider boundary at `http://localhost:11434/api/chat` with `qwen3:8b` defaults;
-- the Ollama boundary requests a structured response using `PRODUCTION_PROPOSAL_JSON_SCHEMA`, disables streaming, uses deterministic temperature `0`, and sends no Atlas tools to the model;
-- the provider owns the system message. Caller history may contain only `user`/`assistant` turns and cannot inject a replacement system/tool role;
-- the provider system prompt now enumerates the **exact live canonical workflow names, versions, objectives, and parameter kinds** from `available_soccer_production_workflows()` and explicitly forbids aliases or invented workflow identifiers;
-- provider responses are accepted only after strict proposal parsing; malformed provider responses and transport failures become `QwenProviderError`;
-- `scripts/run_live_qwen_production_proposal.py` provides a live local smoke test that contacts Qwen, validates the proposal, resolves the trusted catalog, and compiles a semantic task while explicitly stopping before authorization, persistence, execution, recovery, or Blender mutation;
+- the provider requests structured output with a schema derived from the trusted live catalog, including exact workflow/version enums and required parameter names/types;
+- the provider system prompt enumerates the exact canonical workflow contract and explicitly requires every required parameter to be populated from the supplied objective or verified context;
+- provider history accepts only `user`/`assistant` turns and cannot inject a system or tool role;
+- after parsing, provider output is semantically validated against the trusted catalog before the proposal is released from the provider boundary;
+- invalid model values such as empty required strings, missing parameters, unknown workflow names, and combined name/version identifiers fail closed as `QwenProviderError`;
+- `scripts/run_live_qwen_production_proposal.py` provides a proposal-only live smoke test using an explicit, deterministic soccer-production objective and verified parameter context, and it stops before authorization, persistence, execution, recovery, or Blender mutation;
 - provider-to-catalog regression coverage proves the complete offline handoff remains inert and canonical.
 
-### Live smoke failure and boundary fix
+### Live smoke failures and corrections
 
-The first user-run live smoke test demonstrated an important real model-output failure mode: Qwen returned the semantically plausible but non-canonical workflow identifier `soccer_goal_broadcast`. Atlas correctly rejected it at catalog resolution with `unknown soccer production workflow`. This was not converted into an alias because that would weaken exact workflow provenance and the trusted-catalog boundary.
+The first user-run live smoke test returned `soccer_goal_broadcast`, which the catalog correctly rejected as an unknown workflow. Atlas did not add an alias. The provider was strengthened to enumerate the canonical catalog and reject invented identifiers.
 
-The provider has now been strengthened to expose the canonical workflow catalog directly in its provider-owned system contract and explicitly require exact workflow identity. Unknown model-generated identifiers remain fail-closed rather than normalized into a trusted workflow.
+The next live run returned `broadcast-goal-preparation@1`. That represented a model interpretation of the displayed identity, not a valid Atlas field value. Atlas retains separate `workflow` and `version` fields and explicitly instructs the model never to combine them.
 
-The intended Stage 16 flow is:
+The following live run reached semantic parameter validation but returned an empty `file_name`. Atlas correctly rejected that output. The provider is now stricter: the Ollama structured-output schema requires every catalog parameter and semantic catalog validation executes before a proposal leaves the provider boundary. The smoke test also supplies concrete verified values for the current workflow so the live proof tests model-to-contract translation rather than asking the model to invent operational inputs.
+
+The correct Stage 16 flow is:
 
 ```text
 Qwen
@@ -93,22 +95,22 @@ reason about soccer-production objective
   ↓
 Ollama structured-output provider
   ↓
-provider-owned canonical catalog context
+provider-owned canonical catalog/schema
   ↓
 strict provider-output parser
   ↓
+Atlas catalog semantic validation
+  ↓
 QwenProductionProposal
   ↓
-Atlas validates proposal envelope
+trusted catalog compilation
   ↓
-Atlas resolves exact trusted catalog identity/version
-  ↓
-Atlas constructs one ProductionTaskDefinition
+ProductionTaskDefinition
   ↓
 existing Atlas authorization/runtime/verification/recovery
 ```
 
-Ollama's chat API supports supplying a JSON schema through the `format` field for structured output. Atlas uses that as an output-shaping mechanism only; the schema does not replace Atlas's catalog validation or authority boundary. urlOllama API documentationhttps://docs.ollama.com/api/chat
+Ollama's chat API supports supplying a JSON schema through the `format` field for structured output. Atlas uses that to shape provider output, but it remains untrusted input and is independently checked against the canonical catalog before any execution path is reachable.
 
 ### Live Stage 16 smoke test
 
@@ -120,13 +122,19 @@ git pull
 python -m scripts.run_live_qwen_production_proposal
 ```
 
-This test is intentionally proposal-only. A successful result proves live model/provider communication, structured proposal extraction, Atlas proposal validation, exact catalog resolution, and semantic task construction. It must not perform a Blender write.
+The current default smoke objective is:
+
+```text
+Prepare the soccer goal for a broadcast shot using file scene.blend and object Goal_Left_post. Set target_location to [0.25, 5.302, 0.0] and target_rotation to [0.0, 0.0, 15.0].
+```
+
+A successful result proves live model/provider communication, structured proposal extraction, semantic provider validation, exact catalog resolution, and semantic task construction. It must not perform a Blender write.
 
 ### Stage 16 next work
 
-After the live smoke succeeds with the canonical workflow contract, the next meaningful step is to make the proposal boundary produce a controlled semantic task request that can enter the **existing Atlas authorization path** without giving Qwen any authorization capability itself. That will be the first Stage 16-to-runtime integration checkpoint.
+After the live smoke succeeds, the next meaningful checkpoint is a controlled handoff from the validated Qwen proposal into the **existing Atlas authorization path**, without granting Qwen authorization authority. The resulting canonical task should then be consumable by the existing runtime/recovery machinery without introducing a Qwen-specific execution engine.
 
-Do not expand Qwen autonomy beyond proposal generation, proposal parsing, and validated handoff into Atlas's existing authority path at this point.
+Do not expand Qwen autonomy beyond proposal generation, proposal parsing, validated catalog resolution, and handoff into Atlas's existing authority path at this point.
 
 ## Unreal
 
@@ -157,4 +165,4 @@ PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly reque
 
 ## Resume point
 
-**Continue Stage 16 by running and validating the live local Qwen proposal-only smoke test after the canonical-workflow prompt refinement. Preserve the rule that model output is untrusted and inert until Atlas validates it against the Stage 15 catalog; no Qwen execution or authorization autonomy yet.**
+**Continue Stage 16 by running and validating the live local Qwen proposal-only smoke test after the provider-side semantic validation and explicit smoke objective hardening. Preserve the rule that model output is untrusted and inert until Atlas validates it against the Stage 15 catalog; no Qwen execution or authorization autonomy yet.**
