@@ -68,21 +68,28 @@ def available_soccer_production_workflows() -> Tuple[SoccerProductionWorkflowSpe
     return _WORKFLOWS
 
 
-def get_soccer_production_workflow(name: str) -> SoccerProductionWorkflowSpec:
-    """Resolve a workflow descriptor by exact canonical name."""
+def get_soccer_production_workflow(name: str, version: int | None = None) -> SoccerProductionWorkflowSpec:
+    """Resolve a workflow descriptor by exact canonical name and optional version."""
     for workflow in _WORKFLOWS:
-        if workflow.name == name:
-            return workflow
+        if workflow.name != name:
+            continue
+        if version is not None and workflow.version != version:
+            raise KeyError(f"unsupported version for soccer production workflow: {name}@{version}")
+        return workflow
     raise KeyError(f"unknown soccer production workflow: {name}")
 
 
-def build_soccer_production_workflow(name: str, parameters: Dict[str, Any]) -> BroadcastGoalPreparationTemplate:
+def build_soccer_production_workflow(
+    name: str,
+    parameters: Dict[str, Any],
+    version: int | None = None,
+) -> BroadcastGoalPreparationTemplate:
     """Build a validated reusable template from a canonical workflow contract.
 
     This function only constructs the declarative template. Execution remains
     outside the catalog and continues through the existing Atlas task runtime.
     """
-    spec = get_soccer_production_workflow(name)
+    spec = get_soccer_production_workflow(name, version=version)
     if not isinstance(parameters, dict):
         raise TypeError("workflow parameters must be a dictionary")
     missing = [key for key in spec.required_parameters if key not in parameters]
