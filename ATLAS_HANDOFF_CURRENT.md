@@ -1,9 +1,9 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 higher-level production-task composition in progress
+**Updated:** September 3, 2026 — Stage 15 higher-level production-task composition live-verified
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals compiled into the existing autonomous task runtime
+**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals and reusable composition fragments compiled into the existing autonomous task runtime
 
 ## Current authority model
 
@@ -85,23 +85,36 @@ Stage 15 introduces a semantic production-goal layer rather than another executi
 
 A production task compiles directly to one existing `AtlasTaskDefinition`. Execution, authorization, checkpointing, recovery, and independent verification remain owned by the already-proven generic runtime.
 
-Production-task construction now validates its action allowlist and dependency graph before compilation. Semantic metadata is carried into the compiled task for future higher-level planning without granting the metadata execution authority.
+Reusable `ProductionTaskFragment` composition now supports:
 
-### Stage 15 live proof — READY TO RUN
+- named fragments with preserved order;
+- fragment-level evidence and action groups;
+- explicit semantic fragment dependencies validated at composition time;
+- fragment-level deliverables and constraints;
+- durable fragment metadata and snapshots;
+- task-level metadata retaining the composed fragment specifications.
 
-`scripts/run_live_production_task.py` now provides the first end-to-end proof harness. It constructs a semantic soccer-production goal for `Goal_Left_post`, compiles it to the existing task contract, executes its dependent move/rotation operations through the real Blender persistence boundary, performs independent final verification, and restores the fixture.
+Fragment dependencies are semantic composition constraints. Executable ordering remains governed by the canonical `ActionSpec.depends_on` graph and the existing future controller.
 
-Run from the Atlas repository folder:
+### Stage 15 live proof — VERIFIED
 
-```powershell
-python -m scripts.run_live_production_task --blender "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"
-```
+`scripts/run_live_production_task.py` has now been successfully executed against the real Blender 4.4 environment using the composed fragment path. The proof verified:
 
-Do not mark Stage 15 live-verified until the command completes successfully and the current CI matrix is green.
+- higher-level soccer production objective;
+- reusable fragment composition;
+- explicit fragment dependency handling;
+- multi-operation canonical task compilation;
+- existing autonomous task runtime execution;
+- independent final verification;
+- fixture restoration.
+
+The confirmed live target was `Goal_Left_post`, moved by `+0.25` on X and rotated by `+15` degrees on Z, then restored to its original transform.
+
+CI run #1318 passed on the verified branch state before the subsequent semantic-fragment extension. Re-verify the exact branch head before describing the latest commit as CI-green.
 
 ## CI
 
-The dependency-recovery implementation previously produced a matrix run with `521 passed, 2 failed`; those failures were confined to the new inherited-dependency regression tests and were subsequently corrected. The latest Stage 15 changes will produce a new CI run; verify the exact branch head before describing CI as green.
+The dependency-recovery implementation previously produced a matrix run with `521 passed, 2 failed`; those failures were confined to the new inherited-dependency regression tests and were subsequently corrected. The corrected Stage 15 composition milestone passed GitHub Actions run #1318 on commit `c070ed0`. New commits after that run require their own CI verification.
 
 ## Unreal
 
@@ -138,6 +151,7 @@ Preserve coverage for:
 - production-task semantics -> compile to the existing task contract;
 - production-task dependencies -> remain authorization-bound;
 - production-task metadata -> remain descriptive, never executable;
+- fragment semantics -> retained through composition without creating execution authority;
 - mutated arguments/result -> receipt mismatch;
 - malformed executor result -> rejected;
 - wrong result tool -> rejected;
@@ -165,7 +179,7 @@ Preserve coverage for:
 
 ## Resume point
 
-**Next: run the Stage 15 live production-task proof, then perform the structural audit for reusable production-task graphs and determine the next increment toward validated Qwen task planning.**
+**Next: continue Stage 15 by expanding reusable soccer-production workflow composition and recovery semantics while preserving the single canonical Atlas task/runtime path. Stage 16 remains deferred until the production-task abstraction is structurally mature.**
 
 Do not expand Qwen autonomy yet.
 
