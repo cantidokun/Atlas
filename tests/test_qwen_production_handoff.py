@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 from planning.action_authorization import ActionAuthorization
@@ -76,3 +78,31 @@ def test_authorization_rechecks_integrity_before_crossing_boundary():
 
     with pytest.raises(QwenProductionHandoffError, match="compiled task integrity"):
         handoff.authorize("must-not-authorize")
+
+
+def test_qwen_handoff_round_trips_through_persisted_snapshot():
+    original = QwenProductionTaskHandoff.from_proposal(VALID_PROPOSAL)
+    persisted = original.snapshot()
+
+    restored = QwenProductionTaskHandoff.from_snapshot(copy.deepcopy(persisted))
+
+    assert restored.snapshot() == persisted
+    restored.verify_integrity()
+
+
+def test_qwen_handoff_rejects_tampered_persisted_semantic_snapshot():
+    handoff = QwenProductionTaskHandoff.from_proposal(VALID_PROPOSAL)
+    persisted = handoff.snapshot()
+    persisted["semantic_task"]["metadata"]["workflow_parameters"]["object_name"] = "OtherObject"
+
+    with pytest.raises(QwenProductionHandoffError, match="semantic task"):
+        QwenProductionTaskHandoff.from_snapshot(persisted)
+
+
+def test_qwen_handoff_rejects_tampered_persisted_compiled_digest():
+    handoff = QwenProductionTaskHandoff.from_proposal(VALID_PROPOSAL)
+    persisted = handoff.snapshot()
+    persisted["compiled_task_digest"] = "tampered"
+
+    with pytest.raises(QwenProductionHandoffError, match="compiled_task_digest integrity"):
+        QwenProductionTaskHandoff.from_snapshot(persisted)
