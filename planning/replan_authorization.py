@@ -13,8 +13,7 @@ def _canonical(value: Any) -> str:
 
 
 def _normalize_inherited_dependencies(names: Iterable[str]) -> Tuple[str, ...]:
-    normalized = tuple(sorted({str(name).strip() for name in names if str(name).strip()}))
-    return normalized
+    return tuple(sorted({str(name).strip() for name in names if str(name).strip()}))
 
 
 def _action_payload(action: ActionSpec) -> Dict[str, Any]:
@@ -28,10 +27,18 @@ def _action_payload(action: ActionSpec) -> Dict[str, Any]:
 
 
 def _actions_digest(actions: List[ActionSpec], inherited_dependencies: Iterable[str] = ()) -> str:
-    payload = {
-        "actions": [_action_payload(action) for action in actions],
-        "inherited_dependencies": list(_normalize_inherited_dependencies(inherited_dependencies)),
-    }
+    inherited = _normalize_inherited_dependencies(inherited_dependencies)
+    action_payloads = [_action_payload(action) for action in actions]
+    # Preserve the pre-dependency receipt format for ordinary replans. A new
+    # digest shape is introduced only when inherited completion is part of the
+    # authorization boundary.
+    if not inherited:
+        payload: Any = action_payloads
+    else:
+        payload = {
+            "actions": action_payloads,
+            "inherited_dependencies": list(inherited),
+        }
     return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
 
 
