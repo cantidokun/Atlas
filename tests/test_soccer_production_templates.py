@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from planning.soccer_production_templates import (
@@ -98,4 +100,20 @@ def test_broadcast_goal_template_rejects_invalid_transform_shapes():
             object_name="Goal_Left_post",
             target_location=(1.0, 2.0, 3.0),
             target_rotation=(0.0, 15.0),
+        )
+
+
+def test_goal_templates_reject_non_finite_transform_values():
+    with pytest.raises(ValueError, match="finite numeric"):
+        GoalPositionTemplate(
+            file_name="scene.blend",
+            object_name="Goal_Left_post",
+            target_location=(0.0, math.inf, 0.0),
+        )
+
+    with pytest.raises(ValueError, match="finite numeric"):
+        GoalOrientationTemplate(
+            file_name="scene.blend",
+            object_name="Goal_Left_post",
+            target_rotation=(0.0, math.nan, 15.0),
         )
