@@ -2,7 +2,10 @@ import pytest
 
 from action_plan import ActionSpec
 from evidence_plan import EvidenceRequest
+from planning.autonomous_task_runtime import AutonomousTaskRuntime
 from planning.production_task import ProductionTaskDefinition
+from planning.runtime_context import RuntimeContext
+from planning.runtime_state import FutureRuntimeStateStore
 from planning.target_state import StateInvariant, TargetStateEvaluator
 
 
@@ -58,3 +61,30 @@ def test_production_task_preserves_dependency_metadata_in_snapshot():
 
     assert snapshot["actions"][1]["depends_on"] == ["position_goal"]
     assert snapshot["metadata"] == {"domain": "soccer-production"}
+
+
+def test_production_task_uses_existing_autonomous_runtime(tmp_path):
+    production = _production_task()
+    task = production.compile()
+    store = FutureRuntimeStateStore(tmp_path / "runtime.json")
+    context = RuntimeContext(
+        "Execute a soccer production task.",
+        {"environment": "test", "task": production.name},
+    )
+    writes = []
+
+    def execute(tool, arguments):
+        if tool == "inspect_scene":
+            return {"ready": False}
+        writes.append(tool)
+        return {"ok": True}
+
+    runtime = AutonomousTaskRuntime.start(
+        task,
+        store,
+        context,
+        execute,
+        authorization_id="production-task-authorization",
+    )
+    assert runtime.run_until_pause()["blocked"] is False
+    assert writes == ["move_object", "set_object_rotation"]
