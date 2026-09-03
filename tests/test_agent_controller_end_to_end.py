@@ -31,47 +31,27 @@ from planning.unreal_task_planner import UnrealTaskIntent
 ENTITY_ID = "FIELD_SURFACE"
 
 
-def _intent(intent_id: str) -> UnrealTaskIntent:
-    return UnrealTaskIntent(
-        intent_id=intent_id,
-        description="synthetic model-to-controller Unreal production request",
-        target_entity_ids=(ENTITY_ID,),
+from tests.test_unreal_heterogeneous_production import (
+    _intent,
+    _spec,
+)
+
+
+def _authorized_production():
+    from planning.unreal_production_operation import (
+        build_unreal_production_plan,
+    )
+    from planning.unreal_production_planning_boundary import (
+        authorize_production_plan,
     )
 
-
-def _authorized_production(intent: UnrealTaskIntent):
-    composite = build_composite_actor_operation(
-        [ENTITY_ID],
-        [
-            {
-                "name": "set_actor_location",
-                "location": {
-                    "x": 10.0,
-                    "y": 20.0,
-                    "z": 30.0,
-                },
-            },
-        ],
-    )
-
+    intent = _intent()
     production = build_unreal_production_plan(
         intent,
-        UnrealProductionSpec(
-            composite=composite,
-            start_frame=1,
-            end_frame=1,
-            render_config=UnrealRenderConfig(
-                width=64,
-                height=64,
-                start_frame=1,
-                end_frame=1,
-                output_directory="Saved/SyntheticAgentOutput",
-                output_format="png",
-            ),
-        ),
+        _spec(),
     )
 
-    return authorize_production_plan(
+    return intent, authorize_production_plan(
         production,
         "synthetic-agent-authorized-production",
     )
@@ -117,8 +97,7 @@ def _integration_stub(monkeypatch, *, patch_execute=True):
 def test_synthetic_model_response_reaches_real_controller_admission(
     monkeypatch,
 ):
-    trusted_intent = _intent("synthetic-model-controller")
-    authorized = _authorized_production(trusted_intent)
+    trusted_intent, authorized = _authorized_production()
 
     trusted_context = TrustedUnrealContext(
         authorized_production=authorized,
