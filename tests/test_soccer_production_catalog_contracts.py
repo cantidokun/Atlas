@@ -9,6 +9,15 @@ from planning.soccer_production_catalog import (
 )
 
 
+def _base_parameters():
+    return {
+        "file_name": "scene.blend",
+        "object_name": "Goal_Left_post",
+        "target_location": [1.0, 2.0, 3.0],
+        "target_rotation": [0.0, 0.0, 15.0],
+    }
+
+
 def test_catalog_descriptors_are_immutable_and_stable():
     workflow = get_soccer_production_workflow("broadcast-goal-preparation")
 
@@ -92,12 +101,7 @@ def test_catalog_resolves_supported_and_rejects_unsupported_versions():
 def test_catalog_validates_parameter_envelope_without_instantiating_template():
     spec = validate_soccer_production_workflow_parameters(
         "broadcast-goal-preparation",
-        {
-            "file_name": "scene.blend",
-            "object_name": "Goal_Left_post",
-            "target_location": [1.0, 2.0, 3.0],
-            "target_rotation": [0.0, 0.0, 15.0],
-        },
+        _base_parameters(),
         version=1,
     )
 
@@ -116,12 +120,7 @@ def test_catalog_validates_parameter_envelope_without_instantiating_template():
 
 
 def test_catalog_rejects_parameter_kind_mismatches():
-    base = {
-        "file_name": "scene.blend",
-        "object_name": "Goal_Left_post",
-        "target_location": [0.0, 5.302, 0.0],
-        "target_rotation": [0.0, 0.0, 15.0],
-    }
+    base = _base_parameters()
 
     with pytest.raises(ValueError, match="file_name must be a non-empty string"):
         validate_soccer_production_workflow_parameters(
@@ -141,6 +140,29 @@ def test_catalog_rejects_parameter_kind_mismatches():
         validate_soccer_production_workflow_parameters(
             "broadcast-goal-preparation",
             {**base, "target_location": "0,5.302,0"},
+            version=1,
+        )
+
+
+def test_catalog_rejects_non_finite_vector_parameters_before_template_construction():
+    with pytest.raises(ValueError, match="target_location must contain finite numeric values"):
+        validate_soccer_production_workflow_parameters(
+            "broadcast-goal-preparation",
+            {**_base_parameters(), "target_location": [0.0, float("inf"), 0.0]},
+            version=1,
+        )
+
+    with pytest.raises(ValueError, match="target_rotation must contain finite numeric values"):
+        validate_soccer_production_workflow_parameters(
+            "broadcast-goal-preparation",
+            {**_base_parameters(), "target_rotation": [0.0, float("nan"), 15.0]},
+            version=1,
+        )
+
+    with pytest.raises(ValueError, match="target_location must contain finite numeric values"):
+        validate_soccer_production_workflow_parameters(
+            "broadcast-goal-preparation",
+            {**_base_parameters(), "target_location": [0.0, True, 0.0]},
             version=1,
         )
 
@@ -172,12 +194,7 @@ def test_catalog_builder_preserves_template_validation_boundary():
 def test_catalog_builder_accepts_explicit_supported_version():
     template = build_soccer_production_workflow(
         "broadcast-goal-preparation",
-        {
-            "file_name": "scene.blend",
-            "object_name": "Goal_Left_post",
-            "target_location": [1.0, 2.0, 3.0],
-            "target_rotation": [0.0, 0.0, 15.0],
-        },
+        _base_parameters(),
         version=1,
     )
 
