@@ -11,7 +11,7 @@ second executor or authorization system.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from action_plan import ActionSpec
 from planning.action_authorization import ActionAuthorization
@@ -50,6 +50,16 @@ class AutonomousTaskRuntime:
             )
             for action in task.actions
         ]
+
+    @staticmethod
+    def _completed_action_names(controller: FutureExecutionController) -> Set[str]:
+        return {
+            entry["action_name"]
+            for entry in controller.history
+            if entry.get("phase") == "ACTION"
+            and entry.get("status") == "succeeded"
+            and isinstance(entry.get("action_name"), str)
+        }
 
     @staticmethod
     def _evidence_key(tool: str, name: str) -> str:
@@ -245,8 +255,13 @@ class AutonomousTaskRuntime:
             raise RuntimeError("replacement actions do not match the authorized replan")
         target = self.task.evaluator.evaluate(evidence)
         actions = list(authorized_actions)
+        inherited_dependencies = tuple(sorted(self._completed_action_names(self.runtime.controller)))
         execution_authorization = None if target.satisfied else ActionAuthorization.issue(actions, authorization.authorization_id)
-        steps = DeterministicFutureGenerator(self.task.evaluator).generate(target.satisfied, actions)
+        steps = DeterministicFutureGenerator(self.task.evaluator).generate(
+            target.satisfied,
+            actions,
+            satisfied_dependencies=inherited_dependencies,
+        )
         metadata: Dict[str, Any] = {
             "target_satisfied": target.satisfied,
             "target_evaluation": target.snapshot(),
@@ -254,7 +269,7 @@ class AutonomousTaskRuntime:
         }
         if execution_authorization is not None:
             metadata["action_authorization"] = execution_authorization.snapshot()
-        controller = FutureExecutionController(steps)
+        controller = FutureExecutionController(steps, inherited_dependencies=inherited_dependencies)
         controller.acknowledge({"recovery_evidence": True})
         controller.acknowledge(target.snapshot())
         if target.satisfied:
