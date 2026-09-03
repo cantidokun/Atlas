@@ -1,15 +1,15 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Stage 15 reusable soccer-production workflow catalog and provenance boundaries live-verified; CI regressions from the typed-contract expansion repaired
+**Updated:** September 3, 2026 — Stage 15 semantic workflow catalog, provenance, and live cross-process recovery fully verified
 **Blender continuation branch:** `feat/blender-stage11-mainline`
 **Blender PR:** #49 — open, draft, unmerged
-**Current Blender branch work:** Stage 14 dependency-aware task composition is fully live-verified; Stage 15 adds semantic soccer-production goals, reusable composition fragments, self-contained workflow templates, a canonical declarative workflow catalog, and provenance-safe compilation/recovery into the existing autonomous task runtime
+**Stage status:** Stage 15 COMPLETE FOR CURRENT CONTRACT; Stage 16 Qwen proposal integration is now the next development stage
 
 ## Current authority model
 
 ```text
 Qwen / AI
-  -> reason and propose
+  -> reason and propose structured production tasks
 
 Python / Atlas
   -> validate, authorize, execute, track state, verify, recover
@@ -21,134 +21,25 @@ Independent verification
   -> establish what actually happened
 ```
 
-Qwen never receives direct production execution authority. Atlas development has standing authorization to run appropriate local tests, GitHub Actions workflows, action-runner tests, and relevant live validation required by the development task.
+Qwen never receives direct production execution authority. Atlas remains the authority layer.
 
-## Verified Blender — Stage 13
+## Stage 15 — COMPLETE FOR CURRENT CONTRACT
 
-Stage 13 is fully live-verified against Blender 4.4 and GitHub Actions. The two-process harness used `Goal_Left_post` with two ordered writes: move the object, then set its rotation.
+Stage 15 introduced a semantic production-goal layer without introducing a second execution engine. `ProductionTaskDefinition` represents meaningful soccer-production objectives with objective, domain, deliverables, constraints, evidence, ordered actions, target evaluation, and an action-tool allowlist. It compiles directly into the existing `AtlasTaskDefinition`, preserving the single canonical autonomous runtime.
 
-Phase 1 completed action 1, deliberately failed action 2 before its Blender write, and persisted the partial-progress checkpoint. Phase 2 started in a fresh Python process, reconstructed the blocked runtime and authorization, acquired fresh multi-request evidence, issued an evidence-bound replan authorization, executed only action 2, independently verified both target properties, and restored the fixture.
+Reusable `ProductionTaskFragment` composition supports named fragment ordering, semantic fragment dependencies, fragment-level evidence/actions, deliverables, constraints, and descriptive metadata. Executable ordering remains governed by `ActionSpec.depends_on` and the existing deterministic future controller.
 
-## Stage 14 — dependency-aware task composition
+Canonical soccer-production templates currently include:
 
-Stage 14 adds explicit prerequisite semantics without introducing parallel execution.
+- `GoalPositionTemplate`
+- `GoalOrientationTemplate`
+- `BroadcastGoalPreparationTemplate`
 
-Implemented foundation:
+The reusable broadcast workflow owns its target-state evaluator and composes the position and orientation operations into the existing Atlas task contract.
 
-- `ActionSpec.depends_on` declares prerequisite action names;
-- dependency declarations are preserved in action-plan and deterministic-future state;
-- dependency-bearing plans require unambiguous action names;
-- unknown, later, self, duplicate, malformed, and unsafe optional-action dependencies are rejected;
-- `ActionAuthorization` and `ReplanAuthorization` bind dependency declarations into their digests;
-- `AtlasTaskDefinition`, `PlanningOrchestrator`, and `AutonomousTaskRuntime` preserve dependency information during reconstruction;
-- structured task-plan validation accepts optional `depends_on` declarations without granting execution authority;
-- `FutureExecutionController` derives dependency completion from successful future checkpoints rather than executor result payloads;
-- inherited prerequisites proven complete by an earlier authorized continuation can be explicitly carried into a recovery replan;
-- inherited dependency state is included in the deterministic future integrity digest and persisted snapshot;
-- legacy dependency-free authorization digest compatibility is preserved for existing durable receipts;
-- future-controller snapshot calls fail closed when inherited dependency state is mutated after authorization.
+### Canonical workflow catalog
 
-The execution model remains serial and deterministic:
-
-```text
-explicit dependencies
-        ↓
-validated order
-        ↓
-exact authorization
-        ↓
-deterministic future
-        ↓
-one action at a time
-        ↓
-checkpoint
-```
-
-### Live Stage 14 serial proof — VERIFIED
-
-`scripts/run_live_dependency_task.py` was successfully executed against the real Blender 4.4 environment.
-
-### Live Stage 14 dependency-aware recovery — VERIFIED
-
-`scripts/run_live_dependency_recovery.py` was successfully executed across two separate Python processes against the real Blender 4.4 environment. The completed `prepare_location` prerequisite was inherited by the replacement rotation action without replaying the completed write.
-
-## Stage 15 — higher-level production tasks
-
-Stage 15 introduces a semantic production-goal layer rather than another execution layer. `ProductionTaskDefinition` represents a meaningful soccer-production objective with:
-
-- human-readable `objective`;
-- production `domain`;
-- explicit `deliverables`;
-- explicit `constraints`;
-- evidence requests and multi-operation `ActionSpec` sequences;
-- existing target evaluator and action-tool allowlist.
-
-A production task compiles directly to one existing `AtlasTaskDefinition`. Execution, authorization, checkpointing, recovery, and independent verification remain owned by the already-proven generic runtime.
-
-Reusable `ProductionTaskFragment` composition now supports:
-
-- named fragments with preserved order;
-- fragment-level evidence and action groups;
-- explicit semantic fragment dependencies validated at composition time;
-- fragment-level deliverables and constraints;
-- durable fragment metadata and snapshots;
-- task-level metadata retaining the composed fragment specifications.
-
-Fragment dependencies are semantic composition constraints. Executable ordering remains governed by the canonical `ActionSpec.depends_on` graph and the existing future controller.
-
-### Reusable soccer-production workflow templates — VERIFIED
-
-`planning/soccer_production_templates.py` is the canonical reusable workflow-template module. It currently provides:
-
-- `GoalPositionTemplate` — atomic goal-position fragment;
-- `GoalOrientationTemplate` — atomic goal-orientation fragment with a fixed semantic dependency on `position-goal` and an executable dependency on `position_goal`;
-- `BroadcastGoalPreparationTemplate` — composed two-phase workflow for preparing a soccer goal for a broadcast shot.
-
-The templates validate transform shape and finite numeric values before composition. The broadcast template owns construction of its semantic `ProductionTaskDefinition`, including its target-state evaluator, deliverables, constraints, metadata, and allowlisted action tools, while still compiling into the existing Atlas task contract rather than creating a second runtime.
-
-### Live Stage 15 reusable workflow proof — VERIFIED
-
-`scripts/run_live_production_task.py` was successfully executed by the user against the real Blender 4.4 environment using the **versioned workflow catalog -> canonical production task -> existing autonomous task runtime** path.
-
-Confirmed output:
-
-```text
-LIVE VERSIONED SOCCER PRODUCTION WORKFLOW VERIFIED
-object=Goal_Left_post
-workflow=broadcast-goal-preparation
-objective=Prepare the soccer goal for a broadcast shot.
-target_location=[0.25, 5.302, 0.0]
-target_rotation=[0.0, 0.0, 15.0]
-domain=soccer-production
-workflow_catalog=verified
-workflow_version=1
-workflow_parameter_contract=verified
-workflow_template=verified
-fragment_composition=verified
-fragment_dependencies=verified
-multi_operation_composition=verified
-dependency_validation=verified
-existing_task_runtime=verified
-independent_final_verification=verified
-fixture_restored_location=[0.0, 5.302, 0.0]
-fixture_restored_rotation=[0.0, 0.0, 0.0]
-```
-
-The live proof therefore establishes the catalog resolution boundary, version identity, typed parameter contract, reusable template construction, fragment composition, dependency validation, existing autonomous runtime execution, independent verification, and fixture restoration on the actual local Blender environment.
-
-### Target-state evaluator coverage — EXTENDED
-
-The reusable workflow test suite directly exercises the evaluator attached by `BroadcastGoalPreparationTemplate.production_task()`:
-
-- matching authoritative evidence satisfies both position and orientation invariants;
-- a position mismatch fails the overall target state while preserving the independently passing orientation invariant;
-- malformed authoritative evidence raises the target-state evaluation error rather than being treated as satisfied.
-
-### Canonical soccer-production workflow catalog — HARDENED
-
-`planning/soccer_production_catalog.py` provides a declarative catalog for reusable soccer-production workflows. It currently exposes the canonical `broadcast-goal-preparation` workflow with a stable objective, template identity, required parameter contract, and **version 1** contract marker.
-
-The catalog supports exact-name resolution and validated template construction while rejecting missing or unexpected parameters. Workflow descriptors are immutable and parameter definitions must be unique. Typed parameter contracts currently declare:
+`planning/soccer_production_catalog.py` now provides a declarative, versioned catalog for reusable soccer-production workflows. Current contract:
 
 ```text
 broadcast-goal-preparation@1
@@ -159,34 +50,113 @@ target_location -> vector3
 target_rotation -> vector3
 ```
 
-Parameter kinds are validated before template construction. Vector parameters must also contain exactly three finite numeric values, with booleans rejected as numeric vectors. This establishes a fail-closed proposal parameter boundary before template instantiation.
+The catalog validates exact workflow identity, version, required parameters, unexpected parameters, parameter kinds, vector shape, and finite numeric values before template construction.
 
-`compile_soccer_production_workflow(...)` resolves the versioned catalog entry, constructs the canonical production task, and carries the exact workflow descriptor plus normalized proposal parameters into task metadata. This preserves workflow identity as semantic provenance while keeping execution, authorization, scheduling, and recovery outside the catalog.
+`compile_soccer_production_workflow(...)` resolves the versioned catalog entry, constructs the canonical semantic production task, and records the exact workflow descriptor plus normalized parameters as semantic provenance. The catalog does not execute, authorize, schedule, or recover work.
 
-### Autonomous recovery provenance — HARDENED
+### Autonomous semantic provenance
 
-`AutonomousTaskRuntime` now copies `AtlasTaskDefinition.metadata` into persisted continuation metadata at task start and on authorized replan. Resume and continuation binding require persisted semantic metadata to match the current task definition. Recovery therefore cannot silently drop production-workflow provenance, and tampered semantic metadata fails closed before continuation.
+`AutonomousTaskRuntime` now persists task metadata into continuation state at task start and authorized replan. Resume/reconstruction verifies that persisted semantic metadata matches the supplied task definition. Authorized replans retain the original semantic task metadata. Tampered semantic provenance fails closed.
 
-The generic runtime remains unchanged as the sole checkpointed execution engine; this is a task-binding integrity improvement, not a second recovery path.
+This preserves workflow identity across normal continuation and recovery without creating a second recovery mechanism.
 
-Regression coverage now includes:
+### Live reusable workflow — VERIFIED
 
-- semantic metadata persistence at task start;
-- semantic metadata preservation across authorized recovery/replan;
-- tampered semantic metadata rejection on resume;
-- deep-copy isolation between task metadata and persisted runtime metadata;
-- versioned workflow contract propagation into the compiled production task;
-- normalized parameter provenance without mutating proposal inputs;
-- preservation of the single `AtlasTaskDefinition` contract after catalog compilation;
-- non-finite and boolean vector rejection at the catalog validation boundary.
+The real Blender 4.4 environment successfully executed the catalog-defined workflow through the existing autonomous runtime:
+
+```text
+LIVE VERSIONED SOCCER PRODUCTION WORKFLOW VERIFIED
+workflow=broadcast-goal-preparation
+workflow_version=1
+workflow_parameter_contract=verified
+workflow_catalog=verified
+workflow_template=verified
+fragment_composition=verified
+fragment_dependencies=verified
+multi_operation_composition=verified
+dependency_validation=verified
+existing_task_runtime=verified
+independent_final_verification=verified
+```
+
+The target object was `Goal_Left_post`, moved to `[0.25, 5.302, 0.0]`, rotated to `[0.0, 0.0, 15.0]`, independently verified, and restored.
+
+### Live cross-process versioned workflow recovery — VERIFIED
+
+The recovery proof was executed against real Blender 4.4 across two Python processes.
+
+Phase 1 deliberately failed the second production operation after the first prerequisite action completed. The durable checkpoint preserved workflow version, typed parameter contract, and semantic provenance.
+
+Phase 2 reconstructed the workflow from persisted catalog provenance in a fresh process and verified:
+
+- `broadcast-goal-preparation@1` identity recovered;
+- workflow parameter contract recovered;
+- semantic provenance recovered;
+- completed prerequisite was not replayed;
+- process restart recovery succeeded;
+- fresh authoritative evidence was required;
+- explicit replan authorization was required;
+- replacement execution succeeded;
+- fresh final verification succeeded;
+- fixture restoration succeeded.
+
+User-confirmed live output:
+
+```text
+LIVE VERSIONED WORKFLOW RECOVERY VERIFIED
+workflow=broadcast-goal-preparation
+workflow_version=1
+workflow_parameter_contract=verified
+semantic_provenance_recovered=verified
+completed_prerequisite_not_replayed=verified
+process_restart=verified
+fresh_recovery_evidence=verified
+replan_authorization=verified
+replacement_execution=verified
+fresh_final_verification=verified
+fixture_restored_location=[0.25, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
+```
+
+The restored location value `[0.25, 5.302, 0.0]` reflects the fixture's pre-test state at the time of this run; the verified recovery path restored that observed original state exactly.
 
 ## CI
 
-GitHub Actions `Atlas Tests` run **#1362** for commit `2baf79b559b602736fb97052b3290d3f88f3bb02` exposed three contract-test regressions caused by the typed catalog expansion: stale expected snapshot data, stale constructor calls missing `parameter_kinds`, and a test asserting `domain` on the semantic task's metadata instead of on its `domain` field. Those were corrected without weakening the implementation.
+GitHub Actions `Atlas Tests` passed after the Stage 15 repair series, including run **#1370** for commit `a8d81196b3bccc1c674d6038ff6fee115b24d8ec`. Earlier Stage 15 commits also passed runs #1365, #1366, #1367, and #1368. The earlier run #1362 failed because older catalog tests had not yet been updated for the typed parameter contract; those regressions were corrected.
 
-The current branch head is `af4e3210cd2bdbe5680bedef0e1ee2f323a6211b`. No workflow run is currently associated with that exact head, so it is **not yet CI-green**. The live versioned workflow proof is independent and was successfully completed locally by the user.
+The latest Stage 15 live-recovery harness fix is included in the green #1370 validation checkpoint.
 
-PR #49 remains open, draft, and unmerged. Do not merge it unless explicitly requested.
+## Stage 16 — NEXT
+
+Stage 16 begins Qwen proposal integration.
+
+The intended boundary is:
+
+```text
+Qwen
+  ↓
+reason about a soccer-production objective
+  ↓
+propose structured workflow/task
+  ↓
+Atlas parses and validates proposal
+  ↓
+Atlas resolves allowed catalog/template/task contract
+  ↓
+Atlas derives evidence + actions + dependencies
+  ↓
+Atlas authorizes
+  ↓
+existing autonomous runtime executes
+  ↓
+independent verification
+  ↓
+existing recovery/replan protocol
+```
+
+Qwen is a proposal/reasoning layer only. It must not receive direct tool execution, authorization, persistence, recovery, or scheduler authority.
+
+Stage 16 should therefore begin with a proposal adapter/validator around the existing structured Qwen contract and the Stage 15 workflow catalog, not with a new executor.
 
 ## Unreal
 
@@ -200,49 +170,6 @@ Atlas is intended to operate on source soccer footage including 4K/UHD. The exis
 
 Use resolution-aware workload/resource handling rather than a separate 4K architecture. Preserve the original high-resolution source as authoritative and use proxies/intermediates where appropriate without weakening provenance or evidence.
 
-## Required regression philosophy
-
-Preserve coverage for:
-
-- already-satisfied state -> zero writes;
-- unsatisfied state -> exact authorized action order;
-- successful write -> verification remains mandatory;
-- verification failure -> `BLOCKED`;
-- action failure -> durable `BLOCKED` checkpoint;
-- fresh recovery evidence -> required before recovery/replan;
-- replacement plan -> explicit replan authorization required;
-- replacement action tools -> remain within the task contract;
-- partial-progress recovery -> completed prior steps are not blindly replayed;
-- multi-request task evidence -> retained as a deterministic evidence bundle;
-- dependency references -> validated before execution;
-- dependency-aware authorization -> exact plan binding;
-- dependency completion -> derived from successful future checkpoints;
-- inherited dependency completion -> explicitly recorded and integrity-bound;
-- cross-process continuation -> recovered authorization and fresh verification;
-- cross-process blocked recovery -> recovered gate + authorization before replan;
-- production-task semantics -> compile to the existing task contract;
-- production-task dependencies -> remain authorization-bound;
-- production-task metadata -> remain descriptive, never executable;
-- fragment semantics -> retained through composition without creating execution authority;
-- reusable workflow target-state evaluation -> authoritative matching and fail-closed mismatch behavior;
-- reusable workflow catalog -> exact-name, version, immutability, typed parameter-contract, and compilation-provenance validation;
-- semantic task provenance -> retained across start, resume, and authorized replan;
-- tampered persisted semantic provenance -> rejected;
-- catalog vector semantics -> finite numeric validation before template construction;
-- mutated arguments/result -> receipt mismatch;
-- malformed executor result -> rejected;
-- wrong result tool -> rejected;
-- invalid continuation identity -> rejected;
-- authorized fresh-evidence replan -> accepted;
-- unauthorized replan -> rejected;
-- malformed Qwen reasoning -> rejected;
-- unknown/non-capability tool -> rejected;
-- Blender write without independent persistence evidence -> incomplete;
-- Blender expected/observed persistence mismatch -> rejected;
-- render job completion without artifacts -> rejected;
-- declared render artifacts that do not exist -> rejected;
-- tampered persisted render receipt -> rejected.
-
 ## Non-regression rules
 
 - Never give Qwen direct production execution authority.
@@ -254,12 +181,10 @@ Preserve coverage for:
 - Do not introduce parallel execution until dependency semantics are independently proven safe.
 - Preserve the canonical Digital Twin as distinct from Unreal, Blender, photogrammetry outputs, and temporary production artifacts.
 
+## PR status
+
+PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly requested.**
+
 ## Resume point
 
-**Next: complete the Stage 15 audit by obtaining CI validation for the repaired contract suite, then exercise recovery using the versioned catalog-produced task so catalog provenance and semantic metadata are proven together across a blocked replan path. Stage 16 remains deferred until this audit is complete.**
-
-Do not expand Qwen autonomy yet.
-
-Do not claim cross-process Unreal render-job recovery unless it is separately implemented and verified.
-
-PR #49 remains draft/unmerged.
+**Begin Stage 16: Qwen proposal integration into the validated Stage 15 workflow/task planning boundary.** Preserve Qwen as proposal-only and route all resulting work through Atlas validation, authorization, the existing autonomous runtime, and independent verification. No new execution engine or parallel path should be introduced.
