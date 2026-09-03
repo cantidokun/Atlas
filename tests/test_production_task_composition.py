@@ -75,3 +75,38 @@ def test_compose_validates_dependencies_through_canonical_task_contract():
             evaluator=_evaluator(),
             allowed_action_tools=("move_object",),
         )
+
+
+def test_fragment_semantics_survive_composition():
+    fragment = ProductionTaskFragment(
+        "lighting-prep",
+        evidence=(EvidenceRequest("inspect_scene", {"file_name": "scene.blend"}, "scene"),),
+        actions=(ActionSpec("move_object", {"location": [1, 2, 3]}, "set_light_anchor"),),
+        deliverables=("broadcast lighting anchor",),
+        constraints=("preserve field geometry",),
+        metadata={"phase": "look-development"},
+    )
+
+    production = compose_production_task(
+        name="lighting-task",
+        objective="Prepare a soccer lighting anchor.",
+        fragments=(fragment,),
+        evaluator=_evaluator(),
+        allowed_action_tools=("move_object",),
+        deliverables=("final scene-ready task",),
+        constraints=("verify the resulting state",),
+        metadata={"department": "cinematography"},
+    )
+
+    snapshot = production.snapshot()
+    assert production.deliverables == (
+        "final scene-ready task",
+        "broadcast lighting anchor",
+    )
+    assert production.constraints == (
+        "verify the resulting state",
+        "preserve field geometry",
+    )
+    assert snapshot["metadata"]["department"] == "cinematography"
+    assert snapshot["metadata"]["fragments"] == ["lighting-prep"]
+    assert snapshot["metadata"]["fragment_specs"] == [fragment.snapshot()]
