@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, List
 
 from action_plan import ActionSpec
+from planning.action_dependencies import validate_action_dependencies
 
 
 def _canonical(value: Any) -> str:
@@ -17,6 +18,7 @@ def _action_payload(action: ActionSpec) -> Dict[str, Any]:
         "arguments": dict(action.arguments),
         "name": action.name,
         "requires_success": action.requires_success,
+        "depends_on": list(action.dependency_names()),
     }
 
 
@@ -34,6 +36,7 @@ class ReplanAuthorization:
             raise ValueError("authorization_id must be a non-empty string.")
         if not isinstance(actions, list) or any(not isinstance(action, ActionSpec) for action in actions):
             raise TypeError("actions must be a list of ActionSpec objects.")
+        validate_action_dependencies(actions)
         evidence_digest = hashlib.sha256(_canonical(evidence).encode("utf-8")).hexdigest()
         actions_digest = hashlib.sha256(
             _canonical([_action_payload(action) for action in actions]).encode("utf-8")
@@ -42,6 +45,10 @@ class ReplanAuthorization:
 
     def matches(self, evidence: Any, actions: List[ActionSpec]) -> bool:
         if not isinstance(actions, list) or any(not isinstance(action, ActionSpec) for action in actions):
+            return False
+        try:
+            validate_action_dependencies(actions)
+        except (TypeError, ValueError):
             return False
         return (
             self.evidence_digest == hashlib.sha256(_canonical(evidence).encode("utf-8")).hexdigest()
