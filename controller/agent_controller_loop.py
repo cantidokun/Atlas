@@ -1,4 +1,3 @@
-
 """Agent-loop adapter for explicit controller requests.
 
 This adapter is intentionally narrow. It does not implement model reasoning,
@@ -55,15 +54,17 @@ class AgentControllerLoopAdapter:
                 "execution_context must be an AgentExecutionContext instance"
             )
 
-        # When the normal agent-facing construction path supplies neither
-        # legacy callback nor explicit context, use the context owned by the
-        # entrypoint runtime. This makes the runtime lifecycle authoritative
-        # while retaining the empty fail-closed default.
+        # The normal agent-facing construction path uses the context owned by
+        # the entrypoint runtime. A few older tests construct the runtime with
+        # __new__ to isolate the adapter, so tolerate that test seam by falling
+        # back to a fresh empty context when no runtime context is available.
         if (
             execution_context is None
             and trusted_context_provider is None
         ):
-            execution_context = runtime.execution_context
+            execution_context = getattr(runtime, "_execution_context", None)
+            if not isinstance(execution_context, AgentExecutionContext):
+                execution_context = AgentExecutionContext()
 
         self._runtime = runtime
         self._execution_context = execution_context
