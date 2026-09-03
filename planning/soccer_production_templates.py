@@ -7,6 +7,7 @@ recovery path.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
@@ -14,6 +15,11 @@ from typing import List, Tuple
 from action_plan import ActionSpec
 from planning.evidence_plan import EvidenceRequest
 from planning.production_task_composition import ProductionTaskFragment
+
+
+def _finite_transform(values: Tuple[float, ...], field_name: str) -> None:
+    if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) for value in values):
+        raise ValueError(f"workflow {field_name} must contain finite numeric values")
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,7 @@ class GoalPositionTemplate:
             raise ValueError("workflow object_name must not be empty")
         if len(self.target_location) != 3:
             raise ValueError("workflow target_location must contain three values")
+        _finite_transform(self.target_location, "target_location")
 
     @property
     def name(self) -> str:
@@ -82,6 +89,7 @@ class GoalOrientationTemplate:
             raise ValueError("workflow object_name must not be empty")
         if len(self.target_rotation) != 3:
             raise ValueError("workflow target_rotation must contain three values")
+        _finite_transform(self.target_rotation, "target_rotation")
         if any(not isinstance(item, str) or not item.strip() for item in self.depends_on):
             raise ValueError("workflow fragment dependencies must contain non-empty strings")
         if len(set(self.depends_on)) != len(self.depends_on):
@@ -147,6 +155,8 @@ class BroadcastGoalPreparationTemplate:
             raise ValueError("workflow target_location must contain three values")
         if len(self.target_rotation) != 3:
             raise ValueError("workflow target_rotation must contain three values")
+        _finite_transform(self.target_location, "target_location")
+        _finite_transform(self.target_rotation, "target_rotation")
 
     @property
     def name(self) -> str:
