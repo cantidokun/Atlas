@@ -8,7 +8,10 @@ PRODUCTION_PROPOSAL_JSON_SCHEMA = {
     "properties": {
         "workflow": {"type": "string", "minLength": 1},
         "version": {"type": ["integer", "null"], "minimum": 1},
-        "parameters": {"type": "object"},
+        "parameters": {
+            "type": "object",
+            "additionalProperties": True,
+        },
     },
 }
 
