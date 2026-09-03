@@ -10,16 +10,33 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 from action_plan import ActionSpec
 from planning.evidence_plan import EvidenceRequest
-from planning.production_task_composition import ProductionTaskFragment
+from planning.production_task import ProductionTaskDefinition
+from planning.production_task_composition import ProductionTaskFragment, compose_production_task
+from planning.target_state import StateInvariant, TargetStateEvaluator
 
 
 def _finite_transform(values: Tuple[float, ...], field_name: str) -> None:
     if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) for value in values):
         raise ValueError(f"workflow {field_name} must contain finite numeric values")
+
+
+def _object_location(result: Any, object_name: str) -> List[float]:
+    details = result.details if hasattr(result, "details") else result
+    for obj in details.get("objects", []):
+        if obj.get("name") == object_name:
+            return [float(value) for value in obj["location"]]
+    raise RuntimeError(f"Object not found: {object_name}")
+
+
+def _object_rotation(result: Any, object_name: str) -> List[float]:
+    details = result.details if hasattr(result, "details") else result
+    if details.get("object_name") != object_name:
+        raise RuntimeError("Unexpected transform object")
+    return [float(value) for value in details["rotation_degrees"]]
 
 
 @dataclass(frozen=True)
@@ -181,6 +198,32 @@ class BroadcastGoalPreparationTemplate:
             target_rotation=self.target_rotation,
         ).fragment()
         return (position, orientation)
+
+    def production_task(self) -> ProductionTaskDefinition:
+        """Build the canonical semantic task, including its target evaluator."""
+        evaluator = TargetStateEvaluator([
+            StateInvariant(
+                "goal_position_ready",
+                lambda evidence: _object_location(evidence["scene"], self.object_name)
+                == list(self.target_location),
+            ),
+            StateInvariant(
+                "goal_orientation_ready",
+                lambda evidence: _object_rotation(evidence["transform"], self.object_name)
+                == list(self.target_rotation),
+            ),
+        ])
+        return compose_production_task(
+            name=self.name,
+            objective=self.objective,
+            fragments=self.fragments(),
+            evaluator=evaluator,
+            allowed_action_tools=("move_object", "set_object_rotation"),
+            domain="soccer-production",
+            deliverables=self.deliverables,
+            constraints=self.constraints,
+            metadata={"workflow_template": self.name},
+        )
 
     def fragment_names(self) -> List[str]:
         return [fragment.name for fragment in self.fragments()]
