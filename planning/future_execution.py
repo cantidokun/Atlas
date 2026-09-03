@@ -2,15 +2,20 @@
 from dataclasses import dataclass, field
 import hashlib
 import json
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from planning.future_generator import FutureStep
 
 ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 
 
-def _canonical_steps(steps: List[FutureStep]) -> str:
-    return json.dumps([step.snapshot() for step in steps], sort_keys=True, separators=(",", ":"), default=str)
+def _canonical_steps(steps: List[FutureStep], inherited: Tuple[str, ...]) -> str:
+    return json.dumps(
+        {"steps": [step.snapshot() for step in steps], "inherited_dependencies": list(inherited)},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
 
 
 @dataclass
@@ -20,6 +25,7 @@ class FutureExecutionController:
     current_index: int = 0
     history: List[Dict[str, Any]] = field(default_factory=list)
     failed: Optional[Dict[str, Any]] = None
+    inherited_dependencies: Tuple[str, ...] = ()
     _plan_digest: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -33,12 +39,17 @@ class FutureExecutionController:
         ids = [step.step_id for step in self.steps]
         if len(ids) != len(set(ids)):
             raise ValueError("Future step IDs must be unique.")
+        self.inherited_dependencies = tuple(
+            sorted({str(name).strip() for name in self.inherited_dependencies if str(name).strip()})
+        )
         if not 0 <= self.current_index <= len(self.steps):
             raise ValueError("current_index must point within the future path.")
         self._plan_digest = self._compute_plan_digest()
 
     def _compute_plan_digest(self) -> str:
-        return hashlib.sha256(_canonical_steps(self.steps).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            _canonical_steps(self.steps, self.inherited_dependencies).encode("utf-8")
+        ).hexdigest()
 
     def _ensure_integrity(self) -> None:
         if self._compute_plan_digest() == self._plan_digest:
@@ -83,10 +94,19 @@ class FutureExecutionController:
         expected_step = None if failed is not None else (self.steps[snapshot_index].snapshot() if snapshot_index < len(self.steps) else None)
         if snapshot_step != expected_step:
             raise RuntimeError("Future snapshot current step does not match the authorized future.")
+        snapshot_inherited = tuple(sorted(snapshot.get("inherited_dependencies", [])))
+        if snapshot_inherited != self.inherited_dependencies:
+            raise RuntimeError("Future snapshot inherited dependencies do not match the authorized future.")
 
     @classmethod
-    def resume_from_snapshot(cls, steps: List[FutureStep], snapshot: Dict[str, Any]) -> "FutureExecutionController":
-        controller = cls(steps)
+    def resume_from_snapshot(
+        cls,
+        steps: List[FutureStep],
+        snapshot: Dict[str, Any],
+        *,
+        inherited_dependencies: Tuple[str, ...] = (),
+    ) -> "FutureExecutionController":
+        controller = cls(steps, inherited_dependencies=inherited_dependencies)
         controller._validate_resume_state(snapshot)
         controller.current_index = snapshot["current_index"]
         controller.history = list(snapshot.get("history", []))
@@ -128,14 +148,16 @@ class FutureExecutionController:
             entry["result"] = result
         self.history.append(entry)
 
-    def _completed_action_names(self) -> set:
-        return {
+    def _completed_action_names(self) -> Set[str]:
+        completed = set(self.inherited_dependencies)
+        completed.update(
             entry["action_name"]
             for entry in self.history
             if entry.get("phase") == "ACTION"
             and entry.get("status") == "succeeded"
             and isinstance(entry.get("action_name"), str)
-        }
+        )
+        return completed
 
     def _dependency_failure(self, step: FutureStep) -> Optional[Dict[str, Any]]:
         if not step.action:
@@ -229,4 +251,4 @@ class FutureExecutionController:
 
     def snapshot(self) -> Dict[str, Any]:
         step = self.current_step
-        return {"current_index": self.current_index, "total_steps": len(self.steps), "complete": self.complete, "blocked": self.blocked, "current_step": step.snapshot() if step is not None else None, "next_action": self.next_action, "failure": self.failed, "history": list(self.history), "plan_digest": self._plan_digest}
+        return {"current_index": self.current_index, "total_steps": len(self.steps), "complete": self.complete, "blocked": self.blocked, "current_step": step.snapshot() if step is not None else None, "next_action": self.next_action, "failure": self.failed, "history": list(self.history), "inherited_dependencies": list(self.inherited_dependencies), "plan_digest": self._plan_digest}
