@@ -125,6 +125,35 @@ class FutureExecutionController:
             entry["result"] = result
         self.history.append(entry)
 
+    def _completed_action_names(self) -> set:
+        return {
+            entry["result"].get("name")
+            for entry in self.history
+            if entry.get("phase") == "ACTION"
+            and entry.get("status") == "succeeded"
+            and isinstance(entry.get("result"), dict)
+            and isinstance(entry["result"].get("name"), str)
+        }
+
+    def _dependency_failure(self, step: FutureStep) -> Optional[Dict[str, Any]]:
+        if not step.action:
+            return None
+        dependencies = step.action.get("depends_on", [])
+        if not dependencies:
+            return None
+        completed_names = self._completed_action_names()
+        missing = [dependency for dependency in dependencies if dependency not in completed_names]
+        if not missing:
+            return None
+        return {
+            "sequence": step.sequence,
+            "step_id": step.step_id,
+            "phase": step.phase,
+            "error": f"Action dependencies are not satisfied: {missing}",
+            "exception_type": "ActionDependencyExecutionError",
+            "missing_dependencies": missing,
+        }
+
     def acknowledge(self, result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         self._ensure_integrity()
         step = self.current_step
@@ -147,6 +176,11 @@ class FutureExecutionController:
             raise RuntimeError("Future execution is already resolved.")
         if step.phase != "ACTION" or step.action is None:
             raise RuntimeError("Current future step is not an executable ACTION.")
+        dependency_failure = self._dependency_failure(step)
+        if dependency_failure is not None:
+            self.failed = dependency_failure
+            self._record(step, "failed", dependency_failure)
+            raise RuntimeError(dependency_failure["error"])
         try:
             result = execute(step.action["tool"], dict(step.action["arguments"]))
         except Exception as exc:
