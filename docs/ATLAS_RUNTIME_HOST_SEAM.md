@@ -1,19 +1,26 @@
 # Atlas Controller Host Seam
 
-The `AgentControllerHost` is the explicit host-owned lifecycle boundary for controller execution.
+The `AgentControllerHost` is the host-owned lifecycle boundary for controller execution.
 
-It owns an `AtlasAgentEntrypointRuntime` and the trusted `AgentExecutionContext` used by the
-controller loop for one agent execution. The entrypoint runtime now owns that execution context
-itself. `AgentControllerHost` and `AgentControllerLoopAdapter` share the runtime-owned context
-rather than creating competing context instances.
+It owns an `AtlasAgentEntrypointRuntime`, the `AgentExecutionContext`, and the
+`AgentControllerLoopAdapter` for one agent execution. The host can also accept an
+explicit `AgentTaskRequest` through `dispatch()`, making the host itself a drop-in
+controller entrypoint seam for agent-facing code.
 
-This gives the normal agent-facing construction path a single lifecycle owner while preserving the
-legacy `AgentControllerLoopAdapter(runtime)` construction form. Its default context is empty, so
-protected capabilities remain fail-closed until already-authorized provider state is explicitly
-installed by the host.
+`AtlasAgentEntrypointRuntime` owns its execution context. When a caller constructs a
+host with an already-created runtime and an explicitly supplied execution context,
+the host binds that supplied context to the runtime before constructing the loop.
+This preserves existing dependency-injection behavior while keeping one authoritative
+context identity for the host/runtime/loop lifecycle.
 
-`AgentControllerHost.dispatch()` is the explicit drop-in controller entrypoint seam. It validates
-that the request is an `AgentTaskRequest` and delegates classification/execution to the existing
-entrypoint runtime without performing authorization itself.
+The loop adapter uses the runtime-owned context on normal construction. Its isolated
+legacy test seam also tolerates runtimes constructed without `__init__`, falling back
+to a fresh empty context; this does not create authorization or bypass the trusted
+context boundary.
 
-The legacy Blender tool loop remains outside this boundary and is not changed by the host seam.
+This seam does not create authorization. Protected Unreal execution still requires
+trusted, host-installed Unreal context, and the default context remains empty so
+protected capabilities fail closed.
+
+The legacy Blender tool loop remains outside this boundary and is not changed by
+this seam.
