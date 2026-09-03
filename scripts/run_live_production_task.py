@@ -81,6 +81,9 @@ def _production_task(path: Path, object_name: str, target_location: List[float],
             {"file_name": str(path), "object_name": object_name, "location": target_location},
             "position_goal",
         ),),
+        deliverables=("broadcast-ready goal position",),
+        constraints=("preserve goal geometry",),
+        metadata={"production_phase": "layout"},
     )
     orientation = ProductionTaskFragment(
         "orient-goal",
@@ -91,6 +94,10 @@ def _production_task(path: Path, object_name: str, target_location: List[float],
             "orient_goal",
             depends_on=("position_goal",),
         ),),
+        deliverables=("broadcast-ready goal orientation",),
+        constraints=("preserve position established by layout phase",),
+        metadata={"production_phase": "orientation"},
+        depends_on=("position-goal",),
     )
     return compose_production_task(
         name="prepare-broadcast-goal",
@@ -188,6 +195,7 @@ def main() -> int:
         print(f"target_rotation={target_rotation}")
         print(f"domain={production.domain}")
         print("fragment_composition=verified")
+        print("fragment_dependencies=verified")
         print("multi_operation_composition=verified")
         print("dependency_validation=verified")
         print("existing_task_runtime=verified")
