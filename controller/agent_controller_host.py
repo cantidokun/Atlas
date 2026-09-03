@@ -1,6 +1,6 @@
 """Host-owned lifecycle for the Atlas agent controller boundary.
 
-This layer owns the controller runtime and the trusted execution context for
+This layer owns the controller runtime and trusted execution context for
 one agent execution. It deliberately does not create authorization; callers
 must install already-authorized provider context explicitly.
 """
@@ -61,12 +61,20 @@ class AgentControllerHost:
             )
 
         if runtime is None:
-            runtime = AtlasAgentEntrypointRuntime(process)
+            execution_context = execution_context or AgentExecutionContext()
+            runtime = AtlasAgentEntrypointRuntime(
+                process,
+                execution_context=execution_context,
+            )
+        elif execution_context is None:
+            execution_context = runtime.execution_context
+        elif execution_context is not runtime.execution_context:
+            raise ValueError(
+                "execution_context must be the context owned by runtime"
+            )
 
         self._runtime = runtime
-        self._execution_context = (
-            execution_context or AgentExecutionContext()
-        )
+        self._execution_context = execution_context
         self._loop = AgentControllerLoopAdapter(
             self._runtime,
             execution_context=self._execution_context,
