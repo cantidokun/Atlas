@@ -22,6 +22,7 @@ from controller.agent_entrypoint_runtime import (
     AtlasAgentEntrypointRuntime,
 )
 from controller.agent_trusted_context import AgentTrustedContext
+from controller.trusted_unreal_context import TrustedUnrealContext
 
 
 class AgentControllerLoopAdapter:
@@ -55,6 +56,16 @@ class AgentControllerLoopAdapter:
                 "execution_context must be an AgentExecutionContext instance"
             )
 
+        # The real agent-facing loop always owns an execution context when
+        # callers have not supplied a legacy provider callback. The default
+        # context is deliberately empty, so protected capabilities remain
+        # fail-closed until the host installs already-authorized state.
+        if (
+            execution_context is None
+            and trusted_context_provider is None
+        ):
+            execution_context = AgentExecutionContext()
+
         self._runtime = runtime
         self._execution_context = execution_context
 
@@ -68,6 +79,35 @@ class AgentControllerLoopAdapter:
     @property
     def runtime(self) -> AtlasAgentEntrypointRuntime:
         return self._runtime
+
+    @property
+    def execution_context(self) -> Optional[AgentExecutionContext]:
+        return self._execution_context
+
+    def install_unreal_context(
+        self,
+        context: TrustedUnrealContext,
+    ) -> None:
+        """Install an already-authorized Unreal context for this loop."""
+        if self._execution_context is None:
+            raise RuntimeError(
+                "cannot install trusted context when a legacy trusted_context_provider is configured"
+            )
+
+        self._execution_context.install_unreal(context)
+
+    def install_trusted_context(
+        self,
+        provider: str,
+        context: AgentTrustedContext,
+    ) -> None:
+        """Install typed trusted provider state for this loop."""
+        if self._execution_context is None:
+            raise RuntimeError(
+                "cannot install trusted context when a legacy trusted_context_provider is configured"
+            )
+
+        self._execution_context.install(provider, context)
 
     def process_model_response(
         self,
