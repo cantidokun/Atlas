@@ -74,6 +74,19 @@ def test_propose_uses_structured_schema_and_exposes_no_tools():
     assert "authorization" not in request
 
 
+def test_system_prompt_exposes_exact_canonical_workflow_identity():
+    session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
+    provider = OllamaQwenProvider(session=session)
+
+    provider.propose("Prepare the soccer goal for a broadcast shot.")
+
+    system_prompt = session.calls[0][1]["json"]["messages"][0]["content"]
+    assert "broadcast-goal-preparation@1" in system_prompt
+    assert "Do not invent aliases, synonyms, or new workflow names." in system_prompt
+    assert "file_name:string" in system_prompt
+    assert "target_location:vector3" in system_prompt
+
+
 def test_context_is_sent_as_prompt_only():
     session = FakeSession(FakeResponse({"message": {"content": json.dumps(_payload())}}))
     provider = OllamaQwenProvider(session=session)
@@ -143,6 +156,17 @@ def test_provider_rejects_invalid_model_output():
 
     with pytest.raises(QwenProviderError, match="invalid production proposal"):
         provider.propose("Prepare the soccer goal.")
+
+
+def test_provider_rejects_unknown_workflow_from_model():
+    payload = _payload()
+    payload["workflow"] = "soccer_goal_broadcast"
+    session = FakeSession(FakeResponse({"message": {"content": json.dumps(payload)}}))
+    provider = OllamaQwenProvider(session=session)
+
+    proposal = provider.propose("Prepare the soccer goal.")
+    with pytest.raises(QwenProviderError, match="unknown soccer production workflow"):
+        compile_qwen_production_proposal(proposal.snapshot())
 
 
 def test_provider_rejects_missing_message():
