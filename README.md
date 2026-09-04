@@ -63,7 +63,7 @@ The real Blender 4.4 production-artifact closed loop has been user-verified: rea
 
 ### Unreal Stage 17 — IMPLEMENTED / REAL UE PROOF PENDING
 
-The proven Unreal Engine 5.6 render boundary is:
+The proven Unreal Engine 5.6 production boundary is restored on `main` and locally compile-verified after recovery from the last known working harness snapshot.
 
 ```text
 render configuration
@@ -79,6 +79,8 @@ render configuration
   → durable receipt persistence
 ```
 
+The restored UE 5.6 harness includes the project, controlled render fixture assets, render and world-save boundary tests, the Unreal transport module, and the named-pipe transport server required by the working render path. The local UE 5.6 editor build completed **19/19 actions successfully**, including `AtlasTransportServer.cpp`, `AtlasUnrealTransport.cpp`, the render boundary test, and the world-save boundary test.
+
 The Stage 17 provenance continuation is:
 
 ```text
@@ -90,11 +92,9 @@ verified UnrealEvidence snapshot
   → exact lineage verification
 ```
 
-`UnrealEvidence.snapshot()` / `from_snapshot(...)` and `UnrealRenderReceipt.snapshot()` / `from_snapshot(...)` are canonical detached serialization boundaries with fail-closed validation. The receipt store retains its separate versioned storage envelope.
-
 The disposable `live_unreal_production_artifact_proof.py` harness consumes an already verified Unreal evidence/receipt pair, reconstructs the immutable provenance chain, persists and reloads the manifest, independently verifies exact lineage, and reports digest identities. It does not submit or execute a render and does not implement Unreal job recovery.
 
-The remaining Stage 17 gate is a human-run proof using evidence emitted by the existing proven UE 5.6 render boundary. The exact procedure is documented in `docs/STAGE17_UNREAL_PROOF.md`.
+The remaining Stage 17 gate is a human-run proof using evidence emitted by the existing UE 5.6 render boundary. The exact procedure is documented in `docs/STAGE17_UNREAL_PROOF.md`.
 
 **Cross-process Unreal render-job recovery is not implemented.** Receipt persistence must not be described as job persistence.
 
@@ -118,7 +118,7 @@ Unreal production integration seam
 
 Model-supplied protected intent is never promoted to authority. A conflicting model intent is retained only as diagnostic mismatch state. Model-supplied production flags cannot disable the host-owned production marker. The integration seam rejects missing required trusted context before execution.
 
-This boundary adds no second authorization, scheduler, recovery engine, or Unreal execution path.
+The restored Unreal transport remains an engine execution boundary, not a second authorization system. Its transport validation requires a non-empty authorization field for the request contract, while authority remains owned by the trusted Atlas host boundary.
 
 ## Digital Twin and production direction
 
@@ -146,9 +146,10 @@ These are production modules, not the definition of Atlas.
 ## End-of-night resume point
 
 1. Pull the latest `main`.
-2. Run the focused deterministic tests covering the latest Unreal/controller trust-boundary changes.
-3. Do not run the live Unreal proof until the Windows/UE 5.6 environment is ready for the human validation gate.
-4. Execute the existing UE 5.6 render boundary, capture its verified evidence/receipt pair, then run `live_unreal_production_artifact_proof.py` against that pair.
-5. Only after that proof succeeds, resume selective integration of the stronger historical controller-host architecture from PR #50.
+2. Run focused deterministic tests covering the newest Unreal/controller trust-boundary changes.
+3. Run the human UE 5.6 Stage 17 provenance proof using evidence emitted by the restored render boundary.
+4. Execute `live_unreal_production_artifact_proof.py` against the verified evidence/receipt pair.
+5. Confirm manifest persistence, reload, exact lineage, and digest identities.
+6. Only after that proof succeeds, resume selective integration of the stronger historical controller-host architecture from PR #50.
 
 Historical handoff snapshots remain archival records and should not be rewritten to reflect this checkpoint.
