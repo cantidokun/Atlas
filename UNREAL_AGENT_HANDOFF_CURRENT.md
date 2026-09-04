@@ -1,8 +1,8 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 4, 2026 — end-of-night checkpoint.
+**Updated:** September 4, 2026 — end-of-night checkpoint after PR #57 restored the working Unreal 5.6 transport/render boundary.
 **Active Atlas branch:** `main`
-**Current focus:** Stage 17 production-artifact lineage and selective controller-boundary hardening.
+**Current focus:** Stage 17 production-artifact lineage, with the UE 5.6 execution boundary restored and the final live provenance proof still pending.
 
 ## Architectural position
 
@@ -36,9 +36,13 @@ ProductionArtifactManifest
 
 Qwen remains a reasoning/proposal source. It does not authorize or directly execute Unreal operations.
 
-## Verified Unreal execution baseline
+## Restored and compile-verified Unreal execution baseline
 
-The Unreal Engine 5.6 render boundary has been exercised through a real runtime for the implemented workflow:
+PR #57 has restored the previously working Unreal 5.6 execution boundary to `main`. The recovered tree includes the controlled UE 5.6 project, render fixture assets, render/world-save boundary sources, Unreal transport module, and named-pipe transport server.
+
+The local UE 5.6 editor build completed **19/19 actions successfully**. This included successful compilation and linking of `AtlasTransportServer.cpp` and `AtlasUnrealTransport.cpp`, plus the render and world-save boundary sources.
+
+The working render workflow remains:
 
 ```text
 render configuration
@@ -54,7 +58,7 @@ render configuration
   → durable receipt persistence
 ```
 
-Controlled live render:
+The previously proven controlled live render parameters were:
 
 ```text
 resolution:       640x360
@@ -63,7 +67,9 @@ output format:    PNG
 output directory: Saved/AtlasRenderOutput
 ```
 
-The real render/receipt path is live-proven. Cross-process Unreal render-job recovery is not implemented.
+The restored boundary is compile-verified in this checkpoint; the next live step is to exercise the boundary again and produce fresh Stage 17 provenance evidence.
+
+**Cross-process Unreal render-job recovery is not implemented.** The runtime render-job registry remains in-memory.
 
 ## Stage 17 — production-artifact provenance
 
@@ -85,7 +91,7 @@ artifact_path              ∈ independently observed output_files
 
 `UnrealEvidence.snapshot()` / `from_snapshot(...)` and `UnrealRenderReceipt.snapshot()` / `from_snapshot(...)` are canonical detached serialization boundaries with exact-field fail-closed validation.
 
-The disposable `live_unreal_production_artifact_proof.py` harness consumes the already verified evidence/receipt pair, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports artifact/evidence/receipt/manifest digests. It does not submit or execute a render.
+The disposable `live_unreal_production_artifact_proof.py` harness consumes the already verified evidence/receipt pair, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports artifact/evidence/receipt digests. It does not submit or execute a render.
 
 ## Controller-to-Unreal trust boundary
 
@@ -99,22 +105,34 @@ For protected Unreal production requests:
 - model-supplied production flags cannot disable the host-owned production marker;
 - the Unreal production integration seam rejects missing required trusted context before execution.
 
-This adds no second authorization system, scheduler, recovery engine, or Unreal execution path.
+The restored C++ transport is an engine execution/transport boundary, not a second authorization system. Its transport-level authorization field is part of the request contract, but authority remains owned by the trusted Atlas host boundary.
 
 ## Validation status
 
-Deterministic Stage 17 provenance/snapshot coverage has been validated on Python 3.9 and 3.11 at the previously reported checkpoints.
+Verified in this checkpoint:
 
-The September 4 controller trust-boundary increments have **not** yet received a new local Windows test result in this session.
+- UE 5.6 editor compilation of the restored Unreal harness: **19/19 actions succeeded**.
+- `AtlasTransportServer.cpp` compiled and linked successfully.
+- `AtlasUnrealTransport.cpp` compiled and linked successfully.
+- render/world-save boundary sources compiled successfully.
 
-The remaining Stage 17 validation gate is the real UE 5.6 provenance proof using evidence emitted by the existing proven render boundary.
+Previously verified:
+
+- deterministic Stage 17 provenance/snapshot coverage on Python 3.9 and 3.11;
+- the original real UE 5.6 render/receipt path.
+
+Still pending:
+
+- a new deterministic Python test run for the September 4 controller trust-boundary changes;
+- fresh execution of the restored UE 5.6 render path;
+- the human UE 5.6 Stage 17 provenance proof using that fresh verified evidence/receipt pair.
 
 ## Resume point
 
 1. Pull the latest `main`.
 2. Run the focused controller trust-boundary tests.
-3. Run the human UE 5.6 Stage 17 provenance proof.
-4. Feed the resulting verified evidence/receipt pair to `live_unreal_production_artifact_proof.py`.
+3. Exercise the restored UE 5.6 render boundary and capture fresh verified evidence/receipt data.
+4. Run `live_unreal_production_artifact_proof.py` against that verified evidence/receipt pair.
 5. Confirm manifest persistence, reload, exact lineage, and digest identities.
 6. Then continue selective integration of PR #50's stronger controller-host architecture.
 
