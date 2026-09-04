@@ -16,6 +16,7 @@ def _snapshot(
     state: str = "complete",
     *,
     failure=None,
+    recovery=None,
     waiting_for_reassessment: bool = False,
     waiting_for_replacement: bool = False,
     required_authorizations: tuple = (),
@@ -26,7 +27,7 @@ def _snapshot(
         waiting_for_reassessment=waiting_for_reassessment,
         waiting_for_replacement=waiting_for_replacement,
         failure=failure,
-        recovery=None,
+        recovery=recovery,
         required_authorizations=required_authorizations,
     )
 
@@ -60,17 +61,24 @@ def test_non_workflow_complete_event_has_successful_unverified_render_contract()
     assert result.success is True
     assert result.completion_state == "complete"
     assert result.required_authorizations == ()
+    assert result.failed is False
+    assert result.requires_recovery is False
+    assert result.failure is None
+    assert result.recovery is None
     assert result.verified_render is False
     assert result.final_evidence is None
     assert result.receipt is None
 
 
 def test_non_workflow_reassessment_state_remains_unsuccessful_and_exposes_required_authorization():
+    failure = {"phase": "production"}
+    recovery = {"action": "reassess"}
     event = UnrealProductionControllerEvent(
         operation="start",
         snapshot=_snapshot(
             "awaiting_reassessment",
-            failure={"phase": "production"},
+            failure=failure,
+            recovery=recovery,
             waiting_for_reassessment=True,
             required_authorizations=("reassessment",),
         ),
@@ -81,6 +89,10 @@ def test_non_workflow_reassessment_state_remains_unsuccessful_and_exposes_requir
     assert result.success is False
     assert result.completion_state == "awaiting_reassessment"
     assert result.required_authorizations == ("reassessment",)
+    assert result.failed is True
+    assert result.requires_recovery is True
+    assert result.failure == failure
+    assert result.recovery == recovery
     assert result.verified_render is False
 
 
@@ -100,6 +112,8 @@ def test_non_workflow_replacement_state_remains_unsuccessful_and_exposes_require
     assert result.success is False
     assert result.completion_state == "awaiting_replacement"
     assert result.required_authorizations == ("replacement",)
+    assert result.failed is True
+    assert result.requires_recovery is True
     assert result.verified_render is False
 
 
@@ -148,6 +162,8 @@ def test_successful_contract_exposes_terminal_state_and_no_required_authorizatio
 
     assert result.completion_state == "recovery_complete"
     assert result.required_authorizations == ()
+    assert result.failed is False
+    assert result.requires_recovery is False
 
 
 def test_result_contract_rejects_render_evidence_on_unsuccessful_result():
@@ -198,6 +214,8 @@ def test_unsuccessful_contract_carries_no_verified_render():
 
     assert result.success is False
     assert result.verified_render is False
+    assert result.failed is True
+    assert result.requires_recovery is True
     assert result.job_id is None
     assert result.final_evidence is None
     assert result.receipt is None
@@ -298,6 +316,8 @@ def test_matching_evidence_and_receipt_form_verified_render_contract():
     )
 
     assert result.verified_render is True
+    assert result.failed is False
+    assert result.requires_recovery is False
     assert result.receipt.matches(result.final_evidence) is True
 
 
@@ -315,6 +335,8 @@ def test_result_contract_does_not_report_stale_render_after_failure_normalizatio
     result = normalize_unreal_production_event(event)
 
     assert result.success is False
+    assert result.failed is True
+    assert result.requires_recovery is True
     assert result.verified_render is False
     assert result.final_evidence is None
     assert result.receipt is None
