@@ -65,6 +65,8 @@ class AgentControllerHost:
     ) -> "AgentControllerHost":
         if not isinstance(trusted_context, TrustedUnrealContext):
             raise TypeError("trusted_context must be TrustedUnrealContext")
+        if integration is None or not callable(getattr(integration, "execute", None)):
+            raise TypeError("integration must expose a callable execute method")
         host = cls()
         host._unreal_integration = integration
         host.runtime.execution_context.set_unreal_production(trusted_context)
@@ -98,12 +100,14 @@ class AgentControllerHost:
         if str(provider).lower() == "unreal" and str(capability).lower() == "production":
             trusted = self.runtime.execution_context.get_unreal_production()
             # All security-sensitive Unreal production identity comes from the
-            # host-owned trusted context. Model intent is not an authority source.
+            # host-owned trusted context. Model intent and production flags are
+            # never accepted as authority or control inputs.
             intent = trusted.intent
             context = trusted.capability_context()
-            context["production"] = bool(model_context.get("production", True))
             if model_intent is not None and model_intent != trusted.intent:
                 context["model_intent_mismatch"] = True
+            if "production" in model_context and model_context["production"] is not True:
+                context["model_production_mismatch"] = True
         else:
             intent = model_intent
             context = dict(model_context)
