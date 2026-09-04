@@ -1,8 +1,8 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is implemented and regression-hardened on main. The host boundary has been hardened so protected Unreal requests cannot use model-supplied intent or production flags as authority, and the Unreal controller integration seam now rejects requests that do not carry the complete host-owned trusted context.
-**Focus:** Unreal Agent and supporting architecture only.
+**Updated:** September 4, 2026 — end-of-night checkpoint.
 **Active Atlas branch:** `main`
+**Current focus:** Stage 17 production-artifact lineage and selective controller-boundary hardening.
 
 ## Architectural position
 
@@ -38,9 +38,7 @@ Qwen remains a reasoning/proposal source. It does not authorize or directly exec
 
 ## Verified Unreal execution baseline
 
-The Unreal production transport and render boundary has been exercised through a real Unreal Engine 5.6 runtime.
-
-Verified path:
+The Unreal Engine 5.6 render boundary has been exercised through a real runtime for the implemented workflow:
 
 ```text
 render configuration
@@ -50,8 +48,8 @@ render configuration
   → asynchronous job inspection
   → semantic completion verification
   → actual output artifact discovery
-  → filesystem existence/non-zero-size validation
-  → verified evidence
+  → filesystem validation
+  → verified inspect_render_job evidence
   → evidence-bound UnrealRenderReceipt
   → durable receipt persistence
 ```
@@ -65,13 +63,13 @@ output format:    PNG
 output directory: Saved/AtlasRenderOutput
 ```
 
-The completed live render produced a real PNG artifact. The receipt was derived from verified render evidence.
+The real render/receipt path is live-proven. Cross-process Unreal render-job recovery is not implemented.
 
-## Stage 17 production-artifact provenance
+## Stage 17 — production-artifact provenance
 
-`ProductionArtifactManifest.from_unreal_render_receipt(...)` is a provenance-only bridge from an existing immutable `UnrealRenderReceipt` plus its immutable `UnrealEvidence` to a production artifact.
+`ProductionArtifactManifest.from_unreal_render_receipt(...)` is a provenance-only bridge from an existing immutable `UnrealRenderReceipt` plus `UnrealEvidence`.
 
-Construction now requires:
+Required lineage invariants:
 
 ```text
 engine                     == Unreal
@@ -81,48 +79,61 @@ receipt.matches(evidence)  == True
 artifact_path              ∈ independently observed output_files
 ```
 
-`verify_unreal_render_lineage(...)` rechecks the same bindings without executing Unreal, authorizing work, scheduling a render, or recovering a job.
+`verify_unreal_render_lineage(...)` rechecks those bindings without executing Unreal, authorizing work, scheduling a render, or recovering a job.
 
-The manifest is durably persisted through `ProductionArtifactStore`, with deterministic serialization, atomic replacement, file flushing, fail-closed reload validation, and manifest-integrity checking.
+`ProductionArtifactStore` provides durable versioned manifest persistence with fail-closed reload and integrity validation.
 
-PR #55 added `live_unreal_production_artifact_proof.py`. It consumes an already verified Unreal evidence snapshot plus matching render receipt, constructs the manifest, persists and reloads it, independently verifies exact lineage, and reports the artifact, evidence, receipt, and manifest digests. Focused regression coverage passed on Python 3.9 and 3.11 before merge.
+`UnrealEvidence.snapshot()` / `from_snapshot(...)` and `UnrealRenderReceipt.snapshot()` / `from_snapshot(...)` are canonical detached serialization boundaries with exact-field fail-closed validation.
 
-### Host trust-boundary hardening
+The disposable `live_unreal_production_artifact_proof.py` harness consumes the already verified evidence/receipt pair, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports artifact/evidence/receipt/manifest digests. It does not submit or execute a render.
 
-`controller/agent_controller_host.py` treats `TrustedUnrealContext` as the sole authority source for protected Unreal production intent and the `production=True` execution marker. Model-supplied intent and production values are never promoted into trusted execution state; contradictory model values are recorded only as diagnostic mismatch flags. The host rejects an Unreal integration that does not expose a callable `execute` method.
+## Controller-to-Unreal trust boundary
 
-`planning/unreal_production_controller_integration.py` now performs a second admission check at the controller-to-Unreal seam. A protected Unreal production request must contain all host-owned context keys: `production`, `authorized_production`, `intent`, and `sequence_asset_path`. The seam rejects missing authorization context, empty trusted intent/path values, or a false production marker before calling the executor.
+The current mainline `AgentControllerHost` remains intentionally narrow while the historical controller-host architecture in PR #50 remains isolated.
 
-`tests/test_agent_controller_host_trust_boundary.py` and `tests/test_unreal_production_controller_context_admission.py` provide deterministic regression coverage for those boundaries.
+For protected Unreal production requests:
 
-### Current validation status
+- `TrustedUnrealContext` supplies protected intent, authorization context, sequence path, and the production marker;
+- model-supplied protected intent cannot replace the trusted intent;
+- conflicting model intent becomes diagnostic mismatch state only;
+- model-supplied production flags cannot disable the host-owned production marker;
+- the Unreal production integration seam rejects missing required trusted context before execution.
 
-The underlying real Unreal render/receipt path is live verified. The Stage 17 production-artifact manifest bridge and its proof harness are regression-verified but **have not yet been live verified inside Unreal**.
+This adds no second authorization system, scheduler, recovery engine, or Unreal execution path.
 
-The remaining human gate is therefore not another render implementation. It is a disposable proof using evidence emitted by the existing proven UE 5.6 render boundary. No second execution path should be introduced.
+## Validation status
 
-## Important boundary
+Deterministic Stage 17 provenance/snapshot coverage has been validated on Python 3.9 and 3.11 at the previously reported checkpoints.
 
-The Unreal runtime render-job registry remains in-memory.
+The September 4 controller trust-boundary increments have **not** yet received a new local Windows test result in this session.
 
-`UnrealRenderReceiptStore` provides durable receipt persistence, but **cross-process recovery of Unreal runtime render jobs is not implemented**.
+The remaining Stage 17 validation gate is the real UE 5.6 provenance proof using evidence emitted by the existing proven render boundary.
 
-Do not represent receipt persistence as job persistence.
+## Resume point
+
+1. Pull the latest `main`.
+2. Run the focused controller trust-boundary tests.
+3. Run the human UE 5.6 Stage 17 provenance proof.
+4. Feed the resulting verified evidence/receipt pair to `live_unreal_production_artifact_proof.py`.
+5. Confirm manifest persistence, reload, exact lineage, and digest identities.
+6. Then continue selective integration of PR #50's stronger controller-host architecture.
 
 ## Non-regression rules
 
 - Never give Qwen direct production execution or authorization authority.
+- Never accept model-supplied authorization IDs or receipts as authority.
+- Never accept model-supplied protected Unreal intent or production flags as authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from a transport/write response alone.
 - Preserve independent verification and the evidence ledger.
 - Keep Unreal-specific behavior behind adapter/tool boundaries.
 - Treat render artifacts as independently validated evidence.
-- Preserve canonical Digital Twin identity separately from Unreal assets, levels, jobs, and files.
+- Preserve canonical Digital Twin identity separately from Unreal assets, levels, jobs, receipts, and files.
 - Do not confuse durable receipt persistence with runtime job persistence.
 - Do not claim cross-process Unreal job recovery until implemented and verified.
-- Do not run workflow/action-runner tests for the live gate unless explicitly authorized.
+- Do not run workflow/action-runner tests unless explicitly authorized.
 
-## Resume point
+## Historical documentation
 
-Run the existing UE 5.6 render proof and feed its already-verified receipt/evidence snapshots into `live_unreal_production_artifact_proof.py`. Confirm manifest persistence, reload, exact lineage verification, and digest identities. Do not rework the proven render/receipt execution boundary without identifying a concrete capability gap.
+Older dated handoff snapshots are archival records and should not be rewritten. This document is the authoritative current Unreal handoff.
