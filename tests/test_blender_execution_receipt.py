@@ -37,7 +37,9 @@ def test_receipt_snapshot_round_trip_preserves_integrity():
 
 def test_receipt_snapshot_rejects_unknown_fields():
     boundary = BlenderExecutionBoundary(lambda tool, args: {"ok": True, "state": "applied", "details": {}})
-    _, receipt = boundary.execute_with_receipt("move_object", {"object_name": "Goal_Left_post"})
+    _, receipt = boundary.execute_with_receipt(
+        "move_object", {"object_name": "Goal_Left_post", "location": [0, 0, 0]}
+    )
     snapshot = copy.deepcopy(receipt.snapshot())
     snapshot["authorization"] = "atlas-issued"
     with pytest.raises(ValueError, match="fields are invalid"):
@@ -46,7 +48,9 @@ def test_receipt_snapshot_rejects_unknown_fields():
 
 def test_receipt_integrity_fails_closed_after_tampering():
     boundary = BlenderExecutionBoundary(lambda tool, args: {"ok": True, "state": "applied", "details": {}})
-    _, receipt = boundary.execute_with_receipt("move_object", {"object_name": "Goal_Left_post"})
+    _, receipt = boundary.execute_with_receipt(
+        "move_object", {"object_name": "Goal_Left_post", "location": [0, 0, 0]}
+    )
     digest = receipt.digest()
     tampered = BlenderExecutionReceipt(
         tool=receipt.tool,
