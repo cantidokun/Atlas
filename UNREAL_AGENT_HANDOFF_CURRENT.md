@@ -1,6 +1,6 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is implemented and regression-hardened on main. The host boundary has also been hardened so protected Unreal requests cannot use model-supplied intent or production flags as authority.
+**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is implemented and regression-hardened on main. The host boundary has been hardened so protected Unreal requests cannot use model-supplied intent or production flags as authority, and the Unreal controller integration seam now rejects requests that do not carry the complete host-owned trusted context.
 **Focus:** Unreal Agent and supporting architecture only.
 **Active Atlas branch:** `main`
 
@@ -18,6 +18,8 @@ capability registry
 strict operation contract/schema
     ↓
 Atlas authorization
+    ↓
+trusted controller context
     ↓
 Unreal adapter / transport
     ↓
@@ -87,9 +89,11 @@ PR #55 added `live_unreal_production_artifact_proof.py`. It consumes an already 
 
 ### Host trust-boundary hardening
 
-`controller/agent_controller_host.py` now treats `TrustedUnrealContext` as the sole authority source for protected Unreal production intent and the `production=True` execution marker. Model-supplied intent and production values are never promoted into trusted execution state; contradictory model values are recorded only as diagnostic mismatch flags. The host also rejects an Unreal integration that does not expose a callable `execute` method.
+`controller/agent_controller_host.py` treats `TrustedUnrealContext` as the sole authority source for protected Unreal production intent and the `production=True` execution marker. Model-supplied intent and production values are never promoted into trusted execution state; contradictory model values are recorded only as diagnostic mismatch flags. The host rejects an Unreal integration that does not expose a callable `execute` method.
 
-`tests/test_agent_controller_host_trust_boundary.py` adds deterministic coverage for intent substitution, production-flag substitution, and invalid integration configuration.
+`planning/unreal_production_controller_integration.py` now performs a second admission check at the controller-to-Unreal seam. A protected Unreal production request must contain all host-owned context keys: `production`, `authorized_production`, `intent`, and `sequence_asset_path`. The seam rejects missing authorization context, empty trusted intent/path values, or a false production marker before calling the executor.
+
+`tests/test_agent_controller_host_trust_boundary.py` and `tests/test_unreal_production_controller_context_admission.py` provide deterministic regression coverage for those boundaries.
 
 ### Current validation status
 
