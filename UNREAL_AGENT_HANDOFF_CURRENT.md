@@ -1,6 +1,6 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is now implemented and regression-hardened on main.
+**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is implemented and regression-hardened on main. A disposable Unreal artifact-lineage proof harness is now available for the final human validation gate.
 **Focus:** Unreal Agent and supporting architecture only.
 **Active Atlas branch:** `main`
 
@@ -83,24 +83,13 @@ artifact_path              ∈ independently observed output_files
 
 The manifest is durably persisted through `ProductionArtifactStore`, with deterministic serialization, atomic replacement, file flushing, fail-closed reload validation, and manifest-integrity checking.
 
-Offline regression coverage now spans:
-
-```text
-verified evidence
-→ UnrealRenderReceipt
-→ ProductionArtifactManifest
-→ durable manifest store
-→ reload
-→ exact receipt/evidence lineage verification
-```
-
-Substitution of evidence, receipts, engine identity, artifact output path, or persisted envelope content is rejected.
+PR #55 added `live_unreal_production_artifact_proof.py`. It consumes an already verified Unreal evidence snapshot plus matching render receipt, constructs the manifest, persists and reloads it, independently verifies exact lineage, and reports the artifact, evidence, receipt, and manifest digests. Focused regression coverage passed on Python 3.9 and 3.11 before merge.
 
 ### Current validation status
 
-The underlying real Unreal render/receipt path is live verified. The new Stage 17 production-artifact manifest bridge has **not yet been live verified in Unreal**.
+The underlying real Unreal render/receipt path is live verified. The Stage 17 production-artifact manifest bridge and its proof harness are regression-verified but **have not yet been live verified inside Unreal**.
 
-The next human gate is therefore not another render implementation. It is a disposable proof that consumes the already-proven real Unreal receipt/evidence boundary, constructs the manifest, persists and reloads it, and independently verifies exact lineage.
+The remaining human gate is therefore not another render implementation. It is a disposable proof using evidence emitted by the existing proven UE 5.6 render boundary. No second execution path should be introduced.
 
 ## Important boundary
 
@@ -126,4 +115,4 @@ Do not represent receipt persistence as job persistence.
 
 ## Resume point
 
-For Unreal-only work: read this handoff plus `ATLAS_HANDOFF_CURRENT.md`, inspect `main`, and continue from the Stage 17 live production-artifact proof gate. Do not rework the proven render/receipt execution boundary without identifying a concrete capability gap.
+Run the existing UE 5.6 render proof and feed its already-verified receipt/evidence snapshots into `live_unreal_production_artifact_proof.py`. Confirm manifest persistence, reload, exact lineage verification, and digest identities. Do not rework the proven render/receipt execution boundary without identifying a concrete capability gap.
