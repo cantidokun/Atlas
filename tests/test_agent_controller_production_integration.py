@@ -6,6 +6,9 @@ from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.capability_request import CapabilityRequest
 from planning.agent_controller_production_request import AgentControllerProductionRequest
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
+from planning.unreal_production_operation import build_unreal_production_plan
+from planning.unreal_production_planning_boundary import authorize_production_plan
+from tests.test_unreal_heterogeneous_production import _intent, _spec
 
 
 class FakeUnrealProduction(UnrealProductionControllerIntegration):
@@ -22,13 +25,20 @@ def test_agent_originated_unreal_request_reaches_controller_execution_once():
     integration = FakeUnrealProduction()
     process = AtlasAgentProcessRuntime(unreal_production=integration)
     entrypoint = AtlasAgentEntrypointRuntime(process)
+    authorized = authorize_production_plan(
+        build_unreal_production_plan(_intent(), _spec()),
+        "agent-production-auth",
+    )
     handoff = AgentControllerHandoff.from_fields(
         capability="production",
         provider="unreal",
         target_entity_ids=("FIELD_SURFACE",),
         intent_id="agent-production-001",
         description="agent-originated Unreal production request",
-        context={"production": True},
+        context={
+            "production": True,
+            "authorized_production": authorized,
+        },
     )
 
     execution = AgentControllerProductionRequest(entrypoint).submit(handoff)
