@@ -95,6 +95,27 @@ def test_manifest_binds_verified_blender_receipt_and_persistence_evidence():
     assert manifest.snapshot()["canonical_digital_twin_id"] == "soccer-twin-001"
 
 
+def test_closed_loop_manifest_rejects_receipt_evidence_operation_mismatch():
+    receipt, _ = _verified_blender_pair()
+    arguments = {"file_name": "scene.blend", "object_name": "Goal_Left_post", "rotation": [0.0, 0.0, 15.0]}
+    inspection_state = {"Goal_Left_post": {"location": [0.25, 5.302, 0.0]}}
+    mismatched = BlenderPersistenceEvidence.create(
+        "rotate_object",
+        arguments,
+        "inspect_scene",
+        inspection_state,
+        inspection_state,
+        BlenderExecutionResult(
+            tool="inspect_scene",
+            ok=True,
+            state="inspected",
+            details=inspection_state,
+        ),
+    )
+    with pytest.raises(ProductionArtifactError, match="operation (tools|arguments) do not match"):
+        _closed_loop_manifest(receipt, mismatched)
+
+
 def test_closed_loop_lineage_verification_accepts_exact_records():
     receipt, evidence = _verified_blender_pair()
     manifest = _closed_loop_manifest(receipt, evidence)
@@ -125,6 +146,16 @@ def test_closed_loop_lineage_verification_rejects_evidence_substitution():
     evidence_snapshot["operation_arguments_digest"] = "substituted-operation-arguments-digest"
     replacement = BlenderPersistenceEvidence.from_snapshot(evidence_snapshot)
     with pytest.raises(ProductionArtifactError, match="evidence lineage does not match"):
+        verify_blender_closed_loop_lineage(manifest, receipt, replacement)
+
+
+def test_closed_loop_lineage_verification_rejects_cross_operation_pair():
+    receipt, evidence = _verified_blender_pair()
+    manifest = _closed_loop_manifest(receipt, evidence)
+    evidence_snapshot = evidence.snapshot()
+    evidence_snapshot["operation_tool"] = "rotate_object"
+    replacement = BlenderPersistenceEvidence.from_snapshot(evidence_snapshot)
+    with pytest.raises(ProductionArtifactError, match="operation tools"):
         verify_blender_closed_loop_lineage(manifest, receipt, replacement)
 
 
