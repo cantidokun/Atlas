@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from planning.blender_result_contract import BlenderExecutionResult
 
@@ -91,7 +91,7 @@ class BlenderPersistenceEvidence:
         """Return the deterministic integrity digest for this evidence record."""
         return _digest(self.snapshot())
 
-    def verify_integrity(self, expected_digest: str | None = None) -> None:
+    def verify_integrity(self, expected_digest: Optional[str] = None) -> None:
         """Fail closed when an expected digest does not match this evidence record."""
         if expected_digest is not None:
             if not isinstance(expected_digest, str) or not expected_digest.strip():
