@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import hmac
-from typing import Mapping
+from typing import Any, Mapping
 
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_evidence_digest import digest_evidence
@@ -51,6 +51,28 @@ class UnrealRenderReceipt:
     @property
     def receipt_digest(self) -> str:
         return hashlib.sha256(_canonical_material((self.job_id, self.sequence_asset_path, self.evidence_digest))).hexdigest()
+
+    def snapshot(self) -> dict[str, str]:
+        """Return a detached JSON-compatible receipt snapshot."""
+        return {
+            "job_id": self.job_id,
+            "sequence_asset_path": self.sequence_asset_path,
+            "evidence_digest": self.evidence_digest,
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot: Mapping[str, Any]) -> "UnrealRenderReceipt":
+        """Reconstruct a receipt from an exact persisted snapshot, fail-closed."""
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("Unreal render receipt snapshot must be a mapping")
+        required = {"job_id", "sequence_asset_path", "evidence_digest"}
+        if set(snapshot) != required:
+            raise ValueError("Unreal render receipt snapshot fields are invalid")
+        return cls(
+            job_id=snapshot["job_id"],
+            sequence_asset_path=snapshot["sequence_asset_path"],
+            evidence_digest=snapshot["evidence_digest"],
+        )
 
     @classmethod
     def issue(cls, evidence: UnrealEvidence) -> "UnrealRenderReceipt":
