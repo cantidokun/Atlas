@@ -113,12 +113,29 @@ def test_manifest_round_trip_preserves_lineage():
     assert restored.digest() == manifest.digest()
 
 
-def test_manifest_fails_closed_on_digest_tampering():
+def test_manifest_is_deeply_immutable():
     manifest = ProductionArtifactManifest.from_snapshot(VALID)
     digest = manifest.digest()
-    manifest.metadata["stage"] = "tampered"
-    with pytest.raises(ProductionArtifactError, match="integrity check failed"):
-        manifest.verify_integrity(digest)
+
+    with pytest.raises(TypeError):
+        manifest.metadata["stage"] = "tampered"
+    with pytest.raises(TypeError):
+        manifest.workflow_provenance["parameters"]["file_name"] = "tampered.blend"
+
+    assert manifest.digest() == digest
+
+
+def test_manifest_defensively_copies_nested_input_mappings():
+    source = copy.deepcopy(VALID)
+    manifest = ProductionArtifactManifest.from_snapshot(source)
+    digest = manifest.digest()
+
+    source["metadata"]["stage"] = "tampered"
+    source["workflow_provenance"]["parameters"]["file_name"] = "tampered.blend"
+
+    assert manifest.snapshot()["metadata"]["stage"] == "cleanup"
+    assert manifest.snapshot()["workflow_provenance"]["parameters"]["file_name"] == "scene.blend"
+    assert manifest.digest() == digest
 
 
 def test_manifest_lineage_reference_changes_when_persisted_evidence_changes():
