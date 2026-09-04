@@ -96,7 +96,7 @@ def test_harness_rejects_receipt_evidence_substitution(tmp_path, monkeypatch):
     receipt_path.write_text(json.dumps(receipt_payload), encoding="utf-8")
     monkeypatch.setattr("sys.argv", _argv(evidence_path, receipt_path, tmp_path / "manifest.json"))
 
-    with pytest.raises(ValueError, match="receipt/evidence"):
+    with pytest.raises(ProductionArtifactError, match="receipt does not match render evidence"):
         main()
 
 
