@@ -145,19 +145,42 @@ class AgentControllerHost:
         """Process one model response at the controller boundary."""
         return self._loop.process_model_response(content)
 
+    def _bind_trusted_request_context(
+        self,
+        request: AgentTaskRequest,
+    ) -> AgentTaskRequest:
+        """Return the request with host-owned context bound over model input."""
+        trusted_context = self._execution_context.context_for_request(
+            request.provider,
+        )
+        if not trusted_context:
+            return request
+
+        context = dict(request.context)
+        context.update(trusted_context)
+        return AgentTaskRequest(
+            capability=request.capability,
+            provider=request.provider,
+            context=context,
+            intent=request.intent,
+        )
+
     def dispatch(
         self,
         request: AgentTaskRequest,
     ) -> AgentEntrypointExecution:
         """Dispatch one explicit controller request through the host runtime.
 
-        This is the drop-in entrypoint seam for agent-facing code. The host
-        retains ownership of the process runtime and trusted execution
-        context while delegating request classification/execution to the
-        existing entrypoint runtime.
+        The host binds any already-installed trusted provider context before
+        handing the request to the entrypoint runtime. Caller/model context can
+        therefore supply request metadata, but cannot replace host-owned
+        authorization, intent, or other trusted provider values.
         """
         if not isinstance(request, AgentTaskRequest):
             raise TypeError(
                 "request must be an AgentTaskRequest instance"
             )
-        return self._runtime.dispatch(request)
+
+        return self._runtime.dispatch(
+            self._bind_trusted_request_context(request)
+        )
