@@ -26,6 +26,10 @@ from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_render_receipt import UnrealRenderReceipt
 
 
+EVIDENCE_FIELDS = {"operation_name", "entity_ids", "observed_state", "source", "verified"}
+RECEIPT_FIELDS = {"job_id", "sequence_asset_path", "evidence_digest"}
+
+
 def _load_object(path: Path) -> Dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as handle:
@@ -37,23 +41,30 @@ def _load_object(path: Path) -> Dict[str, Any]:
     return payload
 
 
+def _require_fields(payload: Dict[str, Any], fields: set[str], label: str) -> None:
+    if set(payload) != fields:
+        raise ValueError(f"{label} fields are invalid")
+
+
 def _load_evidence(path: Path) -> UnrealEvidence:
     payload = _load_object(path)
+    _require_fields(payload, EVIDENCE_FIELDS, "Unreal evidence")
     return UnrealEvidence(
-        operation_name=payload.get("operation_name"),
-        entity_ids=payload.get("entity_ids"),
-        observed_state=payload.get("observed_state"),
-        source=payload.get("source"),
-        verified=payload.get("verified"),
+        operation_name=payload["operation_name"],
+        entity_ids=payload["entity_ids"],
+        observed_state=payload["observed_state"],
+        source=payload["source"],
+        verified=payload["verified"],
     )
 
 
 def _load_receipt(path: Path) -> UnrealRenderReceipt:
     payload = _load_object(path)
+    _require_fields(payload, RECEIPT_FIELDS, "Unreal render receipt")
     return UnrealRenderReceipt(
-        job_id=payload.get("job_id"),
-        sequence_asset_path=payload.get("sequence_asset_path"),
-        evidence_digest=payload.get("evidence_digest"),
+        job_id=payload["job_id"],
+        sequence_asset_path=payload["sequence_asset_path"],
+        evidence_digest=payload["evidence_digest"],
     )
 
 
