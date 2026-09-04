@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026 — Stage 17 production artifact lineage is implemented and hardened across Blender and Unreal, with durable persistence, focused integration regression coverage, and a disposable Unreal live-proof harness on mainline. Blender Stage 17 remains user-verified against real Blender 4.4; Unreal Stage 17 provenance is now executable from already-verified render evidence, while the real UE 5.6 proof remains the final human validation gate.
+**Updated:** September 4, 2026 — Stage 17 production artifact lineage is implemented and hardened across Blender and Unreal, with durable persistence, focused integration regression coverage, a disposable Unreal live-proof harness, and canonical Unreal evidence/receipt snapshot boundaries on mainline. Blender Stage 17 remains user-verified against real Blender 4.4; Unreal Stage 17 provenance is implemented and regression-verified while the real UE 5.6 proof remains the final human validation gate.
 **Active branch:** `main`
 **Current stage:** Stage 17 — IN PROGRESS
 
@@ -61,11 +61,13 @@ The existing Unreal render boundary already produces verified `inspect_render_jo
 
 `verify_unreal_render_lineage(...)` re-checks those bindings without executing Unreal, authorizing work, scheduling, or recovering a render job. `ProductionArtifactStore` provides durable versioned manifest persistence with atomic replacement, flushing, and fail-closed reload validation.
 
-PR #55 adds `live_unreal_production_artifact_proof.py`. The harness consumes an already verified Unreal evidence snapshot plus matching render receipt, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports the resulting digest identities. It does not submit or execute a render and does not introduce a second Unreal execution path.
+`UnrealEvidence` and `UnrealRenderReceipt` now expose canonical detached `snapshot()` / `from_snapshot(...)` boundaries with exact-field fail-closed validation. `UnrealRenderReceiptStore` uses the canonical receipt snapshot boundary while preserving its versioned storage envelope.
 
-Focused regression coverage for the harness passed on Python 3.9 and 3.11 before PR #55 was merged into `main`.
+The disposable `live_unreal_production_artifact_proof.py` harness consumes an already verified Unreal evidence snapshot plus matching render receipt, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports the resulting digest identities. It does not submit or execute a render and does not introduce a second Unreal execution path.
 
-The remaining gate is a human-run proof using evidence emitted by the existing proven Unreal Engine 5.6 render boundary. No new render implementation is required.
+Focused regression coverage for the harness and canonical snapshot boundaries passes on Python 3.9 and 3.11. The corrected mainline test run after the receipt-store compatibility fix passed completely.
+
+The remaining gate is a human-run proof using evidence emitted by the existing proven Unreal Engine 5.6 render boundary. `docs/STAGE17_UNREAL_PROOF.md` records the exact proof procedure and the expected evidence boundary.
 
 ### Controller boundary hardening
 
@@ -120,3 +122,4 @@ No action-runner test should be run for this gate unless explicitly authorized.
 - PR #54 hardened Unreal artifact lineage to require verified `inspect_render_job` evidence.
 - PR #53 hardened Blender lineage verification to enforce `engine == "Blender"` symmetrically with Unreal.
 - PR #55 added the disposable Unreal production-artifact proof harness and focused regression coverage.
+- PR #56 added canonical Unreal evidence/receipt snapshots and integrated them into the proof harness/store boundary.
