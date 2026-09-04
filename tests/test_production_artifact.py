@@ -133,7 +133,7 @@ def test_manifest_lineage_reference_changes_when_persisted_evidence_changes():
     )
 
     evidence_snapshot = evidence.snapshot()
-    evidence_snapshot["observed_state_digest"] = "tampered-observed-state-digest"
+    evidence_snapshot["operation_arguments_digest"] = "tampered-operation-arguments-digest"
     tampered_evidence = BlenderPersistenceEvidence.from_snapshot(evidence_snapshot)
 
     assert tampered_evidence.digest() != manifest.evidence_digests[0]
