@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026
+**Updated:** September 4, 2026
 **Current branch:** `integrate-origin-main-with-render-receipt`
-**Latest controller-boundary commit:** `e6a0975b` — `test: align unauthenticated Unreal request with fail-closed admission`
+**Latest controller-boundary commit:** `f2e8ccf4` — `test: harden Unreal controller result evidence contract`
 
 ## Current milestone
 
@@ -22,7 +22,8 @@ Agent model response
  -> capability execution
  -> registered provider capability
  -> provider-specific integration
- -> authorization / execution / evidence / verification / recovery
+ -> typed controller result contract
+ -> evidence / verification / receipt / recovery
 ```
 
 The model is never the authorization source. Trusted provider context is installed by the host and selected only by the parsed request's provider.
@@ -84,9 +85,9 @@ AgentExecutionContext
 AgentControllerLoopAdapter
 ```
 
-The host can optionally accept an existing process/runtime, and provides a typed Unreal production factory binding an already-authorized `UnrealProductionControllerIntegration` and `TrustedUnrealContext`.
+The host can optionally accept an existing process/runtime, provides a typed Unreal production factory binding an already-authorized `UnrealProductionControllerIntegration` and `TrustedUnrealContext`, and applies the same host-trust rule to explicit `dispatch()` as to model-originated controller requests.
 
-The host is now the agent-facing controller composition seam. It exposes the runtime and loop for compatibility while keeping the execution context host-owned.
+Caller-owned `AgentTaskRequest` objects remain unchanged when trusted context is bound.
 
 ### Unreal trust binding
 
@@ -104,12 +105,12 @@ The binding validates that the authorized production plan and authoritative inte
 
 ### Synthetic host-to-Unreal composition boundary
 
-The synthetic integration path now exercises the real Atlas controller stack through a typed Unreal production integration with only the irreversible external execution replaced by a deterministic test seam.
+The synthetic integration path exercises the real Atlas controller stack through a typed Unreal production integration with only the irreversible external execution replaced by a deterministic test seam.
 
 The validated path proves:
 
 ```text
-model request
+model request / explicit dispatch
  -> host
  -> trusted context
  -> Unreal capability admission
@@ -119,17 +120,35 @@ model request
 
 A forged model authorization/context cannot replace the host-installed `UnrealAuthorizedProductionPlan`, authoritative intent, or sequence asset path. An Unreal production request without host-installed authorization fails closed and does not invoke the integration.
 
+### Unreal controller result / evidence boundary
+
+`UnrealProductionControllerEvent` now exposes a typed, engine-neutral `result_contract`.
+
+The contract separates lifecycle execution state from verified render identity and carries only evidence that has already crossed Atlas's verification boundary:
+
+```text
+UnrealProductionControllerEvent
+        ↓
+UnrealProductionResultContract
+        ↓
+verified UnrealEvidence + matching UnrealRenderReceipt
+```
+
+For render-complete workflow results, the contract requires the final evidence to be verified, to originate from `inspect_render_job`, and to match the issued `UnrealRenderReceipt`. A mismatched evidence/receipt pair is rejected.
+
+The contract does not create, infer, or extend authorization.
+
 ## Latest validated controller test state
 
 The focused host/controller regression checkpoint completed successfully:
 
 ```text
-86 passed in 1.03s
+89 passed in 1.07s
 ```
 
-This checkpoint includes the host entrypoint seam, host-owned execution context, Unreal trusted-context binding, protected Unreal capability admission, agent wiring, intent preservation, real in-memory Unreal controller integration, and the synthetic host-to-Unreal end-to-end path.
+The current working tree also contains the next deterministic result/evidence hardening layer, which has not yet been run by the user as part of the focused checkpoint.
 
-No live Unreal/action-runner test was run as part of this checkpoint.
+No live Unreal/action-runner test was run as part of this development layer.
 
 ## Existing live Unreal proof
 
@@ -154,9 +173,9 @@ The next Unreal-dependent gate remains the real Blueprint integration suite. Do 
 
 ## Next development step
 
-1. Audit the remaining host/Unreal integration surface for another isolated, testable boundary improvement without invoking the live action runner.
-2. Keep the host-owned trust model explicit for every agent-to-controller entrypoint, including any future explicit dispatch path.
-3. Strengthen the provider-specific execution contract only where the change can be validated with deterministic in-memory tests.
+1. Pull the latest branch and run the focused host/controller suite including the new result/evidence tests.
+2. Fix any deterministic contract regression without touching the live action runner.
+3. Extend the result contract only where it clarifies verified evidence/receipt identity or lifecycle state without creating a second authority.
 4. Keep the live Blueprint metadata/evidence correction separate from controller-host work.
 5. Only run the live Unreal/action-runner gate when explicitly authorized.
 
