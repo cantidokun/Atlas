@@ -24,6 +24,19 @@ def _canonical_material(values: tuple[str, ...]) -> bytes:
     return b"".join(encoded)
 
 
+def _require_completed_render_state(state: Mapping[str, object]) -> None:
+    """Require the evidence to describe a completed successful render."""
+    status = state.get("status")
+    success = state.get("success")
+    failed = state.get("failed")
+    if status not in ("completed", "finished"):
+        raise ValueError("render receipt requires semantically completed render evidence")
+    if success is not True:
+        raise ValueError("render receipt requires successful render evidence")
+    if failed is not False:
+        raise ValueError("render receipt requires non-failed render evidence")
+
+
 @dataclass(frozen=True)
 class UnrealRenderReceipt:
     job_id: str
@@ -50,6 +63,7 @@ class UnrealRenderReceipt:
         state = evidence.observed_state
         if not isinstance(state, Mapping):
             raise ValueError("render-job evidence observed_state must be a mapping")
+        _require_completed_render_state(state)
         job_id = state.get("job_id")
         sequence_asset_path = state.get("sequence_asset_path")
         _validate_identity("job_id", job_id)
