@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 from planning.digital_twin_spatial import SpatialPose, Vector3
@@ -27,7 +29,7 @@ def _snapshot(sequence=1):
             ),
         ),
         world_attributes=(("match_phase", "open_play"),),
-        metadata={"feed": "tracking"},
+        metadata={"feed": {"type": "tracking"}},
     )
 
 
@@ -53,6 +55,29 @@ def test_live_snapshot_rejects_duplicate_entities():
 def test_live_snapshot_rejects_duplicate_attributes():
     with pytest.raises(ValueError, match="unique keys"):
         LiveEntityState(entity_id="player-07", attributes=(("team", "home"), ("TEAM", "away")))
+
+
+def test_live_snapshot_metadata_is_deeply_immutable_and_detached():
+    source = {"feed": {"type": "tracking"}}
+    snapshot = LiveWorldStateSnapshot(
+        twin_id="soccer-twin-001",
+        revision_id="revision-004",
+        state_sequence=1,
+        observed_at="2026-09-04T00:00:00Z",
+        source_id="tracking-provider-01",
+        metadata=source,
+    )
+    source["feed"]["type"] = "tampered"
+    assert snapshot.metadata_snapshot()["feed"]["type"] == "tracking"
+    with pytest.raises(TypeError):
+        snapshot.metadata["feed"]["type"] = "tampered"
+
+
+def test_live_snapshot_metadata_snapshot_is_defensively_copied():
+    snapshot = _snapshot()
+    detached = snapshot.metadata_snapshot()
+    detached["feed"]["type"] = "tampered"
+    assert snapshot.metadata_snapshot()["feed"]["type"] == "tracking"
 
 
 def test_live_state_validation_accepts_matching_identity_and_monotonic_sequence():
