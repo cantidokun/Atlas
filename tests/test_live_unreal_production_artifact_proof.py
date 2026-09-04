@@ -28,28 +28,8 @@ def _write_inputs(tmp_path: Path):
     receipt = UnrealRenderReceipt.issue(evidence)
     evidence_path = tmp_path / "evidence.json"
     receipt_path = tmp_path / "receipt.json"
-    evidence_path.write_text(
-        json.dumps(
-            {
-                "operation_name": evidence.operation_name,
-                "entity_ids": list(evidence.entity_ids),
-                "observed_state": dict(evidence.observed_state),
-                "source": evidence.source,
-                "verified": evidence.verified,
-            }
-        ),
-        encoding="utf-8",
-    )
-    receipt_path.write_text(
-        json.dumps(
-            {
-                "job_id": receipt.job_id,
-                "sequence_asset_path": receipt.sequence_asset_path,
-                "evidence_digest": receipt.evidence_digest,
-            }
-        ),
-        encoding="utf-8",
-    )
+    evidence_path.write_text(json.dumps(evidence.snapshot()), encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt.snapshot()), encoding="utf-8")
     return evidence, receipt, evidence_path, receipt_path
 
 
