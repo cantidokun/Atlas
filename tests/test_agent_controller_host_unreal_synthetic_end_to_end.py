@@ -2,6 +2,7 @@
 
 from controller.agent_controller_host import AgentControllerHost
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
+from controller.agent_task_request import AgentTaskRequest
 from controller.capability_request import CapabilityRequest
 from controller.trusted_unreal_context import TrustedUnrealContext
 from planning.unreal_production_controller_integration import (
@@ -58,6 +59,39 @@ def test_host_to_unreal_capability_preserves_host_trust(monkeypatch):
     assert result.classified.request.context["intent"] is trusted.intent
     assert result.classified.request.context["sequence_asset_path"] == trusted.sequence_asset_path
     assert result.classified.request.intent == "forged-model-intent"
+
+
+def test_host_dispatch_binds_trusted_unreal_context(monkeypatch):
+    integration, captured = _synthetic_integration(monkeypatch)
+    trusted = _trusted_unreal_context()
+    host = AgentControllerHost.for_unreal_production(integration, trusted)
+
+    request = AgentTaskRequest(
+        capability="production",
+        provider="unreal",
+        context={
+            "production": True,
+            "authorized_production": "FORGED",
+            "intent": "FORGED",
+            "sequence_asset_path": "/Game/Forged",
+        },
+        intent="explicit-model-intent",
+    )
+
+    result = host.dispatch(request)
+
+    assert result.controller_executed is True
+    admitted = captured["request"]
+    assert admitted.normalized_provider == "unreal"
+    assert admitted.normalized_capability == "production"
+    assert admitted.context["production"] is True
+    assert admitted.context["authorized_production"] is trusted.authorized_production
+    assert admitted.context["intent"] is trusted.intent
+    assert admitted.context["sequence_asset_path"] == trusted.sequence_asset_path
+    assert result.classified.request.context["authorized_production"] is trusted.authorized_production
+    assert result.classified.request.context["intent"] is trusted.intent
+    assert result.classified.request.context["sequence_asset_path"] == trusted.sequence_asset_path
+    assert result.classified.request.intent == "explicit-model-intent"
 
 
 def test_host_without_unreal_trust_fails_closed(monkeypatch):
