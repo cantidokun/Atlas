@@ -1,147 +1,165 @@
 # Atlas Development Log
 
-## September 1, 2026 — Unreal Render Artifact Verification and Render Receipt Milestone
+## September 3, 2026 — Qwen Proposal, Atlas Authorization, Runtime, Recovery, and Artifact Lineage
 
-### Development state
+Atlas completed the current Stage 16 Qwen integration contract and advanced into Stage 17 production-artifact lineage.
 
-Atlas completed a verified local Unreal Engine 5.6 render/artifact/receipt milestone.
+### Stage 16 provider milestone
 
-The live Unreal production boundary now covers the complete controlled render path:
+The local Qwen/Ollama provider produces an intent-only `QwenProductionProposal` containing the canonical workflow, optional version, and typed workflow parameters. Provider output is treated as untrusted and is validated against the trusted soccer-production catalog before release.
 
-```text
-Atlas render configuration
-        ↓
-configuration verification
-        ↓
-Movie Render Queue submission
-        ↓
-dynamic Unreal job ID
-        ↓
-asynchronous job inspection
-        ↓
-completed + successful state
-        ↓
-actual output_files[]
-        ↓
-filesystem artifact validation
-        ↓
-verified Unreal evidence
-        ↓
-deterministic evidence digest
-        ↓
-UnrealRenderReceipt
-        ↓
-atomic receipt persistence
-```
-
-### Render configuration debugging
-
-A stale render configuration initially produced an unexpected 1280x720 / approximately 24-frame output while Atlas's requested configuration was 640x360 / frames 1–2.
-
-The submission boundary was instrumented and then verified to hand Movie Render Queue the effective configuration:
+The current canonical catalog contract is:
 
 ```text
-640x360
-frames=1-2
-output=Saved/AtlasRenderOutput
+broadcast-goal-preparation@1
+
+file_name       -> string
+object_name     -> string
+target_location -> vector3
+target_rotation -> vector3
 ```
 
-This isolated the issue to stale configuration state rather than a failure of the `Job->SetConfiguration(...)` handoff.
+The live proposal-only smoke test was user-verified locally.
 
-### Artifact verification
+### Atlas authorization handoff
 
-The render-job verifier was extended to require real output artifacts for completed successful jobs. Active asynchronous jobs remain valid submission evidence without requiring artifacts before completion.
+`qwen/production_handoff.py` establishes a provenance-bound seam between the validated Qwen proposal and Atlas authority. The handoff validates proposal/catalog provenance, records digests, independently recompiles before authorization, rejects model-supplied authorization fields, and delegates to the existing Atlas authorization path.
 
-`inspect_render_job` was then routed through the same semantic render-job verifier so completed render inspections can be marked `verified=True` while remaining a read operation.
+The handoff is also durably reconstructable through `QwenProductionTaskHandoff.from_snapshot(...)`. Persisted proposal, semantic-task, compiled-task, and digest fields are revalidated and recompiled fail-closed before they can re-enter Atlas recovery.
 
-The controlled live render completed successfully and produced a real PNG artifact:
+### Full Qwen-authorized production runtime — LIVE VERIFIED
+
+`scripts/run_live_qwen_production_runtime.py` was user-verified against Blender 4.4.
+
+Verified live chain:
 
 ```text
-Saved/AtlasRenderOutput/AtlasRender_0001.png
+Qwen proposal
+  ↓
+trusted catalog validation
+  ↓
+semantic ProductionTaskDefinition
+  ↓
+Atlas ActionAuthorization
+  ↓
+existing AutonomousTaskRuntime
+  ↓
+real Blender mutation
+  ↓
+fresh independent verification
+  ↓
+fixture restoration
 ```
 
-The artifact was reported through Unreal transport and independently confirmed to exist and have non-zero size.
-
-### Evidence-bound render receipt
-
-`UnrealRenderReceipt` was added as an immutable, engine-neutral identity derived from verified `inspect_render_job` evidence.
-
-The live receipt proof produced:
+Observed live verification:
 
 ```text
-evidence_digest:
-f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
-
-receipt_digest:
-f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
-
-SELF MATCH: True
+workflow=broadcast-goal-preparation
+workflow_version=1
+qwen_proposal=verified
+catalog_validation=verified
+semantic_task=verified
+atlas_authorization=verified
+existing_task_runtime=verified
+blender_execution=verified
+independent_final_verification=verified
 ```
 
-The receipt is intentionally derived from verified evidence rather than from the initial render request or submission response alone.
+The live mutation targeted `Goal_Left_post` at `[0.5, 5.302, 0.0]` with rotation `[0.0, 0.0, 15.0]`, then restored the observed fixture state to location `[0.25, 5.302, 0.0]` and rotation `[0.0, 0.0, 0.0]`.
 
-### Receipt persistence
+### Qwen-originated cross-process recovery — LIVE VERIFIED
 
-`UnrealRenderReceiptStore` was added using Atlas's established persistence conventions: versioned JSON, deterministic serialization, atomic replacement, durable flush, and fail-closed validation on reload.
+`scripts/run_live_qwen_production_recovery_restart.py` exercises the established Atlas recovery path with persisted Qwen provenance.
 
-Focused persistence coverage verifies round-trip behavior, deterministic storage, extra-field rejection, and digest tampering detection.
+Phase 1 obtains a live Qwen proposal, crosses normal Atlas authorization, executes the first real Blender action, intentionally fails the later action before Blender invocation, and persists the blocked continuation plus Qwen provenance.
 
-The Unreal runtime render-job registry remains in-memory. Durable receipt persistence does not constitute cross-process render-job recovery; that capability remains unimplemented.
+Phase 2 starts a fresh Python process, reconstructs the canonical handoff, obtains a fresh Qwen recovery recommendation, validates that recommendation against the persisted task contract, acquires fresh authoritative evidence, derives only the unfinished action from the persisted authorized workflow, explicitly issues a new Atlas replan authorization, executes the replacement action, independently verifies the complete target state, and restores the fixture.
 
-### Testing milestone
-
-The latest local full Python regression reported after the render/receipt work is:
+User-verified output included:
 
 ```text
-1033 passed, 5 skipped
+LIVE QWEN PRODUCTION RECOVERY VERIFIED
+object=Goal_Left_post
+workflow=broadcast-goal-preparation
+workflow_version=1
+qwen_provenance_recovered=verified
+initial_authorization_recovered=verified
+process_restart=verified
+qwen_recovery_recommendation=verified
+qwen_recovery_recommendation_advisory_only=verified
+fresh_recovery_evidence=verified
+qwen_workflow_target_revalidated=verified
+completed_prerequisite_not_replayed=verified
+replan_authorization=atlas-qwen-recovery-replan
+replacement_execution=verified
+independent_final_verification=verified
+fixture_restored_location=[0.25, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
 ```
 
-`git diff --check` was clean at that checkpoint.
+This establishes that Qwen can participate in recovery reasoning without receiving recovery authority. Atlas still owns recovery classification, evidence acquisition, replan authorization, execution, and final verification.
 
-This is a local development result, not a claim about current GitHub Actions status.
+GitHub Actions Atlas Tests #1439 passed after the live-guided recovery increment.
 
-### Documentation / handoff transition
+### Recovery architecture rule
 
-The current continuation point is now:
+Do not add a Qwen-specific executor, authorization system, scheduler, or recovery controller. Qwen remains an intent/proposal source; Atlas remains the sole production authority and recovery owner.
 
-```text
-Unreal render receipt integration into the higher-level Atlas render workflow
-```
+## Stage 17 — Production artifact lineage foundation
 
-The live UE 5.6 render/artifact/verification/receipt path is already proven locally and should not be reworked without a concrete capability gap.
+The next architectural gap identified after Stage 16 was provenance between the canonical Digital Twin and its concrete production representations. Atlas already had task provenance, evidence, and engine-specific receipts, but no small reusable cross-engine lineage contract.
 
-The independently tracked Blender adapter/live-operation work remains active.
+`planning/production_artifact.py` introduces `ProductionArtifactManifest` as a non-executable lineage record. It binds:
 
-## August 21, 2026 — Qwen/Atlas Reasoning Boundary Cleared; Blender Adapter Next
+- a stable canonical Digital Twin identifier;
+- a concrete artifact representation and path;
+- upstream source-artifact relationships;
+- workflow/version/parameter provenance;
+- independently generated evidence and receipt digests;
+- engine and engine-version metadata.
 
-Atlas reached the next major pre-Blender-integration milestone.
+The manifest is deterministic and independently digestable, supports fail-closed reconstruction from persisted snapshots, rejects malformed or unknown fields, and rejects self-referential or duplicate source relationships.
 
-The Blender Agent architecture established a tested boundary between model reasoning and Atlas-controlled execution.
+`tests/test_production_artifact.py` provides regression coverage. The manifest deliberately exposes no execution, authorization, scheduling, or recovery behavior.
 
-The major generic architecture remains:
+This is an architectural foundation, not a claim that the complete production asset graph is finished.
 
-```text
-Qwen reasoning
-    ↓
-structured reasoning contract
-    ↓
-Task Intent
-    ↓
-capability/schema validation
-    ↓
-authorized ActionPlan
-    ↓
-controlled execution
-    ↓
-independent verification
-    ↓
-verified state
-    ↓
-replanning when necessary
-```
+## Stage 15 — Semantic Soccer Production Tasks
 
-Qwen remains a proposal source. Python/Atlas remains the execution authority.
+Stage 15 established `ProductionTaskDefinition`, reusable production-task fragments, target-state evaluators, canonical soccer-production templates, and the versioned workflow catalog.
 
-## Earlier history
+The semantic task layer compiles directly into the existing `AtlasTaskDefinition` and therefore reuses the existing execution/authorization/recovery runtime.
 
-The repository previously established generic evidence/action planning, mandatory verification, fail-closed recovery, authorized replanning, deterministic future execution, continuation integrity, and immutable execution receipts. Those capabilities remain part of the foundation.
+The real Blender 4.4 environment live-verified the versioned workflow path, including semantic provenance, dependency validation, multi-operation execution, independent verification, recovery, and exact fixture restoration.
+
+## Stage 14 — Dependency-aware task composition
+
+Stage 14 added explicit action prerequisites through `ActionSpec.depends_on` while keeping execution serial and deterministic.
+
+Dependency declarations participate in authorization and integrity digests, and completed prerequisites are recovered from trusted successful checkpoints.
+
+The live dependency task and cross-process dependency-recovery paths were verified against Blender 4.4.
+
+## Stage 13 — Multi-step partial-progress recovery
+
+Stage 13 demonstrated that a completed action is not blindly replayed after a later action fails. Durable checkpointing, process restart, fresh evidence, explicit replan authorization, replacement execution, independent verification, and fixture restoration were all verified.
+
+## Unreal — Current baseline
+
+Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.
+
+Cross-process Unreal render-job recovery remains unimplemented.
+
+## Development rules
+
+- Qwen proposes; Atlas validates and authorizes; Blender/Unreal execute through controlled adapters.
+- Never give Qwen direct execution or authorization authority.
+- Never automatically retry failed writes.
+- Never silently mutate an authorized plan.
+- Never declare completion from a transport/write response alone.
+- Preserve independent verification and the evidence ledger.
+- Keep engine-specific execution behind adapter/tool boundaries.
+- Preserve canonical Digital Twin identity separately from DCC/engine artifacts.
+- Keep dependency-aware execution serial until concurrency is independently justified.
+- Keep lineage/provenance separate from execution authority.
+- Keep project handoffs and readmes synchronized with verified milestones.

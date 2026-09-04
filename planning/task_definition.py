@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Set, Tuple
 
 from action_plan import ActionSpec
+from planning.action_dependencies import validate_action_dependencies
 from planning.evidence_plan import EvidenceRequest
 from planning.target_state import TargetStateEvaluator
 
@@ -34,6 +35,7 @@ class AtlasTaskDefinition:
         unknown = action_tools - set(self.allowed_action_tools)
         if unknown:
             raise ValueError(f"actions use unauthorized tools: {sorted(unknown)}")
+        validate_action_dependencies(list(self.actions))
 
     def snapshot(self) -> Dict[str, Any]:
         return {
@@ -51,6 +53,8 @@ class AtlasTaskDefinition:
                     "tool": item.tool,
                     "arguments": deepcopy(item.arguments),
                     "name": item.name,
+                    "requires_success": item.requires_success,
+                    "depends_on": list(item.dependency_names()),
                 }
                 for item in self.actions
             ],

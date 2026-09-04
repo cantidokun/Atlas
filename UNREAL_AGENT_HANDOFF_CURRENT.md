@@ -1,12 +1,9 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 1, 2026
-**Focus:** Unreal Agent and supporting architecture only
-**GitHub documentation branch:** `docs/sep1-2026-unreal-render-handoff`
-**GitHub main baseline at documentation start:** `b56aada`
-**Local development checkpoint reported by user:** `f658e16` — `feat: establish Unreal render artifact receipt pipeline`
-**Latest local regression reported by user:** **1033 passed, 5 skipped**
-**Latest local `git diff --check`:** clean
+**Updated:** September 3, 2026 — Unreal boundary remains proven; Atlas overall development has advanced through Stage 15 and into Stage 16 Qwen integration.
+**Focus:** Unreal Agent and supporting architecture only.
+**Active Atlas branch:** `feat/blender-stage11-mainline`
+**PR #49:** open, draft, unmerged.
 
 ## Architectural position
 
@@ -34,26 +31,29 @@ Atlas verification
 render receipt / persisted receipt when applicable
 ```
 
-The Unreal Agent proposes and decomposes operations. It does not authorize or directly execute them. Qwen likewise remains a reasoning/proposal source only.
+Qwen remains a reasoning/proposal source. It does not authorize or directly execute Unreal operations.
 
-## Verified September 1 Unreal milestone
+## Verified Unreal milestone
 
-The disposable Unreal harness and the production Unreal transport boundary have now been exercised through a real Unreal Engine 5.6 runtime.
+The Unreal production transport and render boundary has been exercised through a real Unreal Engine 5.6 runtime.
 
-The verified render path includes:
+Verified path:
 
-- deterministic render configuration;
-- render-state verification;
-- Movie Render Queue submission;
-- dynamic job-ID binding from submission evidence;
-- asynchronous render-job inspection;
-- completed-job semantic verification;
-- MRQ output artifact discovery;
-- filesystem artifact existence and non-zero-size validation;
-- evidence-bound deterministic `UnrealRenderReceipt` creation;
-- atomic `UnrealRenderReceiptStore` persistence with fail-closed reload validation.
+```text
+render configuration
+  → configuration verification
+  → Movie Render Queue submission
+  → dynamic job ID
+  → asynchronous job inspection
+  → semantic completion verification
+  → actual output artifact discovery
+  → filesystem existence/non-zero-size validation
+  → verified evidence
+  → evidence-bound UnrealRenderReceipt
+  → durable receipt persistence
+```
 
-Controlled live proof:
+Controlled live render:
 
 ```text
 resolution:       640x360
@@ -62,9 +62,9 @@ output format:    PNG
 output directory: Saved/AtlasRenderOutput
 ```
 
-The completed live render produced a real PNG artifact. `inspect_render_job` returned that artifact and was marked `verified=True` after the executor routed the inspection through render-job semantic verification.
+The completed live render produced a real PNG artifact. A receipt was derived from verified render evidence.
 
-A real receipt was issued from that verified evidence:
+Known receipt identities from the proven milestone:
 
 ```text
 evidence_digest:
@@ -76,77 +76,63 @@ f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
 SELF MATCH: True
 ```
 
-Focused render/receipt coverage was expanded and the latest full local regression reached **1033 passed, 5 skipped**.
+## Important boundary
 
-## Important implementation boundary
+The Unreal runtime render-job registry remains in-memory.
 
-The Unreal runtime render-job registry remains in-memory. The Atlas-side `UnrealRenderReceiptStore` provides durable receipt persistence, but **cross-process recovery of Unreal runtime render jobs is not implemented**.
+`UnrealRenderReceiptStore` provides durable receipt persistence, but **cross-process recovery of Unreal runtime render jobs is not implemented**.
 
 Do not represent receipt persistence as job persistence.
 
-## Proven render flow
+## Current broader Atlas position
+
+The Blender side has completed Stage 13 dependency-aware recovery and Stage 15 semantic production-task work. Stage 16 is integrating live Qwen proposals into Atlas-owned validation, authorization, and the existing autonomous runtime.
+
+The current Qwen authority chain is:
 
 ```text
-render configuration
-      ↓
-configuration verification
-      ↓
-MRQ submission
-      ↓
-dynamic Unreal job ID
-      ↓
-async job inspection
-      ↓
-finished + successful state
-      ↓
-actual output_files[]
-      ↓
-filesystem artifact validation
-      ↓
-verified Unreal evidence
-      ↓
-deterministic evidence digest
-      ↓
-UnrealRenderReceipt
-      ↓
-atomic receipt persistence
+Qwen proposal
+  → trusted catalog validation
+  → semantic production task
+  → provenance-bound handoff
+  → existing Atlas authorization
+  → existing runtime
 ```
 
-The boundary is intentionally evidence-driven: a render-job success flag alone is insufficient to establish a completed production artifact.
+This does not change the Unreal authority model. Any future Qwen-to-Unreal production integration must cross the same Atlas-owned authorization boundary and use the existing Unreal capability/transport contracts.
 
-## Current Unreal files / concepts
+## Next Unreal work
 
-The current implementation includes the Unreal capability registry, task planner, production adapter/transport, render contract, render-job verifier, render receipt, and render receipt store, together with the Unreal 5.6 harness and focused tests.
+Resume the Unreal track from the **higher-level render receipt integration** checkpoint only if that work is being actively resumed. The live UE 5.6 render/artifact/verification/receipt path is already proven and should not be reworked without a concrete capability gap.
 
-The render receipt remains engine-neutral and is derived from verified `inspect_render_job` evidence. The persisted receipt contains the receipt identity and evidence digest rather than duplicating the entire evidence ledger.
+The next Unreal capability must preserve:
 
-## Next development increment
+- evidence-driven completion;
+- engine-neutral receipt identity;
+- durable receipt persistence;
+- explicit Atlas authorization;
+- independent artifact verification;
+- no automatic retry after failed writes.
 
-The next Unreal task is **render receipt integration into the higher-level Atlas render execution workflow**:
+Cross-process Unreal render-job recovery remains a future capability and must not be claimed until separately implemented and verified.
 
-1. issue/persist receipts automatically after verified completion;
-2. add focused tests for that service boundary;
-3. preserve the engine-neutral receipt/store separation;
-4. only then expand Unreal capabilities where a real capability gap justifies them.
+## Non-regression rules
 
-Blender remains an independent development track and should not be blocked by this Unreal receipt work.
-
-## Regression and safety rules
-
-- Never give Qwen direct production execution authority.
+- Never give Qwen direct production execution or authorization authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from a transport/write response alone.
 - Preserve independent verification and the evidence ledger.
 - Keep Unreal-specific behavior behind adapter/tool boundaries.
-- Treat output artifacts as evidence that must be independently validated.
-- Preserve canonical Digital Twin identity separately from Unreal assets, levels, render jobs, and output files.
-- Do not claim cross-process Unreal job recovery until separately implemented and verified.
-- Do not confuse local regression results with GitHub CI results.
-- Keep the disposable harness as a regression fixture rather than turning it into unrestricted production logic.
+- Treat render artifacts as independently validated evidence.
+- Preserve canonical Digital Twin identity separately from Unreal assets, levels, jobs, and files.
+- Do not confuse durable receipt persistence with runtime job persistence.
+- Do not claim cross-process Unreal job recovery until implemented and verified.
 
 ## Resume point
 
-Read this handoff and `ATLAS_HANDOFF_CURRENT.md`, inspect the local branch/HEAD and `origin/main`, then continue from the **Unreal render receipt integration** checkpoint. The live UE 5.6 render/artifact/verification/receipt path is already proven locally and should not be reworked without a concrete capability gap.
+For Unreal-only work: read this handoff plus `ATLAS_HANDOFF_CURRENT.md`, inspect the active branch/HEAD and `origin/main`, then continue only from an established Unreal capability gap.
 
-This handoff is the authoritative Unreal continuation point until superseded.
+For overall Atlas development: the authoritative resume point is the Stage 16 Qwen runtime boundary in `ATLAS_HANDOFF_CURRENT.md`.
+
+This handoff supersedes the September 1 Unreal-only checkpoint as the current Unreal reference while preserving the proven render/receipt baseline.

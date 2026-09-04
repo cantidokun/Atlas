@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from planning.future_execution import FutureExecutionController
 from planning.future_generator import FutureStep
@@ -20,12 +20,7 @@ ToolExecutor = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 
 
 class AutonomousFutureRuntime:
-    """Drive a deterministic future while checkpointing every safe transition.
-
-    Every persisted continuation is bound to stable instructions, the exact
-    authorized future, and the exact controller snapshot at the checkpoint.
-    Resume therefore fails closed if any of those identities changed.
-    """
+    """Drive a deterministic future while checkpointing every safe transition."""
 
     def __init__(
         self,
@@ -34,6 +29,7 @@ class AutonomousFutureRuntime:
         runtime_context: RuntimeContext,
         controller: Optional[FutureExecutionController] = None,
         integrity: Optional[RuntimeIntegrity] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.state_store = state_store
         self.runtime_context = runtime_context
@@ -41,6 +37,7 @@ class AutonomousFutureRuntime:
         if controller is not None and controller.steps != steps:
             raise ValueError("Supplied controller does not match the authorized future.")
         self.steps = steps
+        self.metadata = dict(metadata or {})
         if integrity is not None:
             require_continuation_integrity(
                 integrity,
@@ -63,7 +60,15 @@ class AutonomousFutureRuntime:
             plan_digest=self.controller.plan_digest,
             state_digest=self._state_digest(snapshot),
         )
-        return self.state_store.save(self.controller, self.integrity)
+        return self.state_store.save(self.controller, self.integrity, self.metadata)
+
+    def checkpoint_metadata(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge JSON-serializable continuation metadata and checkpoint atomically."""
+        if not isinstance(updates, dict):
+            raise TypeError("runtime metadata updates must be a dictionary.")
+        self.metadata.update(updates)
+        envelope = self._checkpoint()
+        return dict(envelope.get("metadata") or {})
 
     def snapshot(self) -> Dict[str, Any]:
         return self.controller.snapshot()
@@ -81,8 +86,12 @@ class AutonomousFutureRuntime:
         if raw_integrity is None:
             raise RuntimeError("runtime continuation integrity receipt is missing")
         integrity = RuntimeIntegrity.from_dict(raw_integrity)
+        snapshot = envelope["snapshot"]
+        inherited = tuple(snapshot.get("inherited_dependencies", []))
         controller = FutureExecutionController.resume_from_snapshot(
-            steps, envelope["snapshot"]
+            steps,
+            snapshot,
+            inherited_dependencies=inherited,
         )
         require_continuation_integrity(
             integrity,
@@ -96,6 +105,7 @@ class AutonomousFutureRuntime:
             runtime_context,
             controller=controller,
             integrity=integrity,
+            metadata=dict(envelope.get("metadata") or {}),
         )
 
     def resume(self) -> "AutonomousFutureRuntime":
@@ -117,7 +127,11 @@ class AutonomousFutureRuntime:
                 return self._checkpoint()["snapshot"]
 
             if step.phase == "ACTION":
-                self.controller.execute_current(execute)
+                try:
+                    self.controller.execute_current(execute)
+                except Exception:
+                    self._checkpoint()
+                    return self.controller.snapshot()
                 self._checkpoint()
                 if self.controller.blocked:
                     return self.controller.snapshot()

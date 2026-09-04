@@ -1,17 +1,9 @@
-"""Deterministic future-state generation for Atlas planning.
-
-This module deliberately performs no model reasoning and no tool execution.
-Given an already-authorized action plan and explicit target-state requirements,
-it produces the only execution future that Python can safely derive: ordered
-state checkpoints with stable identifiers.
-
-The purpose is to make the next state explicit before execution rather than
-letting an LLM implicitly invent the continuation of a task.
-"""
+"""Deterministic future-state generation for Atlas planning."""
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from action_plan import ActionSpec
+from planning.action_dependencies import validate_action_dependencies
 from planning.target_state import TargetStateEvaluator
 
 
@@ -38,18 +30,7 @@ class FutureStep:
 
 
 class DeterministicFutureGenerator:
-    """Generate a stable future execution path from authorized primitives.
-
-    The generator does not choose tools, coordinates, or new actions. It only
-    serializes the future implied by the supplied evidence/evaluation/action
-    contract. Conditional branches are represented explicitly:
-
-    * target satisfied -> SKIP_WRITES -> VERIFY/COMPLETE
-    * target unsatisfied -> each authorized action -> VERIFY -> COMPLETE
-
-    Callers must supply the target decision explicitly. A missing decision is
-    rejected so the future cannot silently assume that writes are necessary.
-    """
+    """Generate a stable future execution path from authorized primitives."""
 
     def __init__(self, evaluator: TargetStateEvaluator):
         self.evaluator = evaluator
@@ -61,9 +42,16 @@ class DeterministicFutureGenerator:
             "name": action.name or action.tool,
             "tool": action.tool,
             "arguments": dict(action.arguments),
+            "depends_on": list(action.dependency_names()),
         }
 
-    def generate(self, target_satisfied: Optional[bool], actions: List[ActionSpec]) -> List[FutureStep]:
+    def generate(
+        self,
+        target_satisfied: Optional[bool],
+        actions: List[ActionSpec],
+        *,
+        satisfied_dependencies: Iterable[str] = (),
+    ) -> List[FutureStep]:
         if target_satisfied is None:
             raise ValueError("target_satisfied must be resolved before generating a future.")
         if not isinstance(target_satisfied, bool):
@@ -72,6 +60,8 @@ class DeterministicFutureGenerator:
             raise TypeError("actions must be a list of ActionSpec objects.")
         if any(not isinstance(action, ActionSpec) for action in actions):
             raise TypeError("actions must contain only ActionSpec objects.")
+        inherited = tuple(str(name).strip() for name in satisfied_dependencies)
+        validate_action_dependencies(actions, satisfied_dependencies=inherited)
 
         steps: List[FutureStep] = [
             FutureStep(0, "evidence.authoritative", "EVIDENCE", "Use authoritative evidence already acquired."),
@@ -92,7 +82,7 @@ class DeterministicFutureGenerator:
                     sequence=2 + index,
                     step_id=f"action.{index}",
                     phase="ACTION",
-                    description=f"Execute authorized action {index + 1} only after all prior required steps succeed.",
+                    description=f"Execute authorized action {index + 1} only after all declared dependencies and prior required steps succeed.",
                     action=self._action_payload(index, action),
                 )
             )
@@ -104,11 +94,11 @@ class DeterministicFutureGenerator:
         ])
         return steps
 
-    def generate_from_result(self, target_result: Any, actions: List[ActionSpec]) -> List[FutureStep]:
+    def generate_from_result(self, target_result: Any, actions: List[ActionSpec], *, satisfied_dependencies: Iterable[str] = ()) -> List[FutureStep]:
         """Generate from a TargetStateResult-like object after validation."""
         if not hasattr(target_result, "satisfied"):
             raise TypeError("target_result must expose a boolean 'satisfied' value.")
-        return self.generate(target_result.satisfied, actions)
+        return self.generate(target_result.satisfied, actions, satisfied_dependencies=satisfied_dependencies)
 
     @staticmethod
     def snapshot(steps: List[FutureStep]) -> List[Dict[str, Any]]:

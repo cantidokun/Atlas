@@ -2,37 +2,36 @@
 
 ## What Atlas is
 
-Atlas is an **AI-assisted sports virtual production and digital-twin platform** designed to turn captured sports footage and real-world environments into richer, controllable production experiences.
+Atlas is an **AI-assisted sports virtual production and digital-twin platform** focused exclusively on soccer-field-related digital twins and production workflows.
 
-Blender and Unreal Engine are execution environments around Atlas's canonical Digital Twin. Dedicated photogrammetry software is an upstream reconstruction stage.
+Dedicated photogrammetry software is the upstream reconstruction stage. Blender analyzes, cleans, corrects, optimizes, and prepares the reconstruction. Unreal is a downstream controlled production environment around the canonical Atlas Digital Twin.
 
 ```text
-Real-world environment / captured sports footage
-                 ↓
-       Dedicated photogrammetry
-                 ↓
-        Initial 3D reconstruction
-                 ↓
-            Blender Agent
-       analyze / clean / correct
-              / optimize
-                 ↓
-          Prepared digital twin
-                 ↓
-            Unreal Agent
-       real-time production / VFX
+Real-world soccer environment / captured soccer footage
+                    ↓
+          Dedicated photogrammetry
+                    ↓
+           Initial 3D reconstruction
+                    ↓
+               Blender Agent
+        analyze / clean / correct / optimize
+                    ↓
+             Atlas Digital Twin
+                    ↓
+               Unreal Agent
+          real-time production / VFX
 ```
 
-Photogrammetry is an upstream reconstruction capability, not a Blender responsibility.
+Atlas is designed for source footage including 4K/UHD. Higher resolution changes processing, memory, storage, reconstruction, compositing, and render throughput requirements, not the core orchestration model.
 
-## Core control principle
+## Authority model
 
 ```text
 Qwen / AI
-  → understand, reason, propose
+  → reason and propose structured production intent
 
 Python / Atlas
-  → validate, authorize, execute, track state, verify, recover
+  → validate, resolve, authorize, execute, track, verify, recover
 
 Blender / Unreal
   → controlled production execution
@@ -41,215 +40,194 @@ Independent verification
   → establish what actually happened
 ```
 
-Qwen never receives direct production execution authority.
+Qwen is never the execution or authorization authority.
 
 ---
 
-# Current Atlas status — September 1, 2026
+# Current position — September 3, 2026
 
-Atlas has now proven a real Unreal Engine 5.6 production-render boundary locally, in addition to the established Blender planning and execution architecture.
+**Active branch:** `feat/blender-stage11-mainline`  
+**PR #49:** open, draft, unmerged  
+**Current development stage:** **Stage 17 — production artifact lineage, IN PROGRESS**
 
-Latest local Python regression reported during the September 1 development session:
+Stage 13 multi-step partial-progress recovery is live-verified against Blender 4.4 and passed GitHub Actions. Stage 14 dependency-aware serial execution and cross-process recovery are implemented and live-verified. Stage 15 semantic soccer-production workflows and versioned catalog compilation are complete for the current contract.
 
-**1033 passed, 5 skipped**
+Stage 16 Qwen integration is now live-verified through proposal, Atlas authorization, real Blender mutation, and two-process recovery with a fresh Qwen recovery recommendation.
 
-`git diff --check` was clean at the same checkpoint.
-
-The Unreal render boundary has been exercised through the real UE 5.6 editor/runtime and now covers render configuration, configuration verification, render submission, dynamic render-job identity, asynchronous job inspection, output artifact discovery, artifact verification, and deterministic render receipts.
-
----
-
-# Blender Agent status
-
-The generic Atlas architecture remains centered on explicit intent, capability/schema validation, authorization, execution, independent verification, evidence, recovery, and replanning.
+## Stage 16 — Qwen integration — VERIFIED FOR CURRENT CONTRACT
 
 ```text
-Qwen reasoning
-      ↓
-structured task intent
-      ↓
-capability/schema validation
-      ↓
-authorized plan
-      ↓
-controlled execution boundary
-      ↓
-independent verification
-      ↓
-immutable evidence / receipt
-      ↓
-reassessment / replan
+Qwen
+  ↓
+Ollama structured proposal
+  ↓
+strict provider-output validation
+  ↓
+trusted soccer-production catalog
+  ↓
+QwenProductionProposal
+  ↓
+ProductionTaskDefinition
+  ↓
+AtlasTaskDefinition
+  ↓
+QwenProductionTaskHandoff
+  ↓
+existing Atlas ActionAuthorization
+  ↓
+existing AutonomousTaskRuntime
+  ↓
+Blender execution boundary
+  ↓
+fresh independent verification
 ```
 
-Blender remains an independent development track. Its process/adapter boundaries preserve capability restrictions, validated arguments, authorization scope, deterministic execution, independent verification, and fail-closed behavior.
+The provider and handoff boundaries reject model-supplied executors, authorization IDs, arbitrary tools, combined workflow/version identifiers, malformed parameters, and provenance drift. Qwen recovery recommendations are advisory only; Atlas derives the executable unfinished action from the persisted authorized task.
+
+### Live Qwen-authorized Blender mutation — VERIFIED
+
+```text
+workflow=broadcast-goal-preparation
+workflow_version=1
+qwen_proposal=verified
+catalog_validation=verified
+semantic_task=verified
+atlas_authorization=verified
+existing_task_runtime=verified
+blender_execution=verified
+independent_final_verification=verified
+```
+
+### Live Qwen cross-process recovery — VERIFIED
+
+```text
+LIVE QWEN PRODUCTION RECOVERY VERIFIED
+object=Goal_Left_post
+workflow=broadcast-goal-preparation
+workflow_version=1
+qwen_provenance_recovered=verified
+initial_authorization_recovered=verified
+process_restart=verified
+qwen_recovery_recommendation=verified
+qwen_recovery_recommendation_advisory_only=verified
+fresh_recovery_evidence=verified
+qwen_workflow_target_revalidated=verified
+completed_prerequisite_not_replayed=verified
+replan_authorization=atlas-qwen-recovery-replan
+replacement_execution=verified
+independent_final_verification=verified
+fixture_restored_location=[0.25, 5.302, 0.0]
+fixture_restored_rotation=[0.0, 0.0, 0.0]
+```
+
+This proves that Qwen can participate in recovery reasoning without receiving recovery authority. Atlas retains sole control over fresh evidence, recovery classification, replan authorization, execution, and final verification.
+
+---
+
+# Stage 17 — Production artifact lineage
+
+The next production-grade foundation is a first-class lineage contract between the canonical Atlas Digital Twin and its production representations.
+
+`planning/production_artifact.py` introduces `ProductionArtifactManifest`, an immutable, deterministic provenance record for a Blender, Unreal, or other production artifact. It can bind:
+
+- a stable canonical Digital Twin identifier;
+- a concrete artifact representation and path;
+- upstream source-artifact relationships;
+- workflow/version/parameter provenance;
+- independent evidence and execution-receipt digests;
+- engine and engine-version metadata.
+
+The manifest is deliberately non-executable. It provides no authorization, execution, scheduler, or recovery capability. Its purpose is to make artifact lineage portable across the Blender and Unreal stages without conflating a `.blend`, Unreal project, render output, or receipt with canonical Digital Twin identity.
+
+Regression coverage verifies deterministic digests, round-trip reconstruction, fail-closed tamper detection, self-reference rejection, duplicate-source rejection, unknown-field rejection, and absence of execution/authorization authority.
+
+This is an architectural foundation rather than a claim that the complete production asset graph is finished.
+
+## Stage 17 next work
+
+Extend the lineage contract into the existing Blender and Unreal receipt/evidence paths so a completed production operation can emit a lineage record linking its canonical Digital Twin, input artifacts, workflow provenance, and verified output artifacts.
+
+Do not create a second execution, authorization, or recovery system for lineage tracking.
+
+---
+
+# Earlier proven architecture
+
+### Stage 12 — task-aware autonomous execution and recovery
+**COMPLETE FOR CURRENT CONTRACT**
+
+### Stage 13 — multi-step partial-progress recovery
+**COMPLETE FOR CURRENT CONTRACT**
+
+### Stage 14 — dependency-aware task composition
+**COMPLETE FOR CURRENT CONTRACT**
+
+Explicit dependencies are validated, included in authorization/integrity digests, persisted through continuation, and recovered using checkpoint-derived completed prerequisites. Execution remains serial; parallel scheduling has not been introduced.
+
+### Stage 15 — semantic soccer-production tasks
+**COMPLETE FOR CURRENT CONTRACT**
+
+`ProductionTaskDefinition`, reusable production fragments, target-state evaluation, soccer-production templates, and the versioned catalog are established. Current catalog workflow:
+
+```text
+broadcast-goal-preparation@1
+
+file_name       -> string
+object_name     -> string
+target_location -> vector3
+target_rotation -> vector3
+```
 
 ---
 
 # Unreal Agent status
 
-Unreal production transport and rendering are no longer merely planned or unverified. The local UE 5.6 boundary has been exercised end to end.
+The Unreal Engine 5.6 boundary is proven locally for the implemented render workflow:
 
-The controlled render workflow now supports:
-
-- deterministic render configuration;
-- render-state verification;
+- deterministic render configuration and verification;
 - Movie Render Queue submission;
-- dynamic job-ID binding from submission evidence;
+- dynamic job-ID binding;
 - asynchronous render-job inspection;
-- completed-job semantic verification;
-- actual output-artifact discovery from MRQ;
+- semantic completion verification;
+- output artifact discovery;
 - filesystem existence and non-zero-size validation;
-- evidence-bound deterministic `UnrealRenderReceipt` creation;
-- atomic `UnrealRenderReceiptStore` persistence with fail-closed reload validation.
+- evidence-bound `UnrealRenderReceipt` creation;
+- durable receipt persistence with fail-closed reload validation.
 
-A real controlled render was executed using:
+Controlled proof was 640x360, frames 1–2, PNG. This is a boundary test, not a source-footage resolution limit.
 
-```text
-resolution:       640x360
-frame range:      1–2
-output format:    PNG
-output directory: Saved/AtlasRenderOutput
-```
-
-The completed live job returned a real PNG artifact through `inspect_render_job`, and Atlas marked the completed inspection `verified=True`.
-
-A live `UnrealRenderReceipt` was then issued from that verified evidence. The verified session produced these deterministic identities:
-
-```text
-evidence_digest:
-f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
-
-receipt_digest:
-f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
-
-SELF MATCH: True
-```
-
-The receipt store has focused regression coverage for round-tripping, deterministic persistence, extra-field rejection, and digest tampering.
-
-The Unreal runtime job registry itself remains in-memory. Durable render-receipt persistence is an Atlas/Python concern; cross-process Unreal job recovery has **not** been implemented.
+**Cross-process Unreal render-job recovery is not implemented.** Receipt persistence must not be described as job persistence.
 
 ---
 
-# Development roadmap
+# Digital Twin and production direction
 
-## Blender
+Atlas owns the canonical Digital Twin. `.blend` files, Unreal projects, levels, render jobs, receipts, and output artifacts are production representations/state, not canonical identity.
 
-### Stage 1 — Basic Blender Agent
-**COMPLETE**
-
-### Stage 2 — Reliable Evidence
-**COMPLETE**
-
-### Stage 3 — Mandatory Evidence Acquisition
-**COMPLETE**
-
-### Stage 4 — Evidence Validation and Recommendation Restraint
-**COMPLETE**
-
-### Stage 5 — General Evidence Planner
-**COMPLETE**
-
-### Stage 6 — Reliable Modification Control
-**COMPLETE**
-
-### Stage 7 — General Action Planning
-**COMPLETE**
-
-### Stage 8 — Conditional Action Planning
-**COMPLETE**
-
-### Stage 9 — Qwen/Atlas Agent Reasoning Boundary
-**COMPLETE FOR CURRENT CONTRACT**
-
-### Stage 10 — Blender Adapter / Real Execution Bridge
-**IN PROGRESS**
-
-### Stage 11 — First Controlled Live Blender Operation
-**NEXT BLENDER LIVE GATE**
-
-### Stage 12 — Closed-loop Blender Agent
-**FUTURE**
-
-## Unreal
-
-### Unreal Engine Boundary
-**PROVEN LOCALLY**
-
-### Unreal Production Transport
-**PROVEN LOCALLY FOR CURRENT IMPLEMENTED CAPABILITIES**
-
-### Unreal Render / MRQ Boundary
-**PROVEN LOCALLY**
-
-### Render Artifact Verification
-**PROVEN LOCALLY**
-
-### Unreal Render Receipt
-**PROVEN LOCALLY**
-
-### Render Receipt Persistence
-**PROVEN LOCALLY**
-
-### Next Unreal increment
-Integrate receipt creation/persistence into the higher-level Atlas render execution workflow, then expand Unreal capabilities only where a real capability gap justifies them.
-
----
-
-# Digital Twin direction
-
-Atlas owns the canonical Digital Twin. Blender, Unreal, photogrammetry software, and future tools are adapters/executors around that canonical model.
-
-A `.blend` file, Unreal project, level, render configuration, or other DCC artifact is a representation/production state, not the canonical identity of the environment. Identity, provenance, revisions, production variants, and shot-specific changes remain explicit.
-
-Photogrammetry creates the initial reconstruction. Blender analyzes, cleans, corrects, optimizes, and prepares it for downstream production.
-
----
-
-# Production repertoire
-
-The wider Atlas production system may include impact frames, smear frames, chromatic aberration, cinematic bleed, match-cut transformations, spatial overlays, digital-twin compositing, and environment-driven effects including temporary liquid, smoke, glass, metallic, or other fluid-like behavior.
+The wider production repertoire may include impact frames, smear frames, chromatic aberration, cinematic bleed, match-cut transformations, spatial overlays, digital-twin compositing, and temporary liquid/smoke/glass/metallic environment effects.
 
 These are production modules, not the definition of Atlas.
 
 ---
 
-# Required regression philosophy
+# Non-regression rules
 
-Preserve coverage for:
+- Qwen never receives direct execution or authorization authority.
+- Model output remains untrusted until Atlas validates it.
+- Never allow model-supplied authorization IDs or receipts to become Atlas authority.
+- Never automatically retry failed writes.
+- Never silently mutate an authorized plan.
+- Never declare completion from a transport/write response alone.
+- Preserve independent verification and the evidence ledger.
+- Keep engine-specific behavior behind adapter/tool boundaries.
+- Preserve canonical Digital Twin identity separately from production artifacts.
+- Do not introduce parallel execution until dependency semantics justify it independently.
+- Do not claim cross-process Unreal job recovery unless implemented and verified.
 
-- already-satisfied state → zero writes;
-- unsatisfied state → exact authorized action order;
-- successful write → verification remains mandatory;
-- verification failure → `BLOCKED`;
-- action failure → recovery gate;
-- mutated arguments/result → receipt mismatch;
-- malformed executor result → rejected;
-- wrong result tool → rejected;
-- invalid continuation identity → rejected;
-- authorized fresh-evidence replan → accepted;
-- unauthorized replan → rejected;
-- malformed Qwen reasoning → rejected;
-- unknown/non-capability tool → rejected;
-- render job completion without artifacts → rejected;
-- declared render artifacts that do not exist → rejected;
-- tampered persisted render receipt → rejected.
+## PR status
 
-# Development rules
-
-- Preserve the evidence ledger and independent verification.
-- Do not make goalpost behavior the generic architecture.
-- Do not add tools without proving a capability gap.
-- Do not allow a production-tool success response alone to establish completion.
-- Do not allow action plans to execute without explicit authorization.
-- Do not allow Qwen to bypass Python-owned execution state.
-- Do not allow automatic retry after failed writes.
-- Keep Blender/Unreal-specific behavior behind adapter/tool boundaries.
-- Treat photogrammetry as an upstream reconstruction capability.
-- Preserve provenance and canonical Digital Twin identity.
-- Test every meaningful increment.
-- Keep the project handoffs synchronized with verified milestones.
+PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly requested.**
 
 ## Resume point
 
-For the next session: read `ATLAS_HANDOFF_CURRENT.md` and `UNREAL_AGENT_HANDOFF_CURRENT.md`, inspect the current branch/HEAD and newest regression result, then continue from the **Unreal render receipt integration** checkpoint or the independently tracked Blender adapter/live-operation track. Do not claim cross-process Unreal job recovery unless it is separately implemented and verified.
+**Stage 17:** integrate `ProductionArtifactManifest` into the existing evidence/receipt paths, beginning with a narrow Blender production-artifact lineage proof and then the corresponding Unreal boundary. Keep lineage observational/provenance-only; do not add another runtime authority layer.

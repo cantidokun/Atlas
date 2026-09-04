@@ -89,6 +89,59 @@ def test_validation_does_not_authorize_or_execute_actions():
     assert not actions.complete
 
 
+def test_dependency_declarations_survive_structured_plan_validation():
+    proposal = build_task_plan(
+        {
+            "evidence": [],
+            "actions": [
+                {
+                    "tool": "move_object",
+                    "arguments": {
+                        "file_name": "scene.blend",
+                        "object_name": "Goal_Left_post",
+                        "location": [1, 0, 0],
+                    },
+                    "name": "move",
+                },
+                {
+                    "tool": "move_object",
+                    "arguments": {
+                        "file_name": "scene.blend",
+                        "object_name": "Goal_Right_post",
+                        "location": [-1, 0, 0],
+                    },
+                    "name": "move_right",
+                    "depends_on": ["move"],
+                },
+            ],
+        },
+        allowed_tools=ALLOWED_TOOLS,
+    )
+    assert proposal.actions[1].dependency_names() == ("move",)
+
+
+def test_unknown_dependency_is_rejected_at_structured_plan_boundary():
+    with pytest.raises(TaskPlanValidationError, match="unknown action"):
+        build_task_plan(
+            {
+                "evidence": [],
+                "actions": [
+                    {
+                        "tool": "move_object",
+                        "arguments": {
+                            "file_name": "scene.blend",
+                            "object_name": "Goal_Left_post",
+                            "location": [0, 0, 0],
+                        },
+                        "name": "move",
+                        "depends_on": ["missing"],
+                    }
+                ],
+            },
+            allowed_tools=ALLOWED_TOOLS,
+        )
+
+
 def test_unknown_argument_is_rejected():
     with pytest.raises(TaskPlanValidationError, match="Unknown argument"):
         build_task_plan(

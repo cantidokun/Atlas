@@ -18,6 +18,18 @@ def test_rotation_target_requires_exact_rotation():
     assert evaluator.evaluate({"object_name": TARGET_OBJECT, "rotation_degrees": TARGET_ROTATION}).satisfied
 
 
+def test_rotation_target_accepts_canonical_blender_result_shape():
+    evaluator = object_rotation_target_evaluator("Goal_Left_post", [0.0, 0.0, 15.0])
+    assert evaluator.evaluate({
+        "ok": True,
+        "state": "transform_inspected",
+        "details": {
+            "object_name": "Goal_Left_post",
+            "rotation_degrees": [0.0, 0.0, 15.0],
+        },
+    }).satisfied
+
+
 def test_rotation_action_shape_is_exact():
     action = object_rotation_action("rotation.blend")
     assert isinstance(action, ActionSpec)
