@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026 — Blender Stage 17 production artifact lineage is implemented through durable persistence and focused integration regression coverage; the next gate is real Blender execution proof.
+**Updated:** September 4, 2026 — Blender Stage 17 production artifact lineage is implemented through durable persistence, focused integration regression coverage, and user-verified real Blender proof.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
 **Current stage:** Stage 17 — IN PROGRESS
@@ -77,13 +77,38 @@ A focused Blender pipeline regression exercises the existing `BlenderExecutionBo
 
 `planning/production_artifact_store.py` provides durable versioned JSON persistence for the immutable manifest, with deterministic serialization, atomic replacement, file flushing, and fail-closed reload validation. The persistence boundary is explicitly Windows-safe: POSIX directory fsync is retained where supported, while Windows treats the already-flushed replacement file as the platform durability boundary rather than falsely failing after a successful atomic replacement.
 
-A new integration regression now covers the complete offline contract: one Blender boundary closed loop produces the receipt/evidence, the immutable manifest binds them, the manifest is durably persisted, the persisted envelope is reloaded, and independent lineage verification confirms the exact original receipt/evidence. A second proof rejects substitution of a later unrelated Blender receipt/evidence pair against the persisted artifact manifest.
+A new integration regression covers the complete offline contract: one Blender boundary closed loop produces the receipt/evidence, the immutable manifest binds them, the manifest is durably persisted, the persisted envelope is reloaded, and independent lineage verification confirms the exact original receipt/evidence. A second proof rejects substitution of a later unrelated Blender receipt/evidence pair against the persisted artifact manifest.
 
-## Next verification gate
+### Blender Stage 17 — LIVE VERIFIED
 
-The next gate is a user-executed real Blender proof using the existing `BlenderExecutionBoundary.execute_with_persistence(...)` path. The proof should construct a `ProductionArtifactManifest`, persist it with `ProductionArtifactStore`, reload it, and independently verify the exact receipt/evidence lineage. It must establish the same canonical Digital Twin and verified artifact path without introducing another execution or authorization layer.
+The user executed `python live_blender_production_artifact_proof.py` locally against the real Blender 4.4 adapter after pulling commit `5306a6b`.
 
-After that Blender gate is user-verified, extend the same provenance contract to the existing Unreal receipt boundary. Cross-process Unreal render-job recovery remains a separate, unimplemented capability and must not be implied by receipt persistence.
+The proof completed successfully:
+
+```text
+ATLAS LIVE BLENDER PRODUCTION ARTIFACT PROOF: PASS
+REAL BLENDER WRITE -> FRESH SCENE INSPECTION -> IMMUTABLE RECEIPT/EVIDENCE -> DURABLE MANIFEST -> RELOAD -> EXACT LINEAGE VERIFIED
+```
+
+Verified live values:
+
+```text
+artifact_id                    = atlas-blender-live-proof-001
+artifact_path                  = parent_task_INCORRECT.blend
+canonical_digital_twin_id      = atlas-soccer-digital-twin-proof
+observed_location              = [0.5, 5.233, 0.0]
+manifest_digest                = 491dbd365c388db7b5d85bc0ead6760a3dcf44a7300403575410663b7cf166f1
+operation_receipt_digest       = 11641aebe30361f151598fdd44d58a42a250d602f73b91c7ae002e4fd4d3ba9c
+persistence_evidence_digest    = c02e64de921535eb5e0f12dd301b94294dfab9b5585c32cd5814e518a8873f2b
+```
+
+This establishes the real Blender write, fresh independent scene inspection, immutable execution receipt and persistence evidence, durable manifest persistence, reload integrity, and exact lineage binding without introducing an additional execution or authorization layer.
+
+## Next development target
+
+With the Blender Stage 17 gate now live verified, the next work is to extend the same provenance contract to the existing Unreal receipt boundary. This should remain provenance-only: connect existing verified Unreal execution evidence to production artifact lineage without introducing execution or authorization behavior into the manifest layer.
+
+Cross-process Unreal render-job recovery remains a separate, unimplemented capability and must not be implied by receipt persistence or by this provenance extension.
 
 ## Non-regression rules
 
