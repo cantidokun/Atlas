@@ -1,5 +1,73 @@
 # Atlas Development Log
 
+## September 4, 2026 — Stage 17 Unreal lineage and controller-boundary hardening
+
+The active development line is now `main` and Stage 17 remains in progress.
+
+### Unreal Stage 17 status
+
+The Unreal Engine 5.6 render/receipt boundary remains live-proven for the implemented render workflow. The production-artifact provenance layer is implemented and regression-verified but still awaits the final human UE 5.6 provenance proof.
+
+The provenance chain is:
+
+```text
+verified inspect_render_job evidence
+  ↓
+matching UnrealRenderReceipt
+  ↓
+ProductionArtifactManifest
+  ↓
+durable ProductionArtifactStore
+  ↓
+reload
+  ↓
+exact lineage verification
+```
+
+`UnrealEvidence` and `UnrealRenderReceipt` expose canonical detached snapshot/from_snapshot boundaries with fail-closed validation. The disposable `live_unreal_production_artifact_proof.py` harness consumes an already verified evidence/receipt pair and does not execute, authorize, schedule, or recover Unreal work.
+
+### Controller-to-Unreal boundary
+
+Mainline `AgentControllerHost` was hardened so protected Unreal production intent and the production marker come only from the host-owned `TrustedUnrealContext`.
+
+Model-supplied protected intent cannot replace the trusted intent. Conflicting model intent is retained only as diagnostic mismatch state. Model-supplied production flags cannot disable the host-owned production marker.
+
+`UnrealProductionControllerIntegration` adds a second admission check requiring the complete host-owned protected context before executor invocation:
+
+```text
+production
+authorized_production
+intent
+sequence_asset_path
+```
+
+Missing or invalid trusted context is rejected before execution.
+
+These changes add no second authorization system, scheduler, recovery engine, or Unreal execution path.
+
+### PR #50 disposition
+
+The historical controller-host architecture in PR #50 remains isolated. Its branch has diverged substantially from current `main`, so it will be integrated selectively rather than through a blanket merge. The validated invariants needed by the current architecture are being transplanted incrementally.
+
+### Validation status
+
+Previously reported deterministic Stage 17 provenance/snapshot checkpoints remain valid for the commits they covered. The newest September 4 controller trust-boundary changes have not yet received a new local Windows test result in this session.
+
+No workflow/action-runner tests are to be run for the live gate unless explicitly authorized.
+
+### End-of-night resume point
+
+Next session:
+
+1. Pull latest `main`.
+2. Run focused deterministic controller trust-boundary tests.
+3. Execute the human UE 5.6 Stage 17 provenance proof using evidence from the existing proven render boundary.
+4. Run `live_unreal_production_artifact_proof.py` against the verified evidence/receipt pair.
+5. Confirm manifest persistence, reload, exact lineage, and digest identities.
+6. Continue selective integration of validated PR #50 architecture only after the Stage 17 proof checkpoint.
+
+Historical dated handoff snapshots are archival records and should remain unchanged.
+
 ## September 3, 2026 — Qwen Proposal, Atlas Authorization, Runtime, Recovery, and Artifact Lineage
 
 Atlas completed the current Stage 16 Qwen integration contract and advanced into Stage 17 production-artifact lineage.
