@@ -67,6 +67,12 @@ Focused regression coverage for the harness passed on Python 3.9 and 3.11 before
 
 The remaining gate is a human-run proof using evidence emitted by the existing proven Unreal Engine 5.6 render boundary. No new render implementation is required.
 
+### Controller boundary hardening
+
+The current `AgentControllerHost` now takes the protected Unreal production `intent` from the host-owned `TrustedUnrealContext` rather than accepting a model-supplied intent as authority. When a model response carries a different intent, the host preserves the trusted intent and records the mismatch as diagnostic context rather than allowing the model value to become the protected request identity.
+
+A deterministic regression covers both explicit model-intent substitution and the no-model-intent case. This increment does not add execution, scheduling, recovery, or a second authorization system.
+
 ### Proven Unreal render boundary
 
 ```text
@@ -96,6 +102,7 @@ No action-runner test should be run for this gate unless explicitly authorized.
 
 - Qwen remains proposal-only.
 - Never accept model-supplied authorization IDs or receipts as authority.
+- Never accept model-supplied protected Unreal intent as authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from transport/write success alone.
