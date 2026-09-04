@@ -304,6 +304,8 @@ def verify_blender_closed_loop_lineage(
         raise TypeError("operation_receipt must be a BlenderExecutionReceipt")
     if not isinstance(persistence_evidence, BlenderPersistenceEvidence):
         raise TypeError("persistence_evidence must be a BlenderPersistenceEvidence")
+    if manifest.engine != "Blender":
+        raise ProductionArtifactError("production artifact Blender lineage engine is invalid")
     _verify_blender_pair_binding(operation_receipt, persistence_evidence)
     if manifest.receipt_digests != (operation_receipt.digest(),):
         raise ProductionArtifactError("production artifact receipt lineage does not match")
