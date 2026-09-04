@@ -114,14 +114,15 @@ def normalize_unreal_production_event(
             "workflow_result must be a UnrealProductionWorkflowResult instance"
         )
 
+    render_result = workflow_result.render
     result = UnrealProductionResultContract(
         operation=event.operation,
         snapshot=event.snapshot,
         success=workflow_result.success,
-        intent_id=workflow_result.intent_id,
-        job_id=workflow_result.job_id,
-        final_evidence=workflow_result.render.final_evidence,
-        receipt=workflow_result.render.receipt,
+        intent_id=render_result.intent_id,
+        job_id=render_result.job_id,
+        final_evidence=render_result.final_evidence,
+        receipt=render_result.receipt,
     )
 
     if not result.verified_render:
