@@ -26,6 +26,53 @@ def test_render_receipt_issues_from_verified_inspection():
     assert receipt.receipt_digest
 
 
+def test_unreal_evidence_snapshot_round_trips_exactly():
+    evidence = _evidence()
+    restored = UnrealEvidence.from_snapshot(evidence.snapshot())
+    assert restored == evidence
+    assert restored.observed_state == evidence.observed_state
+    assert restored.snapshot() == evidence.snapshot()
+
+
+def test_unreal_evidence_snapshot_rejects_unknown_fields():
+    snapshot = _evidence().snapshot()
+    snapshot["unexpected"] = True
+    try:
+        UnrealEvidence.from_snapshot(snapshot)
+    except ValueError as exc:
+        assert "fields are invalid" in str(exc)
+    else:
+        raise AssertionError("unknown Unreal evidence snapshot fields must be rejected")
+
+
+def test_render_receipt_snapshot_round_trips_exactly():
+    receipt = UnrealRenderReceipt.issue(_evidence())
+    restored = UnrealRenderReceipt.from_snapshot(receipt.snapshot())
+    assert restored == receipt
+    assert restored.receipt_digest == receipt.receipt_digest
+    assert restored.snapshot() == receipt.snapshot()
+
+
+def test_render_receipt_snapshot_rejects_unknown_fields():
+    snapshot = UnrealRenderReceipt.issue(_evidence()).snapshot()
+    snapshot["unexpected"] = True
+    try:
+        UnrealRenderReceipt.from_snapshot(snapshot)
+    except ValueError as exc:
+        assert "fields are invalid" in str(exc)
+    else:
+        raise AssertionError("unknown Unreal receipt snapshot fields must be rejected")
+
+
+def test_unreal_evidence_snapshot_is_detached_from_mutation():
+    evidence = _evidence()
+    snapshot = evidence.snapshot()
+    snapshot["entity_ids"].append("MUTATED")
+    snapshot["observed_state"]["output_files"].append("MUTATED.png")
+    assert evidence.entity_ids == ("FIELD_SURFACE",)
+    assert evidence.observed_state["output_files"] == ("C:/renders/AtlasRender_0001.png",)
+
+
 def test_unreal_evidence_is_deeply_immutable():
     state = {"job_id": "job-123", "nested": {"output_files": ["render-0001.png"]}}
     evidence = UnrealEvidence(

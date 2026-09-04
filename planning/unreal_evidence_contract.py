@@ -20,6 +20,16 @@ def _freeze(value: Any) -> Any:
     return value
 
 
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    if isinstance(value, frozenset):
+        return sorted((_thaw(item) for item in value), key=repr)
+    return value
+
+
 @dataclass(frozen=True)
 class UnrealEvidence:
     operation_name: str
@@ -46,6 +56,32 @@ class UnrealEvidence:
             raise TypeError("verified must be a boolean")
         object.__setattr__(self, "entity_ids", entity_ids)
         object.__setattr__(self, "observed_state", _freeze(self.observed_state))
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a detached JSON-compatible snapshot of the immutable evidence."""
+        return {
+            "operation_name": self.operation_name,
+            "entity_ids": list(self.entity_ids),
+            "observed_state": _thaw(self.observed_state),
+            "source": self.source,
+            "verified": self.verified,
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot: Mapping[str, Any]) -> "UnrealEvidence":
+        """Reconstruct evidence from an exact persisted snapshot, fail-closed."""
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("Unreal evidence snapshot must be a mapping")
+        required = {"operation_name", "entity_ids", "observed_state", "source", "verified"}
+        if set(snapshot) != required:
+            raise ValueError("Unreal evidence snapshot fields are invalid")
+        return cls(
+            operation_name=snapshot["operation_name"],
+            entity_ids=snapshot["entity_ids"],
+            observed_state=snapshot["observed_state"],
+            source=snapshot["source"],
+            verified=snapshot["verified"],
+        )
 
 
 def validate_evidence_for_operation(evidence: UnrealEvidence, operation_name: str, entity_ids: Tuple[str, ...]) -> UnrealEvidence:
