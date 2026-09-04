@@ -31,6 +31,8 @@ class UnrealEvidence:
     def __post_init__(self) -> None:
         if not isinstance(self.operation_name, str) or not self.operation_name.strip():
             raise ValueError("operation_name must not be empty")
+        if not isinstance(self.entity_ids, (list, tuple)):
+            raise TypeError("evidence entity_ids must be a sequence")
         entity_ids = tuple(self.entity_ids)
         if not entity_ids:
             raise ValueError("evidence requires explicit entity IDs")
