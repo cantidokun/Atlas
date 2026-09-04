@@ -207,7 +207,13 @@ class ConditionalPlanningOrchestrator:
         self.target_state = result
         self.conditional_plan.evaluate(result.satisfied)
         actions = [
-            ActionSpec(action.tool, dict(action.arguments), action.name, action.requires_success)
+            ActionSpec(
+                action.tool,
+                dict(action.arguments),
+                action.name,
+                action.requires_success,
+                action.dependency_names(),
+            )
             for action in self.conditional_plan.action_plan.actions
         ]
         self.future_controller = FutureExecutionController(

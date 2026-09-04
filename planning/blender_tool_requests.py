@@ -50,6 +50,38 @@ print("ATLAS_RESULT_END")
     )
 
 
+def build_inspect_object_transform_request(tool: str, arguments: Dict[str, Any]) -> BlenderProcessRequest:
+    if tool != "inspect_object_transform":
+        raise ValueError("request builder/tool mismatch")
+    file_name = _require_string(arguments, "file_name")
+    object_name = _require_string(arguments, "object_name")
+    script = f"""
+import bpy, json, math
+object_name = {object_name!r}
+obj = bpy.data.objects.get(object_name)
+if obj is None:
+    result = {{"ok": False, "state": "object_not_found", "details": {{"object_name": object_name}}}}
+else:
+    result = {{
+        "ok": True,
+        "state": "transform_inspected",
+        "details": {{
+            "object_name": obj.name,
+            "rotation_degrees": [round(math.degrees(angle), 6) for angle in obj.rotation_euler]
+        }}
+    }}
+print("ATLAS_TRANSFORM_START")
+print(json.dumps(result))
+print("ATLAS_TRANSFORM_END")
+"""
+    return BlenderProcessRequest(
+        blend_path=file_name,
+        script=script,
+        start_marker="ATLAS_TRANSFORM_START",
+        end_marker="ATLAS_TRANSFORM_END",
+    )
+
+
 def build_move_object_request(tool: str, arguments: Dict[str, Any]) -> BlenderProcessRequest:
     """Build the first controlled Blender write request from validated arguments."""
     if tool != "move_object":
@@ -91,7 +123,50 @@ print("ATLAS_WRITE_END")
     )
 
 
+def build_set_object_rotation_request(tool: str, arguments: Dict[str, Any]) -> BlenderProcessRequest:
+    if tool != "set_object_rotation":
+        raise ValueError("request builder/tool mismatch")
+    file_name = _require_string(arguments, "file_name")
+    object_name = _require_string(arguments, "object_name")
+    rotation_degrees = _require_vector(arguments, "rotation_degrees")
+    script = f"""
+import bpy, json, math
+object_name = {object_name!r}
+target = {rotation_degrees!r}
+obj = bpy.data.objects.get(object_name)
+if obj is None:
+    result = {{
+        "ok": False,
+        "state": "object_not_found",
+        "details": {{"object_name": object_name}}
+    }}
+else:
+    obj.rotation_mode = "XYZ"
+    obj.rotation_euler = tuple(math.radians(value) for value in target)
+    bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath)
+    result = {{
+        "ok": True,
+        "state": "rotated",
+        "details": {{
+            "object_name": obj.name,
+            "rotation_degrees": [round(math.degrees(angle), 6) for angle in obj.rotation_euler]
+        }}
+    }}
+print("ATLAS_ROTATION_START")
+print(json.dumps(result))
+print("ATLAS_ROTATION_END")
+"""
+    return BlenderProcessRequest(
+        blend_path=file_name,
+        script=script,
+        start_marker="ATLAS_ROTATION_START",
+        end_marker="ATLAS_ROTATION_END",
+    )
+
+
 BLENDER_PROCESS_REQUEST_BUILDERS = {
     "inspect_scene": build_inspect_scene_request,
+    "inspect_object_transform": build_inspect_object_transform_request,
     "move_object": build_move_object_request,
+    "set_object_rotation": build_set_object_rotation_request,
 }

@@ -1,4 +1,19 @@
-"""Shared Ollama JSON-schema constraint for Atlas task-plan proposals."""
+"""Shared JSON-schema constraints for Atlas Qwen proposal outputs."""
+
+
+PRODUCTION_PROPOSAL_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["workflow", "parameters"],
+    "properties": {
+        "workflow": {"type": "string", "minLength": 1},
+        "version": {"type": ["integer", "null"], "minimum": 1},
+        "parameters": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    },
+}
 
 
 TASK_PLAN_JSON_SCHEMA = {
@@ -29,8 +44,15 @@ TASK_PLAN_JSON_SCHEMA = {
                     "tool": {"type": "string"},
                     "arguments": {"type": "object"},
                     "name": {"type": "string"},
+                    "depends_on": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                 },
             },
         },
     },
 }
+
+
+__all__ = ["PRODUCTION_PROPOSAL_JSON_SCHEMA", "TASK_PLAN_JSON_SCHEMA"]

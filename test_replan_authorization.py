@@ -75,3 +75,29 @@ def test_authorization_receipt_is_bound_to_evidence_and_actions():
     assert receipt.matches({"ready": False}, actions)
     assert not receipt.matches({"ready": True}, actions)
     assert not receipt.matches({"ready": False}, [ActionSpec("write", {"value": 2}, "write")])
+
+
+def test_replan_receipt_binds_inherited_dependencies():
+    evidence = {"ready": False}
+    actions = [ActionSpec("rotate", {}, "replanned_rotation", depends_on=("prepare_location",))]
+
+    with pytest.raises(ValueError, match="unknown action"):
+        ReplanAuthorization.issue(evidence, actions, "approval-inherited")
+
+    receipt = ReplanAuthorization.issue(
+        evidence,
+        actions,
+        "approval-inherited",
+        inherited_dependencies=("prepare_location",),
+    )
+    assert receipt.matches(
+        evidence,
+        actions,
+        inherited_dependencies=("prepare_location",),
+    )
+    assert not receipt.matches(evidence, actions)
+    assert not receipt.matches(
+        evidence,
+        actions,
+        inherited_dependencies=("other_completed_action",),
+    )

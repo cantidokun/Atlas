@@ -1,12 +1,8 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 1, 2026
-**Focus:** Unreal Agent and supporting architecture only
-**GitHub documentation branch:** `docs/sep1-2026-unreal-render-handoff`
-**GitHub main baseline at documentation start:** `b56aada`
-**Local development checkpoint reported by user:** `f658e16` — `feat: establish Unreal render artifact receipt pipeline`
-**Latest local regression reported by user:** **1033 passed, 5 skipped**
-**Latest local `git diff --check`:** clean
+**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is implemented and regression-hardened on main. A disposable Unreal artifact-lineage proof harness is now available for the final human validation gate.
+**Focus:** Unreal Agent and supporting architecture only.
+**Active Atlas branch:** `main`
 
 ## Architectural position
 
@@ -31,29 +27,34 @@ independent evidence
     ↓
 Atlas verification
     ↓
-render receipt / persisted receipt when applicable
+UnrealRenderReceipt
+    ↓
+ProductionArtifactManifest
 ```
 
-The Unreal Agent proposes and decomposes operations. It does not authorize or directly execute them. Qwen likewise remains a reasoning/proposal source only.
+Qwen remains a reasoning/proposal source. It does not authorize or directly execute Unreal operations.
 
-## Verified September 1 Unreal milestone
+## Verified Unreal execution baseline
 
-The disposable Unreal harness and the production Unreal transport boundary have now been exercised through a real Unreal Engine 5.6 runtime.
+The Unreal production transport and render boundary has been exercised through a real Unreal Engine 5.6 runtime.
 
-The verified render path includes:
+Verified path:
 
-- deterministic render configuration;
-- render-state verification;
-- Movie Render Queue submission;
-- dynamic job-ID binding from submission evidence;
-- asynchronous render-job inspection;
-- completed-job semantic verification;
-- MRQ output artifact discovery;
-- filesystem artifact existence and non-zero-size validation;
-- evidence-bound deterministic `UnrealRenderReceipt` creation;
-- atomic `UnrealRenderReceiptStore` persistence with fail-closed reload validation.
+```text
+render configuration
+  → configuration verification
+  → Movie Render Queue submission
+  → dynamic job ID
+  → asynchronous job inspection
+  → semantic completion verification
+  → actual output artifact discovery
+  → filesystem existence/non-zero-size validation
+  → verified evidence
+  → evidence-bound UnrealRenderReceipt
+  → durable receipt persistence
+```
 
-Controlled live proof:
+Controlled live render:
 
 ```text
 resolution:       640x360
@@ -62,91 +63,56 @@ output format:    PNG
 output directory: Saved/AtlasRenderOutput
 ```
 
-The completed live render produced a real PNG artifact. `inspect_render_job` returned that artifact and was marked `verified=True` after the executor routed the inspection through render-job semantic verification.
+The completed live render produced a real PNG artifact. The receipt was derived from verified render evidence.
 
-A real receipt was issued from that verified evidence:
+## Stage 17 production-artifact provenance
+
+`ProductionArtifactManifest.from_unreal_render_receipt(...)` is a provenance-only bridge from an existing immutable `UnrealRenderReceipt` plus its immutable `UnrealEvidence` to a production artifact.
+
+Construction now requires:
 
 ```text
-evidence_digest:
-f5014c719628478f7223ed3a8c4173d9230f13f4957e786ef99e20cd4b1b6cd0
-
-receipt_digest:
-f053d427fde579637225fa350b5204f6a001bfb041041802d06542c8e8114dcb
-
-SELF MATCH: True
+engine                     == Unreal
+operation_name             == inspect_render_job
+verified                   == True
+receipt.matches(evidence)  == True
+artifact_path              ∈ independently observed output_files
 ```
 
-Focused render/receipt coverage was expanded and the latest full local regression reached **1033 passed, 5 skipped**.
+`verify_unreal_render_lineage(...)` rechecks the same bindings without executing Unreal, authorizing work, scheduling a render, or recovering a job.
 
-## Important implementation boundary
+The manifest is durably persisted through `ProductionArtifactStore`, with deterministic serialization, atomic replacement, file flushing, fail-closed reload validation, and manifest-integrity checking.
 
-The Unreal runtime render-job registry remains in-memory. The Atlas-side `UnrealRenderReceiptStore` provides durable receipt persistence, but **cross-process recovery of Unreal runtime render jobs is not implemented**.
+PR #55 added `live_unreal_production_artifact_proof.py`. It consumes an already verified Unreal evidence snapshot plus matching render receipt, constructs the manifest, persists and reloads it, independently verifies exact lineage, and reports the artifact, evidence, receipt, and manifest digests. Focused regression coverage passed on Python 3.9 and 3.11 before merge.
+
+### Current validation status
+
+The underlying real Unreal render/receipt path is live verified. The Stage 17 production-artifact manifest bridge and its proof harness are regression-verified but **have not yet been live verified inside Unreal**.
+
+The remaining human gate is therefore not another render implementation. It is a disposable proof using evidence emitted by the existing proven UE 5.6 render boundary. No second execution path should be introduced.
+
+## Important boundary
+
+The Unreal runtime render-job registry remains in-memory.
+
+`UnrealRenderReceiptStore` provides durable receipt persistence, but **cross-process recovery of Unreal runtime render jobs is not implemented**.
 
 Do not represent receipt persistence as job persistence.
 
-## Proven render flow
+## Non-regression rules
 
-```text
-render configuration
-      ↓
-configuration verification
-      ↓
-MRQ submission
-      ↓
-dynamic Unreal job ID
-      ↓
-async job inspection
-      ↓
-finished + successful state
-      ↓
-actual output_files[]
-      ↓
-filesystem artifact validation
-      ↓
-verified Unreal evidence
-      ↓
-deterministic evidence digest
-      ↓
-UnrealRenderReceipt
-      ↓
-atomic receipt persistence
-```
-
-The boundary is intentionally evidence-driven: a render-job success flag alone is insufficient to establish a completed production artifact.
-
-## Current Unreal files / concepts
-
-The current implementation includes the Unreal capability registry, task planner, production adapter/transport, render contract, render-job verifier, render receipt, and render receipt store, together with the Unreal 5.6 harness and focused tests.
-
-The render receipt remains engine-neutral and is derived from verified `inspect_render_job` evidence. The persisted receipt contains the receipt identity and evidence digest rather than duplicating the entire evidence ledger.
-
-## Next development increment
-
-The next Unreal task is **render receipt integration into the higher-level Atlas render execution workflow**:
-
-1. issue/persist receipts automatically after verified completion;
-2. add focused tests for that service boundary;
-3. preserve the engine-neutral receipt/store separation;
-4. only then expand Unreal capabilities where a real capability gap justifies them.
-
-Blender remains an independent development track and should not be blocked by this Unreal receipt work.
-
-## Regression and safety rules
-
-- Never give Qwen direct production execution authority.
+- Never give Qwen direct production execution or authorization authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from a transport/write response alone.
 - Preserve independent verification and the evidence ledger.
 - Keep Unreal-specific behavior behind adapter/tool boundaries.
-- Treat output artifacts as evidence that must be independently validated.
-- Preserve canonical Digital Twin identity separately from Unreal assets, levels, render jobs, and output files.
-- Do not claim cross-process Unreal job recovery until separately implemented and verified.
-- Do not confuse local regression results with GitHub CI results.
-- Keep the disposable harness as a regression fixture rather than turning it into unrestricted production logic.
+- Treat render artifacts as independently validated evidence.
+- Preserve canonical Digital Twin identity separately from Unreal assets, levels, jobs, and files.
+- Do not confuse durable receipt persistence with runtime job persistence.
+- Do not claim cross-process Unreal job recovery until implemented and verified.
+- Do not run workflow/action-runner tests for the live gate unless explicitly authorized.
 
 ## Resume point
 
-Read this handoff and `ATLAS_HANDOFF_CURRENT.md`, inspect the local branch/HEAD and `origin/main`, then continue from the **Unreal render receipt integration** checkpoint. The live UE 5.6 render/artifact/verification/receipt path is already proven locally and should not be reworked without a concrete capability gap.
-
-This handoff is the authoritative Unreal continuation point until superseded.
+Run the existing UE 5.6 render proof and feed its already-verified receipt/evidence snapshots into `live_unreal_production_artifact_proof.py`. Confirm manifest persistence, reload, exact lineage verification, and digest identities. Do not rework the proven render/receipt execution boundary without identifying a concrete capability gap.

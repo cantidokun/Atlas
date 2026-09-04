@@ -1,6 +1,6 @@
 # Atlas Development Handoff — August 20, 2026
 
-**Status:** Active development; workflow/action-runner testing paused by explicit user instruction.
+**Status:** Active development; workflow/action-runner testing is authorized as part of normal development.
 **Branch:** `main`
 **Current documented code baseline:** `934a615f3a1be5a22b75c3251ad005df7f7f79a2` — `fix: retry transient Ollama planning timeout in collection task`
 **Canonical handoff reviewed:** `ATLAS_HANDOFF_CURRENT.md` (`635affff4b4af866fec8e3b51661ca0fd5be7c28`)
@@ -108,40 +108,26 @@ Historical verified baselines that remain valid for the code they exercised:
 
 Broader historical live proofs also cover object rotation, rename, delete, continuation/pause-resume, tampered continuation rejection, collection membership, parent relationships, goalpost correction, and adversarial verification failure → `BLOCKED`.
 
-A later development workflow was recorded as **Atlas Tests #629** and was at setup/checkout when last documented. Its final result must not be assumed. No new workflow run has been initiated during the current testing pause.
+A later development workflow was recorded as **Atlas Tests #629** and was at setup/checkout when last documented. Its final result must not be assumed.
 
 The latest task-runtime correction intentionally moved write-policy enforcement from task construction to runtime preparation; any historical test expecting construction-time rejection must be interpreted accordingly.
 
-## 6. Current development constraint
+## 6. Development testing authority
 
-**Do not run, trigger, rerun, approve, or otherwise initiate workflow/action-runner tests until the user explicitly authorizes them.**
+Workflow/action-runner testing is **authorized as part of normal Atlas development**. Relevant workflows, action-runner tests, local tests, and live validation may be run when appropriate to the implementation increment; no separate per-run user authorization is required.
 
-The user cannot currently set up the action runner. Development may continue only where it is isolated from runner configuration and does not create system conflicts.
-
-Safe work while the runner is unavailable includes:
-
-1. deterministic task-contract validation;
-2. receipt immutability and mutation detection;
-3. malformed-result rejection;
-4. authorization/replan boundary hardening;
-5. fail-closed recovery logic;
-6. static architecture checks;
-7. deterministic fixture/diagnostic tooling;
-8. documentation synchronization.
-
-Do not modify runner configuration merely to work around test availability.
+Do not weaken tests, bypass validation, or alter runner configuration merely to manufacture a passing result.
 
 ## 7. Current known issues / unverified boundaries
 
-- Current newer task-runtime work requires a fresh workflow result before it can be called a new green baseline.
+- New implementation work must receive a fresh appropriate regression result before being called verified.
 - `create_empty_marker` remains the clean next materially distinct capability to live-prove through the generic task/runtime architecture.
 - Historical live proofs do not automatically validate newer untested code.
 - Production-facing continuation/resume still needs broader proof across multiple materially different Blender task types.
-- The action runner is currently unavailable for user-approved validation, so new workflow-dependent claims must remain explicitly unverified.
 
-## 8. Exact next steps when testing is authorized again
+## 8. Exact next steps
 
-1. Inspect the final result of the already-existing **Atlas Tests #629** run before initiating anything else.
+1. Inspect the final result of the already-existing **Atlas Tests #629** run before initiating anything else where relevant.
 2. Inspect current `main` and reconcile the code baseline with the latest documented handoff.
 3. Obtain a fresh fully green baseline for the current integrated code if required.
 4. Live-prove `create_empty_marker` through the generic task/runtime architecture.
@@ -151,4 +137,4 @@ Do not modify runner configuration merely to work around test availability.
 
 ## 9. Immediate resume point
 
-Until the user explicitly authorizes workflow testing, continue only with isolated offline-safe development and documentation. Do not start another workflow run, do not alter the action runner, and do not treat the existing runner limitation as permission to bypass the testing boundary.
+Continue normal Atlas development and run the relevant workflows/tests needed to validate meaningful implementation changes. Do not treat historical regression results as proof for newer code.

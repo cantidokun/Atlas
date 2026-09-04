@@ -1,7 +1,9 @@
 """Deterministic render configuration contract for the Unreal Agent."""
 
 from dataclasses import dataclass
-from typing import Mapping, Any
+from typing import Any, Mapping
+
+from planning.unreal_evidence_contract import UnrealEvidence
 
 
 @dataclass(frozen=True)
@@ -42,8 +44,15 @@ def normalize_render_config(value: Mapping[str, Any]) -> UnrealRenderConfig:
     return UnrealRenderConfig(**dict(value))
 
 
-def verify_render_config(evidence, expected):
-    """Independently verify fresh Unreal render-state evidence."""
+def verify_render_config(evidence: UnrealEvidence, expected: Mapping[str, Any]) -> UnrealEvidence:
+    """Independently verify fresh, verified Unreal render-state evidence."""
+    if not isinstance(evidence, UnrealEvidence):
+        raise TypeError("evidence must be a UnrealEvidence")
+    if evidence.operation_name != "inspect_render_job":
+        raise ValueError("render configuration verification requires inspect_render_job evidence")
+    if not evidence.verified:
+        raise ValueError("render configuration verification requires verified evidence")
+
     observed = evidence.observed_state
     state = None
     if isinstance(observed, Mapping):

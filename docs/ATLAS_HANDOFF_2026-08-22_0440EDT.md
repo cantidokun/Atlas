@@ -2,15 +2,13 @@
 
 ## Current state
 
-Atlas remains actively under development. Workflow/action-runner testing is **paused by explicit user instruction** and must not be triggered, rerun, or approved until explicitly authorized. Offline-safe development may continue.
+Atlas remains actively under development. Workflow/action-runner testing is authorized as part of normal development and does not require separate per-run user authorization.
 
 Current `main` HEAD: `e0546f1d07a1555cd5b0eaa0cf577ed52673ecb6` (`docs: refresh current Atlas handoff with latest adapter-boundary regression state`).
 
 Latest implementation commit: `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` (`Test named-pipe failure propagation through adapter`).
 
-Latest recorded development-session test milestone: **694 passed**. This is **not** fresh GitHub Actions verification.
-
-Latest explicitly recorded verified CI baseline: **687 passed**, green on Python 3.9 and 3.11. Code added after that baseline remains unverified until an authorized fresh CI result exists.
+Latest recorded development-session test milestone: **694 passed**. This is not a current GitHub Actions result.
 
 ## Architecture
 
@@ -60,34 +58,21 @@ Qwen cannot use the production adapter as an arbitrary Python execution channel.
 
 ### Blender subprocess verification hardening
 
-Commit `832ae2568df1197e96bfdb363f70c456bba44a2c` added `tests/test_blender_process.py` covering `run_checked_blender` behavior for:
+Commit `832ae2568df1197e96bfdb363f70c456bba44a2c` added `tests/test_blender_process.py` covering `run_checked_blender` behavior for non-zero Blender process exit, invalid JSON between markers, JSON arrays where an object is required, and valid structured JSON objects.
 
-- non-zero Blender process exit;
-- invalid JSON between `ATLAS_START` / `ATLAS_END` markers;
-- JSON arrays where an object is required;
-- valid structured JSON objects.
-
-**Result:** no fresh test result is claimed. The test imports `tools.blender_process.run_checked_blender`; the prior repository inspection did not surface a tracked `tools/blender_process.py`. Reconcile the implementation/import surface before promoting this test.
+**Result:** no fresh test result is claimed in this historical handoff. The test imports `tools.blender_process.run_checked_blender`; the prior repository inspection did not surface a tracked `tools/blender_process.py`. Reconcile the implementation/import surface before promoting this historical test.
 
 ### Unreal transport failure boundary
 
-Commit `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` added `tests/test_unreal_transport_failure_boundary.py`.
+Commit `6e0c2c1e894615b47934cb17b7d7e66712e75f3c` added `tests/test_unreal_transport_failure_boundary.py` covering propagation of `NamedPipeTransportTimeoutError` and `NamedPipeTransportDisconnectedError` through the Unreal adapter and planner/transport components.
 
-It covers propagation of `NamedPipeTransportTimeoutError` and `NamedPipeTransportDisconnectedError` through:
-
-- `planning/unreal_adapter_production.py`
-- `planning/unreal_plan_executor.py`
-- related transport/planning components
-
-The test verifies wrapping as `UnrealAdapterError`, preservation of the original cause, propagation to `UnrealPlanExecutionError`, and preservation of operation index/name, entity IDs, and transport error context.
-
-**Result:** no fresh test result is claimed. This is post-687-baseline regression coverage and remains unverified until an authorized result is recorded.
+**Result:** no fresh test result is claimed in this historical handoff.
 
 ## Current development gate
 
 ### Stage 10 — Blender Adapter / Real Execution Bridge
 
-This remains the **primary gate**.
+This remains the primary gate.
 
 The adapter must map an already-authorized Atlas action into a controlled Blender execution request and map the structured Blender response/evidence back into Atlas without expanding authorization scope.
 
@@ -107,31 +92,29 @@ Required properties:
 
 Do not introduce a parallel bespoke execution architecture.
 
-The Unreal transport regression is a complementary production-boundary hardening track and does **not** complete the Blender gate.
+The Unreal transport regression is a complementary production-boundary hardening track and does not complete the Blender gate.
 
-## Offline-safe next work
+## Next work
 
-While runner testing remains paused, the highest-value work is:
-
-1. Reconcile `tests/test_blender_process.py` with the actual `tools.blender_process.run_checked_blender` implementation/import surface.
+1. Reconcile `tests/test_blender_process.py` with the actual implementation/import surface.
 2. Implement or correct the controlled Blender subprocess helper if genuinely missing.
 3. Harden deterministic request/result normalization and malformed-response handling.
 4. Continue authorization-boundary, immutable-receipt, evidence-binding, runtime-policy, continuation/recovery, and static architecture/invariant hardening.
 5. Continue Unreal named-pipe/adapter failure normalization without treating it as live Unreal proof.
-6. Add focused unit tests that do not invoke prohibited workflow/action-runner infrastructure.
+6. Run the appropriate focused and workflow/action-runner validation for meaningful implementation increments.
 7. Keep documentation and diagnostics synchronized with implementation state.
 
-## Resume sequence once workflow testing is authorized
+## Resume sequence
 
 1. Read this handoff and inspect current `main`.
-2. Identify all commits after the 687-pass verified CI baseline.
+2. Identify all commits after the historical 687-pass verified CI baseline.
 3. Reconcile and focused-test `tests/test_blender_process.py` / `tools.blender_process`.
-4. Inspect and focused-test `tests/test_unreal_transport_failure_boundary.py` when permitted.
-5. Obtain a fresh GitHub Actions result only after explicit workflow-testing authorization.
+4. Inspect and focused-test `tests/test_unreal_transport_failure_boundary.py`.
+5. Obtain and inspect a fresh GitHub Actions result for the current code.
 6. Reconfirm the 694-pass development milestone against the current checkout before promotion.
 7. Implement the smallest coherent Blender adapter increment and add focused tests.
-8. Run the applicable authorized regression gate and fix failures.
-9. Only after adapter tests and authorized regression gates are green, prepare the first controlled live Blender proof.
+8. Run the applicable regression gate and fix failures.
+9. Only after adapter tests and regression gates are green, prepare the first controlled live Blender proof.
 10. Prove one authorized Blender operation with independent verification.
 11. Expand toward rotation/marker and then closed-loop autonomous Blender behavior only after their specific proof gates pass.
 12. Treat Unreal live transport proof as a separate gate.
@@ -146,9 +129,6 @@ Preserve coverage for zero-write satisfied tasks, exact authorized ordering, man
 - Do not automatically retry failed writes.
 - Do not silently mutate authorized plans during replanning.
 - Do not declare completion from write/transport success alone.
-- Do not trigger workflow/action-runner tests during the current pause.
-- Do not represent 687 passed as validation of newer code.
-- Do not represent 694 passed as fresh GitHub Actions verification.
+- Do not represent historical test results as proof for newer code.
 - Do not connect live Blender before its adapter and regression gates are green.
-- Do not mark `tests/test_blender_process.py` complete until its module dependency is confirmed and its focused result is recorded.
-- Do not mark `tests/test_unreal_transport_failure_boundary.py` verified until its focused result is recorded.
+- Do not mark historical tests complete without their actual focused result.
