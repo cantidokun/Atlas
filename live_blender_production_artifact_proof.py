@@ -131,8 +131,8 @@ def main() -> None:
             engine="Blender",
             metadata={"object_name": args.object, "target_location": target_location},
         )
-        persisted = store.save(manifest)
-        reloaded = store.load(manifest.artifact_id)
+        store.save(manifest)
+        reloaded = store.load()
 
         verify_blender_closed_loop_lineage(
             reloaded,
@@ -140,7 +140,7 @@ def main() -> None:
             closed_loop.persistence_evidence,
         )
 
-        if persisted.digest != reloaded.digest():
+        if reloaded.digest() != manifest.digest():
             raise RuntimeError("Persisted and reloaded manifest digests differ")
         if reloaded.canonical_digital_twin_id != args.canonical_digital_twin_id:
             raise RuntimeError("Canonical Digital Twin binding changed during persistence")
