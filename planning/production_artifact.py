@@ -183,6 +183,8 @@ class ProductionArtifactManifest:
             raise TypeError("operation_receipt must be a BlenderExecutionReceipt")
         if not isinstance(persistence_evidence, BlenderPersistenceEvidence):
             raise TypeError("persistence_evidence must be a BlenderPersistenceEvidence")
+        if engine != "Blender":
+            raise ProductionArtifactError("Blender artifact lineage engine must be Blender")
         _verify_blender_pair_binding(operation_receipt, persistence_evidence)
         return cls(
             artifact_id=artifact_id,
@@ -219,6 +221,8 @@ class ProductionArtifactManifest:
             raise TypeError("render_receipt must be a UnrealRenderReceipt")
         if not isinstance(render_evidence, UnrealEvidence):
             raise TypeError("render_evidence must be a UnrealEvidence")
+        if engine != "Unreal":
+            raise ProductionArtifactError("Unreal artifact lineage engine must be Unreal")
         if not render_receipt.matches(render_evidence):
             raise ProductionArtifactError("Unreal render receipt does not match render evidence")
         _verify_unreal_artifact_path_binding(artifact_path, render_evidence)
@@ -319,6 +323,8 @@ def verify_unreal_render_lineage(
         raise TypeError("render_receipt must be a UnrealRenderReceipt")
     if not isinstance(render_evidence, UnrealEvidence):
         raise TypeError("render_evidence must be a UnrealEvidence")
+    if manifest.engine != "Unreal":
+        raise ProductionArtifactError("production artifact Unreal lineage engine is invalid")
     if not render_receipt.matches(render_evidence):
         raise ProductionArtifactError("Unreal render receipt does not match render evidence")
     _verify_unreal_artifact_path_binding(manifest.artifact_path, render_evidence)
