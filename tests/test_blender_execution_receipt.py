@@ -16,6 +16,15 @@ def test_receipt_binds_request_and_successful_result():
     assert receipt.matches("move_object", {"object_name": "Goal_Left_post", "location": [0, 0, 0]}, result)
 
 
+def test_receipt_digest_is_deterministic():
+    boundary = BlenderExecutionBoundary(lambda tool, args: {"ok": True, "state": "applied", "details": {}})
+    result, receipt = boundary.execute_with_receipt("move_object", {"object_name": "Goal_Left_post", "location": [0, 0, 0]})
+    assert receipt.digest() == receipt.digest()
+    assert receipt.digest() == BlenderExecutionReceipt.create(
+        "move_object", {"object_name": "Goal_Left_post", "location": [0, 0, 0]}, result
+    ).digest()
+
+
 def test_receipt_rejects_changed_arguments():
     boundary = BlenderExecutionBoundary(lambda tool, args: {"ok": True, "state": "applied", "details": {}})
     result, receipt = boundary.execute_with_receipt("move_object", {"object_name": "Goal_Left_post", "location": [0, 0, 0]})
