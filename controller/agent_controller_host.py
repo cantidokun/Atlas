@@ -91,17 +91,21 @@ class AgentControllerHost:
     def _classify(self, payload: Dict[str, Any]) -> ClassifiedControllerRequest:
         capability = payload.get("capability")
         provider = payload.get("provider")
-        intent = payload.get("intent")
+        model_intent = payload.get("intent")
         model_context = payload.get("context", {})
         if not isinstance(model_context, dict):
             raise AgentControllerHostError("controller request context must be an object")
         if str(provider).lower() == "unreal" and str(capability).lower() == "production":
             trusted = self.runtime.execution_context.get_unreal_production()
-            # Only the harmless marker is retained from the model context. All
-            # security-sensitive values come from host-owned trusted state.
+            # All security-sensitive Unreal production identity comes from the
+            # host-owned trusted context. Model intent is not an authority source.
+            intent = trusted.intent
             context = trusted.capability_context()
             context["production"] = bool(model_context.get("production", True))
+            if model_intent is not None and model_intent != trusted.intent:
+                context["model_intent_mismatch"] = True
         else:
+            intent = model_intent
             context = dict(model_context)
         try:
             request = CapabilityRequest(capability, provider, intent, context)
