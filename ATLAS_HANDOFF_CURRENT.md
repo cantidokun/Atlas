@@ -75,6 +75,8 @@ Regression coverage proves verified Blender receipt/evidence binding, determinis
 
 A focused Blender pipeline regression now exercises the existing `BlenderExecutionBoundary.execute_with_persistence(...)` closed loop, constructs a production artifact from its immutable receipt/evidence, independently verifies the exact lineage binding, round-trips the manifest, and confirms that manifest construction does not trigger another Blender operation or inspection.
 
+`planning/production_artifact_store.py` now provides durable versioned JSON persistence for the immutable manifest, with deterministic serialization, atomic replacement, file flushing, and fail-closed reload validation. The persistence boundary is explicitly Windows-safe: POSIX directory fsync is retained where supported, while Windows treats the already-flushed replacement file as the platform durability boundary rather than falsely failing after a successful atomic replacement.
+
 ## Next verification gate
 
 The next live proof should use a real `BlenderExecutionBoundary.execute_with_persistence(...)` result to construct a `ProductionArtifactManifest`, then independently verify and persist the manifest. The proof should establish that the recorded lineage points to the same canonical Digital Twin and verified artifact path without introducing another execution or authorization layer.
