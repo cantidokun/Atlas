@@ -222,6 +222,80 @@ def test_workflow_success_requires_verified_render_identity():
     assert result.success is False
 
 
+def test_workflow_success_rejects_render_job_id_mismatch():
+    production = FakeProductionExecutor()
+    execution = production.execute(
+        _production(),
+        _authorization(_production()),
+    )
+    render = _completed_render(_intent())
+    mismatched = UnrealRenderWorkflowResult(
+        intent_id=render.intent_id,
+        job_id="different-job",
+        final_evidence=render.final_evidence,
+        receipt=render.receipt,
+        persisted_receipt=render.persisted_receipt,
+    )
+
+    result = UnrealProductionWorkflowResult(
+        production=execution,
+        render=mismatched,
+    )
+
+    assert result.verified_render is False
+    assert result.success is False
+
+
+def test_workflow_success_rejects_unverified_or_non_render_evidence():
+    production = FakeProductionExecutor()
+    execution = production.execute(
+        _production(),
+        _authorization(_production()),
+    )
+    render = _completed_render(_intent())
+    evidence = UnrealEvidence(
+        operation_name="verify_render_job",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state=render.final_evidence.observed_state,
+        verified=False,
+        source="production-workflow-test",
+    )
+    invalid = UnrealRenderWorkflowResult(
+        intent_id=render.intent_id,
+        job_id=render.job_id,
+        final_evidence=evidence,
+        receipt=render.receipt,
+        persisted_receipt=render.persisted_receipt,
+    )
+    result = UnrealProductionWorkflowResult(
+        production=execution,
+        render=invalid,
+    )
+    assert result.verified_render is False
+    assert result.success is False
+
+    non_render = UnrealEvidence(
+        operation_name="inspect_sequencer_state",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state=render.final_evidence.observed_state,
+        verified=True,
+        source="production-workflow-test",
+    )
+    invalid_operation = UnrealRenderWorkflowResult(
+        intent_id=render.intent_id,
+        job_id=render.job_id,
+        final_evidence=non_render,
+        receipt=render.receipt,
+        persisted_receipt=render.persisted_receipt,
+    )
+    result = UnrealProductionWorkflowResult(
+        production=execution,
+        render=invalid_operation,
+    )
+    assert result.verified_render is False
+    assert result.success is False
+
+
 def test_failed_production_prevents_render_submission():
     workflow, _, render_workflow = _workflow(
         production_success=False,
