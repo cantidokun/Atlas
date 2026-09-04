@@ -105,6 +105,10 @@ class UnrealProductionWorkflow:
             )
         if not isinstance(intent, UnrealTaskIntent):
             raise TypeError("intent must be a UnrealTaskIntent instance")
+        if production.plan.intent_id != intent.intent_id:
+            raise UnrealProductionWorkflowError(
+                "production plan intent_id must match render intent_id"
+            )
         if not isinstance(sequence_asset_path, str) or not sequence_asset_path.strip():
             raise ValueError("sequence_asset_path must be a non-empty string")
 
