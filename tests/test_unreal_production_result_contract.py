@@ -299,3 +299,22 @@ def test_matching_evidence_and_receipt_form_verified_render_contract():
 
     assert result.verified_render is True
     assert result.receipt.matches(result.final_evidence) is True
+
+
+def test_result_contract_does_not_report_stale_render_after_failure_normalization():
+    event = UnrealProductionControllerEvent(
+        operation="start",
+        snapshot=_snapshot(
+            "awaiting_replacement",
+            failure={"phase": "recovery"},
+            waiting_for_replacement=True,
+            required_authorizations=("replacement",),
+        ),
+    )
+
+    result = normalize_unreal_production_event(event)
+
+    assert result.success is False
+    assert result.verified_render is False
+    assert result.final_evidence is None
+    assert result.receipt is None
