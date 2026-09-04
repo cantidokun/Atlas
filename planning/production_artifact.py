@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from types import MappingProxyType
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_persistence_evidence import BlenderPersistenceEvidence
@@ -21,8 +21,41 @@ class ProductionArtifactError(ValueError):
     """Raised when a production-artifact lineage record is invalid."""
 
 
+def _freeze(value: Any) -> Any:
+    """Recursively freeze persisted mapping/list values used by the manifest."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    """Return ordinary JSON-compatible containers from immutable lineage data."""
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def _canonicalize(value: Any) -> Any:
+    """Normalize immutable containers before deterministic JSON serialization."""
+    if isinstance(value, Mapping):
+        return {str(key): _canonicalize(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonicalize(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(_canonicalize(item) for item in value)
+    return value
+
+
 def _canonical_digest(value: Any) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    payload = json.dumps(_canonicalize(value), sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -50,12 +83,12 @@ class ProductionArtifactManifest:
     representation_type: str
     artifact_path: str
     source_artifact_ids: Tuple[str, ...] = ()
-    workflow_provenance: Optional[Dict[str, Any]] = None
+    workflow_provenance: Optional[Mapping[str, Any]] = None
     evidence_digests: Tuple[str, ...] = ()
     receipt_digests: Tuple[str, ...] = ()
     engine: Optional[str] = None
     engine_version: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Mapping[str, Any]] = None
     manifest_version: int = 1
 
     def __post_init__(self) -> None:
@@ -72,10 +105,12 @@ class ProductionArtifactManifest:
             value = getattr(self, field)
             if value is not None:
                 _require_text(value, field)
-        if self.workflow_provenance is not None and not isinstance(self.workflow_provenance, dict):
-            raise ProductionArtifactError("workflow_provenance must be a dictionary when provided")
-        if self.metadata is not None and not isinstance(self.metadata, dict):
-            raise ProductionArtifactError("metadata must be a dictionary when provided")
+        for field in ("workflow_provenance", "metadata"):
+            value = getattr(self, field)
+            if value is not None:
+                if not isinstance(value, Mapping):
+                    raise ProductionArtifactError(f"{field} must be a dictionary when provided")
+                object.__setattr__(self, field, _freeze(value))
         if self.artifact_id in self.source_artifact_ids:
             raise ProductionArtifactError("artifact_id cannot reference itself as a source")
 
@@ -127,12 +162,12 @@ class ProductionArtifactManifest:
             "representation_type": self.representation_type,
             "artifact_path": self.artifact_path,
             "source_artifact_ids": list(self.source_artifact_ids),
-            "workflow_provenance": deepcopy(self.workflow_provenance or {}),
+            "workflow_provenance": _thaw(self.workflow_provenance or {}),
             "evidence_digests": list(self.evidence_digests),
             "receipt_digests": list(self.receipt_digests),
             "engine": self.engine,
             "engine_version": self.engine_version,
-            "metadata": deepcopy(self.metadata or {}),
+            "metadata": _thaw(self.metadata or {}),
         }
 
     def digest(self) -> str:
@@ -165,12 +200,12 @@ class ProductionArtifactManifest:
             representation_type=snapshot["representation_type"],
             artifact_path=snapshot["artifact_path"],
             source_artifact_ids=tuple(snapshot["source_artifact_ids"]),
-            workflow_provenance=deepcopy(snapshot["workflow_provenance"]),
+            workflow_provenance=snapshot["workflow_provenance"],
             evidence_digests=tuple(snapshot["evidence_digests"]),
             receipt_digests=tuple(snapshot["receipt_digests"]),
             engine=snapshot["engine"],
             engine_version=snapshot["engine_version"],
-            metadata=deepcopy(snapshot["metadata"]),
+            metadata=snapshot["metadata"],
         )
 
 
