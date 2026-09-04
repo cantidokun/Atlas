@@ -112,11 +112,7 @@ class ProductionArtifactManifest:
             source_artifact_ids=source_artifact_ids,
             workflow_provenance=workflow_provenance,
             evidence_digests=(persistence_evidence.digest(),),
-            receipt_digests=(_canonical_digest({
-                "tool": operation_receipt.tool,
-                "arguments_digest": operation_receipt.arguments_digest,
-                "result_digest": operation_receipt.result_digest,
-            }),),
+            receipt_digests=(operation_receipt.digest(),),
             engine=engine,
             engine_version=engine_version,
             metadata=metadata,
