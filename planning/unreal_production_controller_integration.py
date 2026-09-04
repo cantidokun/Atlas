@@ -27,6 +27,15 @@ class UnrealProductionControllerEvent:
     snapshot: UnrealProductionRuntimeSnapshot
     workflow_result: Optional[UnrealProductionWorkflowResult] = None
 
+    @property
+    def result_contract(self):
+        """Return the normalized engine-neutral controller result contract."""
+        from planning.unreal_production_result_contract import (
+            normalize_unreal_production_event,
+        )
+
+        return normalize_unreal_production_event(self)
+
 
 class UnrealProductionControllerIntegration:
     """Expose Unreal production as an explicit Atlas controller capability."""
