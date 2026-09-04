@@ -1,7 +1,5 @@
 """Deterministic tests for heterogeneous Unreal production orchestration."""
 
-from dataclasses import dataclass
-
 import pytest
 
 from planning.unreal_evidence_contract import UnrealEvidence
@@ -218,6 +216,31 @@ def test_workflow_rejects_production_and_render_intent_mismatch_before_execution
     assert production_executor.calls == []
     assert render_workflow.submit_calls == []
     assert render_workflow.wait_calls == []
+
+
+def test_workflow_rejects_render_result_intent_mismatch_after_execution():
+    production = _production()
+    render_intent = _intent("unexpected-render-intent")
+    mismatched_render = _completed_render(render_intent)
+    workflow, production_executor, render_workflow = _workflow(
+        final_result=mismatched_render,
+    )
+
+    with pytest.raises(
+        UnrealProductionWorkflowError,
+        match="render result intent_id does not match the production intent_id",
+    ):
+        workflow.run(
+            production,
+            _authorization(production),
+            _intent(),
+            "/Game/AtlasTest/AtlasSequencerFixtureSequence",
+            lambda plan: UnrealPlanAuthorization.issue(plan, "render-auth"),
+        )
+
+    assert len(production_executor.calls) == 1
+    assert len(render_workflow.submit_calls) == 1
+    assert len(render_workflow.wait_calls) == 1
 
 
 def test_workflow_success_requires_verified_render_identity():
