@@ -71,11 +71,12 @@ class UnrealRenderReceiptStore:
             raise RuntimeError("Unreal render receipt is not an object")
         if envelope.get("version") != self.VERSION:
             raise RuntimeError("Unsupported or invalid Unreal render receipt version")
-        required = {"job_id", "sequence_asset_path", "evidence_digest", "receipt_digest"}
-        if set(envelope) != {"version", *required}:
+        receipt_fields = {"job_id", "sequence_asset_path", "evidence_digest", "receipt_digest"}
+        if set(envelope) != {"version", *receipt_fields}:
             raise RuntimeError("Unreal render receipt has invalid fields")
         try:
-            receipt = UnrealRenderReceipt.from_snapshot(envelope)
+            snapshot = {field: envelope[field] for field in receipt_fields if field != "receipt_digest"}
+            receipt = UnrealRenderReceipt.from_snapshot(snapshot)
         except (TypeError, ValueError) as exc:
             raise RuntimeError("Unreal render receipt contains invalid identity data") from exc
         if receipt.receipt_digest != envelope["receipt_digest"]:
