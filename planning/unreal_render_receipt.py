@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import hmac
+from typing import Mapping
 
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_evidence_digest import digest_evidence
@@ -47,7 +48,7 @@ class UnrealRenderReceipt:
         if not evidence.verified:
             raise ValueError("render receipt requires verified render-job evidence")
         state = evidence.observed_state
-        if not isinstance(state, dict):
+        if not isinstance(state, Mapping):
             raise ValueError("render-job evidence observed_state must be a mapping")
         job_id = state.get("job_id")
         sequence_asset_path = state.get("sequence_asset_path")
