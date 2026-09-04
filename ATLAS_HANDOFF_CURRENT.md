@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026 — Qwen Stage 16 runtime and cross-process recovery, including live Qwen-guided recovery recommendation binding, are live-verified; Stage 17 artifact-lineage foundation is implemented and regression-tested.
+**Updated:** September 4, 2026 — Blender Stage 17 production artifact lineage is implemented through durable persistence and focused integration regression coverage; the next gate is real Blender execution proof.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
 **Current stage:** Stage 17 — IN PROGRESS
@@ -73,15 +73,17 @@ The Blender bridge `ProductionArtifactManifest.from_blender_closed_loop(...)` ac
 
 Regression coverage proves verified Blender receipt/evidence binding, deterministic lineage, round-trip persistence, tamper detection, self-reference rejection, unknown-field rejection, and absence of execution/authorization APIs.
 
-A focused Blender pipeline regression now exercises the existing `BlenderExecutionBoundary.execute_with_persistence(...)` closed loop, constructs a production artifact from its immutable receipt/evidence, independently verifies the exact lineage binding, round-trips the manifest, and confirms that manifest construction does not trigger another Blender operation or inspection.
+A focused Blender pipeline regression exercises the existing `BlenderExecutionBoundary.execute_with_persistence(...)` closed loop, constructs a production artifact from its immutable receipt/evidence, independently verifies the exact lineage binding, round-trips the manifest, and confirms that manifest construction does not trigger another Blender operation or inspection.
 
-`planning/production_artifact_store.py` now provides durable versioned JSON persistence for the immutable manifest, with deterministic serialization, atomic replacement, file flushing, and fail-closed reload validation. The persistence boundary is explicitly Windows-safe: POSIX directory fsync is retained where supported, while Windows treats the already-flushed replacement file as the platform durability boundary rather than falsely failing after a successful atomic replacement.
+`planning/production_artifact_store.py` provides durable versioned JSON persistence for the immutable manifest, with deterministic serialization, atomic replacement, file flushing, and fail-closed reload validation. The persistence boundary is explicitly Windows-safe: POSIX directory fsync is retained where supported, while Windows treats the already-flushed replacement file as the platform durability boundary rather than falsely failing after a successful atomic replacement.
+
+A new integration regression now covers the complete offline contract: one Blender boundary closed loop produces the receipt/evidence, the immutable manifest binds them, the manifest is durably persisted, the persisted envelope is reloaded, and independent lineage verification confirms the exact original receipt/evidence. A second proof rejects substitution of a later unrelated Blender receipt/evidence pair against the persisted artifact manifest.
 
 ## Next verification gate
 
-The next live proof should use a real `BlenderExecutionBoundary.execute_with_persistence(...)` result to construct a `ProductionArtifactManifest`, then independently verify and persist the manifest. The proof should establish that the recorded lineage points to the same canonical Digital Twin and verified artifact path without introducing another execution or authorization layer.
+The next gate is a user-executed real Blender proof using the existing `BlenderExecutionBoundary.execute_with_persistence(...)` path. The proof should construct a `ProductionArtifactManifest`, persist it with `ProductionArtifactStore`, reload it, and independently verify the exact receipt/evidence lineage. It must establish the same canonical Digital Twin and verified artifact path without introducing another execution or authorization layer.
 
-After that, extend the same provenance contract to the existing Unreal receipt boundary. Cross-process Unreal render-job recovery remains a separate, unimplemented capability and must not be implied by receipt persistence.
+After that Blender gate is user-verified, extend the same provenance contract to the existing Unreal receipt boundary. Cross-process Unreal render-job recovery remains a separate, unimplemented capability and must not be implied by receipt persistence.
 
 ## Non-regression rules
 
@@ -95,6 +97,7 @@ After that, extend the same provenance contract to the existing Unreal receipt b
 - Keep dependency-aware execution serial until concurrency is independently justified.
 - Preserve canonical Digital Twin identity separately from production artifacts.
 - Do not claim cross-process Unreal job recovery unless separately implemented and verified.
+- Do not run workflow/action-runner tests unless explicitly authorized.
 
 ## PR status
 
