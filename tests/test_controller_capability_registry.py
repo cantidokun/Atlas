@@ -3,6 +3,9 @@
 from controller.capability_dispatch import ControllerCapabilityDispatcher
 from controller.capability_registry import ControllerCapabilityRegistry
 from planning.unreal_production_controller_integration import UnrealProductionControllerIntegration
+from planning.unreal_production_operation import build_unreal_production_plan
+from planning.unreal_production_planning_boundary import authorize_production_plan
+from tests.test_unreal_heterogeneous_production import _intent, _spec
 
 
 def test_registry_exposes_one_shared_agent_runtime_over_dispatcher():
@@ -33,6 +36,8 @@ def test_registry_creates_dispatcher_when_not_supplied():
 def test_registry_can_bootstrap_explicit_unreal_production_capability():
     registry = ControllerCapabilityRegistry()
     integration = object.__new__(UnrealProductionControllerIntegration)
+    production = build_unreal_production_plan(_intent(), _spec())
+    authorized = authorize_production_plan(production, "registry-auth")
 
     registry.register_unreal_production(integration)
 
@@ -40,7 +45,10 @@ def test_registry_can_bootstrap_explicit_unreal_production_capability():
     resolution = registry.runtime().resolve(
         "production",
         provider="unreal",
-        context={"production": True},
+        context={
+            "production": True,
+            "authorized_production": authorized,
+        },
     )
     assert resolution.matched is True
     assert resolution.capability.handler is integration
