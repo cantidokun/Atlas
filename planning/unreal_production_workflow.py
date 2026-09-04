@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_production_executor import (
     UnrealProductionExecutionResult,
     UnrealProductionExecutor,
 )
 from planning.unreal_production_operation import UnrealProductionPlan
+from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_workflow import (
     UnrealRenderWorkflow,
     UnrealRenderWorkflowError,
@@ -31,8 +33,33 @@ class UnrealProductionWorkflowResult:
     render: UnrealRenderWorkflowResult
 
     @property
+    def verified_render(self) -> bool:
+        """Whether the render result contains a verified, internally consistent identity."""
+        if not isinstance(self.render, UnrealRenderWorkflowResult):
+            return False
+        if not isinstance(self.render.intent_id, str) or not self.render.intent_id.strip():
+            return False
+        if not isinstance(self.render.job_id, str) or not self.render.job_id.strip():
+            return False
+        if not isinstance(self.render.final_evidence, UnrealEvidence):
+            return False
+        if not self.render.final_evidence.verified:
+            return False
+        if self.render.final_evidence.operation_name != "inspect_render_job":
+            return False
+        observed_job_id = self.render.final_evidence.observed_state.get("job_id")
+        if observed_job_id != self.render.job_id:
+            return False
+        if not isinstance(self.render.receipt, UnrealRenderReceipt):
+            return False
+        if self.render.receipt.job_id != self.render.job_id:
+            return False
+        return self.render.receipt.matches(self.render.final_evidence)
+
+    @property
     def success(self) -> bool:
-        return self.production.success and self.render.receipt.job_id == self.render.job_id
+        """Whether production and the final render both completed with verified identity."""
+        return self.production.success and self.verified_render
 
 
 class UnrealProductionWorkflow:
@@ -54,7 +81,6 @@ class UnrealProductionWorkflow:
 
         self.production_executor = production_executor
         self.render_workflow = render_workflow
-
 
     def run(
         self,
