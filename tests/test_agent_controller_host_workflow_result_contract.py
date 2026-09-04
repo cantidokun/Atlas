@@ -1,7 +1,5 @@
 """Synthetic host-level proof for workflow-backed Unreal result contracts."""
 
-from dataclasses import dataclass
-
 from controller.agent_controller_host import AgentControllerHost
 from controller.agent_task_request import AgentTaskRequest
 from controller.trusted_unreal_context import TrustedUnrealContext
@@ -19,7 +17,8 @@ from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
 from planning.unreal_render_workflow import UnrealRenderWorkflow, UnrealRenderWorkflowResult
 from planning.unreal_plan_executor import UnrealPlanExecutionResult
-from tests.test_unreal_heterogeneous_production import ProductionTransport, _intent, _spec
+from planning.unreal_task_planner import UnrealTaskIntent
+from tests.test_unreal_heterogeneous_production import ProductionTransport, _spec
 
 
 class FakeProductionExecutor(UnrealProductionExecutor):
@@ -46,6 +45,14 @@ class FakeProductionExecutor(UnrealProductionExecutor):
             failure=None,
             recovery=None,
         )
+
+
+def _intent():
+    return UnrealTaskIntent(
+        intent_id="host-workflow-result-contract",
+        description="synthetic host workflow result contract",
+        target_entity_ids=("FIELD_SURFACE",),
+    )
 
 
 def _verified_render(intent_id: str = "host-workflow-result-contract") -> UnrealRenderWorkflowResult:
@@ -80,7 +87,7 @@ def _verified_render(intent_id: str = "host-workflow-result-contract") -> Unreal
 
 
 def _host(tmp_path):
-    intent = _intent("host-workflow-result-contract")
+    intent = _intent()
     production = build_unreal_production_plan(intent, _spec())
     authorized = authorize_production_plan(production, "host-workflow-production-auth")
     trusted = TrustedUnrealContext(
