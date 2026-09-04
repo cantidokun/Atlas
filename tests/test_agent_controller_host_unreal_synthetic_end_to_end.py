@@ -244,7 +244,17 @@ def test_controller_event_result_contract_carries_verified_render_pair():
 
 def test_controller_event_result_contract_rejects_receipt_evidence_mismatch():
     evidence, receipt = _verified_render_pair("job-contract-original")
-    changed_evidence, _ = _verified_render_pair("job-contract-changed")
+    changed_evidence, _ = _verified_render_pair("job-contract-original")
+    changed_evidence = UnrealEvidence(
+        operation_name="inspect_render_job",
+        entity_ids=changed_evidence.entity_ids,
+        observed_state={
+            **changed_evidence.observed_state,
+            "status": "changed",
+        },
+        verified=True,
+        source="synthetic-result-contract-changed",
+    )
     render = UnrealRenderWorkflowResult(
         intent_id="intent-contract-2",
         job_id=changed_evidence.observed_state["job_id"],
