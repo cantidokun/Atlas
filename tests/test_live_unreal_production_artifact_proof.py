@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from live_unreal_production_artifact_proof import main
+from planning.production_artifact import ProductionArtifactError
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_evidence_digest import digest_evidence
 from planning.unreal_render_receipt import UnrealRenderReceipt
