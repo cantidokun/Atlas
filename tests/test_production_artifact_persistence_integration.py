@@ -92,24 +92,31 @@ def test_blender_closed_loop_artifact_survives_durable_persistence_round_trip(tm
 
 def test_persisted_artifact_rejects_lineage_substitution(tmp_path):
     calls = []
+    location = [0.0, 5.233, 0.0]
 
     def executor(tool, arguments):
-        calls.append(tool)
+        calls.append((tool, dict(arguments)))
         if tool == "move_object":
+            location[:] = list(arguments["location"])
             return {
                 "ok": True,
                 "state": "moved",
-                "details": {"location": [0.25, 5.233, 0.0]},
+                "details": {
+                    "object_name": arguments["object_name"],
+                    "location": list(location),
+                },
             }
-        return {
-            "ok": True,
-            "state": "inspected",
-            "details": {
-                "objects": [
-                    {"name": "Goal_Left_post", "location": [0.25, 5.233, 0.0]}
-                ]
-            },
-        }
+        if tool == "inspect_scene":
+            return {
+                "ok": True,
+                "state": "inspected",
+                "details": {
+                    "objects": [
+                        {"name": "Goal_Left_post", "location": list(location)}
+                    ]
+                },
+            }
+        raise AssertionError(f"unexpected Blender tool: {tool}")
 
     boundary = BlenderExecutionBoundary(executor)
     closed_loop = boundary.execute_with_persistence(
@@ -158,8 +165,8 @@ def test_persisted_artifact_rejects_lineage_substitution(tmp_path):
 
     assert restored.digest() == manifest.digest()
     assert calls == [
-        "move_object",
-        "inspect_scene",
-        "move_object",
-        "inspect_scene",
+        ("move_object", {"object_name": "Goal_Left_post", "location": [0.25, 5.233, 0.0]}),
+        ("inspect_scene", {"file_name": "scene.blend"}),
+        ("move_object", {"object_name": "Goal_Left_post", "location": [0.50, 5.233, 0.0]}),
+        ("inspect_scene", {"file_name": "scene.blend"}),
     ]
