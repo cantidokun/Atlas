@@ -122,6 +122,14 @@ def _verify_unreal_artifact_path_binding(
         raise ProductionArtifactError("Unreal production artifact path is not present in verified render outputs")
 
 
+def _require_verified_unreal_render_evidence(render_evidence: UnrealEvidence) -> None:
+    """Require provenance to bind only independently verified render evidence."""
+    if not render_evidence.verified:
+        raise ProductionArtifactError("Unreal render evidence must be verified for artifact lineage")
+    if render_evidence.operation_name != "inspect_render_job":
+        raise ProductionArtifactError("Unreal artifact lineage requires inspect_render_job evidence")
+
+
 @dataclass(frozen=True)
 class ProductionArtifactManifest:
     """Provenance for one production representation of a canonical Digital Twin."""
@@ -223,6 +231,7 @@ class ProductionArtifactManifest:
             raise TypeError("render_evidence must be a UnrealEvidence")
         if engine != "Unreal":
             raise ProductionArtifactError("Unreal artifact lineage engine must be Unreal")
+        _require_verified_unreal_render_evidence(render_evidence)
         if not render_receipt.matches(render_evidence):
             raise ProductionArtifactError("Unreal render receipt does not match render evidence")
         _verify_unreal_artifact_path_binding(artifact_path, render_evidence)
@@ -325,6 +334,7 @@ def verify_unreal_render_lineage(
         raise TypeError("render_evidence must be a UnrealEvidence")
     if manifest.engine != "Unreal":
         raise ProductionArtifactError("production artifact Unreal lineage engine is invalid")
+    _require_verified_unreal_render_evidence(render_evidence)
     if not render_receipt.matches(render_evidence):
         raise ProductionArtifactError("Unreal render receipt does not match render evidence")
     _verify_unreal_artifact_path_binding(manifest.artifact_path, render_evidence)

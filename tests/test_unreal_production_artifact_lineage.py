@@ -39,6 +39,26 @@ def test_unreal_receipt_binds_to_production_artifact_manifest():
     assert manifest.canonical_digital_twin_id == "atlas-soccer-digital-twin"
 
 
+def test_unreal_manifest_rejects_unverified_evidence_at_construction():
+    evidence = UnrealEvidence(
+        operation_name="inspect_render_job",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state=_evidence().observed_state,
+        verified=False,
+        source="artifact-lineage-test",
+    )
+    receipt = UnrealRenderReceipt.issue(_evidence())
+    with pytest.raises(ProductionArtifactError, match="must be verified for artifact lineage"):
+        ProductionArtifactManifest.from_unreal_render_receipt(
+            artifact_id="atlas-unreal-render-001",
+            canonical_digital_twin_id="atlas-soccer-digital-twin",
+            representation_type="unreal-render",
+            artifact_path="C:/renders/AtlasRender_0001.png",
+            render_receipt=receipt,
+            render_evidence=evidence,
+        )
+
+
 def test_unreal_manifest_rejects_artifact_path_not_observed_by_render():
     evidence = _evidence()
     receipt = UnrealRenderReceipt.issue(evidence)
