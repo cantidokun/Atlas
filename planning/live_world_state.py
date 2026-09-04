@@ -7,9 +7,30 @@ code.
 """
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping, Optional, Tuple
 
 from planning.digital_twin_spatial import SpatialPose
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return [_thaw(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True)
@@ -63,8 +84,10 @@ class LiveWorldStateSnapshot:
         if len({key for key, _ in normalized_attributes}) != len(normalized_attributes):
             raise ValueError("world attributes must have unique keys")
         object.__setattr__(self, "world_attributes", normalized_attributes)
-        if self.metadata is not None and not isinstance(self.metadata, Mapping):
-            raise TypeError("metadata must be a mapping when provided")
+        if self.metadata is not None:
+            if not isinstance(self.metadata, Mapping):
+                raise TypeError("metadata must be a mapping when provided")
+            object.__setattr__(self, "metadata", _freeze(self.metadata))
 
     def entity(self, entity_id: str) -> LiveEntityState:
         """Return an entity state by canonical entity id."""
@@ -81,6 +104,10 @@ class LiveWorldStateSnapshot:
             if candidate == normalized:
                 return value
         return None
+
+    def metadata_snapshot(self) -> Mapping[str, Any]:
+        """Return detached metadata suitable for transport or persistence."""
+        return _thaw(self.metadata or {})
 
 
 @dataclass(frozen=True)
