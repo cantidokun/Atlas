@@ -36,6 +36,14 @@ class BlenderExecutionReceipt:
             "details": result.details,
         }))
 
+    def digest(self) -> str:
+        """Return the deterministic integrity digest for this receipt."""
+        return _digest({
+            "tool": self.tool,
+            "arguments_digest": self.arguments_digest,
+            "result_digest": self.result_digest,
+        })
+
     def matches(self, tool: str, arguments: Mapping[str, Any], result: BlenderExecutionResult) -> bool:
         if not isinstance(result, BlenderExecutionResult):
             return False
