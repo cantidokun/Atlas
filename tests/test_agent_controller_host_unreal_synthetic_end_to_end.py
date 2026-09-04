@@ -1,13 +1,23 @@
 """Synthetic end-to-end coverage for the agent host to Unreal capability boundary."""
 
+from types import SimpleNamespace
+
+import pytest
+
 from controller.agent_controller_host import AgentControllerHost
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.agent_task_request import AgentTaskRequest
 from controller.capability_request import CapabilityRequest
-from controller.trusted_unreal_context import TrustedUnrealContext
+from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_production_controller_integration import (
+    UnrealProductionControllerEvent,
     UnrealProductionControllerIntegration,
 )
+from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeSnapshot
+from planning.unreal_production_workflow import UnrealProductionWorkflowResult
+from planning.unreal_render_receipt import UnrealRenderReceipt
+from planning.unreal_render_workflow import UnrealRenderWorkflowResult
+from controller.trusted_unreal_context import TrustedUnrealContext
 
 
 def _trusted_unreal_context():
@@ -31,6 +41,37 @@ def _synthetic_integration(monkeypatch):
 
     monkeypatch.setattr(integration, "execute", fake_execute)
     return integration, captured
+
+
+def _snapshot(state="complete"):
+    return UnrealProductionRuntimeSnapshot(
+        state=state,
+        phase=state,
+        waiting_for_reassessment=state == "awaiting_reassessment",
+        waiting_for_replacement=state == "awaiting_replacement",
+        failure=None,
+        recovery=None,
+        required_authorizations=(),
+    )
+
+
+def _verified_render_pair(job_id="job-contract-1"):
+    evidence = UnrealEvidence(
+        operation_name="inspect_render_job",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state={
+            "job_id": job_id,
+            "sequence_asset_path": "/Game/Trusted/SyntheticSequence",
+            "status": "finished",
+            "finished": True,
+            "success": True,
+            "failed": False,
+            "output_files": ["Saved/AtlasRenderOutput/AtlasRender_0001.png"],
+        },
+        verified=True,
+        source="synthetic-result-contract",
+    )
+    return evidence, UnrealRenderReceipt.issue(evidence)
 
 
 def test_host_to_unreal_capability_preserves_host_trust(monkeypatch):
@@ -155,3 +196,82 @@ def test_host_without_unreal_trust_fails_closed(monkeypatch):
     assert result is not None
     assert result.controller_executed is False
     assert captured == {}
+
+
+def test_controller_event_exposes_engine_neutral_result_for_completed_production():
+    event = UnrealProductionControllerEvent(
+        operation="start",
+        snapshot=_snapshot("complete"),
+    )
+
+    contract = event.result_contract
+
+    assert contract.operation == "start"
+    assert contract.success is True
+    assert contract.verified_render is False
+    assert contract.final_evidence is None
+    assert contract.receipt is None
+
+
+def test_controller_event_result_contract_carries_verified_render_pair():
+    evidence, receipt = _verified_render_pair()
+    render = UnrealRenderWorkflowResult(
+        intent_id="intent-contract-1",
+        job_id=receipt.job_id,
+        final_evidence=evidence,
+        receipt=receipt,
+        persisted_receipt={"job_id": receipt.job_id, "receipt_digest": receipt.receipt_digest},
+    )
+    workflow = UnrealProductionWorkflowResult(
+        production=SimpleNamespace(success=True),
+        render=render,
+    )
+    event = UnrealProductionControllerEvent(
+        operation="start",
+        snapshot=_snapshot("complete"),
+        workflow_result=workflow,
+    )
+
+    contract = event.result_contract
+
+    assert contract.success is True
+    assert contract.intent_id == "intent-contract-1"
+    assert contract.job_id == receipt.job_id
+    assert contract.final_evidence is evidence
+    assert contract.receipt is receipt
+    assert contract.verified_render is True
+
+
+def test_controller_event_result_contract_rejects_receipt_evidence_mismatch():
+    evidence, receipt = _verified_render_pair("job-contract-original")
+    changed_evidence, _ = _verified_render_pair("job-contract-changed")
+    render = UnrealRenderWorkflowResult(
+        intent_id="intent-contract-2",
+        job_id=changed_evidence.observed_state["job_id"],
+        final_evidence=changed_evidence,
+        receipt=receipt,
+        persisted_receipt={},
+    )
+    workflow = UnrealProductionWorkflowResult(
+        production=SimpleNamespace(success=True),
+        render=render,
+    )
+    event = UnrealProductionControllerEvent(
+        operation="start",
+        snapshot=_snapshot("complete"),
+        workflow_result=workflow,
+    )
+
+    with pytest.raises(ValueError, match="receipt does not match final_evidence"):
+        _ = event.result_contract
+
+
+def test_controller_result_contract_is_immutable():
+    event = UnrealProductionControllerEvent(
+        operation="start",
+        snapshot=_snapshot("complete"),
+    )
+    contract = event.result_contract
+
+    with pytest.raises(AttributeError):
+        contract.operation = "changed"
