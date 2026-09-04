@@ -1,5 +1,7 @@
 """Tests for the explicit Atlas agent-entrypoint execution seam."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
@@ -62,8 +64,40 @@ def test_entrypoint_executes_explicit_controller_route():
     assert isinstance(dispatched.result, CapabilityExecutionResult)
     assert dispatched.result.capability_name == "unreal_production"
     assert dispatched.result.value == "executed"
+    assert dispatched.result_contract is None
     assert len(handler.calls) == 1
     assert isinstance(handler.calls[0], CapabilityRequest)
+
+
+def test_entrypoint_exposes_engine_neutral_result_contract():
+    process = AtlasAgentProcessRuntime()
+    contract = object()
+
+    class ContractHandler:
+        def execute(self, request):
+            return SimpleNamespace(result_contract=contract)
+
+    process.runtime.registry.dispatcher.register(
+        "unreal_production",
+        lambda request: (
+            isinstance(request, CapabilityRequest)
+            and request.normalized_provider == "unreal"
+            and request.normalized_capability == "production"
+            and request.context.get("production") is True
+        ),
+        ContractHandler(),
+    )
+
+    dispatched = AtlasAgentEntrypointRuntime(process).dispatch(
+        AgentTaskRequest(
+            capability="production",
+            provider="unreal",
+            context={"production": True},
+        )
+    )
+
+    assert dispatched.controller_executed is True
+    assert dispatched.result_contract is contract
 
 
 def test_entrypoint_leaves_legacy_route_unexecuted():
@@ -75,6 +109,7 @@ def test_entrypoint_leaves_legacy_route_unexecuted():
 
     assert dispatched.controller_executed is False
     assert dispatched.result is None
+    assert dispatched.result_contract is None
     assert dispatched.classified.controller_owned is False
 
 
@@ -107,4 +142,7 @@ def test_entrypoint_executes_real_authorized_unreal_production():
     assert dispatched.result.capability_name == "unreal_production"
     assert dispatched.result.value.operation == "start"
     assert dispatched.result.value.snapshot.state == "complete"
+    assert dispatched.result_contract is not None
+    assert dispatched.result_contract.success is True
+    assert dispatched.result_contract.verified_render is False
     assert integration.complete is True
