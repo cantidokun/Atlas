@@ -8,7 +8,10 @@ from planning.production_artifact import (
     ProductionArtifactManifest,
     verify_unreal_render_lineage,
 )
-from planning.production_artifact_store import ProductionArtifactStore
+from planning.production_artifact_store import (
+    ProductionArtifactStore,
+    ProductionArtifactStoreError,
+)
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_render_receipt import UnrealRenderReceipt
 
@@ -98,5 +101,5 @@ def test_persisted_unreal_manifest_rejects_tampered_envelope(tmp_path: Path):
     payload["manifest"]["artifact_path"] = "renders/tampered.exr"
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(Exception):
+    with pytest.raises(ProductionArtifactStoreError):
         store.load()
