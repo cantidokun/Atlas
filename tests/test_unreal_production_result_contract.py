@@ -120,18 +120,34 @@ def test_result_contract_rejects_success_for_non_terminal_snapshot():
 
 
 def test_result_contract_rejects_success_with_pending_or_failure_state():
-    with pytest.raises(
-        ValueError,
-        match="successful result cannot contain failure, pending recovery, or required authorization state",
-    ):
-        UnrealProductionResultContract(
-            operation="start",
-            snapshot=_snapshot(
-                "complete",
-                failure={"phase": "production"},
-            ),
-            success=True,
-        )
+    cases = (
+        _snapshot("complete", waiting_for_reassessment=True),
+        _snapshot("complete", waiting_for_replacement=True),
+        _snapshot("complete", failure={"phase": "production"}),
+        _snapshot("complete", required_authorizations=("production",)),
+    )
+
+    for snapshot in cases:
+        with pytest.raises(
+            ValueError,
+            match="successful result cannot contain failure, pending recovery, or required authorization state",
+        ):
+            UnrealProductionResultContract(
+                operation="start",
+                snapshot=snapshot,
+                success=True,
+            )
+
+
+def test_successful_contract_exposes_terminal_state_and_no_required_authorizations():
+    result = UnrealProductionResultContract(
+        operation="start",
+        snapshot=_snapshot("recovery_complete"),
+        success=True,
+    )
+
+    assert result.completion_state == "recovery_complete"
+    assert result.required_authorizations == ()
 
 
 def test_result_contract_rejects_receipt_without_paired_evidence():
