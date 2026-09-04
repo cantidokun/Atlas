@@ -150,6 +150,59 @@ def test_successful_contract_exposes_terminal_state_and_no_required_authorizatio
     assert result.required_authorizations == ()
 
 
+def test_result_contract_rejects_render_evidence_on_unsuccessful_result():
+    evidence = _evidence()
+    receipt = UnrealRenderReceipt.issue(evidence)
+
+    with pytest.raises(
+        ValueError,
+        match="unsuccessful result cannot carry render evidence or receipt",
+    ):
+        UnrealProductionResultContract(
+            operation="start",
+            snapshot=_snapshot("awaiting_reassessment"),
+            success=False,
+            job_id=receipt.job_id,
+            final_evidence=evidence,
+            receipt=receipt,
+        )
+
+
+def test_result_contract_rejects_receipt_on_unsuccessful_result_even_without_job_id():
+    evidence = _evidence()
+    receipt = UnrealRenderReceipt.issue(evidence)
+
+    with pytest.raises(
+        ValueError,
+        match="unsuccessful result cannot carry render evidence or receipt",
+    ):
+        UnrealProductionResultContract(
+            operation="start",
+            snapshot=_snapshot("awaiting_replacement"),
+            success=False,
+            receipt=receipt,
+        )
+
+
+def test_unsuccessful_contract_carries_no_verified_render():
+    result = UnrealProductionResultContract(
+        operation="start",
+        snapshot=_snapshot(
+            "awaiting_replacement",
+            failure={"phase": "recovery"},
+            waiting_for_replacement=True,
+            required_authorizations=("replacement",),
+        ),
+        success=False,
+    )
+
+    assert result.success is False
+    assert result.verified_render is False
+    assert result.job_id is None
+    assert result.final_evidence is None
+    assert result.receipt is None
+
+
 def test_result_contract_rejects_receipt_without_paired_evidence():
     evidence = _evidence()
     receipt = UnrealRenderReceipt.issue(evidence)
