@@ -122,6 +122,41 @@ def test_closed_loop_lineage_verification_accepts_exact_records():
     verify_blender_closed_loop_lineage(manifest, receipt, evidence)
 
 
+def test_closed_loop_lineage_verification_rejects_invalid_engine_binding():
+    receipt, evidence = _verified_blender_pair()
+    valid = _closed_loop_manifest(receipt, evidence)
+    invalid = ProductionArtifactManifest(
+        artifact_id=valid.artifact_id,
+        canonical_digital_twin_id=valid.canonical_digital_twin_id,
+        representation_type=valid.representation_type,
+        artifact_path=valid.artifact_path,
+        source_artifact_ids=valid.source_artifact_ids,
+        workflow_provenance=valid.workflow_provenance,
+        evidence_digests=valid.evidence_digests,
+        receipt_digests=valid.receipt_digests,
+        engine="Unreal",
+        engine_version=valid.engine_version,
+        metadata=valid.metadata,
+        manifest_version=valid.manifest_version,
+    )
+    with pytest.raises(ProductionArtifactError, match="Blender lineage engine is invalid"):
+        verify_blender_closed_loop_lineage(invalid, receipt, evidence)
+
+
+def test_blender_manifest_factory_rejects_unreal_engine():
+    receipt, evidence = _verified_blender_pair()
+    with pytest.raises(ProductionArtifactError, match="Blender artifact lineage engine must be Blender"):
+        ProductionArtifactManifest.from_blender_closed_loop(
+            artifact_id="blender-goal-v002",
+            canonical_digital_twin_id="soccer-twin-001",
+            representation_type="blender-scene",
+            artifact_path="production/goal_scene.blend",
+            operation_receipt=receipt,
+            persistence_evidence=evidence,
+            engine="Unreal",
+        )
+
+
 def test_closed_loop_lineage_verification_rejects_receipt_substitution():
     receipt, evidence = _verified_blender_pair()
     manifest = _closed_loop_manifest(receipt, evidence)
