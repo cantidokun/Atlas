@@ -39,6 +39,49 @@ def test_unreal_receipt_binds_to_production_artifact_manifest():
     assert manifest.canonical_digital_twin_id == "atlas-soccer-digital-twin"
 
 
+def test_unreal_manifest_rejects_artifact_path_not_observed_by_render():
+    evidence = _evidence()
+    receipt = UnrealRenderReceipt.issue(evidence)
+    with pytest.raises(ProductionArtifactError, match="artifact path is not present in verified render outputs"):
+        ProductionArtifactManifest.from_unreal_render_receipt(
+            artifact_id="atlas-unreal-render-001",
+            canonical_digital_twin_id="atlas-soccer-digital-twin",
+            representation_type="unreal-render",
+            artifact_path="C:/renders/AtlasRender_0002.png",
+            render_receipt=receipt,
+            render_evidence=evidence,
+        )
+
+
+def test_unreal_lineage_rejects_artifact_path_substitution():
+    evidence = _evidence()
+    receipt = UnrealRenderReceipt.issue(evidence)
+    manifest = ProductionArtifactManifest.from_unreal_render_receipt(
+        artifact_id="atlas-unreal-render-001",
+        canonical_digital_twin_id="atlas-soccer-digital-twin",
+        representation_type="unreal-render",
+        artifact_path="C:/renders/AtlasRender_0001.png",
+        render_receipt=receipt,
+        render_evidence=evidence,
+    )
+    tampered = ProductionArtifactManifest(
+        artifact_id=manifest.artifact_id,
+        canonical_digital_twin_id=manifest.canonical_digital_twin_id,
+        representation_type=manifest.representation_type,
+        artifact_path="C:/renders/AtlasRender_0002.png",
+        source_artifact_ids=manifest.source_artifact_ids,
+        workflow_provenance=manifest.workflow_provenance,
+        evidence_digests=manifest.evidence_digests,
+        receipt_digests=manifest.receipt_digests,
+        engine=manifest.engine,
+        engine_version=manifest.engine_version,
+        metadata=manifest.metadata,
+        manifest_version=manifest.manifest_version,
+    )
+    with pytest.raises(ProductionArtifactError, match="artifact path is not present in verified render outputs"):
+        verify_unreal_render_lineage(tampered, receipt, evidence)
+
+
 def test_unreal_lineage_rejects_evidence_substitution():
     evidence = _evidence()
     receipt = UnrealRenderReceipt.issue(evidence)
@@ -67,6 +110,20 @@ def test_unreal_manifest_rejects_mismatched_receipt_at_construction():
             artifact_path="C:/renders/AtlasRender_0001.png",
             render_receipt=receipt,
             render_evidence=changed,
+        )
+
+
+def test_unreal_manifest_rejects_missing_output_files():
+    evidence = _evidence(output_files=None)
+    receipt = UnrealRenderReceipt.issue(evidence)
+    with pytest.raises(ProductionArtifactError, match="must include output_files"):
+        ProductionArtifactManifest.from_unreal_render_receipt(
+            artifact_id="atlas-unreal-render-001",
+            canonical_digital_twin_id="atlas-soccer-digital-twin",
+            representation_type="unreal-render",
+            artifact_path="C:/renders/AtlasRender_0001.png",
+            render_receipt=receipt,
+            render_evidence=evidence,
         )
 
 
