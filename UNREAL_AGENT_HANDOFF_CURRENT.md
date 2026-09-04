@@ -1,6 +1,6 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is implemented and regression-hardened on main. A disposable Unreal artifact-lineage proof harness is now available for the final human validation gate.
+**Updated:** September 4, 2026 — Unreal Engine 5.6 render/receipt execution remains live-proven, and Stage 17 production-artifact provenance is implemented and regression-hardened on main. The host boundary has also been hardened so protected Unreal requests cannot use model-supplied intent or production flags as authority.
 **Focus:** Unreal Agent and supporting architecture only.
 **Active Atlas branch:** `main`
 
@@ -84,6 +84,12 @@ artifact_path              ∈ independently observed output_files
 The manifest is durably persisted through `ProductionArtifactStore`, with deterministic serialization, atomic replacement, file flushing, fail-closed reload validation, and manifest-integrity checking.
 
 PR #55 added `live_unreal_production_artifact_proof.py`. It consumes an already verified Unreal evidence snapshot plus matching render receipt, constructs the manifest, persists and reloads it, independently verifies exact lineage, and reports the artifact, evidence, receipt, and manifest digests. Focused regression coverage passed on Python 3.9 and 3.11 before merge.
+
+### Host trust-boundary hardening
+
+`controller/agent_controller_host.py` now treats `TrustedUnrealContext` as the sole authority source for protected Unreal production intent and the `production=True` execution marker. Model-supplied intent and production values are never promoted into trusted execution state; contradictory model values are recorded only as diagnostic mismatch flags. The host also rejects an Unreal integration that does not expose a callable `execute` method.
+
+`tests/test_agent_controller_host_trust_boundary.py` adds deterministic coverage for intent substitution, production-flag substitution, and invalid integration configuration.
 
 ### Current validation status
 
