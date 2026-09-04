@@ -1,8 +1,7 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026 — Blender Stage 17 production artifact lineage is implemented through durable persistence, focused integration regression coverage, and user-verified real Blender proof.
-**Active branch:** `feat/blender-stage11-mainline`
-**PR #49:** open, draft, unmerged
+**Updated:** September 4, 2026 — Stage 17 production artifact lineage is implemented and hardened across Blender and Unreal, with durable persistence and focused integration regression coverage. Blender Stage 17 remains user-verified against real Blender 4.4; Unreal Stage 17 has the offline provenance/persistence contract in place, while live production-artifact proof remains the next human validation gate.
+**Active branch:** `main`
 **Current stage:** Stage 17 — IN PROGRESS
 
 ## Authority model
@@ -33,82 +32,62 @@ Stage 15 semantic soccer-production tasks are complete for the current contract.
 
 Stage 16 Qwen integration is live verified through proposal, Atlas authorization, real Blender mutation, cross-process recovery, and a fresh Qwen-guided recovery recommendation that remains advisory-only.
 
-Current catalog contract:
-
-```text
-broadcast-goal-preparation@1
-
-file_name       -> string
-object_name     -> string
-target_location -> vector3
-target_rotation -> vector3
-```
-
-## Stage 16 — Qwen integration — LIVE VERIFIED
-
-The complete Qwen-authorized Blender path and two-process recovery path have been user-verified. During recovery, a fresh Qwen recommendation is obtained after process restart and validated against the persisted canonical task. Atlas then derives and authorizes only the unfinished action through the existing recovery runtime.
-
-The live recovery proof included:
-
-```text
-qwen_provenance_recovered=verified
-initial_authorization_recovered=verified
-process_restart=verified
-qwen_recovery_recommendation=verified
-qwen_recovery_recommendation_advisory_only=verified
-fresh_recovery_evidence=verified
-qwen_workflow_target_revalidated=verified
-completed_prerequisite_not_replayed=verified
-replacement_execution=verified
-independent_final_verification=verified
-```
-
-No Qwen execution, authorization, scheduler, or recovery subsystem was introduced.
-
 ## Stage 17 — Production artifact lineage
 
 `planning/production_artifact.py` defines `ProductionArtifactManifest`, a provenance-only contract connecting a production representation to the canonical Atlas Digital Twin, source artifacts, workflow provenance, verification evidence, execution receipts, engine metadata, and a deterministic integrity digest.
 
-The Blender bridge `ProductionArtifactManifest.from_blender_closed_loop(...)` accepts only existing `BlenderExecutionReceipt` and `BlenderPersistenceEvidence` objects. It does not execute, authorize, or verify work itself.
-
-Regression coverage proves verified Blender receipt/evidence binding, deterministic lineage, round-trip persistence, tamper detection, self-reference rejection, unknown-field rejection, and absence of execution/authorization APIs.
-
-A focused Blender pipeline regression exercises the existing `BlenderExecutionBoundary.execute_with_persistence(...)` closed loop, constructs a production artifact from its immutable receipt/evidence, independently verifies the exact lineage binding, round-trips the manifest, and confirms that manifest construction does not trigger another Blender operation or inspection.
-
-`planning/production_artifact_store.py` provides durable versioned JSON persistence for the immutable manifest, with deterministic serialization, atomic replacement, file flushing, and fail-closed reload validation. The persistence boundary is explicitly Windows-safe: POSIX directory fsync is retained where supported, while Windows treats the already-flushed replacement file as the platform durability boundary rather than falsely failing after a successful atomic replacement.
-
-A new integration regression covers the complete offline contract: one Blender boundary closed loop produces the receipt/evidence, the immutable manifest binds them, the manifest is durably persisted, the persisted envelope is reloaded, and independent lineage verification confirms the exact original receipt/evidence. A second proof rejects substitution of a later unrelated Blender receipt/evidence pair against the persisted artifact manifest.
+The manifest has separate engine-specific bridges for Blender and Unreal. Both bridges enforce their engine identity at construction time, and the corresponding lineage-verification helpers enforce the same identity on persisted/tampered manifests.
 
 ### Blender Stage 17 — LIVE VERIFIED
 
-The user executed `python live_blender_production_artifact_proof.py` locally against the real Blender 4.4 adapter after pulling commit `5306a6b`.
+The Blender bridge accepts only existing immutable `BlenderExecutionReceipt` and `BlenderPersistenceEvidence` objects. A focused integration regression exercises the existing `BlenderExecutionBoundary.execute_with_persistence(...)` closed loop, constructs the immutable manifest, durably persists and reloads it, and independently verifies the exact receipt/evidence lineage without causing another Blender operation.
 
-The proof completed successfully:
+The user executed `python live_blender_production_artifact_proof.py` locally against real Blender 4.4 after pulling commit `5306a6b` and received:
 
 ```text
 ATLAS LIVE BLENDER PRODUCTION ARTIFACT PROOF: PASS
 REAL BLENDER WRITE -> FRESH SCENE INSPECTION -> IMMUTABLE RECEIPT/EVIDENCE -> DURABLE MANIFEST -> RELOAD -> EXACT LINEAGE VERIFIED
 ```
 
-Verified live values:
+The proven live path establishes real Blender mutation, fresh independent scene inspection, immutable receipt/evidence capture, durable manifest persistence, reload integrity, and exact provenance binding.
+
+### Unreal Stage 17 — IMPLEMENTED / HUMAN LIVE PROOF PENDING
+
+The existing Unreal render boundary already produces verified `inspect_render_job` evidence and an evidence-bound immutable `UnrealRenderReceipt` for semantically completed successful renders. `ProductionArtifactManifest.from_unreal_render_receipt(...)` now requires:
+
+- `engine == "Unreal"`;
+- evidence operation `inspect_render_job`;
+- `verified == True`;
+- receipt/evidence identity to match exactly;
+- the manifest artifact path to appear in independently observed `output_files`.
+
+`verify_unreal_render_lineage(...)` re-checks those same bindings without executing Unreal, authorizing work, scheduling, or recovering a render job. `ProductionArtifactStore` provides durable versioned manifest persistence with atomic replacement, flushing, and fail-closed reload validation.
+
+Focused integration coverage exercises Unreal receipt → manifest → durable store → reload → exact lineage verification and rejects evidence, receipt, engine, output-path, and persisted-envelope substitutions. This remains an offline contract gate; no claim of live Unreal production-artifact manifest proof is made yet.
+
+The previously proven real Unreal Engine 5.6 render path remains intact:
 
 ```text
-artifact_id                    = atlas-blender-live-proof-001
-artifact_path                  = parent_task_INCORRECT.blend
-canonical_digital_twin_id      = atlas-soccer-digital-twin-proof
-observed_location              = [0.5, 5.233, 0.0]
-manifest_digest                = 491dbd365c388db7b5d85bc0ead6760a3dcf44a7300403575410663b7cf166f1
-operation_receipt_digest       = 11641aebe30361f151598fdd44d58a42a250d602f73b91c7ae002e4fd4d3ba9c
-persistence_evidence_digest    = c02e64de921535eb5e0f12dd301b94294dfab9b5585c32cd5814e518a8873f2b
+render configuration
+  → configuration verification
+  → Movie Render Queue submission
+  → dynamic job ID
+  → asynchronous job inspection
+  → semantic completion verification
+  → actual output artifact discovery
+  → filesystem validation
+  → verified evidence
+  → UnrealRenderReceipt
+  → durable receipt persistence
 ```
 
-This establishes the real Blender write, fresh independent scene inspection, immutable execution receipt and persistence evidence, durable manifest persistence, reload integrity, and exact lineage binding without introducing an additional execution or authorization layer.
+Cross-process Unreal render-job recovery remains unimplemented and must not be implied by receipt persistence or by Stage 17 provenance.
 
-## Next development target
+## Current next gate
 
-With the Blender Stage 17 gate now live verified, the next work is to extend the same provenance contract to the existing Unreal receipt boundary. This should remain provenance-only: connect existing verified Unreal execution evidence to production artifact lineage without introducing execution or authorization behavior into the manifest layer.
+The next substantive Stage 17 milestone is a disposable, human-run Unreal proof equivalent to the Blender proof: consume an already verified real Unreal render receipt/evidence pair, construct the production artifact manifest, persist and reload it through `ProductionArtifactStore`, independently verify exact lineage, and report the resulting digest identities. The proof must remain non-authorizing and must not add a second Unreal execution path.
 
-Cross-process Unreal render-job recovery remains a separate, unimplemented capability and must not be implied by receipt persistence or by this provenance extension.
+No action-runner test should be run for this gate unless explicitly authorized. The human live Unreal validation should use the existing proven Unreal render boundary rather than inventing a parallel transport or runtime.
 
 ## Non-regression rules
 
@@ -124,6 +103,9 @@ Cross-process Unreal render-job recovery remains a separate, unimplemented capab
 - Do not claim cross-process Unreal job recovery unless separately implemented and verified.
 - Do not run workflow/action-runner tests unless explicitly authorized.
 
-## PR status
+## Recent mainline merges
 
-PR #49 remains open, draft, and unmerged. **Do not merge unless explicitly requested.**
+- PR #49 merged the Stage 12 task-aware autonomous recovery continuation.
+- PR #52 restored and locked engine-specific production-artifact factory binding after the PR #49 merge-resolution regression.
+- PR #54 hardened Unreal artifact lineage to require verified `inspect_render_job` evidence.
+- PR #53 hardened Blender lineage verification to enforce `engine == "Blender"` symmetrically with Unreal.
