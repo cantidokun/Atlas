@@ -70,3 +70,25 @@ def test_verify_render_config_rejects_render_drift():
     evidence = _evidence(width=1280)
     with pytest.raises(ValueError, match="does not match expected configuration"):
         verify_render_config(evidence, EXPECTED)
+
+
+def test_unreal_evidence_rejects_scalar_entity_ids():
+    with pytest.raises(TypeError, match="entity_ids must be a sequence"):
+        UnrealEvidence(
+            operation_name="inspect_render_job",
+            entity_ids="FIELD_SURFACE",
+            observed_state={"render_job": {"render": EXPECTED}},
+            verified=True,
+            source="render-contract-test",
+        )
+
+
+def test_unreal_evidence_rejects_mapping_entity_ids():
+    with pytest.raises(TypeError, match="entity_ids must be a sequence"):
+        UnrealEvidence(
+            operation_name="inspect_render_job",
+            entity_ids={"id": "FIELD_SURFACE"},
+            observed_state={"render_job": {"render": EXPECTED}},
+            verified=True,
+            source="render-contract-test",
+        )
