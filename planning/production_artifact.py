@@ -102,6 +102,26 @@ def _verify_blender_pair_binding(
         raise ProductionArtifactError("Blender receipt and persistence evidence operation arguments do not match")
 
 
+def _verify_unreal_artifact_path_binding(
+    artifact_path: str,
+    render_evidence: UnrealEvidence,
+) -> None:
+    """Require the manifest artifact path to be an independently observed render output."""
+    state = render_evidence.observed_state
+    if not isinstance(state, Mapping):
+        raise ProductionArtifactError("Unreal render evidence observed_state must be a mapping")
+    output_files = state.get("output_files")
+    if not isinstance(output_files, (list, tuple)):
+        raise ProductionArtifactError("Unreal render evidence must include output_files for artifact lineage")
+    normalized_outputs = []
+    for output_file in output_files:
+        if not isinstance(output_file, str) or not output_file.strip():
+            raise ProductionArtifactError("Unreal render evidence output_files must contain non-empty strings")
+        normalized_outputs.append(output_file.strip())
+    if artifact_path not in normalized_outputs:
+        raise ProductionArtifactError("Unreal production artifact path is not present in verified render outputs")
+
+
 @dataclass(frozen=True)
 class ProductionArtifactManifest:
     """Provenance for one production representation of a canonical Digital Twin."""
@@ -201,6 +221,7 @@ class ProductionArtifactManifest:
             raise TypeError("render_evidence must be a UnrealEvidence")
         if not render_receipt.matches(render_evidence):
             raise ProductionArtifactError("Unreal render receipt does not match render evidence")
+        _verify_unreal_artifact_path_binding(artifact_path, render_evidence)
         return cls(
             artifact_id=artifact_id,
             canonical_digital_twin_id=canonical_digital_twin_id,
@@ -300,6 +321,7 @@ def verify_unreal_render_lineage(
         raise TypeError("render_evidence must be a UnrealEvidence")
     if not render_receipt.matches(render_evidence):
         raise ProductionArtifactError("Unreal render receipt does not match render evidence")
+    _verify_unreal_artifact_path_binding(manifest.artifact_path, render_evidence)
     if manifest.receipt_digests != (render_receipt.receipt_digest,):
         raise ProductionArtifactError("production artifact Unreal receipt lineage does not match")
     if manifest.evidence_digests != (render_receipt.evidence_digest,):
