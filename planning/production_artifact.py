@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Dict, Mapping, Optional, Tuple
@@ -45,16 +46,33 @@ def _thaw(value: Any) -> Any:
 
 def _canonicalize(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {str(key): _canonicalize(item) for key, item in value.items()}
+        canonical = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ProductionArtifactError("production artifact canonical data requires string mapping keys")
+            canonical[key] = _canonicalize(item)
+        return canonical
     if isinstance(value, (list, tuple)):
         return [_canonicalize(item) for item in value]
     if isinstance(value, (set, frozenset)):
-        return sorted(_canonicalize(item) for item in value)
-    return value
+        canonical_items = [_canonicalize(item) for item in value]
+        try:
+            return sorted(canonical_items)
+        except TypeError as exc:
+            raise ProductionArtifactError("production artifact canonical data contains unordered values") from exc
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ProductionArtifactError("production artifact canonical data requires finite floats")
+        return value
+    raise ProductionArtifactError(
+        "production artifact canonical data contains an unsupported value type"
+    )
 
 
 def _canonical_digest(value: Any) -> str:
-    payload = json.dumps(_canonicalize(value), sort_keys=True, separators=(",", ":"), default=str)
+    payload = json.dumps(_canonicalize(value), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
