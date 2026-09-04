@@ -24,13 +24,21 @@ def _integration():
     )
 
 
+def _authorized_production():
+    production = build_unreal_production_plan(_intent(), _spec())
+    return authorize_production_plan(production, "agent-process-runtime-auth")
+
+
 def test_agent_process_routes_explicit_unreal_production_to_controller():
     process = AtlasAgentProcessRuntime(unreal_production=_integration())
 
     routed = process.route(
         "production",
         provider="unreal",
-        context={"production": True},
+        context={
+            "production": True,
+            "authorized_production": _authorized_production(),
+        },
     )
 
     assert routed.route.route == "controller"
@@ -55,7 +63,10 @@ def test_agent_process_routing_does_not_execute_capability():
     process.route(
         "production",
         provider="unreal",
-        context={"production": True},
+        context={
+            "production": True,
+            "authorized_production": _authorized_production(),
+        },
     )
 
     assert integration.complete is False
