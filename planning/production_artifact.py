@@ -209,4 +209,33 @@ class ProductionArtifactManifest:
         )
 
 
-__all__ = ["ProductionArtifactError", "ProductionArtifactManifest"]
+def verify_blender_closed_loop_lineage(
+    manifest: ProductionArtifactManifest,
+    operation_receipt: BlenderExecutionReceipt,
+    persistence_evidence: BlenderPersistenceEvidence,
+) -> None:
+    """Verify that a manifest references the exact persisted Blender evidence records.
+
+    This is a pure lineage check. It does not execute Blender, inspect an artifact,
+    authorize an operation, or infer that the underlying scene is currently valid.
+    """
+    if not isinstance(manifest, ProductionArtifactManifest):
+        raise TypeError("manifest must be a ProductionArtifactManifest")
+    if not isinstance(operation_receipt, BlenderExecutionReceipt):
+        raise TypeError("operation_receipt must be a BlenderExecutionReceipt")
+    if not isinstance(persistence_evidence, BlenderPersistenceEvidence):
+        raise TypeError("persistence_evidence must be a BlenderPersistenceEvidence")
+
+    expected_receipt_digest = operation_receipt.digest()
+    expected_evidence_digest = persistence_evidence.digest()
+    if manifest.receipt_digests != (expected_receipt_digest,):
+        raise ProductionArtifactError("production artifact receipt lineage does not match")
+    if manifest.evidence_digests != (expected_evidence_digest,):
+        raise ProductionArtifactError("production artifact evidence lineage does not match")
+
+
+__all__ = [
+    "ProductionArtifactError",
+    "ProductionArtifactManifest",
+    "verify_blender_closed_loop_lineage",
+]
