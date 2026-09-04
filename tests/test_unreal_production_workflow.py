@@ -198,6 +198,28 @@ def test_successful_production_then_render_returns_verified_workflow_result():
     assert render_workflow.wait_calls[0][1] == "job-123"
 
 
+def test_workflow_rejects_production_and_render_intent_mismatch_before_execution():
+    workflow, production_executor, render_workflow = _workflow()
+    production = _production("production-intent")
+    wrong_intent = _intent("render-intent")
+
+    with pytest.raises(
+        UnrealProductionWorkflowError,
+        match="production plan intent_id must match render intent_id",
+    ):
+        workflow.run(
+            production,
+            _authorization(production),
+            wrong_intent,
+            "/Game/AtlasTest/AtlasSequencerFixtureSequence",
+            lambda plan: UnrealPlanAuthorization.issue(plan, "render-auth"),
+        )
+
+    assert production_executor.calls == []
+    assert render_workflow.submit_calls == []
+    assert render_workflow.wait_calls == []
+
+
 def test_workflow_success_requires_verified_render_identity():
     production = FakeProductionExecutor()
     execution = production.execute(
