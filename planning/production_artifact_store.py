@@ -37,7 +37,13 @@ class ProductionArtifactStore:
         return str(self._path)
 
     def save(self, manifest: ProductionArtifactManifest) -> None:
-        """Atomically persist a manifest and its integrity digest."""
+        """Atomically persist a manifest and its integrity digest.
+
+        The temporary file is flushed before replacement. POSIX systems also
+        receive a parent-directory fsync so the rename is durably recorded.
+        Windows does not expose a portable directory-fsync operation, so the
+        already-flushed file is treated as the platform durability boundary.
+        """
         if not isinstance(manifest, ProductionArtifactManifest):
             raise TypeError("manifest must be a ProductionArtifactManifest")
 
@@ -46,7 +52,12 @@ class ProductionArtifactStore:
             "manifest": manifest.snapshot(),
             "manifest_digest": manifest.digest(),
         }
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
         fd = None
@@ -75,6 +86,13 @@ class ProductionArtifactStore:
                 except OSError:
                     pass
 
+        self._flush_parent_directory()
+
+    def _flush_parent_directory(self) -> None:
+        """Durably record the atomic replacement where the platform supports it."""
+        if os.name == "nt":
+            return
+
         try:
             directory_fd = os.open(str(self._path.parent), os.O_RDONLY)
             try:
@@ -82,7 +100,9 @@ class ProductionArtifactStore:
             finally:
                 os.close(directory_fd)
         except OSError as exc:
-            raise ProductionArtifactStoreError("production artifact manifest persisted but directory flush failed") from exc
+            raise ProductionArtifactStoreError(
+                "production artifact manifest persisted but directory flush failed"
+            ) from exc
 
     def load(self) -> ProductionArtifactManifest:
         """Load and fail closed if the persisted envelope or manifest digest is invalid."""
