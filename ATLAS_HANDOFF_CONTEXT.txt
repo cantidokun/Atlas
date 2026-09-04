@@ -74,7 +74,20 @@ Unreal Stage 17 provenance is implemented and regression-verified, but the real 
 5. UNREAL POSITION
 ============================================================
 
-The real Unreal Engine 5.6 render boundary is already proven for the implemented workflow:
+PR #57 restored the previously working Unreal Engine 5.6 execution boundary to main and was merged as:
+3e2e78e654cab3db5f17ba9739ae5c609d82f386
+
+The restored boundary includes:
+- UE 5.6 project and module definitions;
+- controlled render fixture assets;
+- render and world-save boundary sources;
+- commandlets used by the fixture workflow;
+- the Unreal transport module and headers;
+- the named-pipe Atlas transport server.
+
+Local UE 5.6 compilation of the restored tree succeeded with 19/19 actions, including AtlasTransportServer.cpp, AtlasUnrealTransport.cpp, and the render/world-save boundary sources.
+
+The real Unreal render workflow is:
 - deterministic render configuration;
 - render-state verification;
 - Movie Render Queue submission;
@@ -101,7 +114,7 @@ Cross-process Unreal render-job recovery is NOT implemented. Receipt persistence
 6. CONTROLLER-TO-UNREAL TRUST BOUNDARY
 ============================================================
 
-Current mainline AgentControllerHost is deliberately narrower than the historical controller-host branch retained in PR #50.
+Current mainline AgentControllerHost remains deliberately narrower than the historical controller-host branch retained in PR #50.
 
 For protected Unreal production requests:
 - TrustedUnrealContext is the authority source for protected intent;
@@ -111,17 +124,23 @@ For protected Unreal production requests:
 - contradictory model values are retained only as diagnostic mismatch state;
 - the Unreal production integration seam rejects missing required trusted context before execution.
 
-No second authorization system, scheduler, recovery engine, or Unreal execution path is introduced.
+The restored C++ Unreal transport is an execution/transport boundary only. Its request-level authorization field is part of transport validation; it is not a replacement for Atlas host authorization.
 
 ============================================================
 7. TESTING / VALIDATION
 ============================================================
 
-Verified earlier checkpoints include the deterministic Stage 17 provenance/snapshot suites and the previously reported full deterministic regression checkpoint.
+Verified in this checkpoint:
+- UE 5.6 local editor build of restored Unreal tree — 19/19 actions succeeded;
+- AtlasTransportServer.cpp compiled and linked;
+- AtlasUnrealTransport.cpp compiled and linked;
+- render/world-save boundary sources compiled successfully.
 
-The newest September 4 controller trust-boundary changes have NOT yet received a new local Windows test result in this session.
+Previously verified checkpoints include the deterministic Stage 17 provenance/snapshot suites and the earlier full deterministic regression checkpoint.
 
-Do not represent older test results as validation of the newest commits.
+The newest September 4 controller trust-boundary changes have NOT received a new local Windows deterministic test result in this checkpoint.
+
+Do not represent older test results as validation of the newest controller changes.
 
 Do not run workflow/action-runner tests unless explicitly authorized.
 
@@ -154,7 +173,7 @@ Read:
 Then:
 1. Pull latest main.
 2. Run focused deterministic tests covering the newest host trust-boundary changes.
-3. Execute the human UE 5.6 Stage 17 provenance proof using evidence emitted by the existing proven render boundary.
+3. Exercise the restored UE 5.6 render boundary and capture fresh verified evidence/receipt data.
 4. Run live_unreal_production_artifact_proof.py against the verified evidence/receipt pair.
 5. Confirm manifest persistence, reload, exact lineage, and digest identities.
 6. Resume selective integration of the stronger historical controller-host architecture from PR #50 only after the Stage 17 proof checkpoint.
