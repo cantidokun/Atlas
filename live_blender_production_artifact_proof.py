@@ -27,7 +27,7 @@ from planning.production_artifact_store import ProductionArtifactStore
 from tools.blender import inspect_scene, move_object
 
 
-DEFAULT_OBJECT = "Atlas_Marker"
+DEFAULT_OBJECT = "Goal_Left_post"
 DEFAULT_FILE = "parent_task_INCORRECT.blend"
 DEFAULT_LOCATION = (0.5, 5.233, 0.0)
 
@@ -45,9 +45,10 @@ def execute_real_blender(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]
         raise TypeError("Blender adapter must return an object")
 
     status = result.get("status")
+    success = "error" not in result and status not in {"error", "failed", "object_not_found"}
     return {
-        "ok": status not in {"error", "failed"} and "error" not in result,
-        "state": str(status or "ok"),
+        "ok": success,
+        "state": "succeeded" if success else str(status or "failed"),
         "details": dict(result),
     }
 
