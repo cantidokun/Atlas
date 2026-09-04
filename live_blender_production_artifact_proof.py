@@ -24,10 +24,7 @@ from planning.production_artifact import (
     verify_blender_closed_loop_lineage,
 )
 from planning.production_artifact_store import ProductionArtifactStore
-from tools.blender import (
-    inspect_object_transform,
-    move_object,
-)
+from tools.blender import inspect_scene, move_object
 
 
 DEFAULT_OBJECT = "Atlas_Marker"
@@ -39,8 +36,8 @@ def execute_real_blender(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]
     """Dispatch a validated boundary call to the existing real Blender adapter."""
     if tool == "move_object":
         result = move_object(**arguments)
-    elif tool == "inspect_object_transform":
-        result = inspect_object_transform(**arguments)
+    elif tool == "inspect_scene":
+        result = inspect_scene(**arguments)
     else:
         raise RuntimeError(f"Unexpected live Blender proof tool: {tool}")
 
@@ -50,18 +47,23 @@ def execute_real_blender(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]
     status = result.get("status")
     return {
         "ok": status not in {"error", "failed"} and "error" not in result,
-        "state": str(status or "unknown"),
+        "state": str(status or "ok"),
         "details": dict(result),
     }
 
 
-def observed_location(result: Any):
-    """Extract the independently inspected transform location."""
-    details = result.details
-    location = details.get("location")
-    if not isinstance(location, (list, tuple)) or len(location) != 3:
-        raise RuntimeError(f"Inspection did not return a valid location: {details}")
-    return list(location)
+def observed_location(result: Any, object_name: str):
+    """Extract the requested object's location from fresh scene evidence."""
+    objects = result.details.get("objects")
+    if not isinstance(objects, list):
+        raise RuntimeError(f"Scene inspection did not return an object list: {result.details}")
+    for obj in objects:
+        if isinstance(obj, dict) and obj.get("name") == object_name:
+            location = obj.get("location")
+            if isinstance(location, (list, tuple)) and len(location) == 3:
+                return list(location)
+            break
+    raise RuntimeError(f"Object {object_name!r} was not independently observed: {result.details}")
 
 
 def main() -> None:
@@ -99,19 +101,16 @@ def main() -> None:
         "object_name": args.object,
         "location": target_location,
     }
-    inspection_arguments = {
-        "file_name": args.file,
-        "object_name": args.object,
-    }
+    inspection_arguments = {"file_name": args.file}
 
     boundary = BlenderExecutionBoundary(execute_real_blender)
     closed_loop = boundary.execute_with_persistence(
         "move_object",
         operation_arguments,
-        "inspect_object_transform",
+        "inspect_scene",
         inspection_arguments,
         expected_state=target_location,
-        observed_state=observed_location,
+        observed_state=lambda result: observed_location(result, args.object),
     )
 
     with tempfile.TemporaryDirectory(prefix="atlas-live-artifact-proof-") as directory:
@@ -154,11 +153,11 @@ def main() -> None:
             "artifact_path": reloaded.artifact_path,
             "operation_receipt_digest": closed_loop.operation_receipt.digest(),
             "persistence_evidence_digest": closed_loop.persistence_evidence.digest(),
-            "observed_location": observed_location(closed_loop.inspection_result),
+            "observed_location": observed_location(closed_loop.inspection_result, args.object),
         }
 
     print("ATLAS LIVE BLENDER PRODUCTION ARTIFACT PROOF: PASS")
-    print("REAL BLENDER WRITE -> FRESH INSPECTION -> IMMUTABLE RECEIPT/EVIDENCE -> DURABLE MANIFEST -> RELOAD -> EXACT LINEAGE VERIFIED")
+    print("REAL BLENDER WRITE -> FRESH SCENE INSPECTION -> IMMUTABLE RECEIPT/EVIDENCE -> DURABLE MANIFEST -> RELOAD -> EXACT LINEAGE VERIFIED")
     print(json.dumps(proof, indent=2, sort_keys=True))
 
 
