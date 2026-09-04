@@ -24,6 +24,8 @@ def _evidence(*, job_id="render-job-001", sequence_asset_path="/Game/Atlas/Seque
             "job_id": job_id,
             "sequence_asset_path": sequence_asset_path,
             "status": "completed",
+            "success": True,
+            "failed": False,
         },
         source="unreal-inspection-adapter",
         verified=True,
