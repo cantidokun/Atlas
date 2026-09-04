@@ -26,6 +26,34 @@ def test_render_receipt_issues_from_verified_inspection():
     assert receipt.receipt_digest
 
 
+def test_unreal_evidence_is_deeply_immutable():
+    state = {"job_id": "job-123", "nested": {"output_files": ["render-0001.png"]}}
+    evidence = UnrealEvidence(
+        operation_name="inspect_render_job",
+        entity_ids=["FIELD_SURFACE"],
+        observed_state=state,
+        verified=True,
+        source="render-receipt-test",
+    )
+    state["nested"]["output_files"].append("render-0002.png")
+    assert evidence.entity_ids == ("FIELD_SURFACE",)
+    assert evidence.observed_state["nested"]["output_files"] == ("render-0001.png",)
+
+    try:
+        evidence.observed_state["job_id"] = "tampered"
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("Unreal evidence observed_state must be immutable")
+
+    try:
+        evidence.observed_state["nested"]["output_files"] += ("tampered.png",)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("nested Unreal evidence state must be immutable")
+
+
 def test_render_receipt_rejects_unverified_evidence():
     evidence = UnrealEvidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state={"job_id": "job-123", "sequence_asset_path": "/Game/AtlasTest/Sequence"}, verified=False, source="render-receipt-test")
     try:
