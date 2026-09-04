@@ -250,6 +250,14 @@ def test_manifest_rejects_duplicate_source_ids():
         ProductionArtifactManifest.from_snapshot(snapshot)
 
 
+def test_manifest_rejects_malformed_persisted_sequence_fields():
+    for field in ("source_artifact_ids", "evidence_digests", "receipt_digests"):
+        snapshot = copy.deepcopy(VALID)
+        snapshot[field] = "not-a-sequence"
+        with pytest.raises(ProductionArtifactError, match="list or tuple"):
+            ProductionArtifactManifest.from_snapshot(snapshot)
+
+
 def test_manifest_does_not_expose_execution_or_authorization():
     manifest = ProductionArtifactManifest.from_snapshot(VALID)
     assert not hasattr(manifest, "execute")
