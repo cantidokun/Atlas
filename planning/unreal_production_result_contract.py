@@ -64,6 +64,10 @@ class UnrealProductionResultContract:
             raise ValueError("receipt requires paired final_evidence")
         if self.final_evidence is not None and not self.final_evidence.verified:
             raise ValueError("final_evidence must be verified")
+        if not self.success and (self.final_evidence is not None or self.receipt is not None):
+            raise ValueError(
+                "unsuccessful result cannot carry render evidence or receipt"
+            )
 
         if self.final_evidence is not None:
             if self.final_evidence.operation_name != "inspect_render_job":
@@ -110,7 +114,8 @@ class UnrealProductionResultContract:
     def verified_render(self) -> bool:
         """Whether this result carries a verified render/evidence/receipt tuple."""
         return (
-            self.final_evidence is not None
+            self.success
+            and self.final_evidence is not None
             and self.receipt is not None
             and self.receipt.matches(self.final_evidence)
         )
