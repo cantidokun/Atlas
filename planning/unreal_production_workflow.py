@@ -35,9 +35,16 @@ class UnrealProductionWorkflowResult:
     @property
     def verified_render(self) -> bool:
         """Whether the render result contains a verified, internally consistent identity."""
+        if not isinstance(self.production, UnrealProductionExecutionResult):
+            return False
         if not isinstance(self.render, UnrealRenderWorkflowResult):
             return False
+        production_intent_id = self.production.production.plan.intent_id
+        if not isinstance(production_intent_id, str) or not production_intent_id.strip():
+            return False
         if not isinstance(self.render.intent_id, str) or not self.render.intent_id.strip():
+            return False
+        if self.render.intent_id != production_intent_id:
             return False
         if not isinstance(self.render.job_id, str) or not self.render.job_id.strip():
             return False
@@ -138,6 +145,14 @@ class UnrealProductionWorkflow:
             job_id,
             render_authorization_factory,
         )
+        if not isinstance(final_render, UnrealRenderWorkflowResult):
+            raise UnrealProductionWorkflowError(
+                "render workflow returned an invalid result"
+            )
+        if final_render.intent_id != intent.intent_id:
+            raise UnrealProductionWorkflowError(
+                "render result intent_id does not match the production intent_id"
+            )
 
         return UnrealProductionWorkflowResult(
             production=production_result,
