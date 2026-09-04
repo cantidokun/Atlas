@@ -1,8 +1,14 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026 — end-of-night checkpoint. Stage 17 production-artifact lineage is implemented and hardened across Blender and Unreal, with durable persistence, canonical Unreal evidence/receipt snapshot boundaries, focused regression coverage, and a disposable Unreal live-proof harness on `main`. Blender Stage 17 is user-verified against real Blender 4.4. Unreal Stage 17 provenance is implemented and regression-verified; the real UE 5.6 provenance proof remains the final human validation gate.
+**Updated:** September 4, 2026 — end-of-night checkpoint after restoration of the working Unreal 5.6 transport boundary and merge of PR #57.
 **Active branch:** `main`
 **Current stage:** Stage 17 — IN PROGRESS
+
+## Current repository state
+
+PR #57 (`Restore working Unreal render transport boundary`) has been merged into `main` as commit `3e2e78e654cab3db5f17ba9739ae5c609d82f386`. The restored branch was based on the last known working Unreal harness snapshot and reinstates the missing UE 5.6 project, render fixtures, transport server, transport headers/build module, render/world-save boundary tests, and supporting commandlets.
+
+The restored Unreal tree was compile-verified locally with UE 5.6: **19/19 build actions succeeded**. `AtlasTransportServer.cpp`, `AtlasUnrealTransport.cpp`, the render boundary source, and the world-save boundary source all compiled and linked successfully.
 
 ## Authority model
 
@@ -44,7 +50,7 @@ The user verified the real Blender 4.4 production-artifact path: real mutation, 
 
 ### Unreal Stage 17 — IMPLEMENTED / REAL UE PROOF PENDING
 
-The proven Unreal render boundary is:
+The UE 5.6 render boundary has now been restored to `main` and compile-verified locally. The working boundary includes the controlled project and render fixtures plus the Unreal transport server needed for the render path.
 
 ```text
 render configuration
@@ -75,17 +81,15 @@ verified UnrealEvidence snapshot
 
 The disposable `live_unreal_production_artifact_proof.py` harness consumes an already verified evidence/receipt pair, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports artifact/evidence/receipt/manifest digest identities. It does not submit or execute a render and does not implement Unreal job recovery.
 
-Focused regression coverage for the harness and snapshot boundaries passed on Python 3.9 and 3.11. The latest controller trust-boundary increments have **not** yet been validated by a new local test run in this session.
-
-The remaining Stage 17 gate is a human-run proof using evidence emitted by the existing proven Unreal Engine 5.6 render boundary. `docs/STAGE17_UNREAL_PROOF.md` records the exact procedure.
+The restored transport is an execution boundary only. The Python host remains the authority source for protected Unreal intent, authorization context, sequence path, and the production marker.
 
 ## Controller-to-Unreal trust boundary
 
-The current mainline host remains intentionally narrow while PR #50 stays isolated. Protected Unreal production requests now use the host-owned `TrustedUnrealContext` as the authority source for protected intent, authorization context, sequence path, and the production marker.
+The current mainline host remains intentionally narrow while PR #50 stays isolated. Protected Unreal production requests use the host-owned `TrustedUnrealContext` as the authority source for protected intent, authorization context, sequence path, and the production marker.
 
 Model-supplied protected intent cannot replace the trusted intent. Conflicting model intent is retained only as diagnostic state. Model-supplied production flags cannot disable the host-owned production marker. The integration seam rejects missing required trusted context before execution.
 
-This work adds no second authorization system, scheduler, recovery engine, or Unreal execution path.
+The restored C++ transport does not create a second authorization layer; it validates the transport contract and executes only through the existing Atlas integration boundary.
 
 ## Important Unreal boundary
 
@@ -93,13 +97,30 @@ The Unreal runtime render-job registry remains in-memory. `UnrealRenderReceiptSt
 
 Do not represent receipt persistence as job persistence.
 
+## Validation status
+
+Verified in this checkpoint:
+
+- UE 5.6 editor compilation of the restored Unreal harness: **19/19 actions succeeded**.
+- `AtlasTransportServer.cpp` compiled and linked successfully.
+- `AtlasUnrealTransport.cpp` compiled and linked successfully.
+- Unreal render/world-save boundary sources compiled successfully.
+
+Not yet verified in this checkpoint:
+
+- a new deterministic Python test run for the September 4 controller trust-boundary changes;
+- the human UE 5.6 Stage 17 provenance proof;
+- live reconstruction of the verified Unreal evidence/receipt pair into a durable production-artifact manifest.
+
+Do not represent the older deterministic test results as validation of the newest changes.
+
 ## Current next gate
 
 At the next development session:
 
 1. Pull the latest `main`.
 2. Run focused deterministic tests for the newest Unreal/controller trust-boundary changes.
-3. Run the human UE 5.6 Stage 17 provenance proof using the existing verified render evidence/receipt pair.
+3. Run the human UE 5.6 Stage 17 provenance proof using the restored render boundary.
 4. Confirm manifest persistence, reload, exact lineage, and digest identities.
 5. Then resume selective integration of the stronger historical controller-host architecture from PR #50.
 
@@ -129,6 +150,7 @@ No action-runner/workflow test should be run for the live gate unless explicitly
 - PR #55 added the disposable Unreal production-artifact proof harness.
 - PR #56 added canonical Unreal evidence/receipt snapshots.
 - Subsequent mainline commits hardened the protected Unreal controller host against model-controlled intent/production-state substitution and added deterministic regression coverage.
+- PR #57 restored the working Unreal 5.6 transport/render boundary and was merged as `3e2e78e654cab3db5f17ba9739ae5c609d82f386`.
 
 ## Historical documentation
 
