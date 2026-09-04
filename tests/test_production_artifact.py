@@ -82,6 +82,7 @@ def test_manifest_binds_verified_blender_receipt_and_persistence_evidence():
         engine_version="4.4",
     )
     assert manifest.evidence_digests == (evidence.digest(),)
+    assert manifest.receipt_digests == (receipt.digest(),)
     assert manifest.digest()
     assert manifest.snapshot()["canonical_digital_twin_id"] == "soccer-twin-001"
 
@@ -118,6 +119,25 @@ def test_manifest_fails_closed_on_digest_tampering():
     manifest.metadata["stage"] = "tampered"
     with pytest.raises(ProductionArtifactError, match="integrity check failed"):
         manifest.verify_integrity(digest)
+
+
+def test_manifest_lineage_reference_changes_when_persisted_evidence_changes():
+    receipt, evidence = _verified_blender_pair()
+    manifest = ProductionArtifactManifest.from_blender_closed_loop(
+        artifact_id="blender-goal-v003",
+        canonical_digital_twin_id="soccer-twin-001",
+        representation_type="blender-scene",
+        artifact_path="production/goal_scene.blend",
+        operation_receipt=receipt,
+        persistence_evidence=evidence,
+    )
+
+    evidence_snapshot = evidence.snapshot()
+    evidence_snapshot["observed_state_digest"] = "tampered-observed-state-digest"
+    tampered_evidence = BlenderPersistenceEvidence.from_snapshot(evidence_snapshot)
+
+    assert tampered_evidence.digest() != manifest.evidence_digests[0]
+    assert manifest.evidence_digests == (evidence.digest(),)
 
 
 def test_manifest_rejects_unknown_persisted_fields():
