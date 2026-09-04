@@ -82,6 +82,30 @@ class UnrealProductionResultContract:
             if self.job_id is not None and self.receipt.job_id != self.job_id:
                 raise ValueError("receipt job_id does not match result job_id")
 
+        if self.success and self.snapshot.state not in {"complete", "recovery_complete"}:
+            raise ValueError(
+                "successful result must have a terminal production snapshot state"
+            )
+        if self.success and (
+            self.snapshot.failure is not None
+            or self.snapshot.waiting_for_reassessment
+            or self.snapshot.waiting_for_replacement
+            or self.snapshot.required_authorizations
+        ):
+            raise ValueError(
+                "successful result cannot contain failure, pending recovery, or required authorization state"
+            )
+
+    @property
+    def completion_state(self) -> str:
+        """Return the authoritative production state carried by the snapshot."""
+        return self.snapshot.state
+
+    @property
+    def required_authorizations(self) -> tuple:
+        """Return any authorization classes still required by the production state."""
+        return self.snapshot.required_authorizations
+
     @property
     def verified_render(self) -> bool:
         """Whether this result carries a verified render/evidence/receipt tuple."""
@@ -106,7 +130,13 @@ def normalize_unreal_production_event(
         return UnrealProductionResultContract(
             operation=event.operation,
             snapshot=event.snapshot,
-            success=event.snapshot.state in {"complete", "recovery_complete"},
+            success=(
+                event.snapshot.state in {"complete", "recovery_complete"}
+                and event.snapshot.failure is None
+                and not event.snapshot.waiting_for_reassessment
+                and not event.snapshot.waiting_for_replacement
+                and not event.snapshot.required_authorizations
+            ),
         )
 
     if not isinstance(workflow_result, UnrealProductionWorkflowResult):
