@@ -77,15 +77,55 @@ class BlenderPersistenceEvidence:
             and _digest(observed_state) == self.observed_state_digest
         )
 
-    def digest(self) -> str:
-        """Return the deterministic integrity digest for this evidence record."""
-        return _digest({
+    def snapshot(self) -> dict[str, Any]:
+        """Return the complete persisted evidence contract without derived data."""
+        return {
             "operation_tool": self.operation_tool,
             "operation_arguments_digest": self.operation_arguments_digest,
             "inspection_tool": self.inspection_tool,
             "expected_state_digest": self.expected_state_digest,
             "observed_state_digest": self.observed_state_digest,
-        })
+        }
+
+    def digest(self) -> str:
+        """Return the deterministic integrity digest for this evidence record."""
+        return _digest(self.snapshot())
+
+    def verify_integrity(self, expected_digest: str | None = None) -> None:
+        """Fail closed when an expected digest does not match this evidence record."""
+        if expected_digest is not None:
+            if not isinstance(expected_digest, str) or not expected_digest.strip():
+                raise ValueError("expected_digest must be a non-empty string")
+            if self.digest() != expected_digest:
+                raise ValueError("Blender persistence evidence integrity check failed")
+
+    @classmethod
+    def from_snapshot(cls, snapshot: Any) -> "BlenderPersistenceEvidence":
+        """Reconstruct evidence and reject unknown or malformed persisted fields."""
+        if not isinstance(snapshot, dict):
+            raise ValueError("Blender persistence evidence snapshot must be a dictionary")
+        required = {
+            "operation_tool",
+            "operation_arguments_digest",
+            "inspection_tool",
+            "expected_state_digest",
+            "observed_state_digest",
+        }
+        if set(snapshot) != required:
+            raise ValueError("Blender persistence evidence fields are invalid")
+        values = {
+            "operation_tool": snapshot["operation_tool"],
+            "operation_arguments_digest": snapshot["operation_arguments_digest"],
+            "inspection_tool": snapshot["inspection_tool"],
+            "expected_state_digest": snapshot["expected_state_digest"],
+            "observed_state_digest": snapshot["observed_state_digest"],
+        }
+        for field, value in values.items():
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field} must be a non-empty string")
+        if values["expected_state_digest"] != values["observed_state_digest"]:
+            raise ValueError("Blender persistence evidence state digests must match")
+        return cls(**values)
 
 
 def verify_blender_persistence(
