@@ -22,7 +22,7 @@ Real-world soccer environment / captured soccer footage
           real-time production / VFX
 ```
 
-Atlas is designed for source footage including 4K/UHD. Higher resolution changes processing, memory, storage, reconstruction, compositing, and render throughput requirements, not the core orchestration model.
+Atlas supports source footage including 4K/UHD. Higher resolution changes processing, memory, storage, reconstruction, compositing, and render-throughput requirements; it does not change the core authority/orchestration model.
 
 ## Authority model
 
@@ -44,14 +44,12 @@ Qwen is never the execution or authorization authority.
 
 ---
 
-# Current position — September 4, 2026
+# Current position — September 4, 2026 end-of-night checkpoint
 
 **Active branch:** `main`  
 **Current development stage:** **Stage 17 — production artifact lineage, IN PROGRESS**
 
-Stage 13 multi-step partial-progress recovery is live-verified against Blender 4.4. Stage 14 dependency-aware serial execution and cross-process recovery are implemented and live-verified. Stage 15 semantic soccer-production workflows and versioned catalog compilation are complete for the current contract.
-
-Stage 16 Qwen integration is live-verified through proposal, Atlas authorization, real Blender mutation, cross-process recovery, and an advisory-only Qwen recovery recommendation.
+Stage 13 multi-step partial-progress recovery is live-verified against Blender 4.4. Stage 14 dependency-aware serial execution and cross-process recovery are implemented and live-verified. Stage 15 semantic soccer-production workflows and versioned catalog compilation are established. Stage 16 Qwen integration is live-verified through proposal, Atlas authorization, real Blender mutation, cross-process recovery, and advisory-only Qwen recovery reasoning.
 
 ## Stage 17 — Production artifact lineage
 
@@ -61,7 +59,7 @@ The manifest does not execute, authorize, schedule, or recover work. Blender and
 
 ### Blender Stage 17 — LIVE VERIFIED
 
-The existing Blender write/inspection closed loop can be associated with the production artifact manifest, durably persisted, reloaded, and independently lineage-verified without causing another Blender operation. The user has already completed the real Blender 4.4 proof.
+The real Blender 4.4 production-artifact closed loop has been user-verified: real mutation, fresh independent inspection, immutable receipt/evidence capture, durable manifest persistence, reload, and exact lineage verification.
 
 ### Unreal Stage 17 — IMPLEMENTED / REAL UE PROOF PENDING
 
@@ -81,7 +79,7 @@ render configuration
   → durable receipt persistence
 ```
 
-Stage 17 adds the provenance-only continuation:
+The Stage 17 provenance continuation is:
 
 ```text
 verified UnrealEvidence snapshot
@@ -92,13 +90,35 @@ verified UnrealEvidence snapshot
   → exact lineage verification
 ```
 
-`UnrealEvidence.snapshot()` / `from_snapshot(...)` and `UnrealRenderReceipt.snapshot()` / `from_snapshot(...)` are now the canonical detached serialization boundaries, with fail-closed exact-field validation. The receipt store preserves its separate versioned storage envelope.
+`UnrealEvidence.snapshot()` / `from_snapshot(...)` and `UnrealRenderReceipt.snapshot()` / `from_snapshot(...)` are canonical detached serialization boundaries with fail-closed validation. The receipt store retains its separate versioned storage envelope.
 
-The disposable `live_unreal_production_artifact_proof.py` harness consumes the verified receipt/evidence pair and reports artifact, evidence, receipt, and manifest digests. It does not submit or execute a render and does not implement Unreal job recovery.
+The disposable `live_unreal_production_artifact_proof.py` harness consumes an already verified Unreal evidence/receipt pair, reconstructs the immutable provenance chain, persists and reloads the manifest, independently verifies exact lineage, and reports digest identities. It does not submit or execute a render and does not implement Unreal job recovery.
 
-See `docs/STAGE17_UNREAL_PROOF.md` for the human validation procedure. The only remaining Stage 17 gate is the real UE 5.6 proof using evidence emitted by the existing proven render boundary.
+The remaining Stage 17 gate is a human-run proof using evidence emitted by the existing proven UE 5.6 render boundary. The exact procedure is documented in `docs/STAGE17_UNREAL_PROOF.md`.
 
 **Cross-process Unreal render-job recovery is not implemented.** Receipt persistence must not be described as job persistence.
+
+## Controller-to-Unreal trust boundary
+
+The current mainline `AgentControllerHost` is deliberately narrower than the historical controller-host branch that remains isolated in PR #50.
+
+For protected Unreal production requests:
+
+```text
+model response
+      ↓
+host classifier
+      ↓
+TrustedUnrealContext
+      ↓
+protected intent + production marker + authorization + sequence path
+      ↓
+Unreal production integration seam
+```
+
+Model-supplied protected intent is never promoted to authority. A conflicting model intent is retained only as diagnostic mismatch state. Model-supplied production flags cannot disable the host-owned production marker. The integration seam rejects missing required trusted context before execution.
+
+This boundary adds no second authorization, scheduler, recovery engine, or Unreal execution path.
 
 ## Digital Twin and production direction
 
@@ -112,10 +132,23 @@ These are production modules, not the definition of Atlas.
 
 - Qwen never receives direct execution or authorization authority.
 - Model output remains untrusted until Atlas validates it.
-- Never allow model-supplied authorization IDs, receipts, or protected Unreal intent to become Atlas authority.
+- Never allow model-supplied authorization IDs, receipts, protected Unreal intent, or protected production flags to become Atlas authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
 - Never declare completion from a transport/write response alone.
 - Preserve independent verification and the evidence ledger.
 - Keep engine-specific behavior behind adapter/tool boundaries.
 - Keep dependency-aware execution serial until concurrency is independently justified.
+- Preserve canonical Digital Twin identity separately from production artifacts.
+- Do not claim cross-process Unreal job recovery unless separately implemented and verified.
+- Do not run workflow/action-runner tests unless explicitly authorized.
+
+## End-of-night resume point
+
+1. Pull the latest `main`.
+2. Run the focused deterministic tests covering the latest Unreal/controller trust-boundary changes.
+3. Do not run the live Unreal proof until the Windows/UE 5.6 environment is ready for the human validation gate.
+4. Execute the existing UE 5.6 render boundary, capture its verified evidence/receipt pair, then run `live_unreal_production_artifact_proof.py` against that pair.
+5. Only after that proof succeeds, resume selective integration of the stronger historical controller-host architecture from PR #50.
+
+Historical handoff snapshots remain archival records and should not be rewritten to reflect this checkpoint.
