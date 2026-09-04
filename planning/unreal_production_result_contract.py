@@ -60,14 +60,15 @@ class UnrealProductionResultContract:
         ):
             raise TypeError("receipt must be a UnrealRenderReceipt instance")
 
-        if self.receipt is not None and self.final_evidence is None:
-            raise ValueError("receipt requires paired final_evidence")
-        if self.final_evidence is not None and not self.final_evidence.verified:
-            raise ValueError("final_evidence must be verified")
         if not self.success and (self.final_evidence is not None or self.receipt is not None):
             raise ValueError(
                 "unsuccessful result cannot carry render evidence or receipt"
             )
+
+        if self.receipt is not None and self.final_evidence is None:
+            raise ValueError("receipt requires paired final_evidence")
+        if self.final_evidence is not None and not self.final_evidence.verified:
+            raise ValueError("final_evidence must be verified")
 
         if self.final_evidence is not None:
             if self.final_evidence.operation_name != "inspect_render_job":
