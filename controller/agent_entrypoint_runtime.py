@@ -6,7 +6,7 @@ pre-authorized context, while legacy construction remains fail-closed.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_process_runtime import (
@@ -27,6 +27,13 @@ class AgentEntrypointExecution:
     @property
     def controller_executed(self) -> bool:
         return self.result is not None
+
+    @property
+    def result_contract(self) -> Any:
+        """Expose an engine-neutral result contract supplied by the capability result."""
+        if self.result is None:
+            return None
+        return getattr(self.result.value, "result_contract", None)
 
 
 class AtlasAgentEntrypointRuntime:
