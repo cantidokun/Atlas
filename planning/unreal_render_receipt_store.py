@@ -42,9 +42,7 @@ class UnrealRenderReceiptStore:
             raise TypeError("receipt must be a UnrealRenderReceipt instance")
         envelope = {
             "version": self.VERSION,
-            "job_id": receipt.job_id,
-            "sequence_asset_path": receipt.sequence_asset_path,
-            "evidence_digest": receipt.evidence_digest,
+            **receipt.snapshot(),
             "receipt_digest": receipt.receipt_digest,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -77,11 +75,7 @@ class UnrealRenderReceiptStore:
         if set(envelope) != {"version", *required}:
             raise RuntimeError("Unreal render receipt has invalid fields")
         try:
-            receipt = UnrealRenderReceipt(
-                job_id=envelope["job_id"],
-                sequence_asset_path=envelope["sequence_asset_path"],
-                evidence_digest=envelope["evidence_digest"],
-            )
+            receipt = UnrealRenderReceipt.from_snapshot(envelope)
         except (TypeError, ValueError) as exc:
             raise RuntimeError("Unreal render receipt contains invalid identity data") from exc
         if receipt.receipt_digest != envelope["receipt_digest"]:
