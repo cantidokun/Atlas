@@ -16,7 +16,7 @@ from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_render_receipt import UnrealRenderReceipt
 
 
-def _evidence(*, job_id="render-job-001", sequence_asset_path="/Game/Atlas/Sequences/Soccer"):
+def _evidence(*, job_id="render-job-001", sequence_asset_path="/Game/Atlas/Sequences/Soccer", output_path="renders/soccer-001.exr"):
     return UnrealEvidence(
         operation_name="inspect_render_job",
         entity_ids=(job_id,),
@@ -26,6 +26,7 @@ def _evidence(*, job_id="render-job-001", sequence_asset_path="/Game/Atlas/Seque
             "status": "completed",
             "success": True,
             "failed": False,
+            "output_files": [output_path],
         },
         source="unreal-inspection-adapter",
         verified=True,
@@ -73,6 +74,7 @@ def test_persisted_unreal_artifact_rejects_lineage_substitution(tmp_path: Path):
     substitute_evidence = _evidence(
         job_id="render-job-002",
         sequence_asset_path="/Game/Atlas/Sequences/Other",
+        output_path="renders/other.exr",
     )
     substitute_receipt = UnrealRenderReceipt.issue(substitute_evidence)
 
