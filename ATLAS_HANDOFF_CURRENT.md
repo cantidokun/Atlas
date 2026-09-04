@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 3, 2026 — Qwen Stage 16 runtime and cross-process recovery, including live Qwen-guided recovery recommendation binding, are live-verified; Stage 17 artifact-lineage foundation is implemented and regression-tested.
+**Updated:** September 4, 2026 — Qwen Stage 16 runtime and cross-process recovery, including live Qwen-guided recovery recommendation binding, are live-verified; Stage 17 artifact-lineage foundation is implemented and regression-tested.
 **Active branch:** `feat/blender-stage11-mainline`
 **PR #49:** open, draft, unmerged
 **Current stage:** Stage 17 — IN PROGRESS
@@ -71,7 +71,9 @@ No Qwen execution, authorization, scheduler, or recovery subsystem was introduce
 
 The Blender bridge `ProductionArtifactManifest.from_blender_closed_loop(...)` accepts only existing `BlenderExecutionReceipt` and `BlenderPersistenceEvidence` objects. It does not execute, authorize, or verify work itself.
 
-Regression coverage now proves verified Blender receipt/evidence binding, deterministic lineage, round-trip persistence, tamper detection, self-reference rejection, unknown-field rejection, and absence of execution/authorization APIs.
+Regression coverage proves verified Blender receipt/evidence binding, deterministic lineage, round-trip persistence, tamper detection, self-reference rejection, unknown-field rejection, and absence of execution/authorization APIs.
+
+A focused Blender pipeline regression now exercises the existing `BlenderExecutionBoundary.execute_with_persistence(...)` closed loop, constructs a production artifact from its immutable receipt/evidence, independently verifies the exact lineage binding, round-trips the manifest, and confirms that manifest construction does not trigger another Blender operation or inspection.
 
 ## Next verification gate
 
