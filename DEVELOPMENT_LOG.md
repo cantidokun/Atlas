@@ -122,7 +122,19 @@ The manifest is deterministic and independently digestable, supports fail-closed
 
 `tests/test_production_artifact.py` provides regression coverage. The manifest deliberately exposes no execution, authorization, scheduling, or recovery behavior.
 
-This is an architectural foundation, not a claim that the complete production asset graph is finished.
+### Stage 17 engine hardening
+
+The Blender and Unreal artifact factories now enforce their engine identity at construction time. Their lineage-verification helpers also enforce the engine identity on persisted or tampered manifests. Unreal artifact construction requires verified `inspect_render_job` evidence and requires the manifest artifact path to appear in independently observed render `output_files`.
+
+`ProductionArtifactStore` provides durable versioned manifest persistence with atomic replacement, flushed writes, fail-closed reload validation, and deterministic manifest integrity checking.
+
+### Stage 17 Unreal proof harness — IMPLEMENTED
+
+PR #55 added `live_unreal_production_artifact_proof.py`, a disposable non-authorizing harness that consumes an already verified `UnrealEvidence` snapshot plus matching `UnrealRenderReceipt`, constructs `ProductionArtifactManifest`, persists/reloads it through `ProductionArtifactStore`, independently verifies exact lineage, and prints the artifact/evidence/receipt/manifest digest identities.
+
+Focused harness regression coverage passed on Python 3.9 and 3.11 before PR #55 was merged into `main`.
+
+This is an architectural foundation, not a claim that the real Unreal production-artifact path has been live verified. The remaining human gate is to feed evidence from the existing proven UE 5.6 render workflow into the harness and confirm the persisted manifest and exact lineage against a real production artifact.
 
 ## Stage 15 — Semantic Soccer Production Tasks
 
