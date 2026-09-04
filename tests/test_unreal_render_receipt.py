@@ -74,6 +74,21 @@ def test_render_receipt_rejects_wrong_operation():
         raise AssertionError("submit evidence must not issue a render receipt")
 
 
+def test_render_receipt_rejects_incomplete_render():
+    for overrides in (
+        {"status": "running"},
+        {"status": "failed", "success": False, "failed": True},
+        {"success": False},
+        {"failed": True},
+    ):
+        try:
+            UnrealRenderReceipt.issue(_evidence(**overrides))
+        except ValueError as exc:
+            assert "completed" in str(exc) or "successful" in str(exc) or "non-failed" in str(exc)
+        else:
+            raise AssertionError("incomplete or failed render evidence must not issue a receipt")
+
+
 def test_render_receipt_detects_artifact_drift():
     original = _evidence()
     receipt = UnrealRenderReceipt.issue(original)
