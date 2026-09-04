@@ -94,6 +94,53 @@ def test_host_dispatch_binds_trusted_unreal_context(monkeypatch):
     assert result.classified.request.intent == "explicit-model-intent"
 
 
+def test_host_dispatch_without_unreal_trust_fails_closed(monkeypatch):
+    integration, captured = _synthetic_integration(monkeypatch)
+    process = AtlasAgentProcessRuntime(unreal_production=integration)
+    host = AgentControllerHost(process=process)
+
+    request = AgentTaskRequest(
+        capability="production",
+        provider="unreal",
+        context={"production": True},
+        intent="explicit-model-intent",
+    )
+
+    result = host.dispatch(request)
+
+    assert result.controller_executed is False
+    assert result.result is None
+    assert captured == {}
+
+
+def test_host_dispatch_does_not_mutate_caller_request(monkeypatch):
+    integration, captured = _synthetic_integration(monkeypatch)
+    trusted = _trusted_unreal_context()
+    host = AgentControllerHost.for_unreal_production(integration, trusted)
+
+    request = AgentTaskRequest(
+        capability="production",
+        provider="unreal",
+        context={
+            "production": True,
+            "authorized_production": "FORGED",
+            "intent": "FORGED",
+            "sequence_asset_path": "/Game/Forged",
+        },
+        intent="explicit-model-intent",
+    )
+    original_context = dict(request.context)
+
+    result = host.dispatch(request)
+
+    assert result.controller_executed is True
+    assert request.context == original_context
+    assert request.context["authorized_production"] == "FORGED"
+    assert request.context["intent"] == "FORGED"
+    assert request.context["sequence_asset_path"] == "/Game/Forged"
+    assert captured["request"].context["authorized_production"] is trusted.authorized_production
+
+
 def test_host_without_unreal_trust_fails_closed(monkeypatch):
     integration, captured = _synthetic_integration(monkeypatch)
     process = AtlasAgentProcessRuntime(unreal_production=integration)
