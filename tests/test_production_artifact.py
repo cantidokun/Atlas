@@ -5,7 +5,11 @@ import pytest
 from planning.blender_execution_receipt import BlenderExecutionReceipt
 from planning.blender_persistence_evidence import BlenderPersistenceEvidence
 from planning.blender_result_contract import BlenderExecutionResult
-from planning.production_artifact import ProductionArtifactError, ProductionArtifactManifest
+from planning.production_artifact import (
+    ProductionArtifactError,
+    ProductionArtifactManifest,
+    verify_blender_closed_loop_lineage,
+)
 
 
 VALID = {
@@ -59,6 +63,20 @@ def _verified_blender_pair():
     return receipt, evidence
 
 
+def _closed_loop_manifest(receipt, evidence):
+    return ProductionArtifactManifest.from_blender_closed_loop(
+        artifact_id="blender-goal-v002",
+        canonical_digital_twin_id="soccer-twin-001",
+        representation_type="blender-scene",
+        artifact_path="production/goal_scene.blend",
+        operation_receipt=receipt,
+        persistence_evidence=evidence,
+        workflow_provenance=VALID["workflow_provenance"],
+        source_artifact_ids=("photogrammetry-reconstruction-v004",),
+        engine_version="4.4",
+    )
+
+
 def test_manifest_binds_artifact_to_canonical_digital_twin():
     manifest = ProductionArtifactManifest.from_snapshot(VALID)
     snapshot = manifest.snapshot()
@@ -70,21 +88,44 @@ def test_manifest_binds_artifact_to_canonical_digital_twin():
 
 def test_manifest_binds_verified_blender_receipt_and_persistence_evidence():
     receipt, evidence = _verified_blender_pair()
-    manifest = ProductionArtifactManifest.from_blender_closed_loop(
-        artifact_id="blender-goal-v002",
-        canonical_digital_twin_id="soccer-twin-001",
-        representation_type="blender-scene",
-        artifact_path="production/goal_scene.blend",
-        operation_receipt=receipt,
-        persistence_evidence=evidence,
-        workflow_provenance=VALID["workflow_provenance"],
-        source_artifact_ids=("photogrammetry-reconstruction-v004",),
-        engine_version="4.4",
-    )
+    manifest = _closed_loop_manifest(receipt, evidence)
     assert manifest.evidence_digests == (evidence.digest(),)
     assert manifest.receipt_digests == (receipt.digest(),)
     assert manifest.digest()
     assert manifest.snapshot()["canonical_digital_twin_id"] == "soccer-twin-001"
+
+
+def test_closed_loop_lineage_verification_accepts_exact_records():
+    receipt, evidence = _verified_blender_pair()
+    manifest = _closed_loop_manifest(receipt, evidence)
+    verify_blender_closed_loop_lineage(manifest, receipt, evidence)
+
+
+def test_closed_loop_lineage_verification_rejects_receipt_substitution():
+    receipt, evidence = _verified_blender_pair()
+    manifest = _closed_loop_manifest(receipt, evidence)
+    replacement = BlenderExecutionReceipt.create(
+        "move_object",
+        {"file_name": "scene.blend", "object_name": "Goal_Left_post", "location": [1.0, 5.302, 0.0]},
+        BlenderExecutionResult(
+            tool="move_object",
+            ok=True,
+            state="moved",
+            details={"object_name": "Goal_Left_post", "location": [1.0, 5.302, 0.0]},
+        ),
+    )
+    with pytest.raises(ProductionArtifactError, match="receipt lineage does not match"):
+        verify_blender_closed_loop_lineage(manifest, replacement, evidence)
+
+
+def test_closed_loop_lineage_verification_rejects_evidence_substitution():
+    receipt, evidence = _verified_blender_pair()
+    manifest = _closed_loop_manifest(receipt, evidence)
+    evidence_snapshot = evidence.snapshot()
+    evidence_snapshot["operation_arguments_digest"] = "substituted-operation-arguments-digest"
+    replacement = BlenderPersistenceEvidence.from_snapshot(evidence_snapshot)
+    with pytest.raises(ProductionArtifactError, match="evidence lineage does not match"):
+        verify_blender_closed_loop_lineage(manifest, receipt, replacement)
 
 
 def test_manifest_rejects_unverified_blender_inputs():
