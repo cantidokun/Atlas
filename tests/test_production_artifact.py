@@ -124,14 +124,6 @@ def test_closed_loop_lineage_verification_accepts_exact_records():
 
 def test_closed_loop_lineage_verification_rejects_invalid_engine_binding():
     receipt, evidence = _verified_blender_pair()
-    manifest = ProductionArtifactManifest(
-        artifact_id="blender-goal-v002",
-        canonical_digital_twin_id="soccer-twin-001",
-        representation_type="blender-scene",
-        artifact_path="production/goal_scene.blend",
-        operation_receipt=None,
-        engine="Unreal",
-    ) if False else None
     valid = _closed_loop_manifest(receipt, evidence)
     invalid = ProductionArtifactManifest(
         artifact_id=valid.artifact_id,
