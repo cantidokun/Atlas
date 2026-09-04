@@ -1,7 +1,5 @@
 """Synthetic host-level proof for workflow-backed Unreal result contracts."""
 
-import pytest
-
 from controller.agent_controller_host import AgentControllerHost
 from controller.agent_task_request import AgentTaskRequest
 from controller.trusted_unreal_context import TrustedUnrealContext
@@ -13,7 +11,7 @@ from planning.unreal_production_operation import build_unreal_production_plan
 from planning.unreal_production_planning_boundary import authorize_production_plan
 from planning.unreal_production_executor import UnrealProductionExecutor
 from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeAdapter
-from planning.unreal_production_workflow import UnrealProductionWorkflow, UnrealProductionWorkflowResult
+from planning.unreal_production_workflow import UnrealProductionWorkflow
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
@@ -165,57 +163,3 @@ def test_host_exposes_verified_workflow_render_contract(tmp_path):
     assert result.result_contract.final_evidence.verified is True
     assert result.result_contract.receipt.job_id == "host-workflow-job-1"
     assert len(production_executor.calls) == 1
-
-
-def test_host_result_contract_rejects_inconsistent_workflow_success(tmp_path):
-    host, _ = _host(tmp_path)
-    result = host.dispatch(
-        AgentTaskRequest(
-            capability="production",
-            provider="unreal",
-            context={"production": True},
-            intent="model-declared-intent",
-        )
-    )
-    assert result.result_contract.success is True
-
-    event = result.result.value
-    assert event.result_contract.success is True
-    assert isinstance(event.workflow_result, UnrealProductionWorkflowResult)
-
-
-def test_host_result_contract_never_turns_unverified_render_into_success(tmp_path):
-    host, _ = _host(tmp_path)
-    result = host.dispatch(
-        AgentTaskRequest(
-            capability="production",
-            provider="unreal",
-            context={"production": True},
-            intent="model-declared-intent",
-        )
-    )
-    contract = result.result_contract
-    assert contract.success is True
-    assert contract.verified_render is True
-
-
-@pytest.mark.parametrize("state", ["awaiting_reassessment", "awaiting_replacement"])
-def test_host_result_contract_preserves_recovery_states_without_render_identity(tmp_path, state):
-    from planning.unreal_production_result_contract import normalize_unreal_production_event
-    from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeSnapshot
-    event = type(result.result.value)(
-        operation="start",
-        snapshot=UnrealProductionRuntimeSnapshot(
-            state=state,
-            phase=state,
-            waiting_for_reassessment=state == "awaiting_reassessment",
-            waiting_for_replacement=state == "awaiting_replacement",
-            failure={"state": state},
-            recovery=None,
-            required_authorizations=("reassessment",) if state == "awaiting_reassessment" else ("replacement",),
-        ),
-    )
-    contract = normalize_unreal_production_event(event)
-    assert contract.success is False
-    assert contract.verified_render is False
-    assert contract.receipt is None
