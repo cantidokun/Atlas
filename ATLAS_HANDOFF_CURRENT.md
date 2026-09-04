@@ -1,6 +1,6 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026 — Stage 17 production artifact lineage is implemented and hardened across Blender and Unreal, with durable persistence and focused integration regression coverage. Blender Stage 17 remains user-verified against real Blender 4.4; Unreal Stage 17 has the offline provenance/persistence contract in place, while live production-artifact proof remains the next human validation gate.
+**Updated:** September 4, 2026 — Stage 17 production artifact lineage is implemented and hardened across Blender and Unreal, with durable persistence, focused integration regression coverage, and a disposable Unreal live-proof harness on mainline. Blender Stage 17 remains user-verified against real Blender 4.4; Unreal Stage 17 provenance is now executable from already-verified render evidence, while the real UE 5.6 proof remains the final human validation gate.
 **Active branch:** `main`
 **Current stage:** Stage 17 — IN PROGRESS
 
@@ -49,11 +49,9 @@ ATLAS LIVE BLENDER PRODUCTION ARTIFACT PROOF: PASS
 REAL BLENDER WRITE -> FRESH SCENE INSPECTION -> IMMUTABLE RECEIPT/EVIDENCE -> DURABLE MANIFEST -> RELOAD -> EXACT LINEAGE VERIFIED
 ```
 
-The proven live path establishes real Blender mutation, fresh independent scene inspection, immutable receipt/evidence capture, durable manifest persistence, reload integrity, and exact provenance binding.
+### Unreal Stage 17 — IMPLEMENTED / REAL UE PROOF PENDING
 
-### Unreal Stage 17 — IMPLEMENTED / HUMAN LIVE PROOF PENDING
-
-The existing Unreal render boundary already produces verified `inspect_render_job` evidence and an evidence-bound immutable `UnrealRenderReceipt` for semantically completed successful renders. `ProductionArtifactManifest.from_unreal_render_receipt(...)` now requires:
+The existing Unreal render boundary already produces verified `inspect_render_job` evidence and an evidence-bound immutable `UnrealRenderReceipt` for semantically completed successful renders. `ProductionArtifactManifest.from_unreal_render_receipt(...)` requires:
 
 - `engine == "Unreal"`;
 - evidence operation `inspect_render_job`;
@@ -61,11 +59,15 @@ The existing Unreal render boundary already produces verified `inspect_render_jo
 - receipt/evidence identity to match exactly;
 - the manifest artifact path to appear in independently observed `output_files`.
 
-`verify_unreal_render_lineage(...)` re-checks those same bindings without executing Unreal, authorizing work, scheduling, or recovering a render job. `ProductionArtifactStore` provides durable versioned manifest persistence with atomic replacement, flushing, and fail-closed reload validation.
+`verify_unreal_render_lineage(...)` re-checks those bindings without executing Unreal, authorizing work, scheduling, or recovering a render job. `ProductionArtifactStore` provides durable versioned manifest persistence with atomic replacement, flushing, and fail-closed reload validation.
 
-Focused integration coverage exercises Unreal receipt → manifest → durable store → reload → exact lineage verification and rejects evidence, receipt, engine, output-path, and persisted-envelope substitutions. This remains an offline contract gate; no claim of live Unreal production-artifact manifest proof is made yet.
+PR #55 adds `live_unreal_production_artifact_proof.py`. The harness consumes an already verified Unreal evidence snapshot plus matching render receipt, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports the resulting digest identities. It does not submit or execute a render and does not introduce a second Unreal execution path.
 
-The previously proven real Unreal Engine 5.6 render path remains intact:
+Focused regression coverage for the harness passed on Python 3.9 and 3.11 before PR #55 was merged into `main`.
+
+The remaining gate is a human-run proof using evidence emitted by the existing proven Unreal Engine 5.6 render boundary. No new render implementation is required.
+
+### Proven Unreal render boundary
 
 ```text
 render configuration
@@ -79,15 +81,16 @@ render configuration
   → verified evidence
   → UnrealRenderReceipt
   → durable receipt persistence
+  → Stage 17 ProductionArtifactManifest proof harness
 ```
 
-Cross-process Unreal render-job recovery remains unimplemented and must not be implied by receipt persistence or by Stage 17 provenance.
+Cross-process Unreal render-job recovery remains unimplemented and must not be implied by receipt persistence or Stage 17 provenance.
 
 ## Current next gate
 
-The next substantive Stage 17 milestone is a disposable, human-run Unreal proof equivalent to the Blender proof: consume an already verified real Unreal render receipt/evidence pair, construct the production artifact manifest, persist and reload it through `ProductionArtifactStore`, independently verify exact lineage, and report the resulting digest identities. The proof must remain non-authorizing and must not add a second Unreal execution path.
+Run the disposable human Unreal proof against a real completed UE 5.6 render using the existing verified receipt/evidence output. The proof must construct and reload the production-artifact manifest, verify exact lineage, and preserve the non-authorizing boundary.
 
-No action-runner test should be run for this gate unless explicitly authorized. The human live Unreal validation should use the existing proven Unreal render boundary rather than inventing a parallel transport or runtime.
+No action-runner test should be run for this gate unless explicitly authorized.
 
 ## Non-regression rules
 
@@ -109,3 +112,4 @@ No action-runner test should be run for this gate unless explicitly authorized. 
 - PR #52 restored and locked engine-specific production-artifact factory binding after the PR #49 merge-resolution regression.
 - PR #54 hardened Unreal artifact lineage to require verified `inspect_render_job` evidence.
 - PR #53 hardened Blender lineage verification to enforce `engine == "Blender"` symmetrically with Unreal.
+- PR #55 added the disposable Unreal production-artifact proof harness and focused regression coverage.
