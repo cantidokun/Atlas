@@ -1,12 +1,11 @@
 # OpenHands Transition Guide
 
-This guide records the planned transition to an OpenHands-assisted Atlas development workflow. It is now aligned with the September 3, 2026 Atlas architecture.
+This guide records the planned transition to an OpenHands-assisted Atlas development workflow and is aligned with the September 4, 2026 end-of-night architecture checkpoint.
 
 ## Current Atlas position
 
-**Active branch:** `feat/blender-stage11-mainline`  
-**PR #49:** open, draft, unmerged  
-**Current development stage:** Stage 16 — Qwen proposal integration into Atlas-owned authorization/runtime boundary.
+**Active branch:** `main`  
+**Current development stage:** Stage 17 — production-artifact lineage, IN PROGRESS.
 
 The current control model is:
 
@@ -28,26 +27,57 @@ Qwen must never receive direct execution or authorization authority.
 
 ## Current proven architecture
 
-Atlas has live-proven generic autonomous execution, partial-progress recovery, dependency-aware serial recovery, semantic soccer-production tasks, and a versioned soccer-production catalog.
+Atlas has live-proven autonomous execution/recovery foundations, dependency-aware serial recovery, semantic soccer-production tasks, Qwen proposal/authorization/recovery integration, and production-artifact lineage.
 
-The current Stage 16 Qwen chain is:
+Stage 17 currently provides:
 
 ```text
-Qwen
-  -> Ollama structured output
-  -> provider validation
-  -> trusted soccer-production catalog
-  -> QwenProductionProposal
-  -> ProductionTaskDefinition
-  -> AtlasTaskDefinition
-  -> QwenProductionTaskHandoff
-  -> existing Atlas ActionAuthorization
-  -> existing AutonomousTaskRuntime
-  -> controlled Blender execution
-  -> fresh independent verification
+canonical Atlas Digital Twin
+    ↓
+production representation
+    ↓
+independent evidence
+    ↓
+engine receipt
+    ↓
+ProductionArtifactManifest
+    ↓
+durable persistence
+    ↓
+exact lineage verification
 ```
 
-The local proposal-only Qwen smoke test has been user-verified. The first full Qwen-authorized Blender mutation harness is implemented but has not yet been user-verified.
+Blender Stage 17 is live verified against Blender 4.4. Unreal Stage 17 provenance is implemented and regression-verified, while the final human gate is a disposable proof using evidence emitted by the already proven Unreal Engine 5.6 render boundary.
+
+## Unreal boundary
+
+The proven Unreal path is:
+
+```text
+render configuration
+  -> verification
+  -> Movie Render Queue submission
+  -> dynamic job ID
+  -> asynchronous inspection
+  -> semantic completion verification
+  -> actual artifact discovery
+  -> filesystem validation
+  -> verified inspect_render_job evidence
+  -> UnrealRenderReceipt
+  -> durable receipt persistence
+```
+
+Stage 17 continues from that verified evidence/receipt pair into the provenance manifest. The proof harness does not submit or execute a render and does not implement Unreal job recovery.
+
+Cross-process Unreal render-job recovery is not implemented. Durable receipt persistence must not be described as job persistence.
+
+## Controller-to-Unreal trust boundary
+
+The current mainline controller host is intentionally narrow while the historical stronger controller-host architecture remains isolated in PR #50 because that branch diverged substantially from current `main`.
+
+Protected Unreal requests use `TrustedUnrealContext` as the authority source for protected intent, authorization context, sequence path, and production state. Model-supplied protected intent and production flags cannot replace or disable host-owned trusted values. The controller-to-Unreal integration seam independently rejects incomplete trusted context before execution.
+
+No second authorization system, scheduler, recovery engine, or Unreal execution path is introduced.
 
 ## Repository boundaries
 
@@ -69,6 +99,8 @@ Atlas owns the canonical Digital Twin. Photogrammetry remains upstream reconstru
 10. Increase autonomy progressively and only after deterministic validation.
 11. Do not give Qwen, OpenHands, or an external model direct production authority merely for convenience.
 12. Do not introduce a second execution engine, authorization system, scheduler, or recovery system when an existing Atlas path already exists.
+13. Do not force-merge heavily diverged historical branches into current `main` merely to recover architecture; selectively transplant validated invariants instead.
+14. Preserve the distinction between live-proven behavior, regression-verified behavior, and pending human validation.
 
 ## C++ interoperability
 
@@ -117,7 +149,7 @@ git status
 git branch --show-current
 ```
 
-Inspect `ATLAS_HANDOFF_CURRENT.md`, `README.md`, `docs/ATLAS_ARCHITECTURE_CONTRACT.md`, and the relevant engine handoff before major work.
+Inspect `ATLAS_HANDOFF_CURRENT.md`, `README.md`, `docs/ATLAS_ARCHITECTURE_CONTRACT.md`, and `UNREAL_AGENT_HANDOFF_CURRENT.md` before major work.
 
 After work:
 
@@ -145,44 +177,25 @@ Diagnose/fix
   ↓
 Retest
   ↓
-Update handoffs/readmes
+Update current handoffs/readmes
   ↓
 Commit
 ```
 
 The next established Atlas milestone is not chosen by the model alone. It must remain consistent with the authoritative handoff and architecture contract.
 
-## Current Stage 16 rule
+## Current end-of-night resume point
 
-Until the full Qwen-authorized Blender runtime proof is live-verified:
+The next session should begin from `main` and preserve this order:
 
-- keep Qwen proposal-only at the model boundary;
-- do not let model output create an authorization receipt directly;
-- use `QwenProductionTaskHandoff` for provenance/integrity checking;
-- reuse the existing Atlas `ActionAuthorization` mechanism;
-- reuse the existing `AutonomousTaskRuntime`;
-- do not introduce Qwen-specific execution or recovery logic;
-- do not automatically retry failed writes;
-- require fresh independent verification after writes.
+1. Pull the latest `main`.
+2. Run focused deterministic tests covering the September 4 Unreal/controller trust-boundary increments.
+3. Run the human UE 5.6 Stage 17 provenance proof using the existing verified render evidence/receipt pair.
+4. Run `live_unreal_production_artifact_proof.py` against that detached evidence/receipt pair.
+5. Confirm manifest persistence, reload, exact lineage, and digest identities.
+6. Resume selective integration of validated pieces from PR #50 only after the Stage 17 gate.
 
-After the runtime proof succeeds, extend the same boundary into the already-proven Atlas recovery/replan machinery.
-
-## Unreal boundary
-
-The Unreal Engine 5.6 render/artifact/verification/receipt path remains proven locally. Cross-process Unreal render-job recovery is not implemented. Durable receipt persistence must not be described as job persistence.
-
-## Transition checklist
-
-- [ ] Confirm the actual Atlas checkout path.
-- [ ] Confirm branch and working-tree state.
-- [ ] Read current Atlas and Unreal handoffs.
-- [ ] Verify OpenHands in a disposable workspace before granting Atlas access.
-- [ ] Preserve Docker/WSL isolation.
-- [ ] Start with read-only Atlas inspection.
-- [ ] Add build/test access before engine control.
-- [ ] Use controlled host bridges for operations that cannot safely run inside the OpenHands environment.
-- [ ] Keep Blender and Unreal repository boundaries explicit.
-- [ ] Increase autonomy only after reliability is demonstrated.
+Do not run workflow/action-runner tests for the live gate unless explicitly authorized.
 
 ## Important principles
 
@@ -202,6 +215,12 @@ Autonomy increases only as reliability is proven.
 
 Greater agent autonomy does not mean unrestricted Windows-machine access.
 
+### Preserve evidence status honestly
+
+Never present an older test result as validation of newer commits. Clearly distinguish implementation, regression verification, live verification, and pending human validation.
+
 ## Reference note
 
 Installation commands for OpenHands, Docker, WSL, and related tooling may change. Verify current official instructions when the transition actually begins. The Atlas architectural boundaries in this document are the durable requirements.
+
+Historical dated handoff snapshots are archival records and should not be rewritten.
