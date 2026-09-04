@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Union
 
 from planning.unreal_render_receipt import UnrealRenderReceipt
 
@@ -16,7 +16,7 @@ class UnrealRenderReceiptStore:
 
     VERSION = 1
 
-    def __init__(self, path: str | os.PathLike[str]):
+    def __init__(self, path: Union[str, os.PathLike]):
         self.path = Path(path)
 
     def save(self, receipt: UnrealRenderReceipt) -> Dict[str, str]:
