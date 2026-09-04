@@ -37,6 +37,26 @@ def _load_object(path: Path) -> Dict[str, Any]:
     return payload
 
 
+def _load_evidence(path: Path) -> UnrealEvidence:
+    payload = _load_object(path)
+    return UnrealEvidence(
+        operation_name=payload.get("operation_name"),
+        entity_ids=payload.get("entity_ids"),
+        observed_state=payload.get("observed_state"),
+        source=payload.get("source"),
+        verified=payload.get("verified"),
+    )
+
+
+def _load_receipt(path: Path) -> UnrealRenderReceipt:
+    payload = _load_object(path)
+    return UnrealRenderReceipt(
+        job_id=payload.get("job_id"),
+        sequence_asset_path=payload.get("sequence_asset_path"),
+        evidence_digest=payload.get("evidence_digest"),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", required=True, type=Path, help="JSON snapshot of verified UnrealEvidence")
@@ -49,8 +69,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("unreal-production-artifact-proof.json"))
     args = parser.parse_args()
 
-    evidence = UnrealEvidence.from_snapshot(_load_object(args.evidence))
-    receipt = UnrealRenderReceipt.from_snapshot(_load_object(args.receipt))
+    evidence = _load_evidence(args.evidence)
+    receipt = _load_receipt(args.receipt)
     manifest = ProductionArtifactManifest.from_unreal_render_receipt(
         artifact_id=args.artifact_id,
         canonical_digital_twin_id=args.canonical_digital_twin_id,
