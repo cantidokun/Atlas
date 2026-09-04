@@ -19,6 +19,24 @@ class UnrealRenderReceiptStore:
     def __init__(self, path: Union[str, os.PathLike]):
         self.path = Path(path)
 
+    def _flush_parent_directory(self) -> None:
+        """Persist the directory entry where the receipt replacement occurred.
+
+        POSIX filesystems expose directory fsync for the rename durability
+        boundary. Windows does not provide a portable directory-fsync API, so
+        the flushed replacement file is the durability boundary there.
+        """
+        if os.name == "nt":
+            return
+        try:
+            fd = os.open(str(self.path.parent), os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
     def save(self, receipt: UnrealRenderReceipt) -> Dict[str, str]:
         if not isinstance(receipt, UnrealRenderReceipt):
             raise TypeError("receipt must be a UnrealRenderReceipt instance")
@@ -37,6 +55,7 @@ class UnrealRenderReceiptStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_name, self.path)
+            self._flush_parent_directory()
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
@@ -75,3 +94,4 @@ class UnrealRenderReceiptStore:
     def delete(self) -> None:
         if self.path.exists():
             self.path.unlink()
+            self._flush_parent_directory()
