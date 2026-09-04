@@ -112,6 +112,29 @@ class UnrealProductionResultContract:
         return self.snapshot.required_authorizations
 
     @property
+    def failed(self) -> bool:
+        """Whether the normalized production state carries a failure."""
+        return self.snapshot.failure is not None
+
+    @property
+    def requires_recovery(self) -> bool:
+        """Whether the result is waiting on an explicit recovery action."""
+        return (
+            self.snapshot.waiting_for_reassessment
+            or self.snapshot.waiting_for_replacement
+        )
+
+    @property
+    def failure(self):
+        """Return the controller-reported failure payload without reinterpretation."""
+        return self.snapshot.failure
+
+    @property
+    def recovery(self):
+        """Return the controller-reported recovery payload without reinterpretation."""
+        return self.snapshot.recovery
+
+    @property
     def verified_render(self) -> bool:
         """Whether this result carries a verified render/evidence/receipt tuple."""
         return (
