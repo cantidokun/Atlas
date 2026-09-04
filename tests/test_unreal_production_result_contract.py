@@ -12,15 +12,22 @@ from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeSn
 from planning.unreal_render_receipt import UnrealRenderReceipt
 
 
-def _snapshot(state: str = "complete") -> UnrealProductionRuntimeSnapshot:
+def _snapshot(
+    state: str = "complete",
+    *,
+    failure=None,
+    waiting_for_reassessment: bool = False,
+    waiting_for_replacement: bool = False,
+    required_authorizations: tuple = (),
+) -> UnrealProductionRuntimeSnapshot:
     return UnrealProductionRuntimeSnapshot(
         state=state,
         phase=state,
-        waiting_for_reassessment=False,
-        waiting_for_replacement=False,
-        failure=None,
+        waiting_for_reassessment=waiting_for_reassessment,
+        waiting_for_replacement=waiting_for_replacement,
+        failure=failure,
         recovery=None,
-        required_authorizations=(),
+        required_authorizations=required_authorizations,
     )
 
 
@@ -51,9 +58,80 @@ def test_non_workflow_complete_event_has_successful_unverified_render_contract()
     result = normalize_unreal_production_event(event)
 
     assert result.success is True
+    assert result.completion_state == "complete"
+    assert result.required_authorizations == ()
     assert result.verified_render is False
     assert result.final_evidence is None
     assert result.receipt is None
+
+
+def test_non_workflow_reassessment_state_remains_unsuccessful_and_exposes_required_authorization():
+    event = UnrealProductionControllerEvent(
+        operation="start",
+        snapshot=_snapshot(
+            "awaiting_reassessment",
+            failure={"phase": "production"},
+            waiting_for_reassessment=True,
+            required_authorizations=("reassessment",),
+        ),
+    )
+
+    result = normalize_unreal_production_event(event)
+
+    assert result.success is False
+    assert result.completion_state == "awaiting_reassessment"
+    assert result.required_authorizations == ("reassessment",)
+    assert result.verified_render is False
+
+
+def test_non_workflow_replacement_state_remains_unsuccessful_and_exposes_required_authorization():
+    event = UnrealProductionControllerEvent(
+        operation="reassess",
+        snapshot=_snapshot(
+            "awaiting_replacement",
+            failure={"phase": "recovery"},
+            waiting_for_replacement=True,
+            required_authorizations=("replacement",),
+        ),
+    )
+
+    result = normalize_unreal_production_event(event)
+
+    assert result.success is False
+    assert result.completion_state == "awaiting_replacement"
+    assert result.required_authorizations == ("replacement",)
+    assert result.verified_render is False
+
+
+def test_result_contract_rejects_success_for_non_terminal_snapshot():
+    with pytest.raises(
+        ValueError,
+        match="successful result must have a terminal production snapshot state",
+    ):
+        UnrealProductionResultContract(
+            operation="start",
+            snapshot=_snapshot(
+                "awaiting_reassessment",
+                waiting_for_reassessment=True,
+                required_authorizations=("reassessment",),
+            ),
+            success=True,
+        )
+
+
+def test_result_contract_rejects_success_with_pending_or_failure_state():
+    with pytest.raises(
+        ValueError,
+        match="successful result cannot contain failure, pending recovery, or required authorization state",
+    ):
+        UnrealProductionResultContract(
+            operation="start",
+            snapshot=_snapshot(
+                "complete",
+                failure={"phase": "production"},
+            ),
+            success=True,
+        )
 
 
 def test_result_contract_rejects_receipt_without_paired_evidence():
