@@ -59,6 +59,7 @@ render configuration
   → semantic completion verification
   → actual output artifact discovery
   → filesystem validation
+  → verify_render_job_evidence
   → verified inspect_render_job evidence
   → evidence-bound UnrealRenderReceipt
   → durable receipt persistence
@@ -130,7 +131,7 @@ Previously verified:
 Still pending:
 
 - fresh execution of the restored UE 5.6 render path;
-- the human UE 5.6 Stage 17 provenance proof using that fresh verified evidence/receipt pair (`live_unreal_production_artifact_proof.py`).
+- the human UE 5.6 Stage 17 provenance proof using that fresh verified evidence/receipt pair produced via `verify_render_job_evidence(...)` (`live_unreal_production_artifact_proof.py`).
 
 ## Resume point
 
