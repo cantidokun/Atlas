@@ -88,3 +88,25 @@ The authoritative verification function is `verify_render_job_evidence` in `plan
 It validates semantic completion (`status in ('completed', 'finished')`, `finished == True`, `success == True`, `failed == False`), canonical job/sequence identity, non-empty `output_files`, and physical existence, accessibility, and non-zero byte size of every output artifact on the local filesystem. Only when all checks pass is `UnrealEvidence` constructed with `verified=True`. No caller or test manually asserts `verified=True`.
 
 No second Unreal execution path should be introduced for this gate.
+
+## Stage 17 Live Proof State-Consistency Defect and Pending Status
+
+During initial execution of the Stage 17 live proof, an authoritative rejection occurred on poll 3:
+```text
+status=rendering finished=True progress=0
+```
+The authoritative verifier `verify_render_job_evidence()` correctly rejected this inconsistent state because `finished=True` cannot coexist with `status=rendering`.
+
+Investigation of `AtlasTransportServer.cpp` identified:
+1. `OnIndividualJobStarted` / `OnIndividualJobWorkFinished` lacked `InJob` identity filtering, causing start callbacks from subsequent jobs in the persistent MRQ queue to mutate and regress the active job state.
+2. `InspectRenderJob` previously released `RenderJobRegistryMutex` before serializing the JSON response, permitting torn snapshot reads.
+3. Multiple uncoordinated completion callbacks mutated terminal state independently.
+
+A focused C++ state-machine fix was implemented in `AtlasTransportServer.cpp`:
+- Filtering individual callbacks by `InJob == Job` identity.
+- Barring terminal jobs from regressing back to `rendering` or `submitted`.
+- Introducing an authoritative atomic `FinalizeRenderJobState` path under `RenderJobRegistryMutex` that enforces fail-closed semantics (requiring non-empty `output_files` for terminal success).
+- Holding `RenderJobRegistryMutex` across the entire snapshot construction in `InspectRenderJob`.
+
+The live proof execution remains **PENDING** human UE 5.6 editor re-run once the updated transport plugin binary is loaded.
+

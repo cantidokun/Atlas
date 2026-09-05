@@ -1307,7 +1307,7 @@ bool FAtlasTransportServer::SubmitRender(
     JobState->Executor=Executor;
     JobState->Job=Job;
     Executor->OnIndividualJobStarted().AddLambda(
-        [JobId](UMoviePipelineExecutorJob* InJob)
+        [JobId, Job](UMoviePipelineExecutorJob* InJob)
         {
             FScopeLock Lock(&FAtlasTransportServer::RenderJobRegistryMutex);
 
@@ -1316,6 +1316,18 @@ bool FAtlasTransportServer::SubmitRender(
 
             if(Found && Found->IsValid())
             {
+                // Invariant A: Ignore callbacks if InJob is not this specific job
+                if(InJob != Job)
+                {
+                    return;
+                }
+
+                // Invariant A: A terminal job must never regress to rendering/submitted
+                if((*Found)->bFinished)
+                {
+                    return;
+                }
+
                 (*Found)->Status=TEXT("rendering");
                 (*Found)->StatusMessage=TEXT("Render job started");
                 (*Found)->Progress=0.0;
@@ -1323,7 +1335,7 @@ bool FAtlasTransportServer::SubmitRender(
         });
 
     Executor->OnIndividualJobWorkFinished().AddLambda(
-        [JobId](FMoviePipelineOutputData InOutputData)
+        [JobId, Job](FMoviePipelineOutputData InOutputData)
         {
             FScopeLock Lock(&FAtlasTransportServer::RenderJobRegistryMutex);
 
@@ -1332,15 +1344,14 @@ bool FAtlasTransportServer::SubmitRender(
 
             if(Found && Found->IsValid())
             {
-                (*Found)->Status=TEXT("finished");
-                (*Found)->StatusMessage=TEXT("Render job finished");
-                (*Found)->Progress=1.0;
-                (*Found)->bFinished=true;
-                (*Found)->bSuccess=InOutputData.bSuccess;
-                (*Found)->bFailed=!InOutputData.bSuccess;
+                // Invariant A: Ignore callbacks if InJob is not this specific job
+                if(InOutputData.Job != Job)
+                {
+                    return;
+                }
 
-                if(InOutputData.bSuccess &&
-                   InOutputData.ShotData.Num()>0)
+                TArray<FString> DiscoveredFiles;
+                if(InOutputData.bSuccess && InOutputData.ShotData.Num()>0)
                 {
                     for(const TPair<
                         FMoviePipelinePassIdentifier,
@@ -1349,13 +1360,20 @@ bool FAtlasTransportServer::SubmitRender(
                     {
                         for(const FString& FilePath : PassData.Value.FilePaths)
                         {
-                            if(!FilePath.TrimStartAndEnd().IsEmpty())
+                            const FString Trimmed = FilePath.TrimStartAndEnd();
+                            if(!Trimmed.IsEmpty())
                             {
-                                (*Found)->OutputFiles.AddUnique(FilePath);
+                                DiscoveredFiles.AddUnique(Trimmed);
                             }
                         }
                     }
                 }
+
+                FinalizeRenderJobState(
+                    *Found,
+                    InOutputData.bSuccess,
+                    DiscoveredFiles,
+                    TEXT("Individual job work finished"));
             }
         });
 
@@ -1369,16 +1387,13 @@ bool FAtlasTransportServer::SubmitRender(
 
             if(Found && Found->IsValid())
             {
-                (*Found)->bFinished=true;
-                (*Found)->bSuccess=bSuccess;
-                (*Found)->bFailed=!bSuccess;
-                (*Found)->Progress=1.0;
-                (*Found)->Status=
-                    bSuccess ? TEXT("finished") : TEXT("failed");
-                (*Found)->StatusMessage=
-                    bSuccess
-                        ? TEXT("Render executor finished successfully")
-                        : TEXT("Render executor finished with failure");
+                // Invariant B: If already finalized, later callbacks are no-ops.
+                // If not yet finalized, finalize now using whatever output files were accumulated.
+                FinalizeRenderJobState(
+                    *Found,
+                    bSuccess,
+                    (*Found)->OutputFiles,
+                    TEXT("Executor finished"));
             }
         });
 
@@ -1447,35 +1462,66 @@ bool FAtlasTransportServer::InspectRenderJob(
         return false;
     }
 
-    TSharedPtr<FRenderJobState> JobState;
+    FScopeLock Lock(&RenderJobRegistryMutex);
 
+    const TSharedPtr<FRenderJobState>* Found=
+        RenderJobRegistry.Find(JobId);
+
+    if(!Found || !Found->IsValid())
     {
-        FScopeLock Lock(&RenderJobRegistryMutex);
+        E=FString::Printf(
+            TEXT("Render job not found: %s"),
+            *JobId);
+        return false;
+    }
 
-        const TSharedPtr<FRenderJobState>* Found=
-            RenderJobRegistry.Find(JobId);
+    const TSharedPtr<FRenderJobState>& JobState=*Found;
 
-        if(!Found || !Found->IsValid())
+    // Invariant C & D: Coherent snapshot validation under mutex
+    FString StatusToExpose = JobState->Status;
+    double ProgressToExpose = JobState->Progress;
+    bool bFinishedToExpose = JobState->bFinished;
+    bool bSuccessToExpose = JobState->bSuccess;
+    bool bFailedToExpose = JobState->bFailed;
+
+    if (bFinishedToExpose)
+    {
+        // Terminal invariant: finished=true MUST have finished/failed status and progress=1.0
+        if (StatusToExpose != TEXT("finished") && StatusToExpose != TEXT("failed"))
         {
-            E=FString::Printf(
-                TEXT("Render job not found: %s"),
-                *JobId);
-            return false;
+            StatusToExpose = bSuccessToExpose ? TEXT("finished") : TEXT("failed");
         }
+        ProgressToExpose = 1.0;
 
-        JobState=*Found;
+        // Fail-closed: successful job must have output files
+        if (bSuccessToExpose && JobState->OutputFiles.Num() == 0)
+        {
+            bSuccessToExpose = false;
+            bFailedToExpose = true;
+            StatusToExpose = TEXT("failed");
+        }
+    }
+    else
+    {
+        // Non-terminal invariant: finished=false cannot claim finished/failed or terminal success/failure
+        if (StatusToExpose == TEXT("finished") || StatusToExpose == TEXT("failed"))
+        {
+            StatusToExpose = TEXT("rendering");
+        }
+        bSuccessToExpose = false;
+        bFailedToExpose = false;
     }
 
     TSharedPtr<FJsonObject> RenderJob=
         MakeShareable(new FJsonObject);
 
     RenderJob->SetStringField(TEXT("job_id"),JobState->JobId);
-    RenderJob->SetStringField(TEXT("status"),JobState->Status);
+    RenderJob->SetStringField(TEXT("status"),StatusToExpose);
     RenderJob->SetStringField(TEXT("status_message"),JobState->StatusMessage);
-    RenderJob->SetNumberField(TEXT("progress"),JobState->Progress);
-    RenderJob->SetBoolField(TEXT("success"),JobState->bSuccess);
-    RenderJob->SetBoolField(TEXT("finished"),JobState->bFinished);
-    RenderJob->SetBoolField(TEXT("failed"),JobState->bFailed);
+    RenderJob->SetNumberField(TEXT("progress"),ProgressToExpose);
+    RenderJob->SetBoolField(TEXT("success"),bSuccessToExpose);
+    RenderJob->SetBoolField(TEXT("finished"),bFinishedToExpose);
+    RenderJob->SetBoolField(TEXT("failed"),bFailedToExpose);
     RenderJob->SetStringField(TEXT("sequence_asset_path"),JobState->SequenceAssetPath);
     RenderJob->SetStringField(TEXT("output_directory"),JobState->OutputDirectory);
     RenderJob->SetStringField(TEXT("output_format"),JobState->OutputFormat);
@@ -1490,6 +1536,64 @@ bool FAtlasTransportServer::InspectRenderJob(
 
     O=RenderJob;
     return true;
+}
+void FAtlasTransportServer::FinalizeRenderJobState(
+    const TSharedPtr<FRenderJobState>& JobState,
+    bool bReportedSuccess,
+    const TArray<FString>& DiscoveredFiles,
+    const FString& FailureReason)
+{
+    if(!JobState || !JobState.IsValid())
+    {
+        return;
+    }
+
+    // Invariant B: Once a job is finalized, later callbacks are no-ops
+    if(JobState->bFinished)
+    {
+        return;
+    }
+
+    // Merge discovered files
+    for(const FString& FilePath : DiscoveredFiles)
+    {
+        const FString Trimmed = FilePath.TrimStartAndEnd();
+        if(!Trimmed.IsEmpty())
+        {
+            JobState->OutputFiles.AddUnique(Trimmed);
+        }
+    }
+
+    // Invariant B & D: Fail closed. Successful completion requires non-empty output_files.
+    const bool bHasOutputFiles = JobState->OutputFiles.Num() > 0;
+    const bool bIsEffectiveSuccess = bReportedSuccess && bHasOutputFiles;
+
+    JobState->bFinished = true;
+    JobState->Progress = 1.0;
+
+    if(bIsEffectiveSuccess)
+    {
+        JobState->bSuccess = true;
+        JobState->bFailed = false;
+        JobState->Status = TEXT("finished");
+        JobState->StatusMessage = TEXT("Render completed successfully");
+    }
+    else
+    {
+        JobState->bSuccess = false;
+        JobState->bFailed = true;
+        JobState->Status = TEXT("failed");
+        if(!bReportedSuccess)
+        {
+            JobState->StatusMessage = FString::Printf(
+                TEXT("Render failed: %s"),
+                FailureReason.IsEmpty() ? TEXT("MRQ execution error") : *FailureReason);
+        }
+        else
+        {
+            JobState->StatusMessage = TEXT("Render failed: reported success but produced no output files");
+        }
+    }
 }
 AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
 {
