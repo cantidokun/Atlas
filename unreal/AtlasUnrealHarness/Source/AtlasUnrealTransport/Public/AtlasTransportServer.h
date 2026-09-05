@@ -11,10 +11,22 @@ class UMoviePipelineExecutorBase;
 class UMoviePipelineExecutorJob;
 
 class FAtlasUE56RenderJobBoundaryTest;
+class FAtlasUE56SessionIdentityPurityTest;
+class FAtlasUE56SubmitRenderDuplicateSuppressionTest;
+class FAtlasUE56SubmitRenderConflictRejectionTest;
+class FAtlasUE56WitnessJournalAcceptedBeforeDispatchTest;
+class FAtlasUE56WitnessJournalFinishedWithHashAttestationTest;
+class FAtlasUE56ReconcileCatalogReportingTest;
 
 class FAtlasTransportServer : public FRunnable
 {
     friend class FAtlasUE56RenderJobBoundaryTest;
+    friend class FAtlasUE56SessionIdentityPurityTest;
+    friend class FAtlasUE56SubmitRenderDuplicateSuppressionTest;
+    friend class FAtlasUE56SubmitRenderConflictRejectionTest;
+    friend class FAtlasUE56WitnessJournalAcceptedBeforeDispatchTest;
+    friend class FAtlasUE56WitnessJournalFinishedWithHashAttestationTest;
+    friend class FAtlasUE56ReconcileCatalogReportingTest;
 public:
     FAtlasTransportServer();
     virtual ~FAtlasTransportServer();
@@ -31,19 +43,57 @@ private:
     FRunnableThread* Thread;
     FThreadSafeBool bStopRequested;
     void* PipeHandle;
-    struct FTransportRequest { FString RequestId; FString OperationName; FString Capability; FString Kind; TSharedPtr<FJsonObject> Arguments; TArray<FString> EntityIds; FString AuthorizationId; };
-    struct FTransportResponse { FString RequestId; FString OperationName; TArray<FString> EntityIds; bool bSuccess; TSharedPtr<FJsonObject> ObservedState; FString Error; FString Source; };
+
+    // Process incarnation identity
+    FGuid EditorSessionId;
+    uint32 ProcessId;
+    FString ProcessCreationTimeUtc;
+    FString ServerStartTimeUtc;
+    FString EngineVersion;
+    FString ProjectIdentity;
+
+    struct FTransportRequest {
+        FString RequestId;
+        FString OperationName;
+        FString Capability;
+        FString Kind;
+        TSharedPtr<FJsonObject> Arguments;
+        TArray<FString> EntityIds;
+        FString AuthorizationId;
+        int32 SchemaVersion;
+    };
+    struct FTransportResponse {
+        FString RequestId;
+        FString OperationName;
+        TArray<FString> EntityIds;
+        bool bSuccess;
+        TSharedPtr<FJsonObject> ObservedState;
+        FString Error;
+        FString Source;
+        int32 SchemaVersion;
+        FString ErrorCode;
+    };
+    struct FOutputManifestEntry
+    {
+        FString Path;
+        int64 Size;
+        FString Sha256;
+    };
     struct FRenderJobState
     {
         FString JobId;
-        FString OperationName;
+        FString AtlasJobId;
+        FString AuthorizationId;
         FString SequenceAssetPath;
+        FString ConfigDigest;
+        FString OperationName;
         FString Status;
         FString StatusMessage;
         double Progress;
         FString OutputDirectory;
         FString OutputFormat;
         TArray<FString> OutputFiles;
+        TArray<FOutputManifestEntry> OutputManifest;
         bool bSuccess;
         bool bFinished;
         bool bFailed;
@@ -86,6 +136,8 @@ private:
     static bool ConfigureRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool SubmitRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool InspectRenderJob(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool ReconcileRenderJobs(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
+    static bool GetCapabilities(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool BuildBlueprintState(const FString& AssetPath,TSharedPtr<FJsonObject>& OutBlueprintState,FString& OutError);
     static void FinalizeRenderJobState(
         const TSharedPtr<FRenderJobState>& JobState,
@@ -93,6 +145,22 @@ private:
         const TArray<FString>& DiscoveredFiles,
         const FString& FailureReason = FString());
     static AActor* FindActorByEntityId(const FString& EntityId);
+
+    // Witness Journal & Manifest helpers
+    static FString GetJournalDirectory();
+    static bool AtomicWriteFile(const FString& TargetFilePath, const FString& FileContents, FString& OutError);
+    static bool WriteJournalEntry(
+        const FString& AtlasJobId,
+        const FString& UnrealJobId,
+        const FString& Phase,
+        const TSharedPtr<FRenderJobState>& JobState,
+        FString& OutError);
+    static bool ComputeFileSha256(const FString& FilePath, FString& OutSha256, int64& OutFileSize);
+    static void CollectSessionIdentity(TSharedPtr<FJsonObject>& OutSessionObject);
+
     static FCriticalSection RenderJobRegistryMutex;
     static TMap<FString,TSharedPtr<FRenderJobState>> RenderJobRegistry;
+
+    // Active server instance pointer for static handlers
+    static FAtlasTransportServer* ActiveInstance;
 };

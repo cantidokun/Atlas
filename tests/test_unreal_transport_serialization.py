@@ -50,6 +50,16 @@ def _valid_response_dict(**overrides):
         observed_state={"location": [100, 200, 300]},
         error="",
         source="unreal-editor-5.6",
+        schema_version=1,
+        error_code="",
+        session_identity={
+            "editor_session_id": "sess-test-001",
+            "process_id": 1234,
+            "process_creation_time_utc": "2026-09-05T20:00:00Z",
+            "server_start_time_utc": "2026-09-05T20:00:01Z",
+            "engine_version": "5.6",
+            "project_identity": "AtlasUnrealHarness",
+        },
     )
     defaults.update(overrides)
     return defaults
@@ -303,6 +313,9 @@ class TestResponseRoundTrip:
                 "observed_state": dict(resp.observed_state),
                 "error": resp.error,
                 "source": resp.source,
+                "schema_version": resp.schema_version,
+                "error_code": resp.error_code,
+                "session_identity": dict(resp.session_identity),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -315,6 +328,9 @@ class TestResponseRoundTrip:
         assert resp2.observed_state == resp.observed_state
         assert resp2.error == resp.error
         assert resp2.source == resp.source
+        assert resp2.schema_version == resp.schema_version
+        assert resp2.error_code == resp.error_code
+        assert resp2.session_identity == resp.session_identity
 
 
 # ── Verified field never injected ────────────────────────────────────────

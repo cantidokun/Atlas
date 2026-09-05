@@ -15,6 +15,16 @@ except ImportError:
     NAMED_PIPE_AVAILABLE = False
 
 
+REQUIRED_RECOVERY_CAPABILITIES = frozenset({
+    "atlas_job_id",
+    "session_identity",
+    "durable_journal",
+    "journal_schema_v1",
+    "output_manifest_hashes",
+    "reconcile_render_jobs",
+})
+
+
 class UnrealTransport(Protocol):
     def send(self, request: UnrealTransportRequest) -> UnrealTransportResponse: ...
 
@@ -23,6 +33,8 @@ class UnrealExecutor(Protocol):
     def inspect(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence: ...
     def apply_authorized(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence: ...
     def verify(self, operation: UnrealOperation, authorization_id: str) -> UnrealEvidence: ...
+    def query_capabilities(self, authorization_id: str) -> frozenset[str]: ...
+    def assert_recovery_capable(self, authorization_id: str) -> None: ...
 
 
 class UnrealAdapterError(RuntimeError):
@@ -81,6 +93,41 @@ class UnrealAdapterProduction:
             transport_operation=UnrealOperation(capability=capability,kind=UnrealOperationKind.READ,name=name,arguments=arguments,entity_ids=tuple(operation.entity_ids))
             return self._execute(transport_operation,authorization_id,evidence_operation_name=operation.name)
         return self._execute(operation,authorization_id)
+
+    def query_capabilities(self, authorization_id: str) -> frozenset[str]:
+        """Query declared engine capabilities via get_capabilities operation."""
+        request = UnrealTransportRequest(
+            request_id=self._new_request_id(),
+            operation_name="get_capabilities",
+            capability="server",
+            kind="inspect",
+            arguments={},
+            entity_ids=("UNREAL_SERVER",),
+            authorization_id=authorization_id.strip(),
+            schema_version=1,
+        )
+        try:
+            response = self._transport.send(request)
+        except NamedPipeTransportError as exc:
+            raise UnrealAdapterError(f"Capability query transport failed: {exc}") from exc
+
+        validate_response_correlation(request, response)
+        if not response.success:
+            raise UnrealAdapterError(f"get_capabilities failed: {response.error} (code={response.error_code})")
+
+        caps = response.observed_state.get("capabilities", [])
+        if not isinstance(caps, (list, tuple)):
+            raise UnrealAdapterError("get_capabilities response missing valid 'capabilities' list")
+        return frozenset(caps)
+
+    def assert_recovery_capable(self, authorization_id: str) -> None:
+        """Fail-closed assertion that engine declares all Contract V1 recovery capabilities."""
+        available = self.query_capabilities(authorization_id)
+        missing = REQUIRED_RECOVERY_CAPABILITIES - available
+        if missing:
+            raise UnrealAdapterError(
+                f"Unreal engine binary lacks required recovery capabilities: {sorted(missing)}"
+            )
 
 
 def create_production_adapter(source_tag="atlas-adapter-production"):

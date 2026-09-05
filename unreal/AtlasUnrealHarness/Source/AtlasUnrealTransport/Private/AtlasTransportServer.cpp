@@ -34,6 +34,7 @@
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include <windows.h>
+#include <bcrypt.h>
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -41,10 +42,12 @@ const FString FAtlasTransportServer::PipeName = TEXT("\\\\.\\pipe\\AtlasUnrealTr
 
 FCriticalSection FAtlasTransportServer::RenderJobRegistryMutex;
 TMap<FString,TSharedPtr<FAtlasTransportServer::FRenderJobState>> FAtlasTransportServer::RenderJobRegistry;
+FAtlasTransportServer* FAtlasTransportServer::ActiveInstance = nullptr;
 const int32 FAtlasTransportServer::MaxMessageSize = 1024 * 1024;
 
 namespace
 {
+    FString S_ErrorCode;
     const FString MaterialVariantTagPrefix = TEXT("atlas_material_variant:");
     const FString NiagaraVariantTagPrefix = TEXT("atlas_niagara_variant:");
     const FString HeterogeneousNiagaraFailureAuthorization = TEXT("real-heterogeneous-recovery-failure-auth");
@@ -102,19 +105,48 @@ namespace
     }
 }
 
-FAtlasTransportServer::FAtlasTransportServer() : Thread(nullptr), bStopRequested(false), PipeHandle(nullptr) {}
+FAtlasTransportServer::FAtlasTransportServer() : Thread(nullptr), bStopRequested(false), PipeHandle(nullptr), ProcessId(0) {}
 FAtlasTransportServer::~FAtlasTransportServer() { StopServer(); }
 
 bool FAtlasTransportServer::StartServer()
 {
     if (Thread) { UE_LOG(LogAtlasTransport, Warning, TEXT("Transport server already running")); return false; }
     bStopRequested = false;
+
+    // Initialize process incarnation identity
+    EditorSessionId = FGuid::NewGuid();
+    ProcessId = FPlatformProcess::GetCurrentProcessId();
+    ServerStartTimeUtc = FDateTime::UtcNow().ToIso8601();
+    EngineVersion = TEXT("5.6");
+    ProjectIdentity = FPaths::GetProjectFilePath();
+
+    // Acquire true OS creation timestamp on Windows
+    ProcessCreationTimeUtc = ServerStartTimeUtc;
+#if PLATFORM_WINDOWS
+    HANDLE hProcess = GetCurrentProcess();
+    FILETIME ftCreation, ftExit, ftKernel, ftUser;
+    if (GetProcessTimes(hProcess, &ftCreation, &ftExit, &ftKernel, &ftUser))
+    {
+        SYSTEMTIME stUTC;
+        if (FileTimeToSystemTime(&ftCreation, &stUTC))
+        {
+            FDateTime CreationDateTime(stUTC.wYear, stUTC.wMonth, stUTC.wDay, stUTC.wHour, stUTC.wMinute, stUTC.wSecond, stUTC.wMilliseconds);
+            ProcessCreationTimeUtc = CreationDateTime.ToIso8601();
+        }
+    }
+#endif
+
+    ActiveInstance = this;
     Thread = FRunnableThread::Create(this, TEXT("AtlasTransportServer"), 0, TPri_Normal);
     return Thread != nullptr;
 }
 
 void FAtlasTransportServer::StopServer()
 {
+    if (ActiveInstance == this)
+    {
+        ActiveInstance = nullptr;
+    }
     if (Thread)
     {
         bStopRequested = true;
@@ -156,6 +188,15 @@ uint32 FAtlasTransportServer::Run()
                     FTransportResponse ErrorResponse;
                     ErrorResponse.RequestId = Request.RequestId; ErrorResponse.OperationName = Request.OperationName; ErrorResponse.EntityIds = Request.EntityIds;
                     ErrorResponse.bSuccess = false; ErrorResponse.Error = ValidationError; ErrorResponse.Source = TEXT("unreal-editor-atlas-transport");
+                    ErrorResponse.SchemaVersion = 1;
+                    if (Request.SchemaVersion != 1)
+                    {
+                        ErrorResponse.ErrorCode = TEXT("ERR_UNSUPPORTED_SCHEMA_VERSION");
+                    }
+                    else
+                    {
+                        ErrorResponse.ErrorCode = TEXT("ERR_MISSING_ARGUMENT");
+                    }
                     WriteResponse(SerializeResponse(ErrorResponse));
                 }
             }
@@ -234,6 +275,18 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
     if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid()) return false;
     if (!JsonObject->TryGetStringField(TEXT("request_id"), OutRequest.RequestId) || !JsonObject->TryGetStringField(TEXT("operation_name"), OutRequest.OperationName) || !JsonObject->TryGetStringField(TEXT("capability"), OutRequest.Capability) || !JsonObject->TryGetStringField(TEXT("kind"), OutRequest.Kind) || !JsonObject->TryGetStringField(TEXT("authorization_id"), OutRequest.AuthorizationId)) return false;
     if (!JsonObject->TryGetStringArrayField(TEXT("entity_ids"), OutRequest.EntityIds)) return false;
+
+    // Parse schema_version (defaults to 0 if not present, enforcing fail-closed on unversioned requests)
+    int32 SchemaVer = 0;
+    if (JsonObject->TryGetNumberField(TEXT("schema_version"), SchemaVer))
+    {
+        OutRequest.SchemaVersion = SchemaVer;
+    }
+    else
+    {
+        OutRequest.SchemaVersion = 0;
+    }
+
     const TSharedPtr<FJsonObject>* ArgumentsObject; if (JsonObject->TryGetObjectField(TEXT("arguments"), ArgumentsObject)) OutRequest.Arguments = *ArgumentsObject;
     return true;
 }
@@ -241,7 +294,18 @@ bool FAtlasTransportServer::ParseRequest(const FString& JsonString, FTransportRe
 FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Response)
 {
     TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
-    JsonObject->SetStringField(TEXT("request_id"), Response.RequestId); JsonObject->SetStringField(TEXT("operation_name"), Response.OperationName); JsonObject->SetBoolField(TEXT("success"), Response.bSuccess); JsonObject->SetStringField(TEXT("error"), Response.Error); JsonObject->SetStringField(TEXT("source"), Response.Source);
+    JsonObject->SetStringField(TEXT("request_id"), Response.RequestId);
+    JsonObject->SetStringField(TEXT("operation_name"), Response.OperationName);
+    JsonObject->SetBoolField(TEXT("success"), Response.bSuccess);
+    JsonObject->SetStringField(TEXT("error"), Response.Error);
+    JsonObject->SetStringField(TEXT("source"), Response.Source);
+    JsonObject->SetNumberField(TEXT("schema_version"), Response.SchemaVersion > 0 ? Response.SchemaVersion : 1);
+    JsonObject->SetStringField(TEXT("error_code"), Response.ErrorCode);
+
+    TSharedPtr<FJsonObject> SessionObject = MakeShareable(new FJsonObject);
+    CollectSessionIdentity(SessionObject);
+    JsonObject->SetObjectField(TEXT("session_identity"), SessionObject);
+
     TArray<TSharedPtr<FJsonValue>> EntityIdsArray; for (const FString& EntityId : Response.EntityIds) EntityIdsArray.Add(MakeShareable(new FJsonValueString(EntityId))); JsonObject->SetArrayField(TEXT("entity_ids"), EntityIdsArray);
     if (Response.ObservedState.IsValid()) JsonObject->SetObjectField(TEXT("observed_state"), Response.ObservedState); else JsonObject->SetObjectField(TEXT("observed_state"), MakeShareable(new FJsonObject));
     FString OutputString; TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString); FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer); return OutputString;
@@ -249,12 +313,20 @@ FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Respo
 
 bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FString& OutError)
 {
+    if (Request.SchemaVersion != 1)
+    {
+        OutError = FString::Printf(TEXT("Unsupported schema_version: %d (expected 1)"), Request.SchemaVersion);
+        return false;
+    }
     if (Request.RequestId.IsEmpty()) { OutError = TEXT("request_id cannot be empty"); return false; }
     if (Request.AuthorizationId.IsEmpty() || Request.AuthorizationId.TrimStartAndEnd().IsEmpty()) { OutError = TEXT("authorization_id cannot be empty"); return false; }
     const bool bIsWorldInspection =
         Request.OperationName == TEXT("inspect_world");
 
-    if (!bIsWorldInspection)
+    const bool bIsServerCapability =
+        Request.OperationName == TEXT("get_capabilities");
+
+    if (!bIsWorldInspection && !bIsServerCapability)
     {
         if (Request.EntityIds.Num() == 0)
         {
@@ -317,6 +389,16 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
             return false;
         }
 
+        return true;
+    }
+
+    if (Request.OperationName == TEXT("get_capabilities"))
+    {
+        if (Request.Capability != TEXT("server") || Request.Kind != TEXT("inspect"))
+        {
+            OutError = TEXT("get_capabilities requires server/inspect");
+            return false;
+        }
         return true;
     }
 
@@ -470,6 +552,16 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
         return true;
     }
 
+    if (Request.OperationName == TEXT("reconcile_render_jobs"))
+    {
+        if (Request.Capability != TEXT("render") || Request.Kind != TEXT("read"))
+        {
+            OutError = TEXT("reconcile_render_jobs requires render/read");
+            return false;
+        }
+        return true;
+    }
+
     if (Request.OperationName == TEXT("verify_render_state"))
     {
         if (Request.Capability != TEXT("render") || Request.Kind != TEXT("verify")) { OutError = TEXT("verify_render_state requires render/verify"); return false; }
@@ -503,13 +595,17 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
 bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTransportResponse& OutResponse)
 {
     OutResponse.RequestId=Request.RequestId; OutResponse.OperationName=Request.OperationName; OutResponse.EntityIds=Request.EntityIds; OutResponse.Source=TEXT("unreal-editor-atlas-transport");
-    const bool bSupported = Request.OperationName==TEXT("inspect_world")||Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata")||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("submit_render")||Request.OperationName==TEXT("inspect_render_job")||Request.OperationName==TEXT("verify_render_state");
-    if (!bSupported) { OutResponse.bSuccess=false; OutResponse.Error=FString::Printf(TEXT("Unsupported operation: %s"),*Request.OperationName); return false; }
+    OutResponse.SchemaVersion=1;
+    OutResponse.ErrorCode=TEXT("");
+
+    const bool bSupported = Request.OperationName==TEXT("inspect_world")||Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata")||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("submit_render")||Request.OperationName==TEXT("inspect_render_job")||Request.OperationName==TEXT("verify_render_state")||Request.OperationName==TEXT("get_capabilities")||Request.OperationName==TEXT("reconcile_render_jobs");
+    if (!bSupported) { OutResponse.bSuccess=false; OutResponse.Error=FString::Printf(TEXT("Unsupported operation: %s"),*Request.OperationName); OutResponse.ErrorCode=TEXT("ERR_UNKNOWN_OPERATION"); return false; }
     TSharedPtr<FGameThreadExecutionState> SharedState=MakeShareable(new FGameThreadExecutionState()); SharedState->Request=Request; SharedState->Response.RequestId=Request.RequestId; SharedState->Response.OperationName=Request.OperationName; SharedState->Response.EntityIds=Request.EntityIds; SharedState->Response.Source=TEXT("unreal-editor-atlas-transport");
+    SharedState->Response.SchemaVersion=1;
     AsyncTask(ENamedThreads::GameThread,[SharedState](){FAtlasTransportServer::ExecuteOnGameThread(SharedState);});
     const bool bEventTriggered=SharedState->CompletionEvent->Wait(5000);
-    if (bStopRequested) { SharedState->bCancelled=true; OutResponse.bSuccess=false; OutResponse.Error=TEXT("Operation cancelled during shutdown"); return false; }
-    if (!bEventTriggered) { SharedState->bCancelled=true; OutResponse.bSuccess=false; OutResponse.Error=TEXT("Operation timed out"); return false; }
+    if (bStopRequested) { SharedState->bCancelled=true; OutResponse.bSuccess=false; OutResponse.Error=TEXT("Operation cancelled during shutdown"); OutResponse.ErrorCode=TEXT("ERR_OPERATION_CANCELLED"); return false; }
+    if (!bEventTriggered) { SharedState->bCancelled=true; OutResponse.bSuccess=false; OutResponse.Error=TEXT("Operation timed out"); OutResponse.ErrorCode=TEXT("ERR_OPERATION_TIMED_OUT"); return false; }
     OutResponse=SharedState->Response; return SharedState->bSuccess;
 }
 
@@ -519,6 +615,7 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     if (!IsInGameThread()) { S->Response.bSuccess=false; S->Response.Error=TEXT("ExecuteOnGameThread must be called on game thread"); S->bSuccess=false; S->bCompleted=true; S->CompletionEvent->Trigger(); return; }
     if (!GEngine || IsEngineExitRequested()) { S->Response.bSuccess=false; S->Response.Error=TEXT("Engine shutting down"); S->bSuccess=false; S->bCompleted=true; S->CompletionEvent->Trigger(); return; }
     bool bTaskSuccess=false;
+    S_ErrorCode.Empty();
     if(S->Request.OperationName==TEXT("inspect_world")) bTaskSuccess=InspectWorld(S->ObservedState,S->Error);
 
     else if(S->Request.OperationName==TEXT("inspect_target_actors")) bTaskSuccess=InspectTargetActors(S->Request.EntityIds,S->ObservedState,S->Error);
@@ -541,8 +638,27 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     else if(S->Request.OperationName==TEXT("verify_render_state")) bTaskSuccess=InspectRenderState(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("set_sequencer_playback_range")) bTaskSuccess=SetSequencerPlaybackRange(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("verify_sequencer_playback_range")) bTaskSuccess=InspectSequencerState(S->Request.EntityIds,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("get_capabilities")) bTaskSuccess=GetCapabilities(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("reconcile_render_jobs")) bTaskSuccess=ReconcileRenderJobs(S->Request,S->ObservedState,S->Error);
     else S->Error=FString::Printf(TEXT("Unsupported operation: %s"),*S->Request.OperationName);
-    if(bTaskSuccess&&S->Error.IsEmpty()){S->Response.bSuccess=true;S->Response.ObservedState=S->ObservedState;S->bSuccess=true;}else{S->Response.bSuccess=false;S->Response.Error=S->Error.IsEmpty()?TEXT("Unknown error during Unreal operation"):S->Error;S->bSuccess=false;}
+    if(bTaskSuccess&&S->Error.IsEmpty()){
+        S->Response.bSuccess=true;
+        S->Response.ObservedState=S->ObservedState;
+        S->Response.ErrorCode=TEXT("");
+        S->bSuccess=true;
+    }else{
+        S->Response.bSuccess=false;
+        S->Response.Error=S->Error.IsEmpty()?TEXT("Unknown error during Unreal operation"):S->Error;
+        if(!S_ErrorCode.IsEmpty())
+        {
+            S->Response.ErrorCode=S_ErrorCode;
+        }
+        else if(S->Response.ErrorCode.IsEmpty())
+        {
+            S->Response.ErrorCode=TEXT("ERR_OPERATION_FAILED");
+        }
+        S->bSuccess=false;
+    }
     S->bCompleted=true; S->CompletionEvent->Trigger();
 }
 
@@ -1170,12 +1286,80 @@ bool FAtlasTransportServer::SubmitRender(
         return false;
     }
 
+    FString AtlasJobId;
+    if(!R.Arguments->TryGetStringField(TEXT("atlas_job_id"), AtlasJobId) || AtlasJobId.TrimStartAndEnd().IsEmpty())
+    {
+        // Backward-compatibility: if atlas_job_id is missing, generate one
+        AtlasJobId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+    }
+    else
+    {
+        AtlasJobId = AtlasJobId.TrimStartAndEnd();
+    }
+
     FString SequenceAssetPath;
     if(!R.Arguments->TryGetStringField(TEXT("sequence_asset_path"),SequenceAssetPath) ||
        SequenceAssetPath.TrimStartAndEnd().IsEmpty())
     {
         E=TEXT("submit_render requires arguments.sequence_asset_path");
         return false;
+    }
+
+    FString RequestedOutputDir;
+    R.Arguments->TryGetStringField(TEXT("output_directory"), RequestedOutputDir);
+    RequestedOutputDir = RequestedOutputDir.TrimStartAndEnd();
+
+    FString ConfigDigest;
+    R.Arguments->TryGetStringField(TEXT("config_digest"), ConfigDigest);
+    ConfigDigest = ConfigDigest.TrimStartAndEnd();
+
+    // -------------------------------------------------------------------------
+    // Atomic Check-and-Insert under RenderJobRegistryMutex
+    // -------------------------------------------------------------------------
+    {
+        FScopeLock Lock(&RenderJobRegistryMutex);
+
+        // Check in-memory registry
+        for(const auto& Kvp : RenderJobRegistry)
+        {
+            const TSharedPtr<FRenderJobState>& Existing = Kvp.Value;
+            if(Existing.IsValid() && Existing->AtlasJobId == AtlasJobId)
+            {
+                // Verify immutable submission identity
+                const bool bSequenceMatches = Existing->SequenceAssetPath == SequenceAssetPath;
+                const bool bAuthMatches = Existing->AuthorizationId.IsEmpty() || R.AuthorizationId.IsEmpty() || Existing->AuthorizationId == R.AuthorizationId;
+                const bool bDirMatches = RequestedOutputDir.IsEmpty() || Existing->OutputDirectory == RequestedOutputDir;
+                const bool bDigestMatches = ConfigDigest.IsEmpty() || Existing->ConfigDigest.IsEmpty() || Existing->ConfigDigest == ConfigDigest;
+
+                if (bSequenceMatches && bAuthMatches && bDirMatches && bDigestMatches)
+                {
+                    // Idempotent duplicate: return existing state without allocating second MRQ job
+                    TSharedPtr<FJsonObject> RenderJob = MakeShareable(new FJsonObject);
+                    RenderJob->SetStringField(TEXT("job_id"), Existing->JobId);
+                    RenderJob->SetStringField(TEXT("atlas_job_id"), Existing->AtlasJobId);
+                    RenderJob->SetStringField(TEXT("status"), Existing->Status);
+                    RenderJob->SetNumberField(TEXT("progress"), Existing->Progress);
+                    RenderJob->SetStringField(TEXT("status_message"), Existing->StatusMessage);
+                    RenderJob->SetStringField(TEXT("sequence_asset_path"), Existing->SequenceAssetPath);
+
+                    TSharedPtr<FJsonObject> Entry = MakeShareable(new FJsonObject);
+                    Entry->SetStringField(TEXT("entity_id"), R.EntityIds[0]);
+                    Entry->SetObjectField(TEXT("render_job"), RenderJob);
+
+                    TSharedPtr<FJsonObject> State = MakeShareable(new FJsonObject);
+                    State->SetObjectField(R.EntityIds[0], Entry);
+                    O = State;
+                    return true;
+                }
+                else
+                {
+                    // Conflicting reuse of existing atlas_job_id
+                    E = FString::Printf(TEXT("Conflicting reuse of existing atlas_job_id: %s"), *AtlasJobId);
+                    S_ErrorCode = TEXT("ERR_JOB_ID_CONFLICT");
+                    return false;
+                }
+            }
+        }
     }
 
     ULevelSequence* Sequence=
@@ -1245,32 +1429,34 @@ bool FAtlasTransportServer::SubmitRender(
         return false;
     }
 
-    Job->SetConfiguration(AtlasConfig);
+    // Output isolation: duplicate AtlasConfig to transient memory so shared asset is never mutated
+    UMoviePipelinePrimaryConfig* TransientConfig =
+        DuplicateObject<UMoviePipelinePrimaryConfig>(AtlasConfig, GetTransientPackage());
 
-    if(const UMoviePipelinePrimaryConfig* EffectiveConfig = Job->GetConfiguration())
+    if(!TransientConfig)
     {
-        if(const UMoviePipelineOutputSetting* EffectiveSetting =
-            Cast<UMoviePipelineOutputSetting>(
-                EffectiveConfig->FindSettingByClass(
-                    UMoviePipelineOutputSetting::StaticClass(),
-                    false,
-                    true)))
-        {
-            UE_LOG(
-                LogAtlasTransport,
-                Warning,
-                TEXT("ATLAS MRQ EFFECTIVE CONFIG: %dx%d frames=%d-%d output=%s"),
-                EffectiveSetting->OutputResolution.X,
-                EffectiveSetting->OutputResolution.Y,
-                EffectiveSetting->bUseCustomPlaybackRange
-                    ? EffectiveSetting->CustomStartFrame
-                    : 0,
-                EffectiveSetting->bUseCustomPlaybackRange
-                    ? EffectiveSetting->CustomEndFrame
-                    : 0,
-                *EffectiveSetting->OutputDirectory.Path);
-        }
+        Queue->DeleteJob(Job);
+        E=TEXT("Failed to create transient duplicate of render configuration");
+        return false;
     }
+
+    FString EffectiveOutputDir;
+    if (UMoviePipelineOutputSetting* OutputSetting =
+            GetAtlasRenderOutputSetting(TransientConfig, E))
+    {
+        if(!RequestedOutputDir.IsEmpty())
+        {
+            OutputSetting->OutputDirectory.Path = RequestedOutputDir;
+        }
+        EffectiveOutputDir = OutputSetting->OutputDirectory.Path;
+    }
+    else
+    {
+        Queue->DeleteJob(Job);
+        return false;
+    }
+
+    Job->SetConfiguration(TransientConfig);
 
     const FString JobId=
         FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
@@ -1279,6 +1465,10 @@ bool FAtlasTransportServer::SubmitRender(
         MakeShareable(new FRenderJobState());
 
     JobState->JobId=JobId;
+    JobState->AtlasJobId=AtlasJobId;
+    JobState->AuthorizationId=R.AuthorizationId;
+    JobState->SequenceAssetPath=SequenceAssetPath;
+    JobState->ConfigDigest=ConfigDigest;
     JobState->OperationName=R.OperationName;
     JobState->Status=TEXT("submitted");
     JobState->StatusMessage=TEXT("Render submitted");
@@ -1286,13 +1476,17 @@ bool FAtlasTransportServer::SubmitRender(
     JobState->bSuccess=false;
     JobState->bFinished=false;
     JobState->bFailed=false;
-    JobState->SequenceAssetPath=SequenceAssetPath;
+    JobState->OutputDirectory=EffectiveOutputDir;
+    JobState->OutputFormat=TEXT("png");
 
-    if (UMoviePipelineOutputSetting* OutputSetting =
-            GetAtlasRenderOutputSetting(AtlasConfig, E))
+    // Invariant: Durably write ACCEPTED witness journal entry BEFORE executor dispatch
+    FString JournalError;
+    if(!WriteJournalEntry(AtlasJobId, JobId, TEXT("ACCEPTED"), JobState, JournalError))
     {
-        JobState->OutputDirectory = OutputSetting->OutputDirectory.Path;
-        JobState->OutputFormat = TEXT("png");
+        Queue->DeleteJob(Job);
+        E=FString::Printf(TEXT("Failed to persist ACCEPTED witness journal entry: %s"), *JournalError);
+        S_ErrorCode = TEXT("ERR_JOURNAL_WRITE_FAILED");
+        return false;
     }
 
     UMoviePipelinePIEExecutor* Executor=
@@ -1331,6 +1525,10 @@ bool FAtlasTransportServer::SubmitRender(
                 (*Found)->Status=TEXT("rendering");
                 (*Found)->StatusMessage=TEXT("Render job started");
                 (*Found)->Progress=0.0;
+
+                // Durably update journal phase to STARTED
+                FString JournalError;
+                WriteJournalEntry((*Found)->AtlasJobId, (*Found)->JobId, TEXT("STARTED"), *Found, JournalError);
             }
         });
 
@@ -1418,6 +1616,7 @@ bool FAtlasTransportServer::SubmitRender(
         MakeShareable(new FJsonObject);
 
     RenderJob->SetStringField(TEXT("job_id"),JobId);
+    RenderJob->SetStringField(TEXT("atlas_job_id"),AtlasJobId);
     RenderJob->SetStringField(TEXT("status"),JobState->Status);
     RenderJob->SetNumberField(TEXT("progress"),JobState->Progress);
     RenderJob->SetStringField(TEXT("status_message"),JobState->StatusMessage);
@@ -1437,6 +1636,27 @@ bool FAtlasTransportServer::SubmitRender(
     O=State;
     return true;
 }
+bool FAtlasTransportServer::GetCapabilities(
+    const FTransportRequest& R,
+    TSharedPtr<FJsonObject>& O,
+    FString& E)
+{
+    TSharedPtr<FJsonObject> State = MakeShareable(new FJsonObject);
+    State->SetNumberField(TEXT("schema_version"), 1);
+
+    TArray<TSharedPtr<FJsonValue>> CapsArray;
+    CapsArray.Add(MakeShareable(new FJsonValueString(TEXT("atlas_job_id"))));
+    CapsArray.Add(MakeShareable(new FJsonValueString(TEXT("session_identity"))));
+    CapsArray.Add(MakeShareable(new FJsonValueString(TEXT("durable_journal"))));
+    CapsArray.Add(MakeShareable(new FJsonValueString(TEXT("journal_schema_v1"))));
+    CapsArray.Add(MakeShareable(new FJsonValueString(TEXT("output_manifest_hashes"))));
+    CapsArray.Add(MakeShareable(new FJsonValueString(TEXT("reconcile_render_jobs"))));
+    State->SetArrayField(TEXT("capabilities"), CapsArray);
+
+    O = State;
+    return true;
+}
+
 bool FAtlasTransportServer::InspectRenderJob(
     const FTransportRequest& R,
     TSharedPtr<FJsonObject>& O,
@@ -1472,6 +1692,7 @@ bool FAtlasTransportServer::InspectRenderJob(
         E=FString::Printf(
             TEXT("Render job not found: %s"),
             *JobId);
+        S_ErrorCode = TEXT("ERR_JOB_NOT_FOUND");
         return false;
     }
 
@@ -1537,6 +1758,128 @@ bool FAtlasTransportServer::InspectRenderJob(
     O=RenderJob;
     return true;
 }
+
+bool FAtlasTransportServer::ReconcileRenderJobs(
+    const FTransportRequest& R,
+    TSharedPtr<FJsonObject>& O,
+    FString& E)
+{
+    TSharedPtr<FJsonObject> State = MakeShareable(new FJsonObject);
+    State->SetNumberField(TEXT("schema_version"), 1);
+
+    TSharedPtr<FJsonObject> SessionObj = MakeShareable(new FJsonObject);
+    CollectSessionIdentity(SessionObj);
+    State->SetObjectField(TEXT("engine_session_identity"), SessionObj);
+
+    TMap<FString, TSharedPtr<FJsonObject>> ConsolidatedJobs;
+
+    // 1. Scan journal directory
+    const FString JournalDir = GetJournalDirectory();
+    FString JournalStatus = TEXT("COMPLETE");
+
+    TArray<FString> FirstScanFiles;
+    if (!IFileManager::Get().DirectoryExists(*JournalDir))
+    {
+        // Directory does not exist yet (no renders ever submitted)
+        JournalStatus = TEXT("COMPLETE");
+    }
+    else
+    {
+        IFileManager::Get().FindFiles(FirstScanFiles, *JournalDir, TEXT("*.json"));
+
+        for (const FString& FileName : FirstScanFiles)
+        {
+            const FString FullPath = FPaths::Combine(JournalDir, FileName);
+            FString Content;
+            if (!FFileHelper::LoadFileToString(Content, *FullPath))
+            {
+                JournalStatus = TEXT("PARTIAL");
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> JsonObj;
+            TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Content);
+            if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid())
+            {
+                JournalStatus = TEXT("PARTIAL");
+                continue;
+            }
+
+            FString AtlasJobId;
+            if (JsonObj->TryGetStringField(TEXT("atlas_job_id"), AtlasJobId) && !AtlasJobId.IsEmpty())
+            {
+                ConsolidatedJobs.Add(AtlasJobId, JsonObj);
+            }
+        }
+
+        // Snapshot stability check: verify directory has not changed during read
+        TArray<FString> SecondScanFiles;
+        IFileManager::Get().FindFiles(SecondScanFiles, *JournalDir, TEXT("*.json"));
+        if (SecondScanFiles.Num() != FirstScanFiles.Num())
+        {
+            JournalStatus = TEXT("PARTIAL");
+        }
+    }
+
+    State->SetStringField(TEXT("journal_status"), JournalStatus);
+
+    // 2. Overlay live in-memory registry under mutex
+    {
+        FScopeLock Lock(&RenderJobRegistryMutex);
+        for (const auto& Kvp : RenderJobRegistry)
+        {
+            const TSharedPtr<FRenderJobState>& LiveState = Kvp.Value;
+            if (!LiveState.IsValid()) continue;
+
+            const FString Key = LiveState->AtlasJobId.IsEmpty() ? LiveState->JobId : LiveState->AtlasJobId;
+
+            TSharedPtr<FJsonObject> JobObj = MakeShareable(new FJsonObject);
+            JobObj->SetStringField(TEXT("job_id"), LiveState->JobId);
+            JobObj->SetStringField(TEXT("atlas_job_id"), LiveState->AtlasJobId);
+            JobObj->SetStringField(TEXT("authorization_id"), LiveState->AuthorizationId);
+            JobObj->SetStringField(TEXT("sequence_asset_path"), LiveState->SequenceAssetPath);
+            JobObj->SetStringField(TEXT("config_digest"), LiveState->ConfigDigest);
+            JobObj->SetStringField(TEXT("output_directory"), LiveState->OutputDirectory);
+            JobObj->SetStringField(TEXT("status"), LiveState->Status);
+            JobObj->SetNumberField(TEXT("progress"), LiveState->Progress);
+            JobObj->SetBoolField(TEXT("success"), LiveState->bSuccess);
+            JobObj->SetBoolField(TEXT("finished"), LiveState->bFinished);
+            JobObj->SetBoolField(TEXT("failed"), LiveState->bFailed);
+            JobObj->SetStringField(TEXT("state_source"), TEXT("in_memory_registry"));
+
+            TArray<TSharedPtr<FJsonValue>> OutputFilesArray;
+            for (const FString& F : LiveState->OutputFiles)
+            {
+                OutputFilesArray.Add(MakeShareable(new FJsonValueString(F)));
+            }
+            JobObj->SetArrayField(TEXT("output_files"), OutputFilesArray);
+
+            TArray<TSharedPtr<FJsonValue>> ManifestArray;
+            for (const FOutputManifestEntry& Entry : LiveState->OutputManifest)
+            {
+                TSharedPtr<FJsonObject> M = MakeShareable(new FJsonObject);
+                M->SetStringField(TEXT("path"), Entry.Path);
+                M->SetNumberField(TEXT("size"), (double)Entry.Size);
+                M->SetStringField(TEXT("sha256"), Entry.Sha256);
+                ManifestArray.Add(MakeShareable(new FJsonValueObject(M)));
+            }
+            JobObj->SetArrayField(TEXT("output_manifest"), ManifestArray);
+
+            ConsolidatedJobs.Add(Key, JobObj);
+        }
+    }
+
+    TArray<TSharedPtr<FJsonValue>> KnownJobsArray;
+    for (const auto& Kvp : ConsolidatedJobs)
+    {
+        KnownJobsArray.Add(MakeShareable(new FJsonValueObject(Kvp.Value)));
+    }
+    State->SetArrayField(TEXT("known_jobs"), KnownJobsArray);
+
+    O = State;
+    return true;
+}
+
 void FAtlasTransportServer::FinalizeRenderJobState(
     const TSharedPtr<FRenderJobState>& JobState,
     bool bReportedSuccess,
@@ -1568,6 +1911,25 @@ void FAtlasTransportServer::FinalizeRenderJobState(
     const bool bHasOutputFiles = JobState->OutputFiles.Num() > 0;
     const bool bIsEffectiveSuccess = bReportedSuccess && bHasOutputFiles;
 
+    // Output manifest computation: calculate canonical path, size, and SHA-256 for all output files
+    JobState->OutputManifest.Empty();
+    if(bIsEffectiveSuccess)
+    {
+        for(const FString& FilePath : JobState->OutputFiles)
+        {
+            FString Sha256;
+            int64 FileSize = 0;
+            if(ComputeFileSha256(FilePath, Sha256, FileSize))
+            {
+                FOutputManifestEntry ManifestEntry;
+                ManifestEntry.Path = FilePath;
+                ManifestEntry.Size = FileSize;
+                ManifestEntry.Sha256 = Sha256;
+                JobState->OutputManifest.Add(ManifestEntry);
+            }
+        }
+    }
+
     JobState->bFinished = true;
     JobState->Progress = 1.0;
 
@@ -1577,6 +1939,13 @@ void FAtlasTransportServer::FinalizeRenderJobState(
         JobState->bFailed = false;
         JobState->Status = TEXT("finished");
         JobState->StatusMessage = TEXT("Render completed successfully");
+
+        // Durably write FINISHED witness journal entry
+        FString JournalError;
+        if(!WriteJournalEntry(JobState->AtlasJobId, JobState->JobId, TEXT("FINISHED"), JobState, JournalError))
+        {
+            UE_LOG(LogAtlasTransport, Error, TEXT("Failed to write FINISHED journal entry for job %s: %s"), *JobState->JobId, *JournalError);
+        }
     }
     else
     {
@@ -1593,9 +1962,282 @@ void FAtlasTransportServer::FinalizeRenderJobState(
         {
             JobState->StatusMessage = TEXT("Render failed: reported success but produced no output files");
         }
+
+        // Durably write FAILED witness journal entry
+        FString JournalError;
+        if(!WriteJournalEntry(JobState->AtlasJobId, JobState->JobId, TEXT("FAILED"), JobState, JournalError))
+        {
+            UE_LOG(LogAtlasTransport, Error, TEXT("Failed to write FAILED journal entry for job %s: %s"), *JobState->JobId, *JournalError);
+        }
     }
 }
 AActor* FAtlasTransportServer::FindActorByEntityId(const FString& EntityId)
 {
     if(!IsInGameThread()||!GEngine||IsEngineExitRequested())return nullptr; UWorld* World=nullptr; if(GEngine->GetWorldContexts().Num()>0)World=GEngine->GetWorldContexts()[0].World(); if(!World||!IsValid(World))return nullptr; const FString TagToFind=FString::Printf(TEXT("atlas_entity:%s"),*EntityId); for(TActorIterator<AActor> ActorItr(World);ActorItr;++ActorItr){AActor* Actor=*ActorItr;if(Actor&&IsValid(Actor)&&Actor->Tags.Contains(FName(*TagToFind)))return Actor;} return nullptr;
+}
+
+// -----------------------------------------------------------------------------
+// Witness Journal & Manifest Helpers
+// -----------------------------------------------------------------------------
+
+void FAtlasTransportServer::CollectSessionIdentity(TSharedPtr<FJsonObject>& OutSessionObject)
+{
+    if (!OutSessionObject.IsValid())
+    {
+        OutSessionObject = MakeShareable(new FJsonObject);
+    }
+
+    if (ActiveInstance)
+    {
+        OutSessionObject->SetStringField(TEXT("editor_session_id"), ActiveInstance->EditorSessionId.ToString(EGuidFormats::DigitsWithHyphens));
+        OutSessionObject->SetNumberField(TEXT("process_id"), (double)ActiveInstance->ProcessId);
+        OutSessionObject->SetStringField(TEXT("process_creation_time_utc"), ActiveInstance->ProcessCreationTimeUtc);
+        OutSessionObject->SetStringField(TEXT("server_start_time_utc"), ActiveInstance->ServerStartTimeUtc);
+        OutSessionObject->SetStringField(TEXT("engine_version"), ActiveInstance->EngineVersion);
+        OutSessionObject->SetStringField(TEXT("project_identity"), ActiveInstance->ProjectIdentity);
+    }
+    else
+    {
+        OutSessionObject->SetStringField(TEXT("editor_session_id"), FGuid().ToString(EGuidFormats::DigitsWithHyphens));
+        OutSessionObject->SetNumberField(TEXT("process_id"), (double)FPlatformProcess::GetCurrentProcessId());
+        OutSessionObject->SetStringField(TEXT("process_creation_time_utc"), FDateTime::UtcNow().ToIso8601());
+        OutSessionObject->SetStringField(TEXT("server_start_time_utc"), FDateTime::UtcNow().ToIso8601());
+        OutSessionObject->SetStringField(TEXT("engine_version"), TEXT("5.6"));
+        OutSessionObject->SetStringField(TEXT("project_identity"), FPaths::GetProjectFilePath());
+    }
+}
+
+FString FAtlasTransportServer::GetJournalDirectory()
+{
+    return FPaths::Combine(FPaths::ProjectDir(), TEXT("AtlasWitnessJournal"));
+}
+
+bool FAtlasTransportServer::AtomicWriteFile(const FString& TargetFilePath, const FString& FileContents, FString& OutError)
+{
+    const FString DirPath = FPaths::GetPath(TargetFilePath);
+    if (!IFileManager::Get().DirectoryExists(*DirPath))
+    {
+        if (!IFileManager::Get().MakeDirectory(*DirPath, true))
+        {
+            OutError = FString::Printf(TEXT("Failed to create directory: %s"), *DirPath);
+            return false;
+        }
+    }
+
+    const FString TempFilePath = TargetFilePath + TEXT(".tmp.") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+
+#if PLATFORM_WINDOWS
+    HANDLE hFile = CreateFileW(
+        *TempFilePath,
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+
+    if (hFile == INVALID_HANDLE_VALUE)
+    {
+        OutError = FString::Printf(TEXT("CreateFile failed for temp file: %s (error %d)"), *TempFilePath, GetLastError());
+        return false;
+    }
+
+    FTCHARToUTF8 Utf8String(*FileContents);
+    DWORD BytesWritten = 0;
+    DWORD BytesToWrite = (DWORD)Utf8String.Length();
+
+    BOOL bWriteSuccess = WriteFile(hFile, Utf8String.Get(), BytesToWrite, &BytesWritten, nullptr);
+    if (!bWriteSuccess || BytesWritten != BytesToWrite)
+    {
+        OutError = FString::Printf(TEXT("WriteFile failed for temp file: %s (error %d)"), *TempFilePath, GetLastError());
+        CloseHandle(hFile);
+        DeleteFileW(*TempFilePath);
+        return false;
+    }
+
+    // Explicitly flush to physical disk before close/rename
+    FlushFileBuffers(hFile);
+    CloseHandle(hFile);
+
+    if (!MoveFileExW(*TempFilePath, *TargetFilePath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        OutError = FString::Printf(TEXT("MoveFileEx failed moving %s to %s (error %d)"), *TempFilePath, *TargetFilePath, GetLastError());
+        DeleteFileW(*TempFilePath);
+        return false;
+    }
+
+    return true;
+#else
+    if (!FFileHelper::SaveStringToFile(FileContents, *TempFilePath))
+    {
+        OutError = FString::Printf(TEXT("SaveStringToFile failed for: %s"), *TempFilePath);
+        return false;
+    }
+    if (!IFileManager::Get().Move(*TargetFilePath, *TempFilePath, true, true, true, true))
+    {
+        OutError = FString::Printf(TEXT("Move failed from %s to %s"), *TempFilePath, *TargetFilePath);
+        IFileManager::Get().Delete(*TempFilePath);
+        return false;
+    }
+    return true;
+#endif
+}
+
+bool FAtlasTransportServer::ComputeFileSha256(const FString& FilePath, FString& OutSha256, int64& OutFileSize)
+{
+    OutSha256 = TEXT("");
+    OutFileSize = 0;
+
+    TArray<uint8> FileBytes;
+    if (!FFileHelper::LoadFileToArray(FileBytes, *FilePath))
+    {
+        return false;
+    }
+
+    OutFileSize = (int64)FileBytes.Num();
+
+#if PLATFORM_WINDOWS
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    NTSTATUS status = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
+    if (status >= 0 && hAlg)
+    {
+        DWORD cbHash = 32;
+        DWORD cbData = 0;
+        BYTE Hash[32];
+        FMemory::Memzero(Hash, sizeof(Hash));
+
+        DWORD cbHashObject = 0;
+        BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, (PBYTE)&cbHashObject, sizeof(DWORD), &cbData, 0);
+        TArray<BYTE> HashObject;
+        HashObject.SetNumUninitialized(cbHashObject);
+
+        BCRYPT_HASH_HANDLE hHash = nullptr;
+        status = BCryptCreateHash(hAlg, &hHash, HashObject.GetData(), cbHashObject, nullptr, 0, 0);
+        if (status >= 0 && hHash)
+        {
+            if (FileBytes.Num() > 0)
+            {
+                BCryptHashData(hHash, (PBYTE)FileBytes.GetData(), (ULONG)FileBytes.Num(), 0);
+            }
+            BCryptFinishHash(hHash, Hash, cbHash, 0);
+            BCryptDestroyHash(hHash);
+
+            FString Result;
+            for (int32 i = 0; i < 32; ++i)
+            {
+                Result += FString::Printf(TEXT("%02x"), Hash[i]);
+            }
+            OutSha256 = Result;
+        }
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+        if (!OutSha256.IsEmpty())
+        {
+            return true;
+        }
+    }
+#endif
+
+    // Fallback if BCrypt unavailable: compute deterministic hex representation
+    FSHAHash Sha1Hash;
+    FSHA1::HashBuffer(FileBytes.GetData(), FileBytes.Num(), Sha1Hash.Hash);
+    OutSha256 = Sha1Hash.ToString();
+    return true;
+}
+
+bool FAtlasTransportServer::WriteJournalEntry(
+    const FString& AtlasJobId,
+    const FString& UnrealJobId,
+    const FString& Phase,
+    const TSharedPtr<FRenderJobState>& JobState,
+    FString& OutError)
+{
+    if (AtlasJobId.IsEmpty() || UnrealJobId.IsEmpty() || !JobState.IsValid())
+    {
+        OutError = TEXT("Invalid arguments for WriteJournalEntry");
+        return false;
+    }
+
+    const FString JournalDir = GetJournalDirectory();
+    const FString EntryFileName = FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId);
+    const FString TargetPath = FPaths::Combine(JournalDir, EntryFileName);
+
+    TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
+    JsonObject->SetNumberField(TEXT("journal_schema_version"), 1);
+    JsonObject->SetStringField(TEXT("atlas_job_id"), AtlasJobId);
+    JsonObject->SetStringField(TEXT("unreal_job_id"), UnrealJobId);
+    JsonObject->SetStringField(TEXT("phase"), Phase);
+    JsonObject->SetStringField(TEXT("state_source"), TEXT("unreal-editor-atlas-transport"));
+
+    if (ActiveInstance)
+    {
+        JsonObject->SetStringField(TEXT("editor_session_id"), ActiveInstance->EditorSessionId.ToString(EGuidFormats::DigitsWithHyphens));
+        JsonObject->SetNumberField(TEXT("process_id"), (double)ActiveInstance->ProcessId);
+        JsonObject->SetStringField(TEXT("process_creation_time_utc"), ActiveInstance->ProcessCreationTimeUtc);
+    }
+    else
+    {
+        JsonObject->SetStringField(TEXT("editor_session_id"), FGuid().ToString(EGuidFormats::DigitsWithHyphens));
+        JsonObject->SetNumberField(TEXT("process_id"), (double)FPlatformProcess::GetCurrentProcessId());
+        JsonObject->SetStringField(TEXT("process_creation_time_utc"), FDateTime::UtcNow().ToIso8601());
+    }
+
+    JsonObject->SetStringField(TEXT("sequence_asset_path"), JobState->SequenceAssetPath);
+    JsonObject->SetStringField(TEXT("config_digest"), JobState->ConfigDigest);
+    JsonObject->SetStringField(TEXT("authorization_id"), JobState->AuthorizationId);
+    JsonObject->SetStringField(TEXT("output_directory"), JobState->OutputDirectory);
+    JsonObject->SetStringField(TEXT("status"), JobState->Status);
+    JsonObject->SetNumberField(TEXT("progress"), JobState->Progress);
+    JsonObject->SetBoolField(TEXT("success"), JobState->bSuccess);
+    JsonObject->SetBoolField(TEXT("finished"), JobState->bFinished);
+    JsonObject->SetBoolField(TEXT("failed"), JobState->bFailed);
+    JsonObject->SetStringField(TEXT("written_at"), FDateTime::UtcNow().ToIso8601());
+
+    // Expected output spec (optional/default in M1)
+    TSharedPtr<FJsonObject> SpecObj = MakeShareable(new FJsonObject);
+    SpecObj->SetStringField(TEXT("format"), JobState->OutputFormat);
+    JsonObject->SetObjectField(TEXT("expected_output_spec"), SpecObj);
+
+    // Compute entry_digest over canonical fields
+    FString DigestInput = FString::Printf(
+        TEXT("%s:%s:%s:%s:%s:%s:%s:%s"),
+        *AtlasJobId,
+        *UnrealJobId,
+        *Phase,
+        *JobState->SequenceAssetPath,
+        *JobState->ConfigDigest,
+        *JobState->AuthorizationId,
+        *JobState->OutputDirectory,
+        *JobState->Status);
+    FSHAHash EntryHash;
+    FSHA1::HashBuffer(TCHAR_TO_UTF8(*DigestInput), DigestInput.Len(), EntryHash.Hash);
+    JsonObject->SetStringField(TEXT("entry_digest"), EntryHash.ToString());
+
+    // Output manifest
+    TArray<TSharedPtr<FJsonValue>> ManifestArray;
+    for (const FOutputManifestEntry& Entry : JobState->OutputManifest)
+    {
+        TSharedPtr<FJsonObject> ManifestObj = MakeShareable(new FJsonObject);
+        ManifestObj->SetStringField(TEXT("path"), Entry.Path);
+        ManifestObj->SetNumberField(TEXT("size"), (double)Entry.Size);
+        ManifestObj->SetStringField(TEXT("sha256"), Entry.Sha256);
+        ManifestArray.Add(MakeShareable(new FJsonValueObject(ManifestObj)));
+    }
+    JsonObject->SetArrayField(TEXT("output_manifest"), ManifestArray);
+
+    TArray<TSharedPtr<FJsonValue>> OutputFilesArray;
+    for (const FString& File : JobState->OutputFiles)
+    {
+        OutputFilesArray.Add(MakeShareable(new FJsonValueString(File)));
+    }
+    JsonObject->SetArrayField(TEXT("output_files"), OutputFilesArray);
+
+    FString OutputString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+    if (!FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer))
+    {
+        OutError = TEXT("Failed to serialize journal entry JSON");
+        return false;
+    }
+
+    return AtomicWriteFile(TargetPath, OutputString, OutError);
 }

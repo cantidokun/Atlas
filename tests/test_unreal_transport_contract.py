@@ -42,6 +42,16 @@ def _valid_response(**overrides):
         observed_state={"location": [100, 200, 300]},
         error="",
         source="unreal-editor-5.6",
+        schema_version=1,
+        error_code="",
+        session_identity={
+            "editor_session_id": "sess-test-001",
+            "process_id": 1234,
+            "process_creation_time_utc": "2026-09-05T20:00:00Z",
+            "server_start_time_utc": "2026-09-05T20:00:01Z",
+            "engine_version": "5.6",
+            "project_identity": "AtlasUnrealHarness",
+        },
     )
     defaults.update(overrides)
     return UnrealTransportResponse(**defaults)
@@ -217,9 +227,16 @@ class TestResponseCorrelation:
         with pytest.raises(ValueError, match="entity_ids"):
             validate_response_correlation(req, resp)
 
-    def test_correlation_preserves_response(self):
-        req = _valid_request()
-        resp = _valid_response(success=False, error="timeout")
-        result = validate_response_correlation(req, resp)
-        assert result.success is False
-        assert result.error == "timeout"
+    def test_schema_version_mismatch(self):
+        req = _valid_request(schema_version=1)
+        resp = _valid_response(schema_version=1)
+        # Bypassing __post_init__ to force schema_version mismatch for correlation test
+        object.__setattr__(resp, "schema_version", 999)
+        with pytest.raises(ValueError, match="schema_version"):
+            validate_response_correlation(req, resp)
+
+    def test_schema_version_fail_closed(self):
+        with pytest.raises(ValueError, match="schema_version"):
+            _valid_request(schema_version=2)
+        with pytest.raises(ValueError, match="schema_version"):
+            _valid_response(schema_version=2)
