@@ -10,8 +10,11 @@
 class UMoviePipelineExecutorBase;
 class UMoviePipelineExecutorJob;
 
+class FAtlasUE56RenderJobBoundaryTest;
+
 class FAtlasTransportServer : public FRunnable
 {
+    friend class FAtlasUE56RenderJobBoundaryTest;
 public:
     FAtlasTransportServer();
     virtual ~FAtlasTransportServer();
