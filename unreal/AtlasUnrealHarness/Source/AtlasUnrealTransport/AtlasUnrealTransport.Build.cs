@@ -34,6 +34,8 @@ public class AtlasUnrealTransport : ModuleRules
         if (Target.Platform == UnrealTargetPlatform.Win64)
         {
             PublicSystemLibraries.Add("kernel32.lib");
+            PublicSystemLibraries.Add("advapi32.lib");
+            PublicSystemLibraries.Add("bcrypt.lib");
         }
     }
 }

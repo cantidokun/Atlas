@@ -33,6 +33,7 @@ _REQUEST_KEYS = frozenset({
     "arguments",
     "entity_ids",
     "authorization_id",
+    "schema_version",
 })
 
 _RESPONSE_KEYS = frozenset({
@@ -43,6 +44,9 @@ _RESPONSE_KEYS = frozenset({
     "observed_state",
     "error",
     "source",
+    "schema_version",
+    "error_code",
+    "session_identity",
 })
 
 
@@ -67,6 +71,7 @@ def serialize_request(request: UnrealTransportRequest) -> str:
         "arguments": dict(request.arguments),
         "entity_ids": list(request.entity_ids),
         "authorization_id": request.authorization_id,
+        "schema_version": request.schema_version,
     }
 
     # Normalize nested entity_ids inside arguments to JSON arrays
@@ -147,6 +152,20 @@ def deserialize_response(raw: str) -> UnrealTransportResponse:
     if not isinstance(success_raw, bool):
         raise TransportDeserializationError("success must be a JSON boolean")
 
+    schema_version_raw = data["schema_version"]
+    if not isinstance(schema_version_raw, int) or isinstance(schema_version_raw, bool):
+        raise TransportDeserializationError("schema_version must be an integer")
+    if schema_version_raw != 1:
+        raise TransportDeserializationError(f"unsupported schema_version: {schema_version_raw}")
+
+    error_code_raw = data["error_code"]
+    if not isinstance(error_code_raw, str):
+        raise TransportDeserializationError("error_code must be a string")
+
+    session_identity_raw = data["session_identity"]
+    if not isinstance(session_identity_raw, dict):
+        raise TransportDeserializationError("session_identity must be a JSON object")
+
     # Construct — __post_init__ provides the second validation layer
     return UnrealTransportResponse(
         request_id=data["request_id"],
@@ -156,6 +175,9 @@ def deserialize_response(raw: str) -> UnrealTransportResponse:
         observed_state=observed_state_raw,
         error=data["error"],
         source=data["source"],
+        schema_version=schema_version_raw,
+        error_code=error_code_raw,
+        session_identity=session_identity_raw,
     )
 
 
@@ -211,6 +233,12 @@ def deserialize_request(raw: str) -> UnrealTransportRequest:
         if isinstance(value, list) and all(isinstance(v, str) for v in value):
             arguments[key] = tuple(value)
 
+    schema_version_raw = data["schema_version"]
+    if not isinstance(schema_version_raw, int) or isinstance(schema_version_raw, bool):
+        raise TransportDeserializationError("schema_version must be an integer")
+    if schema_version_raw != 1:
+        raise TransportDeserializationError(f"unsupported schema_version: {schema_version_raw}")
+
     return UnrealTransportRequest(
         request_id=data["request_id"],
         operation_name=data["operation_name"],
@@ -219,4 +247,5 @@ def deserialize_request(raw: str) -> UnrealTransportRequest:
         arguments=arguments,
         entity_ids=tuple(entity_ids_raw),
         authorization_id=data["authorization_id"],
+        schema_version=schema_version_raw,
     )

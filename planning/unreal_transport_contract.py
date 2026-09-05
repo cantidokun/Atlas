@@ -11,7 +11,7 @@ Design invariants
 - All dataclasses are frozen; transport messages are immutable once created.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Tuple
 
 
@@ -30,8 +30,13 @@ class UnrealTransportRequest:
     arguments: Mapping[str, Any]
     entity_ids: Tuple[str, ...]
     authorization_id: str
+    schema_version: int = 1
 
     def __post_init__(self) -> None:
+        if not isinstance(self.schema_version, int) or isinstance(self.schema_version, bool):
+            raise TypeError("schema_version must be an integer")
+        if self.schema_version != 1:
+            raise ValueError(f"unsupported schema_version: {self.schema_version}")
         if not isinstance(self.request_id, str) or not self.request_id.strip():
             raise ValueError("request_id must be a non-empty string")
         if not isinstance(self.operation_name, str) or not self.operation_name.strip():
@@ -70,8 +75,19 @@ class UnrealTransportResponse:
     observed_state: Mapping[str, Any]
     error: str
     source: str
+    schema_version: int = 1
+    error_code: str = ""
+    session_identity: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.schema_version, int) or isinstance(self.schema_version, bool):
+            raise TypeError("schema_version must be an integer")
+        if self.schema_version != 1:
+            raise ValueError(f"unsupported schema_version: {self.schema_version}")
+        if not isinstance(self.error_code, str):
+            raise TypeError("error_code must be a string")
+        if not isinstance(self.session_identity, Mapping):
+            raise TypeError("session_identity must be a mapping")
         if not isinstance(self.request_id, str) or not self.request_id.strip():
             raise ValueError("request_id must be a non-empty string")
         if not isinstance(self.operation_name, str) or not self.operation_name.strip():
@@ -115,5 +131,9 @@ def validate_response_correlation(
     if tuple(response.entity_ids) != tuple(request.entity_ids):
         raise ValueError(
             "response entity_ids do not match the originating request"
+        )
+    if response.schema_version != request.schema_version:
+        raise ValueError(
+            "response schema_version does not match the originating request"
         )
     return response
