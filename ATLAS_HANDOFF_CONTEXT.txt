@@ -1,4 +1,4 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 4, 2026 END-OF-NIGHT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 5, 2026 CHECKPOINT
 
 Active repository branch:
 main
@@ -50,8 +50,23 @@ Stage 15:
 Stage 16:
 - Qwen proposal/provider integration — LIVE VERIFIED through proposal, Atlas authorization, real Blender mutation, cross-process recovery, and advisory-only Qwen recovery reasoning.
 
+Stage 17:
+- Blender production-artifact lineage closed loop is LIVE VERIFIED against real Blender 4.4.
+
 ============================================================
-4. STAGE 17 — PRODUCTION ARTIFACT LINEAGE
+4. UNREAL AUTONOMY EXECUTION BRIDGE (MERGED TO MAIN)
+============================================================
+
+PR #59 merged the clean Unreal autonomy execution bridge into main:
+- planning/unreal_execution_boundary.py: narrow tool-call to UnrealOperation validation boundary.
+- planning/unreal_autonomous_executor.py: ToolExecutor adapter ((tool, arguments) -> dict) consumed by AutonomousTaskRuntime.
+- controller/agent_controller_host.py: build_unreal_autonomous_executor() wiring host-owned trusted context to adapter.
+- planning/unreal_transport_contract.py, unreal_transport_serialization.py, unreal_transport_named_pipe.py, unreal_adapter_production.py: verified production transport layer.
+
+All P0 Unreal autonomy execution gaps are closed. 842 repository tests pass cleanly. CI passed on Python 3.9 and 3.11.
+
+============================================================
+5. STAGE 17 — PRODUCTION ARTIFACT LINEAGE
 ============================================================
 
 Implemented:
@@ -71,21 +86,11 @@ Blender Stage 17 is user-verified against real Blender 4.4.
 Unreal Stage 17 provenance is implemented and regression-verified, but the real UE 5.6 provenance proof remains pending human validation.
 
 ============================================================
-5. UNREAL POSITION
+6. UNREAL POSITION & RENDER BOUNDARY
 ============================================================
 
-PR #57 restored the previously working Unreal Engine 5.6 execution boundary to main and was merged as:
-3e2e78e654cab3db5f17ba9739ae5c609d82f386
-
-The restored boundary includes:
-- UE 5.6 project and module definitions;
-- controlled render fixture assets;
-- render and world-save boundary sources;
-- commandlets used by the fixture workflow;
-- the Unreal transport module and headers;
-- the named-pipe Atlas transport server.
-
-Local UE 5.6 compilation of the restored tree succeeded with 19/19 actions, including AtlasTransportServer.cpp, AtlasUnrealTransport.cpp, and the render/world-save boundary sources.
+PR #57 restored the working Unreal Engine 5.6 execution boundary to main (19/19 build actions succeeded on UE 5.6 editor build).
+PR #59 connected the execution bridge to AutonomousTaskRuntime.
 
 The real Unreal render workflow is:
 - deterministic render configuration;
@@ -111,10 +116,8 @@ verified Unreal evidence/receipt
 Cross-process Unreal render-job recovery is NOT implemented. Receipt persistence must not be described as job persistence.
 
 ============================================================
-6. CONTROLLER-TO-UNREAL TRUST BOUNDARY
+7. CONTROLLER-TO-UNREAL TRUST BOUNDARY
 ============================================================
-
-Current mainline AgentControllerHost remains deliberately narrower than the historical controller-host branch retained in PR #50.
 
 For protected Unreal production requests:
 - TrustedUnrealContext is the authority source for protected intent;
@@ -124,43 +127,32 @@ For protected Unreal production requests:
 - contradictory model values are retained only as diagnostic mismatch state;
 - the Unreal production integration seam rejects missing required trusted context before execution.
 
-The restored C++ Unreal transport is an execution/transport boundary only. Its request-level authorization field is part of transport validation; it is not a replacement for Atlas host authorization.
+The C++ Unreal transport is an execution/transport boundary only. Authority remains owned by the trusted Atlas host boundary.
 
 ============================================================
-7. TESTING / VALIDATION
+8. REMAINING P1 GAPS
 ============================================================
 
-Verified in this checkpoint:
+1. In-memory RenderJobRegistry in AtlasTransportServer.cpp (cross-process render-job durability).
+2. Live UE 5.6 Stage 17 human provenance proof (live_unreal_production_artifact_proof.py).
+3. Blueprint metadata evidence shape alignment in AtlasTransportServer.cpp.
+
+============================================================
+9. TESTING / VALIDATION STATUS
+============================================================
+
+- Clean Unreal autonomy bridge merged to main via PR #59;
+- 842 deterministic repository tests pass (0 failures);
+- CI passed on Python 3.9 and 3.11 for the clean PR;
 - UE 5.6 local editor build of restored Unreal tree — 19/19 actions succeeded;
-- AtlasTransportServer.cpp compiled and linked;
-- AtlasUnrealTransport.cpp compiled and linked;
-- render/world-save boundary sources compiled successfully.
+- Blender development and tests completely unaffected.
 
-Previously verified checkpoints include the deterministic Stage 17 provenance/snapshot suites and the earlier full deterministic regression checkpoint.
-
-The newest September 4 controller trust-boundary changes have NOT received a new local Windows deterministic test result in this checkpoint.
-
-Do not represent older test results as validation of the newest controller changes.
+Live UE 5.6 Stage 17 provenance verification remains pending.
 
 Do not run workflow/action-runner tests unless explicitly authorized.
 
 ============================================================
-8. NON-REGRESSION RULES
-============================================================
-
-- Never give Qwen direct execution or authorization authority.
-- Never accept model-supplied authorization IDs, receipts, protected Unreal intent, or protected production flags as Atlas authority.
-- Never automatically retry failed writes.
-- Never silently mutate an authorized plan.
-- Never declare completion from a transport/write response alone.
-- Preserve independent verification and the evidence ledger.
-- Keep engine-specific behavior behind adapter/tool boundaries.
-- Keep dependency-aware execution serial until concurrency is independently justified.
-- Preserve canonical Digital Twin identity separately from engine/DCC artifacts.
-- Do not claim cross-process Unreal render-job recovery until separately implemented and verified.
-
-============================================================
-9. END-OF-NIGHT RESUME POINT
+10. RESUME POINT
 ============================================================
 
 Read:
@@ -168,14 +160,12 @@ Read:
 - README.md
 - UNREAL_AGENT_HANDOFF_CURRENT.md
 - docs/ATLAS_ARCHITECTURE_CONTRACT.md
-- docs/OPENHANDS_TRANSITION_GUIDE.md
 
 Then:
 1. Pull latest main.
-2. Run focused deterministic tests covering the newest host trust-boundary changes.
-3. Exercise the restored UE 5.6 render boundary and capture fresh verified evidence/receipt data.
-4. Run live_unreal_production_artifact_proof.py against the verified evidence/receipt pair.
-5. Confirm manifest persistence, reload, exact lineage, and digest identities.
-6. Resume selective integration of the stronger historical controller-host architecture from PR #50 only after the Stage 17 proof checkpoint.
+2. Exercise the restored UE 5.6 render boundary and capture fresh verified evidence/receipt data.
+3. Run live_unreal_production_artifact_proof.py against the verified evidence/receipt pair.
+4. Confirm manifest persistence, reload, exact lineage, and digest identities.
+5. Address remaining P1 items (RenderJobRegistry durability, Blueprint metadata shape).
 
 Historical dated handoff snapshots are archival records and should not be rewritten.

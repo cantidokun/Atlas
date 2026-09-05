@@ -1,14 +1,18 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026 — end-of-night checkpoint after restoration of the working Unreal 5.6 transport boundary and merge of PR #57.
+**Updated:** September 5, 2026 — Clean Unreal autonomy bridge merged into main via PR #59.
 **Active branch:** `main`
 **Current stage:** Stage 17 — IN PROGRESS
 
 ## Current repository state
 
-PR #57 (`Restore working Unreal render transport boundary`) has been merged into `main` as commit `3e2e78e654cab3db5f17ba9739ae5c609d82f386`. The restored branch was based on the last known working Unreal harness snapshot and reinstates the missing UE 5.6 project, render fixtures, transport server, transport headers/build module, render/world-save boundary tests, and supporting commandlets.
+PR #59 (`feat: port Unreal autonomy to mainline`) has been merged into `main`. This integrates the clean, selective Unreal autonomy execution bridge directly above current `main` without importing historical or deprecated subsystem bloat.
 
-The restored Unreal tree was compile-verified locally with UE 5.6: **19/19 build actions succeeded**. `AtlasTransportServer.cpp`, `AtlasUnrealTransport.cpp`, the render boundary source, and the world-save boundary source all compiled and linked successfully.
+The repository now possesses:
+- `planning/unreal_execution_boundary.py`: Narrow, fail-closed execution boundary mapping validated tool calls to typed `UnrealOperation` primitives.
+- `planning/unreal_autonomous_executor.py`: Pure `ToolExecutor`-compatible adapter (`(tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]`) directly consumable by `AutonomousFutureRuntime` and `AutonomousTaskRuntime`.
+- `controller/agent_controller_host.py`: Wired with `build_unreal_autonomous_executor()`, safely binding host-owned trusted context and real Unreal integration without creating duplicate authorization or execution authorities.
+- `planning/unreal_transport_contract.py`, `planning/unreal_transport_serialization.py`, `planning/unreal_transport_named_pipe.py`, `planning/unreal_adapter_production.py`: Verified production transport layer.
 
 ## Authority model
 
@@ -48,9 +52,11 @@ The manifest has separate engine-specific bridges for Blender and Unreal. Both b
 
 The user verified the real Blender 4.4 production-artifact path: real mutation, fresh independent inspection, immutable receipt/evidence capture, durable manifest persistence, reload, and exact lineage verification.
 
-### Unreal Stage 17 — IMPLEMENTED / REAL UE PROOF PENDING
+### Unreal Stage 17 — IMPLEMENTED / LIVE UNVERIFIED (REAL UE PROOF PENDING)
 
-The UE 5.6 render boundary has now been restored to `main` and compile-verified locally. The working boundary includes the controlled project and render fixtures plus the Unreal transport server needed for the render path.
+The UE 5.6 render boundary is compile-verified locally (19/19 build actions succeeded on `AtlasTransportServer.cpp`, `AtlasUnrealTransport.cpp`, and boundary tests). The execution bridge to Atlas's generic autonomous runtime is implemented and deterministic-test verified.
+
+The system has **not yet received live UE 5.6 Stage 17 provenance verification**. Live UE 5.6 proof is the next major validation gate.
 
 ```text
 render configuration
@@ -85,44 +91,51 @@ The restored transport is an execution boundary only. The Python host remains th
 
 ## Controller-to-Unreal trust boundary
 
-The current mainline host remains intentionally narrow while PR #50 stays isolated. Protected Unreal production requests use the host-owned `TrustedUnrealContext` as the authority source for protected intent, authorization context, sequence path, and the production marker.
+For protected Unreal production requests:
+- `TrustedUnrealContext` supplies protected intent, authorization context, sequence path, and the production marker;
+- model-supplied protected intent cannot replace the trusted intent;
+- conflicting model intent is retained only as diagnostic mismatch state;
+- model-supplied production flags cannot disable the host-owned production marker;
+- the Unreal production integration seam rejects missing required trusted context before execution.
 
-Model-supplied protected intent cannot replace the trusted intent. Conflicting model intent is retained only as diagnostic state. Model-supplied production flags cannot disable the host-owned production marker. The integration seam rejects missing required trusted context before execution.
-
-The restored C++ transport does not create a second authorization layer; it validates the transport contract and executes only through the existing Atlas integration boundary.
+The Unreal transport remains an engine execution boundary, not a second authorization system. Authority remains owned by the trusted Atlas host boundary.
 
 ## Important Unreal boundary
 
 The Unreal runtime render-job registry remains in-memory. `UnrealRenderReceiptStore` provides durable receipt persistence, but cross-process Unreal render-job recovery is not implemented.
 
-Do not represent receipt persistence as job persistence.
+**Receipt persistence is not equivalent to durable render-job persistence.**
 
 ## Validation status
 
 Verified in this checkpoint:
 
-- UE 5.6 editor compilation of the restored Unreal harness: **19/19 actions succeeded**.
-- `AtlasTransportServer.cpp` compiled and linked successfully.
-- `AtlasUnrealTransport.cpp` compiled and linked successfully.
-- Unreal render/world-save boundary sources compiled successfully.
+- Clean Unreal autonomy bridge merged to `main` via PR #59;
+- 842 deterministic repository tests pass (0 failures);
+- CI passed on Python 3.9 and Python 3.11 for the clean PR;
+- UE 5.6 editor compilation of the restored Unreal harness: **19/19 actions succeeded**;
+- `AtlasTransportServer.cpp` compiled and linked successfully;
+- `AtlasUnrealTransport.cpp` compiled and linked successfully;
+- Unreal render/world-save boundary sources compiled successfully;
+- Blender development and tests completely unaffected.
 
 Not yet verified in this checkpoint:
 
-- a new deterministic Python test run for the September 4 controller trust-boundary changes;
-- the human UE 5.6 Stage 17 provenance proof;
-- live reconstruction of the verified Unreal evidence/receipt pair into a durable production-artifact manifest.
+- the human UE 5.6 Stage 17 provenance proof (`live_unreal_production_artifact_proof.py`);
+- live reconstruction of the verified Unreal evidence/receipt pair into a durable production-artifact manifest from real UE 5.6 render output.
 
-Do not represent the older deterministic test results as validation of the newest changes.
+Do not represent the older deterministic test results as validation of live execution.
 
 ## Current next gate
 
 At the next development session:
 
 1. Pull the latest `main`.
-2. Run focused deterministic tests for the newest Unreal/controller trust-boundary changes.
-3. Run the human UE 5.6 Stage 17 provenance proof using the restored render boundary.
-4. Confirm manifest persistence, reload, exact lineage, and digest identities.
-5. Then resume selective integration of the stronger historical controller-host architecture from PR #50.
+2. Run the human UE 5.6 Stage 17 provenance proof using evidence emitted by the restored render boundary.
+3. Confirm manifest persistence, reload, exact lineage, and digest identities via `live_unreal_production_artifact_proof.py`.
+4. Address remaining P1 items:
+   - Durable render-job state across Unreal/editor process loss (`RenderJobRegistry` on-disk tracking).
+   - Blueprint metadata evidence-shape alignment in `AtlasTransportServer.cpp`.
 
 No action-runner/workflow test should be run for the live gate unless explicitly authorized.
 
@@ -149,8 +162,8 @@ No action-runner/workflow test should be run for the live gate unless explicitly
 - PR #54 hardened Unreal lineage verification to require verified `inspect_render_job` evidence.
 - PR #55 added the disposable Unreal production-artifact proof harness.
 - PR #56 added canonical Unreal evidence/receipt snapshots.
-- Subsequent mainline commits hardened the protected Unreal controller host against model-controlled intent/production-state substitution and added deterministic regression coverage.
-- PR #57 restored the working Unreal 5.6 transport/render boundary and was merged as `3e2e78e654cab3db5f17ba9739ae5c609d82f386`.
+- PR #57 restored the working Unreal 5.6 transport/render boundary.
+- PR #59 merged the clean Unreal autonomy execution bridge into `main`.
 
 ## Historical documentation
 
