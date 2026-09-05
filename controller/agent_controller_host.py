@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional
 
 from controller.capability_request import CapabilityRequest, CapabilityRequestError
 from controller.trusted_unreal_context import TrustedUnrealContext
+from planning.unreal_autonomous_executor import UnrealAutonomousExecutor
+from planning.unreal_execution_boundary import UnrealExecutionBoundary
 
 
 REQUEST_PREFIX = "ATLAS_CONTROLLER_REQUEST:"
@@ -69,8 +71,55 @@ class AgentControllerHost:
             raise TypeError("integration must expose a callable execute method")
         host = cls()
         host._unreal_integration = integration
+        host._trusted_unreal_context = trusted_context
         host.runtime.execution_context.set_unreal_production(trusted_context)
         return host
+
+    def build_unreal_autonomous_executor(
+        self,
+        *,
+        default_authorization_id: Optional[str] = None,
+    ) -> UnrealAutonomousExecutor:
+        """Construct an UnrealAutonomousExecutor wired through this host's trusted integration.
+
+        Uses the adapter from the host's registered Unreal production integration
+        and binds the host's authoritative authorization ID if not explicitly overridden.
+        """
+        integration = getattr(self, "_unreal_integration", None)
+        if integration is None:
+            raise RuntimeError(
+                "Unreal autonomous executor requires a host initialized with for_unreal_production"
+            )
+
+        adapter = getattr(integration, "_adapter", None)
+        if adapter is None:
+            runtime_adapter = getattr(integration, "_runtime", None)
+            if runtime_adapter is not None:
+                executor = getattr(runtime_adapter, "_executor", None)
+                adapter = getattr(executor, "_adapter", None)
+                if adapter is None:
+                    bridge = getattr(runtime_adapter, "_bridge", None)
+                    if bridge is not None:
+                        adapter = getattr(bridge._executor, "_adapter", None)
+
+        if adapter is None:
+            raise RuntimeError(
+                "Could not extract UnrealAdapterProduction from host's integration"
+            )
+
+        auth_id = default_authorization_id
+        if auth_id is None and hasattr(self, "_trusted_unreal_context"):
+            authorized_prod = getattr(self._trusted_unreal_context, "authorized_production", None)
+            auth = getattr(authorized_prod, "authorization", None)
+            if auth is not None:
+                auth_id = getattr(auth, "authorization_id", None)
+            elif isinstance(authorized_prod, dict):
+                auth_id = authorized_prod.get("authorization_id")
+            elif isinstance(authorized_prod, str):
+                auth_id = authorized_prod
+
+        boundary = UnrealExecutionBoundary(adapter)
+        return UnrealAutonomousExecutor(boundary, default_authorization_id=auth_id)
 
     @staticmethod
     def _decode(response: str) -> Dict[str, Any]:
