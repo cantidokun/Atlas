@@ -56,7 +56,9 @@ The user verified the real Blender 4.4 production-artifact path: real mutation, 
 
 The UE 5.6 render boundary is compile-verified locally (19/19 build actions succeeded on `AtlasTransportServer.cpp`, `AtlasUnrealTransport.cpp`, and boundary tests). The execution bridge to Atlas's generic autonomous runtime is implemented and deterministic-test verified.
 
-The Stage 17 production-artifact manifest bridge and its proof harness are regression-verified, and the authoritative independent verification boundary `verify_render_job_evidence(...)` (`planning/unreal_evidence_contract.py`) has been implemented to convert raw `inspect_render_job` state into verified `UnrealEvidence` only after validating semantic completion, canonical identities, and filesystem presence/non-zero size. However, the system has **not yet received live UE 5.6 Stage 17 provenance verification**. Live UE 5.6 proof is the next major validation gate.
+The Stage 17 production-artifact manifest bridge and its proof harness are regression-verified, and the authoritative independent verification boundary `verify_render_job_evidence(...)` (`planning/unreal_evidence_contract.py`) has been implemented to convert raw `inspect_render_job` state into verified `UnrealEvidence` only after validating semantic completion, canonical identities, and filesystem presence/non-zero size.
+
+During initial live proof execution, a real state-consistency bug was uncovered: poll 3 exposed `status=rendering finished=True progress=0`, which `verify_render_job_evidence(...)` properly rejected. This was traced to unchecked multi-job callback mutations in `AtlasTransportServer.cpp` resetting terminal state, torn inspection reads outside the mutex, and uncoordinated completion callbacks. The C++ state machine has been hardened with `InJob == Job` callback identity filtering, anti-regression guards, fail-closed `FinalizeRenderJobState`, and locked snapshot serialization. However, the system has **not yet received live UE 5.6 Stage 17 provenance verification**. Live UE 5.6 proof remains pending.
 
 ```text
 render configuration

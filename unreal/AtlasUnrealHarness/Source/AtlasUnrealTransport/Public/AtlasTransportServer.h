@@ -84,6 +84,11 @@ private:
     static bool SubmitRender(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool InspectRenderJob(const FTransportRequest& Request,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool BuildBlueprintState(const FString& AssetPath,TSharedPtr<FJsonObject>& OutBlueprintState,FString& OutError);
+    static void FinalizeRenderJobState(
+        const TSharedPtr<FRenderJobState>& JobState,
+        bool bReportedSuccess,
+        const TArray<FString>& DiscoveredFiles,
+        const FString& FailureReason = FString());
     static AActor* FindActorByEntityId(const FString& EntityId);
     static FCriticalSection RenderJobRegistryMutex;
     static TMap<FString,TSharedPtr<FRenderJobState>> RenderJobRegistry;

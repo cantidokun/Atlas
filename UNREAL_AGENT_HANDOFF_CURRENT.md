@@ -133,6 +133,11 @@ Still pending:
 - fresh execution of the restored UE 5.6 render path;
 - the human UE 5.6 Stage 17 provenance proof using that fresh verified evidence/receipt pair produced via `verify_render_job_evidence(...)` (`live_unreal_production_artifact_proof.py`).
 
+### Stage 17 State-Consistency Defect Note
+
+The live proof attempt exposed a real state-consistency defect in `AtlasTransportServer.cpp`: poll 3 exposed `status=rendering finished=True progress=0`, which was authoritatively rejected by `verify_render_job_evidence()`. This defect was caused by unverified MRQ job identity in `OnIndividualJobStarted` / `OnIndividualJobWorkFinished`, permitting other queue jobs to reset the active job's status and progress, coupled with lock release before serialization in `InspectRenderJob`.
+The C++ server state machine has been hardened to filter by `InJob == Job`, prevent state regression, atomically finalize state under `RenderJobRegistryMutex` with fail-closed output-files validation, and hold the mutex across snapshot construction. Rerunning the live proof remains pending deployment of the rebuilt plugin binary.
+
 ## Resume point
 
 1. Pull the latest `main`.
