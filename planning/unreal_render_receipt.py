@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import hmac
+from typing import Any, Mapping
 
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_evidence_digest import digest_evidence
@@ -23,6 +24,19 @@ def _canonical_material(values: tuple[str, ...]) -> bytes:
         encoded.append(raw)
 
     return b"".join(encoded)
+
+
+def _require_completed_render_state(state: Mapping[str, object]) -> None:
+    """Require the evidence to describe a completed successful render."""
+    status = state.get("status")
+    success = state.get("success")
+    failed = state.get("failed")
+    if status not in ("completed", "finished"):
+        raise ValueError("render receipt requires semantically completed render evidence")
+    if success is not True:
+        raise ValueError("render receipt requires successful render evidence")
+    if failed is not False:
+        raise ValueError("render receipt requires non-failed render evidence")
 
 
 @dataclass(frozen=True)
@@ -48,6 +62,28 @@ class UnrealRenderReceipt:
             )
         ).hexdigest()
 
+    def snapshot(self) -> dict[str, str]:
+        """Return a detached JSON-compatible receipt snapshot."""
+        return {
+            "job_id": self.job_id,
+            "sequence_asset_path": self.sequence_asset_path,
+            "evidence_digest": self.evidence_digest,
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot: Mapping[str, Any]) -> "UnrealRenderReceipt":
+        """Reconstruct a receipt from an exact persisted snapshot, fail-closed."""
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("Unreal render receipt snapshot must be a mapping")
+        required = {"job_id", "sequence_asset_path", "evidence_digest"}
+        if set(snapshot) != required:
+            raise ValueError("Unreal render receipt snapshot fields are invalid")
+        return cls(
+            job_id=snapshot["job_id"],
+            sequence_asset_path=snapshot["sequence_asset_path"],
+            evidence_digest=snapshot["evidence_digest"],
+        )
+
     @classmethod
     def issue(cls, evidence: UnrealEvidence) -> "UnrealRenderReceipt":
         if not isinstance(evidence, UnrealEvidence):
@@ -64,10 +100,11 @@ class UnrealRenderReceipt:
             )
 
         state = evidence.observed_state
-        if not isinstance(state, dict):
+        if not isinstance(state, Mapping):
             raise ValueError(
                 "render-job evidence observed_state must be a mapping"
             )
+        _require_completed_render_state(state)
 
         job_id = state.get("job_id")
         sequence_asset_path = state.get("sequence_asset_path")

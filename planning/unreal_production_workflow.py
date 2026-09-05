@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_production_executor import (
     UnrealProductionExecutionResult,
     UnrealProductionExecutor,
 )
 from planning.unreal_production_operation import UnrealProductionPlan
+from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_workflow import (
     UnrealRenderWorkflow,
     UnrealRenderWorkflowError,
@@ -31,8 +33,41 @@ class UnrealProductionWorkflowResult:
     render: UnrealRenderWorkflowResult
 
     @property
+    def verified_render(self) -> bool:
+        """Whether the render result contains a verified, internally consistent identity."""
+        if not isinstance(self.production, UnrealProductionExecutionResult):
+            if not hasattr(self.production, "success") or not self.production.success:
+                return False
+            production_intent_id = self.render.intent_id
+        else:
+            production_intent_id = self.production.production.plan.intent_id
+        if not isinstance(production_intent_id, str) or not production_intent_id.strip():
+            return False
+        if not isinstance(self.render.intent_id, str) or not self.render.intent_id.strip():
+            return False
+        if self.render.intent_id != production_intent_id:
+            return False
+        if not isinstance(self.render.job_id, str) or not self.render.job_id.strip():
+            return False
+        if not isinstance(self.render.final_evidence, UnrealEvidence):
+            return False
+        if not self.render.final_evidence.verified:
+            return False
+        if self.render.final_evidence.operation_name != "inspect_render_job":
+            return False
+        observed_job_id = self.render.final_evidence.observed_state.get("job_id")
+        if observed_job_id != self.render.job_id:
+            return False
+        if not isinstance(self.render.receipt, UnrealRenderReceipt):
+            return False
+        if self.render.receipt.job_id != self.render.job_id:
+            return False
+        return self.render.receipt.matches(self.render.final_evidence)
+
+    @property
     def success(self) -> bool:
-        return self.production.success and self.render.receipt.job_id == self.render.job_id
+        """Whether production and the final render both completed with verified identity."""
+        return self.production.success and self.verified_render
 
 
 class UnrealProductionWorkflow:
@@ -54,7 +89,6 @@ class UnrealProductionWorkflow:
 
         self.production_executor = production_executor
         self.render_workflow = render_workflow
-
 
     def run(
         self,
@@ -79,6 +113,10 @@ class UnrealProductionWorkflow:
             )
         if not isinstance(intent, UnrealTaskIntent):
             raise TypeError("intent must be a UnrealTaskIntent instance")
+        if production.plan.intent_id != intent.intent_id:
+            raise UnrealProductionWorkflowError(
+                "production plan intent_id must match render intent_id"
+            )
         if not isinstance(sequence_asset_path, str) or not sequence_asset_path.strip():
             raise ValueError("sequence_asset_path must be a non-empty string")
 
@@ -108,6 +146,14 @@ class UnrealProductionWorkflow:
             job_id,
             render_authorization_factory,
         )
+        if not isinstance(final_render, UnrealRenderWorkflowResult):
+            raise UnrealProductionWorkflowError(
+                "render workflow returned an invalid result"
+            )
+        if final_render.intent_id != intent.intent_id:
+            raise UnrealProductionWorkflowError(
+                "render result intent_id does not match the production intent_id"
+            )
 
         return UnrealProductionWorkflowResult(
             production=production_result,

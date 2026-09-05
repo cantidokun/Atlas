@@ -71,7 +71,7 @@ def verify_render_job_completion(
 
     output_files = state.get("output_files", [])
 
-    if not isinstance(output_files, list):
+    if not isinstance(output_files, (list, tuple)):
         raise TypeError(
             "render job output_files must be a list"
         )

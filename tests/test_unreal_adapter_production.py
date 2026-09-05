@@ -133,7 +133,7 @@ class TestInspect:
         evidence = adapter.inspect(_read_operation(), AUTH_ID)
         assert evidence.operation_name == "inspect_target_actors"
         assert evidence.entity_ids == ("FIELD_SURFACE",)
-        assert evidence.observed_state == {"location": [100, 200, 300]}
+        assert list(evidence.observed_state["location"]) == [100, 200, 300]
         assert evidence.verified is False
 
     def test_inspect_rejects_write_operation(self):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
@@ -134,9 +134,9 @@ class UnrealRenderWorkflow:
         return job_id.strip()
 
     @staticmethod
-    def _job_state(evidence: UnrealEvidence) -> dict:
+    def _job_state(evidence: UnrealEvidence) -> Mapping:
         state = evidence.observed_state
-        if not isinstance(state, dict):
+        if not isinstance(state, Mapping):
             raise UnrealRenderWorkflowError(
                 "render-job evidence observed_state must be a mapping"
             )
@@ -145,11 +145,11 @@ class UnrealRenderWorkflow:
             job_state = state
         elif len(state) == 1:
             candidate = next(iter(state.values()))
-            job_state = candidate.get("render_job") if isinstance(candidate, dict) else None
+            job_state = candidate.get("render_job") if isinstance(candidate, Mapping) else None
         else:
             job_state = None
 
-        if not isinstance(job_state, dict):
+        if not isinstance(job_state, Mapping):
             raise UnrealRenderWorkflowError(
                 "render-job evidence does not contain a render_job object"
             )

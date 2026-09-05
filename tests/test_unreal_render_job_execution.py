@@ -224,7 +224,7 @@ def test_render_job_evidence_keeps_directory_and_artifacts_distinct():
 
     assert state["output_directory"] == "Saved/AtlasRenderOutput"
     assert state["output_format"] == "png"
-    assert state["output_files"] == []
+    assert list(state["output_files"]) == []
 
 
 def test_render_job_verifier_rejects_success_without_artifacts():

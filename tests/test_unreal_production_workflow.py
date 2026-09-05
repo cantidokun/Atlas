@@ -12,6 +12,7 @@ from planning.unreal_production_operation import UnrealProductionPlan
 from planning.unreal_production_workflow import (
     UnrealProductionWorkflow,
     UnrealProductionWorkflowError,
+    UnrealProductionWorkflowResult,
 )
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_workflow import (
@@ -123,15 +124,26 @@ def _submission_result(intent):
 
 
 def _completed_render(intent):
-    receipt = UnrealRenderReceipt(
-        job_id="job-123",
-        sequence_asset_path="/Game/AtlasTest/AtlasSequencerFixtureSequence",
-        evidence_digest="e" * 64,
+    evidence = UnrealEvidence(
+        operation_name="inspect_render_job",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state={
+            "job_id": "job-123",
+            "sequence_asset_path": "/Game/AtlasTest/AtlasSequencerFixtureSequence",
+            "status": "finished",
+            "finished": True,
+            "success": True,
+            "failed": False,
+            "output_files": ["Saved/AtlasRenderOutput/AtlasRender_0001.png"],
+        },
+        source="production-workflow-test",
+        verified=True,
     )
+    receipt = UnrealRenderReceipt.issue(evidence)
     return UnrealRenderWorkflowResult(
         intent_id=intent.intent_id,
         job_id="job-123",
-        final_evidence=object(),
+        final_evidence=evidence,
         receipt=receipt,
         persisted_receipt={
             "job_id": "job-123",
@@ -176,6 +188,7 @@ def test_successful_production_then_render_returns_verified_workflow_result():
     )
 
     assert result.success is True
+    assert result.verified_render is True
     assert production_executor.calls
     assert len(render_workflow.submit_calls) == 1
     assert len(render_workflow.wait_calls) == 1
@@ -183,6 +196,151 @@ def test_successful_production_then_render_returns_verified_workflow_result():
         "/Game/AtlasTest/AtlasSequencerFixtureSequence"
     )
     assert render_workflow.wait_calls[0][1] == "job-123"
+
+
+def test_workflow_rejects_production_and_render_intent_mismatch_before_execution():
+    workflow, production_executor, render_workflow = _workflow()
+    production = _production("production-intent")
+    wrong_intent = _intent("render-intent")
+
+    with pytest.raises(
+        UnrealProductionWorkflowError,
+        match="production plan intent_id must match render intent_id",
+    ):
+        workflow.run(
+            production,
+            _authorization(production),
+            wrong_intent,
+            "/Game/AtlasTest/AtlasSequencerFixtureSequence",
+            lambda plan: UnrealPlanAuthorization.issue(plan, "render-auth"),
+        )
+
+    assert production_executor.calls == []
+    assert render_workflow.submit_calls == []
+    assert render_workflow.wait_calls == []
+
+
+def test_workflow_rejects_render_result_intent_mismatch_after_execution():
+    production = _production()
+    render_intent = _intent("unexpected-render-intent")
+    mismatched_render = _completed_render(render_intent)
+    workflow, production_executor, render_workflow = _workflow(
+        final_result=mismatched_render,
+    )
+
+    with pytest.raises(
+        UnrealProductionWorkflowError,
+        match="render result intent_id does not match the production intent_id",
+    ):
+        workflow.run(
+            production,
+            _authorization(production),
+            _intent(),
+            "/Game/AtlasTest/AtlasSequencerFixtureSequence",
+            lambda plan: UnrealPlanAuthorization.issue(plan, "render-auth"),
+        )
+
+    assert len(production_executor.calls) == 1
+    assert len(render_workflow.submit_calls) == 1
+    assert len(render_workflow.wait_calls) == 1
+
+
+def test_workflow_success_requires_verified_render_identity():
+    production = FakeProductionExecutor()
+    execution = production.execute(
+        _production(),
+        _authorization(_production()),
+    )
+    good_render = _completed_render(_intent())
+    invalid_render = UnrealRenderWorkflowResult(
+        intent_id=good_render.intent_id,
+        job_id=good_render.job_id,
+        final_evidence=object(),
+        receipt=good_render.receipt,
+        persisted_receipt=good_render.persisted_receipt,
+    )
+
+    result = UnrealProductionWorkflowResult(
+        production=execution,
+        render=invalid_render,
+    )
+
+    assert result.verified_render is False
+    assert result.success is False
+
+
+def test_workflow_success_rejects_render_job_id_mismatch():
+    production = FakeProductionExecutor()
+    execution = production.execute(
+        _production(),
+        _authorization(_production()),
+    )
+    render = _completed_render(_intent())
+    mismatched = UnrealRenderWorkflowResult(
+        intent_id=render.intent_id,
+        job_id="different-job",
+        final_evidence=render.final_evidence,
+        receipt=render.receipt,
+        persisted_receipt=render.persisted_receipt,
+    )
+
+    result = UnrealProductionWorkflowResult(
+        production=execution,
+        render=mismatched,
+    )
+
+    assert result.verified_render is False
+    assert result.success is False
+
+
+def test_workflow_success_rejects_unverified_or_non_render_evidence():
+    production = FakeProductionExecutor()
+    execution = production.execute(
+        _production(),
+        _authorization(_production()),
+    )
+    render = _completed_render(_intent())
+    evidence = UnrealEvidence(
+        operation_name="verify_render_job",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state=render.final_evidence.observed_state,
+        verified=False,
+        source="production-workflow-test",
+    )
+    invalid = UnrealRenderWorkflowResult(
+        intent_id=render.intent_id,
+        job_id=render.job_id,
+        final_evidence=evidence,
+        receipt=render.receipt,
+        persisted_receipt=render.persisted_receipt,
+    )
+    result = UnrealProductionWorkflowResult(
+        production=execution,
+        render=invalid,
+    )
+    assert result.verified_render is False
+    assert result.success is False
+
+    non_render = UnrealEvidence(
+        operation_name="inspect_sequencer_state",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state=render.final_evidence.observed_state,
+        verified=True,
+        source="production-workflow-test",
+    )
+    invalid_operation = UnrealRenderWorkflowResult(
+        intent_id=render.intent_id,
+        job_id=render.job_id,
+        final_evidence=non_render,
+        receipt=render.receipt,
+        persisted_receipt=render.persisted_receipt,
+    )
+    result = UnrealProductionWorkflowResult(
+        production=execution,
+        render=invalid_operation,
+    )
+    assert result.verified_render is False
+    assert result.success is False
 
 
 def test_failed_production_prevents_render_submission():

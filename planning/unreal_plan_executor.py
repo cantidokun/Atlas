@@ -238,7 +238,8 @@ class UnrealPlanExecutor:
             except (KeyError,TypeError,ValueError) as exc: raise UnrealPlanExecutionError(f"Operation {index} ('{operation.name}') failed preflight: {self._format_preflight_error(exc)}") from exc
     @staticmethod
     def _extract_job_id(value):
-        if isinstance(value, dict):
+        from typing import Mapping
+        if isinstance(value, Mapping):
             for key in ("job_id", "render_job_id"):
                 candidate = value.get(key)
                 if isinstance(candidate, str) and candidate.strip():

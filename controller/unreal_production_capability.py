@@ -10,15 +10,36 @@ def unreal_production_task(request: CapabilityRequest) -> bool:
     """Match only explicitly requested production backed by trusted authorization."""
     if not isinstance(request, CapabilityRequest):
         raise TypeError("request must be a CapabilityRequest")
-    return (
-        request.normalized_provider == "unreal"
-        and request.normalized_capability == "production"
-        and request.context.get("production") is True
-        and isinstance(
+    if (
+        request.normalized_provider != "unreal"
+        or request.normalized_capability != "production"
+        or request.context.get("production") is not True
+    ):
+        return False
+
+    # Production start requires authorized_production
+    if request.context.get("recovery_action") is None:
+        return isinstance(
             request.context.get("authorized_production"),
             UnrealAuthorizedProductionPlan,
         )
-    )
+
+    # Recovery actions require their respective authorization
+    recovery_action = request.context.get("recovery_action")
+    if recovery_action == "reassess":
+        from planning.unreal_plan_authorization import UnrealPlanAuthorization
+        return isinstance(
+            request.context.get("reassessment_authorization"),
+            UnrealPlanAuthorization,
+        )
+    if recovery_action == "resume_recovery":
+        from planning.unreal_plan_authorization import UnrealPlanAuthorization
+        return isinstance(
+            request.context.get("replacement_authorization"),
+            UnrealPlanAuthorization,
+        )
+
+    return False
 
 
 def register_unreal_production_capability(
