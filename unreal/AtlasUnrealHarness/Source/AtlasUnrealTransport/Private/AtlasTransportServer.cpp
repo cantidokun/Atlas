@@ -1525,6 +1525,10 @@ bool FAtlasTransportServer::SubmitRender(
                 (*Found)->Status=TEXT("rendering");
                 (*Found)->StatusMessage=TEXT("Render job started");
                 (*Found)->Progress=0.0;
+
+                // Durably update journal phase to STARTED
+                FString JournalError;
+                WriteJournalEntry((*Found)->AtlasJobId, (*Found)->JobId, TEXT("STARTED"), *Found, JournalError);
             }
         });
 
@@ -2187,6 +2191,26 @@ bool FAtlasTransportServer::WriteJournalEntry(
     JsonObject->SetBoolField(TEXT("finished"), JobState->bFinished);
     JsonObject->SetBoolField(TEXT("failed"), JobState->bFailed);
     JsonObject->SetStringField(TEXT("written_at"), FDateTime::UtcNow().ToIso8601());
+
+    // Expected output spec (optional/default in M1)
+    TSharedPtr<FJsonObject> SpecObj = MakeShareable(new FJsonObject);
+    SpecObj->SetStringField(TEXT("format"), JobState->OutputFormat);
+    JsonObject->SetObjectField(TEXT("expected_output_spec"), SpecObj);
+
+    // Compute entry_digest over canonical fields
+    FString DigestInput = FString::Printf(
+        TEXT("%s:%s:%s:%s:%s:%s:%s:%s"),
+        *AtlasJobId,
+        *UnrealJobId,
+        *Phase,
+        *JobState->SequenceAssetPath,
+        *JobState->ConfigDigest,
+        *JobState->AuthorizationId,
+        *JobState->OutputDirectory,
+        *JobState->Status);
+    FSHAHash EntryHash;
+    FSHA1::HashBuffer(TCHAR_TO_UTF8(*DigestInput), DigestInput.Len(), EntryHash.Hash);
+    JsonObject->SetStringField(TEXT("entry_digest"), EntryHash.ToString());
 
     // Output manifest
     TArray<TSharedPtr<FJsonValue>> ManifestArray;
