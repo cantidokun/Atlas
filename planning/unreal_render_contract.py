@@ -3,7 +3,11 @@
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from planning.unreal_evidence_contract import UnrealEvidence
+from planning.unreal_evidence_contract import (
+    UnrealEvidence,
+    validate_evidence_for_operation,
+    verify_render_job_evidence,
+)
 
 
 @dataclass(frozen=True)

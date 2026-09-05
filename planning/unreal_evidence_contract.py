@@ -6,8 +6,15 @@ consumes this evidence independently of the agent's proposal.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, Tuple
+from typing import Any, Mapping, Sequence, Tuple
+
+
+def _validate_canonical_identity(name: str, value: Any) -> str:
+    if not isinstance(value, str) or not value or value.strip() != value:
+        raise ValueError(f"{name} must be a non-empty canonical string")
+    return value
 
 
 def _freeze(value: Any) -> Any:
@@ -93,3 +100,101 @@ def validate_evidence_for_operation(evidence: UnrealEvidence, operation_name: st
     if tuple(evidence.entity_ids) != tuple(entity_ids):
         raise ValueError("evidence entity_ids do not match operation targets")
     return evidence
+
+
+def verify_render_job_evidence(
+    *,
+    operation_name: str,
+    entity_ids: Sequence[str],
+    observed_state: Mapping[str, Any],
+    source: str,
+) -> UnrealEvidence:
+    """Authoritatively verify raw observed Unreal render-job state and construct verified UnrealEvidence.
+
+    This is the independent verification boundary for Unreal render jobs.
+    It verifies:
+    - operation_name == 'inspect_render_job'
+    - entity_ids is a non-empty sequence of non-empty strings
+    - job_id exists and is canonical
+    - sequence_asset_path exists and is canonical
+    - status is 'completed' or 'finished'
+    - finished is True
+    - success is True
+    - failed is False
+    - output_files is a non-empty sequence of non-empty strings
+    - every output file exists on the local filesystem, is accessible, and has size > 0
+
+    Only after all checks succeed is UnrealEvidence instantiated with verified=True.
+    """
+    if operation_name != "inspect_render_job":
+        raise ValueError("render job verification requires operation_name == 'inspect_render_job'")
+    if not isinstance(entity_ids, (list, tuple)):
+        raise TypeError("entity_ids must be a sequence")
+    normalized_entity_ids = tuple(entity_ids)
+    if not normalized_entity_ids:
+        raise ValueError("entity_ids cannot be empty")
+    for eid in normalized_entity_ids:
+        _validate_canonical_identity("entity_id", eid)
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("source must be a non-empty string")
+    if not isinstance(observed_state, Mapping):
+        raise TypeError("observed_state must be a mapping")
+
+    job_id = observed_state.get("job_id")
+    sequence_asset_path = observed_state.get("sequence_asset_path")
+    _validate_canonical_identity("job_id", job_id)
+    _validate_canonical_identity("sequence_asset_path", sequence_asset_path)
+
+    status = observed_state.get("status")
+    if status not in ("completed", "finished"):
+        raise ValueError(f"render job status must be 'completed' or 'finished', got: {status!r}")
+
+    finished = observed_state.get("finished")
+    if finished is not True:
+        raise ValueError(f"render job finished flag must be True, got: {finished!r}")
+
+    success = observed_state.get("success")
+    if success is not True:
+        raise ValueError(f"render job success flag must be True, got: {success!r}")
+
+    failed = observed_state.get("failed")
+    if failed is not False:
+        raise ValueError(f"render job failed flag must be False, got: {failed!r}")
+
+    output_files = observed_state.get("output_files")
+    if not isinstance(output_files, (list, tuple)):
+        raise TypeError("observed_state.output_files must be a sequence")
+    if len(output_files) == 0:
+        raise ValueError("observed_state.output_files must not be empty")
+
+    normalized_output_files = []
+    for file_path in output_files:
+        if not isinstance(file_path, str) or not file_path.strip():
+            raise ValueError("output file path must be a non-empty string")
+        path_obj = Path(file_path.strip())
+        try:
+            if not path_obj.exists():
+                raise FileNotFoundError(f"render output file does not exist on disk: {file_path}")
+            if not path_obj.is_file():
+                raise ValueError(f"render output path is not a file: {file_path}")
+            file_stat = path_obj.stat()
+            if file_stat.st_size <= 0:
+                raise ValueError(f"render output file has zero or negative size: {file_path} ({file_stat.st_size} bytes)")
+        except (OSError, PermissionError) as exc:
+            if isinstance(exc, (FileNotFoundError, ValueError)):
+                raise
+            raise PermissionError(f"render output file is not accessible: {file_path}") from exc
+        normalized_output_files.append(file_path.strip())
+
+    # Build clean state mapping with verified values
+    clean_state = dict(observed_state)
+    clean_state["output_files"] = normalized_output_files
+
+    return UnrealEvidence(
+        operation_name=operation_name,
+        entity_ids=normalized_entity_ids,
+        observed_state=clean_state,
+        source=source.strip(),
+        verified=True,
+    )
+

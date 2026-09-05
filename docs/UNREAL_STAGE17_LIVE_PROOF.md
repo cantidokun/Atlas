@@ -75,12 +75,16 @@ The harness is intentionally downstream of the existing render proof:
 ```text
 UE 5.6 render
   -> inspect_render_job
+  -> verify_render_job_evidence() (authoritative independent verification boundary)
   -> verified UnrealEvidence
-  -> UnrealRenderReceipt
+  -> UnrealRenderReceipt.issue()
   -> ProductionArtifactManifest
   -> ProductionArtifactStore
   -> reload
   -> independent lineage verification
 ```
+
+The authoritative verification function is `verify_render_job_evidence` in `planning/unreal_evidence_contract.py`.
+It validates semantic completion (`status in ('completed', 'finished')`, `finished == True`, `success == True`, `failed == False`), canonical job/sequence identity, non-empty `output_files`, and physical existence, accessibility, and non-zero byte size of every output artifact on the local filesystem. Only when all checks pass is `UnrealEvidence` constructed with `verified=True`. No caller or test manually asserts `verified=True`.
 
 No second Unreal execution path should be introduced for this gate.
