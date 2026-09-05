@@ -44,16 +44,48 @@ Qwen is never the execution or authorization authority.
 
 ---
 
-# Current position — September 4, 2026
+# Current position — September 5, 2026
 
-**Active branch:** `main`  
-**Current development stage:** **Stage 17 — production artifact lineage, IN PROGRESS**
+**Active branch:** `docs/atlas-live-hermes-handoff`  
+**Current development stage:** **Atlas Live — External Soccer Tracking Telemetry Verified**
 
-Stage 13 multi-step partial-progress recovery is live-verified against Blender 4.4. Stage 14 dependency-aware serial execution and cross-process recovery are implemented and live-verified. Stage 15 semantic soccer-production workflows and versioned catalog compilation are complete for the current contract.
+Atlas Live has established its canonical real-time pipeline, verified across 77 Python tests and 4/4 Unreal Engine 5.6 headless automation tests:
 
-Stage 16 Qwen integration is live-verified through proposal, Atlas authorization, real Blender mutation, cross-process recovery, and an advisory-only Qwen recovery recommendation.
+```text
+RawPerceptionFrame
+    →
+PerceptionAdapter
+    →
+LiveObservationFrame
+    →
+Live Identity Continuity Resolver
+    →
+Canonical LiveWorldState
+    →
+LiveEventEngine
+    →
+ProductionIntent
+    →
+TCP transport
+    →
+Unreal ingress queue
+    →
+GameThread pump
+    →
+Effect registry/handlers
+```
 
-## Stage 17 — Production artifact lineage
+### Verified Live Status
+- **Canonical World-State:** `live/world_state.py` is the sole authoritative Live World-State implementation with explicit entity freshness (`OBSERVED`, `STALE`, `UNOBSERVED`) and observation-gap derivative resets. (`planning/live_world_state.py` is deprecated).
+- **Identity Continuity Boundary:** `live/identity_resolver.py` enforces Astra Option C with 4 behavioral states (`UNBOUND`, `BOUND`, `TEMPORARILY_UNOBSERVED`, `DISPUTED`), positive evidence requirements, conflict suppression, and session-scoped tracking indices.
+- **Engine-Neutral Production Intent:** `ProductionIntent` retains canonical Atlas coordinates in meters. Coordinates are converted to Unreal centimeters (1m = 100cm) exclusively at the Unreal TCP ingress boundary (`AtlasLiveTcpListener.cpp`).
+- **Fail-Safe Unreal Deadline:** Missing receiver timing (`ReceiverCycles == 0`) is rejected conservatively for deadline safety with telemetry.
+- **External Telemetry Proof:** Ingested official MIT-licensed SkillCorner Open Data (Match 2017461, 500 frames), verifying real broadcast dropouts, real-time pacing, and independent deterministic `BALL_STRIKE` detection without consuming vendor event labels.
+- **UDP Ingress Transport:** `LiveTelemetryUdpReceiver` provides non-blocking UDP datagram ingress with an unfragmented Ethernet MTU limit (1472 bytes) and drop-oldest overflow policy.
+
+---
+
+## Stage 17 — Production artifact lineage (Offline Twin)
 
 `planning/production_artifact.py` provides an immutable provenance-only `ProductionArtifactManifest` connecting a production representation to the canonical Atlas Digital Twin, source artifacts, workflow provenance, independent verification evidence, execution receipts, engine metadata, and a deterministic integrity digest.
 

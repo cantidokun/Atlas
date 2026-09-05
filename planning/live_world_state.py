@@ -1,10 +1,19 @@
-"""Engine-independent contract for Atlas live Digital Twin state.
+"""LEGACY / DEPRECATED: Early planning prototype for live Digital Twin state.
 
-Atlas owns the semantic shape and lineage of live state. A simulator, tracking
-system, game engine, or other runtime may own production of that state. This
-module intentionally contains no networking, polling, execution, or engine SDK
-code.
+DEPRECATION NOTICE:
+This module is retained strictly for backwards-compatible reference and tests.
+The sole canonical, authoritative Live World-State implementation for Atlas Live
+is `live.world_state` (LiveWorldState, LiveWorldEntity, LiveWorldStateReconciler).
+Do NOT import or extend this module for runtime Live workflows.
 """
+
+import warnings
+
+warnings.warn(
+    "planning.live_world_state is deprecated; use live.world_state for Atlas Live.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from dataclasses import dataclass
 from types import MappingProxyType

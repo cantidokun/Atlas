@@ -299,7 +299,7 @@ Potential verification signals include:
 
 A live verification framework should not be built as a giant generalized system before a concrete end-to-end prototype identifies the required signals.
 
-## 15. Digital Twin relationship
+## 15. Digital Twin and Identity Relationship
 
 Atlas owns the canonical Digital Twin.
 
@@ -307,7 +307,47 @@ Photogrammetry remains an upstream reconstruction process. Blender analyzes, cle
 
 Live state should reference the canonical world/digital coordinate system rather than making a tracking vendor's coordinate system the permanent Atlas identity.
 
-## 16. Architectural anti-patterns to avoid
+Explicit identity distinction:
+- **Provider Tracking Identity**: Ephemeral, vendor-assigned IDs emitted by perception hardware/trackers (e.g., `track_42`).
+- **Stable Atlas Entity Identity**: Authoritative runtime entities recognized across Atlas Live (`player-09`, `ball`).
+- **Digital Twin Identity**: Canonical offline asset identities and anchor models defined in `planning/digital_twin_identity.py`.
+
+Live execution reuses the conservative identity semantics (MATCH, NO_MATCH, INSUFFICIENT_EVIDENCE) via `live/identity_resolver.py` without depending on planning/Blender offline workflows.
+
+## 16. Engineering and Architecture Review Workflow
+
+To prevent architectural drift and maintain rigorous implementation discipline, Atlas Live uses a multi-model engineering and review chain:
+- **Gemini / Hermes:** Primary implementation and verification agent.
+- **Claude Sonnet 5:** Independent architectural reviewer identifying structural risks.
+- **GPT-6 Astra:** Escalation authority for architectural forks (selected Option C: shared identity semantics, separate Live execution path).
+- **DeepSeek V4 Flash:** Optional secondary engineering/review model, not currently replacing Gemini.
+
+## 17. Next Development Phase: Direct Camera Perception V1
+
+**Target Architecture:**
+```text
+Real Fixed Camera
+    →
+External Perception Worker (isolated process)
+    →
+Video Capture + Player/Ball Detection + Short-Term Tracking
+    →
+Fixed-Camera Pitch Registration / Homography
+    →
+Canonical Field Coordinates in Meters (atlas-field)
+    →
+Atlas UDP Telemetry (< 1472 bytes MTU)
+    →
+Existing Verified Atlas Live Pipeline
+    →
+Unreal Engine
+```
+
+The camera capture and neural detection stack must remain decoupled from Atlas Core. Physical camera selection will precede locking sensor parameters.
+
+
+
+## 18. Architectural anti-patterns to avoid
 
 - LLM-per-frame decision loops;
 - provider-specific state becoming Atlas's canonical schema;
@@ -320,7 +360,7 @@ Live state should reference the canonical world/digital coordinate system rather
 - silently treating predictions as observations;
 - declaring live readiness from a simulation alone.
 
-## 17. Evolution rule
+## 19. Evolution rule
 
 This document is a direction, not a rigid implementation specification.
 

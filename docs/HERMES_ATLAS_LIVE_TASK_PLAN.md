@@ -379,20 +379,21 @@ Before progressing materially, verify:
 
 # Definition of done for the initial Hermes assignment
 
-The initial assignment is complete when Hermes has:
+The initial assignment is complete:
+- Canonical Live pipeline implemented and verified.
+- Astra Option C identity continuity resolver implemented (`live/identity_resolver.py`).
+- Authoritative canonical World-State established with explicit freshness and derivative gap handling (`live/world_state.py`).
+- Unreal fail-safe visual deadline check implemented (`AtlasLiveEffectRegistry.cpp`).
+- Genuine external soccer tracking telemetry proof verified against SkillCorner Open Data (Match 2017461, 500 frames).
+- Live UDP socket ingress adapter verified with 1472-byte unfragmented MTU policy.
+- Verified test state: 77/77 Python Live tests passing, 4/4 Unreal automation tests passing.
 
-1. inspected the actual repository;
-2. established the Live module boundary;
-3. documented the architecture decision;
-4. implemented a minimal deterministic simulated observation stream;
-5. created an Atlas-owned World-State;
-6. derived at least one deterministic event;
-7. exposed a downstream production interface without direct provider coupling;
-8. added focused tests;
-9. measured the basic runtime path;
-10. documented what remains unknown.
-
-Do not proceed directly from this assignment to a large real-time framework unless the repository inspection demonstrates that the framework already exists and should be extended.
+## Next Phase: Direct Camera Perception V1
+1. Decoupled external perception worker (isolated from Atlas Core).
+2. Video capture + player/ball detection + short-term tracking.
+3. Planar pitch homography / field calibration.
+4. Stream calibrated field coordinates in meters (`atlas-field`) via UDP datagrams to `LiveTelemetryUdpReceiver`.
+5. Pre-requisite: Physical camera test setup must be selected before locking hardware parameters.
 
 ---
 

@@ -1,14 +1,163 @@
 # Atlas Live — Hermes Development Handoff
 
-**Prepared:** September 4, 2026
-**Purpose:** Establish the architectural starting point and development mandate for Hermes-led development of Atlas Live.
-**Repository:** `cantidokun/Atlas`
-**Base reviewed:** GitHub `main` at `91e9efc3e9f4c9d6f37b651da95f2e3b363a540d`
-**Important:** This document is a development handoff, not a claim that Atlas Live is already implemented or production-ready.
+**Prepared:** September 5, 2026  
+**Purpose:** Record the verified architecture, external soccer telemetry proof, and development mandate for the next phase of Atlas Live.  
+**Repository:** `cantidokun/Atlas`  
+**Active Branch:** `docs/atlas-live-hermes-handoff`  
+**Verified Baseline:** **77 passed** Python Live regression tests, **4/4 passed** Unreal Engine 5.6 headless automation tests (`Atlas.Live.*`, Exit Code: 0).
 
-## 1. Mission
+---
 
-Atlas Live is the future real-time operating layer of Atlas for live soccer production. It should eventually allow Atlas to ingest live observations of a real soccer environment, maintain a continuously updated representation of that world, recognize meaningful events, select or parameterize production treatments, and drive controlled real-time execution in Unreal.
+## 1. Executive Summary & Verification State
+
+Atlas Live has completed its architectural stabilization, canonical state resolution, Option C identity continuity boundary, fail-safe visual deadline enforcement, and its **first genuine external tracking-data proof** using official SkillCorner broadcast tracking data.
+
+### Multi-Model Review & Engineering Workflow
+The development workflow established for Atlas Live operates as follows:
+- **Gemini / Hermes:** Primary implementation and verification agent.
+- **Claude Sonnet 5:** Independent architectural reviewer identifying structural risks.
+- **GPT-6 Astra:** Escalation authority for architectural forks (selected Option C: shared identity semantics, separate Live execution path).
+- **DeepSeek V4 Flash:** Optional secondary engineering/review model, not currently replacing Gemini.
+
+---
+
+## 2. Canonical Implemented Pipeline
+
+The verified end-to-end data flow operates strictly as:
+
+```text
+External Tracking Telemetry / Physical Sensors
+                    ↓
+        PerceptionAdapter Ingestion Boundary
+  (Monotonic check, session-reset gate, timestamp-domain validation)
+                    ↓  [LiveObservationFrame]
+      Live Identity Continuity Resolver (Option C)
+  (UNBOUND, BOUND, TEMPORARILY_UNOBSERVED, DISPUTED lifecycle)
+                    ↓  [Resolved LiveObservationFrame with stable IDs]
+        Canonical LiveWorldState Reconciler
+  (Authoritative LiveWorldState, freshness tracking, derivative gap resets)
+                    ↓  [LiveWorldState in canonical meters]
+          LiveEventEngine Kinematic Evaluation
+  (Deterministic rule-based detection, fresh entity verification)
+                    ↓  [LiveEvent]
+         LiveProductionDecisionLayer
+  (Engine-neutral ProductionIntent mapping retaining canonical meters)
+                    ↓  [ProductionIntentEnvelope with SHA-256 Digest]
+          Localhost TCP Transport Channel
+  (Protocol v1 length-prefixed framing over port 7778)
+                    ↓  [Network Boundary]
+         Unreal Ingress Queue & TCP Listener
+  (Decodes JSON, converts canonical meters to Unreal cm, bounded MPSC ring)
+                    ↓  [Thread Boundary]
+         Deterministic GameThread Pump
+  (Bounded tick dequeue protecting 60/120 fps GameThread budget)
+                    ↓
+         Visual Effect Registry & Handlers
+  (Fail-safe deadline check, tags resolution, transient component FX)
+```
+
+---
+
+## 3. Implemented Subsystems & Contracts
+
+### A. Canonical World-State
+- `live/world_state.py` is established as the sole authoritative Live World-State implementation.
+- `planning/live_world_state.py` is marked with a module-level `DeprecationWarning` and retained solely for legacy planning reference.
+- Entities carry explicit `freshness` (`OBSERVED`, `STALE`, `UNOBSERVED`) and `is_observed`. Stale entities retain last-known spatial info but are disqualified from kinematic derivative events.
+- Kinematic derivatives (velocities) reset when an entity reappears after an observation gap exceeding `max_derivative_gap_ns` (default $150\text{ ms}$ for 10 Hz feeds).
+
+### B. Live Identity Continuity Resolver
+- `live/identity_resolver.py` implements Astra Option C:
+  - 4 behavioral states: `UNBOUND`, `BOUND`, `TEMPORARILY_UNOBSERVED`, `DISPUTED`.
+  - Positive evidence required to bind; ambiguity remains unresolved.
+  - Competing tracks for the same entity trigger `DISPUTED` and suppress downstream visual effects.
+  - Provider tracking IDs are kept distinct from stable Atlas entity IDs (`player-09`, `ball`).
+  - Tracking indices are session-scoped: `(provider_id, session_id, track_id)`.
+
+### C. Perception & Ingestion Boundary
+- `live/perception_adapter.py` supports typed `TimestampDomain` (`MONOTONIC_HOST`, `MONOTONIC_SOURCE`, `UTC_UNIX`).
+- Incompatible clock domains are never subtracted. Staleness against host clock is only evaluated for `MONOTONIC_HOST`.
+- Session breaks (`session_id` changes) trigger clean local sequence and timestamp resets without pipeline stalling.
+- `LiveRuntimeCoordinator` enforces atomic pre-admission checks on both `tick_raw()` and direct `tick()`, ensuring rejected frames cause zero mutation to identity state.
+
+### D. Live UDP Socket Ingress
+- `live/telemetry_socket_provider.py` provides `LiveTelemetryUdpReceiver`.
+- Framing: One UTF-8 JSON object per UDP datagram.
+- Datagram policy: Enforces a conservative unfragmented Ethernet MTU payload limit (`DEFAULT_MAX_DATAGRAM_BYTES = 1472`). Oversized datagrams are rejected before parsing with dedicated `packets_rejected_oversized` telemetry.
+- Bounded internal queue with drop-oldest overflow policy under backpressure.
+
+### E. Unreal Engine Execution Boundary
+- Spatial conversion: `ProductionIntent` stays in canonical **meters**. Unreal's `AtlasLiveTcpListener.cpp` converts meters to centimeters ($1\text{ m} = 100\text{ cm}$) upon socket deserialization.
+- Visual deadline safety: In `AtlasLiveEffectRegistry.cpp`, `ReceiverCycles == 0` is treated as missing timing and rejected conservatively (`TotalExpiredDeadlineCount++`), removing the fail-open vulnerability.
+- Delivery semantics: Python `DeliveryStatus.DELIVERED` strictly indicates transport send completion, not Unreal GameThread effect dispatch.
+
+---
+
+## 4. External Data Verification Proof
+
+Atlas Live was verified against the official **SkillCorner Open Data** repository (`SkillCorner/opendata`, Match `2017461`, Melbourne Victory FC vs Auckland FC):
+- **Slice:** Frames 2510 to 3009 (500 frames at 10 fps = 50.0s of continuous live play).
+- **Provenance:** Fully preserved at `tests/fixtures/SKILLCORNER_SLICE_PROVENANCE.md` (MIT License).
+- **Real-World Conditions Exercised:**
+  - 322 ball detected frames (64.4%) and 178 ball dropouts/occlusions (35.6%).
+  - 4,302 player detections and 4,014 extrapolations (`is_detected=False`).
+  - Proved `TEMPORARILY_UNOBSERVED` state transitions and derivative gap resets on real optical camera data.
+- **Independent Event Recognition:** Atlas Live's `LiveEventEngine` independently recognized a `BALL_STRIKE` at frame 2871–2872 ($78.6\text{ m/s}^2$ acceleration, $0.75\text{ m}$ proximity to player `582974`) matching SkillCorner's independent dynamic event record (`player_possession` by M. Francois across frames 2868–2872) without consuming vendor event annotations.
+
+---
+
+## 5. Current Limitations
+
+1. **Not Direct Camera Perception:** The SkillCorner proof is a real external tracking-data proof, not direct camera/video perception. Video decoding and ML detection were performed upstream by SkillCorner's tracking system.
+2. **Unreal Actor Lookup Scaling:** `FAtlasLiveEffectRegistry::FindTargetActor` performs a linear world scan per intent. Sufficient for vertical-slice testing; requires an actor tag cache before full 22-player match volume.
+3. **Single-Stream Ingestion:** The current pipeline assumes a single coherent perception stream per provider. Multi-camera fan-in requires the future temporal reassembly seam.
+
+---
+
+## 6. Deliberately Deferred Capabilities
+
+The following remain intentionally deferred:
+- Multi-camera spatial fusion / epipolar geometry.
+- Learned visual appearance embeddings / re-identification models.
+- Kinematic trajectory prediction / Kalman extrapolation.
+- Generalized identity graph representations.
+- Generalized event-rule engines.
+- Generalized `ProductionIntent` parameter schemas.
+- Speculative C++ migrations without profiling evidence.
+- Unreal actor lookup spatial caching.
+- Cross-process PTP/NTP clock synchronization.
+- Python ↔ Unreal bidirectional backpressure / ACK protocol.
+- Direct camera/video decoding inside the Atlas process.
+
+---
+
+## 7. Next Development Phase: Direct Camera Perception V1
+
+**Target:** Ingest live or recorded fixed-camera video into an isolated perception worker and stream calibrated tracking datagrams into Atlas Live.
+
+```text
+Real Fixed Camera (elevated field view)
+                    ↓
+       External Perception Worker (isolated process)
+  (Video capture, player/ball detection, short-term tracking)
+                    ↓
+         Fixed-Camera Field Calibration
+  (Planar pitch homography / camera extrinsic matrix)
+                    ↓
+  Canonical Field Coordinates in Meters (atlas-field)
+                    ↓  [UDP Datagrams < 1472 bytes]
+        Atlas Live Telemetry Socket Receiver
+                    ↓
+       Existing Verified Live Pipeline
+                    ↓
+              Unreal Engine
+```
+
+**Key Architectural Directives for Phase V1:**
+- **Decoupled Worker:** The video capture, OpenCV/CUDA, and YOLO/neural detection stack must run in a separate worker process, communicating with Atlas Live exclusively via UDP JSON datagrams. Atlas Live remains clean and dependency-light.
+- **Calibrated Coordinates:** Atlas Live receives coordinates in calibrated meters (`atlas-field`), not raw 2D pixel coordinates.
+- **Physical Setup Decision Pending:** Do not lock the exact camera model, optical lens, detector, tracker, or GPU configuration until the physical camera test environment is selected.
+
 
 The Live subsystem remains part of the Atlas ecosystem. It is not a second Atlas and must not become an independent architectural universe inside the repository.
 

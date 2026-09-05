@@ -1,0 +1,58 @@
+[
+  {
+    "source_frame": 2871,
+    "skillcorner_source_timestamp": "00:00:36.10",
+    "atlas_sensor_timestamp_ns": 287100000000,
+    "provider_track_ids": ["trk_p582974", "trk_ball"],
+    "atlas_entity_ids": ["player-582974", "ball"],
+    "atlas_event_type": "ball_strike",
+    "atlas_event_intensity": 0.25,
+    "skillcorner_reference_events": [
+      {
+        "event_id": "8_6",
+        "event_type": "player_possession",
+        "player_name": "M. Francois",
+        "player_id": "582974",
+        "frame_range": "2868-2872",
+        "match_time": "00:35.8-00:36.2"
+      },
+      {
+        "event_id": "9_6",
+        "event_type": "on_ball_engagement",
+        "player_name": "N. Velupillay",
+        "player_id": "50955",
+        "frame_range": "2867-2872",
+        "match_time": "00:35.7-00:36.2"
+      }
+    ]
+  },
+  {
+    "source_frame": 2872,
+    "skillcorner_source_timestamp": "00:00:36.20",
+    "atlas_sensor_timestamp_ns": 287200000000,
+    "provider_track_ids": ["trk_p582974", "trk_ball"],
+    "atlas_entity_ids": ["player-582974", "ball"],
+    "atlas_event_type": "ball_strike",
+    "atlas_event_intensity": 0.87,
+    "skillcorner_reference_events": [
+      {
+        "event_id": "8_6",
+        "event_type": "player_possession",
+        "player_name": "M. Francois",
+        "player_id": "582974",
+        "frame_range": "2868-2872",
+        "match_time": "00:35.8-00:36.2"
+      }
+    ]
+  },
+  {
+    "source_frame": 2873,
+    "skillcorner_source_timestamp": "00:00:36.30",
+    "atlas_sensor_timestamp_ns": 287300000000,
+    "provider_track_ids": ["trk_p582974", "trk_ball"],
+    "atlas_entity_ids": ["player-582974", "ball"],
+    "atlas_event_type": "ball_strike",
+    "atlas_event_intensity": 1.0,
+    "skillcorner_reference_events": []
+  }
+]

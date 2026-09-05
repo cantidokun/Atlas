@@ -24,6 +24,21 @@ Atlas Live remains inside the Atlas ecosystem. You are empowered to design and i
 
 You are not being asked to merely implement a fixed design. You are expected to investigate, prototype, measure, and improve the architecture as evidence accumulates.
 
+## Current status — September 5, 2026
+
+Atlas Live has completed its initial vertical slice, identity continuity boundary (Astra Option C), fail-safe visual deadline enforcement, and external tracking telemetry proof (SkillCorner Open Data).
+
+See:
+- `docs/ATLAS_LIVE_HANDOFF_CURRENT.md` for current verified state and next phase directions.
+- `docs/ATLAS_LIVE_ARCHITECTURE_SNAPSHOT.md` for the canonical architectural subsystem map.
+- `docs/ATLAS_LIVE_ARCHITECTURE_DIRECTION.md` for core design principles and anti-patterns.
+- `docs/ATLAS_LIVE_TEMPORAL_INGESTION_BOUNDARY.md` for perception ingestion and timestamp policies.
+- `docs/ATLAS_LIVE_TCP_WIRE_PROTOCOL.md` for the streaming protocol specification.
+
+The next development phase is **Direct Camera Perception V1** (isolated perception worker streaming calibrated field coordinates via UDP).
+
+---
+
 ## First command set
 
 Before editing:
