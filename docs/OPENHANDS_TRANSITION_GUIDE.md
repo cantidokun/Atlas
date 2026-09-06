@@ -1,16 +1,18 @@
 # OpenHands Transition Guide
 
-This guide records the planned transition to an OpenHands-assisted Atlas development workflow and is aligned with the September 4, 2026 end-of-night architecture checkpoint.
+This guide records the planned OpenHands-assisted Atlas development workflow and is aligned with the September 6, 2026 M4/M5 checkpoint.
 
 ## Current Atlas position
 
 **Active branch:** `main`  
-**Current development stage:** Stage 17 — production-artifact lineage, IN PROGRESS.
+**Current milestone:** M5 independent Unreal evidence verification is complete; M4 cross-process recovery is complete.
+
+Latest M5 merge commit: `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`.
 
 The current control model is:
 
 ```text
-Qwen / AI
+Qwen / AI / development models
     -> reason and propose structured production intent
 
 Python / Atlas
@@ -23,61 +25,97 @@ Independent verification
     -> establish what actually happened
 ```
 
-Qwen must never receive direct execution or authorization authority.
+Models and agent wrappers are never Atlas execution or authorization authorities.
 
 ## Current proven architecture
 
 Atlas has live-proven autonomous execution/recovery foundations, dependency-aware serial recovery, semantic soccer-production tasks, Qwen proposal/authorization/recovery integration, and production-artifact lineage.
 
-Stage 17 currently provides:
+The Unreal path now includes both durable cross-process recovery and an authoritative independent evidence-verification boundary:
 
 ```text
-canonical Atlas Digital Twin
-    ↓
-production representation
-    ↓
-independent evidence
-    ↓
-engine receipt
-    ↓
+Atlas durable job intent / state
+        ↓
+controlled Unreal submission
+        ↓
+Unreal worker + witness journal
+        ↓
+reconciliation / recovery
+        ↓
+raw observed render evidence
+        ↓
+independent Atlas verification
+        ↓
+verified UnrealEvidence
+        ↓
+UnrealRenderReceipt
+        ↓
 ProductionArtifactManifest
-    ↓
-durable persistence
-    ↓
-exact lineage verification
 ```
 
-Blender Stage 17 is live verified against Blender 4.4. Unreal Stage 17 provenance is implemented and regression-verified, while the final human gate is a disposable proof using evidence emitted by the already proven Unreal Engine 5.6 render boundary.
+Blender Stage 17 is live verified against Blender 4.4. Unreal Stage 17 is live verified against real UE 5.6. The first Unreal proof uncovered a real state-consistency defect which was corrected before the successful proof.
 
-## Unreal boundary
+## M4 — Cross-process Unreal render-job recovery
 
-The proven Unreal path is:
+M4 is merged to `main`.
+
+The recovery model is Atlas-owned and includes:
+
+- durable `AtlasRenderJobRecord` state;
+- durable intent before transport submission;
+- Atlas-generated immutable job identity and attempt identity;
+- coordinator lease/fencing and per-job ownership;
+- process/session identity including process creation identity;
+- contained Windows Job Object supervision;
+- fail-closed behavior for unsupported uncontained attached recovery;
+- Unreal witness journal outside `Saved`;
+- attempt nonce/HMAC protections;
+- per-attempt output isolation;
+- engine-attested output manifests and independent disk hashing;
+- full reconciliation catalog with stability checks;
+- rogue/unmanaged job detection without silent adoption;
+- explicit orphan/ambiguity states;
+- identity-bound receipt creation with create-if-absent semantics;
+- no automatic resubmission after uncertain execution acceptance.
+
+The Unreal engine remains a controlled worker/witness. It does not own Atlas recovery authority.
+
+## M5 — Independent evidence verification
+
+M5 is merged to `main` via PR #68.
+
+`verify_render_job_evidence(...)` is the authoritative verifier for raw observed Unreal render-job state. It fail-closes unless the evidence source, durable record identity, expected topology, output isolation, engine-attested manifest, independent disk hashes, and PNG/artifact integrity checks all agree.
+
+Important distinction:
 
 ```text
-render configuration
-  -> verification
-  -> Movie Render Queue submission
-  -> dynamic job ID
-  -> asynchronous inspection
-  -> semantic completion verification
-  -> actual artifact discovery
-  -> filesystem validation
-  -> verified inspect_render_job evidence
-  -> UnrealRenderReceipt
-  -> durable receipt persistence
+Unreal transport
+    -> observed state only
+
+Atlas verifier
+    -> verified=True only after independent proof
+
+Receipt
+    -> only from verified evidence
+
+Provenance manifest
+    -> downstream lineage only
 ```
 
-Stage 17 continues from that verified evidence/receipt pair into the provenance manifest. The proof harness does not submit or execute a render and does not implement Unreal job recovery.
+M5 validation before merge:
+- 39 evidence-verification tests passed;
+- 15 recovery-coordinator tests passed;
+- `pytest -k unreal`: 302 passed, 648 deselected;
+- full `pytest`: 950 passed;
+- GitHub Actions `Atlas Tests` for the M5 head completed successfully.
 
-Cross-process Unreal render-job recovery is not implemented. Durable receipt persistence must not be described as job persistence.
+Do not run action-runner/workflow tests unless explicitly authorized.
 
 ## Controller-to-Unreal trust boundary
 
-The current mainline controller host is intentionally narrow while the historical stronger controller-host architecture remains isolated in PR #50 because that branch diverged substantially from current `main`.
+Protected Unreal requests use `TrustedUnrealContext` as the authority source for protected intent, authorization context, sequence path, and production state. Model-supplied protected intent and production flags cannot replace or disable host-owned trusted values.
 
-Protected Unreal requests use `TrustedUnrealContext` as the authority source for protected intent, authorization context, sequence path, and production state. Model-supplied protected intent and production flags cannot replace or disable host-owned trusted values. The controller-to-Unreal integration seam independently rejects incomplete trusted context before execution.
-
-No second authorization system, scheduler, recovery engine, or Unreal execution path is introduced.
+The Unreal transport is an execution/transport boundary, not a second authorization system, scheduler, or recovery engine.
 
 ## Repository boundaries
 
@@ -90,17 +128,18 @@ Atlas owns the canonical Digital Twin. Photogrammetry remains upstream reconstru
 1. Preserve repository boundaries.
 2. Treat C++ interoperability as a core architectural requirement.
 3. Prefer language-neutral subsystem contracts.
-4. Preserve Atlas-owned authorization, runtime, verification, evidence, and recovery boundaries.
+4. Preserve Atlas-owned authorization, runtime, verification, evidence, receipt, and recovery boundaries.
 5. Never weaken tests merely to make a change pass.
 6. Inspect current handoffs/docs/issues before major architectural changes.
 7. Avoid unrelated modifications.
 8. Do not reset, discard, or overwrite unrelated user work.
 9. Make coherent, reviewable commits.
 10. Increase autonomy progressively and only after deterministic validation.
-11. Do not give Qwen, OpenHands, or an external model direct production authority merely for convenience.
+11. Do not give Qwen, OpenHands, Hermes, or an external model direct production authority merely for convenience.
 12. Do not introduce a second execution engine, authorization system, scheduler, or recovery system when an existing Atlas path already exists.
-13. Do not force-merge heavily diverged historical branches into current `main` merely to recover architecture; selectively transplant validated invariants instead.
+13. Do not force-merge heavily diverged historical branches into current `main`; selectively transplant validated invariants instead.
 14. Preserve the distinction between live-proven behavior, regression-verified behavior, and pending human validation.
+15. Treat the M4 recovery contract and M5 evidence verifier as protected invariants; changes require targeted red-team scrutiny.
 
 ## C++ interoperability
 
@@ -140,6 +179,36 @@ Only after source/test work is reliable. Determine which operations require the 
 
 Do not enable unrestricted production authority. This requires separate architectural and security review.
 
+## Development-model evaluation
+
+Hermes is the development/agent interface; the underlying reasoning provider may be changed experimentally without changing the Atlas authority model.
+
+The next-session experiment under consideration is **Gemini vs DeepSeek V4 Flash**, with emphasis on the tradeoff between token usage and reasoning quality in real Hermes development tasks.
+
+**Astra and Claude 5 remain reserved for red-team evaluation.** This preserves a separate adversarial review layer while the development model is evaluated. ChatGPT may also independently inspect/evaluate Hermes-produced work.
+
+The comparison should be measured using practical engineering outcomes:
+
+```text
+token efficiency
+    +
+reasoning quality
+    +
+architectural fidelity
+    +
+defect/regression rate
+    +
+test-fix efficiency
+    +
+red-team findings
+    +
+rework / time-to-merge
+```
+
+Do not interpret lower token use as success by itself. A cheaper model that creates more architectural drift or rework may be less efficient overall.
+
+A model switch does not change Atlas authority, recovery semantics, evidence rules, or the human merge gate.
+
 ## Current development workflow
 
 Before work:
@@ -147,6 +216,7 @@ Before work:
 ```bash
 git status
 git branch --show-current
+git log -5 --oneline
 ```
 
 Inspect `ATLAS_HANDOFF_CURRENT.md`, `README.md`, `docs/ATLAS_ARCHITECTURE_CONTRACT.md`, and `UNREAL_AGENT_HANDOFF_CURRENT.md` before major work.
@@ -162,7 +232,7 @@ Keep changes bounded and preserve unrelated local work.
 
 ## Autonomous development loop
 
-A mature OpenHands task may follow:
+A mature Hermes/OpenHands task may follow:
 
 ```text
 Inspect
@@ -171,31 +241,32 @@ Determine next established milestone
   ↓
 Implement
   ↓
-Run appropriate tests
+Run appropriate deterministic tests
   ↓
 Diagnose/fix
   ↓
 Retest
   ↓
+Independent red-team review
+  ↓
 Update current handoffs/readmes
   ↓
-Commit
+Human merge decision
 ```
 
 The next established Atlas milestone is not chosen by the model alone. It must remain consistent with the authoritative handoff and architecture contract.
 
 ## Current end-of-night resume point
 
-The next session should begin from `main` and preserve this order:
+The next session should begin from `main` with M4/M5 treated as completed baseline work.
 
 1. Pull the latest `main`.
-2. Run focused deterministic tests covering the September 4 Unreal/controller trust-boundary increments.
-3. Run the human UE 5.6 Stage 17 provenance proof using the existing verified render evidence/receipt pair.
-4. Run `live_unreal_production_artifact_proof.py` against that detached evidence/receipt pair.
-5. Confirm manifest persistence, reload, exact lineage, and digest identities.
-6. Resume selective integration of validated pieces from PR #50 only after the Stage 17 gate.
+2. Read the current handoff set and architecture contract.
+3. Do not reopen completed M4/M5 work unless a concrete regression is found.
+4. Continue from the next unresolved milestone.
+5. For Hermes model evaluation, compare Gemini vs DeepSeek V4 Flash on real implementation tasks while retaining Astra/Claude 5 for red-team review.
 
-Do not run workflow/action-runner tests for the live gate unless explicitly authorized.
+Do not run workflow/action-runner tests unless explicitly authorized.
 
 ## Important principles
 
@@ -217,10 +288,14 @@ Greater agent autonomy does not mean unrestricted Windows-machine access.
 
 ### Preserve evidence status honestly
 
-Never present an older test result as validation of newer commits. Clearly distinguish implementation, regression verification, live verification, and pending human validation.
+Never present an older test result as validation of newer commits. Clearly distinguish implementation, regression verification, live verification, independent evidence verification, and pending human validation.
+
+### Preserve adversarial independence
+
+Changing the Hermes development model must not eliminate independent red-team scrutiny. Keep the strongest available review models separate from the model being optimized for day-to-day development efficiency.
 
 ## Reference note
 
-Installation commands for OpenHands, Docker, WSL, and related tooling may change. Verify current official instructions when the transition actually begins. The Atlas architectural boundaries in this document are the durable requirements.
+Installation commands for OpenHands, Docker, WSL, Hermes, and related tooling may change. Verify current official instructions when the transition or provider change actually begins. The Atlas architectural boundaries in this document are the durable requirements.
 
 Historical dated handoff snapshots are archival records and should not be rewritten.
