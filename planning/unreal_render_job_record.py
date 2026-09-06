@@ -146,6 +146,10 @@ class AtlasRenderJobRecord:
     # --- Derived Integrity Field ---
     authoritative_digest: str
 
+    # --- Operational Extensions (M4) ---
+    attempt_nonce: Optional[str] = None
+    last_accepted_lease_token: int = 0
+
     def __post_init__(self) -> None:
         if not isinstance(self.schema_version, int) or isinstance(self.schema_version, bool):
             raise TypeError("schema_version must be an integer")
@@ -226,6 +230,8 @@ class AtlasRenderJobRecord:
         created_at: str,
         submission_deadline: Optional[str] = None,
         execution_deadline: Optional[str] = None,
+        attempt_nonce: Optional[str] = None,
+        last_accepted_lease_token: int = 0,
     ) -> "AtlasRenderJobRecord":
         """Factory for a fresh PENDING_SUBMISSION execution intent record."""
         validate_canonical_atlas_job_id(atlas_job_id)
@@ -274,6 +280,8 @@ class AtlasRenderJobRecord:
             receipt_reference=None,
             manifest_reference=None,
             authoritative_digest=digest,
+            attempt_nonce=attempt_nonce,
+            last_accepted_lease_token=last_accepted_lease_token,
         )
 
     def transition(
@@ -292,6 +300,8 @@ class AtlasRenderJobRecord:
         quarantine_path: Optional[str] = None,
         receipt_reference: Optional[str] = None,
         manifest_reference: Optional[str] = None,
+        attempt_nonce: Optional[str] = None,
+        last_accepted_lease_token: Optional[int] = None,
         increment_ambiguity: bool = False,
     ) -> "AtlasRenderJobRecord":
         """Produce an updated record with validated state transitions.
@@ -356,6 +366,8 @@ class AtlasRenderJobRecord:
             receipt_reference=receipt_reference or self.receipt_reference,
             manifest_reference=manifest_reference or self.manifest_reference,
             authoritative_digest=self.authoritative_digest,
+            attempt_nonce=attempt_nonce or self.attempt_nonce,
+            last_accepted_lease_token=last_accepted_lease_token if last_accepted_lease_token is not None else self.last_accepted_lease_token,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -390,6 +402,8 @@ class AtlasRenderJobRecord:
             "quarantine_path": self.quarantine_path,
             "receipt_reference": self.receipt_reference,
             "manifest_reference": self.manifest_reference,
+            "attempt_nonce": self.attempt_nonce,
+            "last_accepted_lease_token": self.last_accepted_lease_token,
             "authoritative_digest": self.authoritative_digest,
         }
 
@@ -399,7 +413,7 @@ class AtlasRenderJobRecord:
         if not isinstance(data, Mapping):
             raise TypeError("record payload must be a mapping")
 
-        required_keys = {
+        base_required_keys = {
             "schema_version",
             "atlas_job_id",
             "attempt_ordinal",
@@ -432,15 +446,13 @@ class AtlasRenderJobRecord:
             "authoritative_digest",
         }
         actual_keys = set(data.keys())
-        if actual_keys != required_keys:
-            missing = required_keys - actual_keys
-            extra = actual_keys - required_keys
-            parts = []
-            if missing:
-                parts.append(f"missing: {sorted(missing)}")
-            if extra:
-                parts.append(f"extra: {sorted(extra)}")
-            raise AtlasRenderJobRecordError(f"record fields schema mismatch: {'; '.join(parts)}")
+        missing = base_required_keys - actual_keys
+        if missing:
+            raise AtlasRenderJobRecordError(f"missing required fields in record: {sorted(missing)}")
+        allowed_keys = base_required_keys | {"attempt_nonce", "last_accepted_lease_token"}
+        extra = actual_keys - allowed_keys
+        if extra:
+            raise AtlasRenderJobRecordError(f"extra unknown fields in record: {sorted(extra)}")
 
         try:
             lifecycle = RenderJobLifecycleState(data["lifecycle_state"])
@@ -482,5 +494,7 @@ class AtlasRenderJobRecord:
             quarantine_path=data["quarantine_path"],
             receipt_reference=data["receipt_reference"],
             manifest_reference=data["manifest_reference"],
+            attempt_nonce=data.get("attempt_nonce"),
+            last_accepted_lease_token=data.get("last_accepted_lease_token", 0),
             authoritative_digest=data["authoritative_digest"],
         )

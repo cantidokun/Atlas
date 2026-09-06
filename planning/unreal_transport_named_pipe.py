@@ -4,6 +4,7 @@ This module provides the production transport layer using Windows named pipes
 for IPC between the Python Atlas system and the Unreal Editor.
 """
 
+import hashlib
 import json
 from typing import Optional
 
@@ -38,6 +39,10 @@ class NamedPipeTransportTimeoutError(NamedPipeTransportError):
 
 class NamedPipeTransportDisconnectedError(NamedPipeTransportError):
     """Raised when the Unreal named-pipe server disconnects mid-request."""
+
+
+class NamedPipeTransportFramingError(NamedPipeTransportError):
+    """Raised when transport payload framing (length/SHA256/completeness) is violated."""
 
 
 def _translate_pipe_error(error: "pywintypes.error") -> NamedPipeTransportError:
@@ -251,6 +256,29 @@ class WindowsNamedPipeTransport:
                     response_data = bytes(buffer[:nbytes])
                 finally:
                     win32file.CloseHandle(overlapped.hEvent)
+
+                # Contract V1 §19/§26 Bounded Wire Framing verification at byte boundary
+                if response_data.startswith(b"ATLAS_FRAME:"):
+                    # Format: ATLAS_FRAME:<length>:<sha256>:\n<payload>
+                    header_line, _, payload_bytes = response_data.partition(b"\n")
+                    parts = header_line.split(b":")
+                    if len(parts) >= 3:
+                        try:
+                            declared_len = int(parts[1])
+                            declared_sha = parts[2].decode("ascii")
+                        except Exception as e:
+                            raise NamedPipeTransportFramingError(f"Malformed framing header: {e}") from e
+
+                        if len(payload_bytes) != declared_len:
+                            raise NamedPipeTransportFramingError(
+                                f"Framing length mismatch: declared {declared_len}, received {len(payload_bytes)}"
+                            )
+                        computed_sha = hashlib.sha256(payload_bytes).hexdigest()
+                        if computed_sha != declared_sha:
+                            raise NamedPipeTransportFramingError(
+                                f"Framing digest mismatch: declared {declared_sha}, computed {computed_sha}"
+                            )
+                        response_data = payload_bytes
 
                 json_response = response_data.decode("utf-8")
             finally:

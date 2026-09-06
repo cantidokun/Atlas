@@ -263,13 +263,37 @@ A session mismatch means **different responder/process incarnation**. It does no
 
 Recovery MUST NOT treat a new Unreal session as proof that an old hung process is dead.
 
+### Process Supervision and Deployment Modes
+
+Parent PID death alone is INSUFFICIENT proof of process-tree quiescence on Windows. When an engine process terminates or crashes, descendant worker processes (e.g. `ShaderCompileWorker.exe`, `UnrealPak.exe`, `CrashReportClient.exe`, or custom commandlets) are NOT terminated by the OS and are NOT re-parented; their parent PID references become stale integer identifiers subject to OS recycling.
+
+Atlas therefore establishes two explicit deployment modes:
+
+1. `CONTAINED_JOB_OBJECT` (Autonomous Recovery Mode):
+   - Unreal is launched under Atlas-controlled process supervision within a Windows Job Object.
+   - The Job Object MUST be configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and silent breakaway MUST be prohibited (`JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` disabled, explicit `CREATE_BREAKAWAY_FROM_JOB` disallowed).
+   - Quiescence requires:
+     ```text
+     JobObjectHandleValid == TRUE AND QueryInformationJobObject(BasicAccounting).ActiveProcesses == 0
+     ```
+   - Only when `ActiveProcesses == 0` is confirmed may recovery inspect or adopt terminal disk artifacts.
+
+2. `UNCONTAINED_ATTACHED` (Interactive Development Mode):
+   - Atlas connects over the named pipe to an already-running, externally launched Unreal process without Job Object containment.
+   - In this mode, cross-process artifact recovery and adoption across process restarts is STRICTLY UNSUPPORTED and FAILS CLOSED.
+   - If the engine process terminates, disconnects, or crashes while a job is non-terminal, recovery MUST NOT assume parent PID death proves descendant quiescence. Recovery blocks in `WAITING_FOR_ENGINE_QUIESCENCE` until the execution deadline, then transitions to `RECOVERY_FAILED`. It NEVER inspects or adopts artifacts.
+
 ---
 
 ## 10. Engine Journal
 
 The Unreal journal is a durable **witness record**, not an authority system.
 
-It MUST be stored in an Atlas-designated durable location outside the project's disposable `Saved/` tree.
+It MUST be stored in an Atlas-designated durable location outside the project's disposable `Saved/` tree:
+
+```text
+<ProjectDir>/AtlasWitnessJournal/<atlas_job_id>__<unreal_job_id>.json
+```
 
 The journal MUST retain execution history and MUST NOT overwrite a previous execution identity.
 
@@ -279,13 +303,51 @@ Recommended logical key:
 (atlas_job_id, unreal_job_id)
 ```
 
+### Per-Attempt Nonce and Witness Authentication
+
+To prevent replayed, restored, or cross-attempt witness journals from being accepted as valid evidence, Atlas generates a cryptographically unpredictable 256-bit `attempt_nonce` (`secrets.token_hex(32)`) prior to submission.
+
+- The `attempt_nonce` is generated and controlled solely by Atlas.
+- The `attempt_nonce` MUST be persisted in the durable `AtlasRenderJobRecord` under operational intent before any transport transmission.
+- The `attempt_nonce` is transmitted to Unreal in `submit_render` arguments (`arguments.attempt_nonce`).
+- Unreal consumes the nonce strictly as the secret key for witness HMAC calculation; Unreal NEVER creates or authorizes the nonce.
+- **Secret Handling Invariant:** The secret `attempt_nonce` itself MUST NEVER be serialized as plaintext into journal files, receipts, manifests, or normal diagnostic logs.
+
+### Canonical Journal Attestation
+
+Each journal entry phase MUST be authenticated via HMAC-SHA256:
+
+```text
+entry_digest = HMAC-SHA256(
+    key = UTF8(attempt_nonce),
+    message = UTF8(canonical_journal_payload)
+)
+```
+
+The canonical journal payload MUST include:
+
+```text
+schema_version
+atlas_job_id
+unreal_job_id
+attempt_ordinal
+phase
+phase_sequence
+editor_session_id
+process_creation_time_utc
+output_directory
+output_manifest   # required on FINISHED
+```
+
 Journal entries MUST be self-describing and contain at least:
 
 ```text
 journal_schema_version
 atlas_job_id
 unreal_job_id
+attempt_ordinal
 phase
+phase_sequence
 state_source
 editor_session_id
 process_id
@@ -300,14 +362,16 @@ entry_digest
 output_manifest   # required on FINISHED
 ```
 
-Required phases:
+Required phases and monotonic sequence order:
 
 ```text
-ACCEPTED
-STARTED
-FINISHED
-FAILED
+ACCEPTED (phase_sequence = 1)
+STARTED  (phase_sequence = 2)
+FINISHED (phase_sequence = 3)
+FAILED   (phase_sequence = 3, if failed)
 ```
+
+`phase_sequence` MUST be strictly monotonically increasing. Earlier phase entries MUST NOT be overwritten or truncated; the journal maintains an append-only `phase_history` list.
 
 `ACCEPTED` MUST be durably written before MRQ execution is dispatched.
 
@@ -315,7 +379,7 @@ If `ACCEPTED` cannot be durably recorded, no MRQ job may be allocated.
 
 `FINISHED` MUST be written only from the authoritative terminalization path after the engine has completed production of the declared output set.
 
-A missing, malformed, partial, or unreadable journal is **unknown state**, not evidence of absence.
+A missing, malformed, partial, or unreadable journal is **unknown state**, not evidence of absence. Any journal failing HMAC validation or phase sequence checks MUST be classified as `UNTRUSTED_WITNESS` and fail closed to `RECOVERY_FAILED`.
 
 ---
 
@@ -541,6 +605,27 @@ An engine job with no matching Atlas record MUST be classified as `UNMANAGED_ROG
 
 The reconcile operation MUST support pagination or equivalent bounded catalog retrieval.
 
+### Bounded Wire Framing Protocol
+
+To prevent transport truncation from masquerading as catalog absence, every `reconcile_render_jobs` wire payload MUST carry explicit framing fields:
+
+```text
+schema_version: int
+request_id: str
+catalog_generation: int
+payload_byte_length: int
+payload_sha256: str
+complete: bool
+records: list
+```
+
+Client transport implementations MUST:
+1. Read the exact declared `payload_byte_length` bytes;
+2. Verify `SHA256(received_payload_bytes) == payload_sha256`;
+3. Validate that `complete == true`.
+
+Any early stream termination, connection drop, byte count discrepancy, or SHA-256 digest mismatch MUST classify the entire catalog response as `UNREADABLE`. A truncated or unreadable response MUST NEVER be interpreted as "job absent" or "empty catalog". Bounded recovery queries SHOULD supply a `job_ids` filter to prevent named pipe buffer overflow.
+
 ---
 
 ## 20. Reconciliation Algorithm
@@ -557,7 +642,17 @@ Corruption is terminal `RECORD_CORRUPT` pending gate adjudication.
 
 Check existing durable receipt/provenance stores first.
 
-If a valid receipt already exists, repair the job record from the receipt and do not execute again.
+Probing the receipt store requires full identity matching across the 8 immutable fields:
+1. `atlas_job_id`
+2. `attempt_ordinal`
+3. `authorization_id`
+4. `canonical_digital_twin_id`
+5. `sequence_asset_path`
+6. `config_digest`
+7. `output_directory`
+8. `receipt_digest`
+
+If a valid receipt matching all 8 fields exists, repair the job record from the receipt and do not execute again. Any receipt mismatch fails closed and is NOT adopted.
 
 ### Step 3 — Authorization continuity
 
@@ -638,7 +733,9 @@ Classify as:
 ORPHANED_ARTIFACTS_PRESENT
 ```
 
-Exclude from provenance and perform only non-destructive quarantine/escalation according to authorized recovery policy.
+**Non-Mutation Invariant:**
+Autonomous recovery MUST NOT move, rename, delete, overwrite, or adopt these artifacts.
+Artifacts remain strictly untouched in place on disk. The coordinator only records the observation diagnostics and transitions the job record to `ORPHANED_ARTIFACTS_PRESENT` (terminal for autonomous recovery), escalating to a human operator. Physical quarantine or cleanup requires explicit separate operator authorization.
 
 No synthetic `finished/success` state may be created.
 
@@ -846,6 +943,34 @@ Required controls include:
 - revision checks on durable record updates;
 - idempotent create-if-absent receipt persistence;
 - observation revision/request identity checks.
+
+### Store-Gated Receipt Publication and Fencing
+
+A stale coordinator MUST NOT be able to create a receipt or finalize an Atlas job after losing ownership. `O_CREAT | O_EXCL` alone is an insufficient fence because a partitioned coordinator holding a stale lease can win the filesystem race before its subsequent store update is rejected.
+
+Receipt publication MUST be a store-gated atomic protocol:
+
+```text
+publish_verified_receipt(
+    atlas_job_id,
+    attempt_ordinal,
+    presented_lease_token,
+    expected_record_revision,
+    receipt_payload
+)
+```
+
+The store executes the following atomic sequence under exclusive lock:
+1. Load current `AtlasRenderJobRecord`.
+2. Verify `presented_lease_token > record.last_accepted_lease_token`.
+3. Verify `record.record_revision == expected_record_revision`.
+4. Verify `record.lifecycle_state` is eligible for finalization.
+5. Atomically advance `record.last_accepted_lease_token = presented_lease_token` and flush to durable storage.
+6. Create receipt file atomically using `O_CREAT | O_EXCL` at `<ReceiptStoreDir>/<atlas_job_id>__<attempt_ordinal>.json` embedding `presented_lease_token` and `coordinator_id`.
+7. Update `AtlasRenderJobRecord` to `lifecycle_state = FINALIZED`, `recovery_status = RESOLVED`, advancing `record_revision` and writing atomically.
+
+If a coordinator crashes after Step 6 but before Step 7:
+On the subsequent recovery pass, the new coordinator discovers the fully durable, valid receipt via the Receipt-First probe (§20 Step 2). Because the receipt embeds the valid token and matches the job identity, the new coordinator safely repairs the record to `FINALIZED` without re-executing or issuing a competing receipt.
 
 Atomic file replacement is necessary for corruption resistance but is not, by itself, a concurrency protocol.
 

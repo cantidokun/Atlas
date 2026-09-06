@@ -42,22 +42,60 @@ class UnrealRenderReceipt:
     job_id: str
     sequence_asset_path: str
     evidence_digest: str
+    atlas_job_id: str = ""
+    attempt_ordinal: int = 1
+    authorization_id: str = ""
+    canonical_digital_twin_id: str = ""
+    config_digest: str = ""
+    output_directory: str = ""
+    unreal_job_id: str = ""
+    editor_session_id: str = ""
+    process_creation_time: str = ""
+    lease_token: int = 0
+    coordinator_id: str = ""
 
     def __post_init__(self) -> None:
         _validate_identity("job_id", self.job_id)
         _validate_identity("sequence_asset_path", self.sequence_asset_path)
         _validate_identity("evidence_digest", self.evidence_digest)
+        if not self.unreal_job_id:
+            object.__setattr__(self, "unreal_job_id", self.job_id)
 
     @property
     def receipt_digest(self) -> str:
-        return hashlib.sha256(_canonical_material((self.job_id, self.sequence_asset_path, self.evidence_digest))).hexdigest()
+        fields = (
+            self.job_id,
+            self.sequence_asset_path,
+            self.evidence_digest,
+            self.atlas_job_id,
+            str(self.attempt_ordinal),
+            self.authorization_id,
+            self.canonical_digital_twin_id,
+            self.config_digest,
+            self.output_directory,
+            self.unreal_job_id,
+            self.editor_session_id,
+            self.process_creation_time,
+        )
+        return hashlib.sha256(_canonical_material(fields)).hexdigest()
 
-    def snapshot(self) -> dict[str, str]:
+    def snapshot(self) -> dict[str, Any]:
         """Return a detached JSON-compatible receipt snapshot."""
         return {
             "job_id": self.job_id,
             "sequence_asset_path": self.sequence_asset_path,
             "evidence_digest": self.evidence_digest,
+            "atlas_job_id": self.atlas_job_id,
+            "attempt_ordinal": self.attempt_ordinal,
+            "authorization_id": self.authorization_id,
+            "canonical_digital_twin_id": self.canonical_digital_twin_id,
+            "config_digest": self.config_digest,
+            "output_directory": self.output_directory,
+            "unreal_job_id": self.unreal_job_id,
+            "editor_session_id": self.editor_session_id,
+            "process_creation_time": self.process_creation_time,
+            "lease_token": self.lease_token,
+            "coordinator_id": self.coordinator_id,
         }
 
     @classmethod
@@ -65,17 +103,61 @@ class UnrealRenderReceipt:
         """Reconstruct a receipt from an exact persisted snapshot, fail-closed."""
         if not isinstance(snapshot, Mapping):
             raise TypeError("Unreal render receipt snapshot must be a mapping")
-        required = {"job_id", "sequence_asset_path", "evidence_digest"}
-        if set(snapshot) != required:
+        base_required = {"job_id", "sequence_asset_path", "evidence_digest"}
+        if not base_required.issubset(set(snapshot)):
+            raise ValueError("Unreal render receipt snapshot missing base required fields")
+        allowed = {
+            "job_id",
+            "sequence_asset_path",
+            "evidence_digest",
+            "atlas_job_id",
+            "attempt_ordinal",
+            "authorization_id",
+            "canonical_digital_twin_id",
+            "config_digest",
+            "output_directory",
+            "unreal_job_id",
+            "editor_session_id",
+            "process_creation_time",
+            "lease_token",
+            "coordinator_id",
+        }
+        if not set(snapshot).issubset(allowed):
             raise ValueError("Unreal render receipt snapshot fields are invalid")
         return cls(
             job_id=snapshot["job_id"],
             sequence_asset_path=snapshot["sequence_asset_path"],
             evidence_digest=snapshot["evidence_digest"],
+            atlas_job_id=snapshot.get("atlas_job_id", ""),
+            attempt_ordinal=snapshot.get("attempt_ordinal", 1),
+            authorization_id=snapshot.get("authorization_id", ""),
+            canonical_digital_twin_id=snapshot.get("canonical_digital_twin_id", ""),
+            config_digest=snapshot.get("config_digest", ""),
+            output_directory=snapshot.get("output_directory", ""),
+            unreal_job_id=snapshot.get("unreal_job_id", snapshot["job_id"]),
+            editor_session_id=snapshot.get("editor_session_id", ""),
+            process_creation_time=snapshot.get("process_creation_time", ""),
+            lease_token=snapshot.get("lease_token", 0),
+            coordinator_id=snapshot.get("coordinator_id", ""),
         )
 
     @classmethod
-    def issue(cls, evidence: UnrealEvidence) -> "UnrealRenderReceipt":
+    def issue(
+        cls,
+        evidence: UnrealEvidence,
+        *,
+        atlas_job_id: str = "",
+        attempt_ordinal: int = 1,
+        authorization_id: str = "",
+        canonical_digital_twin_id: str = "",
+        config_digest: str = "",
+        output_directory: str = "",
+        unreal_job_id: str = "",
+        editor_session_id: str = "",
+        process_creation_time: str = "",
+        lease_token: int = 0,
+        coordinator_id: str = "",
+    ) -> "UnrealRenderReceipt":
         if not isinstance(evidence, UnrealEvidence):
             raise TypeError("evidence must be a UnrealEvidence instance")
         if evidence.operation_name != "inspect_render_job":
@@ -90,7 +172,25 @@ class UnrealRenderReceipt:
         sequence_asset_path = state.get("sequence_asset_path")
         _validate_identity("job_id", job_id)
         _validate_identity("sequence_asset_path", sequence_asset_path)
-        return cls(job_id=job_id, sequence_asset_path=sequence_asset_path, evidence_digest=digest_evidence(evidence))
+        resolved_unreal_job_id = unreal_job_id or job_id
+        resolved_editor_session_id = editor_session_id or str(state.get("editor_session_id") or "")
+        resolved_process_creation_time = process_creation_time or str(state.get("process_creation_time_utc") or state.get("process_creation_time") or "")
+        return cls(
+            job_id=job_id,
+            sequence_asset_path=sequence_asset_path,
+            evidence_digest=digest_evidence(evidence),
+            atlas_job_id=atlas_job_id,
+            attempt_ordinal=attempt_ordinal,
+            authorization_id=authorization_id,
+            canonical_digital_twin_id=canonical_digital_twin_id,
+            config_digest=config_digest,
+            output_directory=output_directory,
+            unreal_job_id=resolved_unreal_job_id,
+            editor_session_id=resolved_editor_session_id,
+            process_creation_time=resolved_process_creation_time,
+            lease_token=lease_token,
+            coordinator_id=coordinator_id,
+        )
 
     def matches(self, evidence: UnrealEvidence) -> bool:
         try:

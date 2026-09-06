@@ -7,6 +7,8 @@ Milestone 3: Atlas Submission / Idempotency Integration.
 from __future__ import annotations
 
 import datetime
+import os
+import secrets
 import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence
@@ -237,6 +239,7 @@ class UnrealRenderSubmissionService:
         # 6. Create & Persist durable intent as PENDING_SUBMISSION if not yet created
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if record is None:
+            attempt_nonce = secrets.token_hex(32)
             record = AtlasRenderJobRecord.create_intent(
                 atlas_job_id=atlas_job_id,
                 attempt_ordinal=attempt_ordinal,
@@ -251,6 +254,7 @@ class UnrealRenderSubmissionService:
                 created_at=now_iso,
                 submission_deadline=submission_deadline,
                 execution_deadline=execution_deadline,
+                attempt_nonce=attempt_nonce,
             )
             self._store.create(record)
 
@@ -277,6 +281,7 @@ class UnrealRenderSubmissionService:
                 "sequence_asset_path": sequence_asset_path.strip(),
                 "output_directory": output_directory,
                 "config_digest": config_digest,
+                "attempt_nonce": record.attempt_nonce or "",
             }
             submit_op = UnrealOperation(
                 capability=UnrealCapability.RENDER,

@@ -215,9 +215,13 @@ def test_atlas_generated_job_id_and_isolated_output_path(tmp_path):
     record = result.record
     assert record.atlas_job_id.startswith("atlas-render-job-")
     assert record.output_directory == f"C:/Renders/{record.atlas_job_id}"
+    # Verify attempt_nonce is generated and passed
+    assert record.attempt_nonce is not None
+    assert len(record.attempt_nonce) == 64
     # Verify submit_render request received the exact isolated output_directory
     submit_req = [r for r in transport.sent_requests if r.operation_name == "submit_render"][0]
     assert submit_req.arguments["output_directory"] == f"C:/Renders/{record.atlas_job_id}"
+    assert submit_req.arguments["attempt_nonce"] == record.attempt_nonce
 
 
 def test_strict_job_id_and_path_validation():

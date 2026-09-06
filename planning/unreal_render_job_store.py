@@ -18,7 +18,13 @@ from planning.unreal_render_job_record import (
     AtlasRenderJobRecordError,
     validate_canonical_atlas_job_id,
 )
-from planning.unreal_render_job_states import RenderJobLifecycleState, RenderJobRecoveryStatus
+from planning.unreal_render_job_states import (
+    TERMINAL_LIFECYCLE_STATES,
+    RenderJobLifecycleState,
+    RenderJobRecoveryStatus,
+)
+from planning.unreal_render_receipt import UnrealRenderReceipt
+from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
 
 
 class AtlasRenderJobStoreError(RuntimeError):
@@ -35,6 +41,10 @@ class AtlasRenderJobStoreLockError(AtlasRenderJobStoreError):
 
 class AtlasRenderJobStoreStaleWriterError(AtlasRenderJobStoreError):
     """Raised when an update is rejected due to revision conflict / stale writer."""
+
+
+class AtlasRenderJobStoreRevisionMismatchError(AtlasRenderJobStoreError):
+    """Raised when expected record revision does not match on update."""
 
 
 class AtlasRenderJobStore:
@@ -56,11 +66,13 @@ class AtlasRenderJobStore:
         self.jobs_dir = self.root / "jobs"
         self.locks_dir = self.root / "locks"
         self.quarantine_dir = self.root / "quarantine"
+        self.receipts_dir = self.root / "receipts"
         self.coordinator_lock_file = self.locks_dir / "coordinator.lock"
 
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.locks_dir.mkdir(parents=True, exist_ok=True)
         self.quarantine_dir.mkdir(parents=True, exist_ok=True)
+        self.receipts_dir.mkdir(parents=True, exist_ok=True)
 
     def _job_file_path(self, atlas_job_id: str) -> Path:
         valid_id = validate_canonical_atlas_job_id(atlas_job_id)
@@ -75,10 +87,16 @@ class AtlasRenderJobStore:
     # -------------------------------------------------------------------------
 
     @contextlib.contextmanager
-    def acquire_coordinator(self, coordinator_id: str) -> Iterator[None]:
+    def acquire_coordinator(
+        self,
+        coordinator_id: str,
+        lease_token: int = 1,
+    ) -> Iterator[int]:
         """Acquire exclusive store-level coordinator ownership."""
         if not isinstance(coordinator_id, str) or not coordinator_id.strip():
             raise ValueError("coordinator_id must be a non-empty string")
+        if not isinstance(lease_token, int) or isinstance(lease_token, bool) or lease_token < 1:
+            raise ValueError("lease_token must be a positive integer >= 1")
 
         lock_path = self.coordinator_lock_file
         # Create lock file exclusively
@@ -87,6 +105,7 @@ class AtlasRenderJobStore:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             payload = {
                 "coordinator_id": coordinator_id.strip(),
+                "lease_token": lease_token,
                 "acquired_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "pid": os.getpid(),
             }
@@ -100,7 +119,7 @@ class AtlasRenderJobStore:
                 os.close(fd)
 
         try:
-            yield
+            yield lease_token
         finally:
             try:
                 if lock_path.exists():
@@ -300,6 +319,95 @@ class AtlasRenderJobStore:
             return path.is_file()
         except AtlasRenderJobRecordError:
             return False
+
+    def list_job_ids(self) -> list[str]:
+        """List all valid atlas_job_ids currently present in the store."""
+        job_ids = []
+        for file in self.jobs_dir.glob("*.json"):
+            stem = file.stem
+            try:
+                valid_id = validate_canonical_atlas_job_id(stem)
+                job_ids.append(valid_id)
+            except AtlasRenderJobRecordError:
+                continue
+        return sorted(job_ids)
+
+    def publish_verified_receipt(
+        self,
+        *,
+        atlas_job_id: str,
+        attempt_ordinal: int,
+        presented_lease_token: int,
+        expected_record_revision: int,
+        receipt: UnrealRenderReceipt,
+    ) -> tuple[AtlasRenderJobRecord, UnrealRenderReceipt]:
+        """Atomically validate fencing, advance watermark, publish receipt, and finalize record.
+        
+        Store-gated fencing protocol:
+        1. Load current record.
+        2. Validate presented_lease_token > record.last_accepted_lease_token.
+        3. Validate expected_record_revision == record.last_observed_revision.
+        4. Validate record is not already finalized.
+        5. Durably advance record.last_accepted_lease_token = presented_lease_token.
+        6. Publish receipt atomically (write .tmp + MoveFileExW / replace onto target).
+        7. Transition record to FINALIZED / RESOLVED and update.
+        """
+        if not isinstance(receipt, UnrealRenderReceipt):
+            raise TypeError("receipt must be an UnrealRenderReceipt")
+
+        # 1. Load record under per-job path
+        record = self.load(atlas_job_id)
+
+        # 2. Fencing token check
+        if presented_lease_token <= record.last_accepted_lease_token:
+            raise AtlasRenderJobStoreStaleWriterError(
+                f"Fencing token {presented_lease_token} rejected: record already has last_accepted_lease_token {record.last_accepted_lease_token}"
+            )
+
+        # 3. Optimistic revision check
+        if record.last_observed_revision != expected_record_revision:
+            raise AtlasRenderJobStoreRevisionMismatchError(
+                f"Record revision mismatch: expected {expected_record_revision}, current is {record.last_observed_revision}"
+            )
+
+        # 4. Lifecycle eligibility check
+        if record.lifecycle_state in TERMINAL_LIFECYCLE_STATES:
+            raise AtlasRenderJobStoreError(
+                f"Cannot publish receipt for job {atlas_job_id} in terminal state {record.lifecycle_state}"
+            )
+
+        # 5. Advance fencing watermark (write-ahead persistence)
+        watermark_record = record.transition(
+            last_accepted_lease_token=presented_lease_token,
+        )
+        self.update(watermark_record, expected_revision=record.last_observed_revision)
+
+        # 6. Publish receipt via temporary file + atomic no-replace publication
+        receipt_filename = f"{atlas_job_id}__{attempt_ordinal}.json"
+        receipt_path = self.receipts_dir / receipt_filename
+        receipt_store = UnrealRenderReceiptStore(receipt_path)
+
+        if receipt_store.exists():
+            existing = receipt_store.load()
+            if existing.receipt_digest != receipt.receipt_digest:
+                raise AtlasRenderJobStoreError(
+                    f"Receipt collision at {str(receipt_path)!r} with differing digest"
+                )
+        else:
+            receipt_store.save(receipt)
+
+        # 7. Finalize record
+        now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        final_record = watermark_record.transition(
+            lifecycle_state=RenderJobLifecycleState.FINALIZED,
+            recovery_status=RenderJobRecoveryStatus.RESOLVED,
+            unreal_job_id=receipt.job_id,
+            receipt_reference=str(receipt_path),
+            last_observed_at=now_utc,
+        )
+        self.update(final_record, expected_revision=watermark_record.last_observed_revision)
+
+        return final_record, receipt
 
     def quarantine_corrupt_file(self, file_path: Path, reason: str) -> Path:
         """Non-destructively quarantine a corrupted or tampered record file."""
