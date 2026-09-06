@@ -1,8 +1,8 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 6, 2026 — M4 cross-process recovery and M5 independent evidence verification are merged to `main` via PR #68.
+**Updated:** September 6, 2026 — M4 cross-process recovery and M5 independent evidence verification merged (PR #68); M6 deterministic fault-injection/concurrency test suite implemented and regression-verified (dedicated branch, 79 tests green + 1029 full suite; C++ §32 automation additions compile-verified). **Per-item §31/§32 honest status (fully vs partially exercised vs deferred): docs/UNREAL_M6_TEST_STATUS.md.**
 **Active Atlas branch:** `main`
-**Current focus:** M4/M5 are complete. Continue from the next unresolved Unreal/Atlas milestone after the now-hardened recovery and evidence-verification baseline.
+**Current focus:** M4/M5 complete; M6 test suite implemented. The next authoritative gate is **M7 live UE 5.6 restart/recovery Scenarios 1–8**, which must NOT be run without explicit authorization (live Unreal execution).
 **Latest M5 merge commit:** `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
 
 ## Architectural position
@@ -182,7 +182,7 @@ No model substitution changes the Atlas authority chain, evidence rules, recover
 
 1. Pull the latest `main`.
 2. Treat M4 and M5 as complete unless a concrete regression is found.
-3. Continue with the next unresolved Unreal/Atlas milestone from the authoritative current handoff and architecture contract.
+3. Continue with the next unresolved Unreal/Atlas milestone from the authoritative current handoff and architecture contract — the next gate is **M7 live UE 5.6 restart/recovery Scenarios 1–8** (Contract V1 §33–§35); do not run without explicit authorization (live Unreal execution).
 4. Preserve the M4 recovery and M5 verification invariants during all future Unreal changes.
 5. Evaluate Gemini vs DeepSeek V4 Flash on real Hermes development tasks using engineering outcomes rather than tokens alone.
 
