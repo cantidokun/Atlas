@@ -48,12 +48,29 @@ or tampered) collapsed to Case J. The positive framing-verification path was ine
 
 ## B. C++ witness journal history (append-only)
 
+### Phase-sequence model (Contract V1 interpretation)
+Contract V1 (Canonical Journal Attestation) **fixes** `phase_sequence` as the
+**semantic phase ordinal**: `ACCEPTED=1, STARTED=2, FINISHED/FAILED=3`, strictly
+monotonically increasing, append-only `phase_history`, no overwrite/truncate.
+
+`phase_sequence` is therefore the **phase number**, not a separate per-entry
+counter. Because each phase occurs exactly once per attempt, phase identity and the
+history-ordering key are the **same** concept under Contract V1 — a distinct
+per-entry ordinal is not required and would even conflict with the fixed mapping.
+Duplicate semantic phases are forbidden (each phase once + strict monotonicity);
+out-of-order phases (e.g. `STARTED` before `ACCEPTED`, or a terminal before
+`STARTED`) are forbidden by the required lifecycle ordering.
+
+The reference model in `tests/m7/test_m7_journal_history.py` (`_append_phase`,
+`_validate_terminal`) encodes and deterministically verifies these rules.
+
 ### Before
 `FAtlasTransportServer::WriteJournalEntry` wrote a single `<atlas>__<unreal>.json`
 object per job-pair using `AtomicWriteFile` (`MOVEFILE_REPLACE_EXISTING`), so each
 phase **overwrote** the previous one. Contract V1 §30/§37 requires an append-only
 `phase_history` and a monotonic `phase_sequence`. `ReconcileRenderJobs` read the
-single-phase file directly.
+single-phase file directly. The writer enforced only duplicate-name and monotonic
+sequence, but not the strict first/STARTED-before-terminal lifecycle ordering.
 
 ### After
 - `WriteJournalEntry` now loads any existing `<atlas>__<unreal>.json`, appends the
@@ -61,17 +78,35 @@ single-phase file directly.
   and rewrites the container atomically (durably flushed via `FlushFileBuffers`).
 - A monotonic `phase_sequence` is assigned per phase (ACCEPTED=1, STARTED=2,
   FINISHED/FAILED=3). The writer **rejects** duplicate phases and out-of-order
-  sequence (new `<=` max), and **fails closed** on a malformed existing history
-  (never truncates/overwrites prior witness entries).
+  sequence (new `<=` max), enforces the **required lifecycle order** (ACCEPTED
+  must be first; STARTED must follow ACCEPTED; a terminal must follow STARTED),
+  and **fails closed** on a malformed existing history (never truncates/overwrites
+  prior witness entries).
 - The container exposes `phase_history` (full retained history) plus latest-phase
   convenience fields (`phase`, `phase_sequence`, `status`, `progress`, `success`,
   `finished`, `failed`).
 - `ReconcileRenderJobs` derives each known-job's current state from the **latest**
   phase-history entry and exposes the full `phase_history` array, so reconciliation
-  deterministically consumes the retained history. Legacy single-phase files are
-  still consumed (backward compatible). Identity (`atlas_job_id`/`unreal_job_id`)
-  mismatches on append fail closed.
+  deterministically consumes the retained history. The derived known-job exposes
+  **both** `job_id` and `unreal_job_id` aliases so downstream consumers (Python
+  coordinator reads `job_id`; the wire contract names `unreal_job_id`) work with a
+  single representation. Legacy single-phase files are still consumed (backward
+  compatible). Identity (`atlas_job_id`/`unreal_job_id`) mismatches on append fail
+  closed.
 - Journal `journal_schema_version` advanced to 2.
+
+### Reconciliation field-preservation (audit correction)
+The journal is an execution witness and **cannot** carry Atlas-owned identity:
+`canonical_digital_twin_id`, the full 5-key `expected_output_spec`, and
+`attempt_ordinal` are Atlas-authoritative. The Python coordinator now binds these
+from the durable record into the verification observed_state
+(`_bind_record_identity_to_observation`) while preserving every engine-witnessed
+execution field (status/`finished`/`success`/`failed`, `output_files`,
+`output_manifest`, session/process identity, digests) from the candidate.
+`verify_render_job_evidence` still enforces exact equality between bound identity
+and the record, and still independently verifies the engine-attested manifest
+hashes against disk — so this fills in Atlas-owned fields a witness genuinely
+cannot provide; it does not fabricate engine success.
 
 ### C++ automation tests (new, compile-verified via UnrealBuildTool — module build
 succeeded; not executed under the editor in this milestone)
@@ -81,13 +116,30 @@ succeeded; not executed under the editor in this milestone)
 | 2. monotonic phase sequence | `FAtlasUE56JournalMonotonicSequenceTest` (phase_sequence 1<2, ACCEPTED precedes STARTED) |
 | 3. required phase retention | `FAtlasUE56JournalAppendHistoryTest` (ACCEPTED/STARTED/FINISHED all present) |
 | 4. duplicate/out-of-order phase rejection | `FAtlasUE56JournalDuplicateRejectionTest` (duplicate ACCEPTED rejected) |
-| 5. malformed history fail-closed | `FAtlasUE56JournalMalformedHistoryTest` (append to malformed → error) |
-| 6. restart/reconciliation sees retained history | `FAtlasUE56JournalReconcileRetainedHistoryTest` (known_jobs carries `phase_history`) |
+| 5. strict lifecycle ordering | `FAtlasUE56JournalLifecycleOrderingTest` (STARTED-before-ACCEPTED rejected; dual-terminal rejected) |
+| 6. malformed history fail-closed | `FAtlasUE56JournalMalformedHistoryTest` (append to malformed → error) |
+| 7. restart/reconciliation sees retained history + identity | `FAtlasUE56JournalReconcileRetainedHistoryTest` (known_jobs carries `phase_history`, `job_id` == `unreal_job_id`) |
+
+Deterministic Python reference tests for the same semantics are in
+`tests/m7/test_m7_journal_history.py` (`_append_phase`, `_validate_terminal`,
+reconciliation field-preservation).
 
 The journal `entry_digest` (FSHA1 over canonical fields) is retained as a
 journal-internal integrity marker; per the architecture contract, journal/witness
 data is **not itself authoritative proof** — Atlas still performs independent
 verification before any receipt.
+
+**Remaining gap (witness-attestation scheme, pre-existing):** the C++
+`WriteJournalEntry` stores an FSHA1 `entry_digest` over a canonical field
+concatenation, whereas the Python coordinator's `_handle_finished_candidate`
+recomputes an HMAC-SHA256 keyed by `attempt_nonce` over a JSON payload
+(`compute_journal_hmac`). The two schemes produce different digests, so a
+journal-derived candidate's digest and the coordinator's recomputation do not match
+for a raw journal without coordinator-side attestation supply. This is a witness
+**authentication** concern, distinct from the phase-history/reconciliation model
+covered here, and is a documented hardening item for a later milestone. It does not
+weaken this audit's findings: the phase/sequence model and downstream-field
+preservation are verified independently.
 
 ---
 

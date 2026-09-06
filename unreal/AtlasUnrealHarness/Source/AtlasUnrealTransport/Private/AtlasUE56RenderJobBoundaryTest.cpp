@@ -63,6 +63,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalLifecycleOrderingTest,
+    "Atlas.UnrealAgent.UE56.JournalLifecycleOrdering",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FAtlasUE56JournalMalformedHistoryTest,
     "Atlas.UnrealAgent.UE56.JournalMalformedHistory",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -595,6 +600,45 @@ bool FAtlasUE56JournalDuplicateRejectionTest::RunTest(const FString& Parameters)
     return !HasAnyErrors();
 }
 
+bool FAtlasUE56JournalLifecycleOrderingTest::RunTest(const FString& Parameters)
+{
+    const FString AtlasJobId = TEXT("atlas-job-lifecycle-001");
+    const FString UnrealJobId = TEXT("unreal-job-lifecycle-001");
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->Status = TEXT("submitted");
+
+    FString Error;
+
+    // STARTED before ACCEPTED must be rejected (lifecycle ordering).
+    const bool bStartedFirst = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+    TestFalse(TEXT("STARTED before ACCEPTED rejected"), bStartedFirst);
+
+    // ACCEPTED first is accepted; then STARTED; then FINISHED via terminal path.
+    const bool bAccepted = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    JobState->Status = TEXT("rendering");
+    const bool bStarted = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+    TestTrue(TEXT("ACCEPTED written first"), bAccepted);
+    TestTrue(TEXT("STARTED written after ACCEPTED"), bStarted);
+
+    // FINISHED directly after ACCEPTED (skipping STARTED) should have been
+    // rejected, but since STARTED is present the terminal write is allowed.
+    // Verify a FINISHED then a FAILED dual-terminal is rejected.
+    TArray<FString> Files;
+    Files.Add(TEXT("C:/AtlasRenders/hist/frame.png"));
+    FAtlasTransportServer::FinalizeRenderJobState(JobState, true, Files, TEXT("test"));
+    // Attempt a second terminal (FAILED) after FINISHED -> rejected.
+    const bool bFailedAfterFinished = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("FAILED"), JobState, Error);
+    TestFalse(TEXT("FAILED after FINISHED rejected (dual terminal)"), bFailedAfterFinished);
+
+    IFileManager::Get().Delete(*FPaths::Combine(
+        FAtlasTransportServer::GetJournalDirectory(),
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId)));
+    return !HasAnyErrors();
+}
+
 bool FAtlasUE56JournalMalformedHistoryTest::RunTest(const FString& Parameters)
 {
     const FString JournalDir = FAtlasTransportServer::GetJournalDirectory();
@@ -656,6 +700,7 @@ bool FAtlasUE56JournalReconcileRetainedHistoryTest::RunTest(const FString& Param
     const bool bOk = FAtlasTransportServer::ReconcileRenderJobs(Req, ObservedState, RErr);
     TestTrue(TEXT("ReconcileRenderJobs succeeded"), bOk);
     bool bFoundHistory = false;
+    bool bFoundJobIdAlias = false;
     if (ObservedState.IsValid())
     {
         TArray<TSharedPtr<FJsonValue>> Jobs = ObservedState->GetArrayField(TEXT("known_jobs"));
@@ -665,11 +710,20 @@ bool FAtlasUE56JournalReconcileRetainedHistoryTest::RunTest(const FString& Param
             if (Jo.IsValid() && Jo->GetStringField(TEXT("atlas_job_id")) == AtlasJobId)
             {
                 bFoundHistory = Jo->HasTypedField<EJson::Array>(TEXT("phase_history"));
+                // Downstream consumers read job_id (alias) OR unreal_job_id; both
+                // must be exposed by the derived known_job.
+                const FString JobIdAlias = Jo->GetStringField(TEXT("job_id"));
+                const FString ReadUnrealJobId = Jo->GetStringField(TEXT("unreal_job_id"));
+                if (!JobIdAlias.IsEmpty() && JobIdAlias == ReadUnrealJobId)
+                {
+                    bFoundJobIdAlias = true;
+                }
                 break;
             }
         }
     }
     TestTrue(TEXT("Reconcile exposes retained phase_history"), bFoundHistory);
+    TestTrue(TEXT("Reconcile exposes job_id == unreal_job_id alias"), bFoundJobIdAlias);
 
     IFileManager::Get().Delete(*FPaths::Combine(
         FAtlasTransportServer::GetJournalDirectory(),

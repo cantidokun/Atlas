@@ -33,6 +33,7 @@ class FAtlasTransportServer : public FRunnable
     friend class FAtlasUE56JournalMonotonicSequenceTest;
     friend class FAtlasUE56JournalDuplicateRejectionTest;
     friend class FAtlasUE56JournalMalformedHistoryTest;
+    friend class FAtlasUE56JournalLifecycleOrderingTest;
     friend class FAtlasUE56JournalReconcileRetainedHistoryTest;
 public:
     FAtlasTransportServer();

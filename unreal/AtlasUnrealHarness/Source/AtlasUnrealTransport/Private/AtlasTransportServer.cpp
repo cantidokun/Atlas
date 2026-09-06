@@ -1822,7 +1822,12 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
                 // latest phase fields (status/finished/... from the newest entry).
                 TSharedPtr<FJsonObject> Derived = MakeShareable(new FJsonObject);
                 Derived->SetStringField(TEXT("atlas_job_id"), AtlasJobId);
-                Derived->SetStringField(TEXT("unreal_job_id"), JsonObj->GetStringField(TEXT("unreal_job_id")));
+                const FString DerivedUnrealJobId = JsonObj->GetStringField(TEXT("unreal_job_id"));
+                Derived->SetStringField(TEXT("unreal_job_id"), DerivedUnrealJobId);
+                // job_id is the downstream-consumer alias for the Unreal job id; the
+                // wire contract exposes both names so neither the Python coordinator/
+                // verifier nor other consumers depend on a single name.
+                Derived->SetStringField(TEXT("job_id"), DerivedUnrealJobId);
                 Derived->SetStringField(TEXT("state_source"), TEXT("witness_journal"));
 
                 TArray<TSharedPtr<FJsonValue>> HistoryArr = JsonObj->GetArrayField(TEXT("phase_history"));
@@ -2283,6 +2288,39 @@ bool FAtlasTransportServer::WriteJournalEntry(
             TEXT("Out-of-order journal phase rejected: %s (new seq %d <= max seq %d)"),
             *Phase, NewSequence, MaxSequence);
         return false;
+    }
+
+    // Contract V1: enforce the strict required lifecycle ordering, not merely
+    // monotonic sequence. ACCEPTED MUST be the first phase; STARTED MUST follow
+    // ACCEPTED; a terminal FINISHED/FAILED MUST follow STARTED. A jump from
+    // ACCEPTED directly to a terminal (skipping STARTED) is out-of-order.
+    {
+        const bool bHasAccepted = ExistingPhases.Contains(TEXT("ACCEPTED"));
+        const bool bHasStarted = ExistingPhases.Contains(TEXT("STARTED"));
+        if (Phase == TEXT("ACCEPTED"))
+        {
+            if (!ExistingPhases.IsEmpty())
+            {
+                OutError = TEXT("ACCEPTED must be the first journal phase");
+                return false;
+            }
+        }
+        else if (Phase == TEXT("STARTED"))
+        {
+            if (!bHasAccepted)
+            {
+                OutError = TEXT("STARTED requires ACCEPTED first");
+                return false;
+            }
+        }
+        else // FINISHED / FAILED (terminal)
+        {
+            if (!bHasStarted)
+            {
+                OutError = TEXT("Terminal phase requires STARTED first");
+                return false;
+            }
+        }
     }
 
     // ---- Build the phase entry object (retain all identity/error/manifest fields) ----

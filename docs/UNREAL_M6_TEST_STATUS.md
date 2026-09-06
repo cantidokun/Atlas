@@ -94,8 +94,15 @@ Python suite**. Runtime execution of the C++ automation is an M7 build/validatio
    `phase_history`/monotonic `phase_sequence` per Contract §30/§37. →
    **REPAIRED in M7 hardening**: `WriteJournalEntry` now maintains an append-only
    `phase_history` array with monotonic `phase_sequence` (ACCEPTED=1, STARTED=2,
-   FINISHED/FAILED=3), rejects duplicate/out-of-order phases, fails closed on
-   malformed history, and `ReconcileRenderJobs` exposes the retained history.
+   FINISHED/FAILED=3) **and** the required lifecycle ordering (ACCEPTED first,
+   STARTED before a terminal), rejects duplicate/out-of-order phases, fails closed
+   on malformed history, and `ReconcileRenderJobs` exposes the retained history and
+   the `job_id`/`unreal_job_id` alias. A focused M7 journal-history audit also
+   added Atlas-authoritative identity binding
+   (`canonical_digital_twin_id`, full `expected_output_spec`, `attempt_ordinal`)
+   at reconciliation so engine-derived journal candidates preserve all downstream
+   verification fields; see `tests/m7/test_m7_journal_history.py` and
+   `docs/UNREAL_M7_HARDENING.md`.
 3. **`execution_deadline` is stored but unenforced.** No `EXHAUSTED` expiry transition
    exists. → **REPAIRED in M7 hardening**: the coordinator now evaluates
    submission/execution deadlines and transitions an unresolved expired job to

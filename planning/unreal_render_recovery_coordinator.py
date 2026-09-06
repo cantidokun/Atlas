@@ -522,6 +522,52 @@ class UnrealRenderRecoveryCoordinator:
             return f"Unreal job ID mismatch: expected {record.unreal_job_id}, got {candidate.get('job_id')}"
         return None
 
+    def _bind_record_identity_to_observation(
+        self,
+        record: AtlasRenderJobRecord,
+        candidate: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Bind Atlas-authoritative identity/topology into a journal-attested observation.
+
+        A witness journal legitimately cannot carry Atlas-owned identity
+        (``canonical_digital_twin_id``), the full 5-key ``expected_output_spec``, or
+        ``attempt_ordinal``. The durable record is the authority for these. This
+        helper supplies them from the record while preserving every engine-witnessed
+        execution field (status/success/failed/finished, ``output_files``,
+        ``output_manifest``, session/process identity, ``output_directory``,
+        digests) from the candidate. ``verify_render_job_evidence`` still enforces
+        exact equality between the bound identity and the durable record, and still
+        independently verifies the engine-attested manifest/hashes against disk. So
+        this fills in Atlas-owned fields the witness cannot provide; it does NOT
+        fabricate engine execution success.
+        """
+        bound = {k: v for k, v in candidate.items()}
+
+        # job_id / unreal_job_id: engine-witnessed; carry both names when present.
+        engine_unreal = candidate.get("unreal_job_id") or candidate.get("job_id")
+        bound.setdefault("job_id", engine_unreal)
+        bound.setdefault("unreal_job_id", engine_unreal)
+
+        # Atlas-authoritative identity the engine cannot witness:
+        bound.setdefault("canonical_digital_twin_id", record.canonical_digital_twin_id)
+        bound.setdefault("attempt_ordinal", record.attempt_ordinal)
+
+        # Full expected output spec from the durable record (authoritative topology).
+        # If the candidate supplied a format, validate it against the record; then
+        # use the record's complete 5-key spec so the verifier can enforce topology.
+        cand_spec = candidate.get("expected_output_spec")
+        record_spec = dict(record.expected_output_spec or {})
+        if isinstance(cand_spec, Mapping) and cand_spec.get("format"):
+            cand_format = str(cand_spec.get("format")).strip().lower()
+            rec_format = str(record_spec.get("format", "")).strip().lower()
+            if rec_format and cand_format != rec_format:
+                raise UnrealEvidenceVerificationError(
+                    f"expected_output_spec format mismatch: journal={cand_format!r} record={rec_format!r}"
+                )
+        bound["expected_output_spec"] = record_spec
+
+        return bound
+
     def _handle_no_engine_evidence(
         self,
         record: AtlasRenderJobRecord,
@@ -677,13 +723,23 @@ class UnrealRenderRecoveryCoordinator:
                 return self._fail_case_g(record, f"Artifact SHA-256 mismatch for {path_str}")
 
         # 4. Independent Evidence Verification
-        # In recovery, candidate comes from the engine journal/observation.
-        # Check that candidate carries the process identity; if not, pass candidate as is so verifier can enforce fail-closed check
+        # In recovery, the candidate comes from the engine journal/observation and
+        # can only carry engine-witnessed fields. Bind Atlas-authoritative identity
+        # (canonical_digital_twin_id, full expected_output_spec, attempt_ordinal)
+        # from the durable record so the verifier can enforce the full topology and
+        # identity contract. Engine-witnessed execution fields (output_files,
+        # output_manifest, status/finished/success/failed, hashes) remain from the
+        # candidate and are independently verified against disk.
+        try:
+            verify_state = self._bind_record_identity_to_observation(record, candidate)
+        except UnrealEvidenceVerificationError as exc:
+            return self._fail_case_g(record, f"Journal/record identity binding failed: {exc}")
+
         try:
             verified_evidence = verify_render_job_evidence(
                 operation_name="inspect_render_job",
                 entity_ids=("RENDER_RECOVERY",),
-                observed_state=candidate,
+                observed_state=verify_state,
                 source="unreal-recovery-coordinator",
                 job_record=record,
                 evidence_source_class="ENGINE_JOURNAL_ATTESTED",
