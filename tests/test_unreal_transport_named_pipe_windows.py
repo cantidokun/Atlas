@@ -84,6 +84,16 @@ def _start_server(pipe_name, win32_modules, behavior):
                 "observed_state": {"FIELD_SURFACE": {"actor_name": "TestActor"}},
                 "error": "",
                 "source": "unreal-editor-atlas-transport",
+                "schema_version": 1,
+                "error_code": "",
+                "session_identity": {
+                    "editor_session_id": "test-session-001",
+                    "process_id": 12345,
+                    "process_creation_time_utc": "2026-09-06T00:00:00Z",
+                    "server_start_time_utc": "2026-09-06T00:00:01Z",
+                    "engine_version": "5.6",
+                    "project_identity": "AtlasUnrealHarness",
+                },
             }
             response_data = json.dumps(
                 response, sort_keys=True, separators=(",", ":")

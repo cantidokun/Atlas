@@ -1,7 +1,7 @@
 """Production Unreal adapter with pluggable transport."""
 
 import uuid
-from typing import Optional, Protocol
+from typing import Mapping, Optional, Protocol
 
 from planning.unreal_agent import UnrealOperation, UnrealOperationKind, UnrealCapability
 from planning.unreal_evidence_contract import UnrealEvidence
@@ -59,8 +59,21 @@ class UnrealAdapterProduction:
         try: response=self._transport.send(request)
         except NamedPipeTransportError as exc: raise UnrealAdapterError(f"Unreal transport failed for operation '{operation.name}' (kind={operation.kind.value}, entity_ids={list(operation.entity_ids)}): {exc}") from exc
         validate_response_correlation(request,response)
-        if not response.success: raise UnrealAdapterError(f"Unreal operation '{operation.name}' (kind={operation.kind.value}, entity_ids={list(operation.entity_ids)}, auth_id={authorization_id}) failed: {response.error}")
-        return self._to_evidence(response,evidence_operation_name)
+        if not response.success: raise UnrealAdapterError(f"Unreal operation '{operation.name}' (kind={operation.kind.value}, entity_ids={list(operation.entity_ids)}, auth_id={authorization_id}) failed: {response.error} (code={response.error_code})")
+        ev = self._to_evidence(response,evidence_operation_name)
+        # Preserve error_code and session_identity as metadata on evidence if present
+        if response.session_identity and isinstance(ev.observed_state, Mapping):
+            # Create snapshot dictionary with session_identity merged into metadata
+            augmented_state = dict(ev.observed_state)
+            augmented_state["_session_identity"] = dict(response.session_identity)
+            return UnrealEvidence(
+                operation_name=ev.operation_name,
+                entity_ids=ev.entity_ids,
+                observed_state=augmented_state,
+                source=ev.source,
+                verified=False,
+            )
+        return ev
     def inspect(self, operation, authorization_id):
         if operation.kind is not UnrealOperationKind.READ: raise UnrealAdapterError("inspect accepts READ operations only")
         return self._execute(operation,authorization_id)
