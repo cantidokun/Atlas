@@ -637,10 +637,19 @@ def verify_render_job_evidence(
     exp_format = expected_spec.get("format")
     if not exp_format or not isinstance(exp_format, str):
         raise UnrealEvidenceVerificationError("expected_output_spec missing valid format")
-    if exp_format.lower() not in ("png",):
+    exp_format_lower = exp_format.lower()
+    if exp_format_lower not in ("png",):
         raise UnrealEvidenceVerificationError(
             f"unsupported output format in expected_output_spec: {exp_format!r}"
         )
+
+    # Enforce that every output file matches the expected extension
+    expected_ext = f".{exp_format_lower}"
+    for fp in normalized_output_files:
+        if not fp.lower().endswith(expected_ext):
+            raise UnrealEvidenceVerificationError(
+                f"output file {fp!r} extension does not match expected format {expected_ext!r}"
+            )
 
     exp_width = expected_spec.get("width")
     exp_height = expected_spec.get("height")

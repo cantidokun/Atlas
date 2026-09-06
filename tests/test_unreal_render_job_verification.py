@@ -935,6 +935,25 @@ def test_m5_png_chunk_structure_hardening(tmp_path: Path):
     assert verify_png_completeness(out_file) is False
 
 
+def test_m5_output_file_extension_must_match_format(tmp_path: Path):
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.jpg"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_bytes(b"jpg-data")
+    state = _valid_record_observed_state(rec, out_file, b"jpg-data")
+    state["output_files"] = [str(out_file)]
+    state["output_manifest"] = [{"path": str(out_file), "size": 8, "sha256": "0"*64}]
+
+    with pytest.raises(UnrealEvidenceVerificationError, match="extension does not match expected format"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=state,
+            source="ENGINE_LIVE",
+            job_record=rec,
+        )
+
+
 def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
     """Test that missing or uninterpretable expected_output_spec fails closed."""
     rec_no_topo = AtlasRenderJobRecord.create_intent(
