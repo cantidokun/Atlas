@@ -440,3 +440,84 @@ def test_m7_jh_validate_valid_failed_history():
 def test_m7_jh_validate_empty_history():
     ok, err = _validate_existing_history([])
     assert not ok and "empty" in err
+
+
+# ── 8. Blocker 1 + 2 reference semantics (mirror of C++ WriteJournalEntry) ─────
+# BLOCKER 1: phase_history, if present, MUST be an array; any other JSON type
+# (object/string/number/null) fails closed and leaves bytes untouched.
+# BLOCKER 2 (Option A lossless migration): a legacy schema-1 journal with a
+# top-level 'phase' but no 'phase_history' is migrated into the first retained
+# phase_history entry rather than discarded.
+def _resolve_existing_history(root, new_phase):
+    """Mirror C++ WriteJournalEntry load/migrate/validate decision.
+
+    Returns (phase_history_entries, allow_append, error_or_None).
+    """
+    if "phase_history" in root:
+        ph = root["phase_history"]
+        if not isinstance(ph, list):
+            return None, False, "phase_history not an array"
+        ok, err = _validate_existing_history(ph)
+        if not ok:
+            return None, False, err
+        return ph, True, None
+    if "phase" in root:
+        # Legacy schema-1 single-phase journal -> migrate into history[0].
+        legacy = root["phase"]
+        seq = root.get("phase_sequence", PHASE_SEQUENCE.get(legacy))
+        migrated = [{"phase": legacy, "phase_sequence": seq}]
+        ok, err = _validate_existing_history(migrated)
+        if not ok:
+            return None, False, err
+        return migrated, True, None
+    # No phase_history and no phase -> empty fresh history (append-safe).
+    return [], True, None
+
+
+def test_m7_jh_typed_check_phase_history_not_array():
+    for nonarray in ({"phase_history": {}}, {"phase_history": "corrupt"},
+                     {"phase_history": 123}, {"phase_history": None}):
+        hist, allow, err = _resolve_existing_history(nonarray, "STARTED")
+        assert not allow and "not an array" in err
+
+
+def test_m7_jh_typed_check_phase_history_empty_array_rejected():
+    hist, allow, err = _resolve_existing_history({"phase_history": []}, "STARTED")
+    assert not allow and "empty" in err
+
+
+def test_m7_jh_typed_check_valid_phase_history_array_allowed():
+    hist, allow, err = _resolve_existing_history(
+        {"phase_history": [_E("ACCEPTED", 1)]}, "STARTED")
+    assert allow is True and err is None
+    assert [e["phase"] for e in hist] == ["ACCEPTED"]
+
+
+def test_m7_jh_legacy_migration_retains_prior_phase():
+    # Legacy ACCEPTED -> append STARTED: prior phase survives migration.
+    hist, allow, err = _resolve_existing_history(
+        {"phase": "ACCEPTED", "phase_sequence": 1, "status": "submitted"}, "STARTED")
+    assert allow is True and err is None
+    assert [e["phase"] for e in hist] == ["ACCEPTED"]
+
+
+def test_m7_jh_legacy_terminal_cannot_append_terminal():
+    # A legacy terminal-only journal (FINISHED with no ACCEPTED/STARTED) is an
+    # invalid/ambiguous witness: migrated into a 1-element phase_history it fails
+    # the strict requirement "must begin with ACCEPTED", so the append is REJECTED
+    # and the legacy file is preserved unchanged (fail closed - never overwrite).
+    hist, allow, err = _resolve_existing_history(
+        {"phase": "FINISHED", "phase_sequence": 3}, "FAILED")
+    assert allow is False
+    assert err is not None and "must begin with ACCEPTED" in err
+
+
+def test_m7_jh_legacy_invalid_journal_rejected():
+    hist, allow, err = _resolve_existing_history(
+        {"phase": "BOGUS", "phase_sequence": 5}, "ACCEPTED")
+    assert not allow and err is not None
+
+
+def test_m7_jh_legacy_no_history_no_phase_fresh():
+    hist, allow, err = _resolve_existing_history({"atlas_job_id": "x"}, "ACCEPTED")
+    assert allow is True and hist == []

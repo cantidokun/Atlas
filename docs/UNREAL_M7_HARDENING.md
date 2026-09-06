@@ -108,6 +108,19 @@ and the record, and still independently verifies the engine-attested manifest
 hashes against disk — so this fills in Atlas-owned fields a witness genuinely
 cannot provide; it does not fabricate engine success.
 
+### Journal-append integrity (structural + legacy, audit correction)
+- **BLOCKER 1:** `WriteJournalEntry` now requires `phase_history`, when present, to be a
+  JSON **array** (`HasTypedField<EJson::Array>`) BEFORE `GetArrayField`. If it exists as
+  any other JSON type (object/string/number/null), or as an empty array, it fails
+  closed with a structural-validation error and the original journal bytes are left
+  untouched.
+- **BLOCKER 2 (Option A — lossless migration):** a legacy schema-1 journal that has no
+  `phase_history` but carries a top-level `phase` is **not** treated as empty. It is
+  converted into the first retained `phase_history` entry (preserving material
+  fields), validated, and then the new phase is appended only if the resulting
+  history satisfies the strict semantic ordering. A legacy terminal-only or invalid
+  witness is rejected unchanged (never discarded, never overwritten).
+
 ### C++ automation tests (new, compile-verified via UnrealBuildTool — module build
 succeeded; not executed under the editor in this milestone)
 | Contract req (task) | C++ AutomationTest (`AtlasUE56RenderJobBoundaryTest.cpp`) |
@@ -214,15 +227,15 @@ Additional: `test_m7_c_submission_deadline_also_enforced`,
 - `unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Public/AtlasTransportServer.h`
   — friend declarations for the new C++ automation tests.
 - `unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasUE56RenderJobBoundaryTest.cpp`
-  — five new C++ automation tests (B).
+  — C++ automation tests for the append-only witness history (JournalAppendHistory, JournalMonotonicSequence, JournalDuplicateRejection, JournalLifecycleOrdering, JournalStructuralValidation, JournalMalformedHistory, JournalReconcileRetainedHistory); plus the pre-existing WitnessJournalAcceptedBeforeDispatch/FinishedWithHashAttestation, MalformedJournalHandling, ReconcileCatalogReporting, CapabilitySchemaReporting tests. 16 C++ automation tests total are compile-verified via UnrealBuildTool.
 
 No other production, engine, or test file was modified.
 
 ## Validation
-- `tests/m7/`: **16 passed**
+- `tests/m7/`: **54 passed**
 - `tests/m6/`: **79 passed** (incl. M7-updated framing test)
 - Existing M4/M5 Unreal suites: **154 passed**
-- Full `pytest -m "not integration"`: **1045 passed**
+- Full `pytest -m "not integration"`: **1083 passed**
 - C++ module build: **UnrealBuildTool succeeded** (UBT_EXIT_CODE=0) with the new
   journal/history automation tests.
 

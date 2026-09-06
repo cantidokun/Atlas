@@ -2272,8 +2272,17 @@ bool FAtlasTransportServer::WriteJournalEntry(
             OutError = TEXT("Journal unreal_job_id mismatch on append");
             return false;
         }
+
+        // BLOCKER 1: if a 'phase_history' field is present it MUST be an array.
+        // If it exists as any other JSON type, fail closed WITHOUT GetArrayField and
+        // WITHOUT overwriting the original bytes.
         if (ExistingRoot->HasField(TEXT("phase_history")))
         {
+            if (!ExistingRoot->HasTypedField<EJson::Array>(TEXT("phase_history")))
+            {
+                OutError = TEXT("Existing journal 'phase_history' field is not a JSON array; refusing to overwrite");
+                return false;
+            }
             PhaseHistory = ExistingRoot->GetArrayField(TEXT("phase_history"));
             // Structurally validate the EXISTING history BEFORE any append.
             // Parseable-but-malformed history (non-object elements, missing/invalid
@@ -2285,6 +2294,52 @@ bool FAtlasTransportServer::WriteJournalEntry(
                 return false;
             }
         }
+        else if (ExistingRoot->HasField(TEXT("phase")))
+        {
+            // BLOCKER 2 (Option A - LOSSLESS MIGRATION): a legacy schema-1 single-phase
+            // journal has no 'phase_history' array but carries a 'phase' field. It
+            // must NOT be treated as empty history (that would discard the prior
+            // witness phase). Convert the legacy entry into the first retained
+            // phase_history entry, preserving materially relevant fields.
+            FString LegacyPhase;
+            double LegacySequence = 0.0;
+            if (!ExistingRoot->TryGetStringField(TEXT("phase"), LegacyPhase) || LegacyPhase.IsEmpty())
+            {
+                OutError = TEXT("Legacy journal has no valid 'phase'; refusing to migrate/overwrite");
+                return false;
+            }
+            if (!ExistingRoot->TryGetNumberField(TEXT("phase_sequence"), LegacySequence))
+            {
+                // Accept legacy phase and derive its semantic sequence.
+                LegacySequence = (double)GetPhaseSequence(LegacyPhase);
+            }
+
+            TSharedPtr<FJsonObject> LegacyEntry = MakeShareable(new FJsonObject);
+            LegacyEntry->SetStringField(TEXT("phase"), LegacyPhase);
+            LegacyEntry->SetNumberField(TEXT("phase_sequence"), LegacySequence);
+            // Preserve materially relevant fields from the legacy journal entry.
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Kvp : ExistingRoot->Values)
+            {
+                if (Kvp.Key != TEXT("journal_schema_version")
+                    && Kvp.Key != TEXT("phase_history")
+                    && Kvp.Key != TEXT("atlas_job_id")
+                    && Kvp.Key != TEXT("unreal_job_id"))
+                {
+                    LegacyEntry->SetField(Kvp.Key, Kvp.Value);
+                }
+            }
+            PhaseHistory.Add(MakeShareable(new FJsonValueObject(LegacyEntry)));
+
+            // Validate the migrated single-entry history as the FIRST retained entry.
+            if (!FAtlasTransportServer::ValidateJournalPhaseHistory(
+                    PhaseHistory, ExistingPhases, MaxSequence, OutError))
+            {
+                return false;
+            }
+        }
+        // else: no 'phase_history' and no 'phase' -> an empty/unspecified journal is
+        // treated as a fresh history (equivalent to no prior witness phases), which
+        // is append-safe.
     }
 
     // ---- Enforce append-only monotonic + duplicate/out-of-order rejection ----

@@ -20,8 +20,10 @@ workflow/action-runner tests. Full detail: `docs/UNREAL_M7_HARDENING.md`.
   phases rejected; malformed history fails closed (never truncates prior witness
   entries); durable atomic write retained. `ReconcileRenderJobs` exposes the retained
   history and derives current state from the latest phase. `journal_schema_version` → 2.
-- Five new C++ automation tests added and **compile-verified** via UnrealBuildTool
-  (module build succeeded). Not executed under the editor in this milestone.
+- Journal-history C++ automation tests (AppendHistory, MonotonicSequence,
+  DuplicateRejection, LifecycleOrdering, StructuralValidation, MalformedHistory,
+  ReconcileRetainedHistory) **compile-verified** via UnrealBuildTool; 16 C++
+  automation tests total. Not executed under the editor in this milestone.
 
 ### C. Execution/submission deadline enforcement
 - The coordinator now evaluates persisted deadlines deterministically; an unresolved
@@ -31,11 +33,17 @@ workflow/action-runner tests. Full detail: `docs/UNREAL_M7_HARDENING.md`.
   execution/recovery phase. `now_utc` is injectable for deterministic tests.
 
 ### Validation
-- `tests/m7/`: **16 passed**.
+- `tests/m7/`: **54 passed** (final head).
 - `tests/m6/`: **79 passed** (framing test updated to reflect the repair).
 - Existing M4/M5 Unreal suites: **154 passed**.
-- Full `pytest -m "not integration"`: **1045 passed** (was 1029).
+- Full `pytest -m "not integration"`: **1083 passed** (final head).
 - C++ module build: **UnrealBuildTool succeeded** (UBT_EXIT_CODE=0).
+
+Two additional M7 journal-integrity passes hardened structural validation (typed
+`phase_history` fail-closed before `GetArrayField`; parseable-but-malformed history
+rejected, never overwritten, ReconcileRenderJobs -> PARTIAL) and added lossless
+legacy schema-1 -> schema-2 migration (prior phase retained, never discarded). See
+`docs/UNREAL_M7_HARDENING.md`.
 
 ### M7 status
 Live UE 5.6 restart/recovery **Scenarios 1–8 are NOT run** and require explicit

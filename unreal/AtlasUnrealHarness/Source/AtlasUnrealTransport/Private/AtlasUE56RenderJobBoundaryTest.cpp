@@ -720,6 +720,96 @@ bool FAtlasUE56JournalStructuralValidationTest::RunTest(const FString& Parameter
         CheckUnchanged(Bad);
     }
 
+    // BLOCKER 1: phase_history exists but is NOT an array must fail closed,
+    // GetArrayField must not be called on a non-array, and the file must be
+    // byte-for-byte unchanged.
+    {
+        const TArray<FString> BadTypes = {
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":{}}"),  // object
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":\"corrupt\"}"), // string
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":123}"), // number
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":null}"), // null
+        };
+        for (const FString& Bad : BadTypes)
+        {
+            const bool bOk = AttemptAppend(Bad);
+            TestFalse(TEXT("Append rejected when phase_history is not an array"), bOk);
+            CheckUnchanged(Bad);
+        }
+    }
+    // BLOCKER 1: phase_history = [] (present but empty) is malformed and must fail
+    // closed (an existing history field must not be an empty array).
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected on empty phase_history"), bOk);
+        CheckUnchanged(Bad);
+    }
+
+    // BLOCKER 2 (Option A, LOSSLESS MIGRATION): a legacy schema-1 single-phase
+    // journal (no phase_history, but a top-level 'phase') must NOT be treated as
+    // empty. It is migrated into the first retained phase_history entry and the
+    // new phase is appended only if the resulting history is valid. The prior
+    // phase must survive in the final phase_history.
+    {
+        // Legacy ACCEPTED -> append STARTED => migrated history ACCEPTED,STARTED.
+        const FString Legacy = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"journal_schema_version\":1,\"phase\":\"ACCEPTED\",\"phase_sequence\":1,\"status\":\"submitted\"}");
+        FFileHelper::SaveStringToFile(Legacy, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->SequenceAssetPath = TEXT("/Game/S/S");
+        JobState->OutputDirectory = TEXT("C:/AtlasRenders/mig");
+        JobState->Status = TEXT("rendering");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+        TestTrue(TEXT("Legacy ACCEPTED -> STARTED append succeeds (lossless migration)"), bAppended);
+        // Verify the migrated history retains ACCEPTED then STARTED.
+        FString Migrated;
+        FFileHelper::LoadFileToString(Migrated, *JournalPath);
+        TestTrue(TEXT("Migrated phase_history retains ACCEPTED"), Migrated.Contains(TEXT("\"phase\":\"ACCEPTED\"")));
+        TestTrue(TEXT("Migrated phase_history retains STARTED"), Migrated.Contains(TEXT("\"phase\":\"STARTED\"")));
+        IFileManager::Get().Delete(*JournalPath);
+    }
+
+    // Legacy terminal journal cannot accept another terminal (out-of-order).
+    {
+        const FString Legacy = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase\":\"FINISHED\",\"phase_sequence\":3,\"status\":\"finished\",\"finished\":true,\"success\":true}"); 
+        FFileHelper::SaveStringToFile(Legacy, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->Status = TEXT("rendering");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("FAILED"), JobState, Error);
+        TestFalse(TEXT("Legacy terminal journal cannot accept another terminal"), bAppended);
+        // Legacy file must be byte-for-byte unchanged.
+        FString After;
+        FFileHelper::LoadFileToString(After, *JournalPath);
+        TestTrue(TEXT("Legacy terminal journal unchanged after rejected terminal append"), After == Legacy);
+        IFileManager::Get().Delete(*JournalPath);
+    }
+
+    // Legacy invalid/ambiguous journal (phase present but invalid) rejected unchanged.
+    {
+        const FString Legacy = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase\":\"BOGUS\"}");
+        FFileHelper::SaveStringToFile(Legacy, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->Status = TEXT("submitted");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+        TestFalse(TEXT("Legacy invalid journal rejected"), bAppended);
+        FString After;
+        FFileHelper::LoadFileToString(After, *JournalPath);
+        TestTrue(TEXT("Legacy invalid journal unchanged"), After == Legacy);
+        IFileManager::Get().Delete(*JournalPath);
+    }
+
     // ReconcileRenderJobs must FAIL CLOSED on a parseable-but-malformed history:
     // classify journal_status PARTIAL and NOT synthesize a current state from the
     // latest (malformed) entry - malformed witness state is never evidence of
