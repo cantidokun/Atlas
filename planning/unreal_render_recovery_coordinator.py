@@ -404,7 +404,53 @@ class UnrealRenderRecoveryCoordinator:
                 )
 
             # Candidate indicates finished execution -> Requires process quiescence and witness HMAC validation
+            if not self._candidate_is_terminal(candidate):
+                # Case J: The recovered witness journal is NON-TERMINAL (torn /
+                # interrupted: phase ACCEPTED/STARTED, finished=False, status
+                # submitted/rendering). This is an unresolved execution after the
+                # Atlas+Unreal dual-restart boundary - UNKNOWN, not absent
+                # (Contract V1 §19 Case J). It MUST enter bounded RECOVERY_PENDING,
+                # NOT terminal FAILED, even when the recovered witness manifest is
+                # empty. A non-terminal witness is not a finished execution, so the
+                # empty-manifest/artifact Case G path must never capture it.
+                pending_record = record.transition(
+                    recovery_status=RenderJobRecoveryStatus.RECOVERY_PENDING,
+                    increment_ambiguity=True,
+                )
+                self.store.update(pending_record, expected_revision=record.last_observed_revision)
+                return RecoveryDecisionResult(
+                    atlas_job_id=valid_id,
+                    lifecycle_state_before=state_before,
+                    lifecycle_state_after=pending_record.lifecycle_state,
+                    recovery_status_before=status_before,
+                    recovery_status_after=pending_record.recovery_status,
+                    case_classified="Case J",
+                    repaired_from_receipt=False,
+                    failure_reason=(
+                        "Witness journal is non-terminal (torn/interrupted after "
+                        "dual-process interruption); execution unresolved, entered "
+                        "RECOVERY_PENDING"
+                    ),
+                )
             return self._handle_finished_candidate(record, candidate, valid_id, lease_token)
+
+    @staticmethod
+    def _candidate_is_terminal(candidate: Mapping[str, Any]) -> bool:
+        """True when the recovered engine witness claims a TERMINAL execution.
+
+        A terminal witness is one that reached FINISHED/FAILED (the transport
+        `finished` flag is True, or the recorded phase is a terminal phase).
+        A torn/persisted NON-terminal candidate (phase ACCEPTED or STARTED,
+        finished=False, status submitted/rendering) is NOT terminal: it is an
+        interrupted/unresolved execution and must be classified Case J rather
+        than being terminally failed via the finished-candidate artifact path.
+        """
+        if candidate.get("finished") is True:
+            return True
+        phase = candidate.get("phase")
+        if isinstance(phase, str) and phase in ("FINISHED", "FAILED"):
+            return True
+        return False
 
     def _probe_receipt_first(self, record: AtlasRenderJobRecord) -> Optional[AtlasRenderJobRecord]:
         """Probe receipt store for full 8-field identity match."""

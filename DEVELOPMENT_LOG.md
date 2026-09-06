@@ -1,3 +1,12 @@
+## 2026-09-06 - M10 S4 Case J remediation
+- Genuine S4 s4b live dual-restart produced a torn non-terminal journal (job 899e6a81, ACCEPTED-only).
+- Recovery classified torn job Case G -> terminal FAILED; contract requires Case J -> RECOVERY_PENDING.
+- Fixed coordinator: _candidate_is_terminal guard before _handle_finished_candidate; torn/interrupted
+  (finished=False / phase not FINISHED/FAILED) -> Case J (RECOVERY_PENDING, ambiguity++, no receipt, no retry);
+  genuine terminal Case G still fail-closed; normal Case B unchanged.
+- tests/m10/test_m10_case_j_torn_journal.py (9 tests); focused 9 passed; suites 263 passed; full 1198 passed.
+- No live scenario re-run; deterministic-only remediation.
+
 # Atlas Development Log
 
 ## September 6, 2026 — Milestone 7 hardening/pre-flight
