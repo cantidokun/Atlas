@@ -1,6 +1,6 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 6, 2026 — M4 cross-process recovery and M5 independent evidence verification merged (PR #68); M6 deterministic fault-injection/concurrency test suite implemented (dedicated branch, 79 tests green + 1029 full suite; C++ §32 automation additions compile-verified).
+**Updated:** September 6, 2026 — M4 cross-process recovery and M5 independent evidence verification merged (PR #68); M6 deterministic fault-injection/concurrency test suite implemented and regression-verified (dedicated branch, 79 tests green + 1029 full suite; C++ §32 automation additions compile-verified). **Per-item §31/§32 honest status (fully vs partially exercised vs deferred): docs/UNREAL_M6_TEST_STATUS.md.**
 **Active Atlas branch:** `main`
 **Current focus:** M4/M5 complete; M6 test suite implemented. The next authoritative gate is **M7 live UE 5.6 restart/recovery Scenarios 1–8**, which must NOT be run without explicit authorization (live Unreal execution).
 **Latest M5 merge commit:** `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`

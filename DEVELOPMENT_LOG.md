@@ -4,22 +4,28 @@
 
 Milestone 6 (Contract V1 §31 matrix + §32 C++ automation boundary) is implemented as a deterministic test suite under `tests/m6/` on `main` + dedicated M6 branch. No production code was modified; no workflow/action-runner tests; no live Unreal/Blender execution; no M7 live restart scenarios.
 
-### Coverage
+This entry includes a **corrective test-correctness/status-honesty pass**: per-item §31/§32 status is now recorded honestly in `docs/UNREAL_M6_TEST_STATUS.md`. Several test names/assertions were strengthened or reworded so their claims match what they actually assert (e.g. the two-coordinator test now actually attempts a second store-gated publication and asserts rejection; the framed-catalog and deadline-expiry tests no longer claim fully-exercised positive behavior).
 
-- §31 items 1–25: record/store round-trip & corruption; concurrent update conflict; stale-writer/fencing; coordinator single-instance; duplicate submission; terminal non-regression; journal malformed/session/identity faults; acceptance-before-launch; terminal FINISHED; artifact isolation/hash/PNG/topology; Case A–J; artifact-only-no-receipt; authorization revalidation; receipt create-if-absent & crash-between-persistence; transport-unavailable waiting; catalog stability; capability/wire-version rejection.
-- §32 C++ automation: added malformed-journal handling and capability/schema-reporting tests to `AtlasUE56RenderJobBoundaryTest.cpp` (friend seam; narrow, deterministic-boundary). Compile-verified via UnrealBuildTool (module build succeeded); not executed under the editor (no live UE in M6).
+### Coverage (honest, per item)
 
-### Validation
+- **FULLY EXERCISED** §31 items: 1,2,3,4,5,6,11,12,13,14,15,17,18,19,20,21,22,25.
+- **PARTIALLY EXERCISED** §31 items: 7,8,9,10 (fail-closed asserted; positive gate not isolable through the Python coordinator, and/or the C++ parallel only compile-verified), 16 (Cases A/B/C/H/J/K + quiescence + rogue asserted; some sub-cases inferred/partial), 23 (persistence + no-auto-retry; the positive `EXHAUSTED` expiry gate is missing in production).
+- **PARTIALLY EXERCISED / DEFECT** §31 item 24: framed-integrity path is inert due to the mappingproxy serialization defect; M6 asserts only the SAFE fail-closed outcome and does NOT claim the positive framing path.
+- **CANT EXERCISE (contract/implementation gap)** §32 journal append/history retention: C++ journal overwrites a single per-pair file; no append-only `phase_history`/`phase_sequence` exists. No test cements this divergence.
+
+See `docs/UNREAL_M6_TEST_STATUS.md` for the full item-by-item table.
+
+### Validation (this corrective pass)
 
 - M6 suite: **79 passed**.
 - Full deterministic repository suite: **1029 passed**.
-- Existing Unreal recovery/evidence suites: **121 passed** (no regression).
+- Existing Unreal recovery/evidence suites: re-run green.
 
-### Deferred production items (flagged, not fixed — test-only milestone)
+### Production defects discovered by M6 (flagged, not fixed — test-only milestone)
 
-1. Coordinator frame-integrity check cannot serialize frozen `observed_state` (mappingproxy) to canonical JSON; a framing-field response always fails closed to Case J (safe) but the code path is inert.
+1. Coordinator frame-integrity check cannot serialize frozen `observed_state` (mappingproxy) to canonical JSON; a framing-field response always fails closed to Case J (safe) but the code path is inert — positive framing verification NOT exercised.
 2. C++ `WriteJournalEntry` overwrites a single `<atlas>__<unreal>.json` per job-pair instead of Contract §30 append-only `phase_history`/monotonic `phase_sequence`.
-3. `execution_deadline` is persisted but expired-window enforcement (`EXHAUSTED` transition) is not implemented.
+3. `execution_deadline` is persisted but expired-window enforcement (`EXHAUSTED` transition) is not implemented; §31 item 23 is therefore only partially exercised.
 
 These require production remediation (M7 hardening), not test weakening.
 

@@ -189,9 +189,19 @@ def test_m6_item22_uncertain_wait_does_not_mutate_to_terminal_or_resubmit(tmp_pa
 
 
 # ── Item 23: execution/submission deadline handling ───────────────────────────
+# PARTIALLY EXERCISED / DEFERRED (see report §C / coverage table). The contract
+# requires an expired execution/submission window to fail closed with an EXHAUSTED
+# transition and to bound waiting periods. The current production code PERSISTS the
+# deadlines on the durable record but does NOT enforce an expired-window transition
+# (no EXHAUSTED / deadline-expiry gate exists in submission or coordinator).
+# Therefore M6 can deterministically verify only:
+#   (a) deadlines are durably persisted and survive reload;
+#   (b) transport-uncertainty waiting never auto-resubmits and never mutates to
+#       terminal, even with an already-expired deadline.
+# The positive EXHAUSTED enforcement is NOT exercised because the production seam
+# does not exist; it must be added (M7 hardening), not claimed as verified here.
 def test_m6_item23_deadlines_are_durably_persisted_on_record(tmp_path):
-    # Deadlines are carried on the durable record. The M6 contract requires that
-    # waiting/ambiguity does NOT automatically resubmit; deadlines are preserved.
+    # (a) persistence + reload round-trip of submission/execution deadlines.
     store, service, transport = _service(tmp_path)
     res = service.submit_render(
         **_submit_kwargs(
@@ -207,12 +217,11 @@ def test_m6_item23_deadlines_are_durably_persisted_on_record(tmp_path):
     assert reloaded.execution_deadline == "2026-09-06T00:10:00Z"
 
 
-def test_m6_item23_expired_execution_deadline_never_auto_resubmits(tmp_path):
-    # GAP DOCUMENTATION: production does not yet enforce deadline-expiry
-    # transitions (record stores the deadline but no coordinator/submission path
-    # honors an expired window with an EXHAUSTED transition). M6 therefore asserts
-    # the fail-closed invariant that IS enforced: transport uncertainty is not
-    # converted into an automatic retry, even with an expired window.
+def test_m6_item23_expired_deadline_never_auto_resubmits_failclosed_observed(tmp_path):
+    # (b) FAIL-CLOSED safety under transport uncertainty with an already-expired
+    # window. NOTE: this is NOT the full contract item 23 — the EXHAUSTED
+    # enforcement is absent in production (deferred); we assert only that an
+    # expired window does not trigger automatic resubmission or terminal mutation.
     inject = _SubmissionTransport(submit_failure=NamedPipeTransportTimeoutError("timeout"))
     store, service, transport = _service(tmp_path, inject)
     res = service.submit_render(
@@ -226,7 +235,11 @@ def test_m6_item23_expired_execution_deadline_never_auto_resubmits(tmp_path):
     assert transport.submit_call_count == 1
 
 
-def test_m6_item23_waiting_state_does_not_advance_on_deadline_without_explicit_gate(tmp_path):
+def test_m6_item23_expired_dir_does_not_mint_terminal_success(tmp_path):
+    # (b) Same fail-closed safety: an expired window under uncertainty must not
+    # fabricate a FAILED/success terminal outcome or resubmit.
+    from planning.unreal_render_job_states import TERMINAL_LIFECYCLE_STATES
+
     inject = _SubmissionTransport(submit_failure=NamedPipeTransportTimeoutError("timeout"))
     store, service, transport = _service(tmp_path, inject)
     res = service.submit_render(
@@ -235,10 +248,10 @@ def test_m6_item23_waiting_state_does_not_advance_on_deadline_without_explicit_g
             execution_deadline="2020-01-01T00:00:00Z",
         )
     )
-    # Even with an expired submission window, uncertain acceptance stays WAITING
-    # and does NOT auto-resubmit, FAIL, or mint success.
     assert res.acceptance_unknown is True
     assert res.record.lifecycle_state == RenderJobLifecycleState.PENDING_SUBMISSION
+    assert res.record.lifecycle_state not in TERMINAL_LIFECYCLE_STATES
+    _ = transport  # unused except to confirm no resubmit below
     assert transport.submit_call_count == 1
 
 

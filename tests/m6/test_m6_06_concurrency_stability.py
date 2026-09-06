@@ -16,15 +16,23 @@ from planning.unreal_render_job_states import (
 )
 from planning.unreal_render_job_store import (
     AtlasRenderJobStore,
+    AtlasRenderJobStoreError,
     AtlasRenderJobStoreStaleWriterError,
 )
+from planning.unreal_render_receipt import UnrealRenderReceipt
 import tests.m6.fault_fixtures as ff
 
 
 # ── Item 24: catalog->disk->catalog stability race (framed-integrity boundary) ─
-def test_m6_item24_payload_sha256_mismatch_classified_unreadable(tmp_path):
-    # A reconcile catalog whose framed payload_sha256 does not match its
-    # known_jobs must be treated as UNREADABLE (Case J), not adopted.
+def test_m6_item24_framed_catalog_tamper_fails_closed_case_j(tmp_path):
+    # PRODUCTION DEFECT (see report / docs). The coordinator's framed integrity
+    # path (`payload_byte_length`/`payload_sha256` vs `known_jobs`) cannot serialize
+    # the frozen observed_state (mappingproxy) to canonical JSON: json.dumps over
+    # mappingproxy-manifest `known_jobs` entries raises inside `_query_catalog`, so
+    # ANY framed response is treated as unqueryable and collapses to Case J.
+    # Consequently the positive framing-verification path is NOT exercised here.
+    # What IS honestly asserted: a framed response is NEVER adopted/finalized and
+    # never yields a receipt (fail-closed safety preserved).
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
@@ -41,17 +49,16 @@ def test_m6_item24_payload_sha256_mismatch_classified_unreadable(tmp_path):
     assert res.case_classified == "Case J"
     assert res.recovery_status_after == RenderJobRecoveryStatus.RECOVERY_PENDING
     assert res.lifecycle_state_after != RenderJobLifecycleState.FINALIZED
+    assert len(list(store.receipts_dir.glob("*.json"))) == 0
 
 
-def test_m6_item24_payload_framing_never_finalizes_under_integrity_check(tmp_path):
-    # LATENT-DEFECT DOCUMENTATION (see report §C). The coordinator's framed
-    # integrity check (payload_byte_length/payload_sha256 against known_jobs)
-    # cannot serialize the frozen observed_state (mappingproxy) to canonical JSON,
-    # so a response carrying framing fields always fails the query and falls into
-    # Case J. M6 therefore asserts the SAFE fail-closed outcome that actually
-    # holds: a tampered OR well-formed framed catalog is never finalized and never
-    # yields a receipt. The frame-integrity code path itself must be repaired in a
-    # production follow-up (M7 hardening), not by weakening this test.
+def test_m6_item24_framed_catalog_wellformed_also_fails_closed_due_to_defect(tmp_path):
+    # SAME production defect as above, but with a CORRECT payload hash. Because the
+    # framing check crashes on mappingproxy serialization regardless of whether the
+    # hash matches, a well-formed framed catalog STILL fails closed to Case J.
+    # This documents that the positive framed-verification path is unreachable, not
+    # merely that tampering is caught. It is a SAFE fail-closed outcome; the positive
+    # path must be remediated in production (M7 hardening), not claimed as verified.
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
@@ -70,6 +77,7 @@ def test_m6_item24_payload_framing_never_finalizes_under_integrity_check(tmp_pat
     coord = ff.make_coordinator(store, adapter, supervisor=ff.quiescent_supervisor())
     res = coord.reconcile_single_job(rec.atlas_job_id)
     assert res.lifecycle_state_after != RenderJobLifecycleState.FINALIZED
+    assert res.case_classified == "Case J"
     assert len(list(store.receipts_dir.glob("*.json"))) == 0
 
 
@@ -203,8 +211,10 @@ def test_m6_item03_coordinator_fencing_token_monotonic(tmp_path):
 
 
 def test_m6_item03_two_coordinators_cannot_both_finalize(tmp_path):
-    # Deterministic: after one store-gated publication advances the fencing
-    # watermark, a second coordinator presenting a stale token is rejected.
+    # Contract §31 item 3 (concurrent update / fencing): after one store-gated
+    # publication finalizes the job and advances the fencing watermark, a second
+    # coordinator must FAIL to publish (stale/duplicate) — it must not produce a
+    # second receipt and must not silently overwrite.
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
@@ -217,11 +227,66 @@ def test_m6_item03_two_coordinators_cannot_both_finalize(tmp_path):
     coord = ff.make_coordinator(store, adapter, supervisor=ff.quiescent_supervisor())
     res = coord.reconcile_single_job(rec.atlas_job_id)
     assert res.lifecycle_state_after == RenderJobLifecycleState.FINALIZED
-    # Coordinator 2 attempts a second publication with the same fencing token ->
-    # rejected (terminal record + stale fencing). No duplicate receipt.
+
+    # Coordinator 1's receipt, and the durable record now at its finalized revision.
     final = store.load(rec.atlas_job_id)
     assert final.lifecycle_state == RenderJobLifecycleState.FINALIZED
+    # Coordinator 1's fencing watermark
+    watermark_after_first = final.last_accepted_lease_token
+    receipt1 = list(store.receipts_dir.glob("*.json"))
+    assert len(receipt1) == 1
+
+    # Reconstruct the SAME verified evidence/receipt as coordinator 2 would see
+    # (independently re-derive it; identical evidence => identical receipt digest).
+    from planning.unreal_evidence_contract import (
+        UnrealEvidenceVerificationError,
+        verify_render_job_evidence,
+    )
+
+    try:
+        evidence2 = verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("RENDER_RECOVERY",),
+            observed_state=cand,
+            source="unreal-recovery-coordinator",
+            job_record=final,
+            evidence_source_class="ENGINE_JOURNAL_ATTESTED",
+        )
+    except (UnrealEvidenceVerificationError, ValueError, TypeError) as exc:
+        # If a terminal FINALIZED record cannot be re-verified, that itself is the
+        # expected fail-closed surface; the strong assertion below (publish
+        # rejection) is what we drive through the store boundary regardless.
+        pytest.fail(f"coordinator 2 could not re-derive verified evidence: {exc}")
+
+    receipt2 = UnrealRenderReceipt.issue(
+        evidence2,
+        atlas_job_id=final.atlas_job_id,
+        attempt_ordinal=final.attempt_ordinal,
+        authorization_id=final.authorization_id,
+        canonical_digital_twin_id=final.canonical_digital_twin_id,
+        config_digest=final.config_digest,
+        output_directory=final.output_directory,
+        lease_token=watermark_after_first + 1,
+        coordinator_id="coordinator-2",
+    )
+
+    # Coordinator 2 attempts to publish a SECOND, independently-derived receipt.
+    # This MUST be rejected: the record is already terminal (FINALIZED) and/or its
+    # fencing watermark is stale. It must not succeed, and must not mint a receipt.
+    with pytest.raises((AtlasRenderJobStoreError, AtlasRenderJobStoreStaleWriterError)):
+        store.publish_verified_receipt(
+            atlas_job_id=final.atlas_job_id,
+            attempt_ordinal=final.attempt_ordinal,
+            presented_lease_token=watermark_after_first + 1,
+            expected_record_revision=final.last_observed_revision,
+            receipt=receipt2,
+        )
+
+    # No second receipt may have been created, and the record stays terminal.
     assert len(list(store.receipts_dir.glob("*.json"))) == 1
+    still = store.load(final.atlas_job_id)
+    assert still.lifecycle_state == RenderJobLifecycleState.FINALIZED
+    assert still.last_accepted_lease_token == watermark_after_first
 
 
 def test_m6_item03_rogue_unmanaged_job_detected_not_adopted(tmp_path):

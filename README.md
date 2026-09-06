@@ -180,17 +180,11 @@ No action-runner/workflow tests were used for the live recovery work.
 
 ## Milestone 6 — Deterministic fault-injection/concurrency test suite
 
-An M6 test suite under `tests/m6/` implements the Contract V1 §31 failure matrix and §32 C++ automation boundary deterministically (controlled fakes, scripted transport responses, deterministic filesystem fixtures, explicit concurrency primitives — no live Unreal/Blender, no timing races, no workflow/action-runner tests):
-
-- record/store immutable round-trip, corruption, stale-writer/fencing;
-- journal malformed/session/identity faults; acceptance-before-launch requirements;
-- artifact hash/PNG/topology/isolation fail-closed verification;
-- Case A–J reconciliation; receipt create-if-absent, crash-between-persistence recovery, receipt identity conflicts;
-- catalog stability, capability/wire-version rejection, quiescence ambiguity, rogue/unmanaged detection.
+An M6 test suite under `tests/m6/` implements the Contract V1 §31 failure matrix and §32 C++ automation boundary deterministically (controlled fakes, scripted transport responses, deterministic filesystem fixtures, explicit concurrency primitives — no live Unreal/Blender, no timing races, no workflow/action-runner tests). **Per-item honest status is in [`docs/UNREAL_M6_TEST_STATUS.md`](docs/UNREAL_M6_TEST_STATUS.md)** — some items are FULLY EXERCISED, others PARTIALLY EXERCISED or DEFERRED because the positive contract seam is missing.
 
 M6 suite: **79 tests green**; full deterministic repository suite: **1029 passed** (up from 950). C++ automation additions (malformed-journal handling, capability/schema reporting) in `AtlasUE56RenderJobBoundaryTest.cpp` are compile-verified via UnrealBuildTool (module build succeeded) but not executed under the editor (no live UE in M6). M7 live UE 5.6 restart/recovery Scenarios 1–8 remain.
 
-M6 also surfaced three production items deferred from test-only scope (documented in `docs/ATLAS_ARCHITECTURE_CONTRACT.md`): frame-integrity `mappingproxy` serialization defect; C++ journal overwrite vs Contract §30 append-only `phase_history`; unenforced `execution_deadline` expiry. These require production remediation (M7 hardening), not test weakening.
+M6 also surfaced **three production defects/deferred items** (documented in `docs/ATLAS_ARCHITECTURE_CONTRACT.md` and `docs/UNREAL_M6_TEST_STATUS.md`): (1) frame-integrity `mappingproxy` serialization defect — the positive framed-verification path is NOT exercised; (2) C++ journal overwrite vs Contract §30 append-only `phase_history` — not deterministically exercisable, no test cements the divergence; (3) unenforced `execution_deadline` expiry (`EXHAUSTED` transition absent) — item 23 is only partially exercised. These require production remediation (M7 hardening), not test weakening.
 
 ## Current development workflow and model strategy
 

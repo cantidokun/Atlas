@@ -57,6 +57,10 @@ def test_m6_item07_catalog_corruption_read_error_is_case_j(tmp_path):
 
 # ── Item 8: journal session mismatch ──────────────────────────────────────────
 def test_m6_item08_session_identity_mismatch_fails_closed(tmp_path):
+    # A terminal candidate carrying a DIFFERENT editor session than the durable
+    # record cannot authenticate: the witness `entry_digest` was HMAC-derived for
+    # the recorded session, so the mismatch surfaces as UNTRUSTED_WITNESS (the
+    # coordinator recomputes the HMAC using the candidate's session and rejects).
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
@@ -70,13 +74,20 @@ def test_m6_item08_session_identity_mismatch_fails_closed(tmp_path):
     adapter = ff.ScriptedCoordinatorAdapter(reconcile_response={"journal_status": "COMPLETE", "known_jobs": [cand]})
     coord = ff.make_coordinator(store, adapter, supervisor=ff.quiescent_supervisor())
     res = coord.reconcile_single_job(rec.atlas_job_id)
-    # Session mismatch breaks HMAC or identity binding -> fail closed, no receipt
-    assert res.lifecycle_state_after != RenderJobLifecycleState.FINALIZED
+    # The session mismatch breaks witness authentication -> fail closed, no receipt.
+    assert res.lifecycle_state_after == RenderJobLifecycleState.RECOVERY_FAILED
+    assert res.case_classified == "UNTRUSTED_WITNESS"
     assert len(list(store.receipts_dir.glob("*.json"))) == 0
 
 
 # ── Item 9: journal identity mismatch ─────────────────────────────────────────
-def test_m6_item09_atlas_job_id_mismatch_fails_closed(tmp_path):
+def test_m6_item09_atlas_job_id_mismatch_not_adopted(tmp_path):
+    # A candidate whose atlas_job_id differs from the durable record is not a
+    # candidate for THIS job at all (the coordinator filters on atlas_job_id).
+    # With rendered artifacts on disk it surfaces as Case D (ORPHANED_ARTIFACTS_PRESENT):
+    # the foreign job's artifacts are never adopted into this record and no receipt
+    # is minted. This asserts the fail-closed safety consequence of the identity
+    # mismatch (no adoption), not a separate "Case E/F binding" rejection.
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
@@ -89,6 +100,7 @@ def test_m6_item09_atlas_job_id_mismatch_fails_closed(tmp_path):
     adapter = ff.ScriptedCoordinatorAdapter(reconcile_response={"journal_status": "COMPLETE", "known_jobs": [cand]})
     coord = ff.make_coordinator(store, adapter, supervisor=ff.quiescent_supervisor())
     res = coord.reconcile_single_job(rec.atlas_job_id)
+    # The mismatched-id job is not adopted; with artifacts present this is Case D.
     assert res.lifecycle_state_after != RenderJobLifecycleState.FINALIZED
     assert len(list(store.receipts_dir.glob("*.json"))) == 0
 
@@ -118,6 +130,11 @@ def test_m6_item09_config_digest_mismatch_case_ef(tmp_path):
 
 
 def test_m6_item09_process_creation_time_mismatch_fails_closed(tmp_path):
+    # A terminal candidate claiming a DIFFERENT process-creation-time than the
+    # durable record cannot authenticate: the entry_digest was HMAC-derived for
+    # the recorded PCT, so this mismatch surfaces as UNTRUSTED_WITNESS (or, if the
+    # HMAC were recomputed correctly, the verifier's identity binding would reject
+    # it). Either way it fails closed and mints no receipt.
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
@@ -130,7 +147,9 @@ def test_m6_item09_process_creation_time_mismatch_fails_closed(tmp_path):
     adapter = ff.ScriptedCoordinatorAdapter(reconcile_response={"journal_status": "COMPLETE", "known_jobs": [cand]})
     coord = ff.make_coordinator(store, adapter, supervisor=ff.quiescent_supervisor())
     res = coord.reconcile_single_job(rec.atlas_job_id)
+    # Fail closed; no receipt. Exact case is UNTRUSTED_WITNESS (HMAC desync).
     assert res.lifecycle_state_after != RenderJobLifecycleState.FINALIZED
+    assert res.case_classified == "UNTRUSTED_WITNESS"
     assert len(list(store.receipts_dir.glob("*.json"))) == 0
 
 

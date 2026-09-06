@@ -39,6 +39,22 @@ def test_m6_item19_receipt_create_if_absent_is_atomic(tmp_path):
     assert len(receipt_files) == 1
     # No stray .tmp receipt files remain
     assert not list(store.receipts_dir.glob("*.tmp"))
+    # A second identical store-gated publication with the same receipt digest is
+    # rejected by fencing (terminal record): no duplicate, no silent overwrite.
+    final = store.load(rec.atlas_job_id)
+    persisted = UnrealRenderReceiptStore(receipt_files[0]).load()
+    with pytest.raises((AtlasRenderJobStoreError, AtlasRenderJobStoreStaleWriterError)):
+        store.publish_verified_receipt(
+            atlas_job_id=final.atlas_job_id,
+            attempt_ordinal=final.attempt_ordinal,
+            presented_lease_token=final.last_accepted_lease_token + 1,
+            expected_record_revision=final.last_observed_revision,
+            receipt=persisted,
+        )
+    # Still exactly one receipt; record terminal; watermark unchanged.
+    assert len(list(store.receipts_dir.glob("*.json"))) == 1
+    assert store.load(final.atlas_job_id).lifecycle_state == RenderJobLifecycleState.FINALIZED
+    assert store.load(final.atlas_job_id).last_accepted_lease_token == final.last_accepted_lease_token
 
 
 def test_m6_item19_concurrent_receipt_publish_never_corrupts(tmp_path):
