@@ -281,6 +281,12 @@ class UnrealRenderSubmissionService:
                 "sequence_asset_path": sequence_asset_path.strip(),
                 "output_directory": output_directory,
                 "config_digest": config_digest,
+                # Defect D fix: transmit the Atlas-authoritative frame topology to
+                # Unreal so it renders EXACTLY the authorized range. frame_count =
+                # end_frame - start_frame + 1 (inclusive of both bounds) is the
+                # authoritative contract; Unreal MUST render all of them.
+                "start_frame": int(expected_output_spec.get("start_frame")),
+                "end_frame": int(expected_output_spec.get("end_frame")),
                 # M8: Atlas-authoritative attempt identity. attempt_ordinal is the
                 # durable-record ordinal carried verbatim (Unreal must never invent
                 # or reinterpret it); attempt_nonce is the HMAC key used only for
