@@ -495,6 +495,38 @@ Live status: A PASS, B PASS, C PASS, D REMEDIATED (one final S1 rerun required a
 merge). No live scenario run during remediation; S2-S8 NOT executed. The 23-frame
 render + journal + HMAC + forensics are preserved as diagnostic evidence.
 
+## M10 remediation — Defect D v2 (sequence playback range)
+
+A further fresh live S1 (Run B) proved A/B/C and D-Python-transmit resolved, but
+the v1 fix (applying the authorized inclusive range to the MRQ OUTPUT setting)
+remained insufficient: MRQ logs "Registering range: [800,19200)" — the SEQUENCE
+playback range (80-tick units) — which is the source MRQ enumerates RENDER SHOT
+FRAMES from. The output-setting custom range does not change shot enumeration.
+
+Fix (engine boundary, isolation-safe):
+- In `SubmitRender`, when Atlas supplies start_frame/end_frame, duplicate the
+  source `ULevelSequence` into `GetTransientPackage()` (never mutating the shared
+  asset), `SetPlaybackRange(AtlasStartFrame, end-start+1)` (inclusive coverage of
+  end; the range upper bound is exclusive), and `Job->SetSequence(transient copy)`.
+- Retained the v1 output-setting range (independently reported).
+- Also fixed the SAME exclusive-upper-bound off-by-one in `SetSequencerPlaybackRange`
+
+Isolation: mutation targets only a transient duplicate keyed per-job
+(`AtlasSeq_<atlas_job_id>_<start>_<end>`); the source sequence asset is untouched;
+subsequent jobs cannot inherit a prior job's range.
+
+Verifier remains strict: frame_count = end-start+1; a 23-frame result still fails.
+expected_output_spec unchanged.
+
+Regression: tests/m10 Defect D v2 (8) prove the inclusive-conversion
+(size = end-start+1, upper = end+1), the transmit, non-mutation of the source
+asset, per-job isolation, 24 passes / 23 fails, and no verifier relaxation.
+Full `pytest -m "not integration"` = 1180 passed. UBT_EXIT_CODE=0 (C++ changed).
+
+Live status: A PASS, B PASS, C PASS, D-transmit PASS, D v2 REMEDIATED (another
+FRESH live S1 rerun required after merge). No live scenario run during remediation;
+S2-S8 NOT executed. All 23-frame renders + journals + HMAC + forensics preserved.
+
 ## Unreal — Current baseline
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.
