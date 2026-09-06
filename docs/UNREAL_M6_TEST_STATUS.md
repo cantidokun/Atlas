@@ -85,14 +85,27 @@ Python suite**. Runtime execution of the C++ automation is an M7 build/validatio
 1. **Framed-catalog integrity path is inert (mappingproxy).** `_query_catalog` in
    `planning/unreal_render_recovery_coordinator.py` cannot `json.dumps` the frozen
    `mappingproxy` `known_jobs`, so any framed reconcile response fails to Case J.
-   Safety preserved; positive path unverified. → M7 production remediation.
+   Safety preserved; positive path unverified. → **REPAIRED in M7 hardening**
+   (see `docs/UNREAL_M7_HARDENING.md`): `_query_catalog` now deep-thaws and
+   validates framing against the canonical `known_jobs` payload; valid framed
+   catalogs are accepted and tampered/malformed framing fails closed.
 2. **C++ journal is overwrite-only, not append-only.** `WriteJournalEntry` writes one
    `<atlas>__<unreal>.json` per pair with `MOVEFILE_REPLACE_EXISTING`; no
-   `phase_history`/monotonic `phase_sequence` per Contract §30/§37. → M7 remediation.
+   `phase_history`/monotonic `phase_sequence` per Contract §30/§37. →
+   **REPAIRED in M7 hardening**: `WriteJournalEntry` now maintains an append-only
+   `phase_history` array with monotonic `phase_sequence` (ACCEPTED=1, STARTED=2,
+   FINISHED/FAILED=3), rejects duplicate/out-of-order phases, fails closed on
+   malformed history, and `ReconcileRenderJobs` exposes the retained history.
 3. **`execution_deadline` is stored but unenforced.** No `EXHAUSTED` expiry transition
-   exists. → M7 remediation.
+   exists. → **REPAIRED in M7 hardening**: the coordinator now evaluates
+   submission/execution deadlines and transitions an unresolved expired job to
+   `RECOVERY_FAILED` + `EXHAUSTED`, with no retry/receipt/finalization.
 
 ## M7 status
 
+M7 **hardening/pre-flight** is complete on a dedicated branch: the three M6 defects
+above are repaired in production and deterministically verified (see
+`docs/UNREAL_M7_HARDENING.md` for the item map and validation).
+
 Live UE 5.6 restart/recovery **Scenarios 1–8 are NOT run** and require explicit
-authorization. No workflow/action-runner tests are run.
+human authorization. No workflow/action-runner tests are run.

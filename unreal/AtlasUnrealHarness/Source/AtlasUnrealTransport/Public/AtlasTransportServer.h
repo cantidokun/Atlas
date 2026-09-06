@@ -29,6 +29,11 @@ class FAtlasTransportServer : public FRunnable
     friend class FAtlasUE56ReconcileCatalogReportingTest;
     friend class FAtlasUE56MalformedJournalHandlingTest;
     friend class FAtlasUE56CapabilitySchemaReportingTest;
+    friend class FAtlasUE56JournalAppendHistoryTest;
+    friend class FAtlasUE56JournalMonotonicSequenceTest;
+    friend class FAtlasUE56JournalDuplicateRejectionTest;
+    friend class FAtlasUE56JournalMalformedHistoryTest;
+    friend class FAtlasUE56JournalReconcileRetainedHistoryTest;
 public:
     FAtlasTransportServer();
     virtual ~FAtlasTransportServer();

@@ -1806,10 +1806,48 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
             }
 
             FString AtlasJobId;
-            if (JsonObj->TryGetStringField(TEXT("atlas_job_id"), AtlasJobId) && !AtlasJobId.IsEmpty())
+            if (!(JsonObj->TryGetStringField(TEXT("atlas_job_id"), AtlasJobId) && !AtlasJobId.IsEmpty()))
             {
-                ConsolidatedJobs.Add(AtlasJobId, JsonObj);
+                JournalStatus = TEXT("PARTIAL");
+                continue;
             }
+
+            // Append-only phase history: expose the FULL retained phase_history and
+            // derive the "current" job state from the LATEST phase entry so the
+            // reconciler deterministically consumes the retained history.
+            TSharedPtr<FJsonObject> KnownJob = JsonObj;
+            if (JsonObj->HasTypedField<EJson::Array>(TEXT("phase_history")))
+            {
+                // Build a per-job object carrying the retained phases plus the
+                // latest phase fields (status/finished/... from the newest entry).
+                TSharedPtr<FJsonObject> Derived = MakeShareable(new FJsonObject);
+                Derived->SetStringField(TEXT("atlas_job_id"), AtlasJobId);
+                Derived->SetStringField(TEXT("unreal_job_id"), JsonObj->GetStringField(TEXT("unreal_job_id")));
+                Derived->SetStringField(TEXT("state_source"), TEXT("witness_journal"));
+
+                TArray<TSharedPtr<FJsonValue>> HistoryArr = JsonObj->GetArrayField(TEXT("phase_history"));
+                Derived->SetArrayField(TEXT("phase_history"), HistoryArr);
+
+                // Copy the latest phase entry's fields onto the derived known_job
+                // (latest wins; earlier phases are preserved in phase_history).
+                if (HistoryArr.Num() > 0)
+                {
+                    TSharedPtr<FJsonObject> Latest = HistoryArr.Last()->AsObject();
+                    if (Latest.IsValid())
+                    {
+                        for (const TPair<FString, TSharedPtr<FJsonValue>>& Kvp : Latest->Values)
+                        {
+                            if (Kvp.Key != TEXT("atlas_job_id") && Kvp.Key != TEXT("unreal_job_id"))
+                            {
+                                Derived->SetField(Kvp.Key, Kvp.Value);
+                            }
+                        }
+                    }
+                }
+                KnownJob = Derived;
+            }
+
+            ConsolidatedJobs.Add(AtlasJobId, KnownJob);
         }
 
         // Snapshot stability check: verify directory has not changed during read
@@ -2157,15 +2195,103 @@ bool FAtlasTransportServer::WriteJournalEntry(
         return false;
     }
 
+    // ---- Phase -> monotonic sequence map (Contract V1 §30/§37) ----
+    // ACCEPTED must precede STARTED, which precedes a terminal FINISHED/FAILED.
+    auto GetPhaseSequence = [](const FString& InPhase) -> int32
+    {
+        if (InPhase == TEXT("ACCEPTED")) return 1;
+        if (InPhase == TEXT("STARTED")) return 2;
+        if (InPhase == TEXT("FINISHED") || InPhase == TEXT("FAILED")) return 3;
+        return -1; // unknown phase
+    };
+    const int32 NewSequence = GetPhaseSequence(Phase);
+    if (NewSequence < 1)
+    {
+        OutError = FString::Printf(TEXT("Unknown journal phase: %s"), *Phase);
+        return false;
+    }
+
     const FString JournalDir = GetJournalDirectory();
+    if (!IFileManager::Get().MakeDirectory(*JournalDir, true))
+    {
+        OutError = TEXT("Failed to create journal directory");
+        return false;
+    }
     const FString EntryFileName = FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId);
     const FString TargetPath = FPaths::Combine(JournalDir, EntryFileName);
 
+    // ---- Load existing phase history (append-only; never truncate prior phases) ----
+    TArray<TSharedPtr<FJsonValue>> PhaseHistory;
+    TArray<FString> ExistingPhases;
+    int32 MaxSequence = 0;
+
+    if (FPaths::FileExists(TargetPath))
+    {
+        FString ExistingContent;
+        FFileHelper::LoadFileToString(ExistingContent, *TargetPath);
+        TSharedPtr<FJsonObject> ExistingRoot;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ExistingContent);
+        if (!(FJsonSerializer::Deserialize(Reader, ExistingRoot) && ExistingRoot.IsValid()))
+        {
+            // Fail closed on malformed history: do NOT truncate/overwrite prior
+            // witness phases (Contract V1 §30/§37 append-only invariant).
+            OutError = TEXT("Existing journal history is malformed; refusing to overwrite");
+            return false;
+        }
+
+        FString ExistingAtlasId;
+        FString ExistingUnrealId;
+        if (ExistingRoot->TryGetStringField(TEXT("atlas_job_id"), ExistingAtlasId) && ExistingAtlasId != AtlasJobId)
+        {
+            OutError = TEXT("Journal atlas_job_id mismatch on append");
+            return false;
+        }
+        if (ExistingRoot->TryGetStringField(TEXT("unreal_job_id"), ExistingUnrealId) && ExistingUnrealId != UnrealJobId)
+        {
+            OutError = TEXT("Journal unreal_job_id mismatch on append");
+            return false;
+        }
+        if (ExistingRoot->HasField(TEXT("phase_history")))
+        {
+            PhaseHistory = ExistingRoot->GetArrayField(TEXT("phase_history"));
+            for (const TSharedPtr<FJsonValue>& EntryValue : PhaseHistory)
+            {
+                const TSharedPtr<FJsonObject>& EntryObj = EntryValue->AsObject();
+                if (!EntryObj.IsValid()) continue;
+                FString EPhase;
+                int32 ESeq = 0;
+                EntryObj->TryGetStringField(TEXT("phase"), EPhase);
+                EntryObj->TryGetNumberField(TEXT("phase_sequence"), ESeq);
+                ExistingPhases.Add(EPhase);
+                if (ESeq > MaxSequence)
+                {
+                    MaxSequence = ESeq;
+                }
+            }
+        }
+    }
+
+    // ---- Enforce append-only monotonic + duplicate/out-of-order rejection ----
+    if (ExistingPhases.Contains(Phase))
+    {
+        OutError = FString::Printf(TEXT("Duplicate journal phase rejected: %s"), *Phase);
+        return false;
+    }
+    if (NewSequence <= MaxSequence)
+    {
+        OutError = FString::Printf(
+            TEXT("Out-of-order journal phase rejected: %s (new seq %d <= max seq %d)"),
+            *Phase, NewSequence, MaxSequence);
+        return false;
+    }
+
+    // ---- Build the phase entry object (retain all identity/error/manifest fields) ----
     TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
-    JsonObject->SetNumberField(TEXT("journal_schema_version"), 1);
+    JsonObject->SetNumberField(TEXT("journal_schema_version"), 2);
     JsonObject->SetStringField(TEXT("atlas_job_id"), AtlasJobId);
     JsonObject->SetStringField(TEXT("unreal_job_id"), UnrealJobId);
     JsonObject->SetStringField(TEXT("phase"), Phase);
+    JsonObject->SetNumberField(TEXT("phase_sequence"), (double)NewSequence);
     JsonObject->SetStringField(TEXT("state_source"), TEXT("unreal-editor-atlas-transport"));
 
     if (ActiveInstance)
@@ -2197,17 +2323,18 @@ bool FAtlasTransportServer::WriteJournalEntry(
     SpecObj->SetStringField(TEXT("format"), JobState->OutputFormat);
     JsonObject->SetObjectField(TEXT("expected_output_spec"), SpecObj);
 
-    // Compute entry_digest over canonical fields
+    // Compute entry_digest over canonical fields (kept for journal-internal
+    // integrity; NOT treated as authoritative Atlas witness auth on its own).
     FString DigestInput = FString::Printf(
-        TEXT("%s:%s:%s:%s:%s:%s:%s:%s"),
+        TEXT("%s:%s:%s:%d:%s:%s:%s:%s"),
         *AtlasJobId,
         *UnrealJobId,
         *Phase,
+        NewSequence,
         *JobState->SequenceAssetPath,
         *JobState->ConfigDigest,
         *JobState->AuthorizationId,
-        *JobState->OutputDirectory,
-        *JobState->Status);
+        *JobState->OutputDirectory);
     FSHAHash EntryHash;
     FSHA1::HashBuffer(TCHAR_TO_UTF8(*DigestInput), DigestInput.Len(), EntryHash.Hash);
     JsonObject->SetStringField(TEXT("entry_digest"), EntryHash.ToString());
@@ -2231,9 +2358,27 @@ bool FAtlasTransportServer::WriteJournalEntry(
     }
     JsonObject->SetArrayField(TEXT("output_files"), OutputFilesArray);
 
+    // ---- Append to retained history (append-only) ----
+    PhaseHistory.Add(MakeShareable(new FJsonValueObject(JsonObject)));
+
+    // ---- Build container document: history array + latest-phase convenience fields ----
+    TSharedPtr<FJsonObject> RootDocument = MakeShareable(new FJsonObject);
+    RootDocument->SetNumberField(TEXT("journal_schema_version"), 2);
+    RootDocument->SetStringField(TEXT("atlas_job_id"), AtlasJobId);
+    RootDocument->SetStringField(TEXT("unreal_job_id"), UnrealJobId);
+    RootDocument->SetArrayField(TEXT("phase_history"), PhaseHistory);
+    // Latest-phase convenience fields (consumers read these as the current state).
+    RootDocument->SetStringField(TEXT("phase"), Phase);
+    RootDocument->SetNumberField(TEXT("phase_sequence"), (double)NewSequence);
+    RootDocument->SetStringField(TEXT("status"), JobState->Status);
+    RootDocument->SetNumberField(TEXT("progress"), JobState->Progress);
+    RootDocument->SetBoolField(TEXT("success"), JobState->bSuccess);
+    RootDocument->SetBoolField(TEXT("finished"), JobState->bFinished);
+    RootDocument->SetBoolField(TEXT("failed"), JobState->bFailed);
+
     FString OutputString;
     TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
-    if (!FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer))
+    if (!FJsonSerializer::Serialize(RootDocument.ToSharedRef(), Writer))
     {
         OutError = TEXT("Failed to serialize journal entry JSON");
         return false;

@@ -157,10 +157,11 @@ Milestone 5 established the authoritative independent evidence-verification boun
 Verification status for the Unreal recovery/provenance work is tiered:
 - implementation/regression verification — complete (deterministic suite);
 - historical normal-render live proof — complete (real UE 5.6 Stage 17 render/provenance, prior to M4);
-- M6 deterministic fault-injection/concurrency test suite — implemented and regression-verified; **per-item honest status in docs/UNREAL_M6_TEST_STATUS.md** (some §31 items fully exercised, others partially exercised or deferred where the positive contract seam is missing);
-- M7 live UE 5.6 restart/recovery validation (Scenarios 1–8) — still pending.
+- M6 deterministic fault-injection/concurrency test suite — implemented and regression-verified; **per-item honest status in docs/UNREAL_M6_TEST_STATUS.md** (some §31 items fully exercised, others partially exercised or deferred where the positive contract seam was missing);
+- M7 hardening/pre-flight (framed-catalog integrity, C++ append-only witness history, execution-deadline enforcement) — implemented and deterministically verified; see **docs/UNREAL_M7_HARDENING.md**;
+- M7 live UE 5.6 restart/recovery validation (Scenarios 1–8) — still pending, requires explicit human authorization.
 
-Cross-process recovery is therefore not yet declared production-capable until M6 and M7 pass (see docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md §33–§34). M6 also surfaced three production items deferred from the test-only milestone: (1) the coordinator's frame-integrity check cannot serialize frozen `observed_state` (mappingproxy) into canonical JSON, so a framing field-bearing reconcile response always fails closed to Case J; (2) the C++ journal writes a single `<atlas>__<unreal>.json` file per job-pair with overwrite semantics rather than the Contract §30 append-only `phase_history`/monotonic `phase_sequence`; (3) `execution_deadline` expiry is stored but not enforced as an `EXHAUSTED` transition. These require production remediation (M7 hardening), not test weakening.
+Cross-process recovery is therefore not yet declared production-capable until the live M7 Scenarios 1–8 pass (see docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md §33–§34). M6 surfaced three production items that M7 hardening has since repaired and deterministically verified: (1) the coordinator's frame-integrity check now deep-thaws and validates framed catalogs canonically; (2) the C++ journal now maintains append-only `phase_history` with monotonic `phase_sequence` per Contract §30/§37; (3) `execution_deadline`/`submission_deadline` expiry now transitions unresolved jobs to `RECOVERY_FAILED` + `EXHAUSTED`. Details in docs/UNREAL_M7_HARDENING.md.
 
 ## Resolution / source footage
 
