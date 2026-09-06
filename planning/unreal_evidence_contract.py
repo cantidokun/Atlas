@@ -123,13 +123,15 @@ def _verify_png_idat_decompression(file_path: Path) -> bool:
             elif chunk_type == b"IEND":
                 break
 
+    # Block 6: A PNG intended as an image output MUST contain non-empty IDAT chunk(s)
     if not idat_chunks:
-        # Minimal empty frame without IDAT
-        return True
+        raise UnrealEvidenceVerificationError(f"PNG contains zero IDAT data chunks: {file_path}")
 
     try:
         combined = b"".join(idat_chunks)
-        zlib.decompress(combined)
+        decompressed = zlib.decompress(combined)
+        if len(decompressed) == 0:
+            raise UnrealEvidenceVerificationError(f"PNG IDAT decompressed to zero bytes: {file_path}")
         return True
     except zlib.error:
         return False
@@ -264,21 +266,26 @@ def verify_render_job_evidence(
     if not isinstance(observed_state, Mapping):
         raise TypeError("observed_state must be a mapping")
 
-    # Source class validation
-    resolved_source_class = evidence_source_class
-    if resolved_source_class is None:
-        source_str = source.strip()
-        if source_str in VALID_EVIDENCE_SOURCE_CLASSES:
-            resolved_source_class = source_str
-        elif "live" in source_str.lower() or "inspection" in source_str.lower() or "boundary" in source_str.lower():
-            resolved_source_class = "ENGINE_LIVE"
-        elif "journal" in source_str.lower() or "recovery" in source_str.lower():
-            resolved_source_class = "ENGINE_JOURNAL_ATTESTED"
+    # Source class validation (Block 1: mandatory & strict)
+    if not isinstance(source, str) or not source.strip() or "\x00" in source:
+        raise UnrealEvidenceVerificationError("source must be a non-empty string without null bytes")
+    source_clean = source.strip()
 
-    if evidence_source_class is not None and evidence_source_class not in VALID_EVIDENCE_SOURCE_CLASSES:
-        raise UnrealEvidenceVerificationError(
-            f"unsupported evidence_source_class: {evidence_source_class!r}. Must be one of {sorted(VALID_EVIDENCE_SOURCE_CLASSES)}"
-        )
+    if evidence_source_class is None:
+        if source_clean in VALID_EVIDENCE_SOURCE_CLASSES:
+            resolved_source_class = source_clean
+        elif job_record is not None:
+            raise UnrealEvidenceVerificationError(
+                f"missing or invalid evidence_source_class: source {source_clean!r} is not an allowed source class {sorted(VALID_EVIDENCE_SOURCE_CLASSES)}"
+            )
+        else:
+            resolved_source_class = "ENGINE_LIVE"
+    else:
+        if not isinstance(evidence_source_class, str) or evidence_source_class not in VALID_EVIDENCE_SOURCE_CLASSES:
+            raise UnrealEvidenceVerificationError(
+                f"unsupported evidence_source_class: {evidence_source_class!r}. Must be one of {sorted(VALID_EVIDENCE_SOURCE_CLASSES)}"
+            )
+        resolved_source_class = evidence_source_class
 
     job_id = observed_state.get("job_id")
     sequence_asset_path = observed_state.get("sequence_asset_path")
@@ -318,6 +325,11 @@ def verify_render_job_evidence(
         # Reject NTFS Alternate Data Streams (:stream)
         if ":" in Path(raw_fp).name:
             raise UnrealEvidenceVerificationError(f"NTFS alternate data stream detected in output file: {file_path!r}")
+        # Reject Windows device namespace and 8.3 short name patterns
+        if raw_fp.startswith("\\\\.\\") or raw_fp.startswith("\\\\?\\"):
+            raise UnrealEvidenceVerificationError(f"Windows device namespace path rejected: {file_path!r}")
+        if "~" in Path(raw_fp).name:
+            raise UnrealEvidenceVerificationError(f"Windows 8.3 short name path rejected: {file_path!r}")
         path_obj = Path(raw_fp)
         try:
             if not path_obj.exists():
@@ -341,105 +353,154 @@ def verify_render_job_evidence(
 
     # Authoritative job record cross-checks (Contract V1 §13, §14, §16)
     if job_record is not None:
-        # Mandatory identity bindings comparison
-        if hasattr(job_record, "atlas_job_id") and job_record.atlas_job_id:
-            obs_atlas_id = observed_state.get("atlas_job_id")
-            if obs_atlas_id and obs_atlas_id != job_record.atlas_job_id:
+        # Mandatory identity bindings comparison (Block 2: strict presence and exact equality)
+        # 1. atlas_job_id
+        obs_atlas_id = observed_state.get("atlas_job_id")
+        if not obs_atlas_id or not isinstance(obs_atlas_id, str):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'atlas_job_id' in observed state")
+        if obs_atlas_id != getattr(job_record, "atlas_job_id", None):
+            raise UnrealEvidenceVerificationError(
+                f"atlas_job_id mismatch: record={getattr(job_record, 'atlas_job_id', None)!r}, observed={obs_atlas_id!r}"
+            )
+        clean_state["atlas_job_id"] = obs_atlas_id
+
+        # 2. unreal_job_id
+        if not job_id:
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'unreal_job_id' (job_id) in observed state")
+        rec_unreal_id = getattr(job_record, "unreal_job_id", None)
+        if rec_unreal_id and job_id != rec_unreal_id:
+            raise UnrealEvidenceVerificationError(
+                f"unreal_job_id mismatch: record={rec_unreal_id!r}, observed={job_id!r}"
+            )
+        clean_state["unreal_job_id"] = job_id
+
+        # 3. sequence_asset_path
+        if not sequence_asset_path:
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'sequence_asset_path' in observed state")
+        if sequence_asset_path != getattr(job_record, "sequence_asset_path", None):
+            raise UnrealEvidenceVerificationError(
+                f"sequence_asset_path mismatch: record={getattr(job_record, 'sequence_asset_path', None)!r}, observed={sequence_asset_path!r}"
+            )
+
+        # 4. authorization_id
+        obs_auth = observed_state.get("authorization_id")
+        if not obs_auth or not isinstance(obs_auth, str):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'authorization_id' in observed state")
+        if obs_auth != getattr(job_record, "authorization_id", None):
+            raise UnrealEvidenceVerificationError(
+                f"authorization_id mismatch: record={getattr(job_record, 'authorization_id', None)!r}, observed={obs_auth!r}"
+            )
+        clean_state["authorization_id"] = obs_auth
+
+        # 5. canonical_digital_twin_id
+        obs_twin = observed_state.get("canonical_digital_twin_id")
+        if not obs_twin or not isinstance(obs_twin, str):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'canonical_digital_twin_id' in observed state")
+        if obs_twin != getattr(job_record, "canonical_digital_twin_id", None):
+            raise UnrealEvidenceVerificationError(
+                f"canonical_digital_twin_id mismatch: record={getattr(job_record, 'canonical_digital_twin_id', None)!r}, observed={obs_twin!r}"
+            )
+        clean_state["canonical_digital_twin_id"] = obs_twin
+
+        # 6. config_digest
+        obs_cfg = observed_state.get("config_digest")
+        if not obs_cfg or not isinstance(obs_cfg, str):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'config_digest' in observed state")
+        if obs_cfg != getattr(job_record, "config_digest", None):
+            raise UnrealEvidenceVerificationError(
+                f"config_digest mismatch: record={getattr(job_record, 'config_digest', None)!r}, observed={obs_cfg!r}"
+            )
+        clean_state["config_digest"] = obs_cfg
+
+        # 7. editor_session_id
+        obs_sess = observed_state.get("editor_session_id")
+        if not obs_sess or not isinstance(obs_sess, str):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'editor_session_id' in observed state")
+        rec_sess = getattr(job_record, "origin_editor_session_id", None)
+        if rec_sess and obs_sess != rec_sess:
+            raise UnrealEvidenceVerificationError(
+                f"editor_session_id mismatch: record={rec_sess!r}, observed={obs_sess!r}"
+            )
+        clean_state["editor_session_id"] = obs_sess
+
+        # 8. process_id
+        obs_pid = observed_state.get("process_id")
+        if obs_pid is None or isinstance(obs_pid, bool) or not isinstance(obs_pid, int):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'process_id' (must be an integer) in observed state")
+        rec_pid = getattr(job_record, "origin_process_id", None)
+        if rec_pid is not None and int(obs_pid) != rec_pid:
+            raise UnrealEvidenceVerificationError(
+                f"process_id mismatch: record={rec_pid!r}, observed={int(obs_pid)!r}"
+            )
+        clean_state["process_id"] = int(obs_pid)
+
+        # 9. process_creation_time
+        obs_pct = observed_state.get("process_creation_time_utc") or observed_state.get("process_creation_time")
+        if not obs_pct or not isinstance(obs_pct, str):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'process_creation_time' in observed state")
+        rec_pct = getattr(job_record, "origin_process_creation_time", None)
+        if rec_pct and obs_pct != rec_pct:
+            raise UnrealEvidenceVerificationError(
+                f"process_creation_time mismatch: record={rec_pct!r}, observed={obs_pct!r}"
+            )
+        clean_state["process_creation_time"] = obs_pct
+
+        # 10. output_directory
+        obs_out_dir = observed_state.get("output_directory")
+        if not obs_out_dir or not isinstance(obs_out_dir, str):
+            raise UnrealEvidenceVerificationError("missing mandatory identity field 'output_directory' in observed state")
+        rec_out_dir = getattr(job_record, "output_directory", None)
+        if not rec_out_dir:
+            raise UnrealEvidenceVerificationError("record missing output_directory")
+        if Path(obs_out_dir).resolve() != Path(rec_out_dir).resolve():
+            raise UnrealEvidenceVerificationError(
+                f"output_directory mismatch: record={rec_out_dir!r}, observed={obs_out_dir!r}"
+            )
+        expected_out_dir = Path(rec_out_dir).resolve()
+        clean_state["output_directory"] = str(expected_out_dir)
+
+        # Output directory confinement and traversal checks
+        for fp in normalized_output_files:
+            resolved_fp = Path(fp).resolve()
+            try:
+                resolved_fp.relative_to(expected_out_dir)
+            except ValueError as exc:
                 raise UnrealEvidenceVerificationError(
-                    f"atlas_job_id mismatch: record={job_record.atlas_job_id!r}, observed={obs_atlas_id!r}"
-                )
-            clean_state["atlas_job_id"] = job_record.atlas_job_id
+                    f"output file path {fp!r} is outside authorized output directory {str(expected_out_dir)!r}"
+                ) from exc
+            if ".." in fp or "/../" in fp.replace("\\", "/"):
+                raise UnrealEvidenceVerificationError(f"path traversal detected in output file: {fp!r}")
+            if ":" in Path(fp).name:
+                raise UnrealEvidenceVerificationError(f"NTFS alternate data stream detected in output file: {fp!r}")
+            if fp.startswith("\\\\.\\") or fp.startswith("\\\\?\\"):
+                raise UnrealEvidenceVerificationError(f"Windows device namespace path rejected: {fp!r}")
+            if "~" in Path(fp).name:
+                raise UnrealEvidenceVerificationError(f"Windows 8.3 short name path rejected: {fp!r}")
 
-        if hasattr(job_record, "unreal_job_id") and job_record.unreal_job_id:
-            if job_id != job_record.unreal_job_id:
+        # Verify no extra files in output_directory that alter expected topology
+        if expected_out_dir.is_dir():
+            actual_disk_files = {p.resolve() for p in expected_out_dir.iterdir() if p.is_file()}
+            declared_files = {Path(fp).resolve() for fp in normalized_output_files}
+            unexpected_files = actual_disk_files - declared_files
+            if unexpected_files:
                 raise UnrealEvidenceVerificationError(
-                    f"unreal_job_id mismatch: record={job_record.unreal_job_id!r}, observed={job_id!r}"
+                    f"unexpected extra files present in output directory: {[str(p) for p in sorted(unexpected_files)]}"
                 )
 
-        if hasattr(job_record, "sequence_asset_path") and job_record.sequence_asset_path:
-            if sequence_asset_path != job_record.sequence_asset_path:
-                raise UnrealEvidenceVerificationError(
-                    f"sequence_asset_path mismatch: record={job_record.sequence_asset_path!r}, observed={sequence_asset_path!r}"
-                )
+            # 11. expected_output_spec topology validation (mandatory when job_record supplied)
+            expected_spec = getattr(job_record, "expected_output_spec", None) or observed_state.get("expected_output_spec")
+            if not expected_spec or not isinstance(expected_spec, Mapping):
+                raise UnrealEvidenceVerificationError("expected_output_spec cannot be empty")
 
-        if hasattr(job_record, "authorization_id") and job_record.authorization_id:
-            obs_auth = observed_state.get("authorization_id")
-            if obs_auth and obs_auth != job_record.authorization_id:
-                raise UnrealEvidenceVerificationError(
-                    f"authorization_id mismatch: record={job_record.authorization_id!r}, observed={obs_auth!r}"
-                )
-            clean_state["authorization_id"] = job_record.authorization_id
-
-        if hasattr(job_record, "canonical_digital_twin_id") and job_record.canonical_digital_twin_id:
-            obs_twin = observed_state.get("canonical_digital_twin_id")
-            if obs_twin and obs_twin != job_record.canonical_digital_twin_id:
-                raise UnrealEvidenceVerificationError(
-                    f"canonical_digital_twin_id mismatch: record={job_record.canonical_digital_twin_id!r}, observed={obs_twin!r}"
-                )
-            clean_state["canonical_digital_twin_id"] = job_record.canonical_digital_twin_id
-
-        if hasattr(job_record, "config_digest") and job_record.config_digest:
-            obs_cfg = observed_state.get("config_digest")
-            if obs_cfg and obs_cfg != job_record.config_digest:
-                raise UnrealEvidenceVerificationError(
-                    f"config_digest mismatch: record={job_record.config_digest!r}, observed={obs_cfg!r}"
-                )
-            clean_state["config_digest"] = job_record.config_digest
-
-        if hasattr(job_record, "origin_editor_session_id") and job_record.origin_editor_session_id:
-            obs_sess = observed_state.get("editor_session_id")
-            if obs_sess and obs_sess != job_record.origin_editor_session_id:
-                raise UnrealEvidenceVerificationError(
-                    f"editor_session_id mismatch: record={job_record.origin_editor_session_id!r}, observed={obs_sess!r}"
-                )
-
-        if hasattr(job_record, "origin_process_creation_time") and job_record.origin_process_creation_time:
-            obs_pct = observed_state.get("process_creation_time_utc") or observed_state.get("process_creation_time")
-            if obs_pct and obs_pct != job_record.origin_process_creation_time:
-                raise UnrealEvidenceVerificationError(
-                    f"process_creation_time mismatch: record={job_record.origin_process_creation_time!r}, observed={obs_pct!r}"
-                )
-
-        # Output directory and path isolation checks
-        if hasattr(job_record, "output_directory") and job_record.output_directory:
-            obs_out_dir = observed_state.get("output_directory")
-            if obs_out_dir and Path(obs_out_dir).resolve() != Path(job_record.output_directory).resolve():
-                raise UnrealEvidenceVerificationError(
-                    f"output_directory mismatch: record={job_record.output_directory!r}, observed={obs_out_dir!r}"
-                )
-            expected_out_dir = Path(job_record.output_directory).resolve()
-            clean_state["output_directory"] = str(expected_out_dir)
-
-            for fp in normalized_output_files:
-                resolved_fp = Path(fp).resolve()
-                try:
-                    resolved_fp.relative_to(expected_out_dir)
-                except ValueError as exc:
-                    raise UnrealEvidenceVerificationError(
-                        f"output file path {fp!r} is outside authorized output directory {str(expected_out_dir)!r}"
-                    ) from exc
-                # Reject path traversal markers in raw string
-                if ".." in fp or "/../" in fp.replace("\\", "/"):
-                    raise UnrealEvidenceVerificationError(f"path traversal detected in output file: {fp!r}")
-                # Reject NTFS Alternate Data Streams (:stream)
-                if ":" in Path(fp).name:
-                    raise UnrealEvidenceVerificationError(f"NTFS alternate data stream detected in output file: {fp!r}")
-
-            # Verify no extra files in output_directory that alter expected topology
-            if expected_out_dir.is_dir():
-                actual_disk_files = {p.resolve() for p in expected_out_dir.iterdir() if p.is_file()}
-                declared_files = {Path(fp).resolve() for fp in normalized_output_files}
-                unexpected_files = actual_disk_files - declared_files
-                if unexpected_files:
-                    raise UnrealEvidenceVerificationError(
-                        f"unexpected extra files present in output directory: {[str(p) for p in sorted(unexpected_files)]}"
-                    )
-
-        # Expected output spec validation
-        expected_spec = getattr(job_record, "expected_output_spec", None) or observed_state.get("expected_output_spec")
-        if expected_spec and isinstance(expected_spec, Mapping):
             clean_state["expected_output_spec"] = dict(expected_spec)
             exp_format = expected_spec.get("format")
+            if not exp_format or not isinstance(exp_format, str):
+                raise UnrealEvidenceVerificationError("expected_output_spec missing valid format")
+            if exp_format.lower() not in ("png",):
+                raise UnrealEvidenceVerificationError(
+                    f"unsupported output format in expected_output_spec: {exp_format!r}"
+                )
+
             exp_width = expected_spec.get("width")
             exp_height = expected_spec.get("height")
             exp_start = expected_spec.get("start_frame")
@@ -452,31 +513,27 @@ def verify_render_job_evidence(
                         f"output file count mismatch: expected {expected_count} frames, got {len(normalized_output_files)}"
                     )
 
-            # Reject unsupported format
-            if exp_format and exp_format.lower() not in ("png",):
-                raise UnrealEvidenceVerificationError(
-                    f"unsupported output format in expected_output_spec: {exp_format!r}"
-                )
-
             # PNG verification and decompression integrity check
-            if exp_format and exp_format.lower() == "png":
-                for fp in normalized_output_files:
-                    p = Path(fp)
-                    if not verify_png_completeness(p, expected_width=exp_width, expected_height=exp_height):
-                        raise UnrealEvidenceVerificationError(
-                            f"PNG completeness check failed for {fp!r} (format/dimensions/chunks/CRC/IEND)"
-                        )
-                    # Verify IDAT decompression integrity
-                    if not _verify_png_idat_decompression(p):
-                        raise UnrealEvidenceVerificationError(
-                            f"PNG IDAT decompression integrity check failed for {fp!r}"
-                        )
+            for fp in normalized_output_files:
+                p = Path(fp)
+                if not verify_png_completeness(p, expected_width=exp_width, expected_height=exp_height):
+                    raise UnrealEvidenceVerificationError(
+                        f"PNG completeness check failed for {fp!r} (format/dimensions/chunks/CRC/IEND)"
+                    )
+                if not _verify_png_idat_decompression(p):
+                    raise UnrealEvidenceVerificationError(
+                        f"PNG IDAT decompression integrity check failed for {fp!r}"
+                    )
 
-        # Engine-attested manifest validation (Contract V1 §13)
-        manifest = observed_state.get("output_manifest")
-        if manifest is not None:
+            # 12. Engine-attested manifest validation (Block 3 & 4: mandatory when terminal outputs present)
+            manifest = observed_state.get("output_manifest")
+            if manifest is None:
+                raise UnrealEvidenceVerificationError("missing required engine-attested 'output_manifest'")
             if not isinstance(manifest, (list, tuple)):
                 raise UnrealEvidenceVerificationError("output_manifest must be a sequence")
+            if len(manifest) == 0 and len(normalized_output_files) > 0:
+                raise UnrealEvidenceVerificationError("output_manifest cannot be empty when outputs are required")
+
             manifest_map = {}
             for entry in manifest:
                 if not isinstance(entry, Mapping):
@@ -485,35 +542,47 @@ def verify_render_job_evidence(
                 m_size = entry.get("size")
                 m_sha = entry.get("sha256")
                 if not m_path or not isinstance(m_path, str):
-                    raise UnrealEvidenceVerificationError("manifest entry missing valid path")
-                if m_size is None or not isinstance(m_size, (int, float)) or m_size <= 0:
-                    raise UnrealEvidenceVerificationError("manifest entry missing valid size > 0")
+                    raise UnrealEvidenceVerificationError("manifest entry missing valid path string")
+                if m_size is None or isinstance(m_size, bool) or not isinstance(m_size, int) or m_size <= 0:
+                    raise UnrealEvidenceVerificationError("manifest entry size must be an exact positive integer > 0")
                 if not m_sha or not isinstance(m_sha, str) or len(m_sha) != 64:
-                    raise UnrealEvidenceVerificationError("manifest entry missing valid 64-char sha256")
-                manifest_map[Path(m_path).resolve()] = (int(m_size), m_sha)
+                    raise UnrealEvidenceVerificationError("manifest entry sha256 must be exactly 64 hexadecimal characters")
+                if m_sha.lower() != m_sha:
+                    raise UnrealEvidenceVerificationError("manifest entry sha256 must be lowercase hexadecimal characters")
+                try:
+                    int(m_sha, 16)
+                except ValueError:
+                    raise UnrealEvidenceVerificationError("manifest entry sha256 contains non-hexadecimal characters")
 
-            # Every normalized output file must match manifest exactly, and manifest cannot contain extra files
-            if len(manifest_map) != len(normalized_output_files):
+                canonical_m_path = Path(m_path).resolve()
+                if canonical_m_path in manifest_map:
+                    raise UnrealEvidenceVerificationError(f"duplicate manifest path detected: {m_path!r}")
+                manifest_map[canonical_m_path] = (m_size, m_sha)
+
+            # Exact set equality between declared output_files and manifest paths
+            declared_canon = {Path(fp).resolve() for fp in normalized_output_files}
+            manifest_canon = set(manifest_map.keys())
+            if declared_canon != manifest_canon:
                 raise UnrealEvidenceVerificationError(
-                    f"output_manifest entry count ({len(manifest_map)}) does not match output_files count ({len(normalized_output_files)})"
+                    f"manifest paths do not exactly match declared output_files: diff={declared_canon ^ manifest_canon}"
                 )
+
+            # Reconcile disk files against engine manifest
             for fp in normalized_output_files:
-                resolved_p = Path(fp).resolve()
-                if resolved_p not in manifest_map:
-                    raise UnrealEvidenceVerificationError(f"output file {fp!r} not found in engine output_manifest")
-                expected_size, expected_sha = manifest_map[resolved_p]
-                disk_size = resolved_p.stat().st_size
-                if disk_size != expected_size:
+                p_canon = Path(fp).resolve()
+                attested_size, attested_sha = manifest_map[p_canon]
+                actual_bytes = p_canon.read_bytes()
+                actual_size = len(actual_bytes)
+                actual_sha = hashlib.sha256(actual_bytes).hexdigest()
+                if actual_size != attested_size:
                     raise UnrealEvidenceVerificationError(
-                        f"manifest size mismatch for {fp!r}: engine attested {expected_size}, disk has {disk_size}"
+                        f"manifest size mismatch for {fp!r}: attested={attested_size}, actual={actual_size}"
                     )
-                with resolved_p.open("rb") as f:
-                    disk_sha = hashlib.sha256(f.read()).hexdigest()
-                if disk_sha != expected_sha:
+                if actual_sha != attested_sha:
                     raise UnrealEvidenceVerificationError(
-                        f"manifest sha256 mismatch for {fp!r}: engine attested {expected_sha}, disk computed {disk_sha}"
+                        f"manifest sha256 mismatch for {fp!r}: attested={attested_sha}, actual={actual_sha}"
                     )
-            clean_state["output_manifest"] = list(manifest)
+        clean_state["output_manifest"] = list(manifest)
 
     return UnrealEvidence(
         operation_name=operation_name,

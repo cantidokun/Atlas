@@ -21,9 +21,14 @@ def _create_test_png(path: Path, width: int = 1, height: int = 1) -> bytes:
     ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     ihdr_crc = struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF)
     ihdr = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + ihdr_crc
+    # Valid IDAT scanlines
+    raw_scanlines = b"\x00" * (1 + width * 3) * height
+    compressed_idat = zlib.compress(raw_scanlines)
+    idat_crc = struct.pack(">I", zlib.crc32(b"IDAT" + compressed_idat) & 0xFFFFFFFF)
+    idat = struct.pack(">I", len(compressed_idat)) + b"IDAT" + compressed_idat + idat_crc
     iend_crc = struct.pack(">I", 0xAE426082)
     iend = struct.pack(">I", 0) + b"IEND" + iend_crc
-    content = sig + ihdr + iend
+    content = sig + ihdr + idat + iend
     path.write_bytes(content)
     return content
 
@@ -44,6 +49,30 @@ def _sample_job_record(tmp_path: Path, atlas_job_id: str = "atlas-render-job-aaa
         expected_output_spec={"format": "png", "width": 1, "height": 1, "start_frame": 0, "end_frame": 0},
         created_at="2026-09-06T00:00:00Z",
     )
+
+
+def _valid_record_observed_state(record: AtlasRenderJobRecord, output_file: Path, bytes_data: bytes) -> dict:
+    import hashlib
+    file_sha = hashlib.sha256(bytes_data).hexdigest()
+    return {
+        "job_id": record.unreal_job_id or "job-stage17-001",
+        "atlas_job_id": record.atlas_job_id,
+        "sequence_asset_path": record.sequence_asset_path,
+        "authorization_id": record.authorization_id,
+        "canonical_digital_twin_id": record.canonical_digital_twin_id,
+        "config_digest": record.config_digest,
+        "output_directory": record.output_directory,
+        "editor_session_id": record.origin_editor_session_id or "session-uuid-1",
+        "process_id": record.origin_process_id if record.origin_process_id is not None else 12345,
+        "process_creation_time_utc": record.origin_process_creation_time or "2026-09-06T00:00:00Z",
+        "expected_output_spec": dict(record.expected_output_spec),
+        "status": "finished",
+        "finished": True,
+        "success": True,
+        "failed": False,
+        "output_files": [str(output_file)],
+        "output_manifest": [{"path": str(output_file), "size": len(bytes_data), "sha256": file_sha}],
+    }
 
 
 def _valid_observed_state(output_file: Path) -> dict:
@@ -267,23 +296,7 @@ def test_m5_source_class_allowlist_acceptance(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
     bytes_data = _create_test_png(out_file, 1, 1)
-    import hashlib
-    file_sha = hashlib.sha256(bytes_data).hexdigest()
-
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "authorization_id": rec.authorization_id,
-        "config_digest": rec.config_digest,
-        "output_directory": rec.output_directory,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-        "output_manifest": [{"path": str(out_file), "size": len(bytes_data), "sha256": file_sha}],
-    }
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
 
     # 1. ENGINE_LIVE accepted
     ev_live = verify_render_job_evidence(
@@ -331,25 +344,30 @@ def test_m5_identity_binding_mismatches_rejected(tmp_path: Path):
     rec_bound = rec.transition(
         unreal_job_id="unreal-job-bound-777",
         origin_editor_session_id="editor-session-uuid-1",
+        origin_process_id=4321,
         origin_process_creation_time="2026-09-06T00:00:00Z",
     )
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
-    _create_test_png(out_file)
+    bytes_data = _create_test_png(out_file)
 
     base_state = {
         "job_id": "unreal-job-bound-777",
         "atlas_job_id": rec.atlas_job_id,
         "sequence_asset_path": rec.sequence_asset_path,
         "authorization_id": rec.authorization_id,
+        "canonical_digital_twin_id": rec.canonical_digital_twin_id,
         "config_digest": rec.config_digest,
         "output_directory": rec.output_directory,
         "editor_session_id": "editor-session-uuid-1",
+        "process_id": 4321,
         "process_creation_time_utc": "2026-09-06T00:00:00Z",
+        "expected_output_spec": dict(rec.expected_output_spec),
         "status": "finished",
         "finished": True,
         "success": True,
         "failed": False,
         "output_files": [str(out_file)],
+        "output_manifest": [{"path": str(out_file), "size": len(bytes_data), "sha256": "0" * 64}],
     }
 
     # atlas_job_id mismatch
@@ -372,6 +390,11 @@ def test_m5_identity_binding_mismatches_rejected(tmp_path: Path):
     with pytest.raises(UnrealEvidenceVerificationError, match="authorization_id mismatch"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st4, source="ENGINE_LIVE", job_record=rec_bound)
 
+    # canonical_digital_twin_id mismatch
+    st_twin = dict(base_state, canonical_digital_twin_id="twin-WRONG")
+    with pytest.raises(UnrealEvidenceVerificationError, match="canonical_digital_twin_id mismatch"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_twin, source="ENGINE_LIVE", job_record=rec_bound)
+
     # config_digest mismatch
     st5 = dict(base_state, config_digest="cfg-WRONG")
     with pytest.raises(UnrealEvidenceVerificationError, match="config_digest mismatch"):
@@ -382,10 +405,20 @@ def test_m5_identity_binding_mismatches_rejected(tmp_path: Path):
     with pytest.raises(UnrealEvidenceVerificationError, match="editor_session_id mismatch"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st6, source="ENGINE_LIVE", job_record=rec_bound)
 
+    # process_id mismatch
+    st_pid = dict(base_state, process_id=99999)
+    with pytest.raises(UnrealEvidenceVerificationError, match="process_id mismatch"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_pid, source="ENGINE_LIVE", job_record=rec_bound)
+
     # process_creation_time mismatch
     st7 = dict(base_state, process_creation_time_utc="2026-09-06T12:34:56Z")
     with pytest.raises(UnrealEvidenceVerificationError, match="process_creation_time mismatch"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st7, source="ENGINE_LIVE", job_record=rec_bound)
+
+    # output_directory mismatch
+    st_out = dict(base_state, output_directory="C:/Renders/wrong-dir")
+    with pytest.raises(UnrealEvidenceVerificationError, match="output_directory mismatch"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_out, source="ENGINE_LIVE", job_record=rec_bound)
 
 
 def test_m5_output_manifest_validation(tmp_path: Path):
@@ -395,16 +428,7 @@ def test_m5_output_manifest_validation(tmp_path: Path):
     import hashlib
     file_sha = hashlib.sha256(bytes_data).hexdigest()
 
-    base_state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-    }
+    base_state = _valid_record_observed_state(rec, out_file, bytes_data)
 
     # Hash mismatch
     st_bad_hash = dict(base_state, output_manifest=[{"path": str(out_file), "size": len(bytes_data), "sha256": "0" * 64}])
@@ -421,29 +445,38 @@ def test_m5_output_manifest_validation(tmp_path: Path):
     with pytest.raises(UnrealEvidenceVerificationError, match="output_manifest must be a sequence"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_malformed, source="ENGINE_LIVE", job_record=rec)
 
+    # Float/bool/non-integer size in manifest
+    st_float_size = dict(base_state, output_manifest=[{"path": str(out_file), "size": 12.34, "sha256": file_sha}])
+    with pytest.raises(UnrealEvidenceVerificationError, match="manifest entry size must be an exact positive integer"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_float_size, source="ENGINE_LIVE", job_record=rec)
+
+    # Non-hex SHA in manifest
+    st_bad_hex = dict(base_state, output_manifest=[{"path": str(out_file), "size": len(bytes_data), "sha256": "z" * 64}])
+    with pytest.raises(UnrealEvidenceVerificationError, match="non-hexadecimal characters"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_bad_hex, source="ENGINE_LIVE", job_record=rec)
+
+    # Duplicate manifest paths
+    st_dup = dict(base_state, output_manifest=[
+        {"path": str(out_file), "size": len(bytes_data), "sha256": file_sha},
+        {"path": str(out_file), "size": len(bytes_data), "sha256": file_sha},
+    ])
+    with pytest.raises(UnrealEvidenceVerificationError, match="duplicate manifest path detected"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_dup, source="ENGINE_LIVE", job_record=rec)
+
 
 def test_m5_path_isolation_and_traversal_rejection(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     escaped_file = tmp_path / "escaped.png"
-    _create_test_png(escaped_file)
+    bytes_data = _create_test_png(escaped_file)
 
     # Output file outside authorized output_directory
-    st_outside = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(escaped_file)],
-    }
+    st_outside = _valid_record_observed_state(rec, escaped_file, bytes_data)
     with pytest.raises(UnrealEvidenceVerificationError, match="outside authorized output directory"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_outside, source="ENGINE_LIVE", job_record=rec)
 
     # Path traversal attempt
     traversal_path = str(Path(rec.output_directory) / ".." / "escaped.png")
-    st_traversal = dict(st_outside, output_files=[traversal_path])
+    st_traversal = dict(st_outside, output_files=[traversal_path], output_manifest=[{"path": traversal_path, "size": len(bytes_data), "sha256": "0"*64}])
     with pytest.raises(UnrealEvidenceVerificationError, match="(path traversal detected|outside authorized output directory)"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_traversal, source="ENGINE_LIVE", job_record=rec)
 
@@ -454,51 +487,43 @@ def test_m5_png_completeness_and_dimensions_validation(tmp_path: Path):
 
     # Truncated PNG
     out_file.parent.mkdir(parents=True, exist_ok=True)
-    out_file.write_bytes(bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00]))
-    st_trunc = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-    }
+    trunc_bytes = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00])
+    out_file.write_bytes(trunc_bytes)
+    st_trunc = _valid_record_observed_state(rec, out_file, trunc_bytes)
     with pytest.raises(UnrealEvidenceVerificationError, match="PNG completeness check failed"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_trunc, source="ENGINE_LIVE", job_record=rec)
 
     # Wrong dimensions (expected 1x1, generate 10x10)
-    _create_test_png(out_file, width=10, height=10)
+    bytes_10 = _create_test_png(out_file, width=10, height=10)
+    st_dim = _valid_record_observed_state(rec, out_file, bytes_10)
     with pytest.raises(UnrealEvidenceVerificationError, match="PNG completeness check failed"):
-        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_trunc, source="ENGINE_LIVE", job_record=rec)
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_dim, source="ENGINE_LIVE", job_record=rec)
 
 
 def test_m5_expected_topology_and_unsupported_format(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file1 = Path(rec.output_directory) / "AtlasRender_0000.png"
-    _create_test_png(out_file1)
+    bytes1 = _create_test_png(out_file1)
+    import hashlib
+    sha1 = hashlib.sha256(bytes1).hexdigest()
 
     # Frame count mismatch (rec expected 1 frame [0..0], provide 2)
     out_file2 = Path(rec.output_directory) / "AtlasRender_0001.png"
-    _create_test_png(out_file2)
-    st_count = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file1), str(out_file2)],
-    }
+    bytes2 = _create_test_png(out_file2)
+    sha2 = hashlib.sha256(bytes2).hexdigest()
+    st_count = _valid_record_observed_state(rec, out_file1, bytes1)
+    st_count["output_files"] = [str(out_file1), str(out_file2)]
+    st_count["output_manifest"] = [
+        {"path": str(out_file1), "size": len(bytes1), "sha256": sha1},
+        {"path": str(out_file2), "size": len(bytes2), "sha256": sha2},
+    ]
     with pytest.raises(UnrealEvidenceVerificationError, match="output file count mismatch"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_count, source="ENGINE_LIVE", job_record=rec)
 
     # Unexpected extra file on disk
     extra_disk_file = Path(rec.output_directory) / "stray_file.png"
     extra_disk_file.write_bytes(b"stray")
-    st_stray = dict(st_count, output_files=[str(out_file1)])
+    st_stray = _valid_record_observed_state(rec, out_file1, bytes1)
     with pytest.raises(UnrealEvidenceVerificationError, match="unexpected extra files present"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_stray, source="ENGINE_LIVE", job_record=rec)
     extra_disk_file.unlink()
@@ -520,15 +545,7 @@ def test_m5_expected_topology_and_unsupported_format(tmp_path: Path):
     p_exotic = Path(rec_exotic.output_directory) / "frame.exr"
     p_exotic.parent.mkdir(parents=True, exist_ok=True)
     p_exotic.write_bytes(b"exr-data")
-    st_exotic = {
-        "job_id": "job-1",
-        "sequence_asset_path": "/Game/Seq",
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(p_exotic)],
-    }
+    st_exotic = _valid_record_observed_state(rec_exotic, p_exotic, b"exr-data")
     with pytest.raises(UnrealEvidenceVerificationError, match="unsupported output format"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_exotic, source="ENGINE_LIVE", job_record=rec_exotic)
 
@@ -537,20 +554,7 @@ def test_m5_evidence_immutability_and_snapshot_roundtrip(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
     bytes_data = _create_test_png(out_file)
-    import hashlib
-    file_sha = hashlib.sha256(bytes_data).hexdigest()
-
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-        "output_manifest": [{"path": str(out_file), "size": len(bytes_data), "sha256": file_sha}],
-    }
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
 
     evidence = verify_render_job_evidence(
         operation_name="inspect_render_job",
@@ -580,20 +584,7 @@ def test_m5_receipt_lineage_preservation(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
     bytes_data = _create_test_png(out_file)
-    import hashlib
-    file_sha = hashlib.sha256(bytes_data).hexdigest()
-
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-        "output_manifest": [{"path": str(out_file), "size": len(bytes_data), "sha256": file_sha}],
-    }
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
 
     evidence = verify_render_job_evidence(
         operation_name="inspect_render_job",
@@ -632,37 +623,20 @@ def test_m5_receipt_lineage_preservation(tmp_path: Path):
 def test_m5_missing_mandatory_identity_field_rejected(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
-    _create_test_png(out_file)
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
+    del state["authorization_id"]
 
-    # Missing sequence_asset_path in observed state
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-    }
-    with pytest.raises(ValueError, match="sequence_asset_path"):
+    with pytest.raises(UnrealEvidenceVerificationError, match="missing mandatory identity field 'authorization_id'"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
 
 
 def test_m5_tampered_snapshot_fails_closed(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
-    _create_test_png(out_file)
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
 
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-    }
     evidence = verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
     snap = evidence.snapshot()
     snap["extra_forged_key"] = "malicious"
@@ -674,16 +648,8 @@ def test_m5_verified_flag_authority(tmp_path: Path):
     # Calling the verifier with failing condition raises error, never returning verified=True
     rec = _sample_job_record(tmp_path)
     missing_file = Path(rec.output_directory) / "non_existent.png"
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(missing_file)],
-    }
+    state = _valid_record_observed_state(rec, missing_file, b"data")
+
     with pytest.raises(FileNotFoundError):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
 
@@ -701,18 +667,10 @@ def test_m5_png_crc_failure_rejected(tmp_path: Path):
     ihdr = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + ihdr_crc
     iend_crc = struct.pack(">I", 0xAE426082)
     iend = struct.pack(">I", 0) + b"IEND" + iend_crc
-    out_file.write_bytes(sig + ihdr + iend)
+    content = sig + ihdr + iend
+    out_file.write_bytes(content)
 
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-    }
+    state = _valid_record_observed_state(rec, out_file, content)
     with pytest.raises(UnrealEvidenceVerificationError, match="PNG completeness check failed"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
 
@@ -728,18 +686,10 @@ def test_m5_missing_iend_rejected(tmp_path: Path):
     ihdr_crc = struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF)
     ihdr = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + ihdr_crc
     # No IEND chunk written
-    out_file.write_bytes(sig + ihdr)
+    content = sig + ihdr
+    out_file.write_bytes(content)
 
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-    }
+    state = _valid_record_observed_state(rec, out_file, content)
     with pytest.raises(UnrealEvidenceVerificationError, match="PNG completeness check failed"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
 
@@ -747,18 +697,11 @@ def test_m5_missing_iend_rejected(tmp_path: Path):
 def test_m5_ntfs_alternate_data_stream_rejected(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
-    _create_test_png(out_file)
+    bytes_data = _create_test_png(out_file)
 
-    st_ads = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file) + ":hidden_stream"],
-    }
+    st_ads = _valid_record_observed_state(rec, out_file, bytes_data)
+    st_ads["output_files"] = [str(out_file) + ":hidden_stream"]
+    st_ads["output_manifest"] = [{"path": str(out_file) + ":hidden_stream", "size": len(bytes_data), "sha256": "0"*64}]
     with pytest.raises(UnrealEvidenceVerificationError, match="NTFS alternate data stream detected"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_ads, source="ENGINE_LIVE", job_record=rec)
 
@@ -779,17 +722,148 @@ def test_m5_png_idat_decompression_failure_rejected(tmp_path: Path):
     idat = struct.pack(">I", len(idat_data)) + b"IDAT" + idat_data + idat_crc
     iend_crc = struct.pack(">I", 0xAE426082)
     iend = struct.pack(">I", 0) + b"IEND" + iend_crc
-    out_file.write_bytes(sig + ihdr + idat + iend)
+    content = sig + ihdr + idat + iend
+    out_file.write_bytes(content)
 
-    state = {
-        "job_id": "job-stage17-001",
-        "atlas_job_id": rec.atlas_job_id,
-        "sequence_asset_path": rec.sequence_asset_path,
-        "status": "finished",
-        "finished": True,
-        "success": True,
-        "failed": False,
-        "output_files": [str(out_file)],
-    }
+    state = _valid_record_observed_state(rec, out_file, content)
     with pytest.raises(UnrealEvidenceVerificationError, match="PNG IDAT decompression integrity check failed"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
+
+
+def test_m5_empty_png_rejected_no_idat(tmp_path: Path):
+    """Test that a PNG file with valid signature and IHDR but missing any IDAT chunk is rejected."""
+    import struct
+    import zlib
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    sig = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    ihdr_crc = struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF)
+    ihdr = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + ihdr_crc
+    iend_crc = struct.pack(">I", 0xAE426082)
+    iend = struct.pack(">I", 0) + b"IEND" + iend_crc
+    content = sig + ihdr + iend
+    out_file.write_bytes(content)
+
+    state = _valid_record_observed_state(rec, out_file, content)
+    with pytest.raises(UnrealEvidenceVerificationError, match="(PNG contains zero IDAT data chunks|PNG IDAT decompression integrity check failed)"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
+
+
+def test_m5_missing_manifest_rejected_when_job_record_supplied(tmp_path: Path):
+    """Test that omitting output_manifest fails closed when job_record is present."""
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
+    del state["output_manifest"]
+
+    with pytest.raises(UnrealEvidenceVerificationError, match="missing required engine-attested 'output_manifest'"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
+
+
+def test_m5_empty_manifest_rejected_when_outputs_required(tmp_path: Path):
+    """Test that empty output_manifest fails closed when output files are declared."""
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
+    state["output_manifest"] = []
+
+    with pytest.raises(UnrealEvidenceVerificationError, match="output_manifest cannot be empty when outputs are required"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
+
+
+def test_m5_manifest_set_inequality_rejected(tmp_path: Path):
+    """Test that manifest-only or disk-only file sets fail closed."""
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
+
+    # Manifest refers to another file not in output_files
+    diff_file = str(Path(rec.output_directory) / "AtlasRender_diff.png")
+    state["output_manifest"] = [{"path": diff_file, "size": len(bytes_data), "sha256": "0" * 64}]
+
+    with pytest.raises(UnrealEvidenceVerificationError, match="(manifest paths do not exactly match declared output_files|manifest paths set does not match output_files set)"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
+
+
+def test_m5_source_class_missing_or_arbitrary_fails_closed(tmp_path: Path):
+    """Test that arbitrary strings for evidence_source_class or source fail closed."""
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
+
+    # Arbitrary source string when evidence_source_class is None
+    with pytest.raises(UnrealEvidenceVerificationError, match="missing or invalid evidence_source_class"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=state,
+            source="arbitrary_untrusted_source",
+            job_record=rec,
+            evidence_source_class=None,
+        )
+
+    # Explicit invalid evidence_source_class
+    with pytest.raises(UnrealEvidenceVerificationError, match="unsupported evidence_source_class"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=state,
+            source="ENGINE_LIVE",
+            job_record=rec,
+            evidence_source_class="CUSTOM_ARBITRARY_CLASS",
+        )
+
+
+def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
+    """Test that missing or uninterpretable expected_output_spec fails closed."""
+    rec_no_topo = AtlasRenderJobRecord.create_intent(
+        atlas_job_id="atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-111111111111",
+        attempt_ordinal=1,
+        authorization_id="auth-1",
+        canonical_digital_twin_id="twin-1",
+        sequence_asset_path="/Game/Seq",
+        request_digest="req",
+        config_digest="cfg",
+        output_parent_directory=str(tmp_path / "renders"),
+        output_directory=str(tmp_path / "renders" / "atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-111111111111"),
+        expected_output_spec={},  # Empty topology
+        created_at="2026-09-06T00:00:00Z",
+    )
+    out_file = Path(rec_no_topo.output_directory) / "frame_0000.png"
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec_no_topo, out_file, bytes_data)
+
+    with pytest.raises(UnrealEvidenceVerificationError, match="(expected_output_spec cannot be empty|missing mandatory expected_output_spec)"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=state,
+            source="ENGINE_LIVE",
+            job_record=rec_no_topo,
+        )
+
+
+def test_m5_windows_83_short_names_and_device_namespaces_rejected(tmp_path: Path):
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(out_file)
+
+    # 8.3 short name
+    short_path = str(Path(rec.output_directory) / "ATLASR~1.PNG")
+    st_short = _valid_record_observed_state(rec, out_file, bytes_data)
+    st_short["output_files"] = [short_path]
+    with pytest.raises(UnrealEvidenceVerificationError, match="Windows 8.3 short name path rejected"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_short, source="ENGINE_LIVE", job_record=rec)
+
+    # Device namespace
+    dev_path = "\\\\.\\" + str(out_file)
+    st_dev = _valid_record_observed_state(rec, out_file, bytes_data)
+    st_dev["output_files"] = [dev_path]
+    with pytest.raises(UnrealEvidenceVerificationError, match="Windows device namespace path rejected"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_dev, source="ENGINE_LIVE", job_record=rec)

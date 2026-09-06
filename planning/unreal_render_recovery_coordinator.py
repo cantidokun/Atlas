@@ -526,6 +526,8 @@ class UnrealRenderRecoveryCoordinator:
                 return self._fail_case_g(record, f"Artifact SHA-256 mismatch for {path_str}")
 
         # 4. Independent Evidence Verification
+        # In recovery, candidate comes from the engine journal/observation.
+        # Check that candidate carries the process identity; if not, pass candidate as is so verifier can enforce fail-closed check
         try:
             verified_evidence = verify_render_job_evidence(
                 operation_name="inspect_render_job",
