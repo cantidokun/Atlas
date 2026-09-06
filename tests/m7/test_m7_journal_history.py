@@ -77,6 +77,55 @@ def _validate_terminal(history):
     return i_acc < i_sta
 
 
+
+def _validate_existing_history(entries):
+    """Reference validator mirroring the C++ ValidateJournalPhaseHistory rules.
+
+    ``entries`` is a sequence of dicts each with ``phase`` and ``phase_sequence``.
+    Returns (ok, error). Enforces:
+    - every entry is an object with valid phase + integer phase_sequence;
+    - phase_sequence equals the SEMANTIC phase number exactly;
+    - strictly increasing, unique phases, lifecycle order, no dual terminal,
+      nothing after a terminal.
+    """
+    if not entries:
+        return False, "phase_history is empty"
+    prev = 0
+    seen = set()
+    b_terminal = False
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            return False, f"element {i} is not a JSON object"
+        phase = entry.get("phase")
+        seq = entry.get("phase_sequence")
+        if not isinstance(phase, str) or not phase:
+            return False, f"element {i} missing/invalid 'phase'"
+        if phase not in PHASE_SEQUENCE:
+            return False, f"element {i} unknown phase {phase!r}"
+        semantic = PHASE_SEQUENCE[phase]
+        if isinstance(seq, bool) or not isinstance(seq, int):
+            return False, f"element {i} missing/invalid 'phase_sequence'"
+        if seq != semantic:
+            return False, f"element {i} sequence mismatch: phase {phase} requires {semantic}, got {seq}"
+        if phase in seen:
+            return False, f"duplicate phase {phase!r}"
+        if b_terminal:
+            return False, "entry after a terminal phase"
+        if i > 0 and seq <= prev:
+            return False, f"out-of-order: element {i} seq {seq} <= previous {prev}"
+        if i == 0 and phase != "ACCEPTED":
+            return False, "must begin with ACCEPTED"
+        if phase == "STARTED" and "ACCEPTED" not in seen:
+            return False, "STARTED requires ACCEPTED first"
+        if phase in ("FINISHED", "FAILED") and "STARTED" not in seen:
+            return False, "terminal requires STARTED first"
+        seen.add(phase)
+        prev = seq
+        if seq == 3:
+            b_terminal = True
+    return True, None
+
+
 # ── 1. Exact retained phase history / ordering / sequence invariants ──────────
 def test_m7_jh_valid_finished_history_retained_exactly():
     # Valid append-only history, retained exactly in order.
@@ -305,3 +354,89 @@ def test_m7_jh_job_id_alias_carried_by_reconcile():
     # Note: ReconcileRenderJobs now emits both; verified via the C++ automation
     # test FAtlasUE56JournalReconcileRetainedHistoryTest and the binding test above.
     assert True
+
+
+# ── 7. Parseable-but-malformed history (structural validation reference) ───────
+def _E(phase, seq):
+    return {"phase": phase, "phase_sequence": seq}
+
+
+def test_m7_jh_validate_non_object_element():
+    ok, err = _validate_existing_history([42])
+    assert not ok and "not a JSON object" in err
+
+
+def test_m7_jh_validate_missing_phase():
+    ok, err = _validate_existing_history([{"phase_sequence": 1}])
+    assert not ok and "phase" in err
+
+
+def test_m7_jh_validate_missing_phase_sequence():
+    ok, err = _validate_existing_history([{"phase": "ACCEPTED"}])
+    assert not ok and "phase_sequence" in err
+
+
+def test_m7_jh_validate_wrong_phase_sequence():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 2)])
+    assert not ok and "sequence mismatch" in err
+
+
+def test_m7_jh_validate_accepted_with_sequence_2():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 2)])
+    assert not ok and "sequence mismatch" in err
+
+
+def test_m7_jh_validate_started_with_sequence_3():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 1), _E("STARTED", 3)])
+    assert not ok and "sequence mismatch" in err
+
+
+def test_m7_jh_validate_terminal_with_sequence_2():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 1), _E("STARTED", 2), _E("FINISHED", 2)])
+    assert not ok and "sequence mismatch" in err
+
+
+def test_m7_jh_validate_accepted_finished_skipping_started():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 1), _E("FINISHED", 3)])
+    assert not ok and "terminal requires STARTED first" in err
+
+
+def test_m7_jh_validate_started_accepted_regression():
+    ok, err = _validate_existing_history([_E("STARTED", 2), _E("ACCEPTED", 1)])
+    assert not ok and "must begin with ACCEPTED" in err
+
+
+def test_m7_jh_validate_finished_failed_dual_terminal():
+    ok, err = _validate_existing_history(
+        [_E("ACCEPTED", 1), _E("STARTED", 2), _E("FINISHED", 3), _E("FAILED", 3)]
+    )
+    assert not ok and "after a terminal" in err
+
+
+def test_m7_jh_validate_duplicate_semantic_phase():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 1), _E("ACCEPTED", 1)])
+    assert not ok and "duplicate" in err
+
+
+def test_m7_jh_validate_invalid_extra_phase_after_terminal():
+    # After FAILED(3), FINISHED(3) is a distinct, not-yet-seen phase but is an
+    # illegal extra terminal after a terminal -> must be rejected as after-terminal.
+    ok, err = _validate_existing_history(
+        [_E("ACCEPTED", 1), _E("STARTED", 2), _E("FAILED", 3), _E("FINISHED", 3)]
+    )
+    assert not ok and ("after a terminal" in err)
+
+
+def test_m7_jh_validate_valid_finished_history():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 1), _E("STARTED", 2), _E("FINISHED", 3)])
+    assert ok, err
+
+
+def test_m7_jh_validate_valid_failed_history():
+    ok, err = _validate_existing_history([_E("ACCEPTED", 1), _E("STARTED", 2), _E("FAILED", 3)])
+    assert ok, err
+
+
+def test_m7_jh_validate_empty_history():
+    ok, err = _validate_existing_history([])
+    assert not ok and "empty" in err

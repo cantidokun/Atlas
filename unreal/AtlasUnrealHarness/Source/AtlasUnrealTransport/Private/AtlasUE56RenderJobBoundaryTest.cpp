@@ -68,6 +68,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalStructuralValidationTest,
+    "Atlas.UnrealAgent.UE56.JournalStructuralValidation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FAtlasUE56JournalMalformedHistoryTest,
     "Atlas.UnrealAgent.UE56.JournalMalformedHistory",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -636,6 +641,113 @@ bool FAtlasUE56JournalLifecycleOrderingTest::RunTest(const FString& Parameters)
     IFileManager::Get().Delete(*FPaths::Combine(
         FAtlasTransportServer::GetJournalDirectory(),
         FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId)));
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56JournalStructuralValidationTest::RunTest(const FString& Parameters)
+{
+    const FString JournalDir = FAtlasTransportServer::GetJournalDirectory();
+    IFileManager::Get().MakeDirectory(*JournalDir, true);
+    const FString AtlasJobId = TEXT("atlas-job-struct-001");
+    const FString UnrealJobId = TEXT("unreal-job-struct-001");
+    const FString JournalPath = FPaths::Combine(
+        JournalDir, FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId));
+
+    // Helper to write an arbitrary (possibly malformed) JSON container and then
+    // attempt an ACCEPTED append; the pre-append structural validation must reject
+    // parseable-but-malformed phase_history and leave the file byte-for-byte intact.
+    auto AttemptAppend = [&](const FString& ContainerJson) -> bool
+    {
+        FFileHelper::SaveStringToFile(ContainerJson, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->Status = TEXT("submitted");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+        return bAppended;
+    };
+
+    auto CheckUnchanged = [&](const FString& Original) -> void
+    {
+        FString After;
+        FFileHelper::LoadFileToString(After, *JournalPath);
+        TestTrue(TEXT("Malformed history left byte-for-byte untouched after rejected append"),
+                 After == Original);
+    };
+
+    // Case: non-object phase_history element.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[42]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Valid ACCEPTED append rejected after non-object history element"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: missing phase.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase_sequence\":1}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after missing phase"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: missing phase_sequence.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\"}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after missing phase_sequence"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: wrong phase_sequence (ACCEPTED with sequence 2).
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":2}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after ACCEPTED with sequence 2"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: ACCEPTED -> FINISHED skipping STARTED.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":1},{\"phase\":\"FINISHED\",\"phase_sequence\":3}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after ACCEPTED->FINISHED skipping STARTED"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: FINISHED + FAILED dual terminal.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":1},{\"phase\":\"STARTED\",\"phase_sequence\":2},{\"phase\":\"FINISHED\",\"phase_sequence\":3},{\"phase\":\"FAILED\",\"phase_sequence\":3}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected on FINISHED+FAILED dual terminal"), bOk);
+        CheckUnchanged(Bad);
+    }
+
+    // ReconcileRenderJobs must FAIL CLOSED on a parseable-but-malformed history:
+    // classify journal_status PARTIAL and NOT synthesize a current state from the
+    // latest (malformed) entry - malformed witness state is never evidence of
+    // absence and never evidence of successful execution.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":1},{\"phase\":\"FINISHED\",\"phase_sequence\":3}]}");
+        FFileHelper::SaveStringToFile(Bad, *JournalPath);
+
+        FAtlasTransportServer::FTransportRequest Req;
+        Req.RequestId = TEXT("struct-rec");
+        Req.OperationName = TEXT("reconcile_render_jobs");
+        Req.Capability = TEXT("render");
+        Req.Kind = TEXT("read");
+        Req.SchemaVersion = 1;
+
+        TSharedPtr<FJsonObject> ObservedState;
+        FString RErr;
+        const bool bOk = FAtlasTransportServer::ReconcileRenderJobs(Req, ObservedState, RErr);
+        TestTrue(TEXT("ReconcileRenderJobs succeeds (returns)"), bOk);
+        if (ObservedState.IsValid())
+        {
+            TestTrue(TEXT("journal_status is PARTIAL on malformed history"),
+                     ObservedState->GetStringField(TEXT("journal_status")) == TEXT("PARTIAL"));
+        }
+    }
+
+    // Cleanup any residual journal file.
+    IFileManager::Get().Delete(*JournalPath);
     return !HasAnyErrors();
 }
 

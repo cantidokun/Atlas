@@ -1818,6 +1818,23 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
             TSharedPtr<FJsonObject> KnownJob = JsonObj;
             if (JsonObj->HasTypedField<EJson::Array>(TEXT("phase_history")))
             {
+                TArray<TSharedPtr<FJsonValue>> HistoryArr = JsonObj->GetArrayField(TEXT("phase_history"));
+
+                // FAIL-CLOSED: structurally validate the retained history BEFORE
+                // deriving a current state. A parseable-but-malformed history must
+                // NOT synthesize a current state from the latest entry and MUST be
+                // classified PARTIAL/UNTRUSTED - malformed witness state is never
+                // evidence of absence and never evidence of successful execution.
+                TArray<FString> ValidPhases;
+                int32 ValidMaxSequence = 0;
+                FString HistoryError;
+                if (!FAtlasTransportServer::ValidateJournalPhaseHistory(
+                        HistoryArr, ValidPhases, ValidMaxSequence, HistoryError))
+                {
+                    JournalStatus = TEXT("PARTIAL");
+                    continue;
+                }
+
                 // Build a per-job object carrying the retained phases plus the
                 // latest phase fields (status/finished/... from the newest entry).
                 TSharedPtr<FJsonObject> Derived = MakeShareable(new FJsonObject);
@@ -1830,7 +1847,6 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
                 Derived->SetStringField(TEXT("job_id"), DerivedUnrealJobId);
                 Derived->SetStringField(TEXT("state_source"), TEXT("witness_journal"));
 
-                TArray<TSharedPtr<FJsonValue>> HistoryArr = JsonObj->GetArrayField(TEXT("phase_history"));
                 Derived->SetArrayField(TEXT("phase_history"), HistoryArr);
 
                 // Copy the latest phase entry's fields onto the derived known_job
@@ -2259,19 +2275,14 @@ bool FAtlasTransportServer::WriteJournalEntry(
         if (ExistingRoot->HasField(TEXT("phase_history")))
         {
             PhaseHistory = ExistingRoot->GetArrayField(TEXT("phase_history"));
-            for (const TSharedPtr<FJsonValue>& EntryValue : PhaseHistory)
+            // Structurally validate the EXISTING history BEFORE any append.
+            // Parseable-but-malformed history (non-object elements, missing/invalid
+            // phase or phase_sequence, wrong semantic sequence, duplicate/skipped
+            // phase, out-of-order, dual-terminal) fails closed WITHOUT overwriting.
+            if (!FAtlasTransportServer::ValidateJournalPhaseHistory(
+                    PhaseHistory, ExistingPhases, MaxSequence, OutError))
             {
-                const TSharedPtr<FJsonObject>& EntryObj = EntryValue->AsObject();
-                if (!EntryObj.IsValid()) continue;
-                FString EPhase;
-                int32 ESeq = 0;
-                EntryObj->TryGetStringField(TEXT("phase"), EPhase);
-                EntryObj->TryGetNumberField(TEXT("phase_sequence"), ESeq);
-                ExistingPhases.Add(EPhase);
-                if (ESeq > MaxSequence)
-                {
-                    MaxSequence = ESeq;
-                }
+                return false;
             }
         }
     }
@@ -2423,4 +2434,139 @@ bool FAtlasTransportServer::WriteJournalEntry(
     }
 
     return AtomicWriteFile(TargetPath, OutputString, OutError);
+}
+
+bool FAtlasTransportServer::ValidateJournalPhaseHistory(
+    const TArray<TSharedPtr<FJsonValue>>& PhaseHistory,
+    TArray<FString>& OutPhases,
+    int32& OutMaxSequence,
+    FString& OutError)
+{
+    // Structural validation of an EXISTING append-only phase_history.
+    // Contract V1: ACCEPTED(1) -> STARTED(2) -> FINISHED(3) | FAILED(3).
+    // Each element must be a JSON object carrying a valid phase and an integer
+    // phase_sequence that matches the SEMANTIC phase number exactly. The
+    // sequence must be strictly increasing, phases unique and in lifecycle
+    // order, no dual terminal, nothing after a terminal.
+
+    auto PhaseToSequence = [](const FString& InPhase) -> int32
+    {
+        if (InPhase == TEXT("ACCEPTED")) return 1;
+        if (InPhase == TEXT("STARTED")) return 2;
+        if (InPhase == TEXT("FINISHED") || InPhase == TEXT("FAILED")) return 3;
+        return -1;
+    };
+
+    OutPhases.Reset();
+    OutMaxSequence = 0;
+
+    int32 PrevSequence = 0;
+    TArray<FString> SeenPhases;
+    TArray<int32> SeenSequences;
+    bool bTerminalSeen = false;
+
+    for (int32 i = 0; i < PhaseHistory.Num(); ++i)
+    {
+        const TSharedPtr<FJsonValue>& EntryValue = PhaseHistory[i];
+        // Every element MUST be an object.
+        if (!EntryValue.IsValid() || EntryValue->Type != EJson::Object)
+        {
+            OutError = FString::Printf(TEXT("phase_history element %d is not a JSON object"), i);
+            return false;
+        }
+        const TSharedPtr<FJsonObject>& EntryObj = EntryValue->AsObject();
+
+        // phase must be a non-empty string with a known phase.
+        FString EPhase;
+        if (!EntryObj->TryGetStringField(TEXT("phase"), EPhase) || EPhase.IsEmpty())
+        {
+            OutError = FString::Printf(TEXT("phase_history element %d missing/invalid 'phase'"), i);
+            return false;
+        }
+        const int32 ESeq = PhaseToSequence(EPhase);
+        if (ESeq < 1)
+        {
+            OutError = FString::Printf(TEXT("phase_history element %d has unknown phase '%s'"), i, *EPhase);
+            return false;
+        }
+
+        // phase_sequence must be present and an integer equal to the semantic phase number.
+        const TSharedPtr<FJsonValue>* SequenceValue = EntryObj->Values.Find(TEXT("phase_sequence"));
+        if (SequenceValue == nullptr || !(*SequenceValue).IsValid() || (*SequenceValue)->Type != EJson::Number)
+        {
+            OutError = FString::Printf(TEXT("phase_history element %d missing/invalid 'phase_sequence'"), i);
+            return false;
+        }
+        const double RawSeq = (*SequenceValue)->AsNumber();
+        if (RawSeq != (double)(int32)RawSeq) // not integral
+        {
+            OutError = FString::Printf(TEXT("phase_history element %d 'phase_sequence' not integer"), i);
+            return false;
+        }
+        const int32 ESeqValue = (int32)RawSeq;
+        if (ESeqValue != ESeq)
+        {
+            OutError = FString::Printf(
+                TEXT("phase_history element %d sequence mismatch: phase '%s' requires %d, got %d"),
+                i, *EPhase, ESeq, ESeqValue);
+            return false;
+        }
+
+        // Duplicate phase rejected.
+        if (SeenPhases.Contains(EPhase))
+        {
+            OutError = FString::Printf(TEXT("phase_history contains duplicate phase '%s'"), *EPhase);
+            return false;
+        }
+        // Nothing after a terminal.
+        if (bTerminalSeen)
+        {
+            OutError = TEXT("phase_history contains an entry after a terminal phase");
+            return false;
+        }
+        // Strictly increasing sequence.
+        if (ESeqValue <= PrevSequence && i > 0)
+        {
+            OutError = FString::Printf(
+                TEXT("phase_history out-of-order: element %d seq %d <= previous %d"),
+                i, ESeqValue, PrevSequence);
+            return false;
+        }
+        // Required lifecycle ordering: ACCEPTED first, STARTED after ACCEPTED,
+        // terminal after STARTED.
+        if (i == 0 && EPhase != TEXT("ACCEPTED"))
+        {
+            OutError = TEXT("phase_history must begin with ACCEPTED");
+            return false;
+        }
+        if (EPhase == TEXT("STARTED") && !SeenPhases.Contains(TEXT("ACCEPTED")))
+        {
+            OutError = TEXT("phase_history STARTED requires ACCEPTED first");
+            return false;
+        }
+        if ((EPhase == TEXT("FINISHED") || EPhase == TEXT("FAILED")) && !SeenPhases.Contains(TEXT("STARTED")))
+        {
+            OutError = TEXT("phase_history terminal requires STARTED first");
+            return false;
+        }
+
+        SeenPhases.Add(EPhase);
+        SeenSequences.Add(ESeqValue);
+        PrevSequence = ESeqValue;
+        if (ESeqValue == 3)
+        {
+            bTerminalSeen = true;
+        }
+    }
+
+    if (PhaseHistory.Num() == 0)
+    {
+        OutError = TEXT("phase_history is empty");
+        return false;
+    }
+
+    OutPhases = SeenPhases;
+    OutMaxSequence = PrevSequence;
+    OutError = TEXT("");
+    return true;
 }

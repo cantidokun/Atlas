@@ -101,8 +101,11 @@ Python suite**. Runtime execution of the C++ automation is an M7 build/validatio
    added Atlas-authoritative identity binding
    (`canonical_digital_twin_id`, full `expected_output_spec`, `attempt_ordinal`)
    at reconciliation so engine-derived journal candidates preserve all downstream
-   verification fields; see `tests/m7/test_m7_journal_history.py` and
-   `docs/UNREAL_M7_HARDENING.md`.
+   verification fields; a second M7 pass added **strict structural validation of an
+   existing `phase_history` before any append and before deriving current state in
+   `ReconcileRenderJobs`** (parseable-but-malformed history is rejected / classified
+   PARTIAL, never overwritten, never evidence of success). See
+   `tests/m7/test_m7_journal_history.py` and `docs/UNREAL_M7_HARDENING.md`.
 3. **`execution_deadline` is stored but unenforced.** No `EXHAUSTED` expiry transition
    exists. → **REPAIRED in M7 hardening**: the coordinator now evaluates
    submission/execution deadlines and transitions an unresolved expired job to

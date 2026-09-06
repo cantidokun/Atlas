@@ -33,6 +33,7 @@ class FAtlasTransportServer : public FRunnable
     friend class FAtlasUE56JournalMonotonicSequenceTest;
     friend class FAtlasUE56JournalDuplicateRejectionTest;
     friend class FAtlasUE56JournalMalformedHistoryTest;
+    friend class FAtlasUE56JournalStructuralValidationTest;
     friend class FAtlasUE56JournalLifecycleOrderingTest;
     friend class FAtlasUE56JournalReconcileRetainedHistoryTest;
 public:
@@ -162,6 +163,17 @@ private:
         const FString& UnrealJobId,
         const FString& Phase,
         const TSharedPtr<FRenderJobState>& JobState,
+        FString& OutError);
+    // Validate an existing append-only phase_history for structural + lifecycle
+    // correctness BEFORE any append or before deriving current state from the
+    // latest entry. Fails closed (returns false with an error) on any malformed,
+    // duplicate, skipped, out-of-order, or dual-terminal history without
+    // overwriting it. On success, populates the ordered phase names and max
+    // sequence seen.
+    static bool ValidateJournalPhaseHistory(
+        const TArray<TSharedPtr<FJsonValue>>& PhaseHistory,
+        TArray<FString>& OutPhases,
+        int32& OutMaxSequence,
         FString& OutError);
     static bool ComputeFileSha256(const FString& FilePath, FString& OutSha256, int64& OutFileSize);
     static void CollectSessionIdentity(TSharedPtr<FJsonObject>& OutSessionObject);

@@ -117,8 +117,9 @@ succeeded; not executed under the editor in this milestone)
 | 3. required phase retention | `FAtlasUE56JournalAppendHistoryTest` (ACCEPTED/STARTED/FINISHED all present) |
 | 4. duplicate/out-of-order phase rejection | `FAtlasUE56JournalDuplicateRejectionTest` (duplicate ACCEPTED rejected) |
 | 5. strict lifecycle ordering | `FAtlasUE56JournalLifecycleOrderingTest` (STARTED-before-ACCEPTED rejected; dual-terminal rejected) |
-| 6. malformed history fail-closed | `FAtlasUE56JournalMalformedHistoryTest` (append to malformed → error) |
-| 7. restart/reconciliation sees retained history + identity | `FAtlasUE56JournalReconcileRetainedHistoryTest` (known_jobs carries `phase_history`, `job_id` == `unreal_job_id`) |
+| 6. malformed history fail-closed | `FAtlasUE56JournalMalformedHistoryTest` (append to invalid-JSON → error) |
+| 7. structural validation of parseable-but-malformed history | `FAtlasUE56JournalStructuralValidationTest` (non-object element, missing phase/phase_sequence, wrong sequence, skipped STARTED, dual terminal; malformed file left byte-for-byte untouched after rejected append; ReconcileRenderJobs → PARTIAL and no synthesized current state) |
+| 8. restart/reconciliation sees retained history + identity | `FAtlasUE56JournalReconcileRetainedHistoryTest` (known_jobs carries `phase_history`, `job_id` == `unreal_job_id`) |
 
 Deterministic Python reference tests for the same semantics are in
 `tests/m7/test_m7_journal_history.py` (`_append_phase`, `_validate_terminal`,
@@ -129,17 +130,40 @@ journal-internal integrity marker; per the architecture contract, journal/witnes
 data is **not itself authoritative proof** — Atlas still performs independent
 verification before any receipt.
 
-**Remaining gap (witness-attestation scheme, pre-existing):** the C++
-`WriteJournalEntry` stores an FSHA1 `entry_digest` over a canonical field
-concatenation, whereas the Python coordinator's `_handle_finished_candidate`
-recomputes an HMAC-SHA256 keyed by `attempt_nonce` over a JSON payload
-(`compute_journal_hmac`). The two schemes produce different digests, so a
-journal-derived candidate's digest and the coordinator's recomputation do not match
-for a raw journal without coordinator-side attestation supply. This is a witness
-**authentication** concern, distinct from the phase-history/reconciliation model
-covered here, and is a documented hardening item for a later milestone. It does not
-weaken this audit's findings: the phase/sequence model and downstream-field
-preservation are verified independently.
+### Journal attestation / integrity — implemented vs deferred (audit, item 4/5)
+
+**Fully implemented (this hardening pass):** append-only retained `phase_history`;
+monotonic `phase_sequence` as the semantic phase ordinal; strict structural +
+lifecycle validation of an existing history BEFORE any append (`WriteJournalEntry`);
+FAIL-CLOSED derivation in `ReconcileRenderJobs` (a parseable-but-malformed history
+is classified `journal_status=PARTIAL` and does NOT synthesize a current state);
+malformed history is never overwritten/truncated.
+
+**Explicitly DEFERRED to the next milestone (NOT implemented here):**
+1. **Contract V1 HMAC-SHA256 witness attestation.** The C++ `WriteJournalEntry`
+   stores an FSHA1 `entry_digest` over a canonical field concatenation, whereas the
+   Python coordinator's witness check recomputes an HMAC-SHA256 keyed by Atlas
+   `attempt_nonce` over the canonical JSON payload (`compute_journal_hmac`). The two
+   schemes produce different digests. M7 does **NOT** claim full Contract V1
+   attestation compliance: the engine must produce the real HMAC-SHA256 keyed by
+   `attempt_nonce` over the full canonical payload (schema_version, atlas_job_id,
+   unreal_job_id, attempt_ordinal, phase, phase_sequence, editor_session_id,
+   process_creation_time_utc, output_directory, output_manifest) before the journal
+   is fully self-attesting. This is a distinct witness-authentication subsystem and
+   is scheduled as the next milestone hardening item; the coordinator-side
+   `attempt_nonce` expectation already exists and is preserved.
+2. **`attempt_ordinal` in the engine journal.** `FRenderJobState` and the C++
+   journal do not yet carry `attempt_ordinal`; a journal entry is therefore not yet
+   fully self-describing per Contract V1. It is **not** solved by the Python-side
+   bind (the coordinator binds `attempt_ordinal` from the durable record for the
+   Atlas verification pipeline, but that does not make the engine journal
+   self-describing). Adding `attempt_ordinal` (and threading it from
+   `submit_render` through `FRenderJobState` + `WriteJournalEntry`) is deferred to
+   the next milestone.
+
+Neither deferral weakens this pass's findings: the phase/sequence model and
+downstream-field preservation are verified independently, and the journal remains
+witness-only / non-authoritative throughout.
 
 ---
 
