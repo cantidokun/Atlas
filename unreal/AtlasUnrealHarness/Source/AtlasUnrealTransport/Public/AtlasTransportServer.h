@@ -36,6 +36,7 @@ class FAtlasTransportServer : public FRunnable
     friend class FAtlasUE56JournalStructuralValidationTest;
     friend class FAtlasUE56JournalLifecycleOrderingTest;
     friend class FAtlasUE56JournalReconcileRetainedHistoryTest;
+    friend class FAtlasUE56JournalAttestationVectorTest;
 public:
     FAtlasTransportServer();
     virtual ~FAtlasTransportServer();
@@ -92,6 +93,8 @@ private:
     {
         FString JobId;
         FString AtlasJobId;
+        int32 AttemptOrdinal;
+        FString AttemptNonce; // SECRET (HMAC key only) - never serialized to journal/receipt/log
         FString AuthorizationId;
         FString SequenceAssetPath;
         FString ConfigDigest;
@@ -110,7 +113,8 @@ private:
         TWeakObjectPtr<UMoviePipelineExecutorJob> Job;
 
         FRenderJobState()
-            : Progress(0.0)
+            : AttemptOrdinal(0)
+            , Progress(0.0)
             , bSuccess(false)
             , bFinished(false)
             , bFailed(false)
@@ -176,6 +180,28 @@ private:
         int32& OutMaxSequence,
         FString& OutError);
     static bool ComputeFileSha256(const FString& FilePath, FString& OutSha256, int64& OutFileSize);
+    static bool ComputeSha256Buffer(const uint8* Data, int32 Length, uint8* OutHash32);
+    // Contract V1 canonical journal attestation (M8): build the canonical UTF-8
+    // message bytes and compute HMAC-SHA256 keyed by UTF8(attempt_nonce).
+    // Canonical format uses control separators (U+001F between fields, trailing
+    // U+001E) and per-manifest-entry (path\x1csize\x1csha256\x1d), matching the
+    // Python planning.unreal_journal_attestation module byte-for-byte.
+    static bool ComputeJournalAttestationCanonical(
+        int32 SchemaVersion,
+        const FString& AtlasJobId,
+        const FString& UnrealJobId,
+        int32 AttemptOrdinal,
+        const FString& Phase,
+        int32 PhaseSequence,
+        const FString& EditorSessionId,
+        const FString& ProcessCreationTimeUtc,
+        const FString& OutputDirectory,
+        const TArray<FOutputManifestEntry>& OutputManifest,
+        TArray<uint8>& OutCanonicalBytes);
+    static bool ComputeJournalAttestationDigest(
+        const FString& AttemptNonce,
+        const TArray<uint8>& CanonicalBytes,
+        FString& OutHexDigest);
     static void CollectSessionIdentity(TSharedPtr<FJsonObject>& OutSessionObject);
 
     static FCriticalSection RenderJobRegistryMutex;

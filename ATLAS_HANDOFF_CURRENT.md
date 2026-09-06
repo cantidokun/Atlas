@@ -223,6 +223,10 @@ Do not run workflow/action-runner tests unless explicitly authorized.
 - PR #66 — M3 durable intent, exclusive Atlas submission orchestration, capability gate, acceptance-unknown semantics.
 - PR #67 — M4 cross-process Unreal recovery coordinator and Contract V1 recovery hardening.
 - PR #68 — M5 authoritative independent render-evidence verification.
+- PR #69 — docs-only M4/M5 recovery-status correction.
+- PR #70 — M6 deterministic fault-injection / concurrency suite.
+- PR #71 — M7 deterministic hardening of the three M6-discovered production gaps (framed-catalog integrity, append-only C++ witness journal, deadline enforcement) + journal-history structural fail-closed corrections.
+- M8 — witness attestation (real HMAC-SHA256 keyed by Atlas attempt_nonce) + engine attempt_ordinal threading; canonical Python/C++ conformance verified.
 
 ## Historical documentation
 

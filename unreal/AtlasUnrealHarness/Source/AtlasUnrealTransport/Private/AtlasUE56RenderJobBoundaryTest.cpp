@@ -43,6 +43,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalAttestationVectorTest,
+    "Atlas.UnrealAgent.UE56.JournalAttestationVector",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FAtlasUE56CapabilitySchemaReportingTest,
     "Atlas.UnrealAgent.UE56.CapabilitySchemaReporting",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -953,3 +958,70 @@ bool FAtlasUE56JournalReconcileRetainedHistoryTest::RunTest(const FString& Param
         FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId)));
     return !HasAnyErrors();
 }
+bool FAtlasUE56JournalAttestationVectorTest::RunTest(const FString& Parameters)
+{
+    // Contract V1 canonical HMAC-SHA256 conformance vector. This EXACT input must
+    // produce the same canonical bytes and the same hexdigest as the Python
+    // reference (tests/m8/test_m8_attestation.py, CONFORMANCE_NONCE/PAYLOAD,
+    // EXPECTED_CANONICAL_HEX/EXPECTED_DIGEST).
+    const FString Nonce = TEXT("m8-nonce-0123456789abcdef0123456789abcdef");
+    const FString AtlasJobId = TEXT("atlas-render-job-aaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    const FString UnrealJobId = TEXT("unreal-job-m8-001");
+    const FString Phase = TEXT("FINISHED");
+    const FString EditorSessionId = TEXT("session-m8-editor");
+    const FString ProcessCreationTimeUtc = TEXT("2026-09-06T00:00:00Z");
+    const FString OutputDirectory = TEXT("C:/renders/out");
+
+    TArray<FAtlasTransportServer::FOutputManifestEntry> Manifest;
+    FAtlasTransportServer::FOutputManifestEntry Entry;
+    Entry.Path = TEXT("C:/renders/out/f.png");
+    Entry.Size = 42;
+    Entry.Sha256 = TEXT("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    Manifest.Add(Entry);
+
+    TArray<uint8> CanonicalBytes;
+    const bool bCanonical = FAtlasTransportServer::ComputeJournalAttestationCanonical(
+        1, AtlasJobId, UnrealJobId, 1, Phase, 3,
+        EditorSessionId, ProcessCreationTimeUtc, OutputDirectory, Manifest, CanonicalBytes);
+    TestTrue(TEXT("canonical payload built"), bCanonical);
+    if (!bCanonical)
+    {
+        return !HasAnyErrors();
+    }
+
+    // Canonical bytes must match the pinned Python reference. The strongest
+    // conformance property is the exact HMAC-SHA256 digest below: a difference in
+    // even ONE canonical byte would change the digest. Additionally verify the
+    // deterministic head (1<unit-sep>atlas) and tail (sha256 0x1d 0x1e).
+    TestTrue(TEXT("canonical starts with '1 unit-sep atlas'"),
+        CanonicalBytes.Num() > 4 &&
+        CanonicalBytes[0] == 0x31 && CanonicalBytes[1] == 0x1f &&
+        CanonicalBytes[2] == 0x61 && CanonicalBytes[3] == 0x74); // 'a','t'
+    TestTrue(TEXT("canonical ends with sha256 + 0x1d 0x1e"),
+        CanonicalBytes.Num() > 2 &&
+        CanonicalBytes[CanonicalBytes.Num()-1] == 0x1e &&
+        CanonicalBytes[CanonicalBytes.Num()-2] == 0x1d);
+
+    FString HexDigest;
+    const bool bDigest = FAtlasTransportServer::ComputeJournalAttestationDigest(Nonce, CanonicalBytes, HexDigest);
+    TestTrue(TEXT("attestation digest computed"), bDigest);
+    TestTrue(TEXT("attestation digest matches pinned reference"),
+        HexDigest == TEXT("af7c077a395b80064537304447f4ae77fc9204577fdb70ec0189e30682288232"));
+
+    // Altering any signed field must change the digest.
+    TArray<uint8> TamperedCanonical;
+    FAtlasTransportServer::ComputeJournalAttestationCanonical(
+        1, AtlasJobId, UnrealJobId, 2 /* changed attempt_ordinal */, Phase, 3,
+        EditorSessionId, ProcessCreationTimeUtc, OutputDirectory, Manifest, TamperedCanonical);
+    FString TamperedDigest;
+    FAtlasTransportServer::ComputeJournalAttestationDigest(Nonce, TamperedCanonical, TamperedDigest);
+    TestFalse(TEXT("changed attempt_ordinal changes the digest"), HexDigest == TamperedDigest);
+
+    // Wrong nonce must fail.
+    FString WrongNonceDigest;
+    FAtlasTransportServer::ComputeJournalAttestationDigest(TEXT("wrong-nonce"), CanonicalBytes, WrongNonceDigest);
+    TestFalse(TEXT("wrong nonce produces a different digest"), HexDigest == WrongNonceDigest);
+
+    return !HasAnyErrors();
+}
+

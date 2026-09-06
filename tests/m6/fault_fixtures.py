@@ -194,6 +194,7 @@ def build_finished_candidate(
         "output_directory": record.output_directory,
         "phase": phase,
         "phase_sequence": phase_sequence,
+        "attempt_ordinal": record.attempt_ordinal,
         "editor_session_id": record.origin_editor_session_id or "session-m6-editor",
         "process_id": record.origin_process_id or 4242,
         "process_creation_time_utc": record.origin_process_creation_time or "2026-09-06T00:00:00Z",
@@ -207,6 +208,8 @@ def build_finished_candidate(
         "state_source": "witness_journal",
     }
     if hmac_digest is None and record.attempt_nonce is not None:
+        from planning.unreal_journal_attestation import compute_journal_attestation_digest
+
         canonical_payload = {
             "schema_version": 1,
             "atlas_job_id": record.atlas_job_id,
@@ -219,7 +222,7 @@ def build_finished_candidate(
             "output_directory": record.output_directory,
             "output_manifest": candidate["output_manifest"],
         }
-        candidate["entry_digest"] = compute_journal_hmac(record.attempt_nonce, canonical_payload)
+        candidate["entry_digest"] = compute_journal_attestation_digest(record.attempt_nonce, canonical_payload)
     elif hmac_digest is not None:
         candidate["entry_digest"] = hmac_digest
     if override:

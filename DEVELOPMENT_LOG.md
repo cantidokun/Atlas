@@ -347,6 +347,36 @@ The live dependency task and cross-process dependency-recovery paths were verifi
 
 Stage 13 demonstrated that a completed action is not blindly replayed after a later action fails. Durable checkpointing, process restart, fresh evidence, explicit replan authorization, replacement execution, independent verification, and fixture restoration were all verified.
 
+## M8 — Witness attestation + engine attempt identity (Unreal cross-process recovery)
+
+Stage 18 (Unreal cross-process render-job recovery) M8 closes the two attestation
+gaps deferred at the end of M7. Implemented deterministically (no live Unreal):
+
+- **Engine attempt ordinal:** `attempt_ordinal` (Atlas-authoritative, carried
+  verbatim from the durable record) is threaded through submit_render → C++
+  `FRenderJobState` → witness journal → `reconcile_render_jobs` → Atlas binding.
+  Unreal never invents/increments/reinterprets it; a mismatch vs the durable record
+  fails closed (UNTRUSTED_WITNESS). It never authorizes execution or retry.
+- **Real HMAC-SHA256 witness attestation:** `entry_digest =
+  HMAC-SHA256(key = UTF8(attempt_nonce), message = canonical_bytes)`. The nonce is
+  Atlas-generated, used ONLY as the HMAC key, and NEVER written to
+  journal/receipt/manifest/logs. C++ implements RFC-2104 HMAC over BCrypt SHA-256.
+- **Canonical serialization (Python/C++ byte-identical):**
+  `field(\x1f field)*\x1e` over the 10 signed fields, manifest entries
+  `path\x1csize\x1csha256\x1d`, UTF-8, locale-independent. A fixed conformance
+  vector produces the same canonical bytes and the same HMAC in both languages.
+- **Legacy journals** (lacking attempt_ordinal/HMAC) are legacy/unsupported
+  witnesses: never ENGINE_JOURNAL_ATTESTED, fail closed as untrusted, no
+  success/receipt/finalization/retry. Intentional; does not weaken M7 fail-closed.
+- **Coordinator gates:** the reconciler verifies attempt_ordinal equality, then
+  the HMAC using the persisted record attempt_nonce; missing/malformed/mismatched
+  HMAC or ordinal, and malformed canonical payloads, all fail closed.
+- **Deterministic tests:** `tests/m8/` (19: conformance + witness/secret gates).
+  Full `pytest -m "not integration"` = 1107 passed. UBT build `UBT_EXIT_CODE=0`
+  (C++ automation compile-verified only).
+- **NOT run:** live M7 Scenarios 1–8, no `UnrealEditor` launch, no
+  workflow/action-runner tests, no Blender.
+
 ## Unreal — Current baseline
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.

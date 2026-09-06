@@ -281,6 +281,11 @@ class UnrealRenderSubmissionService:
                 "sequence_asset_path": sequence_asset_path.strip(),
                 "output_directory": output_directory,
                 "config_digest": config_digest,
+                # M8: Atlas-authoritative attempt identity. attempt_ordinal is the
+                # durable-record ordinal carried verbatim (Unreal must never invent
+                # or reinterpret it); attempt_nonce is the HMAC key used only for
+                # journal attestation. Neither ever authorizes execution.
+                "attempt_ordinal": record.attempt_ordinal,
                 "attempt_nonce": record.attempt_nonce or "",
             }
             submit_op = UnrealOperation(
