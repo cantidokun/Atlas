@@ -527,6 +527,36 @@ Live status: A PASS, B PASS, C PASS, D-transmit PASS, D v2 REMEDIATED (another
 FRESH live S1 rerun required after merge). No live scenario run during remediation;
 S2-S8 NOT executed. All 23-frame renders + journals + HMAC + forensics preserved.
 
+## M10 remediation — Defect D v3 (MRQ output-frame range — exclusive upper)
+
+s1_final3 live run proved A/B/C + D-transmit + D-v2 (transient sequence range [1,25)
+registered) but STILL 23 files. Investigation of the actual UE 5.6 source
+(UMoviePipelinePrimaryConfig::GetEffectivePlaybackRange, MoviePipelineTiming.cpp)
+found the authoritative lever: MRQ enumerates OUTPUT frames from the OUTPUT
+SETTING's custom range converted to ticks, returning [CustomStart, CustomEnd) with
+an EXCLUSIVE upper; the output loop stops before producing at CurrentTickInRoot >=
+EndTick. So MRQ produces exactly CustomEndFrame - CustomStartFrame files.
+
+- D-v1 set CustomEndFrame=end (24) -> 24-1 = 23 (off-by-one).
+- D-v2 set the SEQUENCE playback range (a transient duplicate), which
+  GetEffectivePlaybackRange IGNORES when bUseCustomPlaybackRange is set -> no effect.
+- D-v3: set CustomEndFrame = end + 1 (exclusive upper) -> end-start+1 frames
+  (1..24 -> 24).
+
+Isolation: the modified output setting is on TransientConfig (a DuplicateObject of
+the shared config); the shared/source sequence asset is NEVER mutated; per-job.
+
+Verifier remains strict: frame_count = end-start+1; 23 frames still fails;
+expected_output_spec unchanged.
+
+Regression: tests/m10 Defect D3 (9) + updated D2 (8) prove the half-open arithmetic,
+the exclusive-upper fix, 24 passes / 23 fails, and no verifier relaxation. Full
+`pytest -m "not integration"` = 1189 passed. UBT_EXIT_CODE=0 (C++ changed).
+
+Live status: A PASS, B PASS, C PASS, D-transmit PASS, D-v2 active-but-insufficient,
+D-v3 REMEDIATED (another FRESH live S1 rerun required after merge). No live scenario
+run during remediation; S2-S8 NOT executed. All forensics preserved.
+
 ## Unreal — Current baseline
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.
