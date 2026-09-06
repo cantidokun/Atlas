@@ -6,6 +6,8 @@ from pathlib import Path
 from planning.unreal_evidence_contract import (
     UnrealEvidence,
     UnrealEvidenceVerificationError,
+    VALID_EVIDENCE_SOURCE_CLASSES,
+    validate_raw_render_observation,
     verify_png_completeness,
     verify_render_job_evidence,
 )
@@ -88,15 +90,18 @@ def _valid_observed_state(output_file: Path) -> dict:
 
 
 def test_successful_render_job_verification(tmp_path: Path):
-    output_file = tmp_path / "AtlasRender_0001.png"
-    output_file.write_bytes(b"\x89PNG\r\n\x1a\nfake-image-data")
+    rec = _sample_job_record(tmp_path)
+    output_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(output_file)
 
-    state = _valid_observed_state(output_file)
+    state = _valid_record_observed_state(rec, output_file, bytes_data)
     evidence = verify_render_job_evidence(
         operation_name="inspect_render_job",
         entity_ids=("FIELD_SURFACE",),
         observed_state=state,
-        source="real-unreal-5.6-live-boundary",
+        source="ENGINE_LIVE",
+        job_record=rec,
+        evidence_source_class="ENGINE_LIVE",
     )
 
     assert isinstance(evidence, UnrealEvidence)
@@ -107,9 +112,16 @@ def test_successful_render_job_verification(tmp_path: Path):
     assert evidence.observed_state["output_files"] == (str(output_file),)
 
     # Confirm that UnrealRenderReceipt.issue() accepts this verified evidence
-    receipt = UnrealRenderReceipt.issue(evidence)
-    assert receipt.job_id == "job-stage17-001"
-    assert receipt.sequence_asset_path == "/Game/AtlasTest/AtlasSequencerFixtureSequence"
+    receipt = UnrealRenderReceipt.issue(
+        evidence,
+        atlas_job_id=rec.atlas_job_id,
+        attempt_ordinal=rec.attempt_ordinal,
+        authorization_id=rec.authorization_id,
+        canonical_digital_twin_id=rec.canonical_digital_twin_id,
+        config_digest=rec.config_digest,
+        output_directory=rec.output_directory,
+    )
+    assert receipt.matches(evidence)
     assert receipt.evidence_digest
 
 
@@ -121,7 +133,7 @@ def test_unfinished_job_rejection(tmp_path: Path):
     state = _valid_observed_state(output_file)
     state["status"] = "rendering"
     with pytest.raises(ValueError, match="status must be 'completed' or 'finished'"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -132,7 +144,7 @@ def test_unfinished_job_rejection(tmp_path: Path):
     state2 = _valid_observed_state(output_file)
     state2["finished"] = False
     with pytest.raises(ValueError, match="finished flag must be True"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state2,
@@ -148,7 +160,7 @@ def test_failed_job_rejection(tmp_path: Path):
     state = _valid_observed_state(output_file)
     state["success"] = False
     with pytest.raises(ValueError, match="success flag must be True"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -159,7 +171,7 @@ def test_failed_job_rejection(tmp_path: Path):
     state2 = _valid_observed_state(output_file)
     state2["failed"] = True
     with pytest.raises(ValueError, match="failed flag must be False"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state2,
@@ -172,7 +184,7 @@ def test_missing_output_file_rejection(tmp_path: Path):
     state = _valid_observed_state(non_existent)
 
     with pytest.raises(FileNotFoundError, match="does not exist on disk"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -191,7 +203,7 @@ def test_empty_output_files_sequence_rejection():
         "output_files": [],
     }
     with pytest.raises(ValueError, match="output_files must not be empty"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -205,7 +217,7 @@ def test_zero_byte_output_file_rejection(tmp_path: Path):
 
     state = _valid_observed_state(empty_file)
     with pytest.raises(ValueError, match="zero or negative size"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -219,7 +231,7 @@ def test_wrong_operation_rejection(tmp_path: Path):
     state = _valid_observed_state(output_file)
 
     with pytest.raises(ValueError, match="operation_name == 'inspect_render_job'"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="submit_render",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -233,7 +245,7 @@ def test_wrong_entity_ids_rejection(tmp_path: Path):
     state = _valid_observed_state(output_file)
 
     with pytest.raises(ValueError, match="entity_ids cannot be empty"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=(),
             observed_state=state,
@@ -241,7 +253,7 @@ def test_wrong_entity_ids_rejection(tmp_path: Path):
         )
 
     with pytest.raises(ValueError, match="entity_id must be a non-empty canonical string"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("",),
             observed_state=state,
@@ -256,7 +268,7 @@ def test_malformed_job_identity_rejection(tmp_path: Path):
     state = _valid_observed_state(output_file)
     state["job_id"] = "   "
     with pytest.raises(ValueError, match="job_id must be a non-empty canonical string"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -266,7 +278,7 @@ def test_malformed_job_identity_rejection(tmp_path: Path):
     state2 = _valid_observed_state(output_file)
     state2["sequence_asset_path"] = ""
     with pytest.raises(ValueError, match="sequence_asset_path must be a non-empty canonical string"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state2,
@@ -280,7 +292,7 @@ def test_callers_cannot_obtain_verified_evidence_on_any_failure(tmp_path: Path):
     state = _valid_observed_state(missing_file)
 
     with pytest.raises(Exception):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
@@ -326,15 +338,16 @@ def test_m5_source_class_allowlist_acceptance(tmp_path: Path):
 def test_m5_unknown_source_class_rejected(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
-    _create_test_png(out_file)
+    bytes_data = _create_test_png(out_file)
 
-    state = _valid_observed_state(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
     with pytest.raises(UnrealEvidenceVerificationError, match="unsupported evidence_source_class"):
         verify_render_job_evidence(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
             source="test",
+            job_record=rec,
             evidence_source_class="UNTRUSTED_ARBITRARY_SOURCE",
         )
 
@@ -799,7 +812,7 @@ def test_m5_source_class_missing_or_arbitrary_fails_closed(tmp_path: Path):
     state = _valid_record_observed_state(rec, out_file, bytes_data)
 
     # Arbitrary source string when evidence_source_class is None
-    with pytest.raises(UnrealEvidenceVerificationError, match="missing or invalid evidence_source_class"):
+    with pytest.raises(UnrealEvidenceVerificationError, match="(missing or invalid evidence_source_class|unsupported evidence_source_class)"):
         verify_render_job_evidence(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
@@ -903,6 +916,35 @@ def test_m5_duplicate_output_files_rejected(tmp_path: Path):
             source="ENGINE_LIVE",
             job_record=rec,
         )
+
+
+def test_m5_mandatory_job_record_boundary_enforced(tmp_path: Path):
+    """Test that calling verify_render_job_evidence without a job_record fails immediately."""
+    rec = _sample_job_record(tmp_path)
+    output_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(output_file)
+    state = _valid_record_observed_state(rec, output_file, bytes_data)
+
+    # Calling with job_record=None
+    with pytest.raises(UnrealEvidenceVerificationError, match="job_record is strictly mandatory"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=state,
+            source="ENGINE_LIVE",
+            job_record=None,
+        )
+
+    # Validate that raw observation helper succeeds on basic validation but DOES NOT return UnrealEvidence or verified=True
+    raw_res = validate_raw_render_observation(
+        operation_name="inspect_render_job",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state=state,
+        source="ENGINE_LIVE",
+    )
+    assert isinstance(raw_res, dict)
+    assert not isinstance(raw_res, UnrealEvidence)
+    assert "verified" not in raw_res
 
 
 def test_m5_windows_83_short_names_and_device_namespaces_rejected(tmp_path: Path):

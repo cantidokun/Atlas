@@ -136,6 +136,8 @@ def main() -> None:
         entity_ids=(entity_id,),
         observed_state=raw_job_state,
         source=inspect_source,
+        job_record=record,
+        evidence_source_class="ENGINE_LIVE",
     )
 
     # Issue receipt strictly from verified evidence

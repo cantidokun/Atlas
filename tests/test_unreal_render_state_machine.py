@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Any, Mapping
 import pytest
 
-from planning.unreal_evidence_contract import verify_render_job_evidence
+from planning.unreal_evidence_contract import (
+    validate_raw_render_observation,
+    verify_render_job_evidence,
+)
 
 
 @dataclass
@@ -316,8 +319,8 @@ def test_inspection_snapshot_invariants_never_exposes_incoherent_state():
     assert inspected2["success"] is False
 
 
-def test_verifier_rejects_inconsistent_raw_state(tmp_path: Path):
-    """Verify that verify_render_job_evidence continues strictly rejecting inconsistent states."""
+def test_verify_render_job_evidence_rejects_inconsistent_state(tmp_path: Path):
+    """Verify that validate_raw_render_observation continues strictly rejecting inconsistent states."""
     test_file = tmp_path / "frame.png"
     test_file.write_bytes(b"data")
 
@@ -332,7 +335,7 @@ def test_verifier_rejects_inconsistent_raw_state(tmp_path: Path):
         "output_files": [str(test_file)],
     }
     with pytest.raises(ValueError, match="status must be 'completed' or 'finished'"):
-        verify_render_job_evidence(
+        validate_raw_render_observation(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=inconsistent_state,
