@@ -377,11 +377,47 @@ gaps deferred at the end of M7. Implemented deterministically (no live Unreal):
 - **NOT run:** live M7 Scenarios 1–8, no `UnrealEditor` launch, no
   workflow/action-runner tests, no Blender.
 
+## M9 — Live recovery readiness & scenario harness (pre-flight)
+
+Stage 18 (Unreal cross-process render-job recovery) M9 is a PRE-FLIGHT milestone
+that prepares for the first authorized live execution of Contract V1 §33 Scenarios
+1–8 WITHOUT running any live scenario.
+
+- **Deterministic scenario harness** (`planning/unreal_live_scenario_harness.py`):
+  Scenarios 1–8 modeled as declarative specs (initial state, process/session
+  condition, journal condition, artifact condition, quiescence, expected case /
+  lifecycle / recovery_status / receipt / finalization / retry). Each is driven
+  through the REAL `UnrealRenderRecoveryCoordinator` and the declared outcome is
+  asserted to equal the coordinator's actual decision (no invented semantics).
+- **Pre-flight checks** (`planning/unreal_live_preflight.py`, `LivePreflight`):
+  P1–P14 gates (UE 5.6 project, capability schema, journal location, output
+  isolation, receipt store, session identity, contained Job Object, supervisor/
+  quiescence, authorization continuity, attempt_nonce, attempt_ordinal, HMAC,
+  artifact hashing/PNG, clean store). Non-mutating, `all_pass()`/`blockers()`.
+- **Checklist** (`docs/LIVE_EXECUTION_CHECKLIST.md`): setup, order of operations,
+  evidence per gate, PASS/FAIL/STOP, cleanup, no-accidental-retry rules.
+- **Safety-proof tests** (tests/m9, 34): prove the harness cannot authorize a
+  render, resubmit an uncertain job, synthesize success, mint a receipt without
+  verified evidence, bypass quiescence, or bypass HMAC/attempt_ordinal
+  verification.
+- **Readiness matrix**: S1/S5/S6/S7 READY_FOR_LIVE (only real UE runtime
+  unproven); S2/S4/S8 BLOCKED (live outcome depends on real torn/duplicated
+  journal states); S3 NOT_PROVEN (needs a real in-flight+restart state).
+- **Live-transition boundary audit** (docs/UNREAL_M9_READINESS.md): real named
+  pipe, real Job Object quiescence, real GetProcessTimes identity, real durable
+  journal under kill, C++ automation (compile-verified only), real render output,
+  real wall-clock deadline — all safe deterministic but unproven live.
+- **Deterministic validation**: tests/m9 34, tests/m6 79, tests/m7 59, tests/m8 19,
+  full `pytest -m "not integration"`. No C++ changes in M9 → no UBT rebuild.
+- **NOT run**: any live scenario, UnrealEditor launch, workflow/action-runner test,
+  Blender, or kill/restart. Cross-process recovery remains not-production-capable
+  until the human-authorized live §33 execution passes.
+
 ## Unreal — Current baseline
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.
 
-Cross-process Unreal render-job recovery is implemented and merged via Milestone 4 (PR #67), and the authoritative independent evidence-verification boundary is merged via Milestone 5 (PR #68). Both are regression-verified. They are not yet declared production-capable; M6 deterministic fault-injection testing and M7 live UE 5.6 restart/recovery Scenarios 1–8 remain pending per Contract V1 §33–§34, and must not be run as workflow/action-runner tests.
+Cross-process Unreal render-job recovery is implemented and merged via Milestone 4 (PR #67); the authoritative independent evidence-verification boundary via M5 (PR #68); deterministic fault-injection via M6 (PR #70); deterministic hardening via M7 (PR #71); witness attestation + engine attempt identity via M8 (PR #72). M9 adds pre-flight scenario/readiness tooling. All are regression-verified but NOT yet declared production-capable: live UE 5.6 restart/recovery Scenarios 1–8 (Contract V1 §33) require explicit human authorization and must not be run as workflow/action-runner tests.
 
 ## Development rules
 

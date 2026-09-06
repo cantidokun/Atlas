@@ -202,6 +202,7 @@ No model substitution changes the Atlas authority chain, evidence rules, recover
 - Never treat Unreal journal/witness state as sufficient authoritative proof.
 - Preserve contained/uncontained recovery distinctions and fail closed when quiescence is not proven.
 - Do not run workflow/action-runner tests unless explicitly authorized.
+- M9 (pre-flight): deterministic Scenario 1-8 harness + live pre-flight checks + LIVE_EXECUTION_CHECKLIST added; NO live scenario executed. S1/S5/S6/S7 READY_FOR_LIVE, S2/S4/S8 BLOCKED, S3 NOT_PROVEN until a real UE restart is run. Remaining live dependencies: real UE 5.6 process + MRQ render, real durable journal, real GetProcessTimes identity, real contained Job Object quiescence.
 - M8: engine `attempt_ordinal` + real HMAC-SHA256 witness attestation implemented; journals without attempt_ordinal/HMAC are legacy/unsupported witnesses that fail closed (never treated as ENGINE_JOURNAL_ATTESTED; no success/receipt/finalization/retry). Python/C++ canonicalization conformance verified. Live M7 Scenarios 1–8 NOT run.
 
 ## Historical documentation
