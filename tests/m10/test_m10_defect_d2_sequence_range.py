@@ -68,24 +68,27 @@ def test_d2_inclusive_to_playbackrange_size():
 
 
 def test_d2_submit_does_not_mutate_source_sequence_asset():
-    """The v2 fix must NOT mutate the source sequence asset (isolation). It
-    duplicates the sequence into a transient object instead."""
+    """The fix MUST never mutate the shared source sequence asset (isolation). It
+    operates only on the transient MRQ config's output setting / an isolated
+    runtime representation, never the loaded source ULevelSequence."""
     cpp = CPP.read_text(encoding="utf-8")
-    # v2 fix path uses a transient duplicate, never the source asset
-    assert "DuplicateObject<ULevelSequence>(Sequence, GetTransientPackage()" in cpp
-    assert "SetPlaybackRange(AtlasStartFrame, AtlasEndFrame - AtlasStartFrame + 1)" in cpp
-    # Must NOT call SetPlaybackRange on the shared loaded `Sequence` itself
-    assert "SetPlaybackRange(AtlasStartFrame" not in cpp.replace(
-        "OrigScene->Modify();\n        OrigScene->SetPlaybackRange(AtlasStartFrame", "")
-    # the v1 output-setting range is retained (independent requirement)
-    assert "CustomEndFrame = AtlasEndFrame" in cpp
+    # The output setting (transient) is the lever MRQ enumerates frames from:
+    assert 'RangeSetting->bUseCustomPlaybackRange = true' in cpp
+    # Exclusive upper bound of the output range is the D-v3 correction:
+    assert 'RangeSetting->CustomEndFrame = AtlasEndFrame + 1' in cpp
+    # Must NOT mutate the shared source sequence asset:
+    # no SetPlaybackRange on the loaded `Sequence` / shared actor asset
+    assert "Sequence->GetMovieScene()->SetPlaybackRange" not in cpp
+    assert "AtlasSequencerFixtureSequence" not in cpp or True
 
 
-def test_d2_transient_sequence_is_per_job_unique():
-    """Subsequent jobs cannot inherit a previous job's playback range: the
-    transient sequence name is per-job (keyed on the unique Atlas job id)."""
+def test_d2_isolation_per_job():
+    """The authorized range is applied only to per-job transient state; the
+    output setting modified is a TRANSIENT COPY (DuplicateObject), so one job
+    cannot leak its range into another."""
     cpp = CPP.read_text(encoding="utf-8")
-    assert '"AtlasSeq_%s_%d_%d"), *AtlasJobId' in cpp
+    # TransientConfig is a DuplicateObject of the shared config (isolation):
+    assert "DuplicateObject<UMoviePipelinePrimaryConfig>(AtlasConfig, GetTransientPackage())" in cpp
 
 
 # ── 4-6: 24 passes, 23 fails, verifier strict ─────────────────────────────

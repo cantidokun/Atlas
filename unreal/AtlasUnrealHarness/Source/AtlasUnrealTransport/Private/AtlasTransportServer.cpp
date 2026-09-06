@@ -1514,9 +1514,20 @@ bool FAtlasTransportServer::SubmitRender(
         return false;
     }
 
-    // Defect D v1 fix (retained): also record the authorized inclusive range on
-    // the transient MRQ output setting. This is independently reported and useful,
-    // but it is NOT the setting MRQ enumerates shots from.
+    // Defect D v3 fix (authoritative, UE source-verified):
+    // UMoviePipelinePrimaryConfig::GetEffectivePlaybackRange() is what MRQ actually
+    // enumerates OUTPUT frames from. It reads the OUTPUT SETTING's custom range
+    // (bUseCustomPlaybackRange) and converts [CustomStartFrame, CustomEndFrame)
+    // from DISPLAY frames into ticks; the output loop stops BEFORE producing when
+    // CurrentTickInRoot >= EndTick. Therefore the number of frames MRQ produces is
+    // exactly CustomEndFrame - CustomStartFrame (half-open [start, end)).
+    // For an Atlas-authorized INCLUSIVE [start_frame, end_frame] (verifier count =
+    // end_frame - start_frame + 1), CustomEndFrame must be the EXCLUSIVE upper
+    // bound, i.e. end_frame + 1, so produced = (end_frame+1) - start_frame =
+    // end_frame - start_frame + 1. (v1 used CustomEndFrame=end_frame, which yields
+    // end_frame - start_frame = one-fewer; v2 tried the wrong lever, the sequence
+    // playback range, which GetEffectivePlaybackRange ignores for shot enumeration.
+    // Neither mutated the shared source asset.)
     if (AtlasStartFrame >= 0 && AtlasEndFrame >= 0)
     {
         UMoviePipelineOutputSetting* RangeSetting = GetAtlasRenderOutputSetting(TransientConfig, E);
@@ -1528,42 +1539,8 @@ bool FAtlasTransportServer::SubmitRender(
         RangeSetting->Modify();
         RangeSetting->bUseCustomPlaybackRange = true;
         RangeSetting->CustomStartFrame = AtlasStartFrame;
-        RangeSetting->CustomEndFrame = AtlasEndFrame;
-    }
-
-    // Defect D v2 fix: MRQ enumerates shot frames from the SEQUENCE playback
-    // range (e.g. log "Registering range: [800,19200)"), not from the output
-    // setting above. When Atlas supplies an authoritative inclusive [start, end],
-    // apply it to an ISOLATED TRANSIENT COPY of the source sequence so MRQ
-    // enumerates exactly end-start+1 frames WITHOUT mutating the shared source
-    // sequence asset (which must never be altered to make S1 pass).
-    if (AtlasStartFrame >= 0 && AtlasEndFrame >= 0)
-    {
-        // Duplicate the source sequence into the transient package (isolated,
-        // never persisted, never the shared asset).
-        const FString DupName = FString::Printf(TEXT("AtlasSeq_%s_%d_%d"), *AtlasJobId, AtlasStartFrame, AtlasEndFrame);
-        ULevelSequence* TransientSequence =
-            DuplicateObject<ULevelSequence>(Sequence, GetTransientPackage(), FName(*DupName));
-        if (!TransientSequence || !IsValid(TransientSequence))
-        {
-            Queue->DeleteJob(Job);
-            E = TEXT("Failed to duplicate sequence for transient playback-range isolation");
-            return false;
-        }
-        UMovieScene* OrigScene = TransientSequence->GetMovieScene();
-        if (!OrigScene || !IsValid(OrigScene))
-        {
-            Queue->DeleteJob(Job);
-            E = TEXT("Transient sequence has no MovieScene");
-            return false;
-        }
-        // Sequence playback ranges are [lower, upper) with an EXCLUSIVE upper
-        // bound; to render INCLUSIVE frames [start, end] the upper bound must be
-        // end+1 (SetPlaybackRange takes lower + size). This is the exact off-by-one
-        // correction missing in the v1 fix.
-        OrigScene->Modify();
-        OrigScene->SetPlaybackRange(AtlasStartFrame, AtlasEndFrame - AtlasStartFrame + 1);
-        Job->SetSequence(FSoftObjectPath(TransientSequence));
+        // Exclusive upper bound: produces end_frame-start_frame+1 output frames.
+        RangeSetting->CustomEndFrame = AtlasEndFrame + 1;
     }
 
     Job->SetConfiguration(TransientConfig);
