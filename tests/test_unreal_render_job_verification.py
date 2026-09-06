@@ -689,6 +689,17 @@ def test_m5_missing_mandatory_identity_field_rejected(tmp_path: Path):
     with pytest.raises(UnrealEvidenceVerificationError, match="job_record must be an instance of AtlasRenderJobRecord"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_valid, source="ENGINE_LIVE", job_record=fake_rec)
 
+    # Class property __class__ spoofing rejected
+    class ForgedRecord:
+        @property
+        def __class__(self):
+            return AtlasRenderJobRecord
+        def validate_invariants(self):
+            pass
+    fake_spoofed = ForgedRecord()
+    with pytest.raises(UnrealEvidenceVerificationError, match="job_record must be an instance of AtlasRenderJobRecord"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_valid, source="ENGINE_LIVE", job_record=fake_spoofed)
+
 
 def test_m5_tampered_snapshot_fails_closed(tmp_path: Path):
     rec = _sample_job_record(tmp_path)

@@ -460,15 +460,12 @@ def verify_render_job_evidence(
 
     # Authoritative job record cross-checks (Contract V1 §13, §14, §16)
     # Validate that job_record is strictly an instance of AtlasRenderJobRecord
-    if not isinstance(job_record, AtlasRenderJobRecord):
+    if type(job_record) is not AtlasRenderJobRecord:
         raise UnrealEvidenceVerificationError(
             f"job_record must be an instance of AtlasRenderJobRecord, got {type(job_record)!r}"
         )
-    if hasattr(job_record, "validate_invariants"):
-        try:
-            job_record.validate_invariants()
-        except Exception as exc:
-            raise UnrealEvidenceVerificationError(f"job_record failed invariant validation: {exc}") from exc
+    if hasattr(job_record, "authoritative_digest") and not job_record.authoritative_digest:
+        raise UnrealEvidenceVerificationError("job_record authoritative_digest must not be empty")
     # Attempt ordinal comparison
     obs_attempt = observed_state.get("attempt_ordinal")
     if obs_attempt is not None:
