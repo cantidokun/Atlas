@@ -53,7 +53,26 @@ class UnrealAdapterProduction:
         return UnrealEvidence(operation_name=operation_name or response.operation_name, entity_ids=response.entity_ids, observed_state=response.observed_state, source=response.source, verified=False)
     def _build_request(self, operation, authorization_id):
         if not isinstance(authorization_id,str) or not authorization_id.strip(): raise UnrealAdapterError("authorization_id is required for every transport request")
-        return UnrealTransportRequest(request_id=self._new_request_id(),operation_name=operation.name,capability=operation.capability.value,kind=operation.kind.value,arguments=dict(operation.arguments),entity_ids=tuple(operation.entity_ids),authorization_id=authorization_id.strip())
+        # Defect C fix: the C++ ValidateRequest contract requires the nested
+        # `arguments.entity_ids` array to match the top-level `entity_ids` for EVERY
+        # operation. The engine rejects requests built from operation.args that carry
+        # entity_ids only at the operation level ("arguments.entity_ids must be an
+        # array of strings", ERR_MISSING_ARGUMENT). The adapter is the transport
+        # boundary, so it relays the operation's entity_ids into the nested arguments
+        # (no synthesis: these come verbatim from the operation). Auth/correlation/
+        # schema checks are unchanged.
+        arguments = dict(operation.arguments)
+        entity_tuple = tuple(operation.entity_ids)
+        existing_eids = arguments.get("entity_ids")
+        if existing_eids is not None:
+            # If the caller already provided entity_ids in arguments, require they
+            # match the operation-level ids (fail closed on inconsistency) rather
+            # than silently overriding.
+            if list(existing_eids) != list(entity_tuple):
+                raise UnrealAdapterError("operation arguments.entity_ids conflicts with operation.entity_ids")
+        else:
+            arguments["entity_ids"] = list(entity_tuple)
+        return UnrealTransportRequest(request_id=self._new_request_id(),operation_name=operation.name,capability=operation.capability.value,kind=operation.kind.value,arguments=arguments,entity_ids=entity_tuple,authorization_id=authorization_id.strip())
     def _execute(self, operation, authorization_id, *, evidence_operation_name=None):
         request=self._build_request(operation,authorization_id)
         try: response=self._transport.send(request)

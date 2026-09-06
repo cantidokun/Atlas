@@ -271,7 +271,13 @@ class TestEvidenceInvariants:
         assert evidence.source == "ue-5.6.1-editor"
 
     def test_evidence_entity_ids_match_operation(self):
-        op = _read_operation(entity_ids=("A", "B"))
+        # Keep the operation self-consistent: arguments.entity_ids must match the
+        # operation-level entity_ids (the C++ engine enforces this contract; the
+        # adapter also fails closed on a conflict now).
+        op = _read_operation(
+            entity_ids=("A", "B"),
+            arguments={"entity_ids": ("A", "B")},
+        )
         transport = InMemoryTransport()
         # Override transport to echo back the entity_ids
         original_send = transport.send
