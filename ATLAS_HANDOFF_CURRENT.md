@@ -227,6 +227,8 @@ Do not run workflow/action-runner tests unless explicitly authorized.
 - PR #70 — M6 deterministic fault-injection / concurrency suite.
 - PR #71 — M7 deterministic hardening of the three M6-discovered production gaps (framed-catalog integrity, append-only C++ witness journal, deadline enforcement) + journal-history structural fail-closed corrections.
 - M8 — witness attestation (real HMAC-SHA256 keyed by Atlas attempt_nonce) + engine attempt_ordinal threading; canonical Python/C++ conformance verified.
+- PR #72 — M8 witness attestation (real HMAC-SHA256 keyed by Atlas attempt_nonce) + engine attempt_ordinal threading; canonical Python/C++ conformance verified.
+- M9 (pre-flight) — deterministic Scenario 1-8 harness + live-execution pre-flight checks + LIVE_EXECUTION_CHECKLIST. NO live scenario executed; S1/S5/S6/S7 READY_FOR_LIVE, S2/S4/S8 BLOCKED, S3 NOT_PROVEN until live UE restart.
 
 ## Historical documentation
 
