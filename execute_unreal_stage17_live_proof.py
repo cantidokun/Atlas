@@ -6,8 +6,9 @@ UnrealRenderReceipt, writes verified evidence and receipt snapshots, and invokes
 the Stage 17 provenance harness (live_unreal_production_artifact_proof.py).
 
 Guarantees:
-- Reuses persisted_job_id.txt if present to avoid duplicate renders
-- Immediately extracts and persists job_id before any diagnostic printing
+- Uses UnrealRenderSubmissionService and AtlasRenderJobStore for durable intent persistence
+- Reuses existing durable Atlas render job record if present to avoid duplicate renders
+- Immediately persists durable intent before named-pipe transport transmission
 - Never calls json.dumps() directly on mappingproxy objects
 - Never manually sets verified=True
 - Only issues receipt and writes snapshots upon authoritative verification pass

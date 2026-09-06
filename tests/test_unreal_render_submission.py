@@ -635,6 +635,86 @@ def test_receipt_first_skips_submission_and_repairs(tmp_path):
     assert len(submit_calls) == 0
 
 
+def test_receipt_first_rejects_unrelated_sequence_receipt(tmp_path):
+    receipt_file = tmp_path / "render-receipt.json"
+    receipt_store = UnrealRenderReceiptStore(receipt_file)
+
+    evidence = UnrealEvidence(
+        operation_name="inspect_render_job",
+        entity_ids=("FIELD_SURFACE",),
+        observed_state={
+            "job_id": "job-other-seq-999",
+            "status": "finished",
+            "finished": True,
+            "success": True,
+            "failed": False,
+            "sequence_asset_path": "/Game/OtherSequence.OtherSequence",
+            "output_directory": "Saved/AtlasRenderOutput",
+            "output_format": "png",
+            "output_files": ["C:/Renders/frame_001.png"],
+        },
+        verified=True,
+        source="unreal-editor-5.6",
+    )
+    receipt = UnrealRenderReceipt.issue(evidence)
+    receipt_store.save(receipt)
+
+    store = AtlasRenderJobStore(tmp_path / "atlas_store")
+    transport = MockUnrealTransport()
+    adapter = UnrealAdapterProduction(transport)
+    service = UnrealRenderSubmissionService(
+        store=store,
+        adapter=adapter,
+        receipt_store=receipt_store,
+    )
+
+    # Submitting for /Game/Test.Test should NOT adopt the receipt for /Game/OtherSequence
+    result = service.submit_render(
+        authorization_id="auth-diff-seq",
+        canonical_digital_twin_id="twin-test",
+        sequence_asset_path="/Game/Test.Test",
+        output_parent_directory="C:/Renders",
+        render_config=_default_render_config(),
+    )
+
+    assert result.is_repaired_from_receipt is False
+    assert result.record.lifecycle_state == RenderJobLifecycleState.SUBMITTED
+    assert result.record.unreal_job_id == "unreal-guid-12345"
+    submit_calls = [r for r in transport.sent_requests if r.operation_name == "submit_render"]
+    assert len(submit_calls) == 1
+
+
+
+def test_receipt_first_rejects_corrupted_receipt_file(tmp_path):
+    receipt_file = tmp_path / "render-receipt.json"
+    receipt_file.write_text("CORRUPTED_RECEIPT_JSON", encoding="utf-8")
+    receipt_store = UnrealRenderReceiptStore(receipt_file)
+
+    store = AtlasRenderJobStore(tmp_path / "atlas_store")
+    transport = MockUnrealTransport()
+    adapter = UnrealAdapterProduction(transport)
+    service = UnrealRenderSubmissionService(
+        store=store,
+        adapter=adapter,
+        receipt_store=receipt_store,
+    )
+
+    # Corrupt receipt file must NOT create synthetic success or repair
+    result = service.submit_render(
+        authorization_id="auth-corrupt-rcpt",
+        canonical_digital_twin_id="twin-test",
+        sequence_asset_path="/Game/Test.Test",
+        output_parent_directory="C:/Renders",
+        render_config=_default_render_config(),
+    )
+
+    assert result.is_repaired_from_receipt is False
+    assert result.record.lifecycle_state == RenderJobLifecycleState.SUBMITTED
+    assert result.record.unreal_job_id == "unreal-guid-12345"
+    submit_calls = [r for r in transport.sent_requests if r.operation_name == "submit_render"]
+    assert len(submit_calls) == 1
+
+
 def test_stale_writer_rejected_on_submission_update(tmp_path):
     store = AtlasRenderJobStore(tmp_path / "atlas_store")
     transport = MockUnrealTransport()
