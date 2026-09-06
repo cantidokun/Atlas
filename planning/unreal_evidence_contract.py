@@ -94,7 +94,7 @@ def verify_png_completeness(
     return has_ihdr and has_iend
 
 
-def _verify_png_idat_decompression(file_path: Path) -> bool:
+def _verify_png_idat_decompression(file_path: Path, min_decompressed_bytes: Optional[int] = None) -> bool:
     """Verify that IDAT compressed data can be successfully decompressed via zlib without truncation."""
     import struct
     import zlib
@@ -132,6 +132,10 @@ def _verify_png_idat_decompression(file_path: Path) -> bool:
         decompressed = zlib.decompress(combined)
         if len(decompressed) == 0:
             raise UnrealEvidenceVerificationError(f"PNG IDAT decompressed to zero bytes: {file_path}")
+        if min_decompressed_bytes is not None and len(decompressed) < min_decompressed_bytes:
+            raise UnrealEvidenceVerificationError(
+                f"PNG IDAT decompressed bytes {len(decompressed)} less than expected raster minimum {min_decompressed_bytes}: {file_path}"
+            )
         return True
     except zlib.error:
         return False
@@ -351,6 +355,13 @@ def verify_render_job_evidence(
     if resolved_source_class:
         clean_state["evidence_source_class"] = resolved_source_class
 
+    # Duplicate checks on output files
+    if len(normalized_output_files) != len(set(normalized_output_files)):
+        raise UnrealEvidenceVerificationError("duplicate output file path in declared output_files")
+    declared_canon = {Path(fp).resolve() for fp in normalized_output_files}
+    if len(declared_canon) != len(normalized_output_files):
+        raise UnrealEvidenceVerificationError("duplicate canonical path in declared output_files")
+
     # Authoritative job record cross-checks (Contract V1 §13, §14, §16)
     if job_record is not None:
         # Mandatory identity bindings comparison (Block 2: strict presence and exact equality)
@@ -460,6 +471,9 @@ def verify_render_job_evidence(
         clean_state["output_directory"] = str(expected_out_dir)
 
         # Output directory confinement and traversal checks
+        if not expected_out_dir.is_dir():
+            raise UnrealEvidenceVerificationError(f"authorized output_directory is not an existing directory: {str(expected_out_dir)!r}")
+
         for fp in normalized_output_files:
             resolved_fp = Path(fp).resolve()
             try:
@@ -477,8 +491,8 @@ def verify_render_job_evidence(
             if "~" in Path(fp).name:
                 raise UnrealEvidenceVerificationError(f"Windows 8.3 short name path rejected: {fp!r}")
 
-        # Verify no extra files in output_directory that alter expected topology
         if expected_out_dir.is_dir():
+            # Scans for unexpected extra files in output_directory that alter expected topology
             actual_disk_files = {p.resolve() for p in expected_out_dir.iterdir() if p.is_file()}
             declared_files = {Path(fp).resolve() for fp in normalized_output_files}
             unexpected_files = actual_disk_files - declared_files
@@ -487,101 +501,112 @@ def verify_render_job_evidence(
                     f"unexpected extra files present in output directory: {[str(p) for p in sorted(unexpected_files)]}"
                 )
 
-            # 11. expected_output_spec topology validation (mandatory when job_record supplied)
-            expected_spec = getattr(job_record, "expected_output_spec", None) or observed_state.get("expected_output_spec")
-            if not expected_spec or not isinstance(expected_spec, Mapping):
-                raise UnrealEvidenceVerificationError("expected_output_spec cannot be empty")
+        # 11. expected_output_spec topology validation (mandatory when job_record supplied)
+        expected_spec = getattr(job_record, "expected_output_spec", None) or observed_state.get("expected_output_spec")
+        if not expected_spec or not isinstance(expected_spec, Mapping):
+            raise UnrealEvidenceVerificationError("expected_output_spec cannot be empty")
 
-            clean_state["expected_output_spec"] = dict(expected_spec)
-            exp_format = expected_spec.get("format")
-            if not exp_format or not isinstance(exp_format, str):
-                raise UnrealEvidenceVerificationError("expected_output_spec missing valid format")
-            if exp_format.lower() not in ("png",):
+        clean_state["expected_output_spec"] = dict(expected_spec)
+        exp_format = expected_spec.get("format")
+        if not exp_format or not isinstance(exp_format, str):
+            raise UnrealEvidenceVerificationError("expected_output_spec missing valid format")
+        if exp_format.lower() not in ("png",):
+            raise UnrealEvidenceVerificationError(
+                f"unsupported output format in expected_output_spec: {exp_format!r}"
+            )
+
+        exp_width = expected_spec.get("width")
+        exp_height = expected_spec.get("height")
+        exp_start = expected_spec.get("start_frame")
+        exp_end = expected_spec.get("end_frame")
+
+        if exp_start is not None and exp_end is not None and exp_end >= exp_start:
+            expected_count = exp_end - exp_start + 1
+            if len(normalized_output_files) != expected_count:
                 raise UnrealEvidenceVerificationError(
-                    f"unsupported output format in expected_output_spec: {exp_format!r}"
+                    f"output file count mismatch: expected {expected_count} frames, got {len(normalized_output_files)}"
                 )
 
-            exp_width = expected_spec.get("width")
-            exp_height = expected_spec.get("height")
-            exp_start = expected_spec.get("start_frame")
-            exp_end = expected_spec.get("end_frame")
+        # Reconcile disk files against engine manifest
+        # Compute expected byte size from IHDR: height * (1 + width * bpp)
+        expected_raw_min_size = None
+        if exp_width and exp_height:
+            expected_raw_min_size = exp_height * (1 + exp_width * 3)
 
-            if exp_start is not None and exp_end is not None and exp_end >= exp_start:
-                expected_count = exp_end - exp_start + 1
-                if len(normalized_output_files) != expected_count:
-                    raise UnrealEvidenceVerificationError(
-                        f"output file count mismatch: expected {expected_count} frames, got {len(normalized_output_files)}"
-                    )
-
-            # PNG verification and decompression integrity check
-            for fp in normalized_output_files:
-                p = Path(fp)
-                if not verify_png_completeness(p, expected_width=exp_width, expected_height=exp_height):
-                    raise UnrealEvidenceVerificationError(
-                        f"PNG completeness check failed for {fp!r} (format/dimensions/chunks/CRC/IEND)"
-                    )
-                if not _verify_png_idat_decompression(p):
-                    raise UnrealEvidenceVerificationError(
-                        f"PNG IDAT decompression integrity check failed for {fp!r}"
-                    )
-
-            # 12. Engine-attested manifest validation (Block 3 & 4: mandatory when terminal outputs present)
-            manifest = observed_state.get("output_manifest")
-            if manifest is None:
-                raise UnrealEvidenceVerificationError("missing required engine-attested 'output_manifest'")
-            if not isinstance(manifest, (list, tuple)):
-                raise UnrealEvidenceVerificationError("output_manifest must be a sequence")
-            if len(manifest) == 0 and len(normalized_output_files) > 0:
-                raise UnrealEvidenceVerificationError("output_manifest cannot be empty when outputs are required")
-
-            manifest_map = {}
-            for entry in manifest:
-                if not isinstance(entry, Mapping):
-                    raise UnrealEvidenceVerificationError("output_manifest entries must be mappings")
-                m_path = entry.get("path")
-                m_size = entry.get("size")
-                m_sha = entry.get("sha256")
-                if not m_path or not isinstance(m_path, str):
-                    raise UnrealEvidenceVerificationError("manifest entry missing valid path string")
-                if m_size is None or isinstance(m_size, bool) or not isinstance(m_size, int) or m_size <= 0:
-                    raise UnrealEvidenceVerificationError("manifest entry size must be an exact positive integer > 0")
-                if not m_sha or not isinstance(m_sha, str) or len(m_sha) != 64:
-                    raise UnrealEvidenceVerificationError("manifest entry sha256 must be exactly 64 hexadecimal characters")
-                if m_sha.lower() != m_sha:
-                    raise UnrealEvidenceVerificationError("manifest entry sha256 must be lowercase hexadecimal characters")
-                try:
-                    int(m_sha, 16)
-                except ValueError:
-                    raise UnrealEvidenceVerificationError("manifest entry sha256 contains non-hexadecimal characters")
-
-                canonical_m_path = Path(m_path).resolve()
-                if canonical_m_path in manifest_map:
-                    raise UnrealEvidenceVerificationError(f"duplicate manifest path detected: {m_path!r}")
-                manifest_map[canonical_m_path] = (m_size, m_sha)
-
-            # Exact set equality between declared output_files and manifest paths
-            declared_canon = {Path(fp).resolve() for fp in normalized_output_files}
-            manifest_canon = set(manifest_map.keys())
-            if declared_canon != manifest_canon:
+        for fp in normalized_output_files:
+            p = Path(fp)
+            if not verify_png_completeness(p, expected_width=exp_width, expected_height=exp_height):
                 raise UnrealEvidenceVerificationError(
-                    f"manifest paths do not exactly match declared output_files: diff={declared_canon ^ manifest_canon}"
+                    f"PNG completeness check failed for {fp!r} (format/dimensions/chunks/CRC/IEND)"
+                )
+            if not _verify_png_idat_decompression(p, min_decompressed_bytes=expected_raw_min_size):
+                raise UnrealEvidenceVerificationError(
+                    f"PNG IDAT decompression integrity check failed for {fp!r}"
                 )
 
-            # Reconcile disk files against engine manifest
-            for fp in normalized_output_files:
-                p_canon = Path(fp).resolve()
-                attested_size, attested_sha = manifest_map[p_canon]
-                actual_bytes = p_canon.read_bytes()
-                actual_size = len(actual_bytes)
-                actual_sha = hashlib.sha256(actual_bytes).hexdigest()
-                if actual_size != attested_size:
-                    raise UnrealEvidenceVerificationError(
-                        f"manifest size mismatch for {fp!r}: attested={attested_size}, actual={actual_size}"
-                    )
-                if actual_sha != attested_sha:
-                    raise UnrealEvidenceVerificationError(
-                        f"manifest sha256 mismatch for {fp!r}: attested={attested_sha}, actual={actual_sha}"
-                    )
+        # 12. Engine-attested manifest validation (Block 3 & 4: mandatory when terminal outputs present)
+        manifest = observed_state.get("output_manifest")
+        if manifest is None:
+            raise UnrealEvidenceVerificationError("missing required engine-attested 'output_manifest'")
+        if not isinstance(manifest, (list, tuple)):
+            raise UnrealEvidenceVerificationError("output_manifest must be a sequence")
+        if len(manifest) == 0 and len(normalized_output_files) > 0:
+            raise UnrealEvidenceVerificationError("output_manifest cannot be empty when outputs are required")
+
+        manifest_map = {}
+        for entry in manifest:
+            if not isinstance(entry, Mapping):
+                raise UnrealEvidenceVerificationError("output_manifest entries must be mappings")
+            m_path = entry.get("path")
+            m_size = entry.get("size")
+            m_sha = entry.get("sha256")
+            if not m_path or not isinstance(m_path, str):
+                raise UnrealEvidenceVerificationError("manifest entry missing valid path string")
+            if m_size is None or isinstance(m_size, bool) or not isinstance(m_size, int) or m_size <= 0:
+                raise UnrealEvidenceVerificationError("manifest entry size must be an exact positive integer > 0")
+            if not m_sha or not isinstance(m_sha, str) or len(m_sha) != 64:
+                raise UnrealEvidenceVerificationError("manifest entry sha256 must be exactly 64 hexadecimal characters")
+            if m_sha.lower() != m_sha:
+                raise UnrealEvidenceVerificationError("manifest entry sha256 must be lowercase hexadecimal characters")
+            try:
+                int(m_sha, 16)
+            except ValueError:
+                raise UnrealEvidenceVerificationError("manifest entry sha256 contains non-hexadecimal characters")
+
+            canonical_m_path = Path(m_path).resolve()
+            if canonical_m_path in manifest_map:
+                raise UnrealEvidenceVerificationError(f"duplicate manifest path detected: {m_path!r}")
+            manifest_map[canonical_m_path] = (m_size, m_sha)
+
+        # Exact set equality between declared output_files and manifest paths
+        # Also verify no duplicate output_files were provided
+        if len(normalized_output_files) != len(set(normalized_output_files)):
+            raise UnrealEvidenceVerificationError("duplicate output file path in declared output_files")
+
+        declared_canon = {Path(fp).resolve() for fp in normalized_output_files}
+        if len(declared_canon) != len(normalized_output_files):
+            raise UnrealEvidenceVerificationError("duplicate canonical path in declared output_files")
+        manifest_canon = set(manifest_map.keys())
+        if declared_canon != manifest_canon:
+            raise UnrealEvidenceVerificationError(
+                f"manifest paths do not exactly match declared output_files: diff={declared_canon ^ manifest_canon}"
+            )
+
+        # Reconcile disk files against engine manifest
+        for fp in normalized_output_files:
+            p_canon = Path(fp).resolve()
+            attested_size, attested_sha = manifest_map[p_canon]
+            actual_bytes = p_canon.read_bytes()
+            actual_size = len(actual_bytes)
+            actual_sha = hashlib.sha256(actual_bytes).hexdigest()
+            if actual_size != attested_size:
+                raise UnrealEvidenceVerificationError(
+                    f"manifest size mismatch for {fp!r}: attested={attested_size}, actual={actual_size}"
+                )
+            if actual_sha != attested_sha:
+                raise UnrealEvidenceVerificationError(
+                    f"manifest sha256 mismatch for {fp!r}: attested={attested_sha}, actual={actual_sha}"
+                )
         clean_state["output_manifest"] = list(manifest)
 
     return UnrealEvidence(

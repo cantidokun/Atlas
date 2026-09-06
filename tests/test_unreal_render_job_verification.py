@@ -466,6 +466,7 @@ def test_m5_output_manifest_validation(tmp_path: Path):
 
 def test_m5_path_isolation_and_traversal_rejection(tmp_path: Path):
     rec = _sample_job_record(tmp_path)
+    Path(rec.output_directory).mkdir(parents=True, exist_ok=True)
     escaped_file = tmp_path / "escaped.png"
     bytes_data = _create_test_png(escaped_file)
 
@@ -846,6 +847,61 @@ def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
             observed_state=state,
             source="ENGINE_LIVE",
             job_record=rec_no_topo,
+        )
+
+
+def test_m5_missing_output_directory_on_disk_fails_closed(tmp_path: Path):
+    rec = _sample_job_record(tmp_path)
+    out_dir = Path(rec.output_directory)
+    # Remove output directory entirely
+    if out_dir.exists():
+        import shutil
+        shutil.rmtree(out_dir)
+
+    out_file = out_dir / "AtlasRender_0000.png"
+    state = {
+        "job_id": "job-stage17-001",
+        "atlas_job_id": rec.atlas_job_id,
+        "sequence_asset_path": rec.sequence_asset_path,
+        "authorization_id": rec.authorization_id,
+        "canonical_digital_twin_id": rec.canonical_digital_twin_id,
+        "config_digest": rec.config_digest,
+        "output_directory": rec.output_directory,
+        "editor_session_id": "session-uuid-1",
+        "process_id": 12345,
+        "process_creation_time_utc": "2026-09-06T00:00:00Z",
+        "expected_output_spec": dict(rec.expected_output_spec),
+        "status": "finished",
+        "finished": True,
+        "success": True,
+        "failed": False,
+        "output_files": [str(out_file)],
+        "output_manifest": [{"path": str(out_file), "size": 100, "sha256": "0" * 64}],
+    }
+    with pytest.raises(FileNotFoundError):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=state,
+            source="ENGINE_LIVE",
+            job_record=rec,
+        )
+
+
+def test_m5_duplicate_output_files_rejected(tmp_path: Path):
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(out_file)
+    state = _valid_record_observed_state(rec, out_file, bytes_data)
+    state["output_files"] = [str(out_file), str(out_file)]
+
+    with pytest.raises(UnrealEvidenceVerificationError, match="duplicate output file path in declared output_files"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=state,
+            source="ENGINE_LIVE",
+            job_record=rec,
         )
 
 
