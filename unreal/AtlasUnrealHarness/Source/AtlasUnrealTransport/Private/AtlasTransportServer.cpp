@@ -1305,6 +1305,30 @@ bool FAtlasTransportServer::SubmitRender(
         return false;
     }
 
+    // M8: Atlas-authoritative attempt_ordinal. Unreal MUST NOT invent or reinterpret
+    // it; it is carried exactly as provided and used only as an identity field +
+    // part of the HMAC-attested journal payload. Missing values default to 0 and are
+    // treated as legacy/unsupported (the attestation schema still signs them).
+    int32 AttemptOrdinal = 0;
+    {
+        const TSharedPtr<FJsonValue>* OrdVal = R.Arguments->Values.Find(TEXT("attempt_ordinal"));
+        if (OrdVal != nullptr && (*OrdVal).IsValid() && (*OrdVal)->Type == EJson::Number)
+        {
+            const double RawOrd = (*OrdVal)->AsNumber();
+            if (RawOrd >= 0.0 && RawOrd == (double)(int32)RawOrd)
+            {
+                AttemptOrdinal = (int32)RawOrd;
+            }
+        }
+    }
+
+    // M8: Atlas attempt_nonce (SECRET HMAC key). Carried as an argument, retained
+    // only in the in-memory FRenderJobState as the HMAC key, and NEVER serialized
+    // into the journal, receipts, manifests, or logs.
+    FString AttemptNonce;
+    R.Arguments->TryGetStringField(TEXT("attempt_nonce"), AttemptNonce);
+    AttemptNonce = AttemptNonce.TrimStartAndEnd();
+
     FString RequestedOutputDir;
     R.Arguments->TryGetStringField(TEXT("output_directory"), RequestedOutputDir);
     RequestedOutputDir = RequestedOutputDir.TrimStartAndEnd();
@@ -1466,6 +1490,8 @@ bool FAtlasTransportServer::SubmitRender(
 
     JobState->JobId=JobId;
     JobState->AtlasJobId=AtlasJobId;
+    JobState->AttemptOrdinal=AttemptOrdinal;
+    JobState->AttemptNonce=AttemptNonce; // SECRET - in-memory HMAC key only
     JobState->AuthorizationId=R.AuthorizationId;
     JobState->SequenceAssetPath=SequenceAssetPath;
     JobState->ConfigDigest=ConfigDigest;
@@ -2215,6 +2241,49 @@ bool FAtlasTransportServer::ComputeFileSha256(const FString& FilePath, FString& 
     return true;
 }
 
+bool FAtlasTransportServer::ComputeSha256Buffer(
+    const uint8* Data, int32 Length, uint8* OutHash32)
+{
+    // Deterministic single-buffer SHA-256 (raw 32 bytes) via BCrypt. Used by the
+    // RFC 2104 HMAC-SHA256 wrapper in ComputeJournalAttestationDigest.
+#if PLATFORM_WINDOWS
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    NTSTATUS status = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
+    if (status < 0 || !hAlg)
+    {
+        return false;
+    }
+    DWORD cbHash = 32;
+    DWORD cbData = 0;
+    BYTE Hash[32];
+    FMemory::Memzero(Hash, sizeof(Hash));
+
+    DWORD cbHashObject = 0;
+    BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, (PBYTE)&cbHashObject, sizeof(DWORD), &cbData, 0);
+    TArray<BYTE> HashObject;
+    HashObject.SetNumUninitialized(cbHashObject);
+
+    BCRYPT_HASH_HANDLE hHash = nullptr;
+    status = BCryptCreateHash(hAlg, &hHash, HashObject.GetData(), cbHashObject, nullptr, 0, 0);
+    if (status >= 0 && hHash)
+    {
+        if (Length > 0)
+        {
+            BCryptHashData(hHash, (PBYTE)Data, (ULONG)Length, 0);
+        }
+        BCryptFinishHash(hHash, Hash, cbHash, 0);
+        BCryptDestroyHash(hHash);
+        FMemory::Memcpy(OutHash32, Hash, 32);
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+        return true;
+    }
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+    return false;
+#else
+    return false;
+#endif
+}
+
 bool FAtlasTransportServer::WriteJournalEntry(
     const FString& AtlasJobId,
     const FString& UnrealJobId,
@@ -2416,19 +2485,26 @@ bool FAtlasTransportServer::WriteJournalEntry(
     JsonObject->SetStringField(TEXT("unreal_job_id"), UnrealJobId);
     JsonObject->SetStringField(TEXT("phase"), Phase);
     JsonObject->SetNumberField(TEXT("phase_sequence"), (double)NewSequence);
+    JsonObject->SetNumberField(TEXT("attempt_ordinal"), (double)JobState->AttemptOrdinal);
     JsonObject->SetStringField(TEXT("state_source"), TEXT("unreal-editor-atlas-transport"));
 
+    FString AttestEditorSessionId;
+    FString AttestProcessCreationTimeUtc;
     if (ActiveInstance)
     {
-        JsonObject->SetStringField(TEXT("editor_session_id"), ActiveInstance->EditorSessionId.ToString(EGuidFormats::DigitsWithHyphens));
+        AttestEditorSessionId = ActiveInstance->EditorSessionId.ToString(EGuidFormats::DigitsWithHyphens);
+        AttestProcessCreationTimeUtc = ActiveInstance->ProcessCreationTimeUtc;
+        JsonObject->SetStringField(TEXT("editor_session_id"), AttestEditorSessionId);
         JsonObject->SetNumberField(TEXT("process_id"), (double)ActiveInstance->ProcessId);
-        JsonObject->SetStringField(TEXT("process_creation_time_utc"), ActiveInstance->ProcessCreationTimeUtc);
+        JsonObject->SetStringField(TEXT("process_creation_time_utc"), AttestProcessCreationTimeUtc);
     }
     else
     {
-        JsonObject->SetStringField(TEXT("editor_session_id"), FGuid().ToString(EGuidFormats::DigitsWithHyphens));
+        AttestEditorSessionId = FGuid().ToString(EGuidFormats::DigitsWithHyphens);
+        AttestProcessCreationTimeUtc = FDateTime::UtcNow().ToIso8601();
+        JsonObject->SetStringField(TEXT("editor_session_id"), AttestEditorSessionId);
         JsonObject->SetNumberField(TEXT("process_id"), (double)FPlatformProcess::GetCurrentProcessId());
-        JsonObject->SetStringField(TEXT("process_creation_time_utc"), FDateTime::UtcNow().ToIso8601());
+        JsonObject->SetStringField(TEXT("process_creation_time_utc"), AttestProcessCreationTimeUtc);
     }
 
     JsonObject->SetStringField(TEXT("sequence_asset_path"), JobState->SequenceAssetPath);
@@ -2447,23 +2523,7 @@ bool FAtlasTransportServer::WriteJournalEntry(
     SpecObj->SetStringField(TEXT("format"), JobState->OutputFormat);
     JsonObject->SetObjectField(TEXT("expected_output_spec"), SpecObj);
 
-    // Compute entry_digest over canonical fields (kept for journal-internal
-    // integrity; NOT treated as authoritative Atlas witness auth on its own).
-    FString DigestInput = FString::Printf(
-        TEXT("%s:%s:%s:%d:%s:%s:%s:%s"),
-        *AtlasJobId,
-        *UnrealJobId,
-        *Phase,
-        NewSequence,
-        *JobState->SequenceAssetPath,
-        *JobState->ConfigDigest,
-        *JobState->AuthorizationId,
-        *JobState->OutputDirectory);
-    FSHAHash EntryHash;
-    FSHA1::HashBuffer(TCHAR_TO_UTF8(*DigestInput), DigestInput.Len(), EntryHash.Hash);
-    JsonObject->SetStringField(TEXT("entry_digest"), EntryHash.ToString());
-
-    // Output manifest
+    // Output manifest (built before HMAC since the canonical payload covers it)
     TArray<TSharedPtr<FJsonValue>> ManifestArray;
     for (const FOutputManifestEntry& Entry : JobState->OutputManifest)
     {
@@ -2474,6 +2534,52 @@ bool FAtlasTransportServer::WriteJournalEntry(
         ManifestArray.Add(MakeShareable(new FJsonValueObject(ManifestObj)));
     }
     JsonObject->SetArrayField(TEXT("output_manifest"), ManifestArray);
+
+    // M8: Contract V1 canonical HMAC-SHA256 attestation keyed by Atlas attempt_nonce.
+    // The journal entry digest is computed over the canonical payload (schema_version,
+    // atlas_job_id, unreal_job_id, attempt_ordinal, phase, phase_sequence,
+    // editor_session_id, process_creation_time_utc, output_directory, output_manifest).
+    // If no attempt_nonce was provided (legacy/unsupported), the entry carries an
+    // EMPTY entry_digest and is NOT attested; the Python reconciler treats it as an
+    // unsupported/legacy witness and fails closed (no synthesized success).
+    if (!JobState->AttemptNonce.IsEmpty())
+    {
+        TArray<uint8> CanonicalBytes;
+        if (ComputeJournalAttestationCanonical(
+                1, // journal_schema_version used as the attestation schema_version
+                AtlasJobId,
+                UnrealJobId,
+                JobState->AttemptOrdinal,
+                Phase,
+                NewSequence,
+                AttestEditorSessionId,
+                AttestProcessCreationTimeUtc,
+                JobState->OutputDirectory,
+                JobState->OutputManifest,
+                CanonicalBytes))
+        {
+            FString HexDigest;
+            if (ComputeJournalAttestationDigest(JobState->AttemptNonce, CanonicalBytes, HexDigest))
+            {
+                JsonObject->SetStringField(TEXT("entry_digest"), HexDigest);
+            }
+            else
+            {
+                OutError = TEXT("Failed to compute HMAC-SHA256 journal attestation digest");
+                return false;
+            }
+        }
+        else
+        {
+            OutError = TEXT("Failed to build canonical journal attestation payload");
+            return false;
+        }
+    }
+    else
+    {
+        // Legacy/unsupported: no attestation. Record an empty digest distinctly.
+        JsonObject->SetStringField(TEXT("entry_digest"), TEXT(""));
+    }
 
     TArray<TSharedPtr<FJsonValue>> OutputFilesArray;
     for (const FString& File : JobState->OutputFiles)
@@ -2644,4 +2750,127 @@ bool FAtlasTransportServer::ValidateJournalPhaseHistory(
     OutMaxSequence = PrevSequence;
     OutError = TEXT("");
     return true;
+}
+
+// -----------------------------------------------------------------------------
+// M8: Contract V1 canonical journal attestation (HMAC-SHA256)
+// -----------------------------------------------------------------------------
+bool FAtlasTransportServer::ComputeJournalAttestationCanonical(
+    int32 SchemaVersion,
+    const FString& AtlasJobId,
+    const FString& UnrealJobId,
+    int32 AttemptOrdinal,
+    const FString& Phase,
+    int32 PhaseSequence,
+    const FString& EditorSessionId,
+    const FString& ProcessCreationTimeUtc,
+    const FString& OutputDirectory,
+    const TArray<FOutputManifestEntry>& OutputManifest,
+    TArray<uint8>& OutCanonicalBytes)
+{
+    // Canonical message (must match Python planning/unreal_journal_attestation):
+    //   field(\x1f field)* \x1e
+    // where the fields in order are: schema_version, atlas_job_id, unreal_job_id,
+    // attempt_ordinal, phase, phase_sequence, editor_session_id,
+    // process_creation_time_utc, output_directory, output_manifest.
+    // Each manifest entry: path \x1c size \x1c sha256 \x1d
+    FString Canonical = FString::Printf(
+        TEXT("%d\x1f%s\x1f%s\x1f%d\x1f%s\x1f%d\x1f%s\x1f%s\x1f%s\x1f"),
+        SchemaVersion,
+        *AtlasJobId,
+        *UnrealJobId,
+        AttemptOrdinal,
+        *Phase,
+        PhaseSequence,
+        *EditorSessionId,
+        *ProcessCreationTimeUtc,
+        *OutputDirectory);
+
+    for (const FOutputManifestEntry& Entry : OutputManifest)
+    {
+        Canonical += FString::Printf(
+            TEXT("%s\x1c%d\x1c%s\x1d"),
+            *Entry.Path,
+            (int32)Entry.Size,
+            *Entry.Sha256);
+    }
+    Canonical += TEXT("\x1e");
+
+    // Encode to UTF-8 bytes.
+    FTCHARToUTF8 Utf8(*Canonical);
+    OutCanonicalBytes.SetNumUninitialized(Utf8.Length());
+    for (int32 i = 0; i < Utf8.Length(); ++i)
+    {
+        OutCanonicalBytes[i] = (uint8)Utf8.Get()[i];
+    }
+    return true;
+}
+
+bool FAtlasTransportServer::ComputeJournalAttestationDigest(
+    const FString& AttemptNonce,
+    const TArray<uint8>& CanonicalBytes,
+    FString& OutHexDigest)
+{
+    OutHexDigest = TEXT("");
+#if PLATFORM_WINDOWS
+    // HMAC-SHA256 per RFC 2104, computed on top of the BCrypt SHA-256 provider
+    // (already proven in ComputeFileSha256). This is the REAL keyed HMAC contract:
+    //   HMAC(K, m) = SHA256( (K\xe2\x80\x98 XOR opad) || SHA256( (K\xe2\x80\x98 XOR ipad) || m ) )
+    // where K\xe2\x80\x98 is the key padded/truncated to the SHA-256 block size (64 bytes),
+    // ipad = 0x36, opad = 0x5c. This uses only BCRYPT_SHA256_ALGORITHM and is fully
+    // deterministic and independent of any provider string such as an HMAC variant.
+    const int32 BlockSize = 64;
+
+    FTCHARToUTF8 KeyUtf8(*AttemptNonce);
+    const int32 KeyLen = KeyUtf8.Length();
+
+    // K' = key padded with zeros to BlockSize (truncate if longer than block).
+    uint8 KeyBlock[64];
+    for (int32 i = 0; i < BlockSize; ++i)
+    {
+        KeyBlock[i] = (i < KeyLen) ? (uint8)KeyUtf8.Get()[i] : 0;
+    }
+
+    // Inner: SHA256( ipad || message )
+    // Build ipad block first: (K' XOR 0x36), then append message.
+    TArray<uint8> InnerInput;
+    InnerInput.SetNumUninitialized(BlockSize + CanonicalBytes.Num());
+    for (int32 i = 0; i < BlockSize; ++i)
+    {
+        InnerInput[i] = (uint8)(KeyBlock[i] ^ 0x36);
+    }
+    if (CanonicalBytes.Num() > 0)
+    {
+        FMemory::Memcpy(&InnerInput[BlockSize], CanonicalBytes.GetData(), CanonicalBytes.Num());
+    }
+    uint8 InnerHash[32];
+    if (!ComputeSha256Buffer(InnerInput.GetData(), InnerInput.Num(), InnerHash))
+    {
+        return false;
+    }
+
+    // Outer: SHA256( opad || inner_hash )
+    TArray<uint8> OuterInput;
+    OuterInput.SetNumUninitialized(BlockSize + 32);
+    for (int32 i = 0; i < BlockSize; ++i)
+    {
+        OuterInput[i] = (uint8)(KeyBlock[i] ^ 0x5c);
+    }
+    FMemory::Memcpy(&OuterInput[BlockSize], InnerHash, 32);
+    uint8 OuterHash[32];
+    if (!ComputeSha256Buffer(OuterInput.GetData(), OuterInput.Num(), OuterHash))
+    {
+        return false;
+    }
+
+    FString Result;
+    for (int32 i = 0; i < 32; ++i)
+    {
+        Result += FString::Printf(TEXT("%02x"), OuterHash[i]);
+    }
+    OutHexDigest = Result;
+    return true;
+#else
+    return false;
+#endif
 }

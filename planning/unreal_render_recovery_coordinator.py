@@ -23,6 +23,10 @@ from planning.unreal_evidence_contract import (
     verify_png_completeness,
     verify_render_job_evidence,
 )
+from planning.unreal_journal_attestation import (
+    canonical_attestation_payload,
+    compute_attestation_digest,
+)
 from planning.unreal_operation_contract import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_render_job_record import (
     AtlasRenderJobRecord,
@@ -642,13 +646,51 @@ class UnrealRenderRecoveryCoordinator:
                 failure_reason=quiescence.reason,
             )
 
-        # 2. Witness Authentication via attempt_nonce HMAC
-        if record.attempt_nonce and candidate.get("entry_digest"):
+        # 2. Attempt-ordinal identity binding (Contract V1 §4.2 / M8).
+        # Atlas compares the engine-observed attempt_ordinal against the durable
+        # record. A mismatch fails closed; the ordinal never authorizes execution.
+        observed_attempt = candidate.get("attempt_ordinal")
+        if observed_attempt is None:
+            # Missing attempt_ordinal: a legacy/unattested witness. Fail closed to
+            # avoid accepting pre-M8 journals as attested-engine evidence.
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                "Journal missing attempt_ordinal (UNSUPPORTED_LEGACY_WITNESS)")
+        if isinstance(observed_attempt, bool) or not isinstance(observed_attempt, int):
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                f"Journal attempt_ordinal malformed: {observed_attempt!r}")
+        if observed_attempt != record.attempt_ordinal:
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                f"Attempt ordinal mismatch: record={record.attempt_ordinal}, observed={observed_attempt}")
+
+        # 3. M8: Contract V1 canonical HMAC-SHA256 attestation keyed by attempt_nonce.
+        # The coordinator reconstructs the canonical payload from the candidate's
+        # observed fields and verifies against the persisted Atlas attempt_nonce.
+        # A missing/empty/malformed/non-matching digest fails closed (UNTRUSTED_WITNESS).
+        attested_digest = candidate.get("entry_digest")
+        if not isinstance(attested_digest, str) or not attested_digest:
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                "Journal missing HMAC entry_digest (UNATTESTED_WITNESS)")
+        if len(attested_digest) != 64:
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                f"Journal HMAC entry_digest malformed (len {len(attested_digest)})")
+        try:
+            int(attested_digest, 16)
+        except ValueError:
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                f"Journal HMAC entry_digest malformed (non-hex): {attested_digest!r}")
+
+        try:
             canonical_payload = {
                 "schema_version": 1,
                 "atlas_job_id": atlas_job_id,
-                "unreal_job_id": candidate.get("job_id"),
-                "attempt_ordinal": record.attempt_ordinal,
+                "unreal_job_id": candidate.get("job_id") or candidate.get("unreal_job_id"),
+                "attempt_ordinal": observed_attempt,
                 "phase": candidate.get("phase", "FINISHED"),
                 "phase_sequence": candidate.get("phase_sequence", 3),
                 "editor_session_id": candidate.get("editor_session_id"),
@@ -656,24 +698,16 @@ class UnrealRenderRecoveryCoordinator:
                 "output_directory": candidate.get("output_directory"),
                 "output_manifest": candidate.get("output_manifest"),
             }
-            computed_hmac = compute_journal_hmac(record.attempt_nonce, canonical_payload)
-            if not hmac.compare_digest(computed_hmac, candidate["entry_digest"]):
-                failed_record = record.transition(
-                    lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
-                    recovery_status=RenderJobRecoveryStatus.NONE,
-                    failure_reason="Witness journal HMAC authentication failed (UNTRUSTED_WITNESS)",
-                )
-                self.store.update(failed_record, expected_revision=record.last_observed_revision)
-                return RecoveryDecisionResult(
-                    atlas_job_id=atlas_job_id,
-                    lifecycle_state_before=state_before,
-                    lifecycle_state_after=failed_record.lifecycle_state,
-                    recovery_status_before=status_before,
-                    recovery_status_after=failed_record.recovery_status,
-                    case_classified="UNTRUSTED_WITNESS",
-                    repaired_from_receipt=False,
-                    failure_reason=failed_record.failure_reason,
-                )
+            message = canonical_attestation_payload(canonical_payload)
+            computed_hmac = compute_attestation_digest(record.attempt_nonce, message)
+        except (KeyError, TypeError, ValueError) as exc:
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                f"Journal HMAC canonical payload malformed: {exc}")
+        if not hmac.compare_digest(computed_hmac, attested_digest):
+            return self._untrusted_witness_transition(
+                record, state_before, status_before, atlas_job_id,
+                "Witness journal HMAC authentication failed (UNTRUSTED_WITNESS)")
 
         # 3. Artifact Validation & Stability Check
         manifest = candidate.get("output_manifest", [])
@@ -777,6 +811,38 @@ class UnrealRenderRecoveryCoordinator:
             case_classified="Case B",
             repaired_from_receipt=False,
             receipt_reference=final_record.receipt_reference,
+        )
+
+    def _untrusted_witness_transition(
+        self,
+        record: AtlasRenderJobRecord,
+        state_before: RenderJobLifecycleState,
+        status_before: RenderJobRecoveryStatus,
+        atlas_job_id: str,
+        reason: str,
+    ) -> RecoveryDecisionResult:
+        """Fail closed to RECOVERY_FAILED for an untrusted/invalid witness.
+
+        Contract V1 §16: a journal failing HMAC validation, attempt-ordinal
+        binding, or phase-sequence checks MUST be classified UNTRUSTED_WITNESS and
+        fail closed to RECOVERY_FAILED. It never synthesizes success, never mints a
+        receipt, never finalizes, and never authorizes a retry.
+        """
+        failed_record = record.transition(
+            lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
+            recovery_status=RenderJobRecoveryStatus.NONE,
+            failure_reason=reason,
+        )
+        self.store.update(failed_record, expected_revision=record.last_observed_revision)
+        return RecoveryDecisionResult(
+            atlas_job_id=atlas_job_id,
+            lifecycle_state_before=state_before,
+            lifecycle_state_after=failed_record.lifecycle_state,
+            recovery_status_before=status_before,
+            recovery_status_after=failed_record.recovery_status,
+            case_classified="UNTRUSTED_WITNESS",
+            repaired_from_receipt=False,
+            failure_reason=reason,
         )
 
     def _fail_case_g(self, record: AtlasRenderJobRecord, reason: str) -> RecoveryDecisionResult:

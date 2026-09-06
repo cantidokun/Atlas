@@ -34,8 +34,8 @@ from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
 from planning.unreal_render_recovery_coordinator import (
     UnrealRenderRecoveryCoordinator,
-    compute_journal_hmac,
 )
+from planning.unreal_journal_attestation import compute_journal_attestation_digest
 from scripts.run_unreal_supervisor import AtlasProcessSupervisor, ProcessQuiescenceResult
 
 
@@ -97,13 +97,24 @@ def test_png_completeness_validator(tmp_path):
 
 def test_journal_hmac_computation():
     nonce = "secret-nonce-123"
-    payload = {"atlas_job_id": "job-1", "phase": "FINISHED"}
-    h1 = compute_journal_hmac(nonce, payload)
-    h2 = compute_journal_hmac(nonce, payload)
+    payload = {
+        "schema_version": 1,
+        "atlas_job_id": "job-1",
+        "unreal_job_id": "job-u",
+        "attempt_ordinal": 1,
+        "phase": "FINISHED",
+        "phase_sequence": 3,
+        "editor_session_id": "sess-1",
+        "process_creation_time_utc": "2026-09-06T00:00:00Z",
+        "output_directory": "C:/renders/out",
+        "output_manifest": [{"path": "C:/renders/out/f.png", "size": 42, "sha256": "a" * 64}],
+    }
+    h1 = compute_journal_attestation_digest(nonce, payload)
+    h2 = compute_journal_attestation_digest(nonce, payload)
     assert h1 == h2
 
     # Different nonce must diverge
-    h3 = compute_journal_hmac("other-nonce", payload)
+    h3 = compute_journal_attestation_digest("other-nonce", payload)
     assert h1 != h3
 
 
@@ -253,7 +264,7 @@ def test_case_b_finished_quiescent_hmac_verified(tmp_path):
         "output_directory": record.output_directory,
         "output_manifest": manifest,
     }
-    digest = compute_journal_hmac(nonce, canonical_payload)
+    digest = compute_journal_attestation_digest(nonce, canonical_payload)
 
     candidate = {
         "atlas_job_id": record.atlas_job_id,
@@ -265,6 +276,7 @@ def test_case_b_finished_quiescent_hmac_verified(tmp_path):
         "output_directory": record.output_directory,
         "phase": "FINISHED",
         "phase_sequence": 3,
+        "attempt_ordinal": record.attempt_ordinal,
         "editor_session_id": "session-1",
         "process_id": 12345,
         "process_creation_time_utc": "2026-09-06T00:00:00Z",
