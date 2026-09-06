@@ -238,3 +238,12 @@ Do not run workflow/action-runner tests unless explicitly authorized.
 ## Historical documentation
 
 Older dated handoff snapshots are archival records and should not be rewritten. This document is the authoritative current development handoff.
+
+## M10 - S4 Case J remediation (latest)
+- Genuine S4 s4b dual-restart produced a torn non-terminal journal (job 899e6a81, ACCEPTED-only).
+- Recovery misclassified it Case G -> terminal FAILED ("Engine claims FINISHED...").
+- Contract requires Case J -> RECOVERY_PENDING (non-terminal, no receipt). Fixed:
+  coordinator now checks `_candidate_is_terminal` before the finished-candidate path;
+  torn/interrupted (finished=False / phase ACCEPTED/STARTED) -> Case J (RECOVERY_PENDING,
+  ambiguity++, no receipt, no retry). Genuine terminal Case G still fails closed.
+- New tests/m10/test_m10_case_j_torn_journal.py (9 tests). Full suite 1198 passed.
