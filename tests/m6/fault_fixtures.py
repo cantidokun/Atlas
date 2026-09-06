@@ -267,8 +267,7 @@ class ScriptedCoordinatorAdapter:
         if self.capability_error is not None:
             raise self.capability_error
 
-    def apply_authorized(self, op: UnrealOperation, authorization_id: str) -> UnrealEvidence:
-        self.apply_authorized_called = True
+    def _reconcile_evidence(self, op: UnrealOperation) -> UnrealEvidence:
         self.reconcile_query_count += 1
         if self.reconcile_error is not None:
             raise self.reconcile_error
@@ -279,6 +278,15 @@ class ScriptedCoordinatorAdapter:
             source="unreal-editor-5.6",
             verified=False,
         )
+
+    def inspect(self, op: UnrealOperation, authorization_id: str) -> UnrealEvidence:
+        # READ path (Defect A fix): the coordinator's _query_catalog now routes
+        # reconcile_render_jobs through the read/inspect transport method.
+        return self._reconcile_evidence(op)
+
+    def apply_authorized(self, op: UnrealOperation, authorization_id: str) -> UnrealEvidence:
+        self.apply_authorized_called = True
+        return self._reconcile_evidence(op)
 
 
 def quiescent_supervisor() -> MagicMock:

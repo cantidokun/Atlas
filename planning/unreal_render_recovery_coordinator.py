@@ -480,7 +480,10 @@ class UnrealRenderRecoveryCoordinator:
             entity_ids=("RENDER_RECOVERY",),
         )
         try:
-            ev = self.adapter.apply_authorized(op, auth_id)
+            # Defect A fix: this is a READ-only operation (reconcile catalog).
+            # It MUST go through the read/inspect transport path, never
+            # apply_authorized (which is WRITE-only and rejects reads).
+            ev = self.adapter.inspect(op, auth_id)
             state = _thaw_dict(ev.observed_state)
 
             has_byte_length = "payload_byte_length" in state

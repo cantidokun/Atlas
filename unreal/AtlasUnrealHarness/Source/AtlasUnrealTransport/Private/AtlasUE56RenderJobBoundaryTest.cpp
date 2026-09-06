@@ -48,6 +48,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56ReconcileAttestationPreservedTest,
+    "Atlas.UnrealAgent.UE56.ReconcileAttestationPreserved",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FAtlasUE56CapabilitySchemaReportingTest,
     "Atlas.UnrealAgent.UE56.CapabilitySchemaReporting",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -1022,6 +1028,104 @@ bool FAtlasUE56JournalAttestationVectorTest::RunTest(const FString& Parameters)
     FAtlasTransportServer::ComputeJournalAttestationDigest(TEXT("wrong-nonce"), CanonicalBytes, WrongNonceDigest);
     TestFalse(TEXT("wrong nonce produces a different digest"), HexDigest == WrongNonceDigest);
 
+    return !HasAnyErrors();
+}
+bool FAtlasUE56ReconcileAttestationPreservedTest::RunTest(const FString& Parameters)
+{
+    // Defect B regression: the reconcile catalog MUST preserve the M8 attestation
+    // fields (attempt_ordinal, entry_digest) from the DURABLE journal even when a
+    // matching in-memory registry entry exists. The in-memory overlay is transient
+    // and sparse; it must NOT clobber the richer journal-derived attested entry.
+    const FString AtlasJobId = TEXT("atlas-reconcile-attest-001");
+    const FString UnrealJobId = TEXT("unreal-reconcile-attest-001");
+
+    // Build a job state carrying the FIFEISHED attestation fields.
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->AttemptOrdinal = 1;
+    JobState->AttemptNonce = TEXT("m10-cpp-nonce-0123456789abcdef");
+    JobState->SequenceAssetPath = TEXT("/Game/TestReconcile.TestReconcile");
+    JobState->OutputDirectory = TEXT("C:/AtlasRenders/attest");
+    JobState->AuthorizationId = TEXT("auth-attest-001");
+    JobState->ConfigDigest = TEXT("digest-attest");
+    JobState->Status = TEXT("finished");
+    JobState->bFinished = true;
+    JobState->bSuccess = true;
+
+    FAtlasTransportServer::FOutputManifestEntry Entry;
+    Entry.Path = TEXT("C:/AtlasRenders/attest/AtlasRender_0001.png");
+    Entry.Size = 42;
+    Entry.Sha256 = TEXT("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    JobState->OutputManifest.Add(Entry);
+    JobState->OutputFiles.Add(TEXT("C:/AtlasRenders/attest/AtlasRender_0001.png"));
+
+    FString Error;
+    const bool bWritten = FAtlasTransportServer::WriteJournalEntry(
+        AtlasJobId, UnrealJobId, TEXT("FINISHED"), JobState, Error);
+    TestTrue(TEXT("FINISHED journal written"), bWritten);
+
+    // Register a matching in-memory registry entry (same atlas_job_id)) so the
+    // sparse overlay would previously have clobbered the attested journal entry.
+    {
+        FScopeLock Lock(&FAtlasTransportServer::RenderJobRegistryMutex);
+        FAtlasTransportServer::RenderJobRegistry.Add(UnrealJobId, JobState);
+    }
+
+    // Reconcile.
+    FAtlasTransportServer::FTransportRequest Req;
+    Req.RequestId = TEXT("attest-rec-001");
+    Req.OperationName = TEXT("reconcile_render_jobs");
+    Req.Capability = TEXT("render");
+    Req.Kind = TEXT("read");
+    Req.SchemaVersion = 1;
+    Req.AuthorizationId = TEXT("auth-attest-001");
+    Req.EntityIds.Add(TEXT("RENDER_RECOVERY"));
+    Req.Arguments = MakeShareable(new FJsonObject());
+    // arguments.entity_ids must be an array of strings per ValidateRequest.
+    {
+        TArray<TSharedPtr<FJsonValue>> ArgEntityIds;
+        ArgEntityIds.Add(MakeShareable(new FJsonValueString(TEXT("RENDER_RECOVERY"))));
+        Req.Arguments->SetArrayField(TEXT("entity_ids"), ArgEntityIds);
+    }
+
+    TSharedPtr<FJsonObject> State;
+    FString RecErr;
+    const bool bOk = FAtlasTransportServer::ReconcileRenderJobs(Req, State, RecErr);
+    TestTrue(TEXT("reconcile succeeded"), bOk);
+    if (State.IsValid())
+    {
+        const TArray<TSharedPtr<FJsonValue>> Jobs = State->GetArrayField(TEXT("known_jobs"));
+        bool bFound = false;
+        for (const TSharedPtr<FJsonValue>& Jv : Jobs)
+        {
+            const TSharedPtr<FJsonObject> J = Jv->AsObject();
+            if (!J.IsValid()) continue;
+            if (J->GetStringField(TEXT("atlas_job_id")) != AtlasJobId) continue;
+            bFound = true;
+            // Journal-derived attested entry must retain the attestation fields.
+            TestTrue(TEXT("catalog retains attempt_ordinal"),
+                J->HasField(TEXT("attempt_ordinal")) && J->GetIntegerField(TEXT("attempt_ordinal")) == 1);
+            TestTrue(TEXT("catalog retains entry_digest"),
+                J->HasField(TEXT("entry_digest")) && !J->GetStringField(TEXT("entry_digest")).IsEmpty());
+            TestTrue(TEXT("catalog retains output_manifest"),
+                J->HasField(TEXT("output_manifest")));
+            TestTrue(TEXT("catalog retains phase_history"),
+                J->HasField(TEXT("phase_history")));
+        }
+        TestTrue(TEXT("reconcile produced the attested job entry"), bFound);
+    }
+
+    // Cleanup
+    const FString JournalPath = FPaths::Combine(
+        FAtlasTransportServer::GetJournalDirectory(),
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId));
+    IFileManager::Get().Delete(*JournalPath);
+    {
+        FScopeLock Lock(&FAtlasTransportServer::RenderJobRegistryMutex);
+        FAtlasTransportServer::RenderJobRegistry.Remove(UnrealJobId);
+    }
     return !HasAnyErrors();
 }
 
