@@ -38,7 +38,7 @@ def _create_test_png(path: Path, width: int = 1, height: int = 1) -> bytes:
 def _sample_job_record(tmp_path: Path, atlas_job_id: str = "atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee") -> AtlasRenderJobRecord:
     out_parent = str(tmp_path / "renders")
     out_dir = str(tmp_path / "renders" / atlas_job_id)
-    return AtlasRenderJobRecord.create_intent(
+    rec = AtlasRenderJobRecord.create_intent(
         atlas_job_id=atlas_job_id,
         attempt_ordinal=1,
         authorization_id="auth-m5-test",
@@ -50,6 +50,12 @@ def _sample_job_record(tmp_path: Path, atlas_job_id: str = "atlas-render-job-aaa
         output_directory=out_dir,
         expected_output_spec={"format": "png", "width": 1, "height": 1, "start_frame": 0, "end_frame": 0},
         created_at="2026-09-06T00:00:00Z",
+    )
+    return rec.transition(
+        unreal_job_id="job-stage17-001",
+        origin_editor_session_id="session-uuid-1",
+        origin_process_id=12345,
+        origin_process_creation_time="2026-09-06T00:00:00Z",
     )
 
 
@@ -341,12 +347,14 @@ def test_m5_unknown_source_class_rejected(tmp_path: Path):
     bytes_data = _create_test_png(out_file)
 
     state = _valid_record_observed_state(rec, out_file, bytes_data)
+    # Ensure source is an allowed source class
+    state["evidence_source_class"] = "ENGINE_LIVE"
     with pytest.raises(UnrealEvidenceVerificationError, match="unsupported evidence_source_class"):
         verify_render_job_evidence(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
-            source="test",
+            source="ENGINE_LIVE",
             job_record=rec,
             evidence_source_class="UNTRUSTED_ARBITRARY_SOURCE",
         )
@@ -362,6 +370,8 @@ def test_m5_identity_binding_mismatches_rejected(tmp_path: Path):
     )
     out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
     bytes_data = _create_test_png(out_file)
+    import hashlib
+    sha_val = hashlib.sha256(bytes_data).hexdigest()
 
     base_state = {
         "job_id": "unreal-job-bound-777",
@@ -380,8 +390,22 @@ def test_m5_identity_binding_mismatches_rejected(tmp_path: Path):
         "success": True,
         "failed": False,
         "output_files": [str(out_file)],
-        "output_manifest": [{"path": str(out_file), "size": len(bytes_data), "sha256": "0" * 64}],
+        "output_manifest": [{"path": str(out_file), "size": len(bytes_data), "sha256": sha_val}],
     }
+
+    # Record missing mandatory origin fields fail closed
+    import dataclasses
+    rec_missing_sess = dataclasses.replace(rec_bound, origin_editor_session_id=None)
+    with pytest.raises(UnrealEvidenceVerificationError, match="record missing mandatory origin_editor_session_id"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=base_state, source="ENGINE_LIVE", job_record=rec_missing_sess)
+
+    rec_missing_pid = dataclasses.replace(rec_bound, origin_process_id=None)
+    with pytest.raises(UnrealEvidenceVerificationError, match="record missing mandatory origin_process_id"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=base_state, source="ENGINE_LIVE", job_record=rec_missing_pid)
+
+    rec_missing_pct = dataclasses.replace(rec_bound, origin_process_creation_time=None)
+    with pytest.raises(UnrealEvidenceVerificationError, match="record missing mandatory origin_process_creation_time"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=base_state, source="ENGINE_LIVE", job_record=rec_missing_pct)
 
     # atlas_job_id mismatch
     st1 = dict(base_state, atlas_job_id="atlas-render-job-wrong")
@@ -556,6 +580,12 @@ def test_m5_expected_topology_and_unsupported_format(tmp_path: Path):
         expected_output_spec={"format": "unsupported_exr"},
         created_at="2026-09-06T00:00:00Z",
     )
+    rec_exotic = rec_exotic.transition(
+        unreal_job_id="job-stage17-001",
+        origin_editor_session_id="session-uuid-1",
+        origin_process_id=12345,
+        origin_process_creation_time="2026-09-06T00:00:00Z",
+    )
     p_exotic = Path(rec_exotic.output_directory) / "frame.exr"
     p_exotic.parent.mkdir(parents=True, exist_ok=True)
     p_exotic.write_bytes(b"exr-data")
@@ -643,6 +673,21 @@ def test_m5_missing_mandatory_identity_field_rejected(tmp_path: Path):
 
     with pytest.raises(UnrealEvidenceVerificationError, match="missing mandatory identity field 'authorization_id'"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
+
+    # Fake SimpleNamespace record rejected
+    from types import SimpleNamespace
+    fake_rec = SimpleNamespace(
+        atlas_job_id=rec.atlas_job_id,
+        unreal_job_id=rec.unreal_job_id,
+        sequence_asset_path=rec.sequence_asset_path,
+        authorization_id=rec.authorization_id,
+        canonical_digital_twin_id=rec.canonical_digital_twin_id,
+        config_digest=rec.config_digest,
+        output_directory=rec.output_directory,
+    )
+    st_valid = _valid_record_observed_state(rec, out_file, bytes_data)
+    with pytest.raises(UnrealEvidenceVerificationError, match="job_record must be a valid AtlasRenderJobRecord"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_valid, source="ENGINE_LIVE", job_record=fake_rec)
 
 
 def test_m5_tampered_snapshot_fails_closed(tmp_path: Path):
@@ -848,6 +893,12 @@ def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
         output_directory=str(tmp_path / "renders" / "atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-111111111111"),
         expected_output_spec={},  # Empty topology
         created_at="2026-09-06T00:00:00Z",
+    )
+    rec_no_topo = rec_no_topo.transition(
+        unreal_job_id="job-stage17-001",
+        origin_editor_session_id="session-uuid-1",
+        origin_process_id=12345,
+        origin_process_creation_time="2026-09-06T00:00:00Z",
     )
     out_file = Path(rec_no_topo.output_directory) / "frame_0000.png"
     bytes_data = _create_test_png(out_file)

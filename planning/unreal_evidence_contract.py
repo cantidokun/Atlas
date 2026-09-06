@@ -431,6 +431,14 @@ def verify_render_job_evidence(
         raise UnrealEvidenceVerificationError("duplicate canonical path in declared output_files")
 
     # Authoritative job record cross-checks (Contract V1 §13, §14, §16)
+    # Validate that job_record is a valid AtlasRenderJobRecord with valid authoritative_digest
+    if not hasattr(job_record, "authoritative_digest") or not hasattr(job_record, "atlas_job_id"):
+        raise UnrealEvidenceVerificationError("job_record must be a valid AtlasRenderJobRecord instance")
+    if hasattr(job_record, "validate_invariants"):
+        try:
+            job_record.validate_invariants()
+        except Exception as exc:
+            raise UnrealEvidenceVerificationError(f"job_record failed invariant validation: {exc}") from exc
     # Mandatory identity bindings comparison (Block 2: strict presence and exact equality)
     # 1. atlas_job_id
     obs_atlas_id = observed_state.get("atlas_job_id")
@@ -446,7 +454,7 @@ def verify_render_job_evidence(
     if not job_id:
         raise UnrealEvidenceVerificationError("missing mandatory identity field 'unreal_job_id' (job_id) in observed state")
     rec_unreal_id = getattr(job_record, "unreal_job_id", None)
-    if rec_unreal_id and job_id != rec_unreal_id:
+    if rec_unreal_id is not None and job_id != rec_unreal_id:
         raise UnrealEvidenceVerificationError(
             f"unreal_job_id mismatch: record={rec_unreal_id!r}, observed={job_id!r}"
         )
@@ -495,7 +503,9 @@ def verify_render_job_evidence(
     if not obs_sess or not isinstance(obs_sess, str):
         raise UnrealEvidenceVerificationError("missing mandatory identity field 'editor_session_id' in observed state")
     rec_sess = getattr(job_record, "origin_editor_session_id", None)
-    if rec_sess and obs_sess != rec_sess:
+    if not rec_sess or not isinstance(rec_sess, str):
+        raise UnrealEvidenceVerificationError("record missing mandatory origin_editor_session_id")
+    if obs_sess != rec_sess:
         raise UnrealEvidenceVerificationError(
             f"editor_session_id mismatch: record={rec_sess!r}, observed={obs_sess!r}"
         )
@@ -506,7 +516,9 @@ def verify_render_job_evidence(
     if obs_pid is None or isinstance(obs_pid, bool) or not isinstance(obs_pid, int):
         raise UnrealEvidenceVerificationError("missing mandatory identity field 'process_id' (must be an integer) in observed state")
     rec_pid = getattr(job_record, "origin_process_id", None)
-    if rec_pid is not None and int(obs_pid) != rec_pid:
+    if rec_pid is None or isinstance(rec_pid, bool) or not isinstance(rec_pid, int):
+        raise UnrealEvidenceVerificationError("record missing mandatory origin_process_id")
+    if int(obs_pid) != rec_pid:
         raise UnrealEvidenceVerificationError(
             f"process_id mismatch: record={rec_pid!r}, observed={int(obs_pid)!r}"
         )
@@ -517,7 +529,9 @@ def verify_render_job_evidence(
     if not obs_pct or not isinstance(obs_pct, str):
         raise UnrealEvidenceVerificationError("missing mandatory identity field 'process_creation_time' in observed state")
     rec_pct = getattr(job_record, "origin_process_creation_time", None)
-    if rec_pct and obs_pct != rec_pct:
+    if not rec_pct or not isinstance(rec_pct, str):
+        raise UnrealEvidenceVerificationError("record missing mandatory origin_process_creation_time")
+    if obs_pct != rec_pct:
         raise UnrealEvidenceVerificationError(
             f"process_creation_time mismatch: record={rec_pct!r}, observed={obs_pct!r}"
         )
@@ -568,12 +582,20 @@ def verify_render_job_evidence(
                 f"unexpected extra files present in output directory: {[str(p) for p in sorted(unexpected_files)]}"
             )
 
-    # 11. expected_output_spec topology validation (mandatory when job_record supplied)
-    expected_spec = getattr(job_record, "expected_output_spec", None) or observed_state.get("expected_output_spec")
-    if not expected_spec or not isinstance(expected_spec, Mapping):
-        raise UnrealEvidenceVerificationError("expected_output_spec cannot be empty")
+    # 11. expected_output_spec topology validation (mandatory from AtlasRenderJobRecord)
+    rec_expected_spec = getattr(job_record, "expected_output_spec", None)
+    if not rec_expected_spec or not isinstance(rec_expected_spec, Mapping):
+        raise UnrealEvidenceVerificationError("record missing mandatory expected_output_spec")
 
-    clean_state["expected_output_spec"] = dict(expected_spec)
+    obs_expected_spec = observed_state.get("expected_output_spec")
+    if obs_expected_spec is not None:
+        if not isinstance(obs_expected_spec, Mapping) or dict(obs_expected_spec) != dict(rec_expected_spec):
+            raise UnrealEvidenceVerificationError(
+                f"expected_output_spec mismatch: record={dict(rec_expected_spec)!r}, observed={obs_expected_spec!r}"
+            )
+
+    clean_state["expected_output_spec"] = dict(rec_expected_spec)
+    expected_spec = rec_expected_spec
     exp_format = expected_spec.get("format")
     if not exp_format or not isinstance(exp_format, str):
         raise UnrealEvidenceVerificationError("expected_output_spec missing valid format")
