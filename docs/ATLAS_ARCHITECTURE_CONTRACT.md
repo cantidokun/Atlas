@@ -121,7 +121,7 @@ Completed prerequisites are recovered from trusted successful checkpoints rather
 - Stage 14 dependency-aware serial execution and cross-process recovery — complete for current contract and live verified.
 - Stage 15 semantic soccer-production task composition, target-state evaluation, versioned catalog, and provenance persistence — complete for current contract and live verified.
 - Stage 16 Qwen provider/proposal integration, Atlas authorization handoff, live Blender mutation, and Qwen-guided cross-process recovery — complete for current contract and live verified.
-- Stage 17 production artifact lineage foundation — implemented with regression coverage; integration into live evidence/receipt paths remains in progress.
+- Stage 17 production artifact lineage foundation — implemented with regression coverage; live evidence/receipt lineage integration is complete and live-verified for Blender 4.4, with a completed historical normal-render live proof for Unreal 5.6.
 
 ### Stage 16 verified boundary
 
@@ -150,7 +150,17 @@ Blender and Unreal remain adapters/execution environments. Engine-specific opera
 
 Unreal Engine 5.6 render configuration, MRQ submission, job inspection, artifact validation, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.
 
-Cross-process Unreal render-job recovery is not implemented.
+Milestone 4 cross-process Unreal render-job recovery is implemented and merged to `main`: durable `AtlasRenderJobRecord` state, durable intent before submission, single-coordinator lease/fencing with per-job ownership, process/session incarnation identity, durable witness journaling outside `Saved/`, per-attempt output isolation, full-catalog reconciliation, and fail-closed Cases A–J handling.
+
+Milestone 5 established the authoritative independent evidence-verification boundary: `verify_render_job_evidence(...)` produces `verified=True` only after supported source-class, full identity binding to the durable record, exact output-topology and frame-count enforcement, output-path isolation, engine-attested manifest, independent disk hash/size, and complete PNG/IDAT stream validation.
+
+Verification status for the Unreal recovery/provenance work is tiered:
+- implementation/regression verification — complete (deterministic suite);
+- historical normal-render live proof — complete (real UE 5.6 Stage 17 render/provenance, prior to M4);
+- M6 deterministic fault-injection test suite — still pending;
+- M7 live UE 5.6 restart/recovery validation (Scenarios 1–8) — still pending.
+
+Cross-process recovery is therefore not yet declared production-capable until M6 and M7 pass (see docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md §33–§34).
 
 ## Resolution / source footage
 
@@ -170,7 +180,7 @@ Stage 17 lineage integration therefore requires a live proof that a verified pro
 - Do not weaken tests to make architectural changes pass.
 - Do not give Qwen execution or authorization authority.
 - Do not automatically retry failed writes.
-- Do not claim cross-process Unreal job recovery until separately implemented and verified.
+- Do not claim cross-process Unreal job recovery is production-capable until M6 deterministic fault-injection and M7 live UE 5.6 restart/recovery Scenarios 1–8 are independently verified.
 - Keep the canonical Digital Twin distinct from DCC/engine production artifacts.
 - Keep photogrammetry as upstream reconstruction, with Blender handling analysis/cleanup/correction/preparation.
 - Keep lineage/provenance separate from execution authority.

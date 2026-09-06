@@ -1,5 +1,42 @@
 # Atlas Development Log
 
+## September 6, 2026 — Milestone M4/M5 merged to main
+
+The current development line is `main`.
+
+### Cross-process Unreal render-job recovery (M4) — MERGED
+
+Milestone 4 cross-process Unreal render-job recovery is implemented and merged to `main` via PR #67, following `docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md`:
+
+- durable `AtlasRenderJobRecord` state with atomic replacement and stale-writer rejection;
+- durable Atlas intent written before transport submission;
+- Atlas-generated immutable `atlas_job_id` and attempt identity;
+- single-coordinator lease/fencing plus per-job exclusive ownership;
+- process/session incarnation identity, including real process-creation identity;
+- contained Windows Job Object quiescence proof and fail-closed uncontained handling;
+- durable witness journal outside `Saved/` with `ACCEPTED`, `STARTED`, `FINISHED`, and `FAILED` phases;
+- attempt nonce with HMAC-protected witness payloads;
+- per-attempt output isolation and engine-attested manifests;
+- full-catalog reconciliation with stability checks and rogue/unmanaged detection;
+- explicit orphan/ambiguity states (`ORPHANED_ARTIFACTS_PRESENT`, `RECOVERY_FAILED`);
+- receipt identity binding with create-if-absent semantics;
+- no automatic resubmission after uncertain transport acceptance.
+
+This is regression/implementation-verified (deterministic suite). It is NOT yet declared production-capable: M6 (deterministic fault-injection test suite) and M7 (live UE 5.6 restart/recovery Scenarios 1–8) remain pending per Contract V1 §33–§34.
+
+### Independent evidence verification (M5) — MERGED
+
+PR #68 merged the authoritative independent evidence-verification boundary (`verify_render_job_evidence` in `planning/unreal_evidence_contract.py`). `verified=True` is only produced when a concrete `AtlasRenderJobRecord`, supported evidence source class, full identity binding, exact output-topology/frame-count, output-path isolation, engine-attested manifest, independent disk hash/size, and complete PNG/IDAT stream checks all pass. It is never supplied by the transport.
+
+### Stage 17 Unreal lineage status
+
+- implementation/regression verification — complete;
+- historical normal-render live proof — complete (real UE 5.6 render/provenance, prior to M4);
+- M6 deterministic fault-injection testing — still pending;
+- M7 live UE 5.6 restart/recovery Scenarios 1–8 — still pending.
+
+Historical dated handoff snapshots are archival records and should remain unchanged.
+
 ## September 4, 2026 — Stage 17 Unreal lineage and controller-boundary hardening
 
 The active development line is now `main` and Stage 17 remains in progress.
@@ -228,7 +265,7 @@ Stage 13 demonstrated that a completed action is not blindly replayed after a la
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.
 
-Cross-process Unreal render-job recovery remains unimplemented.
+Cross-process Unreal render-job recovery is implemented and merged via Milestone 4 (PR #67), and the authoritative independent evidence-verification boundary is merged via Milestone 5 (PR #68). Both are regression-verified. They are not yet declared production-capable; M6 deterministic fault-injection testing and M7 live UE 5.6 restart/recovery Scenarios 1–8 remain pending per Contract V1 §33–§34, and must not be run as workflow/action-runner tests.
 
 ## Development rules
 
