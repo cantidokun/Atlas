@@ -443,6 +443,27 @@ Remediation: tests/m10 (17) + C++ `FAtlasUE56ReconcileAttestationPreservedTest`
 NO live scenario executed during remediation. S1 must be rerun after merge before
 S2–S8 (which remain NOT EXECUTED). Failed/blocked S1 forensic evidence preserved.
 
+## M10 remediation — Defect C (adapter argument boundary)
+
+Off the back of the live S1 verification rerun (which proved Defect A READ/inspect
+and Defect B catalog-attestation-preservation are RESOLVED live), reconciliation was
+still blocked by a NEW production defect:
+- Defect C root cause: `UnrealAdapterProduction._build_request` copied
+  `operation.arguments` verbatim and carried `entity_ids` only at the transport
+  top level — it never relayed them into the nested `arguments.entity_ids` the C++
+  `ValidateRequest` requires for every operation. The live engine returned
+  `ERR_MISSING_ARGUMENT` ("arguments.entity_ids must be an array of strings").
+- Fix (adapter transport boundary, generic): `_build_request` now injects nested
+  `arguments["entity_ids"]` from the operation's `entity_ids` (verbatim, no
+  synthesis) and FAILS CLOSED if an existing `arguments.entity_ids` conflicts.
+  No C++ change; authorization/correlation/schema checks unchanged; coordinator
+  unaware of transport internals.
+- Deterministic regression: tests/m10 Defect C (7), derived from the exact live
+  failure (EngineLikeTransport enforces the nested entity_ids contract). Full
+  `pytest -m "not integration"` = 1165 passed. UBT not required (Python-only).
+- Live status: A PASS, B PASS, C fixed (S1 must be rerun after merge before S2-S8).
+  No live scenario was executed during remediation; S2-S8 NOT executed.
+
 ## Unreal — Current baseline
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.
