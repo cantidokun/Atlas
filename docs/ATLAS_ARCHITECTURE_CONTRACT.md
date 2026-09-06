@@ -157,10 +157,10 @@ Milestone 5 established the authoritative independent evidence-verification boun
 Verification status for the Unreal recovery/provenance work is tiered:
 - implementation/regression verification — complete (deterministic suite);
 - historical normal-render live proof — complete (real UE 5.6 Stage 17 render/provenance, prior to M4);
-- M6 deterministic fault-injection test suite — still pending;
+- M6 deterministic fault-injection/concurrency test suite — implemented and regression-verified (Contract V1 §31 matrix + §32 C++ automation boundary; see tests/m6/);
 - M7 live UE 5.6 restart/recovery validation (Scenarios 1–8) — still pending.
 
-Cross-process recovery is therefore not yet declared production-capable until M6 and M7 pass (see docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md §33–§34).
+Cross-process recovery is therefore not yet declared production-capable until M6 and M7 pass (see docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md §33–§34). M6 also surfaced three production items deferred from the test-only milestone: (1) the coordinator's frame-integrity check cannot serialize frozen `observed_state` (mappingproxy) into canonical JSON, so a framing field-bearing reconcile response always fails closed to Case J; (2) the C++ journal writes a single `<atlas>__<unreal>.json` file per job-pair with overwrite semantics rather than the Contract §30 append-only `phase_history`/monotonic `phase_sequence`; (3) `execution_deadline` expiry is stored but not enforced as an `EXHAUSTED` transition. These require production remediation (M7 hardening), not test weakening.
 
 ## Resolution / source footage
 

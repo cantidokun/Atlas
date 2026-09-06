@@ -1,8 +1,8 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 6, 2026 — M4 cross-process Unreal recovery and M5 independent evidence verification merged into `main` via PR #68.
+**Updated:** September 6, 2026 — M4 cross-process Unreal recovery and M5 independent evidence verification merged (PR #68); M6 deterministic fault-injection/concurrency test suite implemented (dedicated branch, 79 tests green + 1029 full suite; C++ §32 automation additions compile-verified).
 **Active branch:** `main`
-**Current milestone:** M5 complete; next milestone to be selected from the authoritative architecture/handoff after the completed M4/M5 baseline.
+**Current milestone:** M5 complete; M6 test suite implemented; **M7 live UE 5.6 restart/recovery Scenarios 1–8 is the next authoritative gate** (Contract V1 §35).
 **Latest M5 merge commit:** `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
 
 ## Current repository state
@@ -190,7 +190,7 @@ At the beginning of the next session:
 
 1. Pull the latest `main`.
 2. Treat M4 and M5 as merged, completed baseline work; do not reopen them without evidence of regression.
-3. Continue from the next unresolved milestone in the architecture contract.
+3. Continue from the next unresolved milestone in the architecture contract — the next authoritative gate is **M7 live UE 5.6 restart/recovery Scenarios 1–8** (Contract V1 §33–§35), which must NOT be run without explicit authorization (live Unreal execution; no workflow/action-runner tests).
 4. For Hermes, run the Gemini vs DeepSeek V4 Flash comparison as a development-model experiment while preserving Astra/Claude 5 red-team capacity.
 5. Keep implementation, deterministic validation, independent verification, and red-team evaluation clearly separated.
 

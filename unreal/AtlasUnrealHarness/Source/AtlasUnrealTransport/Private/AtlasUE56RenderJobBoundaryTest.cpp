@@ -37,6 +37,16 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     "Atlas.UnrealAgent.UE56.ReconcileCatalogReporting",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56MalformedJournalHandlingTest,
+    "Atlas.UnrealAgent.UE56.MalformedJournalHandling",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56CapabilitySchemaReportingTest,
+    "Atlas.UnrealAgent.UE56.CapabilitySchemaReporting",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
 bool FAtlasUE56RenderJobBoundaryTest::RunTest(const FString& Parameters)
 {
     TestTrue(
@@ -385,3 +395,73 @@ bool FAtlasUE56ReconcileCatalogReportingTest::RunTest(const FString& Parameters)
 
     return !HasAnyErrors();
 }
+
+bool FAtlasUE56MalformedJournalHandlingTest::RunTest(const FString& Parameters)
+{
+    const FString JournalDir = FAtlasTransportServer::GetJournalDirectory();
+    IFileManager::Get().MakeDirectory(*JournalDir, true);
+
+    // Write a malformed journal entry (invalid JSON) with a unique name.
+    const FString MalformedFile = FPaths::Combine(JournalDir, TEXT("malformed_handling_test.json"));
+    const FString InvalidJson = TEXT("{ this is not valid JSON ");
+    const bool bSaved = FFileHelper::SaveStringToFile(InvalidJson, *MalformedFile);
+    TestTrue(TEXT("malformed journal file written"), bSaved);
+
+    FAtlasTransportServer::FTransportRequest Req;
+    Req.RequestId = TEXT("malformed-001");
+    Req.OperationName = TEXT("reconcile_render_jobs");
+    Req.Capability = TEXT("render");
+    Req.Kind = TEXT("read");
+    Req.SchemaVersion = 1;
+    Req.AuthorizationId = TEXT("auth-malformed");
+
+    TSharedPtr<FJsonObject> ObservedState;
+    FString Err;
+    const bool bSuccess = FAtlasTransportServer::ReconcileRenderJobs(Req, ObservedState, Err);
+    TestTrue(TEXT("ReconcileRenderJobs succeeded"), bSuccess);
+    TestNotNull(TEXT("ObservedState valid"), ObservedState.Get());
+    if (ObservedState.IsValid())
+    {
+        const FString Status = ObservedState->GetStringField(TEXT("journal_status"));
+        TestTrue(TEXT("journal_status is PARTIAL on malformed journal"), Status == TEXT("PARTIAL"));
+    }
+
+    // Cleanup
+    IFileManager::Get().Delete(*MalformedFile);
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56CapabilitySchemaReportingTest::RunTest(const FString& Parameters)
+{
+    FAtlasTransportServer::FTransportRequest Req;
+    Req.RequestId = TEXT("cap-001");
+    Req.OperationName = TEXT("get_capabilities");
+    Req.Capability = TEXT("render");
+    Req.Kind = TEXT("read");
+    Req.SchemaVersion = 1;
+
+    TSharedPtr<FJsonObject> ObservedState;
+    FString Err;
+    const bool bSuccess = FAtlasTransportServer::GetCapabilities(Req, ObservedState, Err);
+    TestTrue(TEXT("GetCapabilities succeeded"), bSuccess);
+    TestNotNull(TEXT("ObservedState valid"), ObservedState.Get());
+    if (ObservedState.IsValid())
+    {
+        TestEqual(TEXT("schema_version is 1"), ObservedState->GetIntegerField(TEXT("schema_version")), 1);
+        TestTrue(TEXT("capabilities array exists"), ObservedState->HasField(TEXT("capabilities")));
+        const TArray<TSharedPtr<FJsonValue>> Caps = ObservedState->GetArrayField(TEXT("capabilities"));
+        bool bHasDurableJournal = false;
+        bool bHasReconcile = false;
+        for (const TSharedPtr<FJsonValue>& Cap : Caps)
+        {
+            FString Name;
+            Cap->TryGetString(Name);
+            if (Name == TEXT("durable_journal")) { bHasDurableJournal = true; }
+            if (Name == TEXT("reconcile_render_jobs")) { bHasReconcile = true; }
+        }
+        TestTrue(TEXT("capability durable_journal reported"), bHasDurableJournal);
+        TestTrue(TEXT("capability reconcile_render_jobs reported"), bHasReconcile);
+    }
+    return !HasAnyErrors();
+}
+

@@ -1,5 +1,34 @@
 # Atlas Development Log
 
+## September 6, 2026 — Milestone 6 deterministic fault-injection/concurrency test suite
+
+Milestone 6 (Contract V1 §31 matrix + §32 C++ automation boundary) is implemented as a deterministic test suite under `tests/m6/` on `main` + dedicated M6 branch. No production code was modified; no workflow/action-runner tests; no live Unreal/Blender execution; no M7 live restart scenarios.
+
+### Coverage
+
+- §31 items 1–25: record/store round-trip & corruption; concurrent update conflict; stale-writer/fencing; coordinator single-instance; duplicate submission; terminal non-regression; journal malformed/session/identity faults; acceptance-before-launch; terminal FINISHED; artifact isolation/hash/PNG/topology; Case A–J; artifact-only-no-receipt; authorization revalidation; receipt create-if-absent & crash-between-persistence; transport-unavailable waiting; catalog stability; capability/wire-version rejection.
+- §32 C++ automation: added malformed-journal handling and capability/schema-reporting tests to `AtlasUE56RenderJobBoundaryTest.cpp` (friend seam; narrow, deterministic-boundary). Compile-verified via UnrealBuildTool (module build succeeded); not executed under the editor (no live UE in M6).
+
+### Validation
+
+- M6 suite: **79 passed**.
+- Full deterministic repository suite: **1029 passed**.
+- Existing Unreal recovery/evidence suites: **121 passed** (no regression).
+
+### Deferred production items (flagged, not fixed — test-only milestone)
+
+1. Coordinator frame-integrity check cannot serialize frozen `observed_state` (mappingproxy) to canonical JSON; a framing-field response always fails closed to Case J (safe) but the code path is inert.
+2. C++ `WriteJournalEntry` overwrites a single `<atlas>__<unreal>.json` per job-pair instead of Contract §30 append-only `phase_history`/monotonic `phase_sequence`.
+3. `execution_deadline` is persisted but expired-window enforcement (`EXHAUSTED` transition) is not implemented.
+
+These require production remediation (M7 hardening), not test weakening.
+
+### M7 status
+
+Live UE 5.6 restart/recovery Scenarios 1–8 are NOT yet run. Do not run them without explicit authorization; do not run workflow/action-runner tests.
+
+Historical dated handoff snapshots are archival records and should remain unchanged.
+
 ## September 6, 2026 — Milestone M4/M5 merged to main
 
 The current development line is `main`.
