@@ -12,7 +12,6 @@ from typing import Any, Mapping
 from planning.unreal_evidence_contract import (
     UnrealEvidence,
     validate_evidence_for_operation,
-    verify_render_job_evidence,
 )
 from planning.unreal_render_job_record import validate_canonical_atlas_job_id
 

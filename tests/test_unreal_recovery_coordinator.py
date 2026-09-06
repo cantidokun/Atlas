@@ -13,7 +13,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapterProduction
-from planning.unreal_evidence_contract import UnrealEvidence
+from planning.unreal_evidence_contract import (
+    UnrealEvidence,
+    verify_png_completeness,
+)
 from planning.unreal_operation_contract import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_render_job_record import (
     AtlasRenderJobRecord,
@@ -32,25 +35,30 @@ from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
 from planning.unreal_render_recovery_coordinator import (
     UnrealRenderRecoveryCoordinator,
     compute_journal_hmac,
-    verify_png_completeness,
 )
 from scripts.run_unreal_supervisor import AtlasProcessSupervisor, ProcessQuiescenceResult
 
 
 def _create_minimal_valid_png(path: Path) -> None:
-    """Create a minimal valid 1x1 PNG file with valid signature and IEND."""
+    """Create a minimal valid 1x1 PNG file with valid signature, IHDR, IDAT, and IEND."""
+    import zlib
     path.parent.mkdir(parents=True, exist_ok=True)
     # Minimal 1x1 8-bit RGB PNG
-    sig = b"\x89PNG\r\n\x1a\n"
+    sig = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     # IHDR chunk
     ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
-    ihdr_crc = struct.pack(">I", 0x4B6D29DC)  # Precalculated CRC for sample
+    ihdr_crc = struct.pack(">I", 0x907753DE)  # CRC32 of b'IHDR' + ihdr_data
     ihdr = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + ihdr_crc
+    # IDAT chunk: filter byte (0) + 3 bytes RGB (0, 0, 0) compressed with zlib
+    raw_scanlines = b"\x00\x00\x00\x00"
+    compressed_idat = zlib.compress(raw_scanlines)
+    idat_crc = struct.pack(">I", zlib.crc32(b"IDAT" + compressed_idat) & 0xFFFFFFFF)
+    idat = struct.pack(">I", len(compressed_idat)) + b"IDAT" + compressed_idat + idat_crc
     # IEND chunk
     iend_crc = struct.pack(">I", 0xAE426082)
     iend = struct.pack(">I", 0) + b"IEND" + iend_crc
     with path.open("wb") as f:
-        f.write(sig + ihdr + iend)
+        f.write(sig + ihdr + idat + iend)
 
 
 def _sample_intent_record(
@@ -70,7 +78,7 @@ def _sample_intent_record(
         config_digest="cfg-digest",
         output_parent_directory=out_parent,
         output_directory=out_dir,
-        expected_output_spec={"format": "png"},
+        expected_output_spec={"format": "png", "width": 1, "height": 1, "start_frame": 1, "end_frame": 1},
         created_at="2026-09-06T00:00:00Z",
         attempt_nonce=attempt_nonce,
     )
@@ -214,6 +222,14 @@ def test_case_b_finished_quiescent_hmac_verified(tmp_path):
     record = _sample_intent_record(tmp_path, attempt_nonce=nonce)
     store.create(record)
 
+    # Set origin fields on record to match
+    record = record.transition(
+        origin_editor_session_id="session-1",
+        origin_process_id=12345,
+        origin_process_creation_time="2026-09-06T00:00:00Z",
+    )
+    store.update(record, expected_revision=0)
+
     # Create real valid PNG on disk
     frame_path = Path(record.output_directory) / "AtlasRender_0001.png"
     _create_minimal_valid_png(frame_path)
@@ -243,12 +259,16 @@ def test_case_b_finished_quiescent_hmac_verified(tmp_path):
         "atlas_job_id": record.atlas_job_id,
         "job_id": unreal_job_id,
         "sequence_asset_path": record.sequence_asset_path,
+        "authorization_id": record.authorization_id,
+        "canonical_digital_twin_id": record.canonical_digital_twin_id,
         "config_digest": record.config_digest,
         "output_directory": record.output_directory,
         "phase": "FINISHED",
         "phase_sequence": 3,
         "editor_session_id": "session-1",
+        "process_id": 12345,
         "process_creation_time_utc": "2026-09-06T00:00:00Z",
+        "expected_output_spec": {"format": "png", "width": 1, "height": 1, "start_frame": 1, "end_frame": 1},
         "status": "completed",
         "finished": True,
         "success": True,
