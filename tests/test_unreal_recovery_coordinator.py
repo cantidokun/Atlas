@@ -13,7 +13,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapterProduction
-from planning.unreal_evidence_contract import UnrealEvidence
+from planning.unreal_evidence_contract import (
+    UnrealEvidence,
+    verify_png_completeness,
+)
 from planning.unreal_operation_contract import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_render_job_record import (
     AtlasRenderJobRecord,
@@ -32,7 +35,6 @@ from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
 from planning.unreal_render_recovery_coordinator import (
     UnrealRenderRecoveryCoordinator,
     compute_journal_hmac,
-    verify_png_completeness,
 )
 from scripts.run_unreal_supervisor import AtlasProcessSupervisor, ProcessQuiescenceResult
 
@@ -44,7 +46,7 @@ def _create_minimal_valid_png(path: Path) -> None:
     sig = b"\x89PNG\r\n\x1a\n"
     # IHDR chunk
     ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
-    ihdr_crc = struct.pack(">I", 0x4B6D29DC)  # Precalculated CRC for sample
+    ihdr_crc = struct.pack(">I", 0x907753DE)  # CRC32 of b'IHDR' + ihdr_data
     ihdr = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + ihdr_crc
     # IEND chunk
     iend_crc = struct.pack(">I", 0xAE426082)

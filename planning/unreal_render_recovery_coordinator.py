@@ -17,7 +17,12 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapterProduction
-from planning.unreal_evidence_contract import UnrealEvidence, verify_render_job_evidence
+from planning.unreal_evidence_contract import (
+    UnrealEvidence,
+    UnrealEvidenceVerificationError,
+    verify_png_completeness,
+    verify_render_job_evidence,
+)
 from planning.unreal_operation_contract import UnrealCapability, UnrealOperation, UnrealOperationKind
 from planning.unreal_render_job_record import (
     AtlasRenderJobRecord,
@@ -85,41 +90,7 @@ def compute_journal_hmac(
     return hmac.new(key_bytes, encoded_message, hashlib.sha256).hexdigest()
 
 
-def verify_png_completeness(file_path: Path, expected_size: Optional[int] = None) -> bool:
-    """Validate PNG container completeness: valid 8-byte signature, chunk CRCs, and IEND."""
-    if not file_path.is_file():
-        return False
-    size = file_path.stat().st_size
-    if size < 8 + 12:  # Signature + IHDR/IEND
-        return False
-    if expected_size is not None and size != expected_size:
-        return False
 
-    with file_path.open("rb") as f:
-        sig = f.read(8)
-        if sig != b"\x89PNG\r\n\x1a\n":
-            return False
-
-        has_iend = False
-        while True:
-            chunk_len_bytes = f.read(4)
-            if not chunk_len_bytes or len(chunk_len_bytes) < 4:
-                break
-            chunk_len = struct.unpack(">I", chunk_len_bytes)[0]
-            chunk_type = f.read(4)
-            if len(chunk_type) < 4:
-                return False
-            data = f.read(chunk_len)
-            if len(data) < chunk_len:
-                return False
-            crc_bytes = f.read(4)
-            if len(crc_bytes) < 4:
-                return False
-            if chunk_type == b"IEND":
-                has_iend = True
-                break
-
-    return has_iend
 
 
 class UnrealRenderRecoveryCoordinator:
@@ -561,6 +532,8 @@ class UnrealRenderRecoveryCoordinator:
                 entity_ids=("RENDER_RECOVERY",),
                 observed_state=candidate,
                 source="unreal-recovery-coordinator",
+                job_record=record,
+                evidence_source_class="ENGINE_JOURNAL_ATTESTED",
             )
         except Exception as exc:
             return self._fail_case_g(record, f"Independent evidence verification failed: {exc}")
