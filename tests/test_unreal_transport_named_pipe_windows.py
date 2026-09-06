@@ -172,3 +172,78 @@ def test_named_pipe_server_disconnect_is_transport_error(win32_modules):
     assert finished.wait(2)
     assert not errors
     thread.join(1)
+
+
+def test_named_pipe_framing_verification_success_and_failure(win32_modules):
+    win32file, win32pipe, pywintypes = win32_modules
+    import hashlib
+    import json
+    from planning.unreal_transport_named_pipe import NamedPipeTransportFramingError
+
+    # 1. Test valid framed response
+    pipe_name = rf"\\.\pipe\AtlasTransportTest_{uuid.uuid4().hex}"
+    ready = threading.Event()
+
+    def server_framed():
+        h = win32pipe.CreateNamedPipe(
+            pipe_name,
+            win32pipe.PIPE_ACCESS_DUPLEX,
+            win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+            1, 1024*1024, 1024*1024, 1000, None,
+        )
+        ready.set()
+        win32pipe.ConnectNamedPipe(h)
+        win32file.ReadFile(h, 1024*1024)
+        resp_obj = {
+            "request_id": "req-1",
+            "operation_name": "inspect_target_actors",
+            "entity_ids": ["FIELD_SURFACE"],
+            "success": True,
+            "observed_state": {"status": "ok"},
+            "error": "",
+            "source": "test",
+            "schema_version": 1,
+            "error_code": "",
+            "session_identity": {},
+        }
+        payload = json.dumps(resp_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        sha = hashlib.sha256(payload).hexdigest()
+        frame_header = f"ATLAS_FRAME:{len(payload)}:{sha}:\n".encode("ascii")
+        win32file.WriteFile(h, frame_header + payload)
+        win32file.FlushFileBuffers(h)
+        win32file.CloseHandle(h)
+
+    t = threading.Thread(target=server_framed, daemon=True)
+    t.start()
+    assert ready.wait(2)
+    resp = _transport(pipe_name).send(_make_request())
+    assert resp.success is True
+    t.join(1)
+
+    # 2. Test truncated/tampered framed response fails closed
+    pipe_name_bad = rf"\\.\pipe\AtlasTransportTest_{uuid.uuid4().hex}"
+    ready_bad = threading.Event()
+
+    def server_framed_bad():
+        h = win32pipe.CreateNamedPipe(
+            pipe_name_bad,
+            win32pipe.PIPE_ACCESS_DUPLEX,
+            win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+            1, 1024*1024, 1024*1024, 1000, None,
+        )
+        ready_bad.set()
+        win32pipe.ConnectNamedPipe(h)
+        win32file.ReadFile(h, 1024*1024)
+        payload = b'{"truncated": true'
+        # Provide declared length 100 which mismatches actual length
+        frame_header = f"ATLAS_FRAME:100:badsha:\n".encode("ascii")
+        win32file.WriteFile(h, frame_header + payload)
+        win32file.FlushFileBuffers(h)
+        win32file.CloseHandle(h)
+
+    t2 = threading.Thread(target=server_framed_bad, daemon=True)
+    t2.start()
+    assert ready_bad.wait(2)
+    with pytest.raises(NamedPipeTransportFramingError, match="Framing length mismatch"):
+        _transport(pipe_name_bad).send(_make_request())
+    t2.join(1)

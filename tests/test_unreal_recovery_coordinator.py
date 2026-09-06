@@ -511,3 +511,155 @@ def test_hmac_mismatch_classified_untrusted_witness(tmp_path):
     res = coord.reconcile_single_job(record.atlas_job_id)
     assert res.case_classified == "UNTRUSTED_WITNESS"
     assert res.lifecycle_state_after == RenderJobLifecycleState.RECOVERY_FAILED
+
+
+def test_receipt_first_10_field_identity_binding(tmp_path):
+    store = AtlasRenderJobStore(tmp_path / "store")
+    record = _sample_intent_record(tmp_path)
+    # Transition record with engine job and session identity
+    rec_submitted = record.transition(
+        lifecycle_state=RenderJobLifecycleState.SUBMITTED,
+        unreal_job_id="unreal-job-bound-1",
+        origin_editor_session_id="session-guid-1",
+        origin_process_creation_time="2026-09-06T00:00:00Z",
+    )
+    store.create(rec_submitted)
+
+    receipt_file = tmp_path / "receipts" / "rcpt.json"
+    receipt_store = UnrealRenderReceiptStore(receipt_file)
+
+    # Valid receipt with matching all 10 identity fields
+    valid_receipt = UnrealRenderReceipt(
+        job_id="unreal-job-bound-1",
+        sequence_asset_path=record.sequence_asset_path,
+        evidence_digest="evidence-digest-123",
+        atlas_job_id=record.atlas_job_id,
+        attempt_ordinal=record.attempt_ordinal,
+        authorization_id=record.authorization_id,
+        canonical_digital_twin_id=record.canonical_digital_twin_id,
+        config_digest=record.config_digest,
+        output_directory=record.output_directory,
+        unreal_job_id="unreal-job-bound-1",
+        editor_session_id="session-guid-1",
+        process_creation_time="2026-09-06T00:00:00Z",
+    )
+    receipt_store.save(valid_receipt)
+
+    adapter = MagicMock()
+    coord = UnrealRenderRecoveryCoordinator(
+        store=store,
+        adapter=adapter,
+        receipt_store=receipt_store,
+        deployment_mode="CONTAINED_JOB_OBJECT",
+    )
+
+    res = coord.reconcile_single_job(record.atlas_job_id)
+    assert res.repaired_from_receipt is True
+    assert res.lifecycle_state_after == RenderJobLifecycleState.FINALIZED
+    assert res.recovery_status_after == RenderJobRecoveryStatus.RESOLVED
+
+
+def test_receipt_first_rejects_mismatched_unreal_job_id(tmp_path):
+    store = AtlasRenderJobStore(tmp_path / "store")
+    record = _sample_intent_record(tmp_path)
+    rec_submitted = record.transition(
+        lifecycle_state=RenderJobLifecycleState.SUBMITTED,
+        unreal_job_id="unreal-job-bound-1",
+        origin_editor_session_id="session-guid-1",
+        origin_process_creation_time="2026-09-06T00:00:00Z",
+    )
+    store.create(rec_submitted)
+
+    receipt_file = tmp_path / "receipts" / "rcpt.json"
+    receipt_store = UnrealRenderReceiptStore(receipt_file)
+    mismatched_job_receipt = UnrealRenderReceipt(
+        job_id="unreal-job-WRONG-999",
+        sequence_asset_path=record.sequence_asset_path,
+        evidence_digest="evidence-digest-123",
+        atlas_job_id=record.atlas_job_id,
+        attempt_ordinal=record.attempt_ordinal,
+        authorization_id=record.authorization_id,
+        canonical_digital_twin_id=record.canonical_digital_twin_id,
+        config_digest=record.config_digest,
+        output_directory=record.output_directory,
+        unreal_job_id="unreal-job-WRONG-999",
+        editor_session_id="session-guid-1",
+        process_creation_time="2026-09-06T00:00:00Z",
+    )
+    receipt_store.save(mismatched_job_receipt)
+
+    adapter = MagicMock()
+    adapter.assert_recovery_capable = MagicMock(return_value=None)
+    adapter.apply_authorized.return_value = UnrealEvidence(
+        operation_name="reconcile_render_jobs",
+        entity_ids=("RENDER_RECOVERY",),
+        observed_state={"journal_status": "COMPLETE", "known_jobs": []},
+        source="unreal",
+        verified=True,
+    )
+
+    coord = UnrealRenderRecoveryCoordinator(
+        store=store,
+        adapter=adapter,
+        receipt_store=receipt_store,
+        deployment_mode="CONTAINED_JOB_OBJECT",
+    )
+
+    # Receipt is NOT adopted; falls through to Case C
+    res = coord.reconcile_single_job(record.atlas_job_id)
+    assert res.repaired_from_receipt is False
+    assert res.case_classified == "Case C"
+
+
+def test_receipt_first_rejects_mismatched_session_identity(tmp_path):
+    store = AtlasRenderJobStore(tmp_path / "store")
+    record = _sample_intent_record(tmp_path)
+    rec_submitted = record.transition(
+        lifecycle_state=RenderJobLifecycleState.SUBMITTED,
+        unreal_job_id="unreal-job-bound-1",
+        origin_editor_session_id="session-guid-1",
+        origin_process_creation_time="2026-09-06T00:00:00Z",
+    )
+    store.create(rec_submitted)
+
+    receipt_file = tmp_path / "receipts" / "rcpt.json"
+    receipt_store = UnrealRenderReceiptStore(receipt_file)
+
+    # Receipt with mismatched editor_session_id
+    mismatched_receipt = UnrealRenderReceipt(
+        job_id="unreal-job-bound-1",
+        sequence_asset_path=record.sequence_asset_path,
+        evidence_digest="evidence-digest-123",
+        atlas_job_id=record.atlas_job_id,
+        attempt_ordinal=record.attempt_ordinal,
+        authorization_id=record.authorization_id,
+        canonical_digital_twin_id=record.canonical_digital_twin_id,
+        config_digest=record.config_digest,
+        output_directory=record.output_directory,
+        unreal_job_id="unreal-job-bound-1",
+        editor_session_id="session-WRONG-999",
+        process_creation_time="2026-09-06T00:00:00Z",
+    )
+    receipt_store.save(mismatched_receipt)
+
+    adapter = MagicMock()
+    adapter.assert_recovery_capable = MagicMock(return_value=None)
+    adapter.apply_authorized.return_value = UnrealEvidence(
+        operation_name="reconcile_render_jobs",
+        entity_ids=("RENDER_RECOVERY",),
+        observed_state={"journal_status": "COMPLETE", "known_jobs": []},
+        source="unreal",
+        verified=True,
+    )
+
+    coord = UnrealRenderRecoveryCoordinator(
+        store=store,
+        adapter=adapter,
+        receipt_store=receipt_store,
+        deployment_mode="CONTAINED_JOB_OBJECT",
+    )
+
+    # Receipt is NOT adopted; falls through to Case C (no engine evidence, no disk artifacts)
+    res = coord.reconcile_single_job(record.atlas_job_id)
+    assert res.repaired_from_receipt is False
+    assert res.case_classified == "Case C"

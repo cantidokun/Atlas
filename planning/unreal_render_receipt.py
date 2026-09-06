@@ -48,6 +48,9 @@ class UnrealRenderReceipt:
     canonical_digital_twin_id: str = ""
     config_digest: str = ""
     output_directory: str = ""
+    unreal_job_id: str = ""
+    editor_session_id: str = ""
+    process_creation_time: str = ""
     lease_token: int = 0
     coordinator_id: str = ""
 
@@ -55,6 +58,8 @@ class UnrealRenderReceipt:
         _validate_identity("job_id", self.job_id)
         _validate_identity("sequence_asset_path", self.sequence_asset_path)
         _validate_identity("evidence_digest", self.evidence_digest)
+        if not self.unreal_job_id:
+            object.__setattr__(self, "unreal_job_id", self.job_id)
 
     @property
     def receipt_digest(self) -> str:
@@ -68,6 +73,9 @@ class UnrealRenderReceipt:
             self.canonical_digital_twin_id,
             self.config_digest,
             self.output_directory,
+            self.unreal_job_id,
+            self.editor_session_id,
+            self.process_creation_time,
         )
         return hashlib.sha256(_canonical_material(fields)).hexdigest()
 
@@ -83,6 +91,9 @@ class UnrealRenderReceipt:
             "canonical_digital_twin_id": self.canonical_digital_twin_id,
             "config_digest": self.config_digest,
             "output_directory": self.output_directory,
+            "unreal_job_id": self.unreal_job_id,
+            "editor_session_id": self.editor_session_id,
+            "process_creation_time": self.process_creation_time,
             "lease_token": self.lease_token,
             "coordinator_id": self.coordinator_id,
         }
@@ -105,6 +116,9 @@ class UnrealRenderReceipt:
             "canonical_digital_twin_id",
             "config_digest",
             "output_directory",
+            "unreal_job_id",
+            "editor_session_id",
+            "process_creation_time",
             "lease_token",
             "coordinator_id",
         }
@@ -120,6 +134,9 @@ class UnrealRenderReceipt:
             canonical_digital_twin_id=snapshot.get("canonical_digital_twin_id", ""),
             config_digest=snapshot.get("config_digest", ""),
             output_directory=snapshot.get("output_directory", ""),
+            unreal_job_id=snapshot.get("unreal_job_id", snapshot["job_id"]),
+            editor_session_id=snapshot.get("editor_session_id", ""),
+            process_creation_time=snapshot.get("process_creation_time", ""),
             lease_token=snapshot.get("lease_token", 0),
             coordinator_id=snapshot.get("coordinator_id", ""),
         )
@@ -135,6 +152,9 @@ class UnrealRenderReceipt:
         canonical_digital_twin_id: str = "",
         config_digest: str = "",
         output_directory: str = "",
+        unreal_job_id: str = "",
+        editor_session_id: str = "",
+        process_creation_time: str = "",
         lease_token: int = 0,
         coordinator_id: str = "",
     ) -> "UnrealRenderReceipt":
@@ -152,6 +172,9 @@ class UnrealRenderReceipt:
         sequence_asset_path = state.get("sequence_asset_path")
         _validate_identity("job_id", job_id)
         _validate_identity("sequence_asset_path", sequence_asset_path)
+        resolved_unreal_job_id = unreal_job_id or job_id
+        resolved_editor_session_id = editor_session_id or str(state.get("editor_session_id") or "")
+        resolved_process_creation_time = process_creation_time or str(state.get("process_creation_time_utc") or state.get("process_creation_time") or "")
         return cls(
             job_id=job_id,
             sequence_asset_path=sequence_asset_path,
@@ -162,6 +185,9 @@ class UnrealRenderReceipt:
             canonical_digital_twin_id=canonical_digital_twin_id,
             config_digest=config_digest,
             output_directory=output_directory,
+            unreal_job_id=resolved_unreal_job_id,
+            editor_session_id=resolved_editor_session_id,
+            process_creation_time=resolved_process_creation_time,
             lease_token=lease_token,
             coordinator_id=coordinator_id,
         )

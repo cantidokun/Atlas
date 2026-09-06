@@ -340,7 +340,7 @@ class UnrealRenderRecoveryCoordinator:
         return None
 
     def _receipt_matches_record(self, receipt: UnrealRenderReceipt, record: AtlasRenderJobRecord) -> bool:
-        """Validate exact equality across mandatory identity fields."""
+        """Validate exact equality across mandatory 10 identity fields (Contract V1 §20 Step 2)."""
         if receipt.sequence_asset_path != record.sequence_asset_path:
             return False
         if receipt.atlas_job_id and receipt.atlas_job_id != record.atlas_job_id:
@@ -354,6 +354,12 @@ class UnrealRenderRecoveryCoordinator:
         if receipt.config_digest and receipt.config_digest != record.config_digest:
             return False
         if receipt.output_directory and receipt.output_directory != record.output_directory:
+            return False
+        if record.unreal_job_id and receipt.unreal_job_id != record.unreal_job_id:
+            return False
+        if record.origin_editor_session_id and receipt.editor_session_id and receipt.editor_session_id != record.origin_editor_session_id:
+            return False
+        if record.origin_process_creation_time and receipt.process_creation_time and receipt.process_creation_time != record.origin_process_creation_time:
             return False
         return True
 

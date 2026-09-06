@@ -79,6 +79,9 @@ class UnrealRenderReceiptStore:
             "canonical_digital_twin_id",
             "config_digest",
             "output_directory",
+            "unreal_job_id",
+            "editor_session_id",
+            "process_creation_time",
             "lease_token",
             "coordinator_id",
         }
