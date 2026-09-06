@@ -1,8 +1,9 @@
 # Atlas Unreal Agent — Current Handoff
 
-**Updated:** September 5, 2026 — Clean Unreal autonomy bridge merged into main via PR #59.
+**Updated:** September 6, 2026 — M4 cross-process recovery and M5 independent evidence verification are merged to `main` via PR #68.
 **Active Atlas branch:** `main`
-**Current focus:** Stage 17 production-artifact lineage, with the Unreal autonomy bridge and execution boundary merged to main and the live UE 5.6 provenance proof pending.
+**Current focus:** M4/M5 are complete. Continue from the next unresolved Unreal/Atlas milestone after the now-hardened recovery and evidence-verification baseline.
+**Latest M5 merge commit:** `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
 
 ## Architectural position
 
@@ -11,11 +12,9 @@ Atlas owns the canonical Digital Twin. Unreal is a downstream controlled product
 ```text
 Qwen / model proposal
         ↓
-Atlas planning / validation
+Atlas planning / validation / authorization
         ↓
-ActionAuthorization / TrustedUnrealContext
-        ↓
-AgentControllerHost
+AgentControllerHost / TrustedUnrealContext
         ↓
 AutonomousTaskRuntime / AutonomousFutureRuntime
         ↓
@@ -27,28 +26,34 @@ UnrealAdapterProduction
         ↓
 Windows Named Pipe transport
         ↓
-Unreal Engine 5.6 (AtlasTransportServer.cpp)
+Unreal Engine 5.6
         ↓
-independent evidence (UnrealEvidence, verified=False)
+observed state / witness data
         ↓
-Atlas independent verification
+Atlas recovery + authoritative independent verification
         ↓
-UnrealRenderReceipt -> ProductionArtifactManifest
+verified UnrealEvidence
+        ↓
+UnrealRenderReceipt
+        ↓
+ProductionArtifactManifest
 ```
 
 Key authority invariants:
 - `UnrealAutonomousExecutor` is an execution adapter, NOT an autonomous runtime.
 - `UnrealExecutionBoundary` is a tool/operation validation boundary, NOT an authorization authority.
 - `AutonomousTaskRuntime` / `AutonomousFutureRuntime` remains the single autonomous progression authority.
-- `TrustedUnrealContext` remains the host-owned source of truth for protected production intent, sequence path, and production markers.
-- Transport success != verification success: `UnrealEvidence` returns `verified=False` by default.
-- Neither the bridge nor the adapter issues `UnrealRenderReceipt`. Independent verification downstream establishes verified evidence.
+- `TrustedUnrealContext` remains the host-owned source of truth for protected production intent, sequence path, authorization context, and production markers.
+- Transport success != verification success.
+- Unreal witness/journal information is not itself authoritative proof.
+- Neither the bridge nor the adapter issues a render receipt.
+- Independent Atlas verification establishes verified evidence; the receipt/provenance layers consume that evidence downstream.
 
 ## Restored and compile-verified Unreal execution baseline
 
-PR #57 restored the working Unreal 5.6 execution boundary to `main` (19/19 build actions succeeded on UE 5.6 editor build). PR #59 merged the clean autonomy bridge connecting `AutonomousTaskRuntime` to `UnrealAdapterProduction` and the C++ named-pipe server.
+PR #57 restored the working Unreal 5.6 execution boundary to `main`. PR #59 merged the clean autonomy bridge connecting the generic Atlas runtime to the production Unreal adapter and named-pipe transport.
 
-The working render workflow remains:
+The working render path is:
 
 ```text
 render configuration
@@ -57,111 +62,145 @@ render configuration
   → dynamic job ID
   → asynchronous job inspection
   → semantic completion verification
-  → actual output artifact discovery
-  → filesystem validation
-  → verify_render_job_evidence
-  → verified inspect_render_job evidence
+  → artifact discovery
+  → Atlas recovery/identity checks where required
+  → authoritative evidence verification
+  → verified UnrealEvidence
   → evidence-bound UnrealRenderReceipt
-  → durable receipt persistence
+  → ProductionArtifactManifest / provenance
 ```
 
-The previously proven controlled live render parameters were:
+## Stage 17 — production-artifact provenance — LIVE VERIFIED
+
+The real UE 5.6 production/provenance proof completed successfully after the server-side state-consistency defect from the first proof attempt was corrected.
+
+The C++ hardening included callback identity filtering, terminal-state anti-regression, fail-closed finalization, and locked snapshot construction so that inspection cannot observe incoherent terminal state.
+
+The successful chain was:
 
 ```text
-resolution:       640x360
-frame range:      1–2
-output format:    PNG
-output directory: Saved/AtlasRenderOutput
+UE 5.6 render
+  → inspect_render_job
+  → verify_render_job_evidence
+  → verified UnrealEvidence
+  → UnrealRenderReceipt
+  → ProductionArtifactManifest
+  → durable persistence
+  → reload
+  → exact lineage verification
 ```
 
-**Cross-process Unreal render-job recovery is not implemented.** The runtime render-job registry remains in-memory. Receipt persistence must not be described as job persistence.
+The successful proof established real artifact/evidence/receipt/manifest lineage and deterministic digest identities.
 
-## Stage 17 — production-artifact provenance
+## M4 — Cross-process Unreal render-job recovery — COMPLETE
 
-`ProductionArtifactManifest.from_unreal_render_receipt(...)` is a provenance-only bridge from an existing immutable `UnrealRenderReceipt` plus `UnrealEvidence`.
+The durable recovery design is now merged to `main` and follows Contract V1.
 
-Required lineage invariants:
+### Atlas authority
 
-```text
-engine                     == Unreal
-operation_name             == inspect_render_job
-verified                   == True
-receipt.matches(evidence)  == True
-artifact_path              ∈ independently observed output_files
-```
+Atlas creates and owns the immutable `atlas_job_id`, authoritative job record, attempt identity, lifecycle, recovery status, authorization binding, output isolation, and final verification/receipt decisions.
 
-`verify_unreal_render_lineage(...)` rechecks those bindings without executing Unreal, authorizing work, scheduling a render, or recovering a job.
+### Durable job record
 
-`ProductionArtifactStore` provides durable versioned manifest persistence with fail-closed reload and integrity validation.
+`AtlasRenderJobRecord` is frozen and acts as the durable authority boundary. Construction/deserialization validates the versioned schema, canonical IDs, attempt ordinal, authorization/configuration values, output isolation, expected output specification, lifecycle/recovery state, and recomputed `authoritative_digest`.
 
-`UnrealEvidence.snapshot()` / `from_snapshot(...)` and `UnrealRenderReceipt.snapshot()` / `from_snapshot(...)` are canonical detached serialization boundaries with exact-field fail-closed validation.
+State transitions construct new records rather than mutating existing records.
 
-The disposable `live_unreal_production_artifact_proof.py` harness consumes the already verified evidence/receipt pair, constructs the manifest, persists/reloads it, independently verifies exact lineage, and reports artifact/evidence/receipt digests. It does not submit or execute a render.
+### Submission/recovery invariants
 
-## Controller-to-Unreal trust boundary
+- Durable intent is written before render submission.
+- A new authorized rerender is a new attempt and new Atlas job identity.
+- Uncertain transport acceptance is not silently retried.
+- Single-coordinator lease/fencing prevents competing recovery writers.
+- Per-job locking and atomic durable writes protect record integrity.
+- Process identity includes editor/session and process-creation identity.
+- Contained Unreal execution can use a Windows Job Object supervision boundary.
+- Unsupported uncontained attached recovery fails closed rather than treating parent PID death as proof of engine quiescence.
+- Unreal witness journaling occurs outside `Saved` and records durable accepted/start/finish/failure phases.
+- Attempt identity uses a CSPRNG nonce with HMAC-protected witness information and the nonce is not persisted in plaintext proof artifacts.
+- Outputs are isolated per Atlas job/attempt.
+- Engine-attested output manifests bind path, size, and SHA-256 to actual files.
+- Reconciliation covers the full engine catalog and detects unmanaged/rogue jobs without silently adopting them.
+- Orphaned artifacts and conclusive ambiguity fail through explicit recovery states rather than synthetic success.
+- Receipt issuance is identity-bound, create-if-absent, and gated by coordinator lease/revision state.
 
-For protected Unreal production requests:
+The Unreal process is a controlled production worker/witness. It is not the Atlas recovery authority.
 
-- `TrustedUnrealContext` supplies protected intent, authorization context, sequence path, and the production marker;
-- model-supplied protected intent cannot replace the trusted intent;
-- conflicting model intent becomes diagnostic mismatch state only;
-- model-supplied production flags cannot disable the host-owned production marker;
-- the Unreal production integration seam rejects missing required trusted context before execution.
+## M5 — Independent evidence verification — COMPLETE
 
-The C++ transport is an engine execution/transport boundary, not a second authorization system. Authority remains owned by the trusted Atlas host boundary.
+PR #68 is merged to `main`. `verify_render_job_evidence(...)` in `planning/unreal_evidence_contract.py` is the authoritative boundary that may produce `UnrealEvidence(verified=True)` from raw observed render-job state.
 
-## Validation status
+The verifier strictly requires:
 
-Verified in this checkpoint:
+- an allowed evidence source class (`ENGINE_LIVE` or `ENGINE_JOURNAL_ATTESTED`);
+- a concrete `AtlasRenderJobRecord` with intact constructor/deserialization invariants;
+- complete evidence identity binding to the durable record;
+- exact output-directory isolation;
+- complete expected topology: PNG format, width, height, start frame, end frame;
+- unconditional frame-count enforcement;
+- mandatory engine-attested output manifest;
+- exact path-set equality between the manifest and declared output files;
+- positive integer sizes and canonical lowercase 64-character SHA-256 values;
+- independent disk size/hash verification;
+- complete PNG structural, CRC, IHDR/IEND, and trailing-byte validation;
+- IDAT zlib stream completion/integrity checks;
+- rejection of unexpected extra disk artifacts.
 
-- Clean Unreal autonomy bridge merged to `main` via PR #59;
-- 842 deterministic repository tests pass (0 failures);
-- CI passed on Python 3.9 and Python 3.11 for the clean PR;
-- UE 5.6 editor compilation of the restored Unreal harness: **19/19 actions succeeded**;
-- `AtlasTransportServer.cpp` compiled and linked successfully;
-- `AtlasUnrealTransport.cpp` compiled and linked successfully;
-- render/world-save boundary sources compiled successfully;
-- Blender development and tests completely unaffected.
+`verified=True` is never transported from Unreal. It exists only after Atlas independently proves the evidence and filesystem artifacts.
 
-Previously verified:
+### M5 validation evidence
 
-- deterministic Stage 17 provenance/snapshot coverage on Python 3.9 and 3.11;
-- the original real UE 5.6 render/receipt path.
+M5 head: `d7ce33194946fde5076871f8f13f2c5f6776d655`
+Merged: `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
 
-Still pending:
+Validated before merge:
+- evidence verification tests: **39 passed**;
+- recovery coordinator tests: **15 passed**;
+- Unreal-focused suite: **302 passed, 648 deselected**;
+- full repository suite: **950 passed**;
+- GitHub Actions `Atlas Tests`: completed successfully for the M5 head.
 
-- fresh execution of the restored UE 5.6 render path;
-- the human UE 5.6 Stage 17 provenance proof using that fresh verified evidence/receipt pair produced via `verify_render_job_evidence(...)` (`live_unreal_production_artifact_proof.py`).
+No action-runner/workflow tests were run.
 
-### Stage 17 State-Consistency Defect Note
+## Receipt / provenance boundary
 
-The live proof attempt exposed a real state-consistency defect in `AtlasTransportServer.cpp`: poll 3 exposed `status=rendering finished=True progress=0`, which was authoritatively rejected by `verify_render_job_evidence()`. This defect was caused by unverified MRQ job identity in `OnIndividualJobStarted` / `OnIndividualJobWorkFinished`, permitting other queue jobs to reset the active job's status and progress, coupled with lock release before serialization in `InspectRenderJob`.
-The C++ server state machine has been hardened to filter by `InJob == Job`, prevent state regression, atomically finalize state under `RenderJobRegistryMutex` with fail-closed output-files validation, and hold the mutex across snapshot construction. Rerunning the live proof remains pending deployment of the rebuilt plugin binary.
+`UnrealRenderReceipt` may only be issued from verified evidence and binds the full render identity. `ProductionArtifactManifest` is downstream provenance only.
+
+`ProductionArtifactStore` persists provenance manifests. Receipt persistence is not a substitute for durable render-job state.
+
+`UnrealEvidence.snapshot()` / `from_snapshot(...)` and `UnrealRenderReceipt.snapshot()` / `from_snapshot(...)` are canonical detached, fail-closed serialization boundaries.
+
+## Model/agent development boundary
+
+Hermes and its selected reasoning model may assist implementation, diagnosis, and code generation. They do not gain Unreal authority through model selection.
+
+The next-session experiment under consideration is **Gemini vs DeepSeek V4 Flash** for Hermes-led development, specifically the tradeoff between token usage and reasoning quality. **Astra and Claude 5 remain reserved for red-team evaluation**, preserving a separate adversarial layer. ChatGPT can independently inspect Hermes-produced changes as an additional evaluator.
+
+No model substitution changes the Atlas authority chain, evidence rules, recovery contract, or merge gate.
 
 ## Resume point
 
 1. Pull the latest `main`.
-2. Exercise the restored UE 5.6 render boundary and capture fresh verified evidence/receipt data.
-3. Run `live_unreal_production_artifact_proof.py` against that verified evidence/receipt pair.
-4. Confirm manifest persistence, reload, exact lineage, and digest identities.
-5. Address remaining P1 items:
-   - Durable render-job state across Unreal/editor process loss (`RenderJobRegistry` on-disk tracking).
-   - Blueprint metadata evidence-shape alignment in `AtlasTransportServer.cpp`.
+2. Treat M4 and M5 as complete unless a concrete regression is found.
+3. Continue with the next unresolved Unreal/Atlas milestone from the authoritative current handoff and architecture contract.
+4. Preserve the M4 recovery and M5 verification invariants during all future Unreal changes.
+5. Evaluate Gemini vs DeepSeek V4 Flash on real Hermes development tasks using engineering outcomes rather than tokens alone.
 
 ## Non-regression rules
 
-- Never give Qwen direct production execution or authorization authority.
+- Never give any model direct production execution or authorization authority.
 - Never accept model-supplied authorization IDs or receipts as authority.
 - Never accept model-supplied protected Unreal intent or production flags as authority.
 - Never automatically retry failed writes.
 - Never silently mutate an authorized plan.
-- Never declare completion from a transport/write response alone.
+- Never declare completion from transport/write success alone.
 - Preserve independent verification and the evidence ledger.
 - Keep Unreal-specific behavior behind adapter/tool boundaries.
 - Treat render artifacts as independently validated evidence.
 - Preserve canonical Digital Twin identity separately from Unreal assets, levels, jobs, receipts, and files.
-- Do not confuse durable receipt persistence with runtime job persistence.
-- Do not claim cross-process Unreal job recovery until implemented and verified.
+- Do not confuse durable receipt/provenance persistence with job-state persistence.
+- Never treat Unreal journal/witness state as sufficient authoritative proof.
+- Preserve contained/uncontained recovery distinctions and fail closed when quiescence is not proven.
 - Do not run workflow/action-runner tests unless explicitly authorized.
 
 ## Historical documentation
