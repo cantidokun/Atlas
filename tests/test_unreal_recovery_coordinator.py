@@ -125,7 +125,7 @@ def test_case_c_no_engine_evidence_no_artifacts(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": []},
@@ -159,7 +159,7 @@ def test_case_d_artifacts_present_non_mutating(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": []},
@@ -192,7 +192,7 @@ def test_case_a_live_job_continues_tracking(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={
@@ -293,7 +293,7 @@ def test_case_b_finished_quiescent_hmac_verified(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": [candidate]},
@@ -338,7 +338,7 @@ def test_case_k_uncontained_attached_mode_fails_closed(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": [candidate]},
@@ -370,7 +370,7 @@ def test_reconcile_all_non_terminal_jobs(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": []},
@@ -406,7 +406,7 @@ def test_case_e_f_binding_mismatch_fails_closed(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": [candidate]},
@@ -449,7 +449,7 @@ def test_case_h_duplicate_engine_executions_fails_closed(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": [cand1, cand2]},
@@ -477,7 +477,7 @@ def test_case_j_unreadable_journal_sets_recovery_pending(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "UNREADABLE", "known_jobs": []},
@@ -519,7 +519,7 @@ def test_hmac_mismatch_classified_untrusted_witness(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": [candidate]},
@@ -622,7 +622,7 @@ def test_receipt_first_rejects_mismatched_unreal_job_id(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": []},
@@ -676,7 +676,7 @@ def test_receipt_first_rejects_mismatched_session_identity(tmp_path):
 
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": []},

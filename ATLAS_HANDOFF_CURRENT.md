@@ -229,6 +229,7 @@ Do not run workflow/action-runner tests unless explicitly authorized.
 - M8 — witness attestation (real HMAC-SHA256 keyed by Atlas attempt_nonce) + engine attempt_ordinal threading; canonical Python/C++ conformance verified.
 - PR #72 — M8 witness attestation (real HMAC-SHA256 keyed by Atlas attempt_nonce) + engine attempt_ordinal threading; canonical Python/C++ conformance verified.
 - M9 (pre-flight) — deterministic Scenario 1-8 harness + live-execution pre-flight checks + LIVE_EXECUTION_CHECKLIST. NO live scenario executed; S1/S5/S6/S7 READY_FOR_LIVE, S2/S4/S8 BLOCKED, S3 NOT_PROVEN until live UE restart.
+- M10 (live) — first authorized live execution attempted. Corrected S1 render PASSED (real MRQ render, FINISHED journal, HMAC verified, 23 artifacts independently verified). Reconciliation found + stopped at two production defects (Defect A: coordinator used WRITE-only apply_authorized for the reconcile READ; Defect B: in-memory reconcile overlay dropped the M8 attestation/session fields). Both fixed in a remediation PR; new tests/m10 + full suite. S1 must rerun after merge before S2-S8. S2-S8 NOT executed.
 
 ## Historical documentation
 

@@ -127,7 +127,7 @@ def _make_store(tmp_path):
 def _coord(store, record, candidate, tmp_path, receipt_store=None):
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": "COMPLETE", "known_jobs": [candidate]},

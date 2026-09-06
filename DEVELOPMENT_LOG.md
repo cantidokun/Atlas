@@ -413,6 +413,36 @@ that prepares for the first authorized live execution of Contract V1 §33 Scenar
   Blender, or kill/restart. Cross-process recovery remains not-production-capable
   until the human-authorized live §33 execution passes.
 
+## M10 — Live S1 run + remediation of Defects A & B
+
+Stage 18 (Unreal cross-process render-job recovery) M10 was the FIRST authorized
+live execution. The corrected live S1 render PASSED against real UE 5.6:
+- real MRQ render completed (no crash once launched without -nullrhi);
+- FINISHED witness journal written (ACCEPTED→STARTED→FINISHED);
+- HMAC-SHA256 attestation verified against the persisted attempt_nonce;
+- 23 artifacts independently verified (SHA-256 + size match);
+- no synthetic success; zero receipts fabricated; no orphan processes.
+
+Reconciliation then stopped at two independently-demonstrated PRODUCTION defects
+(nothing was patched to force a pass mid-run):
+
+Defect A — READ/WRITE transport boundary: `_query_catalog` used `apply_authorized`
+(WRITE-only) for the READ `reconcile_render_jobs`, so every live catalog query
+raised and failed closed to Case J. Fixed: `adapter.inspect` (READ path) is used.
+
+Defect B — live reconcile catalog dropped M8 attestation fields: the C++ in-memory
+registry overlay `ConsolidatedJobs.Add` overwrote the richer journal-derived
+attested entry (attempt_ordinal, entry_digest, session identity, phase_history,
+output_manifest) with a sparse snapshot. Fixed: the overlay no longer clobbers an
+existing journal-derived entry, and relays attempt_ordinal from the live state.
+
+Remediation: tests/m10 (17) + C++ `FAtlasUE56ReconcileAttestationPreservedTest`
+(UBT-compiled). Existing test adapters updated to wire the reconcile read through
+`inspect`. Full `pytest -m "not integration"` = 1158 passed. UBT_EXIT_CODE=0.
+
+NO live scenario executed during remediation. S1 must be rerun after merge before
+S2–S8 (which remain NOT EXECUTED). Failed/blocked S1 forensic evidence preserved.
+
 ## Unreal — Current baseline
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.

@@ -1937,6 +1937,13 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
             JobObj->SetStringField(TEXT("sequence_asset_path"), LiveState->SequenceAssetPath);
             JobObj->SetStringField(TEXT("config_digest"), LiveState->ConfigDigest);
             JobObj->SetStringField(TEXT("output_directory"), LiveState->OutputDirectory);
+            // Defect B fix: relay the Atlas-authoritative attempt_ordinal the job
+            // state genuinely carries. The HMAC entry_digest is NOT stored on the
+            // in-memory state (it is a per-write journal artifact), so the DURABLE
+            // journal remains the authoritative attestation carrier and must NOT be
+            // clobbered by this transient overlay (see the Add-guard below). We only
+            // forward fields the job state actually holds; nothing is synthesized.
+            JobObj->SetNumberField(TEXT("attempt_ordinal"), (double)LiveState->AttemptOrdinal);
             JobObj->SetStringField(TEXT("status"), LiveState->Status);
             JobObj->SetNumberField(TEXT("progress"), LiveState->Progress);
             JobObj->SetBoolField(TEXT("success"), LiveState->bSuccess);
@@ -1962,7 +1969,14 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
             }
             JobObj->SetArrayField(TEXT("output_manifest"), ManifestArray);
 
-            ConsolidatedJobs.Add(Key, JobObj);
+            if (!ConsolidatedJobs.Contains(Key))
+            {
+                // Defect B fix: the DURABLE journal-derived entry is the authoritative
+                // attested witness. Only add the transient in-memory overlay when the
+                // journal scan did not already provide an entry for this job (e.g.
+                // a live job whose ACCEPTED journal write had not yet been flushed).
+                ConsolidatedJobs.Add(Key, JobObj);
+            }
         }
     }
 

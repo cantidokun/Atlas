@@ -138,7 +138,7 @@ def _make_reconcile_adapter(catalog_state, known_jobs):
     """Adapter that returns a reconcile_render_jobs catalog for _query_catalog."""
     adapter = MagicMock()
     adapter.assert_recovery_capable = MagicMock(return_value=None)
-    adapter.apply_authorized.return_value = UnrealEvidence(
+    adapter.inspect.return_value = UnrealEvidence(
         operation_name="reconcile_render_jobs",
         entity_ids=("RENDER_RECOVERY",),
         observed_state={"journal_status": catalog_state, "known_jobs": known_jobs},
