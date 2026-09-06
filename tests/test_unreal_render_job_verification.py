@@ -686,7 +686,7 @@ def test_m5_missing_mandatory_identity_field_rejected(tmp_path: Path):
         output_directory=rec.output_directory,
     )
     st_valid = _valid_record_observed_state(rec, out_file, bytes_data)
-    with pytest.raises(UnrealEvidenceVerificationError, match="job_record must be a valid AtlasRenderJobRecord"):
+    with pytest.raises(UnrealEvidenceVerificationError, match="job_record must be an instance of AtlasRenderJobRecord"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=st_valid, source="ENGINE_LIVE", job_record=fake_rec)
 
 
@@ -788,6 +788,18 @@ def test_m5_png_idat_decompression_failure_rejected(tmp_path: Path):
     with pytest.raises(UnrealEvidenceVerificationError, match="PNG IDAT decompression integrity check failed"):
         verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
 
+    # Valid compressed payload with trailing garbage data in IDAT
+    valid_scanlines = b"\x00\x00\x00\x00"
+    valid_comp = zlib.compress(valid_scanlines)
+    trailing_idat_data = valid_comp + b"EXTRA_TRAILING_GARBAGE"
+    trailing_crc = struct.pack(">I", zlib.crc32(b"IDAT" + trailing_idat_data) & 0xFFFFFFFF)
+    idat_trailing = struct.pack(">I", len(trailing_idat_data)) + b"IDAT" + trailing_idat_data + trailing_crc
+    content_trailing = sig + ihdr + idat_trailing + iend
+    out_file.write_bytes(content_trailing)
+    state_trailing = _valid_record_observed_state(rec, out_file, content_trailing)
+    with pytest.raises(UnrealEvidenceVerificationError, match="PNG IDAT decompression integrity check failed"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state_trailing, source="ENGINE_LIVE", job_record=rec)
+
 
 def test_m5_empty_png_rejected_no_idat(tmp_path: Path):
     """Test that a PNG file with valid signature and IHDR but missing any IDAT chunk is rejected."""
@@ -879,6 +891,39 @@ def test_m5_source_class_missing_or_arbitrary_fails_closed(tmp_path: Path):
         )
 
 
+def test_m5_png_chunk_structure_hardening(tmp_path: Path):
+    """Test IHDR length != 13, non-zero IEND length, and illegal chunk types."""
+    import struct
+    import zlib
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    sig = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+
+    # 1. IHDR length != 13 (e.g. 14 bytes)
+    ihdr_data_14 = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0) + b"\x00"
+    ihdr_crc_14 = struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data_14) & 0xFFFFFFFF)
+    ihdr_14 = struct.pack(">I", len(ihdr_data_14)) + b"IHDR" + ihdr_data_14 + ihdr_crc_14
+    iend = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", 0xAE426082)
+    out_file.write_bytes(sig + ihdr_14 + iend)
+    assert verify_png_completeness(out_file) is False
+
+    # 2. IEND length != 0 (e.g. 4 bytes of data inside IEND chunk)
+    ihdr_data_13 = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    ihdr_crc_13 = struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data_13) & 0xFFFFFFFF)
+    ihdr_13 = struct.pack(">I", len(ihdr_data_13)) + b"IHDR" + ihdr_data_13 + ihdr_crc_13
+    iend_bad_data = b"DATA"
+    iend_bad_crc = struct.pack(">I", zlib.crc32(b"IEND" + iend_bad_data) & 0xFFFFFFFF)
+    iend_bad = struct.pack(">I", len(iend_bad_data)) + b"IEND" + iend_bad_data + iend_bad_crc
+    out_file.write_bytes(sig + ihdr_13 + iend_bad)
+    assert verify_png_completeness(out_file) is False
+
+    # 3. Illegal chunk type (non-ASCII characters, e.g. b"IH\x00R")
+    chunk_bad_type = struct.pack(">I", 13) + b"IH\x00R" + ihdr_data_13 + ihdr_crc_13
+    out_file.write_bytes(sig + chunk_bad_type + iend)
+    assert verify_png_completeness(out_file) is False
+
+
 def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
     """Test that missing or uninterpretable expected_output_spec fails closed."""
     rec_no_topo = AtlasRenderJobRecord.create_intent(
@@ -904,13 +949,52 @@ def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
     bytes_data = _create_test_png(out_file)
     state = _valid_record_observed_state(rec_no_topo, out_file, bytes_data)
 
-    with pytest.raises(UnrealEvidenceVerificationError, match="(expected_output_spec cannot be empty|missing mandatory expected_output_spec)"):
+    with pytest.raises(UnrealEvidenceVerificationError, match="record missing mandatory expected_output_spec"):
         verify_render_job_evidence(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
             observed_state=state,
             source="ENGINE_LIVE",
             job_record=rec_no_topo,
+        )
+
+    # Missing observed expected_output_spec
+    rec = _sample_job_record(tmp_path)
+    out_f = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_f = _create_test_png(out_f)
+    st_missing_obs_spec = _valid_record_observed_state(rec, out_f, bytes_f)
+    del st_missing_obs_spec["expected_output_spec"]
+    with pytest.raises(UnrealEvidenceVerificationError, match="observed_state missing mandatory 'expected_output_spec'"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=st_missing_obs_spec,
+            source="ENGINE_LIVE",
+            job_record=rec,
+        )
+
+    # Malformed observed expected_output_spec (not a mapping)
+    st_bad_type = _valid_record_observed_state(rec, out_f, bytes_f)
+    st_bad_type["expected_output_spec"] = "not-a-mapping"
+    with pytest.raises(UnrealEvidenceVerificationError, match="observed_state 'expected_output_spec' must be a mapping"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=st_bad_type,
+            source="ENGINE_LIVE",
+            job_record=rec,
+        )
+
+    # Mismatched observed expected_output_spec
+    st_mismatch = _valid_record_observed_state(rec, out_f, bytes_f)
+    st_mismatch["expected_output_spec"] = {"format": "png", "width": 9999, "height": 9999}
+    with pytest.raises(UnrealEvidenceVerificationError, match="expected_output_spec mismatch"):
+        verify_render_job_evidence(
+            operation_name="inspect_render_job",
+            entity_ids=("FIELD_SURFACE",),
+            observed_state=st_mismatch,
+            source="ENGINE_LIVE",
+            job_record=rec,
         )
 
 

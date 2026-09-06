@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence, Tuple
+from planning.unreal_render_job_record import AtlasRenderJobRecord
 
 
 def _validate_canonical_identity(name: str, value: Any) -> str:
@@ -53,6 +54,7 @@ def verify_png_completeness(
 
         has_ihdr = False
         has_iend = False
+        chunk_index = 0
 
         while True:
             chunk_len_bytes = f.read(4)
@@ -62,6 +64,19 @@ def verify_png_completeness(
             chunk_type = f.read(4)
             if len(chunk_type) < 4:
                 return False
+            # Chunk type must be 4 legal PNG ASCII letters (65-90, 97-122)
+            if not all((65 <= b <= 90) or (97 <= b <= 122) for b in chunk_type):
+                return False
+
+            chunk_index += 1
+
+            if chunk_type == b"IHDR":
+                if has_ihdr or chunk_index != 1:
+                    return False
+                if chunk_len != 13:
+                    return False
+                has_ihdr = True
+
             data = f.read(chunk_len)
             if len(data) < chunk_len:
                 return False
@@ -74,16 +89,19 @@ def verify_png_completeness(
                 return False
 
             if chunk_type == b"IHDR":
-                if has_ihdr or chunk_len < 8:
-                    return False
-                has_ihdr = True
                 width, height = struct.unpack(">II", data[:8])
+                if width <= 0 or height <= 0:
+                    return False
                 if expected_width is not None and width != expected_width:
                     return False
                 if expected_height is not None and height != expected_height:
                     return False
 
             if chunk_type == b"IEND":
+                if has_iend or not has_ihdr:
+                    return False
+                if chunk_len != 0:
+                    return False
                 has_iend = True
                 # IEND must be the final chunk (no trailing bytes)
                 extra = f.read(1)
@@ -129,7 +147,17 @@ def _verify_png_idat_decompression(file_path: Path, min_decompressed_bytes: Opti
 
     try:
         combined = b"".join(idat_chunks)
-        decompressed = zlib.decompress(combined)
+        decompressor = zlib.decompressobj()
+        decompressed = decompressor.decompress(combined)
+        # Flush any remaining uncompressed data
+        decompressed += decompressor.flush()
+
+        if not decompressor.eof:
+            return False
+        if decompressor.unused_data:
+            return False
+        if decompressor.unconsumed_tail:
+            return False
         if len(decompressed) == 0:
             raise UnrealEvidenceVerificationError(f"PNG IDAT decompressed to zero bytes: {file_path}")
         if min_decompressed_bytes is not None and len(decompressed) < min_decompressed_bytes:
@@ -431,15 +459,25 @@ def verify_render_job_evidence(
         raise UnrealEvidenceVerificationError("duplicate canonical path in declared output_files")
 
     # Authoritative job record cross-checks (Contract V1 §13, §14, §16)
-    # Validate that job_record is a valid AtlasRenderJobRecord with valid authoritative_digest
-    if not hasattr(job_record, "authoritative_digest") or not hasattr(job_record, "atlas_job_id"):
-        raise UnrealEvidenceVerificationError("job_record must be a valid AtlasRenderJobRecord instance")
+    # Validate that job_record is strictly an instance of AtlasRenderJobRecord
+    if not isinstance(job_record, AtlasRenderJobRecord):
+        raise UnrealEvidenceVerificationError(
+            f"job_record must be an instance of AtlasRenderJobRecord, got {type(job_record)!r}"
+        )
     if hasattr(job_record, "validate_invariants"):
         try:
             job_record.validate_invariants()
         except Exception as exc:
             raise UnrealEvidenceVerificationError(f"job_record failed invariant validation: {exc}") from exc
-    # Mandatory identity bindings comparison (Block 2: strict presence and exact equality)
+    # Attempt ordinal comparison
+    obs_attempt = observed_state.get("attempt_ordinal")
+    if obs_attempt is not None:
+        if isinstance(obs_attempt, bool) or not isinstance(obs_attempt, int) or obs_attempt != getattr(job_record, "attempt_ordinal", None):
+            raise UnrealEvidenceVerificationError(
+                f"attempt_ordinal mismatch: record={getattr(job_record, 'attempt_ordinal', None)!r}, observed={obs_attempt!r}"
+            )
+        clean_state["attempt_ordinal"] = obs_attempt
+
     # 1. atlas_job_id
     obs_atlas_id = observed_state.get("atlas_job_id")
     if not obs_atlas_id or not isinstance(obs_atlas_id, str):
@@ -587,12 +625,15 @@ def verify_render_job_evidence(
     if not rec_expected_spec or not isinstance(rec_expected_spec, Mapping):
         raise UnrealEvidenceVerificationError("record missing mandatory expected_output_spec")
 
-    obs_expected_spec = observed_state.get("expected_output_spec")
-    if obs_expected_spec is not None:
-        if not isinstance(obs_expected_spec, Mapping) or dict(obs_expected_spec) != dict(rec_expected_spec):
-            raise UnrealEvidenceVerificationError(
-                f"expected_output_spec mismatch: record={dict(rec_expected_spec)!r}, observed={obs_expected_spec!r}"
-            )
+    if "expected_output_spec" not in observed_state:
+        raise UnrealEvidenceVerificationError("observed_state missing mandatory 'expected_output_spec'")
+    obs_expected_spec = observed_state["expected_output_spec"]
+    if not isinstance(obs_expected_spec, Mapping):
+        raise UnrealEvidenceVerificationError("observed_state 'expected_output_spec' must be a mapping")
+    if dict(obs_expected_spec) != dict(rec_expected_spec):
+        raise UnrealEvidenceVerificationError(
+            f"expected_output_spec mismatch: record={dict(rec_expected_spec)!r}, observed={dict(obs_expected_spec)!r}"
+        )
 
     clean_state["expected_output_spec"] = dict(rec_expected_spec)
     expected_spec = rec_expected_spec
