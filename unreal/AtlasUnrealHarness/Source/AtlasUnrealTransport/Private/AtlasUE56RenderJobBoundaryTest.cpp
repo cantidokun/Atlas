@@ -38,6 +38,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56ReconcileConflictDetectionTest,
+    "Atlas.UnrealAgent.UE56.ReconcileConflictDetection",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FAtlasUE56MalformedJournalHandlingTest,
     "Atlas.UnrealAgent.UE56.MalformedJournalHandling",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -441,6 +446,102 @@ bool FAtlasUE56ReconcileCatalogReportingTest::RunTest(const FString& Parameters)
 
     return !HasAnyErrors();
 }
+
+bool FAtlasUE56ReconcileConflictDetectionTest::RunTest(const FString& Parameters)
+{
+    // S8 Case H: identity-aware conflict detection before single-candidate catalog
+    // collapse. Write TWO journal files with the SAME atlas_job_id but a materially
+    // DIFFERENT execution identity (different unreal_job_id / attempt_ordinal), then
+    // reconcile and assert the engine surfaces journal_status=CONFLICT (and does NOT
+    // silently overwrite either identity). The engine only reports the conflict; Atlas
+    // adjudicates Case H -> RECOVERY_FAILED.
+
+    const FString AtlasJobId = TEXT("atlas-job-conflict-001");
+    const FString UnrealJobIdA = TEXT("unreal-job-conflict-A");
+    const FString UnrealJobIdB = TEXT("unreal-job-conflict-B");
+
+    // Execution A
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobA =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobA->JobId = UnrealJobIdA;
+    JobA->AtlasJobId = AtlasJobId;
+    JobA->SequenceAssetPath = TEXT("/Game/AtlasTest/AtlasSequencerFixtureSequence");
+    JobA->OutputDirectory = TEXT("C:/AtlasRenders/conflictA");
+    JobA->AuthorizationId = TEXT("auth-conflict-001");
+    JobA->ConfigDigest = TEXT("digest-conflict");
+    JobA->AttemptOrdinal = 1;
+    JobA->Status = TEXT("finished");
+    JobA->bFinished = true;
+    JobA->bSuccess = true;
+    FString ErrorA;
+    FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobIdA, TEXT("FINISHED"), JobA, ErrorA);
+
+    // Execution B - SAME atlas_job_id, DIFFERENT unreal_job_id and attempt_ordinal
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobB =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobB->JobId = UnrealJobIdB;
+    JobB->AtlasJobId = AtlasJobId;
+    JobB->SequenceAssetPath = TEXT("/Game/AtlasTest/AtlasSequencerFixtureSequence");
+    JobB->OutputDirectory = TEXT("C:/AtlasRenders/conflictB");
+    JobB->AuthorizationId = TEXT("auth-conflict-001");
+    JobB->ConfigDigest = TEXT("digest-conflict");
+    JobB->AttemptOrdinal = 2;
+    JobB->Status = TEXT("finished");
+    JobB->bFinished = true;
+    JobB->bSuccess = true;
+    FString ErrorB;
+    FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobIdB, TEXT("FINISHED"), JobB, ErrorB);
+
+    // Reconcile
+    FAtlasTransportServer::FTransportRequest Req;
+    Req.RequestId = TEXT("conflict-001");
+    Req.OperationName = TEXT("reconcile_render_jobs");
+    Req.Capability = TEXT("render");
+    Req.Kind = TEXT("read");
+    Req.SchemaVersion = 1;
+    Req.AuthorizationId = TEXT("auth-conflict-001");
+
+    TSharedPtr<FJsonObject> ObservedState;
+    FString ReconcileError;
+    const bool bSuccess = FAtlasTransportServer::ReconcileRenderJobs(Req, ObservedState, ReconcileError);
+
+    TestTrue(TEXT("ReconcileRenderJobs succeeded"), bSuccess);
+    TestNotNull(TEXT("ObservedState is valid"), ObservedState.Get());
+    if (ObservedState.IsValid())
+    {
+        TestEqual(TEXT("journal_status is CONFLICT for duplicate identity"),
+            ObservedState->GetStringField(TEXT("journal_status")), FString(TEXT("CONFLICT")));
+        const TArray<TSharedPtr<FJsonValue>> Jobs = ObservedState->GetArrayField(TEXT("known_jobs"));
+        // Single-candidate TMap is retained: exactly one known_job for the atlas_job_id.
+        TestEqual(TEXT("catalog remains single-candidate"), Jobs.Num(), 1);
+        if (Jobs.Num() == 1)
+        {
+            const TSharedPtr<FJsonObject> Entry = Jobs[0]->AsObject();
+            TestTrue(TEXT("surviving entry reports journal_status=CONFLICT"),
+                Entry.IsValid() && Entry->GetStringField(TEXT("journal_status")) == TEXT("CONFLICT"));
+            TestTrue(TEXT("conflict_evidence attached"),
+                Entry.IsValid() && Entry->HasField(TEXT("conflict_evidence")));
+            // The surviving entry preserves ONE of the two distinct execution
+            // identities (the single-candidate TMap retains the first-scanned one;
+            // scan order is not deterministic, so assert it is one of the two and
+            // crucially that the conflicting second execution was NOT overwritten
+            // in place silently - the CONFLICT flag + conflict_evidence distinguish it).
+            const FString SurvivingUnreal = Entry.IsValid() ? Entry->GetStringField(TEXT("unreal_job_id")) : FString();
+            TestTrue(TEXT("surviving entry keeps a real execution identity"),
+                SurvivingUnreal == UnrealJobIdA || SurvivingUnreal == UnrealJobIdB);
+        }
+    }
+
+    // Cleanup both journal files
+    const FString JournalDir = FAtlasTransportServer::GetJournalDirectory();
+    IFileManager::Get().Delete(*FPaths::Combine(JournalDir,
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobIdA)));
+    IFileManager::Get().Delete(*FPaths::Combine(JournalDir,
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobIdB)));
+
+    return !HasAnyErrors();
+}
+
 
 bool FAtlasUE56MalformedJournalHandlingTest::RunTest(const FString& Parameters)
 {

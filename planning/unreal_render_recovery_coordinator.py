@@ -334,6 +334,34 @@ class UnrealRenderRecoveryCoordinator:
                     failure_reason="Catalog response is partial or unreadable",
                 )
 
+            # Case H (S8): journal_status=CONFLICT - the engine witness observed
+            # materially different executions claiming the same atlas_job_id before
+            # the single-candidate catalog collapse (identity-aware detection). Atlas
+            # adjudicates fail-closed to RECOVERY_FAILED: no receipt, no retry, no
+            # adoption, no synthetic success. This is DISTINCT from the PARTIAL /
+            # UNREADABLE (Case J -> RECOVERY_PENDING) and from the >1-candidate
+            # (Case H) paths, so it cannot be merged with either.
+            if catalog_response is not None and catalog_response.get("journal_status") == "CONFLICT":
+                conflict_failed = record.transition(
+                    lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
+                    recovery_status=RenderJobRecoveryStatus.NONE,
+                    failure_reason=(
+                        "Engine witness reports conflicting execution identities "
+                        "for atlas_job_id " + valid_id + " (journal_status=CONFLICT)"
+                    ),
+                )
+                self.store.update(conflict_failed, expected_revision=record.last_observed_revision)
+                return RecoveryDecisionResult(
+                    atlas_job_id=valid_id,
+                    lifecycle_state_before=state_before,
+                    lifecycle_state_after=conflict_failed.lifecycle_state,
+                    recovery_status_before=status_before,
+                    recovery_status_after=conflict_failed.recovery_status,
+                    case_classified="Case H",
+                    repaired_from_receipt=False,
+                    failure_reason=conflict_failed.failure_reason,
+                )
+
             known_jobs = catalog_response.get("known_jobs", [])
             # Find candidate engine jobs matching atlas_job_id
             candidates = [j for j in known_jobs if j.get("atlas_job_id") == valid_id]

@@ -1848,6 +1848,116 @@ bool FAtlasTransportServer::InspectRenderJob(
     return true;
 }
 
+// -----------------------------------------------------------------------------
+// S8 Case H: identity-aware conflict detection BEFORE catalog collapse.
+//
+// The reconcile catalog is intentionally a SINGLE-candidate TMap keyed by
+// atlas_job_id (Contract V1 §8: the engine is defense-in-depth, never a second
+// scheduler/recovery authority; Atlas adjudicates the outcome). We deliberately
+// do NOT convert it to a composite key or expose two independent candidates.
+// However we must not silently let one execution of an atlas_job_id overwrite a
+// materially different execution. These helpers compare the execution identity
+// of an incoming known_job against the entry already present for the same
+// atlas_job_id and, on a genuine conflict, surface journal_status=CONFLICT while
+// preserving the original entry's identity/evidence unchanged. The engine only
+// REPORTS the conflict; it never decides which execution is authoritative.
+// -----------------------------------------------------------------------------
+
+namespace AtlasS8
+{
+    // Extract the execution-identity fields Atlas needs to distinguish executions
+    // that share an atlas_job_id. Present-only comparisons are used so an absent
+    // field on one side is never treated as a mismatch.
+    void GetExecutionIdentity(
+        const TSharedPtr<FJsonObject>& Job,
+        FString& OutUnrealJobId,
+        int64& OutAttemptOrdinal,
+        FString& OutAuthorizationId)
+    {
+        OutUnrealJobId.Empty();
+        OutAttemptOrdinal = -1;
+        OutAuthorizationId.Empty();
+        if (!Job.IsValid())
+        {
+            return;
+        }
+        // unreal_job_id is preferred; job_id is the wire alias both names expose.
+        if (!Job->TryGetStringField(TEXT("unreal_job_id"), OutUnrealJobId) || OutUnrealJobId.IsEmpty())
+        {
+            Job->TryGetStringField(TEXT("job_id"), OutUnrealJobId);
+        }
+        double AttemptDouble = 0.0;
+        if (Job->TryGetNumberField(TEXT("attempt_ordinal"), AttemptDouble))
+        {
+            OutAttemptOrdinal = (int64)AttemptDouble;
+        }
+        Job->TryGetStringField(TEXT("authorization_id"), OutAuthorizationId);
+    }
+
+    // Returns true when the two known_job entries that share an atlas_job_id carry
+    // a MATERIALLY DIFFERENT execution identity. A field is only compared when it
+    // is present and non-empty on BOTH sides; absence never triggers a conflict.
+    bool Conflicts(
+        const TSharedPtr<FJsonObject>& A,
+        const TSharedPtr<FJsonObject>& B,
+        FString& OutReason)
+    {
+        FString AUnreal, BUnreal, AAuth, BAuth;
+        int64 AOrd = -1, BOrd = -1;
+        GetExecutionIdentity(A, AUnreal, AOrd, AAuth);
+        GetExecutionIdentity(B, BUnreal, BOrd, BAuth);
+
+        if (!AUnreal.IsEmpty() && !BUnreal.IsEmpty() && AUnreal != BUnreal)
+        {
+            OutReason = FString::Printf(TEXT("unreal_job_id differs (%s vs %s)"), *AUnreal, *BUnreal);
+            return true;
+        }
+        if (AOrd >= 0 && BOrd >= 0 && AOrd != BOrd)
+        {
+            OutReason = FString::Printf(TEXT("attempt_ordinal differs (%lld vs %lld)"), (long long)AOrd, (long long)BOrd);
+            return true;
+        }
+        if (!AAuth.IsEmpty() && !BAuth.IsEmpty() && AAuth != BAuth)
+        {
+            OutReason = FString::Printf(TEXT("authorization_id differs (%s vs %s)"), *AAuth, *BAuth);
+            return true;
+        }
+        return false;
+    }
+
+    // Append a structured record of a conflicting execution to the SURVIVING
+    // catalog entry. The surviving entry's own identity/evidence is preserved;
+    // only a "conflict_evidence" advisory array (and journal_status=CONFLICT) is
+    // attached so Atlas can see the conflicting identities were observed.
+    void AppendConflictEvidence(
+        const TSharedPtr<FJsonObject>& Surviving,
+        const TSharedPtr<FJsonObject>& Conflicting)
+    {
+        if (!Surviving.IsValid() || !Conflicting.IsValid())
+        {
+            return;
+        }
+        FString CUnreal, CAuth;
+        int64 COrd = -1;
+        GetExecutionIdentity(Conflicting, CUnreal, COrd, CAuth);
+
+        TSharedPtr<FJsonObject> Detail = MakeShareable(new FJsonObject);
+        Detail->SetStringField(TEXT("conflict_type"), TEXT("execution_identity"));
+        if (!CUnreal.IsEmpty()) { Detail->SetStringField(TEXT("conflicting_unreal_job_id"), CUnreal); }
+        if (COrd >= 0) { Detail->SetNumberField(TEXT("conflicting_attempt_ordinal"), (double)COrd); }
+        if (!CAuth.IsEmpty()) { Detail->SetStringField(TEXT("conflicting_authorization_id"), CAuth); }
+
+        TArray<TSharedPtr<FJsonValue>> ExistingArray;
+        if (Surviving->HasTypedField<EJson::Array>(TEXT("conflict_evidence")))
+        {
+            ExistingArray = Surviving->GetArrayField(TEXT("conflict_evidence"));
+        }
+        ExistingArray.Add(MakeShareable(new FJsonValueObject(Detail)));
+        Surviving->SetArrayField(TEXT("conflict_evidence"), ExistingArray);
+        Surviving->SetStringField(TEXT("journal_status"), TEXT("CONFLICT"));
+    }
+} // namespace AtlasS8
+
 bool FAtlasTransportServer::ReconcileRenderJobs(
     const FTransportRequest& R,
     TSharedPtr<FJsonObject>& O,
@@ -1969,7 +2079,33 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
             // else: legacy single-phase journal (top-level 'phase') is exposed as
             // the raw object (observation-compatible); it is NOT treated as empty.
 
-            ConsolidatedJobs.Add(AtlasJobId, KnownJob);
+            // S8 Case H: identity-aware conflict detection BEFORE collapse.
+            // The catalog is a single-candidate TMap keyed by atlas_job_id on
+            // purpose. If an entry already exists for this atlas_job_id and the
+            // incoming journal represents a MATERIALLY DIFFERENT execution, do NOT
+            // overwrite it - report journal_status=CONFLICT and attach structured
+            // conflict evidence so Atlas can classify Case H (RECOVERY_FAILED).
+            if (ConsolidatedJobs.Contains(AtlasJobId))
+            {
+                TSharedPtr<FJsonObject> ExistingJob = ConsolidatedJobs.FindRef(AtlasJobId);
+                FString ConflictReason;
+                if (ExistingJob.IsValid() &&
+                    AtlasS8::Conflicts(ExistingJob, KnownJob, ConflictReason))
+                {
+                    JournalStatus = TEXT("CONFLICT");
+                    AtlasS8::AppendConflictEvidence(ExistingJob, KnownJob);
+                }
+                else
+                {
+                    // Same execution identity (or legacy entry where identity is not
+                    // comparable): retain the idempotent same-execution collapse.
+                    ConsolidatedJobs.Add(AtlasJobId, KnownJob);
+                }
+            }
+            else
+            {
+                ConsolidatedJobs.Add(AtlasJobId, KnownJob);
+            }
         }
 
         // Snapshot stability check: verify directory has not changed during read
@@ -2039,6 +2175,22 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
                 // journal scan did not already provide an entry for this job (e.g.
                 // a live job whose ACCEPTED journal write had not yet been flushed).
                 ConsolidatedJobs.Add(Key, JobObj);
+            }
+            else
+            {
+                // S8 Case H: a journal-derived entry and a live in-memory entry share
+                // the same atlas_job_id. If they are the SAME execution identity, the
+                // durable journal remains authoritative - do NOT false-report. If they
+                // are a MATERIALLY DIFFERENT execution, report journal_status=CONFLICT
+                // and attach structured evidence (preserve the original entry).
+                TSharedPtr<FJsonObject> JournalJob = ConsolidatedJobs.FindRef(Key);
+                FString ConflictReason;
+                if (JournalJob.IsValid() &&
+                    AtlasS8::Conflicts(JournalJob, JobObj, ConflictReason))
+                {
+                    JournalStatus = TEXT("CONFLICT");
+                    AtlasS8::AppendConflictEvidence(JournalJob, JobObj);
+                }
             }
         }
     }

@@ -757,6 +757,19 @@ No synthetic `finished/success` state may be created.
 
 All duplicate executions remain recorded; history MUST NOT be overwritten.
 
+The engine witness MAY surface `journal_status="CONFLICT"` as the signal for this
+duplicate-identity backstop: when the single-candidate reconcile catalog is built
+keyed by `atlas_job_id` (the engine is defense-in-depth, never a second recovery
+authority) and the engine detects that a same-`atlas_job_id` journal/in-memory
+candidate carries a materially different execution identity (`unreal_job_id`,
+`attempt_ordinal`, or `authorization_id`) before the idempotent collapse, it
+reports `journal_status="CONFLICT"` and attaches structured `conflict_evidence` to
+the surviving catalog entry without overwriting the original identity. Atlas maps
+`journal_status="CONFLICT"` to Case H → `RECOVERY_FAILED` (no receipt, no retry,
+no adoption, no synthetic success). This is distinct from `PARTIAL`/`UNREADABLE`
+(Case J → `RECOVERY_PENDING`). The engine only reports the conflict; it never
+decides which execution is authoritative.
+
 ### Case I — Journal is present but belongs to a prior/non-current session and the execution identity is not already bound
 
 Do not treat it as a live job.
