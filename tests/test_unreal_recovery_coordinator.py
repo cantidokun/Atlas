@@ -78,7 +78,7 @@ def _sample_intent_record(
         config_digest="cfg-digest",
         output_parent_directory=out_parent,
         output_directory=out_dir,
-        expected_output_spec={"format": "png"},
+        expected_output_spec={"format": "png", "width": 1, "height": 1, "start_frame": 1, "end_frame": 1},
         created_at="2026-09-06T00:00:00Z",
         attempt_nonce=attempt_nonce,
     )
@@ -268,7 +268,7 @@ def test_case_b_finished_quiescent_hmac_verified(tmp_path):
         "editor_session_id": "session-1",
         "process_id": 12345,
         "process_creation_time_utc": "2026-09-06T00:00:00Z",
-        "expected_output_spec": {"format": "png"},
+        "expected_output_spec": {"format": "png", "width": 1, "height": 1, "start_frame": 1, "end_frame": 1},
         "status": "completed",
         "finished": True,
         "success": True,

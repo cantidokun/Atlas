@@ -577,7 +577,7 @@ def test_m5_expected_topology_and_unsupported_format(tmp_path: Path):
         config_digest="cfg",
         output_parent_directory=str(tmp_path / "renders"),
         output_directory=str(tmp_path / "renders" / "atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-ffffffffffff"),
-        expected_output_spec={"format": "unsupported_exr"},
+        expected_output_spec={"format": "unsupported_exr", "width": 1, "height": 1, "start_frame": 0, "end_frame": 0},
         created_at="2026-09-06T00:00:00Z",
     )
     rec_exotic = rec_exotic.transition(
@@ -979,7 +979,7 @@ def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
     bytes_data = _create_test_png(out_file)
     state = _valid_record_observed_state(rec_no_topo, out_file, bytes_data)
 
-    with pytest.raises(UnrealEvidenceVerificationError, match="record missing mandatory expected_output_spec"):
+    with pytest.raises(UnrealEvidenceVerificationError, match="(record missing mandatory expected_output_spec|record expected_output_spec missing required keys)"):
         verify_render_job_evidence(
             operation_name="inspect_render_job",
             entity_ids=("FIELD_SURFACE",),
@@ -1017,7 +1017,7 @@ def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
 
     # Mismatched observed expected_output_spec
     st_mismatch = _valid_record_observed_state(rec, out_f, bytes_f)
-    st_mismatch["expected_output_spec"] = {"format": "png", "width": 9999, "height": 9999}
+    st_mismatch["expected_output_spec"] = {"format": "png", "width": 9999, "height": 9999, "start_frame": 0, "end_frame": 0}
     with pytest.raises(UnrealEvidenceVerificationError, match="expected_output_spec mismatch"):
         verify_render_job_evidence(
             operation_name="inspect_render_job",
@@ -1026,6 +1026,155 @@ def test_m5_missing_topology_spec_fails_closed(tmp_path: Path):
             source="ENGINE_LIVE",
             job_record=rec,
         )
+
+
+def test_m5_topology_5key_schema_and_types_enforcement(tmp_path: Path):
+    """Test full 5-key schema, types, and bounds enforcement on expected_output_spec."""
+    rec = _sample_job_record(tmp_path)
+    out_file = Path(rec.output_directory) / "AtlasRender_0000.png"
+    bytes_data = _create_test_png(out_file)
+    import dataclasses
+
+    base_spec = {"format": "png", "width": 1, "height": 1, "start_frame": 0, "end_frame": 0}
+
+    # 1. Missing keys in record
+    for key in ("format", "width", "height", "start_frame", "end_frame"):
+        bad_spec = dict(base_spec)
+        del bad_spec[key]
+        bad_rec = AtlasRenderJobRecord.create_intent(
+            atlas_job_id="atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            attempt_ordinal=1,
+            authorization_id=rec.authorization_id,
+            canonical_digital_twin_id=rec.canonical_digital_twin_id,
+            sequence_asset_path=rec.sequence_asset_path,
+            request_digest=rec.request_digest,
+            config_digest=rec.config_digest,
+            output_parent_directory=rec.output_parent_directory,
+            output_directory=rec.output_directory,
+            expected_output_spec=bad_spec,
+            created_at=rec.created_at,
+        ).transition(
+            unreal_job_id=rec.unreal_job_id,
+            origin_editor_session_id=rec.origin_editor_session_id,
+            origin_process_id=rec.origin_process_id,
+            origin_process_creation_time=rec.origin_process_creation_time,
+        )
+        bad_state = _valid_record_observed_state(bad_rec, out_file, bytes_data)
+        bad_state["expected_output_spec"] = bad_spec
+        with pytest.raises(UnrealEvidenceVerificationError, match="record expected_output_spec missing required keys"):
+            verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=bad_state, source="ENGINE_LIVE", job_record=bad_rec)
+
+    # 2. Missing keys in observed_state
+    for key in ("format", "width", "height", "start_frame", "end_frame"):
+        bad_obs_spec = dict(base_spec)
+        del bad_obs_spec[key]
+        state = _valid_record_observed_state(rec, out_file, bytes_data)
+        state["expected_output_spec"] = bad_obs_spec
+        with pytest.raises(UnrealEvidenceVerificationError, match="observed_state expected_output_spec missing required keys"):
+            verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=state, source="ENGINE_LIVE", job_record=rec)
+
+    # 3. Bool used for width/height/start_frame/end_frame
+    for key in ("width", "height", "start_frame", "end_frame"):
+        bad_spec = dict(base_spec, **{key: True})
+        bad_rec = AtlasRenderJobRecord.create_intent(
+            atlas_job_id="atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            attempt_ordinal=1,
+            authorization_id=rec.authorization_id,
+            canonical_digital_twin_id=rec.canonical_digital_twin_id,
+            sequence_asset_path=rec.sequence_asset_path,
+            request_digest=rec.request_digest,
+            config_digest=rec.config_digest,
+            output_parent_directory=rec.output_parent_directory,
+            output_directory=rec.output_directory,
+            expected_output_spec=bad_spec,
+            created_at=rec.created_at,
+        ).transition(
+            unreal_job_id=rec.unreal_job_id,
+            origin_editor_session_id=rec.origin_editor_session_id,
+            origin_process_id=rec.origin_process_id,
+            origin_process_creation_time=rec.origin_process_creation_time,
+        )
+        bad_state = _valid_record_observed_state(bad_rec, out_file, bytes_data)
+        bad_state["expected_output_spec"] = bad_spec
+        with pytest.raises(UnrealEvidenceVerificationError, match=f"expected_output_spec '{key}' must be an integer"):
+            verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=bad_state, source="ENGINE_LIVE", job_record=bad_rec)
+
+    # 4. Zero or negative width/height
+    for key in ("width", "height"):
+        for bad_val in (0, -5):
+            bad_spec = dict(base_spec, **{key: bad_val})
+            bad_rec = AtlasRenderJobRecord.create_intent(
+                atlas_job_id="atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                attempt_ordinal=1,
+                authorization_id=rec.authorization_id,
+                canonical_digital_twin_id=rec.canonical_digital_twin_id,
+                sequence_asset_path=rec.sequence_asset_path,
+                request_digest=rec.request_digest,
+                config_digest=rec.config_digest,
+                output_parent_directory=rec.output_parent_directory,
+                output_directory=rec.output_directory,
+                expected_output_spec=bad_spec,
+                created_at=rec.created_at,
+            ).transition(
+                unreal_job_id=rec.unreal_job_id,
+                origin_editor_session_id=rec.origin_editor_session_id,
+                origin_process_id=rec.origin_process_id,
+                origin_process_creation_time=rec.origin_process_creation_time,
+            )
+            bad_state = _valid_record_observed_state(bad_rec, out_file, bytes_data)
+            bad_state["expected_output_spec"] = bad_spec
+            with pytest.raises(UnrealEvidenceVerificationError, match=f"expected_output_spec '{key}' must be an integer > 0"):
+                verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=bad_state, source="ENGINE_LIVE", job_record=bad_rec)
+
+    # 5. Negative start_frame
+    bad_spec = dict(base_spec, start_frame=-1)
+    bad_rec = AtlasRenderJobRecord.create_intent(
+        atlas_job_id="atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        attempt_ordinal=1,
+        authorization_id=rec.authorization_id,
+        canonical_digital_twin_id=rec.canonical_digital_twin_id,
+        sequence_asset_path=rec.sequence_asset_path,
+        request_digest=rec.request_digest,
+        config_digest=rec.config_digest,
+        output_parent_directory=rec.output_parent_directory,
+        output_directory=rec.output_directory,
+        expected_output_spec=bad_spec,
+        created_at=rec.created_at,
+    ).transition(
+        unreal_job_id=rec.unreal_job_id,
+        origin_editor_session_id=rec.origin_editor_session_id,
+        origin_process_id=rec.origin_process_id,
+        origin_process_creation_time=rec.origin_process_creation_time,
+    )
+    bad_state = _valid_record_observed_state(bad_rec, out_file, bytes_data)
+    bad_state["expected_output_spec"] = bad_spec
+    with pytest.raises(UnrealEvidenceVerificationError, match="start_frame' must be an integer >= 0"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=bad_state, source="ENGINE_LIVE", job_record=bad_rec)
+
+    # 6. end_frame < start_frame
+    bad_spec = dict(base_spec, start_frame=10, end_frame=5)
+    bad_rec = AtlasRenderJobRecord.create_intent(
+        atlas_job_id="atlas-render-job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        attempt_ordinal=1,
+        authorization_id=rec.authorization_id,
+        canonical_digital_twin_id=rec.canonical_digital_twin_id,
+        sequence_asset_path=rec.sequence_asset_path,
+        request_digest=rec.request_digest,
+        config_digest=rec.config_digest,
+        output_parent_directory=rec.output_parent_directory,
+        output_directory=rec.output_directory,
+        expected_output_spec=bad_spec,
+        created_at=rec.created_at,
+    ).transition(
+        unreal_job_id=rec.unreal_job_id,
+        origin_editor_session_id=rec.origin_editor_session_id,
+        origin_process_id=rec.origin_process_id,
+        origin_process_creation_time=rec.origin_process_creation_time,
+    )
+    bad_state = _valid_record_observed_state(bad_rec, out_file, bytes_data)
+    bad_state["expected_output_spec"] = bad_spec
+    with pytest.raises(UnrealEvidenceVerificationError, match="end_frame' must be an integer >= start_frame"):
+        verify_render_job_evidence(operation_name="inspect_render_job", entity_ids=("FIELD_SURFACE",), observed_state=bad_state, source="ENGINE_LIVE", job_record=bad_rec)
 
 
 def test_m5_missing_output_directory_on_disk_fails_closed(tmp_path: Path):

@@ -622,26 +622,87 @@ def verify_render_job_evidence(
     if not rec_expected_spec or not isinstance(rec_expected_spec, Mapping):
         raise UnrealEvidenceVerificationError("record missing mandatory expected_output_spec")
 
+    # Validate complete 5-key schema on durable record
+    required_spec_keys = {"format", "width", "height", "start_frame", "end_frame"}
+    missing_rec_keys = required_spec_keys - set(rec_expected_spec.keys())
+    if missing_rec_keys:
+        raise UnrealEvidenceVerificationError(
+            f"record expected_output_spec missing required keys: {sorted(missing_rec_keys)}"
+        )
+
+    # Validate types and bounds on record expected_output_spec
+    rec_format = rec_expected_spec["format"]
+    if not isinstance(rec_format, str) or not rec_format.strip():
+        raise UnrealEvidenceVerificationError("record expected_output_spec 'format' must be a non-empty string")
+    rec_format_lower = rec_format.strip().lower()
+    if rec_format_lower not in ("png",):
+        raise UnrealEvidenceVerificationError(
+            f"unsupported output format in record expected_output_spec: {rec_format!r}"
+        )
+
+    rec_width = rec_expected_spec["width"]
+    if isinstance(rec_width, bool) or not isinstance(rec_width, int) or rec_width <= 0:
+        raise UnrealEvidenceVerificationError("record expected_output_spec 'width' must be an integer > 0")
+
+    rec_height = rec_expected_spec["height"]
+    if isinstance(rec_height, bool) or not isinstance(rec_height, int) or rec_height <= 0:
+        raise UnrealEvidenceVerificationError("record expected_output_spec 'height' must be an integer > 0")
+
+    rec_start = rec_expected_spec["start_frame"]
+    if isinstance(rec_start, bool) or not isinstance(rec_start, int) or rec_start < 0:
+        raise UnrealEvidenceVerificationError("record expected_output_spec 'start_frame' must be an integer >= 0")
+
+    rec_end = rec_expected_spec["end_frame"]
+    if isinstance(rec_end, bool) or not isinstance(rec_end, int) or rec_end < rec_start:
+        raise UnrealEvidenceVerificationError("record expected_output_spec 'end_frame' must be an integer >= start_frame")
+
+    # Validate observed expected_output_spec
     if "expected_output_spec" not in observed_state:
         raise UnrealEvidenceVerificationError("observed_state missing mandatory 'expected_output_spec'")
     obs_expected_spec = observed_state["expected_output_spec"]
     if not isinstance(obs_expected_spec, Mapping):
         raise UnrealEvidenceVerificationError("observed_state 'expected_output_spec' must be a mapping")
+    missing_obs_keys = required_spec_keys - set(obs_expected_spec.keys())
+    if missing_obs_keys:
+        raise UnrealEvidenceVerificationError(
+            f"observed_state expected_output_spec missing required keys: {sorted(missing_obs_keys)}"
+        )
+
+    # Validate types and bounds on observed expected_output_spec
+    obs_format = obs_expected_spec["format"]
+    if not isinstance(obs_format, str) or not obs_format.strip():
+        raise UnrealEvidenceVerificationError("observed_state expected_output_spec 'format' must be a non-empty string")
+    obs_format_lower = obs_format.strip().lower()
+    if obs_format_lower not in ("png",):
+        raise UnrealEvidenceVerificationError(
+            f"unsupported output format in observed_state expected_output_spec: {obs_format!r}"
+        )
+
+    obs_width = obs_expected_spec["width"]
+    if isinstance(obs_width, bool) or not isinstance(obs_width, int) or obs_width <= 0:
+        raise UnrealEvidenceVerificationError("observed_state expected_output_spec 'width' must be an integer > 0")
+
+    obs_height = obs_expected_spec["height"]
+    if isinstance(obs_height, bool) or not isinstance(obs_height, int) or obs_height <= 0:
+        raise UnrealEvidenceVerificationError("observed_state expected_output_spec 'height' must be an integer > 0")
+
+    obs_start = obs_expected_spec["start_frame"]
+    if isinstance(obs_start, bool) or not isinstance(obs_start, int) or obs_start < 0:
+        raise UnrealEvidenceVerificationError("observed_state expected_output_spec 'start_frame' must be an integer >= 0")
+
+    obs_end = obs_expected_spec["end_frame"]
+    if isinstance(obs_end, bool) or not isinstance(obs_end, int) or obs_end < obs_start:
+        raise UnrealEvidenceVerificationError("observed_state expected_output_spec 'end_frame' must be an integer >= start_frame")
+
+    # Exact equality between observed and record expected_output_spec
     if dict(obs_expected_spec) != dict(rec_expected_spec):
         raise UnrealEvidenceVerificationError(
             f"expected_output_spec mismatch: record={dict(rec_expected_spec)!r}, observed={dict(obs_expected_spec)!r}"
         )
 
     clean_state["expected_output_spec"] = dict(rec_expected_spec)
-    expected_spec = rec_expected_spec
-    exp_format = expected_spec.get("format")
-    if not exp_format or not isinstance(exp_format, str):
-        raise UnrealEvidenceVerificationError("expected_output_spec missing valid format")
-    exp_format_lower = exp_format.lower()
-    if exp_format_lower not in ("png",):
-        raise UnrealEvidenceVerificationError(
-            f"unsupported output format in expected_output_spec: {exp_format!r}"
-        )
+    exp_format = rec_format
+    exp_format_lower = rec_format_lower
 
     # Enforce that every output file matches the expected extension
     expected_ext = f".{exp_format_lower}"
@@ -651,17 +712,17 @@ def verify_render_job_evidence(
                 f"output file {fp!r} extension does not match expected format {expected_ext!r}"
             )
 
-    exp_width = expected_spec.get("width")
-    exp_height = expected_spec.get("height")
-    exp_start = expected_spec.get("start_frame")
-    exp_end = expected_spec.get("end_frame")
+    exp_width = rec_width
+    exp_height = rec_height
+    exp_start = rec_start
+    exp_end = rec_end
 
-    if exp_start is not None and exp_end is not None and exp_end >= exp_start:
-        expected_count = exp_end - exp_start + 1
-        if len(normalized_output_files) != expected_count:
-            raise UnrealEvidenceVerificationError(
-                f"output file count mismatch: expected {expected_count} frames, got {len(normalized_output_files)}"
-            )
+    # Unconditional frame count enforcement
+    expected_count = exp_end - exp_start + 1
+    if len(normalized_output_files) != expected_count:
+        raise UnrealEvidenceVerificationError(
+            f"output file count mismatch: expected {expected_count} frames, got {len(normalized_output_files)}"
+        )
 
     # Reconcile disk files against engine manifest
     # Compute expected byte size from IHDR: height * (1 + width * bpp)
