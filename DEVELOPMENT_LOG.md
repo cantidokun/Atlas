@@ -464,6 +464,37 @@ still blocked by a NEW production defect:
 - Live status: A PASS, B PASS, C fixed (S1 must be rerun after merge before S2-S8).
   No live scenario was executed during remediation; S2-S8 NOT executed.
 
+## M10 remediation — Defect D (frame-count mismatch)
+
+Off the back of the live S1 final run (which proved Defects A/B/C RESOLVED live),
+reconciliation reached the final independent evidence-verification gate and
+correctly failed closed because the authoritative frame count was 24 while the real
+MRQ render produced 23 frames (frames 1..23).
+
+Root cause: the Atlas-authorized inclusive frame topology was never transmitted or
+applied.
+- `submit_render` (Python) did NOT send start_frame/end_frame to Unreal.
+- C++ `SubmitRender` built the MRQ job from the persisted AtlasRenderConfig + engine
+  defaults and never applied the authorized range -> MRQ used a half-open end bound
+  and dropped frame 24.
+
+Fix:
+- Python `UnrealRenderSubmissionService.submit_render` now sends
+  `start_frame`/`end_frame` from expected_output_spec.
+- C++ `SubmitRender` parses them and applies the inclusive [start, end] to the MRQ
+  job (bUseCustomPlaybackRange, CustomStartFrame, CustomEndFrame); missing values
+  keep engine defaults.
+- Evidence verifier NOT weakened: frame_count = end - start + 1 remains mandatory;
+  a 23-frame result still fails closed.
+
+Regression: tests/m10 Defect D (7) prove the transmit, the inclusive engine
+semantics, 24 passes, 23 still fails, and no verifier relaxation. Full
+`pytest -m "not integration"` = 1172 passed. UBT_EXIT_CODE=0 (C++ changed).
+
+Live status: A PASS, B PASS, C PASS, D REMEDIATED (one final S1 rerun required after
+merge). No live scenario run during remediation; S2-S8 NOT executed. The 23-frame
+render + journal + HMAC + forensics are preserved as diagnostic evidence.
+
 ## Unreal — Current baseline
 
 Unreal Engine 5.6 render configuration, MRQ submission, dynamic job IDs, asynchronous inspection, artifact verification, evidence-bound render receipts, and durable receipt persistence are proven locally for the implemented boundary.

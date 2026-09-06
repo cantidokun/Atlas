@@ -1337,6 +1337,40 @@ bool FAtlasTransportServer::SubmitRender(
     R.Arguments->TryGetStringField(TEXT("config_digest"), ConfigDigest);
     ConfigDigest = ConfigDigest.TrimStartAndEnd();
 
+    // Defect D fix: the Atlas-authorized inclusive frame topology MUST be applied
+    // to the MRQ job so Unreal renders EXACTLY [start_frame, end_frame]
+    // (frame_count = end_frame - start_frame + 1). If present, they override the
+    // engine's persisted render-config range. Missing values keep the engine
+    // defaults (backward compatible), but Atlas always sends them from now on.
+    int32 AtlasStartFrame = -1;
+    int32 AtlasEndFrame = -1;
+    {
+        double StartVal = 0.0, EndVal = 0.0;
+        const bool bHasStart = R.Arguments->TryGetNumberField(TEXT("start_frame"), StartVal);
+        const bool bHasEnd = R.Arguments->TryGetNumberField(TEXT("end_frame"), EndVal);
+        if (bHasStart || bHasEnd)
+        {
+            // Either both present or neither; a lone one is a contract error.
+            if (!(bHasStart && bHasEnd))
+            {
+                E = TEXT("submit_render requires both start_frame and end_frame together");
+                return false;
+            }
+            if (FMath::RoundToInt(StartVal) != StartVal || FMath::RoundToInt(EndVal) != EndVal)
+            {
+                E = TEXT("submit_render start_frame/end_frame must be integers");
+                return false;
+            }
+            AtlasStartFrame = FMath::RoundToInt(StartVal);
+            AtlasEndFrame = FMath::RoundToInt(EndVal);
+            if (AtlasStartFrame < 0 || AtlasEndFrame < AtlasStartFrame)
+            {
+                E = TEXT("submit_render invalid frame range (end_frame must be >= start_frame >= 0)");
+                return false;
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Atomic Check-and-Insert under RenderJobRegistryMutex
     // -------------------------------------------------------------------------
@@ -1478,6 +1512,26 @@ bool FAtlasTransportServer::SubmitRender(
     {
         Queue->DeleteJob(Job);
         return false;
+    }
+
+    // Defect D fix: apply the Atlas-authorized inclusive frame range to the
+    // transient MRQ config so Unreal renders exactly [start_frame, end_frame].
+    // This ensures the output_manifest matches the Atlas-declared
+    // expected_output_spec frame_count (end - start + 1); without it the engine
+    // relied on its persisted config range, which MRQ evaluated as a half-open
+    // bound and dropped the final frame (24 declared -> 23 rendered).
+    if (AtlasStartFrame >= 0 && AtlasEndFrame >= 0)
+    {
+        UMoviePipelineOutputSetting* RangeSetting = GetAtlasRenderOutputSetting(TransientConfig, E);
+        if (!RangeSetting)
+        {
+            Queue->DeleteJob(Job);
+            return false;
+        }
+        RangeSetting->Modify();
+        RangeSetting->bUseCustomPlaybackRange = true;
+        RangeSetting->CustomStartFrame = AtlasStartFrame;
+        RangeSetting->CustomEndFrame = AtlasEndFrame;
     }
 
     Job->SetConfiguration(TransientConfig);
