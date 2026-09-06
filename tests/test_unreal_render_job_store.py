@@ -286,3 +286,42 @@ def test_per_job_execution_claim(tmp_path):
     # After release, worker-2 can acquire
     with store.acquire_job_claim(job_id, "worker-2"):
         pass
+
+
+def test_store_publish_verified_receipt_fencing(tmp_path):
+    from planning.unreal_render_job_store import AtlasRenderJobStoreStaleWriterError
+    from planning.unreal_render_receipt import UnrealRenderReceipt
+
+    store = AtlasRenderJobStore(tmp_path / "atlas_store")
+    kwargs = _sample_intent_kwargs()
+    record = AtlasRenderJobRecord.create_intent(**kwargs)
+    store.create(record)
+
+    receipt = UnrealRenderReceipt(
+        job_id="unreal-job-123",
+        sequence_asset_path=record.sequence_asset_path,
+        evidence_digest="abc123evidence",
+        atlas_job_id=record.atlas_job_id,
+        attempt_ordinal=record.attempt_ordinal,
+    )
+
+    final_rec, pub_rcpt = store.publish_verified_receipt(
+        atlas_job_id=record.atlas_job_id,
+        attempt_ordinal=record.attempt_ordinal,
+        presented_lease_token=10,
+        expected_record_revision=record.last_observed_revision,
+        receipt=receipt,
+    )
+    assert final_rec.lifecycle_state == RenderJobLifecycleState.FINALIZED
+    assert final_rec.recovery_status == RenderJobRecoveryStatus.RESOLVED
+    assert final_rec.last_accepted_lease_token == 10
+
+    # Stale token fails
+    with pytest.raises(AtlasRenderJobStoreStaleWriterError):
+        store.publish_verified_receipt(
+            atlas_job_id=record.atlas_job_id,
+            attempt_ordinal=record.attempt_ordinal,
+            presented_lease_token=10,
+            expected_record_revision=final_rec.last_observed_revision,
+            receipt=receipt,
+        )
