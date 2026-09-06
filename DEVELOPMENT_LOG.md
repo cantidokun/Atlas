@@ -33,10 +33,10 @@ workflow/action-runner tests. Full detail: `docs/UNREAL_M7_HARDENING.md`.
   execution/recovery phase. `now_utc` is injectable for deterministic tests.
 
 ### Validation
-- `tests/m7/`: **54 passed** (final head).
+- `tests/m7/`: **59 passed** (final head).
 - `tests/m6/`: **79 passed** (framing test updated to reflect the repair).
 - Existing M4/M5 Unreal suites: **154 passed**.
-- Full `pytest -m "not integration"`: **1083 passed** (final head).
+- Full `pytest -m "not integration"`: **1088 passed** (final head).
 - C++ module build: **UnrealBuildTool succeeded** (UBT_EXIT_CODE=0).
 
 Two additional M7 journal-integrity passes hardened structural validation (typed

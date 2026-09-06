@@ -746,6 +746,26 @@ bool FAtlasUE56JournalStructuralValidationTest::RunTest(const FString& Parameter
         CheckUnchanged(Bad);
     }
 
+    // SAFETY HOLE: a pre-existing journal with NEITHER 'phase_history' NOR a
+    // recognized legacy top-level 'phase' must FAIL CLOSED (not be treated as
+    // fresh), leaving the file byte-for-byte unchanged.
+    {
+        const TArray<FString> Bad = {
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"unrelated\":\"x\"}"), // unknown field only
+            TEXT("{}"),                                                                             // empty object
+            TEXT("{\"journal_schema_version\":1}"),                                                // schema only
+        };
+        for (const FString& B : Bad)
+        {
+            const bool bOk = AttemptAppend(B);
+            TestFalse(TEXT("Append rejected on pre-existing journal with neither phase_history nor phase"), bOk);
+            CheckUnchanged(B);
+        }
+    }
+    // ReconcileRenderJobs must classify a neither-case file as PARTIAL (not expose
+    // it as a current-state known_job). Verified by the reconcile check below.
+
+    // BLOCKER 2 (Option A, LOSSLESS MIGRATION): a legacy schema-1 single-phase
     // BLOCKER 2 (Option A, LOSSLESS MIGRATION): a legacy schema-1 single-phase
     // journal (no phase_history, but a top-level 'phase') must NOT be treated as
     // empty. It is migrated into the first retained phase_history entry and the
@@ -815,7 +835,8 @@ bool FAtlasUE56JournalStructuralValidationTest::RunTest(const FString& Parameter
     // latest (malformed) entry - malformed witness state is never evidence of
     // absence and never evidence of successful execution.
     {
-        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":1},{\"phase\":\"FINISHED\",\"phase_sequence\":3}]}");
+        // Neither-case (no phase_history, no phase) must also be PARTIAL.
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"unrelated\":\"x\"}");
         FFileHelper::SaveStringToFile(Bad, *JournalPath);
 
         FAtlasTransportServer::FTransportRequest Req;

@@ -108,6 +108,26 @@ and the record, and still independently verifies the engine-attested manifest
 hashes against disk — so this fills in Atlas-owned fields a witness genuinely
 cannot provide; it does not fabricate engine success.
 
+### Fail-closed on unrecognized pre-existing journal (final safety correction)
+A pre-existing `TargetPath` that contains **neither** `phase_history` nor a
+legacy top-level `phase` is **NOT** treated as a fresh/empty journal. Because
+`TargetPath` existing means prior witness state was written, such a file is an
+unrecognized/malformed witness: `WriteJournalEntry` FAILS CLOSED (no append, no
+rewrite, no schema upgrade) and preserves it byte-for-byte.
+`ReconcileRenderJobs` classifies the same case as `journal_status=PARTIAL` and
+does NOT expose it as a current-state known_job (no synthesized success/absence).
+
+### Legacy migration boundary (explicit)
+Only a **legacy single-phase journal** (top-level `phase`, no `phase_history`) is
+migratable, and only when its single phase can be safely incorporated as the first
+retained `phase_history` entry:
+- Legacy `ACCEPTED` -> migratable (append `STARTED`, `FINISHED`, or `FAILED`).
+- Legacy `STARTED`-only or terminal-only (`FINISHED`/`FAILED`) journals are
+  **NOT** migrated by `WriteJournalEntry`: they are missing the required prior
+  phases and appending/rewriting would fabricate or discard execution history.
+  They fail closed (unchanged).
+- A journal with neither `phase_history` nor `phase` is never treated as fresh.
+
 ### Journal-append integrity (structural + legacy, audit correction)
 - **BLOCKER 1:** `WriteJournalEntry` now requires `phase_history`, when present, to be a
   JSON **array** (`HasTypedField<EJson::Array>`) BEFORE `GetArrayField`. If it exists as
@@ -232,10 +252,10 @@ Additional: `test_m7_c_submission_deadline_also_enforced`,
 No other production, engine, or test file was modified.
 
 ## Validation
-- `tests/m7/`: **54 passed**
+- `tests/m7/`: **59 passed**
 - `tests/m6/`: **79 passed** (incl. M7-updated framing test)
 - Existing M4/M5 Unreal suites: **154 passed**
-- Full `pytest -m "not integration"`: **1083 passed**
+- Full `pytest -m "not integration"`: **1088 passed**
 - C++ module build: **UnrealBuildTool succeeded** (UBT_EXIT_CODE=0) with the new
   journal/history automation tests.
 

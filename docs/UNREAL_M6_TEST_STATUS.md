@@ -104,8 +104,11 @@ Python suite**. Runtime execution of the C++ automation is an M7 build/validatio
    verification fields; a second M7 pass added **strict structural validation of an
    existing `phase_history` before any append and before deriving current state in
    `ReconcileRenderJobs`** (parseable-but-malformed history is rejected / classified
-   PARTIAL, never overwritten, never evidence of success). See
-   `tests/m7/test_m7_journal_history.py` and `docs/UNREAL_M7_HARDENING.md`.
+   PARTIAL, never overwritten, never evidence of success); a final M7 pass makes a
+   pre-existing journal with **neither** `phase_history` nor a legacy `phase` **fail
+   closed** (not treated as fresh) in both `WriteJournalEntry` and
+   `ReconcileRenderJobs`. See `tests/m7/test_m7_journal_history.py` and
+   `docs/UNREAL_M7_HARDENING.md`.
 3. **`execution_deadline` is stored but unenforced.** No `EXHAUSTED` expiry transition
    exists. → **REPAIRED in M7 hardening**: the coordinator now evaluates
    submission/execution deadlines and transitions an unresolved expired job to

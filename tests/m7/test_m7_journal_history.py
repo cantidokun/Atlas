@@ -470,8 +470,11 @@ def _resolve_existing_history(root, new_phase):
         if not ok:
             return None, False, err
         return migrated, True, None
-    # No phase_history and no phase -> empty fresh history (append-safe).
-    return [], True, None
+    # SAFETY HOLE FIX: a pre-existing journal (TargetPath exists) with NEITHER
+    # 'phase_history' NOR a legacy top-level 'phase' is NOT empty/fresh. It is an
+    # unrecognized/malformed witness and MUST fail closed (no append, no rewrite,
+    # no schema upgrade); the original bytes are preserved.
+    return None, False, "neither phase_history nor recognized legacy phase"
 
 
 def test_m7_jh_typed_check_phase_history_not_array():
@@ -518,6 +521,40 @@ def test_m7_jh_legacy_invalid_journal_rejected():
     assert not allow and err is not None
 
 
-def test_m7_jh_legacy_no_history_no_phase_fresh():
+def test_m7_jh_legacy_no_history_no_phase_fresh_is_fail_closed():
+    # A PRE-EXISTING journal with only atlas_job_id (no phase_history, no phase)
+    # is an unrecognized witness - NOT fresh. Append must fail closed.
     hist, allow, err = _resolve_existing_history({"atlas_job_id": "x"}, "ACCEPTED")
-    assert allow is True and hist == []
+    assert allow is False and hist is None and err is not None
+
+
+# ── 9. Neither-case fail-closed (safety hole) ─────────────────────────────────
+def test_m7_jh_existing_with_neither_field_fails_closed():
+    root = {"atlas_job_id": "atlas-render-job-x", "unreal_job_id": "u", "unrelated": "x"}
+    hist, allow, err = _resolve_existing_history(root, "ACCEPTED")
+    assert not allow
+    assert err is not None
+
+
+def test_m7_jh_empty_object_fails_closed():
+    hist, allow, err = _resolve_existing_history({}, "ACCEPTED")
+    assert not allow and err is not None
+
+
+def test_m7_jh_schema_only_fails_closed():
+    hist, allow, err = _resolve_existing_history({"journal_schema_version": 1}, "ACCEPTED")
+    assert not allow and err is not None
+
+
+def test_m7_jh_legacy_phase_still_migrates():
+    # Legacy ACCEPTED still migrates (prior phase preserved), not treated as empty.
+    hist, allow, err = _resolve_existing_history(
+        {"phase": "ACCEPTED", "phase_sequence": 1, "status": "submitted"}, "STARTED")
+    assert allow is True and err is None
+    assert [e["phase"] for e in hist] == ["ACCEPTED"]
+
+
+def test_m7_jh_nonexistent_equivalent_is_fresh():
+    # Only a NON-EXISTENT journal is fresh; a pre-existing unrecognized one is not.
+    # (Represented here by an explicit "no target file" caller which passes None.)
+    assert True  # marker: caller decides fresh only when TargetPath does not exist

@@ -1867,6 +1867,18 @@ bool FAtlasTransportServer::ReconcileRenderJobs(
                 }
                 KnownJob = Derived;
             }
+            else if (!JsonObj->HasField(TEXT("phase")))
+            {
+                // SAFETY HOLE FIX: a file with neither 'phase_history' nor a
+                // recognized legacy top-level 'phase' is NOT a valid empty/fresh
+                // journal. Classify it via the existing malformed/partial/unknown
+                // path (PARTIAL) and NEVER expose it as a current-state known_job,
+                // and never synthesize success or absence from it.
+                JournalStatus = TEXT("PARTIAL");
+                continue;
+            }
+            // else: legacy single-phase journal (top-level 'phase') is exposed as
+            // the raw object (observation-compatible); it is NOT treated as empty.
 
             ConsolidatedJobs.Add(AtlasJobId, KnownJob);
         }
@@ -2337,9 +2349,17 @@ bool FAtlasTransportServer::WriteJournalEntry(
                 return false;
             }
         }
-        // else: no 'phase_history' and no 'phase' -> an empty/unspecified journal is
-        // treated as a fresh history (equivalent to no prior witness phases), which
-        // is append-safe.
+        else
+        {
+            // SAFETY HOLE FIX: a pre-existing TargetPath with NEITHER 'phase_history'
+            // NOR a top-level 'phase' is NOT an empty/fresh journal. It is an
+            // unrecognized/malformed witness: TargetPath existing means prior state
+            // was written, and treating it as fresh would silently discard that
+            // state. FAIL CLOSED: do NOT append, do NOT rewrite, do NOT upgrade
+            // schema, and preserve the existing file byte-for-byte.
+            OutError = TEXT("Existing journal has neither 'phase_history' nor a recognized legacy 'phase'; refusing to overwrite");
+            return false;
+        }
     }
 
     // ---- Enforce append-only monotonic + duplicate/out-of-order rejection ----
