@@ -85,14 +85,40 @@ Python suite**. Runtime execution of the C++ automation is an M7 build/validatio
 1. **Framed-catalog integrity path is inert (mappingproxy).** `_query_catalog` in
    `planning/unreal_render_recovery_coordinator.py` cannot `json.dumps` the frozen
    `mappingproxy` `known_jobs`, so any framed reconcile response fails to Case J.
-   Safety preserved; positive path unverified. → M7 production remediation.
+   Safety preserved; positive path unverified. → **REPAIRED in M7 hardening**
+   (see `docs/UNREAL_M7_HARDENING.md`): `_query_catalog` now deep-thaws and
+   validates framing against the canonical `known_jobs` payload; valid framed
+   catalogs are accepted and tampered/malformed framing fails closed.
 2. **C++ journal is overwrite-only, not append-only.** `WriteJournalEntry` writes one
    `<atlas>__<unreal>.json` per pair with `MOVEFILE_REPLACE_EXISTING`; no
-   `phase_history`/monotonic `phase_sequence` per Contract §30/§37. → M7 remediation.
+   `phase_history`/monotonic `phase_sequence` per Contract §30/§37. →
+   **REPAIRED in M7 hardening**: `WriteJournalEntry` now maintains an append-only
+   `phase_history` array with monotonic `phase_sequence` (ACCEPTED=1, STARTED=2,
+   FINISHED/FAILED=3) **and** the required lifecycle ordering (ACCEPTED first,
+   STARTED before a terminal), rejects duplicate/out-of-order phases, fails closed
+   on malformed history, and `ReconcileRenderJobs` exposes the retained history and
+   the `job_id`/`unreal_job_id` alias. A focused M7 journal-history audit also
+   added Atlas-authoritative identity binding
+   (`canonical_digital_twin_id`, full `expected_output_spec`, `attempt_ordinal`)
+   at reconciliation so engine-derived journal candidates preserve all downstream
+   verification fields; a second M7 pass added **strict structural validation of an
+   existing `phase_history` before any append and before deriving current state in
+   `ReconcileRenderJobs`** (parseable-but-malformed history is rejected / classified
+   PARTIAL, never overwritten, never evidence of success); a final M7 pass makes a
+   pre-existing journal with **neither** `phase_history` nor a legacy `phase` **fail
+   closed** (not treated as fresh) in both `WriteJournalEntry` and
+   `ReconcileRenderJobs`. See `tests/m7/test_m7_journal_history.py` and
+   `docs/UNREAL_M7_HARDENING.md`.
 3. **`execution_deadline` is stored but unenforced.** No `EXHAUSTED` expiry transition
-   exists. → M7 remediation.
+   exists. → **REPAIRED in M7 hardening**: the coordinator now evaluates
+   submission/execution deadlines and transitions an unresolved expired job to
+   `RECOVERY_FAILED` + `EXHAUSTED`, with no retry/receipt/finalization.
 
 ## M7 status
 
+M7 **hardening/pre-flight** is complete on a dedicated branch: the three M6 defects
+above are repaired in production and deterministically verified (see
+`docs/UNREAL_M7_HARDENING.md` for the item map and validation).
+
 Live UE 5.6 restart/recovery **Scenarios 1–8 are NOT run** and require explicit
-authorization. No workflow/action-runner tests are run.
+human authorization. No workflow/action-runner tests are run.

@@ -47,6 +47,41 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     "Atlas.UnrealAgent.UE56.CapabilitySchemaReporting",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalAppendHistoryTest,
+    "Atlas.UnrealAgent.UE56.JournalAppendHistory",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalMonotonicSequenceTest,
+    "Atlas.UnrealAgent.UE56.JournalMonotonicSequence",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalDuplicateRejectionTest,
+    "Atlas.UnrealAgent.UE56.JournalDuplicateRejection",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalLifecycleOrderingTest,
+    "Atlas.UnrealAgent.UE56.JournalLifecycleOrdering",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalStructuralValidationTest,
+    "Atlas.UnrealAgent.UE56.JournalStructuralValidation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalMalformedHistoryTest,
+    "Atlas.UnrealAgent.UE56.JournalMalformedHistory",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasUE56JournalReconcileRetainedHistoryTest,
+    "Atlas.UnrealAgent.UE56.JournalReconcileRetainedHistory",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
 bool FAtlasUE56RenderJobBoundaryTest::RunTest(const FString& Parameters)
 {
     TestTrue(
@@ -465,3 +500,456 @@ bool FAtlasUE56CapabilitySchemaReportingTest::RunTest(const FString& Parameters)
     return !HasAnyErrors();
 }
 
+// ── M7: append-only witness journal history ───────────────────────────────
+bool FAtlasUE56JournalAppendHistoryTest::RunTest(const FString& Parameters)
+{
+    const FString AtlasJobId = TEXT("atlas-job-hist-append-001");
+    const FString UnrealJobId = TEXT("unreal-job-hist-append-001");
+
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->SequenceAssetPath = TEXT("/Game/TestH/TestH");
+    JobState->OutputDirectory = TEXT("C:/AtlasRenders/hist");
+    JobState->AuthorizationId = TEXT("auth-hist-001");
+    JobState->ConfigDigest = TEXT("digest-hist");
+    JobState->Status = TEXT("submitted");
+
+    FString Error;
+    // Write ACCEPTED -> STARTED, then FinalizeRenderJobState (which writes the
+    // terminal FINISHED entry itself) for the SAME job-pair => append-only.
+    const bool bAccepted = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    JobState->Status = TEXT("rendering");
+    const bool bStarted = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+    TArray<FString> Files;
+    Files.Add(TEXT("C:/AtlasRenders/hist/frame_0001.png"));
+    FAtlasTransportServer::FinalizeRenderJobState(JobState, true, Files, TEXT("test"));
+
+    TestTrue(TEXT("ACCEPTED written"), bAccepted);
+    TestTrue(TEXT("STARTED written (append)"), bStarted);
+
+    // Append rather than overwrite: all three phases retained, terminal FINISHED wins.
+    const FString JournalPath = FPaths::Combine(
+        FAtlasTransportServer::GetJournalDirectory(),
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId));
+    FString Content;
+    const bool bLoaded = FFileHelper::LoadFileToString(Content, *JournalPath);
+    TestTrue(TEXT("Journal file readable"), bLoaded);
+    TestTrue(TEXT("phase_history contains ACCEPTED"), Content.Contains(TEXT("\"ACCEPTED\"")));
+    TestTrue(TEXT("phase_history contains STARTED"), Content.Contains(TEXT("\"STARTED\"")));
+    TestTrue(TEXT("phase_history contains FINISHED"), Content.Contains(TEXT("\"FINISHED\"")));
+    // Latest phase is FINISHED (not regressed).
+    TestTrue(TEXT("latest phase is FINISHED"), Content.Contains(TEXT("\"phase\":\"FINISHED\"")));
+
+    IFileManager::Get().Delete(*JournalPath);
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56JournalMonotonicSequenceTest::RunTest(const FString& Parameters)
+{
+    const FString AtlasJobId = TEXT("atlas-job-seq-001");
+    const FString UnrealJobId = TEXT("unreal-job-seq-001");
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->SequenceAssetPath = TEXT("/Game/Seq/Seq");
+    JobState->OutputDirectory = TEXT("C:/AtlasRenders/seq");
+    JobState->Status = TEXT("submitted");
+
+    FString Error;
+    FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    JobState->Status = TEXT("rendering");
+    FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+
+    const FString JournalPath = FPaths::Combine(
+        FAtlasTransportServer::GetJournalDirectory(),
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId));
+    FString Content;
+    FFileHelper::LoadFileToString(Content, *JournalPath);
+    // Monotonic ordering preserved: ACCEPTED seq 1 appears before STARTED seq 2.
+    const int32 AcceptedPos = Content.Find(TEXT("\"phase\":\"ACCEPTED\""));
+    const int32 StartedPos = Content.Find(TEXT("\"phase\":\"STARTED\""));
+    TestTrue(TEXT("ACCEPTED present"), AcceptedPos != INDEX_NONE);
+    TestTrue(TEXT("STARTED present"), StartedPos != INDEX_NONE);
+    TestTrue(TEXT("ACCEPTED precedes STARTED"), AcceptedPos < StartedPos);
+    TestTrue(TEXT("phase_sequence 1 present"), Content.Contains(TEXT("\"phase_sequence\":1")));
+    TestTrue(TEXT("phase_sequence 2 present"), Content.Contains(TEXT("\"phase_sequence\":2")));
+
+    IFileManager::Get().Delete(*JournalPath);
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56JournalDuplicateRejectionTest::RunTest(const FString& Parameters)
+{
+    const FString AtlasJobId = TEXT("atlas-job-dup-001");
+    const FString UnrealJobId = TEXT("unreal-job-dup-001");
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->Status = TEXT("submitted");
+
+    FString Error;
+    const bool bFirst = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    // Duplicate ACCEPTED must be rejected (append-only, duplicate phase).
+    const bool bDuplicateAccepted = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    // Out-of-order STARTED after a FINISHED would also be rejected; here we test duplicate.
+    TestTrue(TEXT("First ACCEPTED written"), bFirst);
+    TestTrue(TEXT("Duplicate ACCEPTED rejected"), !bDuplicateAccepted);
+
+    IFileManager::Get().Delete(*FPaths::Combine(
+        FAtlasTransportServer::GetJournalDirectory(),
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId)));
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56JournalLifecycleOrderingTest::RunTest(const FString& Parameters)
+{
+    const FString AtlasJobId = TEXT("atlas-job-lifecycle-001");
+    const FString UnrealJobId = TEXT("unreal-job-lifecycle-001");
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->Status = TEXT("submitted");
+
+    FString Error;
+
+    // STARTED before ACCEPTED must be rejected (lifecycle ordering).
+    const bool bStartedFirst = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+    TestFalse(TEXT("STARTED before ACCEPTED rejected"), bStartedFirst);
+
+    // ACCEPTED first is accepted; then STARTED; then FINISHED via terminal path.
+    const bool bAccepted = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    JobState->Status = TEXT("rendering");
+    const bool bStarted = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+    TestTrue(TEXT("ACCEPTED written first"), bAccepted);
+    TestTrue(TEXT("STARTED written after ACCEPTED"), bStarted);
+
+    // FINISHED directly after ACCEPTED (skipping STARTED) should have been
+    // rejected, but since STARTED is present the terminal write is allowed.
+    // Verify a FINISHED then a FAILED dual-terminal is rejected.
+    TArray<FString> Files;
+    Files.Add(TEXT("C:/AtlasRenders/hist/frame.png"));
+    FAtlasTransportServer::FinalizeRenderJobState(JobState, true, Files, TEXT("test"));
+    // Attempt a second terminal (FAILED) after FINISHED -> rejected.
+    const bool bFailedAfterFinished = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("FAILED"), JobState, Error);
+    TestFalse(TEXT("FAILED after FINISHED rejected (dual terminal)"), bFailedAfterFinished);
+
+    IFileManager::Get().Delete(*FPaths::Combine(
+        FAtlasTransportServer::GetJournalDirectory(),
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId)));
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56JournalStructuralValidationTest::RunTest(const FString& Parameters)
+{
+    const FString JournalDir = FAtlasTransportServer::GetJournalDirectory();
+    IFileManager::Get().MakeDirectory(*JournalDir, true);
+    const FString AtlasJobId = TEXT("atlas-job-struct-001");
+    const FString UnrealJobId = TEXT("unreal-job-struct-001");
+    const FString JournalPath = FPaths::Combine(
+        JournalDir, FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId));
+
+    // Helper to write an arbitrary (possibly malformed) JSON container and then
+    // attempt an ACCEPTED append; the pre-append structural validation must reject
+    // parseable-but-malformed phase_history and leave the file byte-for-byte intact.
+    auto AttemptAppend = [&](const FString& ContainerJson) -> bool
+    {
+        FFileHelper::SaveStringToFile(ContainerJson, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->Status = TEXT("submitted");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+        return bAppended;
+    };
+
+    auto CheckUnchanged = [&](const FString& Original) -> void
+    {
+        FString After;
+        FFileHelper::LoadFileToString(After, *JournalPath);
+        TestTrue(TEXT("Malformed history left byte-for-byte untouched after rejected append"),
+                 After == Original);
+    };
+
+    // Case: non-object phase_history element.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[42]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Valid ACCEPTED append rejected after non-object history element"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: missing phase.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase_sequence\":1}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after missing phase"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: missing phase_sequence.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\"}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after missing phase_sequence"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: wrong phase_sequence (ACCEPTED with sequence 2).
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":2}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after ACCEPTED with sequence 2"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: ACCEPTED -> FINISHED skipping STARTED.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":1},{\"phase\":\"FINISHED\",\"phase_sequence\":3}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected after ACCEPTED->FINISHED skipping STARTED"), bOk);
+        CheckUnchanged(Bad);
+    }
+    // Case: FINISHED + FAILED dual terminal.
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[{\"phase\":\"ACCEPTED\",\"phase_sequence\":1},{\"phase\":\"STARTED\",\"phase_sequence\":2},{\"phase\":\"FINISHED\",\"phase_sequence\":3},{\"phase\":\"FAILED\",\"phase_sequence\":3}]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected on FINISHED+FAILED dual terminal"), bOk);
+        CheckUnchanged(Bad);
+    }
+
+    // BLOCKER 1: phase_history exists but is NOT an array must fail closed,
+    // GetArrayField must not be called on a non-array, and the file must be
+    // byte-for-byte unchanged.
+    {
+        const TArray<FString> BadTypes = {
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":{}}"),  // object
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":\"corrupt\"}"), // string
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":123}"), // number
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":null}"), // null
+        };
+        for (const FString& Bad : BadTypes)
+        {
+            const bool bOk = AttemptAppend(Bad);
+            TestFalse(TEXT("Append rejected when phase_history is not an array"), bOk);
+            CheckUnchanged(Bad);
+        }
+    }
+    // BLOCKER 1: phase_history = [] (present but empty) is malformed and must fail
+    // closed (an existing history field must not be an empty array).
+    {
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase_history\":[]}");
+        const bool bOk = AttemptAppend(Bad);
+        TestFalse(TEXT("Append rejected on empty phase_history"), bOk);
+        CheckUnchanged(Bad);
+    }
+
+    // SAFETY HOLE: a pre-existing journal with NEITHER 'phase_history' NOR a
+    // recognized legacy top-level 'phase' must FAIL CLOSED (not be treated as
+    // fresh), leaving the file byte-for-byte unchanged.
+    {
+        const TArray<FString> Bad = {
+            TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"unrelated\":\"x\"}"), // unknown field only
+            TEXT("{}"),                                                                             // empty object
+            TEXT("{\"journal_schema_version\":1}"),                                                // schema only
+        };
+        for (const FString& B : Bad)
+        {
+            const bool bOk = AttemptAppend(B);
+            TestFalse(TEXT("Append rejected on pre-existing journal with neither phase_history nor phase"), bOk);
+            CheckUnchanged(B);
+        }
+    }
+    // ReconcileRenderJobs must classify a neither-case file as PARTIAL (not expose
+    // it as a current-state known_job). Verified by the reconcile check below.
+
+    // BLOCKER 2 (Option A, LOSSLESS MIGRATION): a legacy schema-1 single-phase
+    // BLOCKER 2 (Option A, LOSSLESS MIGRATION): a legacy schema-1 single-phase
+    // journal (no phase_history, but a top-level 'phase') must NOT be treated as
+    // empty. It is migrated into the first retained phase_history entry and the
+    // new phase is appended only if the resulting history is valid. The prior
+    // phase must survive in the final phase_history.
+    {
+        // Legacy ACCEPTED -> append STARTED => migrated history ACCEPTED,STARTED.
+        const FString Legacy = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"journal_schema_version\":1,\"phase\":\"ACCEPTED\",\"phase_sequence\":1,\"status\":\"submitted\"}");
+        FFileHelper::SaveStringToFile(Legacy, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->SequenceAssetPath = TEXT("/Game/S/S");
+        JobState->OutputDirectory = TEXT("C:/AtlasRenders/mig");
+        JobState->Status = TEXT("rendering");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+        TestTrue(TEXT("Legacy ACCEPTED -> STARTED append succeeds (lossless migration)"), bAppended);
+        // Verify the migrated history retains ACCEPTED then STARTED.
+        FString Migrated;
+        FFileHelper::LoadFileToString(Migrated, *JournalPath);
+        TestTrue(TEXT("Migrated phase_history retains ACCEPTED"), Migrated.Contains(TEXT("\"phase\":\"ACCEPTED\"")));
+        TestTrue(TEXT("Migrated phase_history retains STARTED"), Migrated.Contains(TEXT("\"phase\":\"STARTED\"")));
+        IFileManager::Get().Delete(*JournalPath);
+    }
+
+    // Legacy terminal journal cannot accept another terminal (out-of-order).
+    {
+        const FString Legacy = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase\":\"FINISHED\",\"phase_sequence\":3,\"status\":\"finished\",\"finished\":true,\"success\":true}"); 
+        FFileHelper::SaveStringToFile(Legacy, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->Status = TEXT("rendering");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("FAILED"), JobState, Error);
+        TestFalse(TEXT("Legacy terminal journal cannot accept another terminal"), bAppended);
+        // Legacy file must be byte-for-byte unchanged.
+        FString After;
+        FFileHelper::LoadFileToString(After, *JournalPath);
+        TestTrue(TEXT("Legacy terminal journal unchanged after rejected terminal append"), After == Legacy);
+        IFileManager::Get().Delete(*JournalPath);
+    }
+
+    // Legacy invalid/ambiguous journal (phase present but invalid) rejected unchanged.
+    {
+        const FString Legacy = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"phase\":\"BOGUS\"}");
+        FFileHelper::SaveStringToFile(Legacy, *JournalPath);
+        TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+            MakeShareable(new FAtlasTransportServer::FRenderJobState());
+        JobState->JobId = UnrealJobId;
+        JobState->AtlasJobId = AtlasJobId;
+        JobState->Status = TEXT("submitted");
+        FString Error;
+        const bool bAppended = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+        TestFalse(TEXT("Legacy invalid journal rejected"), bAppended);
+        FString After;
+        FFileHelper::LoadFileToString(After, *JournalPath);
+        TestTrue(TEXT("Legacy invalid journal unchanged"), After == Legacy);
+        IFileManager::Get().Delete(*JournalPath);
+    }
+
+    // ReconcileRenderJobs must FAIL CLOSED on a parseable-but-malformed history:
+    // classify journal_status PARTIAL and NOT synthesize a current state from the
+    // latest (malformed) entry - malformed witness state is never evidence of
+    // absence and never evidence of successful execution.
+    {
+        // Neither-case (no phase_history, no phase) must also be PARTIAL.
+        const FString Bad = TEXT("{\"atlas_job_id\":\"atlas-job-struct-001\",\"unreal_job_id\":\"unreal-job-struct-001\",\"unrelated\":\"x\"}");
+        FFileHelper::SaveStringToFile(Bad, *JournalPath);
+
+        FAtlasTransportServer::FTransportRequest Req;
+        Req.RequestId = TEXT("struct-rec");
+        Req.OperationName = TEXT("reconcile_render_jobs");
+        Req.Capability = TEXT("render");
+        Req.Kind = TEXT("read");
+        Req.SchemaVersion = 1;
+
+        TSharedPtr<FJsonObject> ObservedState;
+        FString RErr;
+        const bool bOk = FAtlasTransportServer::ReconcileRenderJobs(Req, ObservedState, RErr);
+        TestTrue(TEXT("ReconcileRenderJobs succeeds (returns)"), bOk);
+        if (ObservedState.IsValid())
+        {
+            TestTrue(TEXT("journal_status is PARTIAL on malformed history"),
+                     ObservedState->GetStringField(TEXT("journal_status")) == TEXT("PARTIAL"));
+        }
+    }
+
+    // Cleanup any residual journal file.
+    IFileManager::Get().Delete(*JournalPath);
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56JournalMalformedHistoryTest::RunTest(const FString& Parameters)
+{
+    const FString JournalDir = FAtlasTransportServer::GetJournalDirectory();
+    IFileManager::Get().MakeDirectory(*JournalDir, true);
+    const FString AtlasJobId = TEXT("atlas-job-malformed-hist-001");
+    const FString UnrealJobId = TEXT("unreal-job-malformed-hist-001");
+    const FString JournalPath = FPaths::Combine(
+        JournalDir, FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId));
+
+    // Write malformed content first, then attempt an append -> must fail closed.
+    FFileHelper::SaveStringToFile(TEXT("{ not valid json "), *JournalPath);
+
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->Status = TEXT("submitted");
+
+    FString Error;
+    const bool bAppend = FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    TestTrue(TEXT("Append to malformed history fails closed"), !bAppend);
+    TestTrue(TEXT("Fail-closed error describes malformed history"), Error.Contains(TEXT("malformed")));
+
+    IFileManager::Get().Delete(*JournalPath);
+    return !HasAnyErrors();
+}
+
+bool FAtlasUE56JournalReconcileRetainedHistoryTest::RunTest(const FString& Parameters)
+{
+    const FString AtlasJobId = TEXT("atlas-job-reconcile-hist-001");
+    const FString UnrealJobId = TEXT("unreal-job-reconcile-hist-001");
+    TSharedPtr<FAtlasTransportServer::FRenderJobState> JobState =
+        MakeShareable(new FAtlasTransportServer::FRenderJobState());
+    JobState->JobId = UnrealJobId;
+    JobState->AtlasJobId = AtlasJobId;
+    JobState->SequenceAssetPath = TEXT("/Game/HistRec/HistRec");
+    JobState->OutputDirectory = TEXT("C:/AtlasRenders/histrec");
+    JobState->Status = TEXT("submitted");
+
+    FString Error;
+    FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("ACCEPTED"), JobState, Error);
+    JobState->Status = TEXT("rendering");
+    FAtlasTransportServer::WriteJournalEntry(AtlasJobId, UnrealJobId, TEXT("STARTED"), JobState, Error);
+    TArray<FString> Files;
+    Files.Add(TEXT("C:/AtlasRenders/histrec/frame.png"));
+    FAtlasTransportServer::FinalizeRenderJobState(JobState, true, Files, TEXT("test"));
+
+    // Reconcile must see the retained history.
+    FAtlasTransportServer::FTransportRequest Req;
+    Req.RequestId = TEXT("hist-rec");
+    Req.OperationName = TEXT("reconcile_render_jobs");
+    Req.Capability = TEXT("render");
+    Req.Kind = TEXT("read");
+    Req.SchemaVersion = 1;
+    Req.AuthorizationId = TEXT("auth-histrec");
+
+    TSharedPtr<FJsonObject> ObservedState;
+    FString RErr;
+    const bool bOk = FAtlasTransportServer::ReconcileRenderJobs(Req, ObservedState, RErr);
+    TestTrue(TEXT("ReconcileRenderJobs succeeded"), bOk);
+    bool bFoundHistory = false;
+    bool bFoundJobIdAlias = false;
+    if (ObservedState.IsValid())
+    {
+        TArray<TSharedPtr<FJsonValue>> Jobs = ObservedState->GetArrayField(TEXT("known_jobs"));
+        for (const TSharedPtr<FJsonValue>& J : Jobs)
+        {
+            TSharedPtr<FJsonObject> Jo = J->AsObject();
+            if (Jo.IsValid() && Jo->GetStringField(TEXT("atlas_job_id")) == AtlasJobId)
+            {
+                bFoundHistory = Jo->HasTypedField<EJson::Array>(TEXT("phase_history"));
+                // Downstream consumers read job_id (alias) OR unreal_job_id; both
+                // must be exposed by the derived known_job.
+                const FString JobIdAlias = Jo->GetStringField(TEXT("job_id"));
+                const FString ReadUnrealJobId = Jo->GetStringField(TEXT("unreal_job_id"));
+                if (!JobIdAlias.IsEmpty() && JobIdAlias == ReadUnrealJobId)
+                {
+                    bFoundJobIdAlias = true;
+                }
+                break;
+            }
+        }
+    }
+    TestTrue(TEXT("Reconcile exposes retained phase_history"), bFoundHistory);
+    TestTrue(TEXT("Reconcile exposes job_id == unreal_job_id alias"), bFoundJobIdAlias);
+
+    IFileManager::Get().Delete(*FPaths::Combine(
+        FAtlasTransportServer::GetJournalDirectory(),
+        FString::Printf(TEXT("%s__%s.json"), *AtlasJobId, *UnrealJobId)));
+    return !HasAnyErrors();
+}

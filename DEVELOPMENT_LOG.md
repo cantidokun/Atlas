@@ -1,5 +1,56 @@
 # Atlas Development Log
 
+## September 6, 2026 — Milestone 7 hardening/pre-flight
+
+M7 **hardening/pre-flight** repairs the three production gaps M6 discovered, as a
+deterministic prerequisite to the live M7 Scenarios. No live Unreal/Blender
+execution; no `UnrealEditor` launch; no process kill/restart; no
+workflow/action-runner tests. Full detail: `docs/UNREAL_M7_HARDENING.md`.
+
+### A. Framed catalog integrity
+- `UnrealRenderRecoveryCoordinator._query_catalog` now deep-thaws the observed state
+  and validates `payload_byte_length`/`payload_sha256` against the canonical
+  `known_jobs` payload (deterministic compact JSON). Valid framed catalogs are
+  accepted; malformed/incomplete/tampered framing fails closed to UNREADABLE → Case J.
+- `canonical_known_jobs_payload()` is the single canonical serializer.
+
+### B. C++ witness journal history (append-only)
+- `WriteJournalEntry` maintains an append-only `phase_history` array with monotonic
+  `phase_sequence` (ACCEPTED=1, STARTED=2, FINISHED/FAILED=3); duplicate/out-of-order
+  phases rejected; malformed history fails closed (never truncates prior witness
+  entries); durable atomic write retained. `ReconcileRenderJobs` exposes the retained
+  history and derives current state from the latest phase. `journal_schema_version` → 2.
+- Journal-history C++ automation tests (AppendHistory, MonotonicSequence,
+  DuplicateRejection, LifecycleOrdering, StructuralValidation, MalformedHistory,
+  ReconcileRetainedHistory) **compile-verified** via UnrealBuildTool; 16 C++
+  automation tests total. Not executed under the editor in this milestone.
+
+### C. Execution/submission deadline enforcement
+- The coordinator now evaluates persisted deadlines deterministically; an unresolved
+  job whose submission or execution deadline has expired transitions to
+  `RECOVERY_FAILED` + `recovery_status=EXHAUSTED`, with no retry/receipt/finalization.
+  `submission_deadline` bounds the unsubmitted phase; `execution_deadline` bounds the
+  execution/recovery phase. `now_utc` is injectable for deterministic tests.
+
+### Validation
+- `tests/m7/`: **59 passed** (final head).
+- `tests/m6/`: **79 passed** (framing test updated to reflect the repair).
+- Existing M4/M5 Unreal suites: **154 passed**.
+- Full `pytest -m "not integration"`: **1088 passed** (final head).
+- C++ module build: **UnrealBuildTool succeeded** (UBT_EXIT_CODE=0).
+
+Two additional M7 journal-integrity passes hardened structural validation (typed
+`phase_history` fail-closed before `GetArrayField`; parseable-but-malformed history
+rejected, never overwritten, ReconcileRenderJobs -> PARTIAL) and added lossless
+legacy schema-1 -> schema-2 migration (prior phase retained, never discarded). See
+`docs/UNREAL_M7_HARDENING.md`.
+
+### M7 status
+Live UE 5.6 restart/recovery **Scenarios 1–8 are NOT run** and require explicit
+human authorization. No `UnrealEditor` launch; no workflow/action-runner tests.
+
+Historical dated handoff snapshots are archival records and should remain unchanged.
+
 ## September 6, 2026 — Milestone 6 deterministic fault-injection/concurrency test suite
 
 Milestone 6 (Contract V1 §31 matrix + §32 C++ automation boundary) is implemented as a deterministic test suite under `tests/m6/` on `main` + dedicated M6 branch. No production code was modified; no workflow/action-runner tests; no live Unreal/Blender execution; no M7 live restart scenarios.

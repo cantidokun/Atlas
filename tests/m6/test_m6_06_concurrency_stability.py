@@ -25,21 +25,18 @@ import tests.m6.fault_fixtures as ff
 
 # ── Item 24: catalog->disk->catalog stability race (framed-integrity boundary) ─
 def test_m6_item24_framed_catalog_tamper_fails_closed_case_j(tmp_path):
-    # PRODUCTION DEFECT (see report / docs). The coordinator's framed integrity
-    # path (`payload_byte_length`/`payload_sha256` vs `known_jobs`) cannot serialize
-    # the frozen observed_state (mappingproxy) to canonical JSON: json.dumps over
-    # mappingproxy-manifest `known_jobs` entries raises inside `_query_catalog`, so
-    # ANY framed response is treated as unqueryable and collapses to Case J.
-    # Consequently the positive framing-verification path is NOT exercised here.
-    # What IS honestly asserted: a framed response is NEVER adopted/finalized and
-    # never yields a receipt (fail-closed safety preserved).
+    # A reconcile catalog whose framed payload_sha256 does not match its
+    # canonical known_jobs payload must be treated as UNREADABLE (Case J): never
+    # adopted, never finalized, no receipt. (Framing integrity fails closed.)
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
     known = [ff.build_finished_candidate(rec)]
     response = {
         "journal_status": "COMPLETE",
-        "payload_byte_length": len(json.dumps(known)),
+        "payload_byte_length": len(
+            json.dumps(known, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ),
         "payload_sha256": "0" * 64,  # wrong framed payload hash
         "known_jobs": known,
     }
@@ -52,13 +49,13 @@ def test_m6_item24_framed_catalog_tamper_fails_closed_case_j(tmp_path):
     assert len(list(store.receipts_dir.glob("*.json"))) == 0
 
 
-def test_m6_item24_framed_catalog_wellformed_also_fails_closed_due_to_defect(tmp_path):
-    # SAME production defect as above, but with a CORRECT payload hash. Because the
-    # framing check crashes on mappingproxy serialization regardless of whether the
-    # hash matches, a well-formed framed catalog STILL fails closed to Case J.
-    # This documents that the positive framed-verification path is unreachable, not
-    # merely that tampering is caught. It is a SAFE fail-closed outcome; the positive
-    # path must be remediated in production (M7 hardening), not claimed as verified.
+def test_m6_item24_framed_catalog_valid_accepted(tmp_path):
+    # M7 HARDENING: the framing-integrity serialization defect is repaired. A
+    # well-formed framed catalog whose payload_byte_length and payload_sha256
+    # exactly match the canonical known_jobs payload is now ACCEPTED and proceeds
+    # through normal Case B reconciliation (adopted + finalized + receipt).
+    from planning.unreal_render_recovery_coordinator import canonical_known_jobs_payload
+
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
@@ -66,19 +63,19 @@ def test_m6_item24_framed_catalog_wellformed_also_fails_closed_due_to_defect(tmp
     manifest = ff.make_manifest_for(rec, [path])
     cand = ff.build_finished_candidate(rec, artifact_paths=[path], artifact_manifest=manifest)
     known = [cand]
-    payload_bytes = json.dumps(known, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    payload_bytes = canonical_known_jobs_payload(known)
     response = {
         "journal_status": "COMPLETE",
         "payload_byte_length": len(payload_bytes),
-        "payload_sha256": ff.sha256_of(payload_bytes),  # correct hash, still fails path
+        "payload_sha256": ff.sha256_of(payload_bytes),  # correct hash
         "known_jobs": known,
     }
     adapter = ff.ScriptedCoordinatorAdapter(reconcile_response=response)
     coord = ff.make_coordinator(store, adapter, supervisor=ff.quiescent_supervisor())
     res = coord.reconcile_single_job(rec.atlas_job_id)
-    assert res.lifecycle_state_after != RenderJobLifecycleState.FINALIZED
-    assert res.case_classified == "Case J"
-    assert len(list(store.receipts_dir.glob("*.json"))) == 0
+    assert res.case_classified == "Case B"
+    assert res.lifecycle_state_after == RenderJobLifecycleState.FINALIZED
+    assert len(list(store.receipts_dir.glob("*.json"))) == 1
 
 
 def test_m6_item24_normal_unframed_catalog_proceeds_case_b(tmp_path):

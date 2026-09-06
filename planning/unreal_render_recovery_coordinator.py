@@ -74,6 +74,24 @@ def _thaw_dict(val: Any) -> Any:
     return val
 
 
+def canonical_known_jobs_payload(known_jobs: Any) -> bytes:
+    """Deterministic canonical UTF-8 JSON bytes for a reconcile known_jobs array.
+
+    Deep-thaws frozen mappingproxy/tuple structures into plain JSON-serializable
+    values, then serializes with compact separators and ``sort_keys=True`` so the
+    byte form (and therefore its SHA-256) is stable regardless of frozen wrapper
+    types or mapping insertion order. This is the exact payload the reconcile
+    framing integrity check hashes and the length it measures.
+    """
+    thawed = _thaw_dict(known_jobs)
+    return json.dumps(
+        thawed,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+
+
 def compute_journal_hmac(
     attempt_nonce: str,
     canonical_payload: Mapping[str, Any],
@@ -88,6 +106,28 @@ def compute_journal_hmac(
     ).encode("utf-8")
     key_bytes = attempt_nonce.encode("utf-8")
     return hmac.new(key_bytes, encoded_message, hashlib.sha256).hexdigest()
+
+
+def _parse_iso8601_utc(value: Optional[str]) -> Optional[datetime.datetime]:
+    """Parse an ISO-8601 UTC timestamp (accepts trailing ``Z`` and ``+00:00``).
+
+    Returns ``None`` when the value is missing or unparseable so callers can
+    treat absent/invalid deadlines deterministically (no deadline -> no expiry).
+    """
+    if not value or not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
 
 
 
@@ -112,7 +152,77 @@ class UnrealRenderRecoveryCoordinator:
         self.supervisor = supervisor
         self.deployment_mode = deployment_mode.upper().strip()
 
-    def reconcile_all_non_terminal_jobs(self, lease_token: int = 1) -> list[RecoveryDecisionResult]:
+    def _expired_deadline(
+        self,
+        record: AtlasRenderJobRecord,
+        now_utc: Optional[datetime.datetime] = None,
+    ) -> Optional[str]:
+        """Return the deadline name ('submission'/'execution') that has expired.
+
+        A deadline applies only while the job is in the phase it bounds:
+        - ``submission_deadline`` bounds the unsubmitted / submission-uncertain
+          phase (PENDING_SUBMISSION not yet transported, or still awaiting
+          engine acceptance);
+        - ``execution_deadline`` bounds the post-submission recovery/execution
+          phase (SUBMITTED/RENDERING/COMPLETED_UNVERIFIED, or any blocked
+          recovery-wait state).
+
+        The deadline is considered expired when the persisted timestamp is at or
+        before the reference ``now`` AND the record's lifecycle is not terminal.
+        Missing or unparseable deadlines return ``None`` (no expiry). This is a
+        deterministic function of the persisted deadline and the supplied ``now``.
+        """
+        if record.lifecycle_state in TERMINAL_LIFECYCLE_STATES:
+            return None
+        now = now_utc if now_utc is not None else datetime.datetime.now(datetime.timezone.utc)
+        now = now.astimezone(datetime.timezone.utc)
+        if record.submission_deadline is not None:
+            sub = _parse_iso8601_utc(record.submission_deadline)
+            if sub is not None and now >= sub:
+                return "submission"
+        if record.execution_deadline is not None:
+            exe = _parse_iso8601_utc(record.execution_deadline)
+            if exe is not None and now >= exe:
+                return "execution"
+        return None
+
+    def _deadline_exhausted_transition(
+        self,
+        record: AtlasRenderJobRecord,
+        deadline_name: str,
+    ) -> RecoveryDecisionResult:
+        """Transition an unresolved, deadline-expired job to EXHAUSTED.
+
+        Contract V1 §23/§28: recovery waiting is bounded by explicit deadlines;
+        once the deadline is reached without resolution, recovery is exhausted
+        (recovery_status=EXHAUSTED) and the unresolved execution fails closed to
+        RECOVERY_FAILED. No synthetic success, no retry, no receipt issuance.
+        """
+        exhausted_record = record.transition(
+            lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
+            recovery_status=RenderJobRecoveryStatus.EXHAUSTED,
+            failure_reason=(
+                f"{deadline_name} deadline expired without resolution; "
+                "recovery budget exhausted (EXHAUSTED)"
+            ),
+        )
+        self.store.update(exhausted_record, expected_revision=record.last_observed_revision)
+        return RecoveryDecisionResult(
+            atlas_job_id=record.atlas_job_id,
+            lifecycle_state_before=record.lifecycle_state,
+            lifecycle_state_after=exhausted_record.lifecycle_state,
+            recovery_status_before=record.recovery_status,
+            recovery_status_after=exhausted_record.recovery_status,
+            case_classified="DEADLINE_EXHAUSTED",
+            repaired_from_receipt=False,
+            failure_reason=exhausted_record.failure_reason,
+        )
+
+    def reconcile_all_non_terminal_jobs(
+        self,
+        lease_token: int = 1,
+        now_utc: Optional[datetime.datetime] = None,
+    ) -> list[RecoveryDecisionResult]:
         """Execute a full recovery pass over all non-terminal jobs in the store under coordinator lock."""
         results: list[RecoveryDecisionResult] = []
         with self.store.acquire_coordinator(self.coordinator_id, lease_token=lease_token):
@@ -139,11 +249,16 @@ class UnrealRenderRecoveryCoordinator:
                 if record.lifecycle_state in TERMINAL_LIFECYCLE_STATES:
                     continue
 
-                res = self.reconcile_single_job(atlas_job_id, lease_token=lease_token)
+                res = self.reconcile_single_job(atlas_job_id, lease_token=lease_token, now_utc=now_utc)
                 results.append(res)
         return results
 
-    def reconcile_single_job(self, atlas_job_id: str, lease_token: int = 1) -> RecoveryDecisionResult:
+    def reconcile_single_job(
+        self,
+        atlas_job_id: str,
+        lease_token: int = 1,
+        now_utc: Optional[datetime.datetime] = None,
+    ) -> RecoveryDecisionResult:
         """Reconcile one Atlas job against engine state, journal witness, and verified disk evidence."""
         valid_id = validate_canonical_atlas_job_id(atlas_job_id)
         with self.store.acquire_job_claim(valid_id, self.coordinator_id):
@@ -164,6 +279,16 @@ class UnrealRenderRecoveryCoordinator:
                     repaired_from_receipt=True,
                     receipt_reference=repaired_record.receipt_reference,
                 )
+
+            # Step 1b: Deadline exhaustion gate (Contract V1 §23/§28).
+            # If the persisted submission/execution deadline has expired while the
+            # job is unresolved (no receipt repair succeeded), recovery is exhausted:
+            # transition to EXHAUSTED + RECOVERY_FAILED and NEVER proceed to
+            # inspect/adopt/verify/resubmit. A receipt-first repair already returned
+            # above for genuinely verified jobs, so this only fires for unresolved ones.
+            expired_deadline = self._expired_deadline(record, now_utc)
+            if expired_deadline is not None:
+                return self._deadline_exhausted_transition(record, expired_deadline)
 
             # Step 2: Capability & Session discovery
             try:
@@ -335,7 +460,14 @@ class UnrealRenderRecoveryCoordinator:
         return True
 
     def _query_catalog(self, atlas_job_id: str, auth_id: str) -> Optional[dict[str, Any]]:
-        """Query reconcile_render_jobs with framed payload validation."""
+        """Query reconcile_render_jobs with framed payload integrity validation.
+
+        The observed state is deep-thawed first so nested frozen mappingproxy /
+        tuple structures become plain JSON-serializable dicts/lists. When framing
+        fields are present they must BOTH be present, structurally valid, and
+        exactly match the canonical ``known_jobs`` payload (byte length + SHA-256).
+        Any malformed/incomplete/tampered framing fails closed to UNREADABLE.
+        """
         op = UnrealOperation(
             capability=UnrealCapability.RENDER,
             kind=UnrealOperationKind.READ,
@@ -345,15 +477,34 @@ class UnrealRenderRecoveryCoordinator:
         )
         try:
             ev = self.adapter.apply_authorized(op, auth_id)
-            state = dict(ev.observed_state)
+            state = _thaw_dict(ev.observed_state)
 
-            # Verify framed protocol fields if present
-            if "payload_byte_length" in state and "payload_sha256" in state:
-                raw_records = state.get("known_jobs", [])
-                encoded_bytes = json.dumps(raw_records, sort_keys=True, separators=(",", ":")).encode("utf-8")
-                computed_hash = hashlib.sha256(encoded_bytes).hexdigest()
-                if computed_hash != state["payload_sha256"]:
+            has_byte_length = "payload_byte_length" in state
+            has_sha256 = "payload_sha256" in state
+            if has_byte_length or has_sha256:
+                # Framing fields must be present together; otherwise incomplete.
+                if not (has_byte_length and has_sha256):
                     return {"journal_status": "UNREADABLE"}
+                if "known_jobs" not in state:
+                    return {"journal_status": "UNREADABLE"}
+
+                byte_length = state["payload_byte_length"]
+                payload_sha256 = state["payload_sha256"]
+                if isinstance(byte_length, bool) or not isinstance(byte_length, int) or byte_length < 0:
+                    return {"journal_status": "UNREADABLE"}
+                if not isinstance(payload_sha256, str) or len(payload_sha256) != 64:
+                    return {"journal_status": "UNREADABLE"}
+                try:
+                    int(payload_sha256, 16)
+                except (TypeError, ValueError):
+                    return {"journal_status": "UNREADABLE"}
+
+                payload = canonical_known_jobs_payload(state["known_jobs"])
+                if len(payload) != byte_length:
+                    return {"journal_status": "UNREADABLE"}
+                if hashlib.sha256(payload).hexdigest() != payload_sha256:
+                    return {"journal_status": "UNREADABLE"}
+
             return state
         except Exception as exc:
             logger.warning("Failed to query reconcile catalog: %s", exc)
@@ -370,6 +521,52 @@ class UnrealRenderRecoveryCoordinator:
         if record.unreal_job_id and candidate.get("job_id") != record.unreal_job_id:
             return f"Unreal job ID mismatch: expected {record.unreal_job_id}, got {candidate.get('job_id')}"
         return None
+
+    def _bind_record_identity_to_observation(
+        self,
+        record: AtlasRenderJobRecord,
+        candidate: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Bind Atlas-authoritative identity/topology into a journal-attested observation.
+
+        A witness journal legitimately cannot carry Atlas-owned identity
+        (``canonical_digital_twin_id``), the full 5-key ``expected_output_spec``, or
+        ``attempt_ordinal``. The durable record is the authority for these. This
+        helper supplies them from the record while preserving every engine-witnessed
+        execution field (status/success/failed/finished, ``output_files``,
+        ``output_manifest``, session/process identity, ``output_directory``,
+        digests) from the candidate. ``verify_render_job_evidence`` still enforces
+        exact equality between the bound identity and the durable record, and still
+        independently verifies the engine-attested manifest/hashes against disk. So
+        this fills in Atlas-owned fields the witness cannot provide; it does NOT
+        fabricate engine execution success.
+        """
+        bound = {k: v for k, v in candidate.items()}
+
+        # job_id / unreal_job_id: engine-witnessed; carry both names when present.
+        engine_unreal = candidate.get("unreal_job_id") or candidate.get("job_id")
+        bound.setdefault("job_id", engine_unreal)
+        bound.setdefault("unreal_job_id", engine_unreal)
+
+        # Atlas-authoritative identity the engine cannot witness:
+        bound.setdefault("canonical_digital_twin_id", record.canonical_digital_twin_id)
+        bound.setdefault("attempt_ordinal", record.attempt_ordinal)
+
+        # Full expected output spec from the durable record (authoritative topology).
+        # If the candidate supplied a format, validate it against the record; then
+        # use the record's complete 5-key spec so the verifier can enforce topology.
+        cand_spec = candidate.get("expected_output_spec")
+        record_spec = dict(record.expected_output_spec or {})
+        if isinstance(cand_spec, Mapping) and cand_spec.get("format"):
+            cand_format = str(cand_spec.get("format")).strip().lower()
+            rec_format = str(record_spec.get("format", "")).strip().lower()
+            if rec_format and cand_format != rec_format:
+                raise UnrealEvidenceVerificationError(
+                    f"expected_output_spec format mismatch: journal={cand_format!r} record={rec_format!r}"
+                )
+        bound["expected_output_spec"] = record_spec
+
+        return bound
 
     def _handle_no_engine_evidence(
         self,
@@ -526,13 +723,23 @@ class UnrealRenderRecoveryCoordinator:
                 return self._fail_case_g(record, f"Artifact SHA-256 mismatch for {path_str}")
 
         # 4. Independent Evidence Verification
-        # In recovery, candidate comes from the engine journal/observation.
-        # Check that candidate carries the process identity; if not, pass candidate as is so verifier can enforce fail-closed check
+        # In recovery, the candidate comes from the engine journal/observation and
+        # can only carry engine-witnessed fields. Bind Atlas-authoritative identity
+        # (canonical_digital_twin_id, full expected_output_spec, attempt_ordinal)
+        # from the durable record so the verifier can enforce the full topology and
+        # identity contract. Engine-witnessed execution fields (output_files,
+        # output_manifest, status/finished/success/failed, hashes) remain from the
+        # candidate and are independently verified against disk.
+        try:
+            verify_state = self._bind_record_identity_to_observation(record, candidate)
+        except UnrealEvidenceVerificationError as exc:
+            return self._fail_case_g(record, f"Journal/record identity binding failed: {exc}")
+
         try:
             verified_evidence = verify_render_job_evidence(
                 operation_name="inspect_render_job",
                 entity_ids=("RENDER_RECOVERY",),
-                observed_state=candidate,
+                observed_state=verify_state,
                 source="unreal-recovery-coordinator",
                 job_record=record,
                 evidence_source_class="ENGINE_JOURNAL_ATTESTED",

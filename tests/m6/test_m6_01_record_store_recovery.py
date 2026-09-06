@@ -62,10 +62,23 @@ def test_m6_item02_corruption_detected_and_quarantined_non_destructive(tmp_path)
     jf.write_text("CORRUPTED_NON_JSON", encoding="utf-8")
     with pytest.raises(AtlasRenderJobStoreCorruptionError, match="quarantined"):
         store.load(rec.atlas_job_id)
-    # Non-destructive quarantine: original content preserved under quarantine
+    # Non-destructive quarantine (Contract V1 §24 / skill ref): the ORIGINAL
+    # corrupted bytes must be preserved in the moved quarantine file, while the
+    # metadata is stored in a SEPARATE `.meta.json` sidecar. The raw glob picks
+    # up BOTH files, so select the original-bytes file deterministically by
+    # excluding the sidecar.
+    sidecar = list(store.quarantine_dir.glob("*.corrupt.*.meta.json"))
+    originals = [p for p in store.quarantine_dir.glob("*.corrupt.*")
+                 if not p.name.endswith(".meta.json")]
+    assert len(originals) == 1
+    assert originals[0].read_text(encoding="utf-8") == "CORRUPTED_NON_JSON"
+    # The original job file must no longer exist (moved, not deleted).
     assert not jf.exists()
-    quarantined = list(store.quarantine_dir.glob("*.corrupt.*"))
-    assert quarantined and quarantined[0].read_text(encoding="utf-8") == "CORRUPTED_NON_JSON"
+    # Metadata sidecar records the quarantine path + reason (Contract §24 fields).
+    assert len(sidecar) == 1
+    meta = json.loads(sidecar[0].read_text(encoding="utf-8"))
+    assert meta["reason"].startswith("JSON unreadable")
+    assert "original_path" in meta and "quarantine_path" in meta and "timestamp" in meta
 
 
 def test_m6_item02_authoritative_digest_mismatch_quarantined(tmp_path):
