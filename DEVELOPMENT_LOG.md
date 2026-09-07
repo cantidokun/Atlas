@@ -1,3 +1,11 @@
+## 2026-09-07 - M12.1 Unreal semantic task contract + normalization/compile boundary
+- Added planning/m12/ (task_classes.py constrained taxonomy; target_state.py data-only target-state spec;
+  semantic_task.py UnrealProductionTaskDefinition + normalize_unreal_semantic_request + compile_unreal_semantic_task).
+- Compiles to existing AtlasTaskDefinition (no second runtime); render-bearing tasks rejected at compile (deferred).
+- Authority isolation: no authority module imported/exposed; inbound auth/receipt/nonce/HMAC/credential/artifact material rejected.
+- Deterministic tests: tests/m12/ 37 passed; adjacent Unreal+M10/M11/M12 384; full "not integration" 1488 (no regressions).
+- No live Unreal, no workflow/action-runner tests, no Blender, no M11 continuation.
+
 ## 2026-09-07 - M10/M11 documentation reconciliation + M12 design (no production code)
 
 - Reconciled stale current-state statements across ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, and README.md.

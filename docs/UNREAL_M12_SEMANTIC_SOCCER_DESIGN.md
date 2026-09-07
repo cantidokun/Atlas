@@ -537,4 +537,9 @@ deterministic suite green.
 
 ---
 
+**Implementation status (M12.1):** the foundational semantic task contract +
+normalization/compile boundary is IMPLEMENTED in `planning/m12/` and documented in
+`docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`. Delivery order: M12.1 (this) →
+catalog/fragments (M12.2) → adapter (M12.4) → verification (M12.5). See §25.
+
 *Design only — no M12 production code was implemented in this task.*

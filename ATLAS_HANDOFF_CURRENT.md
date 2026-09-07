@@ -14,7 +14,7 @@
   - S7 — terminal engine evidence with missing artifact → Case G/FAILED fail-closed; no receipt/retry.
   - S8 — duplicate/stale execution identities → real engine CONFLICT → Case H/RECOVERY_FAILED; no adoption/retry/synthetic success.
 - **M11 (development model-router) is FROZEN / paused.** M11.1–M11.4 are merged (PRs #82/#83/#84/#85) as development-tooling infrastructure that coexists with the Unreal roadmap but is not required for it. No further M11 benchmarking/calibration/provider work is ongoing.
-- **M12 (Unreal Semantic Soccer Production Layer) is the next Unreal development milestone.** It is currently at the investigation + design stage (`docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md`) — no M12 production code exists yet.
+- **M12 (Unreal Semantic Soccer Production Layer) is the next Unreal development milestone.** Design (PR #86) merged; **M12.1 implemented** (`planning/m12/` — semantic task contract, normalization, compile boundary; `docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`). No render execution yet; M12.2 (catalog + fragments) is next.
 
 > The "Current milestone" line under this block is an older snapshot that predates the final M10 live validation. It is preserved verbatim as historical context; it does NOT reflect current state.
 
