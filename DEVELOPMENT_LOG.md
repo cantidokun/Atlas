@@ -1,3 +1,12 @@
+## 2026-09-07 - M12.2 Unreal semantic production catalog + fragments + composition
+- Added planning/m12/catalog.py (versioned UnrealSoccerProductionCatalog, catalog entry spec modeled on Blender SoccerProductionWorkflowSpec shape),
+  fragments.py + fragments_registry.py (UnrealProductionFragment + canonical scene/environment/camera/lighting/sequence/render fragments),
+  composition.py (deterministic compose_fragments: dependency order, duplicate/conflict/cycle/missing-dep fail-closed, target-state merge).
+- resolve() normalizes through M12.1 contract into validated UnrealProductionTaskDefinition; render-bearing tasks reject compile (deferred).
+- No second runtime/authority; render execution not solved; Blender untouched.
+- Deterministic tests: tests/m12/ 71 passed; adjacent Unreal+M10/M11/M12 418; full "not integration" 1522 (no regressions).
+- No live Unreal, no workflow/action-runner tests, no Blender, no M11.
+
 ## 2026-09-07 - M12.1 Unreal semantic task contract + normalization/compile boundary
 - Added planning/m12/ (task_classes.py constrained taxonomy; target_state.py data-only target-state spec;
   semantic_task.py UnrealProductionTaskDefinition + normalize_unreal_semantic_request + compile_unreal_semantic_task).
