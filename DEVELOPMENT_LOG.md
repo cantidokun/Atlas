@@ -1,3 +1,8 @@
+## 2026-09-07 - M11.3 OpenRouter adapter + Hermes shadow integration
+- Added real OpenRouter adapter (secure_config resolver, openrouter_adapter) + Hermes feature-gate integration (shadow/advisory).
+- Deterministic tests 204 M11 (27 new M11.3), full suite 1416. Credentials never persisted/returned; authority isolated.
+- M11 routing + invocation remain SHADOW-ONLY; authoritative Hermes path unchanged until independently validated.
+
 ## 2026-09-07 - M11.2 provider execution (shadow mode)
 - Added planning/m11_router/provider/ (config, invocation, shadow) + benchmark execution + tests.
 - Shadow/advisory only: never replaces Hermes execution, never touches Atlas production authority.

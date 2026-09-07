@@ -18,6 +18,12 @@ from planning.m11_router.provider.invocation import (
     ProviderInvocation,
     invoke_model,
 )
+from planning.m11_router.provider.openrouter_adapter import OpenRouterAdapter
+from planning.m11_router.provider.secure_config import (
+    SecureConfigResolver,
+    SecureConfigUnavailableError,
+)
+
 from planning.m11_router.provider.shadow import ShadowAdvisor
 
 __all__ = [
@@ -31,4 +37,11 @@ __all__ = [
     "ProviderInvocation",
     "invoke_model",
     "ShadowAdvisor",
+    "OpenRouterAdapter",
+    "SecureConfigResolver",
+    "SecureConfigUnavailableError",
 ]
+
+OpenRouterAdapter = OpenRouterAdapter
+SecureConfigResolver = SecureConfigResolver
+SecureConfigUnavailableError = SecureConfigUnavailableError

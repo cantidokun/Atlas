@@ -34,7 +34,13 @@ from planning.m11_router.telemetry import AppendOnlyTelemetry, RouterTelemetryRe
 from planning.m11_router.evidence_gate import EvidenceGate, EvidenceGateResult, EvidenceGateResultKind
 from planning.m11_router.escalation_packet import EscalationPacket
 from planning.m11_router.router import ModelRouter
-
+from planning.m11_router.hermes_integration import (
+    M11FeatureConfig,
+    ShadowRoutedExecutor,
+    load_feature_config,
+    FeatureConfigError,
+    FeatureDisabledError,
+)
 __all__ = [
     "ModelProfile",
     "ModelTier",
@@ -64,4 +70,9 @@ __all__ = [
     "EvidenceGateResultKind",
     "EscalationPacket",
     "ModelRouter",
+    "M11FeatureConfig",
+    "ShadowRoutedExecutor",
+    "load_feature_config",
+    "FeatureConfigError",
+    "FeatureDisabledError",
 ]

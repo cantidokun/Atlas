@@ -284,3 +284,12 @@ Older dated handoff snapshots are archival records and should not be rewritten. 
 - Authority: no production imports/calls (docstring prohibitions + enum names only); tests enforce.
 - Telemetry: extends existing append-only ledger; privacy allow-list preserved.
 - Deferred: real vendor adapter (credentials in secure config), endpoint resolution, Hermes auto-wiring.
+
+## M11.3 - real OpenRouter adapter + controlled Hermes integration (shadow)
+- planning/m11_router/provider/secure_config.py: SecureConfigResolver (endpoint_config_ref -> live key+endpoint; fail-closed).
+- planning/m11_router/provider/openrouter_adapter.py: real OpenRouterAdapter (requests/session) -> immutable ModelResult;
+  malformed/auth/rate-limit classified; never uncontrolled retry; credentials never persist/return.
+- planning/m11_router/hermes_integration.py: M11FeatureConfig + ShadowRoutedExecutor behind ATLAS_M11_ROUTING_ENABLED/MODE;
+  default off preserves current behavior; shadow invokes routed model, advisory only.
+- Tests: tests/m11 204 (177 + 27 M11.3). Full suite 1416 passed. No workflow tests / live Unreal / Blender.
+- Pre-PR scans: no credential leakage; no production-authority import/call; sector boundary enforced.
