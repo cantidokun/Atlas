@@ -17,6 +17,7 @@ class FAtlasUE56SubmitRenderConflictRejectionTest;
 class FAtlasUE56WitnessJournalAcceptedBeforeDispatchTest;
 class FAtlasUE56WitnessJournalFinishedWithHashAttestationTest;
 class FAtlasUE56ReconcileCatalogReportingTest;
+class FAtlasUE56ReconcileConflictDetectionTest;
 
 class FAtlasTransportServer : public FRunnable
 {
@@ -27,6 +28,7 @@ class FAtlasTransportServer : public FRunnable
     friend class FAtlasUE56WitnessJournalAcceptedBeforeDispatchTest;
     friend class FAtlasUE56WitnessJournalFinishedWithHashAttestationTest;
     friend class FAtlasUE56ReconcileCatalogReportingTest;
+    friend class FAtlasUE56ReconcileConflictDetectionTest;
     friend class FAtlasUE56MalformedJournalHandlingTest;
     friend class FAtlasUE56CapabilitySchemaReportingTest;
     friend class FAtlasUE56JournalAppendHistoryTest;
