@@ -1,3 +1,16 @@
+## 2026-09-07 - M12.4 Unreal semantic -> runtime adapter
+- Added planning/m12/runtime_adapter.py (UnrealRuntimeStepMapping, UnrealRuntimeMapping,
+  map_unreal_execution_plan).
+- Adapter only, not a new authority: maps validated UnrealExecutionPlan + source task onto the
+  existing AtlasTaskDefinition runtime (reuses the M12.1 compiler) for non-render plans; identity-locks
+  plan to its exact source task; preserves dependencies/target-state/idempotence/provenance/capability.
+- Render-bearing plans (render-execute, artifact-validate) recognized and fail closed:
+  requires_existing_render_submission_path=True, runtime_task=None, no MRQ/auth/receipt/verification.
+- Unknown idempotence and unsupported capability requirements fail closed; can_execute always False.
+- Deterministic tests: tests/m12/ 112 passed (24 new); adjacent semantic/runtime/Unreal 480; full
+  "not integration" 1563 (no regressions); authority-isolation import scan clean.
+- No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4-M10 change.
+
 ## 2026-09-07 - M12.3 Unreal semantic execution-plan boundary
 - Added planning/m12/execution_plan.py (UnrealExecutionPlanStep, UnrealExecutionPlan, generate_execution_plan).
 - A plan only, not an executor: can_execute always False; steps carry preconditions/dependencies/

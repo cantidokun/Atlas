@@ -538,11 +538,14 @@ deterministic suite green.
 ---
 
 **Implementation status:** M12.1 (semantic task contract + normalize/compile),
-M12.2 (catalog + fragments + composition), and M12.3 (semantic execution-plan
-boundary) are IMPLEMENTED (`planning/m12/`; `docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`,
+M12.2 (catalog + fragments + composition), M12.3 (semantic execution-plan
+boundary), and M12.4 (semantic → runtime adapter) are IMPLEMENTED
+(`planning/m12/`; `docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`,
 `docs/UNREAL_M12_2_CATALOG_FRAGMENTS_COMPOSITION.md`,
-`docs/UNREAL_M12_3_EXECUTION_PLAN.md`). Delivery order: M12.1 → M12.2 → M12.3 →
-adapter (M12.4) → verification (M12.5). Render-bearing execution remains deferred
-until independently proven. See §25.
+`docs/UNREAL_M12_3_EXECUTION_PLAN.md`, `docs/UNREAL_M12_4_RUNTIME_ADAPTER.md`).
+Delivery order: M12.1 → M12.2 → M12.3 → M12.4 (adapter) → verification (M12.5).
+Render-bearing execution remains deferred until independently proven. M12.4 is an
+adapter, not a new authority: it maps non-render plans onto the existing
+`AtlasTaskDefinition` runtime and fails closed for render-bearing intent. See §25.
 
 *Design only — no M12 production code was implemented in this task.*

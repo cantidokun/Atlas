@@ -1,0 +1,389 @@
+"""M12.4 deterministic tests — Unreal semantic → runtime adapter boundary.
+
+Covers: adapter contract (immutable input/output, invalid plan + identity
+rejection); per-step operation mapping (+ required input / target-state /
+provenance / capability / dependency preservation); safety (unsupported
+operations / unknown idempotence / unsupported capability fail closed; no
+authorization / receipt / recovery / scheduler / evidence verification generated);
+render (render-bearing plan recognized correctly; existing render restriction intact;
+no MRQ submission; no authorization fabrication; no synthetic verification);
+determinism (identical plan → identical mapping; stable canonical serialization);
+authority isolation (no authority-shaped methods; no production-record mutation).
+"""
+
+import json
+
+import pytest
+
+from planning.m12 import (
+    DEFAULT_UNREAL_CATALOG,
+    UnrealExecutionPlan,
+    UnrealExecutionPlanStep,
+    UnrealRuntimeAdapterError,
+    UnrealRuntimeMapping,
+    UnsupportedCompileMappingError,
+    compile_unreal_semantic_task,
+    generate_execution_plan,
+    map_unreal_execution_plan,
+)
+from planning.m12.execution_plan import _deterministic_step_id
+from planning.m12.runtime_adapter import (
+    EXISTING_RUNTIME_INSPECT_TOOL,
+    REQUIRES_EXISTING_RENDER_SUBMISSION_PATH,
+)
+from planning.m12.semantic_task import UnrealProductionTaskDefinition
+from planning.m12.target_state import target_state_spec
+from action_plan import ActionSpec
+from planning.evidence_plan import EvidenceRequest
+from planning.task_definition import AtlasTaskDefinition
+
+
+def _resolve(**params):
+    return DEFAULT_UNREAL_CATALOG.resolve(**params)
+
+
+def _sequence_task():
+    return _resolve(
+        name="unreal.sequence-configure",
+        parameters={
+            "twin_id": "twin-1",
+            "sequence_name": "main",
+            "frame_start": 1,
+            "frame_end": 24,
+        },
+        digital_twin_id="twin-1",
+        provenance={"proposal_source": "qwen-proposal-v1"},
+    )
+
+
+def _foreign_task():
+    """A valid semantic task whose identity differs from the sequence task."""
+    return _resolve(
+        name="unreal.camera-configure",
+        parameters={"twin_id": "twin-1", "camera_slots": [1, 2]},
+        digital_twin_id="twin-1",
+    )
+
+
+def _task(provenance=None):
+    return _sequence_task() if provenance is None else _resolve(
+        name="unreal.sequence-configure",
+        parameters={
+            "twin_id": "twin-1",
+            "sequence_name": "main",
+            "frame_start": 1,
+            "frame_end": 24,
+        },
+        digital_twin_id="twin-1",
+        provenance=provenance,
+    )
+
+
+def _plan(task=None):
+    task = task or _sequence_task()
+    return generate_execution_plan(task)
+
+
+def _map(plan=None, task=None):
+    task = task or _sequence_task()
+    plan = plan or generate_execution_plan(task)
+    return map_unreal_execution_plan(plan, source_task=task)
+
+
+# ---------------------------------------------------------------------------
+# Adapter contract
+# ---------------------------------------------------------------------------
+
+
+def test_mapping_is_frozen_and_immutable():
+    mapping = _map()
+    assert isinstance(mapping, UnrealRuntimeMapping)
+    with pytest.raises(Exception):
+        mapping.plan_id = "mutated"
+    assert mapping.can_execute is False
+
+
+def test_mapping_canonical_serialization_is_stable():
+    m1 = _map()
+    m2 = _map()
+    assert m1.canonical_json() == m2.canonical_json()
+    parsed = json.loads(m1.canonical_json())
+    assert parsed["source_task_id"] == "unreal.sequence-configure"
+    assert parsed["catalog_version"] == 1
+    assert parsed["digital_twin_id"] == "twin-1"
+    assert parsed["requires_existing_render_submission_path"] is False
+
+
+def test_map_rejects_non_plan_input():
+    with pytest.raises(TypeError):
+        map_unreal_execution_plan("not-a-plan", source_task=_sequence_task())
+
+
+def test_map_rejects_non_task_source():
+    plan = _plan()
+    with pytest.raises(TypeError):
+        map_unreal_execution_plan(plan, source_task="not-a-task")
+
+
+def test_map_rejects_identity_mismatch():
+    plan = _plan()
+    foreign = _foreign_task()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=foreign)
+
+
+def test_map_rejects_step_operation_mismatch():
+    plan = _plan()
+    base = _sequence_task()
+    reordered = UnrealProductionTaskDefinition(
+        canonical_task_id=base.canonical_task_id,
+        task_class=base.task_class,
+        digital_twin_id=base.digital_twin_id,
+        task_version=base.task_version,
+        intent=base.intent,
+        target_state=base.target_state,
+        evidence=base.evidence,
+        actions=base.actions,
+        allowed_action_tools=base.allowed_action_tools,
+        allowed_mutations=base.allowed_mutations,
+        dependencies=tuple(reversed(base.dependencies)),
+        provenance=dict(base.provenance or {}),
+        metadata=dict(base.metadata or {}),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=reordered)
+
+
+# ---------------------------------------------------------------------------
+# Operation mapping
+# ---------------------------------------------------------------------------
+
+
+def test_non_render_map_reuses_existing_atlas_runtime():
+    mapping = _map()
+    assert isinstance(mapping.runtime_task, AtlasTaskDefinition)
+    assert mapping.requires_existing_render_submission_path is False
+    assert mapping.render_plan is False
+
+
+def test_per_step_mappings_target_existing_runtime_inspect():
+    mapping = _map()
+    ops = [s.semantic_operation for s in mapping.steps]
+    assert ops == ["scene_setup", "camera_setup", "sequence_setup"]
+    for step in mapping.steps:
+        assert step.supported
+        assert step.target_runtime_operation == EXISTING_RUNTIME_INSPECT_TOOL
+
+
+def test_per_step_required_inputs_preserved():
+    mapping = _map()
+    for step in mapping.steps:
+        assert isinstance(step.required_inputs, tuple)
+
+
+def test_dependencies_preserved_in_mapping():
+    mapping = _map()
+    by_op = {s.semantic_operation: s for s in mapping.steps}
+    assert by_op["camera_setup"].dependencies == (
+        "unreal.sequence-configure:scene_setup:000",
+    )
+    assert set(by_op["sequence_setup"].dependencies) == {
+        "unreal.sequence-configure:scene_setup:000",
+        "unreal.sequence-configure:camera_setup:001",
+    }
+
+
+def test_target_state_preserved_in_mapping():
+    mapping = _map()
+    by_op = {s.semantic_operation: s for s in mapping.steps}
+    assert by_op["scene_setup"].target_state_contributions == ("scene_initialized",)
+
+
+def test_idempotence_preserved_in_mapping():
+    mapping = _map()
+    by_op = {s.semantic_operation: s for s in mapping.steps}
+    assert by_op["scene_setup"].idempotence == "idempotent"
+
+
+def test_capability_preserved_in_mapping():
+    mapping = _map()
+    for step in mapping.steps:
+        assert step.capability_requirement == "inspect-only"
+
+
+def test_provenance_preserved_through_mapping():
+    mapping = _map(task=_task(provenance={"proposal_source": "qwen-proposal-v1"}))
+    assert mapping.provenance["proposal_source"] == "qwen-proposal-v1"
+
+
+def test_identity_fields_not_collapsed():
+    mapping = _map()
+    assert mapping.plan_id != mapping.source_task_id
+    assert mapping.digital_twin_id == "twin-1"
+    assert mapping.source_task_version == 1
+    assert mapping.catalog_version == 1
+    # runtime mapping carries distinct identity; mapping keeps plan/task/twin distinct.
+    assert isinstance(mapping.runtime_task, AtlasTaskDefinition)
+
+
+# ---------------------------------------------------------------------------
+# Safety (fail closed)
+# ---------------------------------------------------------------------------
+
+
+def _scene_task():
+    """A single-fragment (scene-prepare) task whose plan has exactly one step."""
+    return _resolve(
+        name="unreal.scene-prepare",
+        parameters={"twin_id": "twin-1"},
+        digital_twin_id="twin-1",
+    )
+
+
+def _plan_with_single_step(task, idempotence, capability="inspect-only"):
+    """Build an execution plan with exactly one step carrying the given
+    idempotence/capability, matching the source task's single-fragment
+    dependencies so the adapter reaches (and exercises) the guard."""
+    fragment_ids = tuple(task.dependencies)
+    assert len(fragment_ids) == 1, "guard tests need a single-fragment task"
+    from planning.m12.execution_plan import _build_plan_id
+
+    step = UnrealExecutionPlanStep(
+        step_id=_deterministic_step_id(task.canonical_task_id, fragment_ids[0], 0),
+        semantic_operation=fragment_ids[0],
+        required_inputs=(),
+        preconditions=(),
+        target_state_contributions=(),
+        dependencies=(),
+        idempotence=idempotence,
+        verification_requirements=("scene_initialized",),
+        execution_capability_requirement=capability,
+        provenance={},
+    )
+    return UnrealExecutionPlan(
+        plan_id=_build_plan_id(task.canonical_task_id, task.task_version, fragment_ids),
+        source_task_id=task.canonical_task_id,
+        source_task_version=task.task_version,
+        catalog_version=1,
+        digital_twin_id=task.digital_twin_id,
+        steps=(step,),
+        provenance={},
+        render_plan=task.render_task,
+    )
+
+
+def test_unknown_idempotence_fails_closed():
+    # A supported step that declares "unknown" idempotence cannot be mapped: the
+    # adapter must never silently upgrade it to idempotent. Synthesize such a
+    # plan from a single-fragment task so the guard is the reason for rejection.
+    task = _scene_task()
+    plan = _plan_with_single_step(task, "unknown")
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=task)
+
+
+def test_unsupported_capability_fails_closed():
+    # A step requesting a capability other than the existing runtime's
+    # "inspect-only" must fail closed (no new capability authority).
+    task = _scene_task()
+    plan = _plan_with_single_step(task, "idempotent", capability="write")
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=task)
+
+
+def test_no_authorization_material_in_mapping():
+    mapping = _map()
+    text = json.dumps(mapping.to_json_compatible()).lower()
+    for token in (
+        "receipt",
+        "authorization_id",
+        "manifest",
+        "hmac",
+        "nonce",
+        "artifact_id",
+        "recovery_authority",
+        "attempt_nonce",
+    ):
+        assert token not in text, f"authority token leaked: {token}"
+
+
+def test_mapping_object_has_no_authority_methods():
+    mapping = _map()
+    for attr in (
+        "execute",
+        "authorize",
+        "submit",
+        "reconcile",
+        "schedule",
+        "persist",
+        "mint_receipt",
+        "recover",
+        "verify",
+    ):
+        assert not hasattr(mapping, attr), f"runtime mapping must not expose {attr}"
+
+
+# ---------------------------------------------------------------------------
+# Render
+# ---------------------------------------------------------------------------
+
+
+def _render_task(cls, params):
+    return DEFAULT_UNREAL_CATALOG.resolve(cls, params, digital_twin_id="twin-1")
+
+
+def test_render_execute_plan_recognized_fail_closed():
+    task = _render_task("unreal.render-execute", {"twin_id": "twin-1", "sequence_name": "main"})
+    plan = generate_execution_plan(task)
+    assert plan.render_plan
+    mapping = map_unreal_execution_plan(plan, source_task=task)
+    assert mapping.render_plan
+    assert mapping.requires_existing_render_submission_path
+    assert mapping.runtime_task is None
+    assert mapping.can_execute is False
+    for step in mapping.steps:
+        assert not step.supported
+        assert step.unsupported_reason == REQUIRES_EXISTING_RENDER_SUBMISSION_PATH
+
+
+def test_artifact_validate_plan_recognized_fail_closed():
+    task = _render_task("unreal.artifact-validate", {"twin_id": "twin-1", "artifact_ref": "a1"})
+    plan = generate_execution_plan(task)
+    assert plan.render_plan
+    mapping = map_unreal_execution_plan(plan, source_task=task)
+    assert mapping.render_plan
+    assert mapping.requires_existing_render_submission_path
+    assert mapping.runtime_task is None
+    assert mapping.can_execute is False
+
+
+def test_render_mapping_compile_still_blocked():
+    task = _render_task("unreal.render-execute", {"twin_id": "twin-1", "sequence_name": "main"})
+    plan = generate_execution_plan(task)
+    mapping = map_unreal_execution_plan(plan, source_task=task)
+    assert mapping.runtime_task is None
+    # The existing M12.1 rule is untouched: a render-bearing compile still raises
+    # UnsupportedCompileMappingError. M12.4 does not work around it.
+    with pytest.raises(UnsupportedCompileMappingError):
+        compile_unreal_semantic_task(task)
+
+
+def test_render_mapping_does_not_submit_or_fabricate():
+    task = _render_task("unreal.render-execute", {"twin_id": "twin-1", "sequence_name": "main"})
+    plan = generate_execution_plan(task)
+    mapping = map_unreal_execution_plan(plan, source_task=task)
+    text = json.dumps(mapping.to_json_compatible(), default=str).lower()
+    for token in ("submitted", "job_id", "receipt", "authorization_id", "render_job", "attempt_nonce"):
+        assert token not in text, f"render-submission material leaked: {token}"
+
+
+# ---------------------------------------------------------------------------
+# Determinism
+# ---------------------------------------------------------------------------
+
+
+def test_identical_input_identical_mapping():
+    m1 = _map()
+    m2 = _map()
+    assert m1.canonical_json() == m2.canonical_json()
+    assert m1.to_json_compatible() == m2.to_json_compatible()

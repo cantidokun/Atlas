@@ -33,6 +33,12 @@ from planning.m12.execution_plan import (
     UnrealExecutionPlanStep,
     generate_execution_plan,
 )
+from planning.m12.runtime_adapter import (
+    UnrealRuntimeAdapterError,
+    UnrealRuntimeMapping,
+    UnrealRuntimeStepMapping,
+    map_unreal_execution_plan,
+)
 from planning.m12.fragments import UnrealProductionFragment
 from planning.m12.fragments_registry import (
     CANONICAL_UNREAL_FRAGMENTS,
@@ -94,4 +100,9 @@ __all__ = [
     "UnrealExecutionPlanStep",
     "UnrealExecutionPlan",
     "generate_execution_plan",
+    # M12.4
+    "UnrealRuntimeAdapterError",
+    "UnrealRuntimeStepMapping",
+    "UnrealRuntimeMapping",
+    "map_unreal_execution_plan",
 ]
