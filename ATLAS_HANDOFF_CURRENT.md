@@ -293,3 +293,13 @@ Older dated handoff snapshots are archival records and should not be rewritten. 
   default off preserves current behavior; shadow invokes routed model, advisory only.
 - Tests: tests/m11 204 (177 + 27 M11.3). Full suite 1416 passed. No workflow tests / live Unreal / Blender.
 - Pre-PR scans: no credential leakage; no production-authority import/call; sector boundary enforced.
+
+## M11.4 - live provider validation + adaptive routing measurement
+- planning/m11_router/live_validation.py: ControlledLiveValidator (operator gate, one call, no retry, safe telemetry)
+  + run_live_smoke. live_operator.py: operator CLI (python -m planning.m11_router.live_operator --live --smoke|--benchmark --out X).
+- benchmark.run_benchmark_corpus: machine-readable JSON (first-pass/useful-output, tokens, cost, latency, provider_errors,
+  evidence_failures, honest UNKNOWN). live_operator.run_offline_baseline_report / run_live_baseline_report.
+- Telemetry sensitivity hardened: key-vs-value split + safe-canonical-name whitelist; rejects Authorization/API-key/nonce/HMAC/credential prompts.
+- Tests: tests/m11 229 (204 + 25 M11.4). Full suite 1441 passed. No workflow tests / live Unreal / Blender.
+- Live provider calls are operator-gated (--live) and excluded from deterministic CI; no real creds in repo.
+- LIVE run NOT executed (no credentials provisioned); smoke path verified fail-closed (AUTH_ERROR, honest UNKNOWN).

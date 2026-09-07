@@ -41,6 +41,10 @@ from planning.m11_router.hermes_integration import (
     FeatureConfigError,
     FeatureDisabledError,
 )
+from planning.m11_router.live_validation import (
+    ControlledLiveValidator,
+    LiveValidationResult,
+)
 __all__ = [
     "ModelProfile",
     "ModelTier",
@@ -75,4 +79,6 @@ __all__ = [
     "load_feature_config",
     "FeatureConfigError",
     "FeatureDisabledError",
+    "ControlledLiveValidator",
+    "LiveValidationResult",
 ]

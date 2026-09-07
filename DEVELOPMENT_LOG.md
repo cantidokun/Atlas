@@ -1,3 +1,9 @@
+## 2026-09-07 - M11.4 live provider validation + measurement
+- Added controlled live-validation path (ControlledLiveValidator, live_operator CLI), machine-readable benchmark corpus runner,
+  and live-provider failure + telemetry-integrity tests. Re-runs deterministic suite green (1441).
+- Live provider calls gated behind --live; default deterministic CI provider-independent; no real credentials committed.
+- No Atlas production authority change; shadow/advisory only.
+
 ## 2026-09-07 - M11.3 OpenRouter adapter + Hermes shadow integration
 - Added real OpenRouter adapter (secure_config resolver, openrouter_adapter) + Hermes feature-gate integration (shadow/advisory).
 - Deterministic tests 204 M11 (27 new M11.3), full suite 1416. Credentials never persisted/returned; authority isolated.
