@@ -265,3 +265,11 @@ Older dated handoff snapshots are archival records and should not be rewritten. 
   attempt_id/escalation_id; immutable risk/tier fields; never stores secret/nonce/key. Explicit router failure modes
   (missing profile, unavailable provider, timeout, malformed response, invalid tool, failing gate, exhausted budget,
   telemetry-write-fail, config ambiguity) all fail closed. 9 objective acceptance criteria added.
+
+## M11.1 - adaptive model router core (implemented)
+- implemented planning/m11_router/ (model_profile, risk R1-R7, routing, escalation, telemetry,
+  evidence_gate, escalation_packet, router facade, benchmark skeleton). 136 deterministic tests.
+- Full suite 1348 passed (1212 + 136). Non-negotiable boundary: router never imports production
+  authority; no submit/reconcile/apply_authorized/receipt/schedule path (tests enforce).
+- Docs: docs/UNREAL_M11_1_MODEL_ROUTER_CORE.md. Deferred: model execution orchestration, provider
+  invocation, full benchmark corpus, Hermes runtime integration (M11.2+).
