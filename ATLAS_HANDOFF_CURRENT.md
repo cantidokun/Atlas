@@ -247,3 +247,13 @@ Older dated handoff snapshots are archival records and should not be rewritten. 
   torn/interrupted (finished=False / phase ACCEPTED/STARTED) -> Case J (RECOVERY_PENDING,
   ambiguity++, no receipt, no retry). Genuine terminal Case G still fails closed.
 - New tests/m10/test_m10_case_j_torn_journal.py (9 tests). Full suite 1198 passed.
+
+## M11 - Adaptive model routing + engineering control plane (DESIGN, no implementation)
+- Investigation + design only. docs/ATLAS_M11_ADAPTIVE_MODEL_ROUTING_DESIGN.md created.
+- No production code changed, no live scenario, no Unreal launch, no PR merge.
+- Boundary: M11 is dev-tooling only; Atlas remains sole production authority (Contract V1 §2 forbids model-controlled authorization).
+- Design covers task/risk taxonomy (L0-L3 tiers), deterministic routing (cheapest tier meeting risk), hard escalation triggers,
+  evidence-based confidence (no self-report), adaptive token budgets, escalation packet, privacy-safe telemetry schema,
+  benchmark corpus from real Atlas tasks, authority safeguards, and phased implementation plan.
+- Current-state findings recorded: no existing model-tier router; multi-model review done manually (astra/deepseek/opus/sonnet);
+  model/provider names are DESIGN PARAMETERS (not hard-coded).

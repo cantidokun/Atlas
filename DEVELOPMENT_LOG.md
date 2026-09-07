@@ -1,3 +1,11 @@
+## 2026-09-07 - M11 adaptive model-router design (investigation + design)
+- Created docs/ATLAS_M11_ADAPTIVE_MODEL_ROUTING_DESIGN.md (19 sections + appendices).
+- Investigation-only: no production code changed, no live scenario, no Unreal launch, no PR merge.
+- Insertion: Hermes dev-loop, pure adviser; cannot call authority ops, mint receipts, schedule, or issue authorization (Contract V1 §2).
+- Design: 4-tier (L0-L3) cheapest-capable routing, deterministic risk taxonomy, hard escalation, evidence-based confidence,
+  adaptive token budgets, escalation packets, privacy-safe telemetry (no secrets/nonce/keys), benchmark corpus methodology.
+- Validation: 1212 deterministic tests unaffected (no code change); markdown structure + fence balance checked.
+
 ## 2026-09-06 - M10 S4 Case J remediation
 - Genuine S4 s4b live dual-restart produced a torn non-terminal journal (job 899e6a81, ACCEPTED-only).
 - Recovery classified torn job Case G -> terminal FAILED; contract requires Case J -> RECOVERY_PENDING.
