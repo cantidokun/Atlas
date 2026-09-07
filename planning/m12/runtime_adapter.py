@@ -130,19 +130,33 @@ _ADAPTER_RESERVED_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
     }
 )
 
-# Closed allowlist of provenance keys a caller may supply at the top level of a
-# plan or step provenance payload. Every accepted key has an explicit M12.4
-# meaning (proposal source; source task version). Unknown keys are rejected.
-_ALLOWED_CALLER_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
-    {
-        "proposal_source",
-        "source_task_version",
-        "fragment_id",
-        "fragment_version",
-        "target_state_contribution",
-        "note",
-    }
-)
+# R4-5: TYPED CLOSED PROVENANCE SCHEMA. Every accepted caller provenance field
+# has an explicit name, exact type, and semantic meaning:
+#   proposal_source: str — which proposal produced this plan/task.
+#   source_task_version: int — the resolved source semantic task version.
+#   note: str — caller free-form descriptive text (NON-authoritative; a plain
+#               str only — nested/free-form structures are rejected).
+#   fragment_id: str — the M12.3-DECLARED canonical fragment identity. This is
+#               RECONCILED by the adapter (the canonical fragment wins); a
+#               caller-forged value is overwritten, never trusted.
+#   fragment_version: int — reconciled to the canonical fragment version.
+#   target_state_contribution: list[str] — reconciled to the canonical
+#               fragment's contributed invariant names.
+# Unknown keys, nested undeclared structures, and free-form caller metadata are
+# REJECTED (fail closed), not forwarded. Only the mapping-level adapter-owned
+# keys (in _ADAPTER_RESERVED_PROVENANCE_KEYS) are the adapter's authoritative
+# truth and a caller may never supply them.
+_CALLER_PROVENANCE_SCHEMA: Dict[str, type] = {
+    "proposal_source": str,
+    "source_task_version": int,
+    "note": str,
+    "fragment_id": str,
+    "fragment_version": int,
+    "target_state_contribution": list,
+}
+# Adapter-owned keys are the MAPPING-level authoritative fields; a caller may
+# never supply them (no shadow truth survives), even nested.
+_ADAPTER_OWNED_KEYS: FrozenSet[str] = _ADAPTER_RESERVED_PROVENANCE_KEYS
 
 # Closed allowlist of source-derived metadata keys that legitimately reach the
 # runtime snapshot. Unknown source metadata keys are rejected.
@@ -343,15 +357,26 @@ def _validate_strict_json_value(value: Any, owner: str, path: str, depth: int = 
                 f"{owner}.{path}: value contains authority-shaped material"
             )
         return
-    if isinstance(value, numbers.Integral):
+    if type(value) is int:
+        # Exact int only (bool and Integral subclasses such as numpy int are
+        # excluded: bool is handled above; other Integral types are not part of
+        # the strict JSON model).
         return
-    if isinstance(value, numbers.Real):
+    if type(value) is float:
         if not math.isfinite(float(value)):
             raise UnrealRuntimeAdapterError(
                 f"{owner}.{path}: non-finite number {value!r} not allowed in "
                 "strict canonical JSON"
             )
         return
+    # R4-10: unsupported numeric types (Fraction, Decimal, numpy scalars, other
+    # numbers.Real/Integral) are REJECTED structurally before serialization with
+    # the declared canonical-contract error type, so json.dumps can never trip on
+    # a value the strict model does not understand.
+    raise UnrealRuntimeAdapterError(
+        f"{owner}.{path}: unsupported value type {type(value).__name__} "
+        "(strict JSON: int/float/bool/str/None only)"
+    )
     raise UnrealRuntimeAdapterError(
         f"{owner}.{path}: unsupported value type {type(value).__name__} (strict JSON)"
     )
@@ -481,17 +506,10 @@ class UnrealRuntimeStepMapping:
             self.unsupported_reason, str
         ):
             raise UnrealRuntimeAdapterError("unsupported_reason must be a str or None")
-        # Closed allowlist + recursive authority/strict-JSON validation of step
-        # provenance (single canonical path, also run on direct construction).
-        prov = dict(self.provenance)
-        _closed_allowlist_check(
-            prov, f"step.provenance[{self.step_id!r}]",
-            allowed=_ALLOWED_CALLER_PROVENANCE_KEYS,
-        )
-        _validate_strict_json_value(
-            prov, f"step.provenance[{self.step_id!r}]", "<root>",
-            reject_forbidden=True,
-            high_confidence=False,  # caller provenance: broad authority scan
+        # Typed closed provenance schema + authority/strict-JSON validation
+        # (single canonical path, also run on direct construction) (R4-5).
+        prov = _validate_caller_provenance(
+            dict(self.provenance), f"step.provenance[{self.step_id!r}]"
         )
         object.__setattr__(self, "provenance", _freeze_json(prov))
 
@@ -677,6 +695,21 @@ class UnrealRuntimeMapping:
                 raise UnrealRuntimeAdapterError(
                     "runtime_task_digest does not bind the runtime task snapshot"
                 )
+            # R4-2/R4-11: single canonical path — a directly-constructed
+            # mapping's snapshot metadata is subject to the SAME reserved-key,
+            # recursive authority scan, and strict-JSON validation the factory
+            # applies, so no snapshot-invalid state can be constructed directly.
+            meta = dict(self.runtime_task_snapshot.get("metadata") or {})
+            for mkey in meta:
+                if mkey in _ADAPTER_RESERVED_PROVENANCE_KEYS:
+                    raise UnrealRuntimeAdapterError(
+                        f"runtime snapshot metadata contains adapter-owned key "
+                        f"{mkey!r}; invalid snapshot state"
+                    )
+            _validate_strict_json_value(
+                _thaw_json(self.runtime_task_snapshot),
+                "runtime_task_snapshot", "<root>", reject_forbidden=True,
+            )
         else:
             if self.runtime_task_digest is not None:
                 raise UnrealRuntimeAdapterError(
@@ -686,15 +719,11 @@ class UnrealRuntimeMapping:
             raise UnrealRuntimeAdapterError("provenance must be a dict")
         # Closed allowlist for mapping provenance (allow caller-visible legit keys
         # plus adapter-owned keys), recursive authority + strict JSON walk.
-        prov = dict(self.provenance)
-        _closed_allowlist_check(
-            prov, "mapping.provenance",
-            allowed=_ALLOWED_CALLER_PROVENANCE_KEYS,
-            adapter_owned_ok=True,
-        )
-        _validate_strict_json_value(
-            prov, "mapping.provenance", "<root>", reject_forbidden=True,
-            high_confidence=False,  # caller provenance: broad authority scan
+        # Typed closed mapping-provenance validation (R4-5/R4-9). The single
+        # canonical path accepts adapter-owned fields + typed caller fields and
+        # rejects anything else (direct construction shares this path).
+        prov = _validate_mapping_provenance(
+            dict(self.provenance), "mapping.provenance"
         )
         object.__setattr__(self, "provenance", _freeze_json(prov))
         # Re-freeze snapshot to a fresh deep-frozen mapping (defensive; already
@@ -975,7 +1004,7 @@ def map_unreal_execution_plan(
     *,
     source_task: UnrealProductionTaskDefinition,
     catalog_version: Optional[int] = None,
-    expected_source_task_digest: Optional[str] = None,
+    expected_source_task_digest: str,
 ) -> UnrealRuntimeMapping:
     """Map a validated M12.3 execution plan onto the existing Atlas runtime.
 
@@ -986,10 +1015,12 @@ def map_unreal_execution_plan(
         catalog_version: catalog version. MUST equal ``plan.catalog_version`` and
             (when present in source metadata) the resolved source's catalog
             version; any mismatch fails closed.
-        expected_source_task_digest: if provided, the resolved source content
-            must produce exactly this digest; any mismatch is rejected. The
-            digest is always recomputed from the authoritative resolved source
-            (never trusted merely because the caller supplied it).
+        expected_source_task_digest: MANDATORY (R4-1). The 64-char hex SHA-256 of
+            the authoritative resolved source content, as an ASSERTION only. The
+            adapter ALWAYS recomputes the digest from the resolved source and
+            REQUIRES it to match; the caller-supplied value is NEVER the source of
+            truth. Omission, malformed value, or mismatch FAILS CLOSED so a plan
+            can never attach to a substituted / unbound / ambiguous source.
 
     Returns:
         a deterministic :class:`UnrealRuntimeMapping` (see class docstring).
@@ -997,10 +1028,10 @@ def map_unreal_execution_plan(
     Raises:
         TypeError: if ``plan`` or ``source_task`` has the wrong type.
         UnrealRuntimeAdapterError: on any invariant violation (identity mismatch,
-            render classification conflict across class/fragment axes, runtime
-            action-authority violation, forbidden/un-allowed provenance, source
-            substitution, unresolved requirement, catalog version conflict,
-            etc.).
+            render classification conflict across class/fragment/target-state
+            axes, runtime action-authority violation, forbidden/un-allowed
+            provenance, missing/malformed/conflicting source digest, unresolved
+            requirement, catalog version conflict, etc.).
     """
     if not isinstance(plan, UnrealExecutionPlan):
         raise TypeError("plan must be an UnrealExecutionPlan")
@@ -1032,19 +1063,30 @@ def map_unreal_execution_plan(
         dict(plan.provenance or {}), "plan.provenance"
     )
 
-    # --- Source-content binding (B4). Compute from authoritative resolved
-    # source; never trust a caller-supplied digest as truth.
+    # --- MANDATORY SOURCE BINDING (R4-1). The adapter ALWAYS computes the digest
+    # from the authoritative resolved source content and REQUIRES the caller's
+    # asserted expected digest to match it. The caller's expected digest is only
+    # ever an assertion — it is NEVER the source of truth (the recomputed digest
+    # is bound into the mapping). Omission, malformed value, or mismatch all
+    # FAIL CLOSED so no plan can attach to a substituted / unbound source.
+    if expected_source_task_digest is None:
+        raise UnrealRuntimeAdapterError(
+            "expected_source_task_digest is REQUIRED for mandatory source binding; "
+            "refusing to map an ambiguous/unbound source"
+        )
+    if not _is_hex64(expected_source_task_digest):
+        raise UnrealRuntimeAdapterError(
+            "expected_source_task_digest must be a 64-char lowercase hex "
+            "SHA-256 of the resolved source content"
+        )
     source_digest = compute_source_task_digest(source_task)
-    if expected_source_task_digest is not None:
-        if not _is_hex64(expected_source_task_digest):
-            raise UnrealRuntimeAdapterError(
-                "expected_source_task_digest must be a 64-char lowercase hex"
-            )
-        if expected_source_task_digest != source_digest:
-            raise UnrealRuntimeAdapterError(
-                "expected_source_task_digest does not match the resolved source "
-                "content; refusing to map a substituted source"
-            )
+    if expected_source_task_digest != source_digest:
+        raise UnrealRuntimeAdapterError(
+            "expected_source_task_digest does not match the digest recomputed "
+            "from the authoritative resolved source content; refusing to map a "
+            "substituted/unbound source (same-identity/different-content "
+            "substitution blocked)"
+        )
 
     # Plan's composed target-state must match the source's resolved target-state.
     plan_composed_invariants = set()
@@ -1069,16 +1111,19 @@ def map_unreal_execution_plan(
             f"cannot map plan: semantic operation {bad!r} is not a known canonical "
             "fragment (fail closed)"
         )
-    fragment_render = any(_fragment_is_render_configured(f) for f in all_fragments if f is not None)
+    fragment_render = any(
+        _fragment_is_render_configured(f) for f in all_fragments if f is not None
+    )
     class_render = source_task.render_task
-    # B2: render classification from the UNION of authoritative axes (class AND
-    # canonical fragment render semantics). The dangerous direction — a
-    # render-constrained / non-expandable fragment (e.g. render_setup) routed
-    # through a NON-render task class path — FAILS CLOSED so it cannot escape the
-    # render boundary. The benign direction — a render CLASS with no render
-    # fragment present (e.g. artifact-validate which wraps an existing
-    # verification step before a render) — still routes to the render boundary
-    # via the class classification.
+    target_state_render = bool(source_task.target_state.expects_render)
+    # R4-3: render classification derives from EVERY authoritative M12 axis --
+    # source task class, canonical fragment render semantics (render-constrained /
+    # non-expandable fragments such as render_setup), AND target-state
+    # ``expects_render``. Any authoritative render requirement routes to the
+    # render boundary; CONFLICTING render vs non-render signals FAIL CLOSED.
+    # Render class without a render fragment (e.g. artifact-validate) is the
+    # documented benign direction: it still routes to the render boundary via
+    # the class axis, preserving the existing M12.1-ir-divined boundary.
     if fragment_render and not class_render:
         raise UnrealRuntimeAdapterError(
             "render classification conflict: the plan's canonical fragments are "
@@ -1087,7 +1132,23 @@ def map_unreal_execution_plan(
             "non-render; refusing to route render semantics through the "
             "ordinary non-render runtime path"
         )
-    require_render_boundary = class_render or fragment_render
+    if target_state_render != class_render:
+        raise UnrealRuntimeAdapterError(
+            f"render classification conflict: target-state expects_render="
+            f"{target_state_render!r} disagrees with the source task class "
+            f"render_task={class_render!r}; refusing to route conflicting render "
+            "semantics"
+        )
+    if target_state_render and not (class_render or fragment_render):
+        raise UnrealRuntimeAdapterError(
+            "render classification conflict: source target state says "
+            "expects_render=True but class and canonical fragment axes are "
+            "non-render; refusing to route render semantics through the "
+            "ordinary non-render runtime path"
+        )
+    require_render_boundary = bool(
+        class_render or target_state_render or fragment_render
+    )
     if plan.render_plan != require_render_boundary:
         raise UnrealRuntimeAdapterError(
             f"render_plan mismatch: plan declares render_plan={plan.render_plan!r} "
@@ -1095,21 +1156,41 @@ def map_unreal_execution_plan(
             f"{require_render_boundary!r}"
         )
 
-    # --- Catalog version must be the single authoritative value (B6).
-    if catalog_version is not None and catalog_version != plan.catalog_version:
+    # --- Catalog version: ONE authoritative exact-int value (R4-8). The plan's
+    # catalog_version is authoritative. A caller override or source metadata value
+    # must be an EXACT int equal to it; type-coercion ambiguity (bool/float/str,
+    # lossy int()) and conflicting nested representations FAIL CLOSED.
+    if type(plan.catalog_version) is not int:
         raise UnrealRuntimeAdapterError(
-            f"catalog_version {catalog_version} conflicts with the plan's "
-            f"authoritative {plan.catalog_version}"
+            f"plan.catalog_version must be an exact int, got "
+            f"{type(plan.catalog_version).__name__}"
         )
+    if catalog_version is not None:
+        if type(catalog_version) is not int:
+            raise UnrealRuntimeAdapterError(
+                "catalog_version override must be an exact int (no bool/float/str "
+                "coercion)"
+            )
+        if catalog_version != plan.catalog_version:
+            raise UnrealRuntimeAdapterError(
+                f"catalog_version {catalog_version} conflicts with the plan's "
+                f"authoritative {plan.catalog_version}"
+            )
     source_meta_cv = None
     if isinstance(source_task.metadata, dict):
         source_meta_cv = source_task.metadata.get("catalog_version")
-    if source_meta_cv is not None and int(source_meta_cv) != int(plan.catalog_version):
-        raise UnrealRuntimeAdapterError(
-            f"catalog_version conflict: plan says {plan.catalog_version} but "
-            f"resolved source metadata says {source_meta_cv}"
-        )
-    used_catalog_version = int(plan.catalog_version)
+    if source_meta_cv is not None:
+        if type(source_meta_cv) is not int:
+            raise UnrealRuntimeAdapterError(
+                f"source metadata catalog_version must be an exact int, got "
+                f"{type(source_meta_cv).__name__} (no lossy coercion)"
+            )
+        if source_meta_cv != plan.catalog_version:
+            raise UnrealRuntimeAdapterError(
+                f"catalog_version conflict: plan says {plan.catalog_version} but "
+                f"resolved source metadata says {source_meta_cv}"
+            )
+    used_catalog_version = plan.catalog_version
 
     # --- Per-step fidelity reconciliation (B5: unresolved requirements fail
     # closed). Prefix-only producer map.
@@ -1137,25 +1218,27 @@ def map_unreal_execution_plan(
         if fid_reason is not None:
             raise UnrealRuntimeAdapterError(fid_reason)
 
-        # Step provenance: closed allowlist + authority scan + strict JSON.
+        # Step provenance: typed closed schema (R4-5/R4-9). Caller may supply
+        # any schema field (typed). The CANONICAL fragment identity/version and
+        # target-state contributions are RECONCILED ADAPTER TRUTH: any caller-
+        # forged value is OVERWRITTEN with the canonical value before being
+        # carried — so a crafted fragment identity can never shadow the truth.
         step_prov_in = dict(step.provenance or {})
-        # Overwrite M12.3-declared fragment identity with canonical truth.
-        step_prov_in["fragment_id"] = fragment.canonical_id
-        step_prov_in["fragment_version"] = fragment.version
-        step_prov_in["target_state_contribution"] = list(
-            tuple(sorted(set(fragment.contributed_invariant_names())))
-        )
         step_provenance = _validate_caller_provenance(
             step_prov_in, f"step.provenance[{step.step_id!r}]"
         )
-        # B7: `declared` is True ONLY when caller-supplied (non-canonical) content
-        # is carried verbatim. The canonical fragment identity/contribution keys
-        # the adapter overwrites are reconciled truth, not declared content.
-        _CANONICAL_STEP_PROV_KEYS = frozenset(
-            {"fragment_id", "fragment_version", "target_state_contribution"}
+        # Overwrite the reconciled fields with canonical truth (adapter wins).
+        step_provenance["fragment_id"] = fragment.canonical_id
+        step_provenance["fragment_version"] = fragment.version
+        step_provenance["target_state_contribution"] = list(
+            sorted(set(fragment.contributed_invariant_names()))
         )
+        # R4-9: `declared` is True only when caller-supplied NON-canonical
+        # content (proposal_source/source_task_version/note) is carried
+        # verbatim. Purely canonical reconciled fields never mark declared.
         declared = bool(
-            set(step_prov_in) - _CANONICAL_STEP_PROV_KEYS
+            set(step_prov_in)
+            - {"fragment_id", "fragment_version", "target_state_contribution"}
         )
 
         if require_render_boundary:
@@ -1201,6 +1284,17 @@ def map_unreal_execution_plan(
     runtime_task_digest: Optional[str] = None
     semantic_fidelity = "unavailable"
     if not require_render_boundary:
+        # R4-4: REJECT, DON'T REWRITE. An inspect-only mapping must come from a
+        # semantically inspect-only source. If the source task declares any write
+        # mutation (or its compiled runtime claims allow_writes), the adapter
+        # REJECTS rather than silently downgrading the source's write intent.
+        if source_task.allowed_mutations:
+            raise UnrealRuntimeAdapterError(
+                "source task declares write mutation(s) "
+                f"{sorted(source_task.allowed_mutations)} under an inspect-only "
+                "mapping; REJECTING the source's write intent (do not rewrite "
+                "caller/source intent)"
+            )
         compiled = compile_unreal_semantic_task(source_task)
         # B1: independently reconcile the compiled AtlasTaskDefinition against the
         # inspect-only contract. Any write/render tool or non-inspect action or
@@ -1262,25 +1356,36 @@ def map_unreal_execution_plan(
 
 
 def _validate_caller_provenance(payload: Dict[str, Any], owner: str) -> Dict[str, Any]:
-    """Closed-allowlist + recursive authority scan + strict JSON for a
-    caller-supplied provenance payload. Returns a clean deep copy.
+    """R4-5: TYPED CLOSED-SCHEMA validation of caller-provided provenance.
 
-    Unknown top-level keys are REJECTED (closed allowlist). Adapter-owned fields
-    are rejected (no shadow truth). Authority-shaped keys/values at any nesting
-    are rejected. Never strips-and-continues.
+    Accepts ONLY the fields in ``_CALLER_PROVENANCE_SCHEMA``, each with its exact
+    declared type. Rejects (fail closed, never strips-and-continues):
+    - unknown keys,
+    - adapter-owned keys (no shadow truth),
+    - authority/security-shaped keys and values at any nesting,
+    - NESTED undeclared structures and free-form caller metadata (a scalar field
+      such as ``note`` must be a plain str; a dict/list is rejected rather than
+      being promoted into trusted provenance).
+
+    Returns a clean deep copy of the validated scalar fields.
     """
     real_owner = owner
     if not isinstance(payload, dict):
         raise UnrealRuntimeAdapterError(f"{owner} must be a dict")
-    _closed_allowlist_check(
-        payload, owner,
-        allowed=_ALLOWED_CALLER_PROVENANCE_KEYS,
-        adapter_owned_ok=True,
-    )
+    # Structural key gate: only schema fields, and no adapter-owned keys.
     for key in payload:
         if key in _ADAPTER_RESERVED_PROVENANCE_KEYS:
             raise UnrealRuntimeAdapterError(
                 f"{owner}.{key!r} is adapter-owned; caller shadow rejected"
+            )
+        if key in _ADAPTER_OWNED_KEYS:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is adapter-owned; caller shadow rejected"
+            )
+        if key not in _CALLER_PROVENANCE_SCHEMA:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is not an allowed provenance field (closed, "
+                "typed schema)"
             )
         if is_forbidden_authority_key(key):
             raise UnrealRuntimeAdapterError(
@@ -1290,23 +1395,81 @@ def _validate_caller_provenance(payload: Dict[str, Any], owner: str) -> Dict[str
             raise UnrealRuntimeAdapterError(
                 f"{owner}.{key!r} is authority-shaped material"
             )
+    cleaned: Dict[str, Any] = {}
+    for key, expected in _CALLER_PROVENANCE_SCHEMA.items():
+        if key in payload:
+            val = payload[key]
+            if expected is list:
+                # list-of-strings only (canonical reconciled field).
+                if not isinstance(val, (list, tuple)) or any(
+                    not isinstance(x, str) for x in val
+                ):
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.{key!r} must be a list of strings, got "
+                        f"{type(val).__name__}"
+                    )
+                cleaned[key] = list(val)
+            elif type(val) is not expected:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.{key!r} must be of exact type "
+                    f"{expected.__name__}, got {type(val).__name__} (no free-form "
+                    "structures promoted into trusted provenance)"
+                )
+            else:
+                cleaned[key] = val
+    # Defense-in-depth authority scan over the (now scalar-only) values.
     _validate_strict_json_value(
-        payload, owner, "<root>", reject_forbidden=True, high_confidence=False,
+        cleaned, owner, "<root>", reject_forbidden=True, high_confidence=False,
+    )
+    return cleaned
+
+
+def _validate_mapping_provenance(payload: Dict[str, Any], owner: str) -> Dict[str, Any]:
+    """Closed validation for a FULLY-ASSEMBLED mapping's provenance dict
+    (R4-5, R4-9). Accepts exactly: the adapter-owned fields (validated as
+    strict-JSON, adapter truth) plus the caller-visible typed schema fields
+    (validated via the schema). Any other key is rejected (fail closed).
+
+    Used by BOTH the factory (which assembles deterministic adapter fields) and
+    ``__post_init__`` (direct construction), so one canonical path governs every
+    provenance shape that can reach a mapping.
+    """
+    if not isinstance(payload, dict):
+        raise UnrealRuntimeAdapterError(f"{owner} must be a dict")
+    known = frozenset(
+        set(_ADAPTER_RESERVED_PROVENANCE_KEYS) | set(_CALLER_PROVENANCE_SCHEMA)
+    )
+    for key in payload:
+        if key not in known:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is not an allowed mapping-provenance field "
+                "(closed schema: adapter-owned or typed caller fields only)"
+            )
+        if is_forbidden_authority_key(key):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is forbidden authority material"
+            )
+    caller_part = {k: v for k, v in payload.items() if k in _CALLER_PROVENANCE_SCHEMA}
+    adapter_part = {k: v for k, v in payload.items() if k in _ADAPTER_RESERVED_PROVENANCE_KEYS}
+    _ = _validate_caller_provenance(caller_part, owner)
+    _validate_strict_json_value(
+        adapter_part, owner, "<root>", reject_forbidden=True, high_confidence=True,
     )
     return dict(payload)
 
 
 def _reconcile_runtime_authority(compiled: AtlasTaskDefinition) -> AtlasTaskDefinition:
-    """Independently reconcile the compiled runtime task's authority against the
-    M12.4 inspect-only contract.
+    """INDEPENDENTLY verify the compiled runtime task's authority against the
+    M12.4 inspect-only contract. This is a REJECT, NOT a rewrite (R4-4):
 
     - ``allowed_action_tools`` must be exactly ``{unreal_inspect}``.
     - every action tool and evidence tool must be ``unreal_inspect``.
     - ``allow_writes`` must be False.
 
-    On any violation raises ``UnrealRuntimeAdapterError`` (fail closed); it never
-    silently removes tools. ``allow_writes`` is set False only when the rest of
-    the contract already holds.
+    On ANY violation raises ``UnrealRuntimeAdapterError`` (fail closed). It NEVER
+    silently removes tools or clears write authority; a write-capable or
+    render-capable compiled artifact is REJECTED rather than rewritten. A caller
+    that supplied write intent is never silently downgraded to inspect-only.
     """
     allowed = set(compiled.allowed_action_tools)
     non_inspect_tools = allowed - {EXISTING_RUNTIME_INSPECT_TOOL}
@@ -1323,11 +1486,11 @@ def _reconcile_runtime_authority(compiled: AtlasTaskDefinition) -> AtlasTaskDefi
             f"{non_inspect_actions}; inspect-only contract violated"
         )
     if compiled.allow_writes:
-        # The inspect-only plan claims no write authority; the compiled artifact
-        # must not either. This is a true reconciliation (the only mutation is to
-        # the write flag, which the semantic plan already excludes), but only
-        # after the tool/action contract above holds.
-        compiled = dataclasses.replace(compiled, allow_writes=False)
+        raise UnrealRuntimeAdapterError(
+            "compiled runtime task claims write authority (allow_writes=True) "
+            "under an inspect-only plan; REJECTING rather than rewriting the "
+            "source's write intent"
+        )
     return compiled
 
 
