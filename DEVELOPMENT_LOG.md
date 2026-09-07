@@ -1,3 +1,10 @@
+## 2026-09-07 - M11.1 model router core
+- Implemented planning/m11_router/ core (profile, risk, routing, escalation, telemetry, evidence gate,
+  escalation packet, router facade, benchmark skeleton).
+- 136 M11 deterministic tests; full suite 1348 passed (no regressions).
+- Authority isolation enforced by tests (no production module imports, no authority methods).
+- Model execution / provider invocation / corpus run / Hermes integration deferred to M11.2.
+
 ## 2026-09-07 - M11 design hardened (PR #81)
 - M11 design PR #81 hardened before implementation (docs only; no code change).
 - Frozen risk->tier: R1-R7 deterministic (worst-dim max drives tier; hard selectors force L2/L3; unknown => L3 fail-closed;
