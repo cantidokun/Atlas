@@ -537,11 +537,12 @@ deterministic suite green.
 
 ---
 
-**Implementation status:** M12.1 (semantic task contract + normalize/compile) and
-M12.2 (versioned catalog + reusable fragments + composition) are IMPLEMENTED
-(`planning/m12/`; `docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`,
-`docs/UNREAL_M12_2_CATALOG_FRAGMENTS_COMPOSITION.md`). Delivery order: M12.1 →
-M12.2 → adapter (M12.4) → verification (M12.5). Render-bearing execution remains
-deferred until independently proven. See §25.
+**Implementation status:** M12.1 (semantic task contract + normalize/compile),
+M12.2 (catalog + fragments + composition), and M12.3 (semantic execution-plan
+boundary) are IMPLEMENTED (`planning/m12/`; `docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`,
+`docs/UNREAL_M12_2_CATALOG_FRAGMENTS_COMPOSITION.md`,
+`docs/UNREAL_M12_3_EXECUTION_PLAN.md`). Delivery order: M12.1 → M12.2 → M12.3 →
+adapter (M12.4) → verification (M12.5). Render-bearing execution remains deferred
+until independently proven. See §25.
 
 *Design only — no M12 production code was implemented in this task.*

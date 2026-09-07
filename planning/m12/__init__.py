@@ -27,6 +27,12 @@ from planning.m12.composition import (
     UnrealComposedTaskPlan,
     compose_fragments,
 )
+from planning.m12.execution_plan import (
+    UnrealExecutionPlan,
+    UnrealExecutionPlanError,
+    UnrealExecutionPlanStep,
+    generate_execution_plan,
+)
 from planning.m12.fragments import UnrealProductionFragment
 from planning.m12.fragments_registry import (
     CANONICAL_UNREAL_FRAGMENTS,
@@ -83,4 +89,9 @@ __all__ = [
     "UnrealCatalogEntrySpec",
     "UnrealSoccerProductionCatalog",
     "DEFAULT_UNREAL_CATALOG",
+    # M12.3
+    "UnrealExecutionPlanError",
+    "UnrealExecutionPlanStep",
+    "UnrealExecutionPlan",
+    "generate_execution_plan",
 ]

@@ -1,3 +1,12 @@
+## 2026-09-07 - M12.3 Unreal semantic execution-plan boundary
+- Added planning/m12/execution_plan.py (UnrealExecutionPlanStep, UnrealExecutionPlan, generate_execution_plan).
+- A plan only, not an executor: can_execute always False; steps carry preconditions/dependencies/
+  target-state contributions/verification requirements/idempotence/provenance; render plans described but
+  non-executable; compile of render-bearing tasks still blocked (M12.1 rule preserved).
+- No runtime/authority; no second evidence system; Blender untouched.
+- Deterministic tests: tests/m12/ 87 passed; adjacent Unreal+M10/M11/M12 434; full "not integration" 1538 (no regressions).
+- No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4-M10 change.
+
 ## 2026-09-07 - M12.2 Unreal semantic production catalog + fragments + composition
 - Added planning/m12/catalog.py (versioned UnrealSoccerProductionCatalog, catalog entry spec modeled on Blender SoccerProductionWorkflowSpec shape),
   fragments.py + fragments_registry.py (UnrealProductionFragment + canonical scene/environment/camera/lighting/sequence/render fragments),
