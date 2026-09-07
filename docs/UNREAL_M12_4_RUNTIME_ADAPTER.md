@@ -208,9 +208,9 @@ mappings stay inside `planning/m12/`.
 
 ## Validation
 
-- `pytest tests/m12/` → **246 passed** (incl. Round-2 and Round-3 blocker tests)
+- `pytest tests/m12/` → **263 passed** (incl. Round-1/2/3 blocker tests and Round-4 hardening)
 - `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **614 passed**
-- `pytest -m "not integration"` → **1697 passed** (was 1677, +20 Round-3 tests)
+- `pytest -m "not integration"` → **1714 passed** (no regressions)
 - Authority-isolation import scan clean (adapter imports only M12 + `AtlasTaskDefinition`, no production-authority module).
 - No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4–M10 change.
 
@@ -247,15 +247,15 @@ matcher) and **rejects** any forbidden key with `UnrealRuntimeAdapterError`
 rather than silently dropping or forwarding it. Legitimate provenance fields
 (proposal source, notes) are preserved.
 
-### 2. Runtime write-authority mismatch — FIXED
-An all-inspect-only semantic plan compiled to an `AtlasTaskDefinition` with
-`allow_writes=True` (inherited from source-task `allowed_mutations`), which could
-be mistaken for write authority.
-**Fix:** the adapter reconciles the existing `allow_writes` field against the
-plan's capability. For an all-inspect-only plan the emitted runtime task is
-produced with `allow_writes=False` (via `dataclasses.replace` on the existing
-`AtlasTaskDefinition`). No new authority field is invented; the semantic
-restriction is honored by the existing runtime field.
+### 2. Runtime write-authority mismatch — FIXED (R4-4: REJECT, don't rewrite)
+An all-inspect-only semantic plan must never emit a write-capable runtime task.
+**Fix:** the adapter independently reconciles the compiled `AtlasTaskDefinition`
+against the inspect-only contract (tools/actions/evidence must be `unreal_inspect`
+only). Under R4-4 the adapter **REJECTS** a write-capable source rather than
+silently zeroing `allow_writes`: a source declaring `allowed_mutations` under an
+inspect-only mapping, or a compiled task with `allow_writes=True`, raises
+`UnrealRuntimeAdapterError`. The previous `dataclasses.replace(..., allow_writes=False)`
+rewrite was removed — caller/source write intent is never downgraded.
 
 ### 3. Dependency / target-state / input fidelity — FIXED
 A crafted plan could alter `dependencies`, `required_inputs`,
@@ -278,8 +278,9 @@ included in `to_json_compatible()` and the canonical JSON.
 ### 5. Render-plan classification trust — FIXED
 `render_plan` was trusted from the plan flag rather than the authoritative source
 task.
-**Fix:** the adapter reconciles `plan.render_plan` against the authoritative
-`source_task.render_task` and fails closed on **any** mismatch (both over- and
+**Fix (R4-3):** the adapter reconciles `plan.render_plan` against the
+authoritative union of source class, canonical fragment render semantics, and
+`target_state.expects_render`, failing closed on **any** mismatch (both over- and
 under-flag). A caller cannot understate render-bearing status to reach a runtime
 task, nor overstate it to route a non-render plan. Render-safe behavior is
 preserved: render-bearing → `requires_existing_render_submission_path=True`,
@@ -478,3 +479,119 @@ consistency, digest binding). A directly-constructed invalid mapping FAILS CLOSE
 Tests: `test_b9_direct_invalid_render_contradiction_rejected`,
 `test_b9_direct_invalid_snapshot_tools_rejected`.
 
+
+## Round-4 structural hardening (R4-1..R4-12)
+
+A fourth adversarial gate returned groups of surviving findings. Rather than
+expanding vocabulary filters further, R4 made the trust boundary **structural**
+— invalid states are now unrepresentable / fail closed — and each change is
+covered by deterministic `test_r4_*` adversarial regression tests
+(`pytest tests/m12/` → **263 passed**).
+
+### R4-1. MANDATORY source binding
+`expected_source_task_digest` is now a **REQUIRED** keyword (no optional/silent
+omission). The adapter ALWAYS recomputes the digest from the authoritative
+resolved source and REQUIRES the caller's assertion to match. The caller-supplied
+value is never the source of truth. Omission, a malformed value, or a
+same-identity/different-content substitution FAILS CLOSED. A plan can no longer
+attach to a resolved source merely because identity metadata is compatible.
+Tests: `test_r4_mandatory_source_digest_omitted_rejected`,
+`test_r4_mandatory_source_digest_malformed_rejected`,
+`test_r4_same_identity_different_content_binding`,
+`test_r4_changed_parameters_digest_differs`.
+
+### R4-2 / R4-11. SINGLE canonical validation path
+`UnrealRuntimeMapping.__post_init__` runs the SAME canonical validation as the
+factory: provenance (typed schema + authority scan), source-digest shape,
+render/requirements consistency, runtime-action authority, snapshot<->digest
+binding, and (new) a recursive strict-JSON + reserved-key scan of the snapshot
+metadata. A directly-constructed invalid mapping FAILS CLOSED identically to a
+malformed factory input. Tests: `test_r4_direct_snapshot_metadata_authority_scan`,
+`test_b9_direct_invalid_render_contradiction_rejected`,
+`test_b9_direct_invalid_snapshot_tools_rejected`.
+
+### R4-3. Render classification — COMPLETE authoritative axes
+Render-bearing status now derives from the union of EVERY authoritative M12
+axis: source task class (`render_task`), canonical fragment render semantics
+(render-execution-constrained / non-`expandable` fragments such as
+`render_setup`), AND `target_state.expects_render`. Any authoritative render
+requirement routes to the render boundary; conflicting render vs non-render
+signals FAIL CLOSED (no silent collapse to non-render). The benign
+render-class-without-render-fragment direction (e.g. `artifact-validate`) is
+preserved. Tests: `test_r4_target_state_render_axis_recognized`,
+`test_r4_render_class_with_target_state_axis_authoritative`,
+`test_b2_render_setup_via_non_render_class_rejected`.
+
+### R4-4. Runtime action authority — REJECT, DON'T REWRITE
+The adapter no longer silently zeroes write authority. A source task that
+declares write mutations (`allowed_mutations` non-empty) under an inspect-only
+mapping is **REJECTED** with `UnrealRuntimeAdapterError`, and a compiled runtime
+task whose `allow_writes` is True is likewise rejected by
+`_reconcile_runtime_authority` (the previous `dataclasses.replace(..., allow_writes=False)`
+rewrite is removed). Caller/source write intent is never downgraded. The same
+inspect-only gate still requires `allowed_action_tools == {unreal_inspect}` and
+every action/evidence tool inspect-only. Tests: `test_r4_write_capable_source_rejected_not_rewritten`,
+`test_r4_compiled_allow_writes_rejected_not_rewritten`,
+`test_r4_allow_writes_tool_violation_rejected`, `test_b1_*`.
+
+### R4-5. Provenance — CLOSED TYPED SCHEMA (structural, not keyword-guessing)
+Caller provenance is validated against an explicit typed schema
+(`proposal_source:str`, `source_task_version:int`, `note:str`,
+`fragment_id:str`, `fragment_version:int`,
+`target_state_contribution:list[str]`). Unknown keys, nested undeclared
+structures, free-form caller metadata, and authority-shaped values are REJECTED
+structurally — the boundary no longer depends on an ever-growing suspicious-word
+vocabulary. The canonical fragment identity/version/contribution fields are
+reconciled ADAPTER TRUTH (a caller-forged value is overwritten, never trusted).
+A scalar `note` is the only accepted free-form shape and is never promoted into
+trusted runtime authority/verification state. Tests:
+`test_r2_nested_freeform_provenance_rejected_structural`,
+`test_r2_freeform_provenance_rejected_in_step_and_nested_list`,
+`test_r4_authority_value_structurally_rejected`, `test_r3_*`.
+
+### R4-6. Snapshot is the SOLE runtime source
+`materialize_runtime_task()` rebuilds the existing runtime object from the
+immutable canonical snapshot only and asserts the rebuilt snapshot's digest
+equals `runtime_task_digest`; no live `AtlasTaskDefinition` is retained as hidden
+state. Tests: `test_b4_no_hidden_backing_task`, `test_b4_materialize_rebuild_matches_digest`.
+
+### R4-7. Unresolved requirements fail closed
+Every canonical fragment requirement must be resolved by an earlier producer;
+orphan/missing-producer steps fail closed. Test: `test_b5_orphan_step_fails_closed`.
+
+### R4-8. Catalog version — exact-int identity
+`catalog_version` has ONE authoritative exact-int source. Caller overrides and
+resolved source metadata must be EXACT `int` and equal to the plan's value;
+lossy `int()` coercion and bool/float/str values FAIL CLOSED (no
+`"1"`/`1.9`/`True` collapsing). Tests: `test_r4_catalog_version_type_coercion_rejected`,
+`test_r4_source_metadata_catalog_version_exact_int`,
+`test_b6_catalog_version_conflict_rejected`.
+
+### R4-9. Declared vs reconciled, truthful and machine-visible
+`declared` is True exactly when caller-supplied non-canonical content is carried
+verbatim; reconciled fields are re-derived from the canonical fragment. Caller
+provenance that survives is explicitly declared, never labeled validated. Tests:
+`test_b7_declared_false_for_clean_mapping`, `test_b7_step_with_caller_provenance_is_declared`.
+
+### R4-10. Strict JSON / canonicalization — reject unsupported numeric types
+Canonical JSON stays `allow_nan=False`, string-keyed, finite-only; additionally
+unsupported numeric types (`Fraction`, `Decimal`, numpy scalars, other
+`numbers.Real`/`Integral` subclasses) are REJECTED STRUCTURALLY before
+serialization with the declared canonical-contract error type (no leaked
+`TypeError`/`ValueError`). Tests: `test_r4_fraction_rejected_structurally`,
+`test_r4_decimal_rejected_structurally`, `test_b8_*`.
+
+### R4-12. M12.5 future boundary
+Independent evidence verification remains unimplemented. The snapshot carries
+explicit disclosure (`m12.4.evaluator_kind`, `m12.4.independently_verified`,
+`m12.4.declared`) so no future layer mistakes a structural placeholder for
+verified evidence. No verification authority is granted at M12.4.
+
+## Validation (after Round-4 hardening)
+
+- `pytest tests/m12/` → **263 passed** (incl. Round-1/2/3 and new `test_r4_*`)
+- `pytest -m "not integration"` → **1714 passed**
+- `tests/m12/test_m12_authority_isolation.py` → **5 passed** (adapter imports
+  only M12 + `AtlasTaskDefinition`; no production-authority module).
+- No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4-M10
+  change.
