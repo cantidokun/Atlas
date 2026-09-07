@@ -1,3 +1,12 @@
+## 2026-09-07 - End-of-night documentation reconciliation (development paused)
+- Reconciled current-state README/HANDOFF surfaces (ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md,
+  README.md, DEVELOPMENT_LOG.md, docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md implementation-status).
+- Current end-of-night state: M10 S1-S8 COMPLETE (live validated); M11 FROZEN/paused; M12.0 design merged (PR #86);
+  M12.1 merged (PR #87); M12.2 merged (PR #88); M12.3 IMPLEMENTED with PR #89 OPEN awaiting review/merge (NOT merged);
+  no M12.4 implementation begun.
+- Development paused for the night. Next resume point: review/merge PR #89, then begin M12.4 (Unreal semantic->runtime adapter).
+- Docs-only change; no production code, no tests, no M4-M10 semantics changed; no live execution.
+
 ## 2026-09-07 - M12.2 Unreal semantic production catalog + fragments + composition
 - Added planning/m12/catalog.py (versioned UnrealSoccerProductionCatalog, catalog entry spec modeled on Blender SoccerProductionWorkflowSpec shape),
   fragments.py + fragments_registry.py (UnrealProductionFragment + canonical scene/environment/camera/lighting/sequence/render fragments),
