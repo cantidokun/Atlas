@@ -175,17 +175,37 @@ def test_render_fragment_is_non_idempotent_in_plan():
 # ---------------------------------------------------------------------------
 
 
-def test_render_plan_is_described_but_not_executable():
+def test_render_execute_is_authoritative_render_plan():
     task = DEFAULT_UNREAL_CATALOG.resolve(
         "unreal.render-execute",
         {"twin_id": "twin-1", "sequence_name": "main"},
         digital_twin_id="twin-1",
     )
     plan = generate_execution_plan(task)
+    # Authoritative render-bearing classification from the task contract.
+    assert task.render_task is True
     assert plan.render_plan is True
     assert plan.has_render_step()
     assert not plan.can_execute  # plan has no execution capability
     # Mapping to runtime is still blocked (M12.1 rule).
+    with pytest.raises(UnsupportedCompileMappingError):
+        compile_unreal_semantic_task(task)
+
+
+def test_artifact_validate_is_authoritative_render_plan():
+    task = DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.artifact-validate",
+        {"twin_id": "twin-1", "artifact_ref": "artifact-a"},
+        digital_twin_id="twin-1",
+    )
+    plan = generate_execution_plan(task)
+    # Authoritative render-bearing classification from the task contract,
+    # independent of substring matching on the canonical task id.
+    assert task.render_task is True
+    assert plan.render_plan is True
+    assert plan.has_render_step()
+    assert not plan.can_execute  # plan has no execution capability
+    # Mapping to runtime is still blocked (M12.1 rule) for render-bearing tasks.
     with pytest.raises(UnsupportedCompileMappingError):
         compile_unreal_semantic_task(task)
 

@@ -107,8 +107,9 @@ class UnrealExecutionPlan:
     """Immutable, language-neutral semantic execution plan.
 
     Describes canonical plan id, source semantic task, catalog version,
-    digital-twin identity, ordered steps, and provenance. It is a plan only: no
-    execution, authorization, verification, receipt, or recovery authority.
+    digital-twin identity, ordered steps, render-bearing classification, and
+    provenance. It is a plan only: no execution, authorization, verification,
+    receipt, or recovery authority.
     """
 
     plan_id: str
@@ -118,6 +119,7 @@ class UnrealExecutionPlan:
     digital_twin_id: str
     steps: Tuple[UnrealExecutionPlanStep, ...]
     provenance: Dict[str, Any] = field(default_factory=dict)
+    render_plan: bool = False
 
     def __post_init__(self) -> None:
         _check_token(self.plan_id, "plan_id")
@@ -134,23 +136,24 @@ class UnrealExecutionPlan:
         _check_tokens(self.ordered_step_ids(), "step_ids")
         if not isinstance(self.provenance, dict):
             raise UnrealExecutionPlanError("plan provenance must be a dict")
+        if not isinstance(self.render_plan, bool):
+            raise UnrealExecutionPlanError("render_plan must be a bool")
 
     @property
     def can_execute(self) -> bool:
         """A semantic execution plan is a plan, not an executor. Always False."""
         return False
 
-    @property
-    def render_plan(self) -> bool:
-        """True for plans from render-bearing semantic tasks.
-
-        A render plan DESCRIBES render intent; it does NOT authorize or execute
-        it. Render mapping stays intentionally blocked.
-        """
-        return "render-execute" in self.source_task_id
-
     def has_render_step(self) -> bool:
-        return any("render" in s.semantic_operation for s in self.steps)
+        """True iff this is a plan for an authoritatively render-bearing task.
+
+        Mirrors the authoritative render-bearing classification carried onto the
+        plan at generation time (the source task's ``render_task`` flag), so it
+        is True for every render-bearing semantic class (render-execute,
+        artifact-validate). A render plan DESCRIBES render intent; it does NOT
+        authorize or execute a render.
+        """
+        return self.render_plan
 
     def ordered_step_ids(self) -> Tuple[str, ...]:
         return tuple(s.step_id for s in self.steps)
@@ -162,6 +165,7 @@ class UnrealExecutionPlan:
             "source_task_version": self.source_task_version,
             "catalog_version": self.catalog_version,
             "digital_twin_id": self.digital_twin_id,
+            "render_plan": self.render_plan,
             "steps": [s.to_json_compatible() for s in self.steps],
             "provenance": dict(self.provenance),
         }
@@ -215,6 +219,11 @@ def generate_execution_plan(
     Uses the task's ordered fragment dependencies (``task.dependencies``) and the
     resolved target state. Identical semantic input yields canonical-equivalent
     output. No authorization, side effect, or execution occurs.
+
+    The plan's render-bearing classification (``render_plan``) is carried from the
+    task's authoritative ``render_task`` flag, so every render-bearing semantic
+    class (render-execute, artifact-validate) yields a plan with
+    ``render_plan=True``.
     """
     if not isinstance(task, UnrealProductionTaskDefinition):
         raise TypeError("task must be an UnrealProductionTaskDefinition")
@@ -288,6 +297,7 @@ def generate_execution_plan(
         digital_twin_id=task.digital_twin_id,
         steps=tuple(steps),
         provenance=plan_provenance,
+        render_plan=task.render_task,
     )
 
 
