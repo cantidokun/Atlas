@@ -1,3 +1,11 @@
+## 2026-09-07 - M10/M11 documentation reconciliation + M12 design (no production code)
+
+- Reconciled stale current-state statements across ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, and README.md.
+- M10 live S1-S8 now explicitly marked COMPLETE (all PASSED live against real UE 5.6); M11 marked FROZEN/paused; M12 added as the next Unreal milestone.
+- Historical/dated snapshot and per-attempt forensics lines preserved verbatim (no history rewrite).
+- Added docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md: design-only investigation + implementation plan for the Unreal semantic soccer-production layer
+  above the existing M4-M10 execution/recovery/evidence architecture. No M12 production code; no authority-boundary change.
+
 ## 2026-09-07 - M11.4 live provider validation + measurement
 - Added controlled live-validation path (ControlledLiveValidator, live_operator CLI), machine-readable benchmark corpus runner,
   and live-provider failure + telemetry-integrity tests. Re-runs deterministic suite green (1441).

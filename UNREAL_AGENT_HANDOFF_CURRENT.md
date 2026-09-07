@@ -1,5 +1,7 @@
 # Atlas Unreal Agent — Current Handoff
 
+> **Authoritative current-state reconciliation (supersedes the legacy "Current focus" line below):** M10 live Unreal Scenarios **S1–S8 are COMPLETE — all PASSED live** against the real UE 5.6 boundary (per-scenario PASS reports in `live_run_state/{s1_final4,s2,s3,s4r,s5,s6,s7,s8}/`). The legacy "M7 ... Not run" / "S2–S8 NOT executed" statements are historical snapshots, preserved verbatim and superseded by this block. M11 (development model-router, PRs #82–#85) is **FROZEN/paused**. The next Unreal milestone is **M12 — Unreal Semantic Soccer Production Layer** (design only). Atlas production-authority / M4–M10 recovery boundaries are unchanged.
+
 **Updated:** September 6, 2026 — M4/M5 merged (PR #68); M6 deterministic fault-injection/concurrency suite merged (PR #70); **M7 hardening/pre-flight implemented** (framed-catalog integrity, C++ append-only witness history, execution-deadline enforcement — production + deterministic tests, docs/UNREAL_M7_HARDENING.md). Per-item §31/§32 status: docs/UNREAL_M6_TEST_STATUS.md.
 **Active Atlas branch:** `main`
 **Current focus:** M5/M6 + M7 hardening complete. **M7 live UE 5.6 restart/recovery Scenarios 1–8 is the next authoritative gate and requires explicit human authorization** (live Unreal execution). Not run.
