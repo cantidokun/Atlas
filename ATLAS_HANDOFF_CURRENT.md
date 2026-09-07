@@ -255,5 +255,13 @@ Older dated handoff snapshots are archival records and should not be rewritten. 
 - Design covers task/risk taxonomy (L0-L3 tiers), deterministic routing (cheapest tier meeting risk), hard escalation triggers,
   evidence-based confidence (no self-report), adaptive token budgets, escalation packet, privacy-safe telemetry schema,
   benchmark corpus from real Atlas tasks, authority safeguards, and phased implementation plan.
-- Current-state findings recorded: no existing model-tier router; multi-model review done manually (astra/deepseek/opus/sonnet);
+- Current-state findings recorded: no explicit model-tier router; multi-model review done manually (astra/deepseek/opus/sonnet);
   model/provider names are DESIGN PARAMETERS (not hard-coded).
+- HARDENED (before implementation): frozen deterministic risk->tier mapping (R1-R7: per-dimension 0-3 scoring, worst-dim
+  max drives tier, hard-selector floors L2/L3, unknown-data fails closed to L3, combined selectors take max; model
+  self-confidence never affects selection). Model capability is validated static config (tier/provider/model_id/
+  capability_floor/supported_classes/token_budget/timeout). Finite escalation budget MAX_ESCALATIONS_PER_TASK=3, terminal
+  NEEDS_HUMAN_REVIEW on exhaustion/L3-fail/insufficient-evidence (no blind rerun). Telemetry is append-only with task_id/
+  attempt_id/escalation_id; immutable risk/tier fields; never stores secret/nonce/key. Explicit router failure modes
+  (missing profile, unavailable provider, timeout, malformed response, invalid tool, failing gate, exhausted budget,
+  telemetry-write-fail, config ambiguity) all fail closed. 9 objective acceptance criteria added.

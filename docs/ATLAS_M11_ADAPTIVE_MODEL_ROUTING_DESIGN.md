@@ -87,7 +87,7 @@ Boundary invariants:
 ### 4.1 Task classes (functional)
 
 | Class | Example |
-|---|---|---|
+|---|---|
 | `doc` | doc/readme/handoff edits |
 | `test` | new/adjust deterministic tests |
 | `test.fix` | fix a failing test |
@@ -100,74 +100,145 @@ Boundary invariants:
 | `concurrency` | cross-process/locking/racy |
 | `docs` | documentation-only |
 
-### 4.2 Risk dimensions (each scored 0–3, deterministic)
+### 4.2 Risk dimensions (each scored 0–3, deterministic, no self-confidence)
 
-| Dimension | Scale | Notes |
+Each dimension is scored independently on a fixed deterministic scale (0 = none, 1 = low, 2 = medium, 3 = high) computed by static/tool evidence — file-path hits, symbol/API references, diff size, control-flow complexity, required runtime (live-engine/build/CI) gates. A model can NEVER set these scores; they come from the classifier.
+
+| Dimension | Scale (0–3) | Evidence source (static, tool-assessable) |
 |---|---|---|
-| code complexity | lines/cyclo/control-flow | coarse, tool-assessable |
-| security sensitivity | key/nonce/HMAC/crypto | flag fields |
-| authorization/identity | authorization_id, attempt, session | flag |
-| cryptography | attestation/nonce/key | flag |
-| concurrency | locks/registry/mutex/parallel triads | flag |
-| cross-process | transport/pipe/process/job-object | flag |
-| recovery/statefulness | coordinator/recovery_status/lifecycle | flag |
-| provenance/receipt impact | receipt/lineage/digest | flag |
-| external side effects | live render/steam/pipe/file writes | flag |
-| production/destructive | delete/overwrite/kill/production runs | flag |
-| difficulty of verification | requires live engine, CI, UBT | flag |
+| code complexity | 0–3 | diff size, cyclomatic/control-flow, scope of touch |
+| security sensitivity | 0–3 | path/key/nonce/HMAC/crypto vocab hits |
+| authorization/identity | 0–3 | authorization_id/attempt/session/realm refs |
+| cryptography | 0–3 | attestation/nonce/key/digest constructs |
+| concurrency | 0–3 | lock/mutex/registry/parallel constructs |
+| cross-process | 0–3 | transport/pipe/process/job-object spawn |
+| recovery/statefulness | 0–3 | coordinator/recovery_status/lifecycle refs |
+| provenance/receipt impact | 0–3 | receipt/lineage/digest refs |
+| external side effects | 0–3 | live render/steam/pipe/file writes |
+| production/destructive | 0–3 | delete/overwrite/kill/production-run paths |
+| difficulty of verification | 0–3 | requires live engine / CI / UBT |
 
-`risk = heavy_sum(flags) * enforcement_weight`. Model confidence NOT in the formula.
+### 4.3 Frozen risk→tier mapping (deterministic, normative)
 
-### 4.3 Model tiers
+**Rule R1 (raw-risk score).** Each dimension scored 0–3 as above by the classifier. If any required dimension cannot be computed (unknown/missing/unparseable), it FAILS CLOSED to score = 3 (max) for that dimension, and marks `data_complete=False`. Model self-confidence is NEVER an input; a model cannot report or affect any dimension score.
 
-| Tier | Role | Intended use |
-|---|---|---|
-| `L0/lite` | routine | doc, trivial test, trivial edit |
-| `L1/base` | engineering | normal tests/refactors/adapter |
-| `L2/strong` | strong reasoning | api/recovery/concurrency/contract |
-| `L3/frontier` | critical | security-crypto, full-contract, ambiguous conflict |
+**Rule R2 (aggregate).** Define two quantities:
 
-`L0` is cheapest; `L3` most capable. Router picks **lowest tier whose `capability_floor` ≥ task risk score**.
+```
+max_dim   = max(dimension scores)            # worst single dimension, 0..3
+hard_flag = count of hard-selector dimensions that are nonzero   # see R4
+```
+
+**Rule R3 (tier by raw score).** If `data_complete=True` and no hard selector is active:
+
+| max_dim (worst single dimension) | minimum tier |
+|---|---|
+| 0 | L0 |
+| 1 | L1 |
+| 2 | L2 |
+| 3 | L3 |
+
+Tie / monotonic rule: when multiple dimensions share the same max, the tier is driven by that max alone (no extra penalty). Escalation is monotonic — a tier, once selected, can only increase, never decrease.
+
+**Rule R4 (hard selectors override).** A dimension score of ≥2 in ANY of the following dimensions IMMEDIATELY forces the minimum tier to **L2**; a score ≥3 forces **L3**:
+
+- security sensitivity, authorization/identity, cryptography (≥2 → L2, ≥3 → L3)
+- recovery/statefulness, concurrency, cross-process, provenance/receipt (≥2 → L2, ≥3 → L3)
+
+If any hard file/field is touched that is listed in the hard-selector set (§7 list), that alone raises to at least L2 even if raw score is 1.
+
+**Rule R5 (combined hard selectors).** When MULTIPLE hard selectors are active, take the MAXIMUM of their individually forced minimum tiers. E.g. a cryptography edit (→L3) + a concurrency edit (→L2) => final floor L3.
+
+**Rule R6 (missing/unknown data).** If ANY required risk signal (dimension or hard-selector membership) is unknown: fail closed to the highest applicable default — set `data_unknown=True`, force tier = L3 (UNSAFE_TO_DOWNGRADE), and mark the selection `selection_reason=UNKNOWN_RISK_SIGNAL` so it is recorded. The router must NOT lower the tier below L3 when data is incomplete.
+
+**Rule R7 (final).** Final selected tier = `max(R3 tier, R4 floor, R6 floor)`. No model self-confidence is used anywhere in R1–R7.
 
 ---
 
-## 5. Model report mapping
+## 5. Model capability as validated configuration
 
-| Tier | Profile config (design parameters, not fixed provider) |
+### 5.1 Three distinct normative roles
+
+| Concept | Definition | Who sets it |
+|---|---|---|
+| **task risk requirement** | deterministic score/floor from §4 (R1–R7) | classifier (static) — NEVER the model |
+| **model capability floor** | the minimum tier this model can be trusted for; a static, validated property of the profile | configuration (validated on load), NOT the model |
+| **provider/model configuration** | the concrete runtime binding (provider, model id, budget, timeout, cost) | deployment configuration (design parameter) |
+
+A model can NEVER declare its own capability. Capability comes solely from static, validated model-tier profiles.
+
+### 5.2 Normative model-tier profile (minimum required fields)
+
+Each profile is validated at load time; any missing/`null`/unparseable field → the profile is REJECTED (not usable) and routing fails closed to `NEEDS_HUMAN_REVIEW` rather than guessing.
+
+| Field | Type | Meaning | Cannot be null |
+|---|---|---|---|
+| `tier` | enum L0·L1·L2·L3 | which tier this profile serves | yes |
+| `provider` | string | deployment provider id | yes |
+| `model_id` | string | concrete model identifier | yes |
+| `capability_floor` | tier enum | the minimum tier this model satisfies (declared by config) | yes |
+| `supported_classes` | set of task-class names | which task classes this profile may handle | yes |
+| `token_budget` | int | max reasoning/completion tokens for the attempt | yes |
+| `timeout_s` | int | max wall-clock seconds for the attempt | yes |
+| `cost_metadata` | optional | estimated/known cost basis (per token or per call) if available | no — may be omitted |
+
+**Validation rule (normative):** at load, the router asserts `profile.capability_floor == profile.tier` (a profile must never under/over-claim relative to its tier), `profile.supported_classes` non-empty, `token_budget > 0`, `timeout > 0`. Any violation → profile rejected → `NEEDS_HUMAN_REVIEW`. A model's in-band self-report ("I am capable of X") is never consulted.
+
+### 5.3 Example (design parameter — actual names resolved at deployment)
+
+| Tier | provider/model are deployment-configuration placeholders |
 |---|---|
-| L0 | `{model:<p>, provider:<p>, budget:<budget>, temp:0.1}` |
-| L1 | `{model:<p>, provider:<p>, budget:<budget>, temp:0.2}` |
-| L2 | `{... strong..., temp:0.0}` |
-| L3 | `{... frontier..., extreme budget}` |
+| L0 | `{tier:L0, provider:?, model_id:?, capability_floor:0, supported_classes:[doc,test,docs], token_budget:?, timeout:?}` |
+| L1 | `{tier:L1, ..., capability_floor:1, supported_classes:[test,refactor,adapter], ...}` |
+| L2 | `{tier:L2, ..., capability_floor:2, supported_classes:[api-boundary,recovery,concurrency,contract], ...}` |
+| L3 | `{tier:L3, ..., capability_floor:3, supported_classes:[security-crypto,full-contract], ...}` |
 
-Provider/model **names are design parameters** — repository does not establish them; they pivot to config.
+In the table above `provider`, `model_id`, `token_budget`, `timeout` are left as parameters. Provider/model **names are deployment configuration parameters** — repository does not establish them.
 
 ## 6. Routing algorithm (deterministic, no model self-confidence)
 
-1. Ingest task → pre-parse into class(es), scan files → compute risk factors (2-4 + file-hit flags).
-2. Compute `task_risk = max(risk_factor_scores)` bounded by class ceiling.
-3. Select `lowest tier T` with `tier_capability >= task_risk`.
-4. If hard-selector flags (contract/authority/crypto/recovery cross-process) rise tier to **at least L2** (or L3 if security/crypto) regardless of raw score.
-5. Emit `ModelSelection(task_id, tier, model_cfg, reasons, risk_scores)`.
-6. Execute; the evidence gatekeeper (below) decides success/runs-escalation.
-7. On escalation up-tier, jump to next tier with full escalation packet (no blind re-run).
+1. Ingest task → class(es) (§4.1) + scan files → compute risk dimensions (R1) → `max_dim`, `hard_flag`, `data_complete`, `data_unknown` (R2).
+2. Compute raw tier by §4.3 R3. Mark if unknown data → R6.
+3. Apply any hard-selector floors R4/R5; compute final tier = R7.
+4. Look up the LEAST-capable validated profile whose `capability_floor ≥ final_tier` AND whose `supported_classes` ⊆ task classes; if none exists → `NEEDS_HUMAN_REVIEW`.
+5. Emit `Selection{{task_id, tier_required, final_tier, profile, reasons, risk_scores}}`.
+6. Execute; the post-execution gate (below) decides pass, escalate, or stop.
+7. On escalation, move to next HIGHER tier with the escalation packet (no blind re-run, no reusing an unchanged attempt).
 
-## 7. HARD escalation triggers (immediate minimum tier jump)
+## 6.1 Finite escalation budget (normative)
 
-Escalate **immediately** (no re-run; skip to next tier) when any of:
+Define explicit, finite resource / tier budgets; escalation cannot be unbounded.
+
+- `MAX_ESCALATIONS_PER_TASK = 3` (tunable config constant, default 3).
+- Maximum possible tier = `L3`; no tier above L3 exists.
+- Each escalation consumes one budget token; if it produces new evidence (new test/build signal) the same budget did not reset.
+- BLOCKED: More than `MAX_ESCALATIONS_PER_TASK`, blind reruns of the same tier/attempt, attempts referencing the same unchanged evidence, downgrade (monotonic-only up), escalation to a model not in config.
+
+Terminal states:
+
+- On exhausting `MAX_ESCALATIONS_PER_TASK`: transition to **`NEEDS_HUMAN_REVIEW`** terminal state; record outcome, escalate packet preserved; no further automatic escalation allowed.
+- On L3 failure (L3 attempt also fails to satisfy required evidence): same **`NEEDS_HUMAN_REVIEW`** terminal.
+- When objective evidence remains insufficient (e.g. cannot establish invariant, CI not green, unexplained unknown signal): **`NEEDS_HUMAN_REVIEW`**; the record marks `final_outcome=NEEDS_HUMAN_REVIEW`. No auto-retry, no auto-regression loop.
+- `NEEDS_HUMAN_REVIEW` is terminal for that task_id: further attempts require explicit human/interrupt action (environmental intervention), never the router.
+
+Bane prevention: the router cannot modify the guard book to self-grant additional budget; budget is fixed config.
+
+## 7. HARD escalation triggers (objective, immediate minimum tier jump)
+
+Escalate **immediately** (no re-run; skip to next tier with a fresh packet) when any objective trigger fires:
 
 - crypto / auth / identity / receipt / provenance file touched;
-- cross-process / concurrent / lock / shared-registry / mutex editing;
-- contract contradiction detected (two authoritative statements disagree);
-- deterministic test FAILED that must pass (gate);
-- repeated failed corrections (2+ same-area correction without confirming fix);
-- inability to establish a required invariant within budget;
-- production-side effect would be triggered by the change;
-- destructive operation (kill/delete/overwrite);
-- repeated model disagreement (same output converges → conflict);
-- CI red on new head (since we never declare success on local-only pytest per #18-convention);
+- cross-process / concurrency / lock / shared-registry / mutex editing;
+- contract mismatch detected (two authoritative statements disagree);
+- deterministic test FAILED (must pass gate);
+- repeated failed same-area corrections (2+ without a confirmed fix);
+- inability to establish a required invariant within the task budget;
+- live/production side-effect would be triggered by the change;
+- destructive operation (kill/delete/overwrite) beyond the authorized scope;
+- repeated model disagreement (non-overlapping results after ≥1 difference);
+- CI red on the PR head (never treat local-only pytest as sufficient per established convention).
 
-Escalation is monotonic (never decrease tier mid-task).
+**Merge rule:** combine triggers with `max-of-individual-min-tiers`, per R5. Triggers are static/CFG-sourced plus the CIGREEN/real-gate signals; model self-confidence is NOT a trigger.
 
 ## 8. Evidence-based confidence model
 
@@ -194,22 +265,50 @@ Escalation is monotonic (never decrease tier mid-task).
 - unresolved questions
 - the current risk classification + reason
 
-## 11. Telemetry schema (durable, privacy-safe)
+## 11. Telemetry schema (durable, privacy-safe, append-only)
 
-A JSON/record with at least:
+Telemetry is a durable **append-only** ledger. Records are never mutated or overwritten after creation; corrections and escalations produce NEW records.
 
-```
-task_id, timestamp_utc, task_class, task_risk, risk_factors,
-tier_selected, model, provider,
-requested_token_budget, actual_token_usage, latency_ms,
-tool_call_count (tool type histogram),
-correction_count, escalation_count,
-tests_passed, tests_failed, build_result, static_result,
-contract_result (green/fail/unknown), final_outcome (PASS/ESCALATED/BLOCKED/FAILED),
-estimated_cost_usd, selection_reason
-```
+### 11.1 Identity model
 
-**Never stores:** API keys, secrets, prompts containing credentials, unspecified credentials, `attempt_nonce`, HMAC secrets, private keys, or anything in the `authoritative`/secret category. This is a privacy-safe telemetry record with a strict allow-list.
+- `task_id` — stable identity of the development task (unique across the task's lifetime; does not change on correction/escalation).
+- `attempt_id` — unique id per routing + execution attempt (a model/tier invocation, possibly retried with new evidence).
+- `escalation_id` (optional) — present when the record is created by an escalation hop; links to the prior `attempt_id` (parent) and its `task_id`.
+
+Fields are recorded in a durable ledger keyed by `(task_id, attempt_id, escalation_id?)`. New evidence → a NEW record appended; the original records remain unchanged.
+
+### 11.2 Frame
+
+`Record (append-only)`:
+
+| Field | type | mutable after create? |
+|---|---|---|
+| task_id | str | immutable |
+| attempt_id | str (unique) | immutable |
+| escalation_id | str? | immutable |
+| timestamp_utc | iso | immutable (creation only) |
+| task_class | enum | immutable |
+| risk_factors (all dimension scores + max_dim/hard/data flags) | map | immutable |
+| final_tier | L0..L3 | immutable |
+| profile_tier | enum | immutable |
+| requested_token_budget | int | immutable |
+| actual_token_usage | int | append-only (or in a separate usage log) |
+| latency_ms | int | append-only |
+| tool_call_count (histogram) | int | append-only |
+| correction_count | int | immutable for this attempt |
+| escalation_count | int | immutable |
+| tests_passed / tests_failed | int | immutable at outcome |
+| build_result | enum PASS/FAIL/UNKNOWN | immutable at outcome |
+| static_result / contract_result | enum | immutable at outcome |
+| final_outcome | enum PASS/ESCALATED/BLOCKED/NEEDS_HUMAN_REVIEW/FAILED | append-only (may be appended once at terminal) |
+| estimated_cost_usd | float | append-only |
+| selection_reason | str (crypt / selectors) | immutable |
+
+Append-only rule: any field with "append-only" may only appear in a NEWER record; existing records are never edited in place. Corrections/escalations write fresh records under (task_id, newer attempt_id).
+
+Immutability rule: `task_id`, `attempt_id`, `escalation_id`, `risk_factors`, `tier`, `profile_tier` are immutable for the life of the ledger.
+
+**Never stores:** API keys, secrets, credentials, prompts containing credentials, `attempt_nonce`, HMAC secrets, private keys, or anything in the `authoritative`/secret category. This is a strict allow-list; a telemetry-record input that contains any protected token is rejected and dropped (fail-closed), never written.
 
 ## 12. Benchmark methodology
 
@@ -234,19 +333,23 @@ For each: expected tier, min acceptable model, objective success (tests+build+CI
 - allow-list telemetry only (no secret/nonce/key values).
 - no prompt exposure beyond the task model; escalation packet must be stripped of credentials before hand-off.
 - model provider keys stored in secure config (outside repo), never in telemetry.
-- routing failure fail-closed: if tier capability black-box unknown → default to a conservative HEAD (FATEST) and make it security-aware.
+- routing failure fail-closed: if tier capability is unknown at runtime → refuse to downgrade (default to the most conservative available tier per R6/R7) and route to `NEEDS_HUMAN_REVIEW` rather than guessing.
 
-## 14. Failure modes
+## 14. Router failure modes (explicit, fail-closed behavior)
 
-| Failure | Mitigation |
+| Failure | Fail-closed behavior |
 |---|---|
-| classifier misclassifies (too low tier) | hard trigger duties match a floor, CI review |
-| model overrun token budget | cap+ramp; monotonic |
-| blind retry/loop | escalation packet, budget cap |
-| telemetry leak | allow-list + redaction test |
-| router becomes authority | boundary test: router can't call authority op (block) |
-| self-confidence gating bypass | confidence derived from evidence only; switch key off |
-| provider/config drift | versioned config + validation |
+| missing model configuration | No usable profile for the required tier/class → terminal `NEEDS_HUMAN_REVIEW`; no fallback to a guessed model |
+| unavailable provider | Provider ping/health fail or response not received → abort that attempt, route to the next-tier profile (if budget remains) else `NEEDS_HUMAN_REVIEW`; never downgrade |
+| timeout | Attempt times out → fail the attempt, do NOT accept partial output; escalate with the timeout recorded; on L3 timeout → `NEEDS_HUMAN_REVIEW` |
+| malformed model response | Response fails schema validation → not promoted, fail that attempt; escalate (malformed = no valid evidence); L3 malformed → `NEEDS_HUMAN_REVIEW` |
+| invalid tool request | Tool arguments fail schema/safety validation → task plan rejected, escalate; never execute a malformed plan |
+| failing evidence gate | Required gate red (tests/build/static/CI) → task NOT pass, escalate; terminal gap after budget → `NEEDS_HUMAN_REVIEW` |
+| exhausted escalation budget | Stop; `NEEDS_HUMAN_REVIEW`; no further automatic escalation or rerun |
+| telemetry write failure | Router may not proceed on a silent telemetry loss: if the append-only write cannot be persisted, the attempt is treated as UNKNOWN and fails closed (no success is claimed without a durable outcome record) |
+| configuration ambiguity | Conflicting/missing config → reject selection, `NEEDS_HUMAN_REVIEW`; never guess a tier |
+
+Router is designed so every failure path terminates in a non-success state (abort/incomplete → escalate → eventually `NEEDS_HUMAN_REVIEW`). No success is ever inferred without durable, gate-passing evidence.
 
 ## 15. Atlas authority boundary (proof)
 
@@ -258,31 +361,35 @@ M11 is architecture-safe because:
 
 ## 16. Implementation plan (phased; this milestone is design-only)
 
-Phase 0 (this): design doc + findings + authority analysis + benchmark plan.
-Phase 1: deterministic risk classifier + tier registry (pure, no prod change).
-Phase 2: scoring & routing selection.
-Phase 3: evidence gatekeeper + execution signals wiring.
-Phase 4: escalation packets; telemetry ledger with redaction; benchmark harness.
-Phase 5: integration into Hermes dev loop as an optional adviser (default advisory), plus unit tests for routing determinism/tier/escalation.
+Phase 0 (this): design doc + findings + authority + benchmark plan + frozen risk→tier rules (R1–R7) + finite escalation budget + append-only telemetry schema.
+Phase 1: deterministic risk classifier + tier registry (pure, no prod change), implementing R1–R7 with fail-closed unknown handling.
+Phase 2: scoring & routing selection using validated tier profiles (§5) and the frozen mapping; monotonic floor enforcement.
+Phase 3: evidence gatekeeper + execution signals wiring; bind to the existing pytest/build/CI gates.
+Phase 4: escalation packets (bounded by §6.1), append-only telemetry ledger with redaction + immutable-attempt enforcement.
+Phase 5: integration into Hermes dev loop as an optional adviser (default off), plus unit tests for routing determinism/tier/escalation/telemetry-boundary.
 Each phase keeps Atlas production authority untouched; no production side effect.
 
 ## 17. Test strategy
 
-- Unit tests: deterministic class→tier mapping, escalation triggers, budget cap, telemetry redaction.
-- Contract tests: router cannot call authority methods (mock guard).
+- Unit tests: deterministic class→tier mapping (R1–R7), unknown-data fail-closed, escalation trigger + finite-budget handling, telemetry redaction + append-only/immutability enforcement, and each acceptance criterion 1–9.
+- Contract tests: router cannot call authority methods (mock guard) and cannot mint receipts / schedule / authorize.
 - Integration: routing an existing M4-8 task through the pipeline reproduces same green gates with ≤ tier.
 - Live-change: routing pipeline must not alter production behavior (shadow-mode assertions).
 - Benchmark: pre/post tier cost/quality on corpus; escalation rate measured.
 
-## 18. Acceptance criteria
+## 18. Acceptance criteria (objective, verifiable)
 
-- Router deterministically selects cheapest tier for all benchmark tasks; statement passes green gates.
-- Escalation fires only on objective triggers (no self-confidence).
-- ≥1 correction → confidence decreases, tier may.
-- Telemetry redacts secrets; no `attempt_nonce` or key surfaces.
-- Router never calls production authority / scheduler / receipt, tests enforce.
-- Full benchmark: each task's usable output (gates) at token cost measured; higher-tier only used when evidence requires.
-- PR rule unchanged (stop at PR; never merge on local-only).
+1. **Deterministic risk classification.** Identical task input (files, diff, symbols) always yields the same risk-dimension scores and `data_complete` flag (a pure function; test asserts equality across runs).
+2. **Deterministic tier selection.** Same risk + same config → same final tier (per R1–R7). Test asserts no non-determinism over repeated invocations.
+3. **Model self-confidence cannot lower the selected tier.** Inject a model response claiming low capability / high confidence with failing evidence → the router must NOT downgrade; it must escalate red gates only. Unit test asserts tier remains at the R1–R7 floor.
+4. **Hard selectors cannot be bypassed.** Touching any hard-selector file/field forces ≥ the R4 floor regardless of raw score; a test asserts a low `max_dim` with a crypto/hard field still yields ≥L2 (≥L3 when ≥3). Tests assert no path lowers it.
+5. **Escalation budget is finite.** A test forces repeated gate failures and asserts the router reaches `NEEDS_HUMAN_REVIEW` after `≤ MAX_ESCALATIONS_PER_TASK` and never auto-escapes beyond it.
+6. **No production authority operation reachable from the router.** Boundary test that any authority method (`submit_render`, `reconcile_render_jobs`, `apply_authorized`, receipt issuance, `authorization_id` mutation) invoked by/through the router raises and that the router holds no such pathway.
+7. **Telemetry never stores protected secrets.** Unit test that any record containing an `attempt_nonce`, key, credential, or prompt-with-credential is rejected/dropped and never persisted.
+8. **Previous routing attempts remain immutable.** Test writes two attempt records and asserts the earlier `task_id/attempt_id/risk_factors/tier` are byte-unchanged after the later append (append-only, no overwrite).
+9. **Terminal `NEEDS_HUMAN_REVIEW` prevents further automatic escalation.** Test asserts that once a task_id reaches `NEEDS_HUMAN_REVIEW`, no further escalation/rerun is permitted by the router without explicit external action.
+
+Plus existing criteria: cheapest-tier selection across the benchmark, evidence-gated success, CI-green-or-not, redact telemetry, and the standing PR rule (stop at PR; never merge on local-only evidence).
 
 ## 19. Open questions
 
