@@ -37,6 +37,7 @@ from planning.m12.runtime_adapter import (
     UnrealRuntimeAdapterError,
     UnrealRuntimeMapping,
     UnrealRuntimeStepMapping,
+    is_forbidden_authority_key,
     map_unreal_execution_plan,
 )
 from planning.m12.fragments import UnrealProductionFragment
@@ -105,4 +106,5 @@ __all__ = [
     "UnrealRuntimeStepMapping",
     "UnrealRuntimeMapping",
     "map_unreal_execution_plan",
+    "is_forbidden_authority_key",
 ]

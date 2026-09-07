@@ -175,9 +175,9 @@ mappings stay inside `planning/m12/`.
 
 ## Validation
 
-- `pytest tests/m12/` → **112 passed** (88 prior + 24 new M12.4)
+- `pytest tests/m12/` → **143 passed** (88 prior + 55 new M12.4)
 - `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **480 passed**
-- `pytest -m "not integration"` → **1563 passed** (was 1539, +24)
+- `pytest -m "not integration"` → **1594 passed** (was 1539, +55)
 - Authority-isolation import scan clean (adapter imports only M12 + `AtlasTaskDefinition`, no production-authority module).
 - No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4–M10 change.
 
@@ -197,3 +197,98 @@ self-reported evidence and must not be wired through M12.4 (which performs no
 verification). If a safe, already-authorized render-submission entry point is
 established, M12.5+ may document and consume it through that existing authority
 boundary only.
+## Red-team remediation (independent adversarial review)
+
+An adversarial review of `planning/m12/runtime_adapter.py` found reproducible
+issues; all were remediated in the same M12.4 line (no new milestone). Each fix
+is covered by a deterministic adversarial regression test.
+
+### 1. Authority/secret smuggling — FIXED
+A crafted plan could place forbidden authority/security material (e.g.
+`authorization_id`, `hmac_key`, `attempt_nonce`, `receipt`, `credential`,
+protected/recovery/artifact authority, scheduler/retry directives) in
+`plan.provenance`, which the adapter previously forwarded verbatim.
+**Fix:** the adapter now independently validates plan-level and step-level
+provenance (`is_forbidden_authority_key`, mirroring M12.1's exact+substring
+matcher) and **rejects** any forbidden key with `UnrealRuntimeAdapterError`
+rather than silently dropping or forwarding it. Legitimate provenance fields
+(proposal source, notes) are preserved.
+
+### 2. Runtime write-authority mismatch — FIXED
+An all-inspect-only semantic plan compiled to an `AtlasTaskDefinition` with
+`allow_writes=True` (inherited from source-task `allowed_mutations`), which could
+be mistaken for write authority.
+**Fix:** the adapter reconciles the existing `allow_writes` field against the
+plan's capability. For an all-inspect-only plan the emitted runtime task is
+produced with `allow_writes=False` (via `dataclasses.replace` on the existing
+`AtlasTaskDefinition`). No new authority field is invented; the semantic
+restriction is honored by the existing runtime field.
+
+### 3. Dependency / target-state / input fidelity — FIXED
+A crafted plan could alter `dependencies`, `required_inputs`,
+`target_state_contributions`, or `idempotence` after generation and still map,
+because the adapter copied plan values verbatim.
+**Fix:** the adapter re-derives each supported step's required inputs,
+target-state contributions, idempotence, and dependencies from the **canonical
+fragment** (`canonical_fragment`) and from a reconstruction of M12.3's
+producer→step map, and rejects any inconsistency with
+`UnrealRuntimeAdapterError`. The mapping is now independent of mutable/adversarial
+plan contents on these critical fields.
+
+### 4. Per-step fragment provenance — FIXED
+`UnrealRuntimeStepMapping` previously had no provenance field, so fragment
+identity/version was lost.
+**Fix:** each step mapping now carries `fragment_id` and `fragment_version`
+(driven from the canonical fragment) plus a deep-frozen step provenance dict,
+included in `to_json_compatible()` and the canonical JSON.
+
+### 5. Render-plan classification trust — FIXED
+`render_plan` was trusted from the plan flag rather than the authoritative source
+task.
+**Fix:** the adapter reconciles `plan.render_plan` against the authoritative
+`source_task.render_task` and fails closed on **any** mismatch (both over- and
+under-flag). A caller cannot understate render-bearing status to reach a runtime
+task, nor overstate it to route a non-render plan. Render-safe behavior is
+preserved: render-bearing → `requires_existing_render_submission_path=True`,
+`runtime_task=None`, `can_execute=False`.
+
+### 6. Deep immutability — FIXED
+Nested `provenance` was mutable despite the mapping being frozen.
+**Fix:** provenance (mapping-level and step-level) is deep-frozen to
+`MappingProxyType`/tuple at construction via `_deep_freeze`. Mutation after
+construction fails (TypeError on `MappingProxyType`), and canonical JSON is stable
+against attempted mutation.
+
+### 7. Semantic fidelity decision — EXPLICIT
+**Conclusion (not just documentation):** The existing Atlas runtime represents an
+M12 semantic task as a **single aggregate** `AtlasTaskDefinition` (one
+`unreal_inspect` action built by the M12.1 compiler); it has **no per-fragment
+runtime operations**. Therefore M12.4 does not claim per-fragment executable
+fidelity. The mapping's `semantic_fidelity` field is set to `"aggregate"` for
+non-render plans (task-level aggregate representation + per-step declared
+semantics) and `"unavailable"` for render-bearing plans. A step whose semantic
+operation is not a known canonical fragment fails closed. M12.4 does **not**
+redesign M4–M10 and does **not** introduce a second runtime; per-fragment
+distinctions remain declared semantics that M12.5's independent verifier consumes
+from the plan, not distinct runtime operations this adapter pretends to execute.
+
+### 8. Placeholder verifier — DEFERRED TO M12.5 (documented)
+The emitted `AtlasTaskDefinition` carries M12.1's structural placeholder
+evaluator (presence/truthiness of declared invariant names in evidence). M12.4
+itself performs no verification and never claims verified status. This document
+distinguishes:
+- **target-state declaration** — the semantic invariants the plan/compiled task
+  declares (no verification authority);
+- **runtime evaluator representation** — the placeholder `TargetStateEvaluator`
+  attached by M12.1's compiler (structural only, must NOT be treated as
+  independent verification);
+- **actual independent verification** — M12.5's job, using the existing evidence
+  machinery; must not trust self-reported evidence.
+
+## Validation (after red-team remediation)
+
+- `pytest tests/m12/` → **143 passed** (88 prior + 55 M12.4 tests, incl. 31 adversarial regression tests)
+- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **511 passed**
+- `pytest -m "not integration"` → **1594 passed** (no regressions)
+- Authority-isolation import scan clean. No M4–M10 / Blender / authority change.
+

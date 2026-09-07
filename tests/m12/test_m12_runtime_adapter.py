@@ -30,6 +30,7 @@ from planning.m12.execution_plan import _deterministic_step_id
 from planning.m12.runtime_adapter import (
     EXISTING_RUNTIME_INSPECT_TOOL,
     REQUIRES_EXISTING_RENDER_SUBMISSION_PATH,
+    is_forbidden_authority_key,
 )
 from planning.m12.semantic_task import UnrealProductionTaskDefinition
 from planning.m12.target_state import target_state_spec
@@ -387,3 +388,212 @@ def test_identical_input_identical_mapping():
     m2 = _map()
     assert m1.canonical_json() == m2.canonical_json()
     assert m1.to_json_compatible() == m2.to_json_compatible()
+
+
+# ---------------------------------------------------------------------------
+# Adversarial regression tests (red-team remediation)
+# ---------------------------------------------------------------------------
+
+
+def _render_src():
+    """A render-bearing (unreal.render-execute) source task."""
+    return DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.render-execute",
+        {"twin_id": "twin-1", "sequence_name": "main"},
+        digital_twin_id="twin-1",
+    )
+
+
+def _clone_sequence_plan(step_overrides=None, plan_provenance=None, render=None):
+    """Reconstruct an UnrealExecutionPlan for the sequence task with optional
+    adversarial step/plan tampering (bypasses M12.3's generator)."""
+    base = generate_execution_plan(_sequence_task())
+    steps = []
+    for i, s in enumerate(base.steps):
+        ov = (step_overrides or {}).get(i, {})
+        steps.append(
+            UnrealExecutionPlanStep(
+                step_id=ov.get("step_id", s.step_id),
+                semantic_operation=ov.get("semantic_operation", s.semantic_operation),
+                required_inputs=ov.get("required_inputs", s.required_inputs),
+                preconditions=ov.get("preconditions", s.preconditions),
+                target_state_contributions=ov.get("target_state_contributions", s.target_state_contributions),
+                dependencies=ov.get("dependencies", s.dependencies),
+                idempotence=ov.get("idempotence", s.idempotence),
+                verification_requirements=ov.get("verification_requirements", s.verification_requirements),
+                execution_capability_requirement=ov.get("execution_capability_requirement", s.execution_capability_requirement),
+                provenance=ov.get("provenance", dict(s.provenance)),
+            )
+        )
+    kw = dict(
+        plan_id=base.plan_id,
+        source_task_id=base.source_task_id,
+        source_task_version=base.source_task_version,
+        catalog_version=base.catalog_version,
+        digital_twin_id=base.digital_twin_id,
+        steps=tuple(steps),
+        provenance=plan_provenance if plan_provenance is not None else dict(base.provenance),
+    )
+    if render is not None:
+        kw["render_plan"] = render
+    return UnrealExecutionPlan(**kw)
+
+
+# ---- Fix 1: authority/secret smuggling -------------------------------------------
+
+
+@pytest.mark.parametrize("token", [
+    "authorization_id", "authorization", "receipt", "receipt_id",
+    "attempt_nonce", "nonce", "hmac", "hmac_key", "api_key", "credential",
+    "recovery_authority", "artifact_id", "manifest_id", "scheduler",
+    "retry_controller", "protected_flag", "is_authorized",
+])
+def test_fix1_forbidden_authority_in_plan_provenance_rejected(token):
+    plan = _clone_sequence_plan(plan_provenance={"proposal_source": "qwen", token: "forged"})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_fix1_forbidden_authority_in_step_provenance_rejected():
+    plan = _clone_sequence_plan({0: {"provenance": {"authorization_id": "x"}}})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_fix1_legitimate_provenance_preserved():
+    plan = _clone_sequence_plan(plan_provenance={"proposal_source": "qwen-proposal-v1", "note": "kept"})
+    mapping = map_unreal_execution_plan(plan, source_task=_sequence_task())
+    assert mapping.provenance["proposal_source"] == "qwen-proposal-v1"
+    assert mapping.provenance["note"] == "kept"
+    assert "authorization_id" not in mapping.canonical_json()
+
+
+def test_fix1_is_forbidden_helper():
+    assert is_forbidden_authority_key("authorization_id")
+    assert is_forbidden_authority_key("hmac")
+    assert is_forbidden_authority_key("attempt_nonce")
+    assert not is_forbidden_authority_key("proposal_source")
+    assert not is_forbidden_authority_key("note")
+
+
+# ---- Fix 2: write-authority reconciliation ----------------------------------------
+
+
+def test_fix2_inspect_only_plan_does_not_claim_write_authority():
+    mapping = _map()
+    assert all(s.capability_requirement == "inspect-only" for s in mapping.steps)
+    assert mapping.runtime_task.allow_writes is False
+
+
+# ---- Fix 3: dependency/target-state/input fidelity --------------------------------
+
+
+def test_fix3_dropped_dependency_rejected():
+    plan = _clone_sequence_plan({2: {"dependencies": ()}})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_fix3_target_state_tamper_rejected():
+    plan = _clone_sequence_plan({1: {"target_state_contributions": ()}})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_fix3_idempotence_tamper_rejected():
+    # scene_setup is idempotent; claiming non-idempotent diverges from canonical.
+    plan = _clone_sequence_plan({0: {"idempotence": "non-idempotent"}})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_fix3_operation_reorder_rejected():
+    plan = _clone_sequence_plan({0: {"semantic_operation": "camera_setup"}})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+# ---- Fix 4: fragment identity/version preserved -----------------------------------
+
+
+def test_fix4_fragment_identity_version_preserved_in_steps():
+    mapping = _map()
+    by_op = {s.semantic_operation: s for s in mapping.steps}
+    assert by_op["scene_setup"].fragment_id == "scene_setup"
+    assert by_op["scene_setup"].fragment_version == 1
+    assert by_op["camera_setup"].fragment_id == "camera_setup"
+    assert by_op["camera_setup"].fragment_version == 1
+    parsed = json.loads(mapping.canonical_json())
+    assert parsed["steps"][1]["fragment_id"] == "camera_setup"
+    assert parsed["steps"][1]["fragment_version"] == 1
+
+
+# ---- Fix 5: render classification reconciliation ----------------------------------
+
+
+def test_fix5_render_underflag_rejected():
+    rt = _render_src()
+    base = generate_execution_plan(rt)
+    steps = [
+        UnrealExecutionPlanStep(
+            step_id=s.step_id, semantic_operation=s.semantic_operation,
+            required_inputs=s.required_inputs, preconditions=s.preconditions,
+            target_state_contributions=s.target_state_contributions,
+            dependencies=s.dependencies, idempotence=s.idempotence,
+            verification_requirements=s.verification_requirements,
+            execution_capability_requirement=s.execution_capability_requirement,
+            provenance=dict(s.provenance),
+        )
+        for s in base.steps
+    ]
+    under = UnrealExecutionPlan(
+        plan_id=base.plan_id, source_task_id=base.source_task_id,
+        source_task_version=base.source_task_version, catalog_version=base.catalog_version,
+        digital_twin_id=base.digital_twin_id, steps=tuple(steps),
+        provenance=dict(base.provenance), render_plan=False,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(under, source_task=rt)
+
+
+def test_fix5_render_overflag_rejected():
+    # non-render source over-flagged render_plan=True must fail closed
+    plan = _clone_sequence_plan(render=True)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_fix5_render_true_path_unchanged():
+    rt = _render_src()
+    mapping = map_unreal_execution_plan(generate_execution_plan(rt), source_task=rt)
+    assert mapping.render_plan
+    assert mapping.requires_existing_render_submission_path
+    assert mapping.runtime_task is None
+    assert mapping.can_execute is False
+    assert mapping.semantic_fidelity == "unavailable"
+
+
+# ---- Fix 6: deep immutability -----------------------------------------------------
+
+
+def test_fix6_provenance_deep_frozen():
+    mapping = _map()
+    with pytest.raises(TypeError):
+        mapping.provenance["x"] = "y"  # MappingProxyType is read-only
+    with pytest.raises(TypeError):
+        mapping.steps[0].provenance["x"] = "y"
+    before = mapping.canonical_json()
+    assert mapping.canonical_json() == before
+
+
+# ---- Fix 7: semantic-fidelity decision explicit -----------------------------------
+
+
+def test_fix7_semantic_fidelity_declared():
+    mapping = _map()
+    assert mapping.semantic_fidelity == "aggregate"
+    assert "semantic_fidelity" in mapping.to_json_compatible()
+    rm = map_unreal_execution_plan(
+        generate_execution_plan(_render_src()), source_task=_render_src()
+    )
+    assert rm.semantic_fidelity == "unavailable"
