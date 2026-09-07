@@ -273,3 +273,14 @@ Older dated handoff snapshots are archival records and should not be rewritten. 
   authority; no submit/reconcile/apply_authorized/receipt/schedule path (tests enforce).
 - Docs: docs/UNREAL_M11_1_MODEL_ROUTER_CORE.md. Deferred: model execution orchestration, provider
   invocation, full benchmark corpus, Hermes runtime integration (M11.2+).
+
+## M11.2 - model/provider execution + adaptive routing (shadow mode)
+- Provider-execution layer for the M11 router in SAFE SHADOW/ADVISORY mode.
+- planning/m11_router/provider/: providers_config (fail-closed config + token/cost accounting),
+  invocation (ProviderAdapter/ModelResult/invoke_model, error-classified, no uncontrolled retry),
+  shadow (ShadowAdvisor.advise: resolve provider -> invoke -> evidence -> telemetry, advisory only).
+- benchmark.run_benchmark_task(advisor=...) now executes corpus w/ useful-output metrics.
+- Tests: tests/m11 177 (136 M11.1 + 41 M11.2, mocked adapters). Full suite 1389 passed.
+- Authority: no production imports/calls (docstring prohibitions + enum names only); tests enforce.
+- Telemetry: extends existing append-only ledger; privacy allow-list preserved.
+- Deferred: real vendor adapter (credentials in secure config), endpoint resolution, Hermes auto-wiring.

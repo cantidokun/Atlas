@@ -1,3 +1,9 @@
+## 2026-09-07 - M11.2 provider execution (shadow mode)
+- Added planning/m11_router/provider/ (config, invocation, shadow) + benchmark execution + tests.
+- Shadow/advisory only: never replaces Hermes execution, never touches Atlas production authority.
+- Full suite 1389 passed (1348 + 41). No workflow/action-runner tests, no live Unreal, no Blender.
+- Authority-leak scan clean (only docstring prohibitions / dimension names / marker substrings).
+
 ## 2026-09-07 - M11.1 model router core
 - Implemented planning/m11_router/ core (profile, risk, routing, escalation, telemetry, evidence gate,
   escalation packet, router facade, benchmark skeleton).

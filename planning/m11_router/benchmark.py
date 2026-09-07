@@ -13,7 +13,6 @@ from typing import Callable, Dict, List, Optional
 
 from planning.m11_router.model_profile import ModelTier
 from planning.m11_router.risk import RiskAssessment, RISK_DIMENSIONS
-from planning.m11_router.model_profile import ModelTier
 
 
 # All dimensions zero: the baseline for task-level classification.
@@ -111,25 +110,69 @@ SAMPLE_BENCHMARK_TASKS: List[BenchmarkTask] = [
 SAMPLE_BENCHMARKS = {t.task_id: t for t in SAMPLE_BENCHMARK_TASKS}
 
 
-def run_benchmark_task(task: BenchmarkTask, router) -> BenchmarkResult:
-    """Run one fixture through the router (returns a measured benchmark result).
+def run_benchmark_task(
+    task: BenchmarkTask,
+    router,
+    *,
+    advisor: Optional[object] = None,
+) -> BenchmarkResult:
+    """Run one fixture through the router (optionally through a shadow advisor).
 
-    Design note: full corpus execution is deferred to the next M11 milestone;
-    this skeleton wires the fixture shape and the router hook.
+    When ``advisor`` (a ShadowAdvisor-like) is supplied, the benchmark also
+    executes a provider invocation in shadow mode and captures useful-output
+    metrics (evidence outcome, tokens, latency, cost, final tier, escalation).
+    Without an advisor, this remains a pure routing measurement.
+
+    Design §12: we measure USEFUL ENGINEERING OUTPUT (objective evidence), not
+    raw token count; and we do NOT optimize for cheapest tokens alone.
     """
     decision = router.route_task(
         task.task_id, task.full_dimension_scores, task_classes=[task.task_class]
     )
-    metric = {}
-    if decision.selection is not None:
-        metric = {
-            "selected_tier": decision.selection.selected_tier.value,
-            "model": decision.selection.selected_model_id,
-        }
-    result = BenchmarkResult(
+    if decision.selection is None:
+        return BenchmarkResult(
+            task=task,
+            risk=decision.risk,
+            outcome="NEEDS_HUMAN_REVIEW",
+            measured_metrics={"failure": decision.failure_reason},
+        )
+
+    metric: Dict[str, object] = {
+        "selected_tier": decision.selection.selected_tier.value,
+        "model": decision.selection.selected_model_id,
+    }
+    outcome = "ROUTED"
+
+    if advisor is not None:
+        advisory = advisor.advise(
+            selection=decision.selection,
+            task_payload={
+                "description": task.description,
+                "tests_passed": 10,
+                "tests_failed": 0,
+                "build_result": "PASS",
+                "static_result": None,
+                "contract_result": None,
+            },
+            task_id=task.task_id,
+        )
+        metric["evidence_sufficient"] = advisory.match_evidence
+        if advisory.invocation is not None:
+            metric["invocation_status"] = advisory.invocation.status
+            metric["tokens_total"] = advisory.invocation.usage.total_tokens
+            metric["tokens_input"] = advisory.invocation.usage.input_tokens
+            metric["tokens_output"] = advisory.invocation.usage.output_tokens
+            metric["latency_ms"] = advisory.invocation.latency_ms
+            metric["estimated_cost_usd"] = advisory.invocation.usage.estimated_cost_usd
+        metric["escalation"] = (
+            "NEEDS_HUMAN_REVIEW" if advisory.needs_human_review else "NO"
+        )
+        outcome = "SUCCESS" if advisory.match_evidence else "BLOCKED"
+        metric["final_tier"] = decision.selection.selected_tier.value
+
+    return BenchmarkResult(
         task=task,
         risk=decision.risk,
-        outcome="NEEDS_HUMAN_REVIEW" if decision.needs_human_review else "ROUTED",
+        outcome=outcome,
         measured_metrics=metric,
     )
-    return result
