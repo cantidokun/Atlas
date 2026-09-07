@@ -21,6 +21,7 @@ from planning.m12 import (
     UnrealExecutionPlanStep,
     UnrealRuntimeAdapterError,
     UnrealRuntimeMapping,
+    UnrealRuntimeStepMapping,
     UnsupportedCompileMappingError,
     compile_unreal_semantic_task,
     generate_execution_plan,
@@ -838,24 +839,25 @@ def test_r2_deterministic_source_binding():
 
 
 def test_r2_nested_provenance_canonical_json_serializes():
-    # Nested legit provenance must not break canonical serialization (the earlier
-    # MappingProxyType bug) and must be deterministic.
+    # Nested legit provenance under an ALLOWED key must not break canonical
+    # serialization (the earlier MappingProxyType bug) and must be deterministic.
+    # (B3: unknown keys are now rejected by the closed allowlist.)
     plan = _clone_sequence_plan(plan_provenance={
         "proposal_source": "qwen",
-        "notes": {"stage": "proposal", "k": [1, 2, {"legit": "ok"}]},
+        "note": {"stage": "proposal", "k": [1, 2, {"legit": "ok"}]},
     })
     mapping = map_unreal_execution_plan(plan, source_task=_sequence_task())
     canonical = mapping.canonical_json()  # must not raise TypeError
     parsed = json.loads(canonical)
-    assert parsed["provenance"]["notes"]["stage"] == "proposal"
-    assert parsed["provenance"]["notes"]["k"][2]["legit"] == "ok"
+    assert parsed["provenance"]["note"]["stage"] == "proposal"
+    assert parsed["provenance"]["note"]["k"][2]["legit"] == "ok"
 
 
 def test_r2_nested_provenance_immutable_after_construction():
-    plan = _clone_sequence_plan(plan_provenance={"proposal_source": "qwen", "notes": {"stage": "p"}})
+    plan = _clone_sequence_plan(plan_provenance={"proposal_source": "qwen", "note": {"stage": "p"}})
     mapping = map_unreal_execution_plan(plan, source_task=_sequence_task())
     with pytest.raises((TypeError, AttributeError)):
-        mapping.provenance["notes"]["stage"] = "tampered"
+        mapping.provenance["note"]["stage"] = "tampered"
     before = mapping.canonical_json()
     # Mutating the ORIGINAL plan provenance after mapping must not change canonical.
     import copy
@@ -869,3 +871,274 @@ def test_r2_canonical_provenance_adapter_keys_authoritative():
     assert parsed["provenance"]["recognized_render_plan"] is False
     assert parsed["provenance"]["semantic_fidelity"] == "aggregate"
     assert parsed["source_task_digest"]
+
+# ---------------------------------------------------------------------------
+# Round-3 regression tests (independent red-team gate #2 — 9 blockers)
+# ---------------------------------------------------------------------------
+
+
+def _build_task(canonical_task_id, task_class, invariant_names, actions, allowed_tools,
+                dependencies, expects_render=False, provenance=None, metadata=None,
+                idempotence_fields=None):
+    """Construct a validated M12.1 semantic task with chosen actions/tools."""
+    return UnrealProductionTaskDefinition(
+        canonical_task_id=canonical_task_id,
+        task_class=task_class,
+        digital_twin_id="twin-1",
+        task_version=1,
+        intent="i",
+        target_state=target_state_spec(
+            description="d",
+            invariant_names=invariant_names,
+            expects_render=expects_render,
+        ),
+        evidence=(EvidenceRequest(tool="unreal_inspect", arguments={}, name="e"),),
+        actions=actions,
+        allowed_action_tools=frozenset(allowed_tools),
+        allowed_mutations=frozenset(),
+        dependencies=tuple(dependencies),
+        provenance=provenance,
+        metadata=metadata,
+    )
+
+
+# ---- B1: runtime action authority -----------------------------------------------------
+
+
+def test_b1_render_tool_in_inspect_task_rejected():
+    task = _build_task(
+        canonical_task_id="cam-01", task_class="camera-configure",
+        invariant_names=["scene_initialized", "cameras_configured"],
+        actions=(ActionSpec(tool="unreal_render", arguments={}, name="a"),),
+        allowed_tools=["unreal_render"],
+        dependencies=("scene_setup", "camera_setup"),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+def test_b1_extra_render_tool_rejected():
+    # Even keeping inspect, adding unreal_render to allowed tools must fail.
+    task = _build_task(
+        canonical_task_id="cam-02", task_class="camera-configure",
+        invariant_names=["scene_initialized", "cameras_configured"],
+        actions=(ActionSpec(tool="unreal_inspect", arguments={}, name="a"),),
+        allowed_tools=["unreal_inspect", "unreal_render"],
+        dependencies=("scene_setup", "camera_setup"),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+def test_b1_unknown_tool_in_actions_rejected():
+    task = _build_task(
+        canonical_task_id="cam-03", task_class="camera-configure",
+        invariant_names=["scene_initialized", "cameras_configured"],
+        actions=(ActionSpec(tool="shell", arguments={}, name="a"),),
+        allowed_tools=["shell"],
+        dependencies=("scene_setup", "camera_setup"),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+# ---- B2: render classification from all axes ----------------------------------------
+
+
+def test_b2_render_setup_via_non_render_class_rejected():
+    task = _build_task(
+        canonical_task_id="seq-01", task_class="sequence-configure",
+        invariant_names=["scene_initialized", "cameras_configured",
+                         "sequence_configured", "render_configured"],
+        actions=(ActionSpec(tool="unreal_inspect", arguments={}, name="a"),),
+        allowed_tools=["unreal_inspect"],
+        dependencies=("scene_setup", "camera_setup", "sequence_setup", "render_setup"),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+def test_b2_render_class_still_fails_toward_boundary():
+    # A legitimate render-execute task routes to the render boundary.
+    rt = _render_src()
+    m = map_unreal_execution_plan(generate_execution_plan(rt), source_task=rt)
+    assert m.render_plan
+    assert m.requires_existing_render_submission_path
+    assert m.runtime_task_snapshot is None
+
+
+def test_b2_artifact_validate_still_routes_to_boundary():
+    task = DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.artifact-validate", {"twin_id": "twin-1", "artifact_ref": "a"},
+        digital_twin_id="twin-1",
+    )
+    m = map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+    assert m.render_plan
+    assert m.requires_existing_render_submission_path
+    assert m.runtime_task_snapshot is None
+
+
+# ---- B3: provenance closed allowlist + source metadata smuggling --------------------
+
+
+def test_b3_unknown_provenance_key_rejected():
+    plan = _clone_sequence_plan(plan_provenance={"proposal_source": "q", "signature": "x"})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_b3_source_metadata_smuggling_rejected():
+    task = DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.camera-configure",
+        {"twin_id": "twin-1", "camera_slots": {"authorization_id": "forged"}},
+        digital_twin_id="twin-1",
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+def test_b3_legitimate_provenance_preserved():
+    plan = _clone_sequence_plan(plan_provenance={"proposal_source": "qwen-proposal-v1", "note": "ok"})
+    m = map_unreal_execution_plan(plan, source_task=_sequence_task())
+    assert m.provenance["proposal_source"] == "qwen-proposal-v1"
+    assert m.provenance["note"] == "ok"
+
+
+# ---- B4: snapshot is the sole authoritative runtime representation ----------------
+
+def test_b4_no_hidden_backing_task():
+    m = _map()
+    assert not hasattr(m, "_materialized_runtime_task")
+    rt = m.materialize_runtime_task()
+    rt.allowed_action_tools.add("unreal_render")
+    rt.metadata["x"] = "t"
+    assert m.runtime_task_snapshot["allowed_action_tools"] == ("unreal_inspect",)
+    assert "x" not in m.runtime_task_snapshot["metadata"]
+    assert "unreal_render" not in m.canonical_json()
+    assert sorted(m.materialize_runtime_task().allowed_action_tools) == ["unreal_inspect"]
+
+
+def test_b4_materialize_rebuild_matches_digest():
+    m = _map()
+    rt = m.materialize_runtime_task()
+    # Rebuilding a second time and comparing the digest-consistent snapshot.
+    from planning.m12.runtime_adapter import _atlas_to_snapshot, _freeze_json, _thaw_json, _digest_of_jsonable
+    snap2 = _freeze_json(_atlas_to_snapshot(rt))
+    assert _digest_of_jsonable(_thaw_json(snap2)) == m.runtime_task_digest
+
+
+# ---- B5: unresolved requirements fail closed -----------------------------------------
+
+
+def test_b5_orphan_step_fails_closed():
+    task = _build_task(
+        canonical_task_id="cam-orphan", task_class="camera-configure",
+        invariant_names=["cameras_configured"],
+        actions=(ActionSpec(tool="unreal_inspect", arguments={}, name="a"),),
+        allowed_tools=["unreal_inspect"],
+        dependencies=("camera_setup",),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+# ---- B6: catalog version single source of truth -------------------------------------
+
+
+def test_b6_catalog_version_conflict_rejected():
+    plan = _plan()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task(), catalog_version=999)
+
+
+def test_b6_catalog_version_agrees_accepted():
+    plan = _plan()
+    m = map_unreal_execution_plan(plan, source_task=_sequence_task(), catalog_version=1)
+    assert m.catalog_version == 1
+
+
+# ---- B7: declared / validated semantics machine-visible -----------------------------
+
+
+def test_b7_declared_false_for_clean_mapping():
+    m = _map()
+    assert all(s.declared is False for s in m.steps)
+    assert m.provenance["declared"] is False
+    assert m.provenance["reconciled"] is True
+
+
+def test_b7_step_with_caller_provenance_is_declared():
+    plan = _clone_sequence_plan({0: {"provenance": {"proposal_source": "other"}}})
+    m = map_unreal_execution_plan(plan, source_task=_sequence_task())
+    assert m.steps[0].declared is True
+
+
+# ---- B8: strict JSON / canonical representation --------------------------------------
+
+
+def test_b8_nan_via_source_parameter_rejected():
+    task = DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": [float("nan")]},
+        digital_twin_id="twin-1",
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+def test_b8_canonical_json_is_strict_and_stable():
+    m1 = _map()
+    m2 = _map()
+    assert m1.canonical_json() == m2.canonical_json()
+    # allow_nan=False means we never emit NaN/Infinity.
+    assert "NaN" not in m1.canonical_json()
+    assert "Infinity" not in m1.canonical_json()
+
+
+# ---- B9: self-validating construction -----------------------------------------------
+
+
+def test_b9_direct_invalid_render_contradiction_rejected():
+    from types import MappingProxyType
+    s = UnrealRuntimeStepMapping(
+        step_id="s0", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", target_state_contributions=("scene_initialized",),
+        idempotence="idempotent", fragment_id="scene_setup", fragment_version=1,
+        verification_requirements=("scene_initialized",), provenance={"proposal_source": "q"},
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        UnrealRuntimeMapping(
+            plan_id="p", source_task_id="t", source_task_version=1, catalog_version=1,
+            digital_twin_id="twin-1", steps=(s,),
+            render_plan=True, requires_existing_render_submission_path=False,
+            runtime_task_snapshot=None, runtime_task_digest=None,
+            semantic_fidelity="aggregate", source_task_digest="a" * 64,
+            provenance={"proposal_source": "q"},
+        )
+
+
+def test_b9_direct_invalid_snapshot_tools_rejected():
+    from types import MappingProxyType
+    from planning.m12.runtime_adapter import _freeze_json
+    s = UnrealRuntimeStepMapping(
+        step_id="s0", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", target_state_contributions=("scene_initialized",),
+        idempotence="idempotent", fragment_id="scene_setup", fragment_version=1,
+        verification_requirements=("scene_initialized",), provenance={"proposal_source": "q"},
+    )
+    snap = _freeze_json({
+        "name": "x", "evidence": [],
+        "actions": [{"tool": "unreal_inspect", "arguments": {}, "name": "a",
+                     "requires_success": True, "depends_on": []}],
+        "allowed_action_tools": ["unreal_render"],
+        "allow_writes": False, "verify_after_action": True, "metadata": {},
+    })
+    with pytest.raises(UnrealRuntimeAdapterError):
+        UnrealRuntimeMapping(
+            plan_id="p", source_task_id="t", source_task_version=1, catalog_version=1,
+            digital_twin_id="twin-1", steps=(s,),
+            render_plan=False, requires_existing_render_submission_path=False,
+            runtime_task_snapshot=snap, runtime_task_digest="deadbeef",
+            semantic_fidelity="aggregate", source_task_digest="a" * 64,
+            provenance={"proposal_source": "q"},
+        )
+

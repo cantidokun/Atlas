@@ -7,7 +7,8 @@ M12.4 is an ADAPTER, never a new authority. It consumes a validated
 the EXISTING Atlas runtime representation (an :class:`AtlasTaskDefinition` via
 the existing M12.1 compile boundary).
 
-Critical invariants (enforced by construction, not by convention):
+Critical invariants (enforced by construction AND by one canonical validation
+path, not by convention):
 
 - It does NOT authorize, execute, schedule, retry, recover, persist, mint receipts,
   produce evidence manifests, or verify anything. ``can_execute`` is always False.
@@ -16,34 +17,50 @@ Critical invariants (enforced by construction, not by convention):
 - It does NOT create a second runtime, scheduler, retry, persistence, receipt,
   recovery, or evidence authority. M12.4 reuses the existing M12.1 compiler to
   produce the existing :class:`AtlasTaskDefinition` runtime representation.
-- Render-bearing plans are recognized from the AUTHORITATIVE source task
-  classification (never from a caller-supplied plan flag) and produce a
-  STRUCTURED mapping that declares
-  ``requires_existing_render_submission_path=True`` and NO runtime task. M12.4
-  does not fabricate render authorization and does not submit MRQ.
-- Unsupported steps / unknown idempotence / unsupported capability requirements
-  fail closed (raise ``UnrealRuntimeAdapterError``).
+- RENDER CLASSIFICATION derives from the UNION of authoritative axes: the source
+  task's canonical task class AND the canonical fragment render semantics
+  (``render_execution_constrained`` / non-``expandable`` fragments such as
+  ``render_setup``). Any conflict between class and canonical fragment render
+  semantics FAILS CLOSED. A render-constrained split or non-expandable fragment
+  is NEVER routed through the ordinary non-render runtime path.
+- RUNTIME ACTION AUTHORITY is independently reconciled against the inspect-only
+  contract: after compiling the source task, the adapter verifies the compiled
+  ``AtlasTaskDefinition`` carries ONLY the ``unreal_inspect`` tool in
+  ``allowed_action_tools`` and that every action and evidence tool is
+  ``unreal_inspect`` with write authority removed. Any write/render tool in the
+  emitted runtime representation FAILS CLOSED (it is never merely zeroed).
 - Authority/security material (authorization IDs, receipts, HMAC, credentials,
   protected flags, recovery/artifact authority, scheduler/retry directives,
-  session/jwt/bearer/token/secret material) appearing ANYWHERE in the accepted
-  provenance structure (nested mappings/sequences, any casing, any alias) is
-  REJECTED, never silently forwarded.
+  session/jwt/bearer/token/secret/signature/mac/key/grant/capability/approved/
+  claims/scope/permission material) is REJECTED via a CLOSED ALLOWLIST of
+  provenance keys plus a recursive scan of structured values; unknown or
+  authority-shaped material FAILS CLOSED, never silently forwarded.
 - Step semantics (required inputs, dependencies, target-state contributions,
   idempotence, fragment identity/version, preconditions, verification
   requirements) are re-derived from the CANONICAL fragment and reconciled with
-  the plan for EVERY mapped step, including render-bearing steps (no asymmetric
-  bypass); any inconsistency fails closed. Fields that are intentionally only
-  declared (not reconciled) are explicitly classified as such.
+  the plan for EVERY mapped step, including render-bearing steps. Every required
+  input/dependency MUST be authoritatively resolved by an earlier producer; an
+  unresolved requirement FAILS CLOSED (never an empty-dependency representation).
 - The runtime representation honors the plan's semantic capability: an
   inspect-only plan never emits a write-capable ``AtlasTaskDefinition``.
-- The mapping exposes an immutable canonical snapshot of the embedded runtime
-  task (NOT a mutable ``AtlasTaskDefinition`` handle). Post-construction mutation
-  is impossible or isolated; ``allowed_action_tools`` cannot gain ``unreal_render``
-  after construction, and metadata cannot be altered to change semantics.
-- The mapping is deterministic and the provenance/runtime-task structures are
-  JSON-serializable end to end (nested immutable proxies thaw inside the
-  canonical serializer): identical plan + identical source task produce
-  identical canonical JSON.
+- The mapping's runtime-task SNAPSHOT is the SOLE authoritative runtime-task
+  representation; it is immutable and JSON-serializable. ``materialize_runtime_task()``
+  rebuilds ONLY from that snapshot (no hidden mutable backing object) and asserts
+  the rebuilt snapshot's digest equals the recorded ``runtime_task_digest``.
+- Canonical identity/version fields have ONE authoritative source. Caller-supplied
+  ``catalog_version`` must agree with the plan and (when present) the resolved
+  source metadata, or it fails closed. No shadow representations survive.
+- Fields are classified machine-visibly: ``reconciled`` fields are re-derived and
+  validated; ``declared`` is True exactly when verbatim/unreconciled caller
+  content is carried; ``unsupported`` steps fail closed. ``declared`` is never
+  used to present unvalidated data as validated truth.
+- Canonical serialization is STRICT JSON: ``allow_nan=False``, string-only
+  mapping keys, finite numbers only, unsupported object types rejected. Semantic
+  distinctness is not collapsed by coercion.
+- Construction of :class:`UnrealRuntimeMapping` / :class:`UnrealRuntimeStepMapping`
+  is SELF-VALIDATING via a single canonical validation path (provenance allowlist,
+  source digest shape, render consistency, runtime authority consistency, digest
+  binding). An invalid directly-constructed mapping FAILS CLOSED.
 
 Semantic fidelity model: the existing Atlas runtime represents an M12 semantic
 task as a SINGLE aggregate :class:`AtlasTaskDefinition` (one unreal_inspect
@@ -52,17 +69,15 @@ Consequently M12.4's mapping is aggregate at the task level (``semantic_fidelity
 = ``"aggregate"``): the fragment identities / versions / dependencies are carried
 in the compiled task metadata and in each step mapping, but the runtime does NOT
 produce one independently executable operation per fragment. M12.4 therefore
-never claims per-fragment executable fidelity to the runtime; per-step meaning is
-preserved as declared semantics for a future verifier (M12.5), not as distinct
-runtime operations. If a step's semantic operation is not a known canonical
-fragment (or cannot be represented at aggregate level), the mapping fails closed.
+never claims per-fragment executable fidelity; per-step meaning is preserved as
+reconciled semantics for a future verifier (M12.5), not as distinct runtime
+operations.
 
-Declared-vs-validated contract: every step field under ``_RECONCILED_FIELDS`` is
-reconciled against the canonical fragment (validated truth). Any plan step field
-the adapter does NOT reconcile is either (a) carried verbatim and clearly marked
-``declared=True`` in the step mapping (never represented as validated runtime
-truth), or (b) dropped with an explicit note. Nothing declared is ever presented
-as authoritative.
+M12.5-deferred boundary: independent evidence verification is NOT implemented
+here. The runtime snapshot never marks anything verified; the placeholder
+evaluator is explicitly classified ``runtime_evaluator_kind = structural-placeholder``
+and ``independently_verified = False`` so no future layer mistakes a declaration
+for authoritative verification.
 """
 
 from __future__ import annotations
@@ -75,7 +90,7 @@ import math
 import numbers
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, Mapping, Optional, Tuple
 
 from planning.m12.execution_plan import UnrealExecutionPlan
 from planning.m12.fragments import UnrealProductionFragment
@@ -85,6 +100,9 @@ from planning.m12.semantic_task import (
     compile_unreal_semantic_task,
 )
 from planning.task_definition import AtlasTaskDefinition
+from action_plan import ActionSpec
+from planning.evidence_plan import EvidenceRequest
+from planning.target_state import StateInvariant, TargetStateEvaluator
 
 # Sentinel reason recorded on every step of a render-bearing plan to make the
 # boundary explicit and audit-able while carrying no authorization material.
@@ -95,8 +113,9 @@ REQUIRES_EXISTING_RENDER_SUBMISSION_PATH = "requires-existing-render-submission-
 # composed task; the adapter records that tool as the aggregate target instead of
 # inventing a new one.
 EXISTING_RUNTIME_INSPECT_TOOL = "unreal_inspect"
-# Adapter-owned provenance keys. These encode adapter-computed truth. A caller
-# supplying any of these is REJECTED (no shadow/conflicting fields survive).
+
+# Adapter-owned provenance keys (authoritative adapter truth). A caller supplying
+# any of these is REJECTED (no shadow/conflicting fields survive), even nested.
 _ADAPTER_RESERVED_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
     {
         "mapped_runtime_task_type",
@@ -105,234 +124,264 @@ _ADAPTER_RESERVED_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
         "source_task_digest",
         "runtime_task_digest",
         "declared",
+        "reconciled",
+        "runtime_evaluator_kind",
+        "independently_verified",
     }
 )
-# Step fields that are reconciled against the canonical fragment.
-_RECONCILED_FIELDS: Tuple[str, ...] = (
-    "required_inputs",
-    "dependencies",
-    "target_state_contributions",
-    "idempotence",
-    "fragment_id",
-    "fragment_version",
-    "preconditions",
-    "verification_requirements",
+
+# Closed allowlist of provenance keys a caller may supply at the top level of a
+# plan or step provenance payload. Every accepted key has an explicit M12.4
+# meaning (proposal source; source task version). Unknown keys are rejected.
+_ALLOWED_CALLER_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
+    {
+        "proposal_source",
+        "source_task_version",
+        "fragment_id",
+        "fragment_version",
+        "target_state_contribution",
+        "note",
+    }
 )
 
+# Closed allowlist of source-derived metadata keys that legitimately reach the
+# runtime snapshot. Unknown source metadata keys are rejected.
+_ALLOWED_SOURCE_METADATA_KEYS: FrozenSet[str] = frozenset(
+    {
+        "catalog_entry",
+        "catalog_version",
+        "fragments",
+        "parameters",
+        "unreal_digital_twin_id",
+        "unreal_provenance",
+        "unreal_semantic_dependencies",
+        "unreal_semantic_intent",
+        "unreal_semantic_task_class",
+        "unreal_semantic_task_id",
+        "unreal_semantic_task_version",
+        "unreal_target_state",
+    }
+)
+
+# Adapter-inserted disclosure fields placed in the runtime snapshot metadata so
+# the mapping is unambiguous about what is authoritative vs declared vs deferred.
+_ADAPTER_METADATA_DISCLOSURE_KEYS: FrozenSet[str] = frozenset(
+    {
+        "m12.4.evaluator_kind",
+        "m12.4.independently_verified",
+        "m12.4.declared",
+    }
+)
+
+_MAX_DEPTH = 20
+
 # ---------------------------------------------------------------------------
-# Forbidden authority/security material. The adapter recursively validates every
-# key in the accepted provenance structure, normalizing casing/separators so
-# aliases (apiKey/apikey/API_KEY), casing variants, and nested placements are all
-# rejected. This is fail-closed: forbidden material is REJECTED, never stripped
-# and continued.
+# Authority / security material model (closed allowlist + recursive scan).
+# The CLOSED ALLOWLIST is the primary gate (unknown top-level provenance keys are
+# rejected). The recursive authority-shape scan is defense-in-depth applied to
+# structured VALUES (e.g. catalog `parameters`) so authority material hidden
+# inside an otherwise-allowed container cannot survive.
 # ---------------------------------------------------------------------------
 
-# Normalized authority/credential alias vocabulary (lowercased, separators
-# removed). A key that normalizes to one of these (e.g. api_key / apikey /
-# APIKey / api-key) is rejected anywhere in the structure.
 _AUTHORITY_NORMALIZED_KEYS: FrozenSet[str] = frozenset(
     {
-        "authorization",
-        "authorizationid",
-        "authorisation",
-        "authorised",
-        "authorized",
-        "isauthorized",
-        "isauthorised",
-        "auth",
-        "authid",
-        "receipt",
-        "receiptid",
-        "receipthash",
-        "nonce",
-        "attemptnonce",
-        "nonceid",
-        "hmac",
-        "hmackey",
-        "hmacsecret",
-        "apikey",
-        "apitoken",
-        "access_token",
-        "accesstoken",
-        "idtoken",
-        "refreshtoken",
-        "refreshtoken",
-        "bearer",
-        "bearertoken",
-        "credential",
-        "credentials",
-        "password",
-        "passwd",
-        "secret",
-        "clientsecret",
-        "serversecret",
-        "privatekey",
-        "publickey",
-        "signingkey",
-        "session",
-        "sessiontoken",
-        "sessionid",
-        "cookie",
-        "jwt",
-        "cert",
-        "certificate",
-        "recovery",
-        "recoveryauthority",
-        "retrycontroller",
-        "scheduler",
-        "retry",
-        "protected",
-        "protectedflag",
-        "isprotected",
-        "manifest",
-        "manifestid",
-        "artifact",
-        "artifactid",
-        "artifactmanifest",
-        "attempt",
-        "attemptid",
+        "authorization", "authorizationid", "authorisation", "authorised",
+        "authorized", "isauthorized", "isauthorised", "auth", "authid",
+        "receipt", "receiptid", "receipthash",
+        "nonce", "attemptnonce", "nonceid",
+        "hmac", "hmackey", "hmacsecret",
+        "apikey", "apitoken", "accesstoken", "accesstoken", "idtoken",
+        "refreshtoken", "refreshtoken", "bearer", "bearertoken",
+        "credential", "credentials", "password", "passwd",
+        "secret", "clientsecret", "serversecret", "privatekey", "publickey",
+        "signingkey", "session", "sessiontoken", "sessionid", "cookie",
+        "jwt", "cert", "certificate",
+        "recovery", "recoveryauthority", "retrycontroller", "scheduler", "retry",
+        "protected", "protectedflag", "isprotected",
+        "manifest", "manifestid", "artifact", "artifactid", "artifactmanifest",
+        "attempt", "attemptid",
+        "signature", "sig", "mac", "key", "grant", "capability", "approved",
+        "claims", "scope", "permission", "principal", "token", "privatekey",
     }
 )
 
-# Substring triggers (normalized). A normalized key CONTAINING any of these is
-# rejected. Kept broad for credentials/security so aliases and compound keys
-# (e.g. "my_authorization_token") are caught.
 _AUTHORITY_SUBSTRINGS: Tuple[str, ...] = (
-    "authorization",
-    "authorizationid",
-    "authorised",
-    "receipt",
-    "nonce",
-    "hmac",
-    "credential",
-    "password",
-    "passwd",
-    "secret",
-    "bearer",
-    "session",
-    "jwt",
-    "recovery",
-    "retry",
-    "schedul",
-    "protected",
-    "manifest",
-    "artifact",
-    "token",
-    "apikey",
-    "api_key",
-    "auth",
-    "privatekey",
-    "signingkey",
-    "cookie",
-    "cert",
+    "authorization", "authorizationid", "authorised", "receipt", "nonce", "hmac",
+    "credential", "password", "passwd", "secret", "bearer", "session", "jwt",
+    "recovery", "retry", "schedul", "protected", "manifest", "artifact", "token",
+    "apikey", "api_key", "auth", "privatekey", "signingkey", "cookie", "cert",
+    "signature", "signing", "mac", "grant", "capability", "approved", "claims",
+    "scope", "permission", "principal", "accesskey",
+)
+
+# Authority-shaped VALUE tokens: a string value containing these is rejected
+# (defense against authority material hidden inside otherwise-allowed values).
+_AUTHORITY_VALUE_TOKENS: Tuple[str, ...] = (
+    "authorization_id", "hmac_key", "attempt_nonce", "receipt_id", "api_key",
+    "secret", "signature", "BEGIN PRIVATE KEY", "bearer ", "password=",
 )
 
 
-def _normalize_authority_key(key: Any) -> str:
-    """Lowercase and strip common separators for alias/casing-invariant match.
-
-    ``api_key``, ``api-key``, ``APIKey``, ``apikey`` all normalize to ``apikey``.
-    ``is_authorized`` / ``IS_AUTHORIZED`` / ``IsAuthorized`` → ``isauthorized``.
-    """
-    if not isinstance(key, str):
-        return ""
-    s = key.lower().strip()
+def _normalize_non_separator(s: str) -> str:
     out = []
-    for ch in s:
-        if ch.isalnum():
-            out.append(ch)
+    for ch in s.lower().strip():
+        out.append(ch) if ch.isalnum() else None
     return "".join(out)
 
 
 def is_forbidden_authority_key(key: Any) -> bool:
-    """Return True iff a provenance key is authority/security material.
-
-    Recursively safe to call on nested-provenance keys. Normalizes casing and
-    separators so aliases (apiKey/apikey/API_KEY), casing tricks
-    (IS_AUTHORIZED / IsAuthorized), and compound credential keys are all caught.
-    Non-string keys are always treated as forbidden (fail closed).
-    """
+    """Return True iff a key is authority/security material (alias/casing-trick
+    invariant). Non-string keys are always forbidden (fail closed)."""
     if not isinstance(key, str):
         return True
-    n = _normalize_authority_key(key)
+    n = _normalize_non_separator(key)
     if n in _AUTHORITY_NORMALIZED_KEYS:
         return True
     return any(seg in n for seg in _AUTHORITY_SUBSTRINGS)
 
 
-def _is_json_scalar(value: Any) -> bool:
-    if value is None or isinstance(value, (str, bool)) or isinstance(value, numbers.Integral):
-        return True
-    if isinstance(value, numbers.Real):
-        # Reject non-finite floats so canonical JSON is strict/portable.
-        return math.isfinite(float(value))
-    return False
+def _is_high_confidence_forbidden_key(key: Any) -> bool:
+    """High-confidence authority-material key used for scanning COMPILED snapshot
+    metadata (which contains legitimate M12 semantic words like ``capability``
+    and ``scope`` as inspect query args). Returns True only for unambiguous
+    credential/authority identifiers.
 
-
-def _validate_provenance_value(value: Any, owner: str, path: str, depth: int = 0) -> None:
-    """Recursively validate a provenance value for authority material.
-
-    Walks mappings and sequences; rejects (a) any forbidden/authority-like key at
-    any depth, (b) non-string mapping keys, (c) unsupported object types, and
-    (d) pathologically deep nesting. Never strips-and-continues: it raises.
+    Unlike :func:`is_forbidden_authority_key` (broad, used for the closed
+    allowlist on caller provenance), this avoids rejecting legitimate M12
+    semantic metadata by limiting itself to concrete credential identifiers.
     """
-    if depth > 16:
+    if not isinstance(key, str):
+        return True
+    n = _normalize_non_separator(key)
+    return n in _HIGH_CONFIDENCE_KEYS or any(seg in n for seg in _HIGH_CONFIDENCE_SUBSTRINGS)
+
+
+_HIGH_CONFIDENCE_KEYS: FrozenSet[str] = frozenset(
+    {
+        "authorization", "authorizationid", "authorisation", "authorized",
+        "isauthorized", "authid",
+        "receipt", "receiptid", "receipthash",
+        "nonce", "attemptnonce", "nonceid",
+        "hmac", "hmackey", "hmacsecret",
+        "apikey", "apitoken", "accesstoken", "idtoken", "refreshtoken",
+        "bearer", "bearertoken",
+        "credential", "credentials", "password", "passwd",
+        "secret", "clientsecret", "serversecret", "privatekey", "publickey",
+        "signingkey", "sessiontoken", "sessionid", "cookie", "jwt", "cert",
+        "recoveryauthority", "retrycontroller", "protectedflag", "isprotected",
+        "manifestid", "artifactid", "artifactmanifest", "attemptnonce",
+        "signature", "sig", "mac", "grant", "approved", "claims", "accesskey",
+    }
+)
+
+_HIGH_CONFIDENCE_SUBSTRINGS: Tuple[str, ...] = (
+    "authorization", "authorized", "authid", "receipt", "nonce", "hmac",
+    "credential", "password", "passwd", "secret", "bearer", "jwt", "cert",
+    "sessiontoken", "recoveryauthority", "retrycontroller", "protectedflag",
+    "manifestid", "artifactid", "attemptnonce", "signature", "signingkey",
+    "accesskey", "privatekey",
+)
+
+
+def _is_value_forbidden(value: Any) -> bool:
+    """Return True if a scalar string value contains authority-shaped material."""
+    if not isinstance(value, str):
+        return False
+    low = value.lower()
+    return any(tok.lower() in low for tok in _AUTHORITY_VALUE_TOKENS)
+
+
+def _validate_strict_json_value(value: Any, owner: str, path: str, depth: int = 0,
+                                *, reject_forbidden: bool,
+                                high_confidence: bool = True) -> None:
+    """Recursively validate a value is strict-JSON + (if requested) authority-free.
+
+    Rejects: non-string mapping keys, non-finite floats, unsupported object types
+    (e.g. Fraction), excessive depth, and (when reject_forbidden) any
+    authority-shaped key or value token at any depth. ``high_confidence`` selects
+    the vocabulary: high-confidence credentials only (safe for compiled-snapshot
+    metadata that legitimately contains semantic words like ``capability``) vs the
+    broad authority vocabulary (used for caller-supplied provenance already gated
+    by the closed allowlist).
+    """
+    forbidden_check = _is_high_confidence_forbidden_key if high_confidence else is_forbidden_authority_key
+    if depth > _MAX_DEPTH:
         raise UnrealRuntimeAdapterError(
-            f"{owner}.{path}: provenance nesting exceeds safety limit (possible cycle)"
+            f"{owner}.{path}: nesting exceeds safety limit ({_MAX_DEPTH})"
         )
     if isinstance(value, (Mapping, MappingProxyType)):
         for k, v in value.items():
             if not isinstance(k, str):
                 raise UnrealRuntimeAdapterError(
-                    f"{owner}.{path}: provenance mapping key must be a string, got "
+                    f"{owner}.{path}: mapping key must be a string, got "
                     f"{type(k).__name__}"
                 )
-            if is_forbidden_authority_key(k):
-                raise UnrealRuntimeAdapterError(
-                    f"{owner}.{path}.{k!r} is forbidden authority/security material; "
-                    "rejecting rather than forwarding it into the runtime mapping"
-                )
-            _validate_provenance_value(v, owner, f"{path}.{k}", depth + 1)
+            if reject_forbidden:
+                if forbidden_check(k):
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.{path}.{k!r} is forbidden authority material"
+                    )
+                if _is_value_forbidden(k):
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.{path}.{k!r} is authority-shaped material"
+                    )
+            _validate_strict_json_value(
+                v, owner, f"{path}.{k}", depth + 1, reject_forbidden=reject_forbidden,
+                high_confidence=high_confidence,
+            )
         return
     if isinstance(value, (list, tuple)):
         for i, item in enumerate(value):
-            _validate_provenance_value(item, owner, f"{path}[{i}]", depth + 1)
+            _validate_strict_json_value(
+                item, owner, f"{path}[{i}]", depth + 1, reject_forbidden=reject_forbidden,
+                high_confidence=high_confidence,
+            )
         return
-    if not _is_json_scalar(value):
+    if value is None or isinstance(value, (bool, str)):
+        if reject_forbidden and isinstance(value, str) and _is_value_forbidden(value):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{path}: value contains authority-shaped material"
+            )
+        return
+    if isinstance(value, numbers.Integral):
+        return
+    if isinstance(value, numbers.Real):
+        if not math.isfinite(float(value)):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{path}: non-finite number {value!r} not allowed in "
+                "strict canonical JSON"
+            )
+        return
+    raise UnrealRuntimeAdapterError(
+        f"{owner}.{path}: unsupported value type {type(value).__name__} (strict JSON)"
+    )
+
+
+def _closed_allowlist_check(
+    payload: Dict[str, Any],
+    owner: str,
+    *,
+    allowed: FrozenSet[str],
+    adapter_owned_ok: bool = True,
+) -> None:
+    """Enforce the CLOSED ALLOWLIST at the top level of a provenance/metadata dict.
+
+    Any key that is not (a) in `allowed`, or (b) an adapter-owned/reserved key
+    (when adapter_owned_ok) is rejected. Nesting is then validated recursively by
+    the caller with the strict/authority walk.
+    """
+    reserved = _ADAPTER_RESERVED_PROVENANCE_KEYS if adapter_owned_ok else frozenset()
+    for key in payload:
+        if key in allowed or key in reserved:
+            continue
         raise UnrealRuntimeAdapterError(
-            f"{owner}.{path}: unsupported provenance value type "
-            f"{type(value).__name__} (must be JSON-serializable scalar, mapping, "
-            "or sequence)"
+            f"{owner}.{key!r} is not an allowed provenance/metadata key "
+            f"(closed allowlist)"
         )
 
 
-def _validate_provenance(payload: Any, owner: str, *, reserved: FrozenSet[str]) -> Dict[str, Any]:
-    """Validate and return a provenance dict.
-
-    Recursively rejects authority/security material anywhere in the accepted
-    structure and rejects any adapter-reserved key (caller cannot shadow adapter
-    truth). Never silently strips malicious material.
-    """
-    if not isinstance(payload, dict):
-        raise UnrealRuntimeAdapterError(f"{owner} must be a dict")
-    for key in payload:
-        if key in reserved:
-            raise UnrealRuntimeAdapterError(
-                f"{owner}.{key!r} is an adapter-owned field; caller-supplied "
-                "shadow values are rejected"
-            )
-        if is_forbidden_authority_key(key):
-            raise UnrealRuntimeAdapterError(
-                f"{owner}.{key!r} is forbidden authority/security material; "
-                "rejecting rather than forwarding it"
-            )
-        _validate_provenance_value(payload[key], owner, str(key), 1)
-    return dict(payload)
-
-
 def _freeze_json(value: Any) -> Any:
-    """Return a deeply immutable, JSON-model copy (dicts -> MappingProxyType,
-    sequences -> tuple, scalars unchanged)."""
+    """Deep-immutable, strict-JSON copy (dicts -> MappingProxyType, seqs -> tuple)."""
     if isinstance(value, (Mapping, MappingProxyType)):
         return MappingProxyType({k: _freeze_json(v) for k, v in value.items()})
     if isinstance(value, (list, tuple)):
@@ -341,14 +390,12 @@ def _freeze_json(value: Any) -> Any:
 
 
 def _thaw_json(value: Any) -> Any:
-    """Recursively convert immutable/frozen structures back to JSON-safe plain
-    dict/list so the canonical serializer never hits a MappingProxyType."""
+    """Convert frozen structures back to plain dict/list for the serializer."""
     if isinstance(value, (Mapping, MappingProxyType)):
         return {k: _thaw_json(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_thaw_json(v) for v in value]
     return value
-
 
 
 class UnrealRuntimeAdapterError(ValueError):
@@ -369,6 +416,10 @@ def _check_tokens(values, field: str) -> None:
         raise UnrealRuntimeAdapterError(f"{field} must not contain duplicates")
 
 
+def _is_hex64(s: str) -> bool:
+    return isinstance(s, str) and len(s) == 64 and all(c in "0123456789abcdef" for c in s)
+
+
 @dataclass(frozen=True)
 class UnrealRuntimeStepMapping:
     """Immutable per-step mapping from one semantic step to the existing runtime.
@@ -380,6 +431,9 @@ class UnrealRuntimeStepMapping:
     contributions, idempotence, fragment identity/version, preconditions,
     verification requirements) are re-derived from the CANONICAL fragment by the
     adapter and reconciled; a crafted plan cannot silently distort them.
+    ``declared`` is True exactly when verbatim/unreconciled caller content is
+    carried in this step's provenance. ``supported`` is False (and
+    ``unsupported_reason`` set) for render-bound steps.
 
     It never carries authorization, receipt, or recovery material.
     """
@@ -427,8 +481,19 @@ class UnrealRuntimeStepMapping:
             self.unsupported_reason, str
         ):
             raise UnrealRuntimeAdapterError("unsupported_reason must be a str or None")
-        # Deep-freeze provenance (immutability of the mapping's canonical view).
-        object.__setattr__(self, "provenance", _freeze_json(self.provenance))
+        # Closed allowlist + recursive authority/strict-JSON validation of step
+        # provenance (single canonical path, also run on direct construction).
+        prov = dict(self.provenance)
+        _closed_allowlist_check(
+            prov, f"step.provenance[{self.step_id!r}]",
+            allowed=_ALLOWED_CALLER_PROVENANCE_KEYS,
+        )
+        _validate_strict_json_value(
+            prov, f"step.provenance[{self.step_id!r}]", "<root>",
+            reject_forbidden=True,
+            high_confidence=False,  # caller provenance: broad authority scan
+        )
+        object.__setattr__(self, "provenance", _freeze_json(prov))
 
     def to_json_compatible(self) -> Dict[str, Any]:
         return {
@@ -456,15 +521,21 @@ def compute_source_task_digest(source_task: UnrealProductionTaskDefinition) -> s
 
     Covers the semantic task identity, version, digital-twin id, target state,
     dependencies, evidence, actions, allowed tools/mutations, and resolved
-    catalog metadata (parameters, fragments). Two same-identity tasks with
-    different resolved content produce different digests; the adapter binds this
-    digest so substitution is detectable and (when embedded) rejected.
+    catalog metadata (parameters, fragments). Uses STRICT JSON (``allow_nan=False``),
+    validating that every mapping key is a string and every number finite, so two
+    same-identity tasks with different resolved content produce different
+    digests and coercion cannot collapse distinct inputs. Raises
+    ``UnrealRuntimeAdapterError`` on non-JSON data.
     """
     if not isinstance(source_task, UnrealProductionTaskDefinition):
         raise TypeError("source_task must be an UnrealProductionTaskDefinition")
     payload = source_task.to_json_compatible()
+    _validate_strict_json_value(
+        payload, "source_task_digest", "<root>", reject_forbidden=False
+    )
     encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -476,25 +547,23 @@ class UnrealRuntimeMapping:
     Identity fields (plan id, source semantic task id/version, catalog version,
     digital-twin id) are preserved and never collapsed. ``source_task_digest``
     deterministically binds the resolved source content. ``render_plan`` /
-    ``requires_existing_render_submission_path`` reflect the AUTHORITATIVE source
-    task classification. ``can_execute`` is always False.
+    ``requires_existing_render_submission_path`` reflect the AUTHORITATIVE union
+    of source-task class AND canonical fragment render semantics. ``can_execute``
+    is always False.
 
-    ``runtime_task_snapshot`` is an immutable, JSON-serializable snapshot of the
-    EXISTING :class:`AtlasTaskDefinition`` (name, evidence, actions,
-    allowed_action_tools, allow_writes, verify_after_action, metadata).
-    ``runtime_task_digest`` is its SHA-256 binding. The mapping does NOT expose a
-    mutable ``AtlasTaskDefinition`` handle: callers use
-    ``materialize_runtime_task()`` to obtain a fresh isolated deep copy, so
-    post-construction mutation cannot invalidate the mapping's trust/audit
-    invariant, and ``allowed_action_tools`` cannot gain ``unreal_render`` in the
-    mapping's canonical view. ``runtime_task_snapshot`` is None for render-bound
-    plans (no runtime representation is fabricated).
+    ``runtime_task_snapshot`` is an immutable, strict-JSON, self-describing
+    snapshot of the EXISTING :class:`AtlasTaskDefinition`` (name, evidence,
+    actions, allowed_action_tools, allow_writes, verify_after_action, metadata
+    + evaluator disclosure). ``runtime_task_digest`` is its SHA-256 binding. The
+    snapshot is the SOLE authoritative runtime-task representation; the mapping
+    does NOT retain a hidden mutable backing object. ``materialize_runtime_task()``
+    rebuilds the existing runtime object from the snapshot and asserts its digest
+    matches before returning a fresh isolated copy.
 
-    ``semantic_fidelity`` explicitly records how the plan's semantics are
-    represented by the existing runtime: ``"aggregate"`` (non-render tasks are
-    represented as ONE task-level AtlasTaskDefinition + per-step reconciled
-    semantics; the runtime has no per-fragment operations) or ``"unavailable"``
-    (render-bearing plans are not represented at all).
+    Construction is SELF-VALIDATING: ``__post_init__`` runs the single canonical
+    validation path (closed-allowlist provenance, source digest shape, render
+    consistency, runtime authority consistency, canonical-field consistency,
+    digest binding). A directly-constructed invalid mapping FAILS CLOSED.
 
     The mapping never:
     - authorizes execution;
@@ -538,6 +607,21 @@ class UnrealRuntimeMapping:
             raise UnrealRuntimeAdapterError(
                 "requires_existing_render_submission_path must be a bool"
             )
+        # Render consistency: a render-bearing plan must set the boundary and have
+        # NO runtime snapshot; a non-render plan must NOT set the boundary and MUST
+        # have a snapshot.
+        if self.render_plan != self.requires_existing_render_submission_path:
+            raise UnrealRuntimeAdapterError(
+                "render_plan and requires_existing_render_submission_path must agree"
+            )
+        if self.render_plan and self.runtime_task_snapshot is not None:
+            raise UnrealRuntimeAdapterError(
+                "a render-bearing mapping must not carry a runtime task snapshot"
+            )
+        if not self.render_plan and self.runtime_task_snapshot is None:
+            raise UnrealRuntimeAdapterError(
+                "a non-render mapping must carry a runtime task snapshot"
+            )
         if self.runtime_task_snapshot is not None and not isinstance(
             self.runtime_task_snapshot, MappingProxyType
         ):
@@ -547,18 +631,74 @@ class UnrealRuntimeMapping:
         if self.runtime_task_digest is not None and not isinstance(
             self.runtime_task_digest, str
         ):
-            raise UnrealRuntimeAdapterError(
-                "runtime_task_digest must be a str or None"
-            )
+            raise UnrealRuntimeAdapterError("runtime_task_digest must be a str or None")
         if self.semantic_fidelity not in ("aggregate", "unavailable"):
             raise UnrealRuntimeAdapterError(
                 "semantic_fidelity must be 'aggregate' or 'unavailable'"
             )
-        _check_token(self.source_task_digest, "source_task_digest")
+        if self.render_plan and self.semantic_fidelity != "unavailable":
+            raise UnrealRuntimeAdapterError(
+                "render-bearing mapping must have semantic_fidelity 'unavailable'"
+            )
+        if not self.render_plan and self.semantic_fidelity != "aggregate":
+            raise UnrealRuntimeAdapterError(
+                "non-render mapping must have semantic_fidelity 'aggregate'"
+            )
+        if not _is_hex64(self.source_task_digest):
+            raise UnrealRuntimeAdapterError(
+                "source_task_digest must be a 64-char lowercase hex SHA-256"
+            )
+        # Runtime authority consistency on the snapshot.
+        if self.runtime_task_snapshot is not None:
+            tools = tuple(self.runtime_task_snapshot["allowed_action_tools"])
+            if any(t != EXISTING_RUNTIME_INSPECT_TOOL for t in tools):
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot permitted tools include non-inspect tool; "
+                    "inspect-only contract violated"
+                )
+            actions = self.runtime_task_snapshot["actions"]
+            if any(a["tool"] != EXISTING_RUNTIME_INSPECT_TOOL for a in actions):
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot action tool exceeds inspect-only contract"
+                )
+            evidence = self.runtime_task_snapshot["evidence"]
+            if any(e["tool"] != EXISTING_RUNTIME_INSPECT_TOOL for e in evidence):
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot evidence tool exceeds inspect-only contract"
+                )
+            if self.runtime_task_snapshot["allow_writes"]:
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot must not claim write authority under "
+                    "inspect-only semantics"
+                )
+            # Digest binding: runtime_task_digest must equal digest of snapshot.
+            snap_digest = _digest_of_jsonable(_thaw_json(self.runtime_task_snapshot))
+            if self.runtime_task_digest != snap_digest:
+                raise UnrealRuntimeAdapterError(
+                    "runtime_task_digest does not bind the runtime task snapshot"
+                )
+        else:
+            if self.runtime_task_digest is not None:
+                raise UnrealRuntimeAdapterError(
+                    "render-bearing mapping must not carry a runtime_task_digest"
+                )
         if not isinstance(self.provenance, dict):
             raise UnrealRuntimeAdapterError("provenance must be a dict")
-        # Deep-freeze provenance (immutability of the mapping's canonical view).
-        object.__setattr__(self, "provenance", _freeze_json(self.provenance))
+        # Closed allowlist for mapping provenance (allow caller-visible legit keys
+        # plus adapter-owned keys), recursive authority + strict JSON walk.
+        prov = dict(self.provenance)
+        _closed_allowlist_check(
+            prov, "mapping.provenance",
+            allowed=_ALLOWED_CALLER_PROVENANCE_KEYS,
+            adapter_owned_ok=True,
+        )
+        _validate_strict_json_value(
+            prov, "mapping.provenance", "<root>", reject_forbidden=True,
+            high_confidence=False,  # caller provenance: broad authority scan
+        )
+        object.__setattr__(self, "provenance", _freeze_json(prov))
+        # Re-freeze snapshot to a fresh deep-frozen mapping (defensive; already
+        # frozen at factory).
         if self.runtime_task_snapshot is not None:
             object.__setattr__(
                 self, "runtime_task_snapshot", _freeze_json(dict(self.runtime_task_snapshot))
@@ -570,19 +710,27 @@ class UnrealRuntimeMapping:
         return False
 
     def materialize_runtime_task(self) -> Optional[AtlasTaskDefinition]:
-        """Return a FRESH, isolated deep copy of the runtime task, or None.
+        """Rebuild the existing runtime task SOLELY from the immutable snapshot.
 
-        Because a fresh deep copy is returned each call, mutating the result
-        (allowed_action_tools, metadata, ...) can never affect this mapping's
-        canonical snapshot or digest. Callers that mutate the returned copy are
-        mutating only their own copy.
+        Returns a fresh, isolated deep copy (mutating it cannot affect the
+        mapping). Rebuilds the placeholder (structural) evaluator from the
+        snapshot's recorded invariant names, and asserts the rebuilt snapshot's
+        digest equals ``runtime_task_digest`` before returning. Raises
+        ``UnrealRuntimeAdapterError`` on any divergence.
         """
-        stored = getattr(self, "_materialized_runtime_task", None)
-        if stored is None:
+        snap = self.runtime_task_snapshot
+        if snap is None:
             return None
-        return _copy.deepcopy(stored)
+        rt = _rebuild_atlas_task(snap)
+        rebuilt_snap = _freeze_json(_atlas_to_snapshot(rt))
+        if _digest_of_jsonable(_thaw_json(rebuilt_snap)) != self.runtime_task_digest:
+            raise UnrealRuntimeAdapterError(
+                "materialized runtime task diverges from the canonical snapshot digest"
+            )
+        return rt
 
     def to_json_compatible(self) -> Dict[str, Any]:
+        rt_snap = _thaw_json(self.runtime_task_snapshot) if self.runtime_task_snapshot is not None else None
         return {
             "plan_id": self.plan_id,
             "source_task_id": self.source_task_id,
@@ -597,71 +745,144 @@ class UnrealRuntimeMapping:
             "semantic_fidelity": self.semantic_fidelity,
             "runtime_task_present": self.runtime_task_snapshot is not None,
             "runtime_task_digest": self.runtime_task_digest,
-            "runtime_task_snapshot": (
-                _thaw_json(self.runtime_task_snapshot)
-                if self.runtime_task_snapshot is not None
-                else None
-            ),
+            "runtime_task_snapshot": rt_snap,
             "steps": [s.to_json_compatible() for s in self.steps],
             "provenance": _thaw_json(self.provenance),
         }
 
     def canonical_json(self) -> str:
-        """Deterministic canonical serialization (sorted keys, compact).
+        """Deterministic STRICT-JSON canonical serialization (sorted keys, compact).
 
-        The provenance and runtime-task snapshot are deep-frozen at construction,
-        so mutating the caller's input afterward cannot change this output.
+        ``allow_nan=False``; the snapshot and provenance are deep-frozen at
+        construction, so mutating the caller's input afterward cannot change this
+        output.
         """
         return json.dumps(
-            self.to_json_compatible(), sort_keys=True, separators=(",", ":")
+            self.to_json_compatible(), sort_keys=True, separators=(",", ":"),
+            allow_nan=False,
         )
+
+
+def _digest_of_jsonable(value: Any) -> str:
+    _validate_strict_json_value(value, "digest", "<root>", reject_forbidden=False)
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                   allow_nan=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _atlas_to_snapshot(rt: AtlasTaskDefinition) -> Dict[str, Any]:
+    return {
+        "name": rt.name,
+        "evidence": [
+            {"tool": e.tool, "arguments": _copy.deepcopy(e.arguments), "name": e.name}
+            for e in rt.evidence
+        ],
+        "actions": [
+            {
+                "tool": a.tool,
+                "arguments": _copy.deepcopy(a.arguments),
+                "name": a.name,
+                "requires_success": a.requires_success,
+                "depends_on": list(a.dependency_names()),
+            }
+            for a in rt.actions
+        ],
+        "allowed_action_tools": sorted(rt.allowed_action_tools),
+        "allow_writes": rt.allow_writes,
+        "verify_after_action": rt.verify_after_action,
+        "metadata": _copy.deepcopy(dict(rt.metadata or {})),
+    }
+
+
+def _rebuild_atlas_task(snap: MappingProxyType) -> AtlasTaskDefinition:
+    """Rebuild an AtlasTaskDefinition strictly from a snapshot dict.
+
+    Reconstructs a structural placeholder evaluator from the snapshot's
+    ``metadata.unreal_target_state.invariant_names`` (deterministic; not
+    independent verification). Classified as structural-placeholder /
+    not-independently-verified so no future layer mistakes it for real
+    verification (M12.5 boundary preserved).
+    """
+    snap_in = _thaw_json(snap) if not isinstance(snap, dict) else snap
+    meta = dict(snap_in["metadata"] or {})
+    invariant_names = []
+    ts = meta.get("unreal_target_state")
+    if isinstance(ts, dict):
+        invariant_names = list(ts.get("invariant_names", []))
+    invariants = [
+        StateInvariant(
+            name=name,
+            predicate=lambda ev, _n=name: bool(
+                isinstance(ev, dict) and ev.get(_n)
+            ),
+        )
+        for name in invariant_names
+    ]
+    if not invariants:
+        invariants = [
+            StateInvariant(name="__no_invariants__", predicate=lambda ev: False)
+        ]
+    evidence = tuple(
+        EvidenceRequest(
+            tool=e["tool"], arguments=_copy.deepcopy(e["arguments"]), name=e["name"]
+        )
+        for e in snap_in["evidence"]
+    )
+    actions = tuple(
+        ActionSpec(
+            tool=a["tool"],
+            arguments=_copy.deepcopy(a["arguments"]),
+            name=a["name"],
+            requires_success=a["requires_success"],
+            depends_on=tuple(a["depends_on"]),
+        )
+        for a in snap_in["actions"]
+    )
+    return AtlasTaskDefinition(
+        name=snap_in["name"],
+        evidence=evidence,
+        actions=actions,
+        evaluator=TargetStateEvaluator(invariants),
+        allowed_action_tools=set(snap_in["allowed_action_tools"]),
+        allow_writes=bool(snap_in["allow_writes"]),
+        verify_after_action=bool(snap_in["verify_after_action"]),
+        metadata=meta,
+    )
 
 
 def _same_steps_as_task(plan: UnrealExecutionPlan, task: UnrealProductionTaskDefinition) -> bool:
     """The plan's ordered semantic operations must exactly match the source task's
     ordered fragment dependencies (this is how M12.3 builds a plan). Mismatch is
-    fail-closed, so the adapter never maps a plan onto a different runtime.""" 
+    fail-closed, so the adapter never maps a plan onto a different runtime."""
     return tuple(step.semantic_operation for step in plan.steps) == tuple(
         task.dependencies
     )
 
 
 def _candidate_fragment(step_semantic_operation: str) -> Optional[UnrealProductionFragment]:
-    """Resolve the canonical fragment for a semantic operation, or None if the
-    operation is not a known canonical fragment (unknown -> fail closed)."""
     try:
         return canonical_fragment(step_semantic_operation)
     except KeyError:
         return None
 
 
-def _prefix_producer_map(steps):
-    """Reconstruct the prefix-only producer->step map, mirroring M12.3's
-    generator: a requirement only resolves to producers among EARLIER steps.
-
-    A forward-only producer map would let an attacker declare a dependency on a
-    future step; the prefix map means unresolved/forward requirements yield no
-    producer entry, so any plan claiming such a dependency fails closed.
-    """
-    producer_to_step: Dict[str, str] = {}
-    for step in steps:
-        frag = _candidate_fragment(step.semantic_operation)
-        if frag is not None:
-            for produced in frag.produces:
-                producer_to_step.setdefault(produced, step.step_id)
-    return producer_to_step
+def _fragment_is_render_configured(fragment: UnrealProductionFragment) -> bool:
+    """A canonical fragment is render-bearing if it is render-constrained or
+    non-expandable to runtime actions (e.g. ``render_setup``)."""
+    if fragment is None:
+        return False
+    if fragment.canonical_id == "render_setup":
+        return True
+    if bool(fragment.detail.get("render_execution_constrained")):
+        return True
+    return not fragment.expandable
 
 
 def _explain_and_check_precondition(
     plan_step,
     fragment: UnrealProductionFragment,
 ) -> Optional[str]:
-    """Reconcile the plan step's preconditions + verification requirements.
-
-    M12.3 sets preconditions = sorted(fragment.requires) (raw requirement names)
-    and verification_requirements = sorted(contributed_invariant_names()). We
-    re-derive both and reject divergence so a plan cannot drop/forge them.
-    """
     expected_pre = tuple(sorted(set(fragment.requires)))
     actual_pre = tuple(sorted(set(plan_step.preconditions)))
     if actual_pre != expected_pre:
@@ -692,6 +913,10 @@ def _reconcile_step_fidelity(
     target-state contributions, idempotence, dependencies (prefix-only),
     preconditions, and verification requirements. This applies to EVERY mapped
     step, including render-bearing steps (no asymmetric bypass).
+
+    CRITICAL (B5): every requirement the fragment declares must be resolved by an
+    EARLIER producer step. An unresolved requirement is an error (never converted
+    to an empty dependency set).
     """
     expected_inputs = tuple(sorted(set(fragment.inputs)))
     actual_inputs = tuple(sorted(set(step.required_inputs)))
@@ -716,16 +941,16 @@ def _reconcile_step_fidelity(
             f"{step.idempotence!r} but canonical fragment is {expected_idempotence!r}"
         )
 
-    # Dependencies: expected = the producer steps (EARLIER in order, prefix map)
-    # that satisfy each requirement name, exactly as M12.3's generator resolves.
-    expected_deps = tuple(
-        sorted(
-            {
-                producer_to_step[req]
-                for req in fragment.requires
-                if req in producer_to_step
-            }
+    # B5: every fragment requirement must be satisfied by an earlier producer.
+    unresolved = [req for req in fragment.requires if req not in producer_to_step]
+    if unresolved:
+        return (
+            f"step {step.step_id!r} has unresolved requirement(s) "
+            f"{sorted(unresolved)} with no canonical producer step; failing closed "
+            "(unresolved requirements must never degrade to an empty dependency)"
         )
+    expected_deps = tuple(
+        sorted(producer_to_step[req] for req in fragment.requires)
     )
     actual_deps = tuple(sorted(set(step.dependencies)))
     if actual_deps != expected_deps:
@@ -740,11 +965,9 @@ def _reconcile_step_fidelity(
     return None
 
 
-def _digest_of_jsonable(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    ).hexdigest()
-
+# ---------------------------------------------------------------------------
+# Map entry point
+# ---------------------------------------------------------------------------
 
 
 def map_unreal_execution_plan(
@@ -760,40 +983,31 @@ def map_unreal_execution_plan(
         plan: an already-validated :class:`UnrealExecutionPlan`.
         source_task: the validated :class:`UnrealProductionTaskDefinition` the
             plan was generated from (used to reuse the existing M12.1 compiler).
-        catalog_version: catalog version override. Defaults to ``plan.catalog_version``.
+        catalog_version: catalog version. MUST equal ``plan.catalog_version`` and
+            (when present in source metadata) the resolved source's catalog
+            version; any mismatch fails closed.
         expected_source_task_digest: if provided, the resolved source content
-            must produce exactly this digest; any mismatch is rejected. This is
-            the M12.4 enforcement point for same-identity/different-content
-            substitution (the plan itself, generated by M12.3, does not carry the
-            resolved parameters; callers that hold an expected digest pass it
-            here). When omitted, the mapping still computes and records the
-            authoritative ``source_task_digest`` for downstream verification.
+            must produce exactly this digest; any mismatch is rejected. The
+            digest is always recomputed from the authoritative resolved source
+            (never trusted merely because the caller supplied it).
 
     Returns:
-        a deterministic :class:`UnrealRuntimeMapping`. See the class docstring for
-        the exact contract (immutable snapshot, no mutable AtlasTaskDefinition
-        handle, source digest binding, ...).
+        a deterministic :class:`UnrealRuntimeMapping` (see class docstring).
 
     Raises:
         TypeError: if ``plan`` or ``source_task`` has the wrong type.
-        UnrealRuntimeAdapterError: if the plan's identity does not match the
-            source task; a supported step mismatches the canonical fragment
-            (inputs/dependencies/target-state/idempotence/preconditions/
-            verification requirements); forbidden authority material appears
-            anywhere in plan/step provenance; a caller supplies an adapter-owned
-            provenance key; render classification is inconsistent with the
-            authoritative source task; an unsupported capability or unknown
-            idempotence is requested; source content is inconsistent with the
-            plan's resolved target state; or the mapping is otherwise ambiguous.
+        UnrealRuntimeAdapterError: on any invariant violation (identity mismatch,
+            render classification conflict across class/fragment axes, runtime
+            action-authority violation, forbidden/un-allowed provenance, source
+            substitution, unresolved requirement, catalog version conflict,
+            etc.).
     """
     if not isinstance(plan, UnrealExecutionPlan):
         raise TypeError("plan must be an UnrealExecutionPlan")
     if not isinstance(source_task, UnrealProductionTaskDefinition):
         raise TypeError("source_task must be an UnrealProductionTaskDefinition")
 
-    # Identity lock: mapping is only allowed for the exact semantic task the plan
-    # was generated from (task id/version/twin). This prevents attaching runtime
-    # to a different task CLASS.
+    # --- Identity lock ---
     mismatch = []
     if plan.source_task_id != source_task.canonical_task_id:
         mismatch.append("source_task_id")
@@ -812,37 +1026,27 @@ def map_unreal_execution_plan(
             "dependencies"
         )
 
-    # Fix 1: recursive authority/security material rejection in plan provenance
-    # (deny nested/casing/alias credentials). Preserve legitimate provenance.
-    clean_plan_provenance = _validate_provenance(
-        dict(plan.provenance or {}),
-        "plan.provenance",
-        reserved=_ADAPTER_RESERVED_PROVENANCE_KEYS,
+    # --- B3: closed-allowlist provenance (plan + steps), recursive authority
+    # scan, strict JSON. Reject adapter-reserved keys (no shadow truth).
+    clean_plan_provenance = _validate_caller_provenance(
+        dict(plan.provenance or {}), "plan.provenance"
     )
 
-    # Fix 4: bind the resolved source content. A caller-supplied source_task
-    # that shares the plan's class/version/twin but differs in resolved content
-    # (e.g. different parameters/target-state) yields a different digest.
+    # --- Source-content binding (B4). Compute from authoritative resolved
+    # source; never trust a caller-supplied digest as truth.
     source_digest = compute_source_task_digest(source_task)
-    if (
-        expected_source_task_digest is not None
-        and expected_source_task_digest != source_digest
-    ):
-        raise UnrealRuntimeAdapterError(
-            "expected_source_task_digest does not match the provided source task "
-            "resolved content; refusing to map a substituted source "
-            f"(expected {expected_source_task_digest[:16]}..., got {source_digest[:16]}...)"
-        )
-    embedded_digest = clean_plan_provenance.get("source_task_digest")
-    if embedded_digest is not None and embedded_digest != source_digest:
-        raise UnrealRuntimeAdapterError(
-            "plan provenance carries a source_task_digest that does not match the "
-            "provided source task resolved content; refusing to map a substituted "
-            "source"
-        )
+    if expected_source_task_digest is not None:
+        if not _is_hex64(expected_source_task_digest):
+            raise UnrealRuntimeAdapterError(
+                "expected_source_task_digest must be a 64-char lowercase hex"
+            )
+        if expected_source_task_digest != source_digest:
+            raise UnrealRuntimeAdapterError(
+                "expected_source_task_digest does not match the resolved source "
+                "content; refusing to map a substituted source"
+            )
 
-    # Fix 5/4: verify plan's resolved target-state against the source task's
-    # target-state invariants (another same-identity/different-content detector).
+    # Plan's composed target-state must match the source's resolved target-state.
     plan_composed_invariants = set()
     for step in plan.steps:
         plan_composed_invariants.update(step.target_state_contributions)
@@ -850,45 +1054,70 @@ def map_unreal_execution_plan(
     if plan_composed_invariants != source_target_invariants:
         raise UnrealRuntimeAdapterError(
             "plan's composed target-state contributions do not match the source "
-            "task's resolved target-state invariants; failing closed on "
-            "substituted/inconsistent source content"
+            "task's resolved target-state invariants"
         )
 
-    # Fix 5: render classification must be reconciled with the authoritative
-    # source task. A caller must not be able to understate or overstate
-    # render-bearing status; fail closed on any mismatch.
-    authoritative_render = source_task.render_task
-    if plan.render_plan != authoritative_render:
+    # --- Render classification from ALL authoritative axes (B2): the union of
+    # source class semantics AND canonical fragment render semantics. Any
+    # conflict fails closed.
+    all_fragments = [_candidate_fragment(s.semantic_operation) for s in plan.steps]
+    if any(f is None for f in all_fragments):
+        bad = next(
+            s.semantic_operation for s, f in zip(plan.steps, all_fragments) if f is None
+        )
+        raise UnrealRuntimeAdapterError(
+            f"cannot map plan: semantic operation {bad!r} is not a known canonical "
+            "fragment (fail closed)"
+        )
+    fragment_render = any(_fragment_is_render_configured(f) for f in all_fragments if f is not None)
+    class_render = source_task.render_task
+    # B2: render classification from the UNION of authoritative axes (class AND
+    # canonical fragment render semantics). The dangerous direction — a
+    # render-constrained / non-expandable fragment (e.g. render_setup) routed
+    # through a NON-render task class path — FAILS CLOSED so it cannot escape the
+    # render boundary. The benign direction — a render CLASS with no render
+    # fragment present (e.g. artifact-validate which wraps an existing
+    # verification step before a render) — still routes to the render boundary
+    # via the class classification.
+    if fragment_render and not class_render:
+        raise UnrealRuntimeAdapterError(
+            "render classification conflict: the plan's canonical fragments are "
+            "render-configured (non-expandable / render_execution_constrained) "
+            f"but the source task class {source_task.task_class!r} is "
+            "non-render; refusing to route render semantics through the "
+            "ordinary non-render runtime path"
+        )
+    require_render_boundary = class_render or fragment_render
+    if plan.render_plan != require_render_boundary:
         raise UnrealRuntimeAdapterError(
             f"render_plan mismatch: plan declares render_plan={plan.render_plan!r} "
-            f"but the authoritative source task class "
-            f"{source_task.task_class!r} is render-bearing={authoritative_render!r}; "
-            "failing closed rather than trusting the plan flag"
+            f"but authoritative source classification is "
+            f"{require_render_boundary!r}"
         )
-    require_render_boundary = authoritative_render
 
-    used_catalog_version = catalog_version if catalog_version is not None else plan.catalog_version
+    # --- Catalog version must be the single authoritative value (B6).
+    if catalog_version is not None and catalog_version != plan.catalog_version:
+        raise UnrealRuntimeAdapterError(
+            f"catalog_version {catalog_version} conflicts with the plan's "
+            f"authoritative {plan.catalog_version}"
+        )
+    source_meta_cv = None
+    if isinstance(source_task.metadata, dict):
+        source_meta_cv = source_task.metadata.get("catalog_version")
+    if source_meta_cv is not None and int(source_meta_cv) != int(plan.catalog_version):
+        raise UnrealRuntimeAdapterError(
+            f"catalog_version conflict: plan says {plan.catalog_version} but "
+            f"resolved source metadata says {source_meta_cv}"
+        )
+    used_catalog_version = int(plan.catalog_version)
 
-    # Step fidelity: re-derive critical semantics from the canonical fragments so
-    # a crafted plan cannot silently distort inputs/dependencies/target-state/
-    # idempotence/preconditions/verification requirements while mapping. Applied
-    # to EVERY step, including render-bearing ones (no asymmetric bypass).
-    # NOTE: prefix-only producer map; forward dependencies fail closed.
-    # Reconstruct the prefix map by walking steps in order and only counting
-    # producers strictly before the current step.
-    all_fragments = [_candidate_fragment(s.semantic_operation) for s in plan.steps]
-
-    mapped_steps: Tuple[UnrealRuntimeStepMapping, ...] = ()
+    # --- Per-step fidelity reconciliation (B5: unresolved requirements fail
+    # closed). Prefix-only producer map.
     prefix_producers: Dict[str, str] = {}
     rendered_steps: list = []
     for index, step in enumerate(plan.steps):
         fragment = all_fragments[index]
-        if fragment is None:
-            raise UnrealRuntimeAdapterError(
-                f"cannot map step {step.step_id!r}: semantic operation "
-                f"{step.semantic_operation!r} is not a known canonical fragment "
-                "(fail closed)"
-            )
+        assert fragment is not None
         if step.idempotence == "unknown":
             raise UnrealRuntimeAdapterError(
                 f"cannot map step {step.step_id!r}: unknown idempotence (fail closed)"
@@ -896,34 +1125,47 @@ def map_unreal_execution_plan(
         if step.execution_capability_requirement != "inspect-only":
             raise UnrealRuntimeAdapterError(
                 f"cannot map step {step.step_id!r}: unsupported capability "
-                f"requirement {step.execution_capability_requirement!r} (only "
-                f"'inspect-only' is representable in the existing runtime)"
+                f"requirement {step.execution_capability_requirement!r}"
+            )
+        if not require_render_boundary and not fragment.expandable:
+            raise UnrealRuntimeAdapterError(
+                f"cannot map step {step.step_id!r}: canonical fragment "
+                f"{fragment.canonical_id!r} is not expandable to runtime actions; "
+                "fail closed (render-constrained step)"
             )
         fid_reason = _reconcile_step_fidelity(step, fragment, prefix_producers)
         if fid_reason is not None:
             raise UnrealRuntimeAdapterError(fid_reason)
 
-        # Validate step provenance recursively and reject adapter-owned shadow keys.
-        step_provenance = _validate_provenance(
-            dict(step.provenance or {}),
-            f"step.provenance[{step.step_id!r}]",
-            reserved=_ADAPTER_RESERVED_PROVENANCE_KEYS,
+        # Step provenance: closed allowlist + authority scan + strict JSON.
+        step_prov_in = dict(step.provenance or {})
+        # Overwrite M12.3-declared fragment identity with canonical truth.
+        step_prov_in["fragment_id"] = fragment.canonical_id
+        step_prov_in["fragment_version"] = fragment.version
+        step_prov_in["target_state_contribution"] = list(
+            tuple(sorted(set(fragment.contributed_invariant_names())))
         )
-        # Overwrite M12.3-declared fragment identity/version with canonical truth so a
-        # crafted plan cannot seed a conflicting fragment identity that survives.
-        step_provenance["fragment_id"] = fragment.canonical_id
-        step_provenance["fragment_version"] = fragment.version
+        step_provenance = _validate_caller_provenance(
+            step_prov_in, f"step.provenance[{step.step_id!r}]"
+        )
+        # B7: `declared` is True ONLY when caller-supplied (non-canonical) content
+        # is carried verbatim. The canonical fragment identity/contribution keys
+        # the adapter overwrites are reconciled truth, not declared content.
+        _CANONICAL_STEP_PROV_KEYS = frozenset(
+            {"fragment_id", "fragment_version", "target_state_contribution"}
+        )
+        declared = bool(
+            set(step_prov_in) - _CANONICAL_STEP_PROV_KEYS
+        )
 
         if require_render_boundary:
             supported = False
             target_op = "<none>"
             reason = REQUIRES_EXISTING_RENDER_SUBMISSION_PATH
-            declared = False
         else:
             supported = True
             target_op = EXISTING_RUNTIME_INSPECT_TOOL
             reason = None
-            declared = False
 
         rendered_steps.append(
             UnrealRuntimeStepMapping(
@@ -949,63 +1191,49 @@ def map_unreal_execution_plan(
                 provenance=step_provenance,
             )
         )
-        # After processing this step, add its produced requirements to the prefix
-        # map so a LATER step may depend on them.
         for produced in fragment.produces:
             prefix_producers.setdefault(produced, step.step_id)
     mapped_steps = tuple(rendered_steps)
 
-    # Build the existing runtime representation ONLY for non-render plans, via
-    # the existing M12.1 compiler (it already rejects render-bearing plans). For
-    # render plans we do not reach it at all. The mapping keeps ONLY an immutable
-    # snapshot + digest of the runtime task; a mutable AtlasTaskDefinition is not
-    # exposed (callers materialize a fresh isolated copy).
+    # --- Build the existing runtime representation for non-render plans, then
+    # reconcile RUNTIME ACTION AUTHORITY (B1).
     runtime_task_snapshot: Optional[MappingProxyType] = None
     runtime_task_digest: Optional[str] = None
     semantic_fidelity = "unavailable"
-    _materialized: Optional[AtlasTaskDefinition] = None
     if not require_render_boundary:
         compiled = compile_unreal_semantic_task(source_task)
-        # Fix 2: reconcile write authority with the plan's inspect-only
-        # capability. An all-inspect-only semantic plan must not emit a
-        # write-capable AtlasTaskDefinition. The existing field (allow_writes) is
-        # re-derived consistently; no new authority field is invented.
-        all_inspect_only = all(
-            s.execution_capability_requirement == "inspect-only" for s in plan.steps
+        # B1: independently reconcile the compiled AtlasTaskDefinition against the
+        # inspect-only contract. Any write/render tool or non-inspect action or
+        # evidence tool FAILS CLOSED (we never merely zero allow_writes).
+        compiled = _reconcile_runtime_authority(compiled)
+        # B3: the source metadata reaches the runtime snapshot via the compiled
+        # task. Enforce the source-metadata key allowlist AND recursively reject
+        # authority-shaped keys/values anywhere in the metadata structure (e.g.
+        # a catalog JSON `camera_slots` parameter carrying authorization fields).
+        _closed_allowlist_check(
+            dict(compiled.metadata or {}), "source.metadata",
+            allowed=_ALLOWED_SOURCE_METADATA_KEYS,
+            adapter_owned_ok=False,
         )
-        if all_inspect_only and compiled.allow_writes:
-            compiled = dataclasses.replace(compiled, allow_writes=False)
-        # Deep-copy so post-construction mutation of the caller's/source object
-        # cannot affect the mapping's snapshot/digest.
-        _materialized = _copy.deepcopy(compiled)
-        snapshot_mapping = {
-            "name": _materialized.name,
-            "evidence": [
-                {"tool": e.tool, "arguments": _copy.deepcopy(e.arguments), "name": e.name}
-                for e in _materialized.evidence
-            ],
-            "actions": [
-                {
-                    "tool": a.tool,
-                    "arguments": _copy.deepcopy(a.arguments),
-                    "name": a.name,
-                    "requires_success": a.requires_success,
-                    "depends_on": list(a.dependency_names()),
-                }
-                for a in _materialized.actions
-            ],
-            "allowed_action_tools": sorted(_materialized.allowed_action_tools),
-            "allow_writes": _materialized.allow_writes,
-            "verify_after_action": _materialized.verify_after_action,
-            "metadata": _copy.deepcopy(_materialized.metadata or {}),
-        }
+        _validate_strict_json_value(
+            dict(compiled.metadata or {}), "source.metadata", "<root>",
+            reject_forbidden=True,
+        )
+        # Deep-copy so callers mutating source/compile cannot affect the mapping.
+        compiled = _copy.deepcopy(compiled)
+        snapshot_mapping = _atlas_to_snapshot(compiled)
+        # B3/B8: the assembled snapshot (metadata included) must be authority-free
+        # strict JSON BEFORE freezing/digesting; fail closed otherwise.
+        _validate_strict_json_value(
+            snapshot_mapping, "runtime_task_snapshot", "<root>",
+            reject_forbidden=True,
+        )
         runtime_task_snapshot = _freeze_json(snapshot_mapping)  # type: ignore[assignment]
         runtime_task_digest = _digest_of_jsonable(_thaw_json(runtime_task_snapshot))
         semantic_fidelity = "aggregate"
 
+    # --- Build mapping provenance (adapter-owned, closed, authoritative).
     provenance = dict(clean_plan_provenance)
-    # Fix 5: adapter-owned provenance keys are authoritative (direct assignment,
-    # not setdefault, and caller-supplied shadow values already rejected).
     provenance["mapped_runtime_task_type"] = (
         "AtlasTaskDefinition" if not require_render_boundary else "unavailable"
     )
@@ -1014,15 +1242,16 @@ def map_unreal_execution_plan(
     provenance["source_task_digest"] = source_digest
     provenance["runtime_task_digest"] = runtime_task_digest
     provenance["declared"] = False
+    provenance["reconciled"] = True
 
-    mapping = UnrealRuntimeMapping(
+    return UnrealRuntimeMapping(
         plan_id=plan.plan_id,
         source_task_id=plan.source_task_id,
         source_task_version=plan.source_task_version,
         catalog_version=used_catalog_version,
         digital_twin_id=plan.digital_twin_id,
         steps=mapped_steps,
-        render_plan=plan.render_plan,
+        render_plan=require_render_boundary,
         requires_existing_render_submission_path=require_render_boundary,
         runtime_task_snapshot=runtime_task_snapshot,
         runtime_task_digest=runtime_task_digest,
@@ -1030,9 +1259,89 @@ def map_unreal_execution_plan(
         source_task_digest=source_digest,
         provenance=provenance,
     )
-    # Attach a private deep copy for materialize_runtime_task isolation.
-    mapping.__dict__["_materialized_runtime_task"] = _materialized
-    return mapping
+
+
+def _validate_caller_provenance(payload: Dict[str, Any], owner: str) -> Dict[str, Any]:
+    """Closed-allowlist + recursive authority scan + strict JSON for a
+    caller-supplied provenance payload. Returns a clean deep copy.
+
+    Unknown top-level keys are REJECTED (closed allowlist). Adapter-owned fields
+    are rejected (no shadow truth). Authority-shaped keys/values at any nesting
+    are rejected. Never strips-and-continues.
+    """
+    real_owner = owner
+    if not isinstance(payload, dict):
+        raise UnrealRuntimeAdapterError(f"{owner} must be a dict")
+    _closed_allowlist_check(
+        payload, owner,
+        allowed=_ALLOWED_CALLER_PROVENANCE_KEYS,
+        adapter_owned_ok=True,
+    )
+    for key in payload:
+        if key in _ADAPTER_RESERVED_PROVENANCE_KEYS:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is adapter-owned; caller shadow rejected"
+            )
+        if is_forbidden_authority_key(key):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is forbidden authority material"
+            )
+        if _is_value_forbidden(key):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is authority-shaped material"
+            )
+    _validate_strict_json_value(
+        payload, owner, "<root>", reject_forbidden=True, high_confidence=False,
+    )
+    return dict(payload)
+
+
+def _reconcile_runtime_authority(compiled: AtlasTaskDefinition) -> AtlasTaskDefinition:
+    """Independently reconcile the compiled runtime task's authority against the
+    M12.4 inspect-only contract.
+
+    - ``allowed_action_tools`` must be exactly ``{unreal_inspect}``.
+    - every action tool and evidence tool must be ``unreal_inspect``.
+    - ``allow_writes`` must be False.
+
+    On any violation raises ``UnrealRuntimeAdapterError`` (fail closed); it never
+    silently removes tools. ``allow_writes`` is set False only when the rest of
+    the contract already holds.
+    """
+    allowed = set(compiled.allowed_action_tools)
+    non_inspect_tools = allowed - {EXISTING_RUNTIME_INSPECT_TOOL}
+    if non_inspect_tools:
+        raise UnrealRuntimeAdapterError(
+            "compiled runtime task permits non-inspect tool(s) "
+            f"{sorted(non_inspect_tools)}; inspect-only contract violated"
+        )
+    emitted_tools = {a.tool for a in compiled.actions} | {e.tool for e in compiled.evidence}
+    non_inspect_actions = sorted(emitted_tools - {EXISTING_RUNTIME_INSPECT_TOOL})
+    if non_inspect_actions:
+        raise UnrealRuntimeAdapterError(
+            "compiled runtime actions/evidence use non-inspect tool(s) "
+            f"{non_inspect_actions}; inspect-only contract violated"
+        )
+    if compiled.allow_writes:
+        # The inspect-only plan claims no write authority; the compiled artifact
+        # must not either. This is a true reconciliation (the only mutation is to
+        # the write flag, which the semantic plan already excludes), but only
+        # after the tool/action contract above holds.
+        compiled = dataclasses.replace(compiled, allow_writes=False)
+    return compiled
+
+
+_RECONCILED_FIELDS: Tuple[str, ...] = (
+    "required_inputs",
+    "dependencies",
+    "target_state_contributions",
+    "idempotence",
+    "fragment_id",
+    "fragment_version",
+    "preconditions",
+    "verification_requirements",
+    "capability_requirement",
+)
 
 
 __all__ = [

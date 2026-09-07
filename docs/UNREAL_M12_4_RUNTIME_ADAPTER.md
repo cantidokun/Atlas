@@ -208,9 +208,9 @@ mappings stay inside `planning/m12/`.
 
 ## Validation
 
-- `pytest tests/m12/` → **226 passed** (88 prior + 138 M12.4, incl. Round-2 blocker tests)
-- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **594 passed**
-- `pytest -m "not integration"` → **1677 passed** (was 1594, +83)
+- `pytest tests/m12/` → **246 passed** (incl. Round-2 and Round-3 blocker tests)
+- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **614 passed**
+- `pytest -m "not integration"` → **1697 passed** (was 1677, +20 Round-3 tests)
 - Authority-isolation import scan clean (adapter imports only M12 + `AtlasTaskDefinition`, no production-authority module).
 - No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4–M10 change.
 
@@ -321,8 +321,8 @@ distinguishes:
 ## Validation (after red-team remediation)
 
 - `pytest tests/m12/` → **226 passed** (incl. Round-2 blocker regression tests)
-- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **594 passed**
-- `pytest -m "not integration"` → **1677 passed** (no regressions)
+- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **614 passed**
+- `pytest -m "not integration"` → **1697 passed** (no regressions)
 - Authority-isolation import scan clean. No M4–M10 / Blender / authority change.
 
 ## Round-2 remediation (independent red-team BLOCKERS)
@@ -401,4 +401,80 @@ Tests: `test_r2_nested_provenance_canonical_json_serializes`,
 - **Intentionally deferred to M12.5**: independent evidence verification and the
   authoritative render-submission entry point. M12.4 performs no verification and
   never marks anything verified.
+
+## Round-3 remediation (independent red-team gate #2 — 9 blockers)
+
+An independent adversarial gate (Astra + Claude 5) returned BLOCK with 9 concrete
+blockers. All are remediated in this M12.4 line. The changes are architectural
+(invariants made true), not documentation-only; every fix is covered by new
+deterministic adversarial regression tests (`test_b1_*` … `test_b9_*`).
+
+### B1. Runtime action authority — FIXED
+The compiled `AtlasTaskDefinition` is independently reconciled against the
+inspect-only contract: `allowed_action_tools` must be exactly `{unreal_inspect}`,
+every action and evidence tool must be `unreal_inspect`, and `allow_writes` must
+be False. Any render/write/unknown tool or action FAILS CLOSED (never merely
+cleared). Tests: `test_b1_render_tool_in_inspect_task_rejected`,
+`test_b1_extra_render_tool_rejected`, `test_b1_unknown_tool_in_actions_rejected`.
+
+### B2. Render classification from ALL axes — FIXED
+Render-bearing status derives from the UNION of authoritative axes: the source
+task class AND canonical fragment render semantics (render-configured /
+non-``expandable`` fragments like ``render_setup``). The dangerous direction — a
+render-constrained fragment routed through a non-render class — FAILS CLOSED so
+it cannot escape the render boundary. A render CLASS with no render fragment (e.g.
+``artifact-validate``) still routes to the render boundary. Tests:
+`test_b2_render_setup_via_non_render_class_rejected`,
+`test_b2_render_class_still_fails_toward_boundary`,
+`test_b2_artifact_validate_still_routes_to_boundary`.
+
+### B3. Closed-allowlist provenance + source-metadata smuggling — FIXED
+Caller-supplied plan/step provenance is now gated by a CLOSED ALLOWLIST of keys
+with explicit meaning (`proposal_source`, `note`, `source_task_version`,
+fragment identity/contribution). Unknown keys (``signature``, ``grant``,
+``approved``, ``capability``-shaped, etc.) are REJECTED. The resolved source
+metadata that reaches the runtime snapshot is likewise allowlisted and
+recursively scanned for high-confidence authority material (e.g. a catalog JSON
+``camera_slots`` parameter smuggling ``authorization_id``). Tests:
+`test_b3_unknown_provenance_key_rejected`, `test_b3_source_metadata_smuggling_rejected`,
+`test_b3_legitimate_provenance_preserved`.
+
+### B4. Snapshot is the SOLE runtime-task representation — FIXED
+No hidden mutable backing ``AtlasTaskDefinition`` is retained. ``materialize_runtime_task()``
+rebuilds from the immutable snapshot only and asserts the rebuilt snapshot's
+digest equals ``runtime_task_digest`` before returning an isolated copy. Mutating
+a materialized object cannot affect the snapshot, digest, or canonical JSON.
+Tests: `test_b4_no_hidden_backing_task`, `test_b4_materialize_rebuild_matches_digest`.
+
+### B5. Unresolved requirements fail closed — FIXED
+Every canonical fragment requirement must be resolved by an EARLIER producer
+step. An orphan step / missing producer FAILS CLOSED (never an empty-dependency /
+supported representation). Test: `test_b5_orphan_step_fails_closed`.
+
+### B6. Catalog version single source of truth — FIXED
+`catalog_version` is now the plan's authoritative value; a caller override that
+disagrees (or a mismatch with the resolved source metadata) FAILS CLOSED. No
+shadow versions. Tests: `test_b6_catalog_version_conflict_rejected`,
+`test_b6_catalog_version_agrees_accepted`.
+
+### B7. declared / validated semantics machine-visible — FIXED
+``declared`` is now True ONLY when non-canonical caller content is carried
+verbatim in a step; clean steps report ``declared=False, reconciled=True``.
+Tests: `test_b7_declared_false_for_clean_mapping`,
+`test_b7_step_with_caller_provenance_is_declared`.
+
+### B8. Strict JSON / canonical representation — FIXED
+``canonical_json``, ``compute_source_task_digest`` and ``_digest_of_jsonable`` all
+use ``allow_nan=False``; the strict-JSON + authority validation is applied to the
+assembled snapshot (metadata included) before freezing/digesting. NaN/Infinity/
+Fraction-like values fail closed. Tests: `test_b8_nan_via_source_parameter_rejected`,
+`test_b8_canonical_json_is_strict_and_stable`.
+
+### B9. Self-validating construction — FIXED
+``UnrealRuntimeMapping`` / ``UnrealRuntimeStepMapping`` run the SAME single
+canonical validation path in ``__post_init__`` as the factory (provenance
+allowlist, source digest shape, render-consistency, runtime authority
+consistency, digest binding). A directly-constructed invalid mapping FAILS CLOSED.
+Tests: `test_b9_direct_invalid_render_contradiction_rejected`,
+`test_b9_direct_invalid_snapshot_tools_rejected`.
 
