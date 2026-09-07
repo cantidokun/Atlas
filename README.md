@@ -1,5 +1,7 @@
 # Atlas
 
+> **Current-state reconciliation (supersedes legacy milestone lines below):** M10 live Unreal Scenarios S1–S8 are **COMPLETE — all PASSED live** against the real UE 5.6 boundary (per-scenario PASS reports in `live_run_state/`). M11 (development model-router, PRs #82–#85) is **FROZEN/paused**. The next Unreal milestone is **M12 — Unreal Semantic Soccer Production Layer** (design only: `docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md`). Legacy milestone lines in the body that state "M7 ... Not run" or "S2–S8 NOT executed" are historical snapshots, preserved verbatim and superseded by this block. No production-authority boundary changed.
+
 ## What Atlas is
 
 Atlas is an **AI-assisted sports virtual-production and digital-twin platform** focused exclusively on soccer-field-related digital twins and production workflows.

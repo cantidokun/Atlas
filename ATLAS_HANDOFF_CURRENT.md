@@ -1,8 +1,37 @@
 # Atlas Current Development Handoff
 
+> **Authoritative current-state reconciliation (supersedes the legacy milestone line below).**
+
+## Current status (authoritative reconciliation — supersedes stale milestone headers)
+
+- **M10 — COMPLETE. All eight live Unreal scenarios (S1–S8) were executed and PASSED against the real Unreal 5.6 boundary.** Each is backed by a per-scenario live PASS report in `live_run_state/{s1_final4,s2,s3,s4r,s5,s6,s7,s8}/M10_S*_PASS_REPORT.md`. This is live validation, not merely deterministic preparation.
+  - S1 — normal live render, 24/24 frames, Case B → FINALIZED, one verified receipt.
+  - S2 — Unreal process/session restart; durable Atlas state remained authoritative; FINALIZED/RESOLVED; one verified receipt.
+  - S3 — Atlas restart; durable authority preserved; no resubmission; FINALIZED/RESOLVED.
+  - S4 — dual-restart torn witness; Case J → RECOVERY_PENDING (after remediation PR #79); no receipt, no retry.
+  - S5 — Unreal finished while Atlas was down; Atlas recovered and finalized correctly; one verified receipt.
+  - S6 — artifact present without trustworthy evidence → ORPHANED_ARTIFACTS_PRESENT; no synthetic success, no receipt.
+  - S7 — terminal engine evidence with missing artifact → Case G/FAILED fail-closed; no receipt/retry.
+  - S8 — duplicate/stale execution identities → real engine CONFLICT → Case H/RECOVERY_FAILED; no adoption/retry/synthetic success.
+- **M11 (development model-router) is FROZEN / paused.** M11.1–M11.4 are merged (PRs #82/#83/#84/#85) as development-tooling infrastructure that coexists with the Unreal roadmap but is not required for it. No further M11 benchmarking/calibration/provider work is ongoing.
+- **M12 (Unreal Semantic Soccer Production Layer) is the next Unreal development milestone.** It is currently at the investigation + design stage (`docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md`) — no M12 production code exists yet.
+
+> The "Current milestone" line under this block is an older snapshot that predates the final M10 live validation. It is preserved verbatim as historical context; it does NOT reflect current state.
+
+**Active branch:** (see HEAD — M10/M11 merged into `main`; M12 design branch follows)
+
+<sup>Note: the original snapshot below the divider is retained verbatim for provenance. The authoritative current state is the block above.</sup>
+
+### Legacy dated snapshot (preserved verbatim — historical context, not current state)
+
+```
 **Updated:** September 6, 2026 — M4/M5 merged (PR #68); M6 deterministic fault-injection/concurrency suite merged (PR #70); **M7 hardening/pre-flight implemented** (framed-catalog integrity, C++ append-only witness history, execution-deadline enforcement — production + deterministic tests, docs/UNREAL_M7_HARDENING.md). Per-item §31/§32 status: docs/UNREAL_M6_TEST_STATUS.md.
 **Active branch:** `main`
 **Current milestone:** M5/M6 + M7 hardening complete. **M7 live UE 5.6 restart/recovery Scenarios 1–8 is the next authoritative gate and requires explicit human authorization** (Contract V1 §35). Not run.
+```
+
+> The three lines above are the ORIGINAL dated snapshot header, preserved verbatim. They predate the final M10 live validation and state "Not run", which has since been superseded — M10 S1–S8 were completed and PASSED live (see the authoritative block above). They are retained only as dated provenance.
+
 **Latest M5 merge commit:** `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
 
 ## Current repository state
@@ -229,6 +258,7 @@ Do not run workflow/action-runner tests unless explicitly authorized.
 - M8 — witness attestation (real HMAC-SHA256 keyed by Atlas attempt_nonce) + engine attempt_ordinal threading; canonical Python/C++ conformance verified.
 - PR #72 — M8 witness attestation (real HMAC-SHA256 keyed by Atlas attempt_nonce) + engine attempt_ordinal threading; canonical Python/C++ conformance verified.
 - M9 (pre-flight) — deterministic Scenario 1-8 harness + live-execution pre-flight checks + LIVE_EXECUTION_CHECKLIST. NO live scenario executed; S1/S5/S6/S7 READY_FOR_LIVE, S2/S4/S8 BLOCKED, S3 NOT_PROVEN until live UE restart.
+- **M10 attempt-by-attempt forensics log (historical, preserved verbatim).** Each bullet below documents the STATE AT THE TIME each live attempt was made, including the defect-stops. They are NOT the current state. The final live outcome is M10 S1–S8 ALL PASSED (see the authoritative "Current status" block at the top of this file, and the per-scenario PASS reports in `live_run_state/`). The earlier "S2-S8 NOT executed" clauses below reflect the moment each attempt stopped; they were superseded as S2–S8 were subsequently executed and passed live.
 - M10 (live) — first authorized live execution attempted. Corrected S1 render PASSED (real MRQ render, FINISHED journal, HMAC verified, 23 artifacts independently verified). Reconciliation found + stopped at two production defects (Defect A: coordinator used WRITE-only apply_authorized for the reconcile READ; Defect B: in-memory reconcile overlay dropped the M8 attestation/session fields). Both fixed in a remediation PR; new tests/m10 + full suite. S1 must rerun after merge before S2-S8. S2-S8 NOT executed.
 - M10 (live, Defect C) — S1 verification rerun proved live: Defects A & B RESOLVED (reconcile READ via inspect; catalog preserves journal-derived attestation fields). Reconciliation still blocked by NEW Defect C: adapter `_build_request` did not relay operation entity_ids into nested `arguments.entity_ids`, which the C++ engine requires. Fixed at the adapter transport boundary (generic, fail-closed on any arguments.entity_ids conflict); tests/m10 + full suite. S1 must rerun again after merge before S2-S8. S2-S8 NOT executed.
 - M10 (live, Defect D) — S1 final run proved live: A/B/C RESOLVED; only blocker left was Defect D (declared 24 frames, MRQ rendered 23). ROOT CAUSE: submit_render never transmitted start_frame/end_frame to Unreal, and SubmitRender never applied the authorized inclusive range to MRQ -> half-open end dropped frame 24. Fixed: submission now sends start/end; C++ SubmitRender applies bUseCustomPlaybackRange + CustomStart/End (inclusive). Verifier NOT weakened (23 still fails). tests/m10 + full suite; UBT_EXIT_CODE=0. S1 requires ONE final live rerun after merge; S2-S8 NOT executed.
