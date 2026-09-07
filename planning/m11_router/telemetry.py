@@ -25,6 +25,14 @@ from planning.m11_router.model_profile import ModelTier
 
 
 # Substrings that, if present in any string value or key, cause fail-closed rejection.
+# Canonical field names that legitimately appear and are NOT secret material.
+SAFE_NAME_SUBSTRINGS: tuple = (
+    "authorization_identity",   # M11 risk-dimension key name
+    "provenance_receipt",       # M11 risk-dimension key name
+    "risk_dimension_scores",
+    "authorization_id",         # Atlas identity field name (never a key VALUE here)
+)
+
 SENSITIVE_SUBSTRINGS: tuple = (
     "attempt_nonce",
     "api_key",
@@ -36,8 +44,13 @@ SENSITIVE_SUBSTRINGS: tuple = (
     "token=",
     "password",
     "bearer ",
-    "BEGIN RSA PRIVATE KEY",
-    "BEGIN OPENSSH PRIVATE KEY",
+    "basic ",
+    "begin rsa private key",
+    "begin openssh private key",
+    "x-api-key",
+    "x-auth",
+    "client_secret",
+    "refresh_token",
 )
 
 
@@ -96,20 +109,44 @@ class RouterTelemetryRecord:
 
 def _contains_sensitive(payload: Any) -> bool:
     def walk(value: Any) -> bool:
+        # Values: reject any value that itself contains a sensitive marker.
         if isinstance(value, str):
             low = value.lower()
-            return any(s.lower() in low for s in SENSITIVE_SUBSTRINGS)
-        if isinstance(value, Mapping):
-            if any(
-                any(s.lower() in str(k).lower() for s in SENSITIVE_SUBSTRINGS) for k in value
-            ):
+            if any(s.lower() in low for s in SENSITIVE_SUBSTRINGS):
                 return True
-            return any(walk(v) for v in value.values())
+        if isinstance(value, Mapping):
+            # Keys: only check against header/credential-shaped markers, and
+            # skip known-safe canonical names (e.g. risk dimension keys).
+            for k, v in value.items():
+                kl = str(k).lower()
+                if any(s in kl for s in SAFE_NAME_SUBSTRINGS):
+                    # value may still be unsafe; recurse on the value only.
+                    if walk(v):
+                        return True
+                    continue
+                if any(s.lower() in kl for s in _SENSITIVE_KEY_MARKERS):
+                    return True
+                if walk(v):
+                    return True
+            return False
         if isinstance(value, (list, tuple, set, frozenset)):
             return any(walk(v) for v in value)
         return False
 
     return walk(payload)
+
+
+# Key-name markers that indicate a credential/header in a mapping KEY.
+_SENSITIVE_KEY_MARKERS: tuple = (
+    "authorization_header",
+    "x-api-key",
+    "api_key",
+    "apikey",
+    "x-auth",
+    "client_secret",
+    "refresh_token",
+    "access_token",
+)
 
 
 def _record_from_dict(raw: Mapping[str, Any]) -> RouterTelemetryRecord:

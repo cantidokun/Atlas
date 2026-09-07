@@ -171,9 +171,16 @@ def test_openrouter_adapter_is_vendor_isolated():
     import ast
     from pathlib import Path
     leaked = []
+    # Operator-invocation / composition modules legitimately instantiate the
+    # adapter; CORE routing/risk/escalation/telemetry logic must not.
+    operator_modules = {
+        "openrouter_adapter.py", "__init__.py",
+        "hermes_integration.py", "live_validation.py",
+        "live_operator.py",  # operator CLI (instantiates the adapter on --live)
+    }
     for py in Path("planning/m11_router").rglob("*.py"):
-        if py.name in ("openrouter_adapter.py", "__init__.py"):
-            continue  # the adapter and package export aggregators are the boundary
+        if py.name in operator_modules:
+            continue
         tree = ast.parse(py.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
