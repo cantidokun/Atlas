@@ -13,6 +13,25 @@ Package layout:
     compile boundary onto the existing AtlasTaskDefinition runtime.
 """
 
+from planning.m12.catalog import (
+    DEFAULT_UNREAL_CATALOG,
+    InvalidCatalogParametersError,
+    UnrealCatalogEntrySpec,
+    UnrealCatalogError,
+    UnrealSoccerProductionCatalog,
+    UnknownCatalogTaskError,
+    UnsupportedCatalogVersionError,
+)
+from planning.m12.composition import (
+    FragmentCompositionError,
+    UnrealComposedTaskPlan,
+    compose_fragments,
+)
+from planning.m12.fragments import UnrealProductionFragment
+from planning.m12.fragments_registry import (
+    CANONICAL_UNREAL_FRAGMENTS,
+    canonical_fragment,
+)
 from planning.m12.semantic_task import (
     UnauthorizedSemanticFieldError,
     UnrealProductionTaskDefinition,
@@ -35,6 +54,7 @@ from planning.m12.target_state import (
 )
 
 __all__ = [
+    # M12.1
     "UnrealProductionTaskDefinition",
     "UnrealTargetStateSpec",
     "UnrealSemanticTaskError",
@@ -49,4 +69,18 @@ __all__ = [
     "is_render_task_class",
     "UNREAL_TASK_CLASSES",
     "UNREAL_RENDER_TASK_CLASSES",
+    # M12.2
+    "UnrealProductionFragment",
+    "CANONICAL_UNREAL_FRAGMENTS",
+    "canonical_fragment",
+    "FragmentCompositionError",
+    "UnrealComposedTaskPlan",
+    "compose_fragments",
+    "UnrealCatalogError",
+    "UnknownCatalogTaskError",
+    "UnsupportedCatalogVersionError",
+    "InvalidCatalogParametersError",
+    "UnrealCatalogEntrySpec",
+    "UnrealSoccerProductionCatalog",
+    "DEFAULT_UNREAL_CATALOG",
 ]
