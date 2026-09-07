@@ -37,6 +37,7 @@ from planning.m12.runtime_adapter import (
     UnrealRuntimeAdapterError,
     UnrealRuntimeMapping,
     UnrealRuntimeStepMapping,
+    compute_source_task_digest,
     is_forbidden_authority_key,
     map_unreal_execution_plan,
 )
@@ -107,4 +108,5 @@ __all__ = [
     "UnrealRuntimeMapping",
     "map_unreal_execution_plan",
     "is_forbidden_authority_key",
+    "compute_source_task_digest",
 ]

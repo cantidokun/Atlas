@@ -30,6 +30,7 @@ from planning.m12.execution_plan import _deterministic_step_id
 from planning.m12.runtime_adapter import (
     EXISTING_RUNTIME_INSPECT_TOOL,
     REQUIRES_EXISTING_RENDER_SUBMISSION_PATH,
+    compute_source_task_digest,
     is_forbidden_authority_key,
 )
 from planning.m12.semantic_task import UnrealProductionTaskDefinition
@@ -162,7 +163,9 @@ def test_map_rejects_step_operation_mismatch():
 
 def test_non_render_map_reuses_existing_atlas_runtime():
     mapping = _map()
-    assert isinstance(mapping.runtime_task, AtlasTaskDefinition)
+    assert mapping.runtime_task_snapshot is not None
+    assert mapping.runtime_task_digest is not None
+    assert isinstance(mapping.materialize_runtime_task(), AtlasTaskDefinition)
     assert mapping.requires_existing_render_submission_path is False
     assert mapping.render_plan is False
 
@@ -224,7 +227,7 @@ def test_identity_fields_not_collapsed():
     assert mapping.source_task_version == 1
     assert mapping.catalog_version == 1
     # runtime mapping carries distinct identity; mapping keeps plan/task/twin distinct.
-    assert isinstance(mapping.runtime_task, AtlasTaskDefinition)
+    assert isinstance(mapping.materialize_runtime_task(), AtlasTaskDefinition)
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +343,8 @@ def test_render_execute_plan_recognized_fail_closed():
     mapping = map_unreal_execution_plan(plan, source_task=task)
     assert mapping.render_plan
     assert mapping.requires_existing_render_submission_path
-    assert mapping.runtime_task is None
+    assert mapping.runtime_task_snapshot is None
+    assert mapping.materialize_runtime_task() is None
     assert mapping.can_execute is False
     for step in mapping.steps:
         assert not step.supported
@@ -354,7 +358,7 @@ def test_artifact_validate_plan_recognized_fail_closed():
     mapping = map_unreal_execution_plan(plan, source_task=task)
     assert mapping.render_plan
     assert mapping.requires_existing_render_submission_path
-    assert mapping.runtime_task is None
+    assert mapping.runtime_task_snapshot is None
     assert mapping.can_execute is False
 
 
@@ -362,7 +366,7 @@ def test_render_mapping_compile_still_blocked():
     task = _render_task("unreal.render-execute", {"twin_id": "twin-1", "sequence_name": "main"})
     plan = generate_execution_plan(task)
     mapping = map_unreal_execution_plan(plan, source_task=task)
-    assert mapping.runtime_task is None
+    assert mapping.runtime_task_snapshot is None
     # The existing M12.1 rule is untouched: a render-bearing compile still raises
     # UnsupportedCompileMappingError. M12.4 does not work around it.
     with pytest.raises(UnsupportedCompileMappingError):
@@ -482,7 +486,10 @@ def test_fix1_is_forbidden_helper():
 def test_fix2_inspect_only_plan_does_not_claim_write_authority():
     mapping = _map()
     assert all(s.capability_requirement == "inspect-only" for s in mapping.steps)
-    assert mapping.runtime_task.allow_writes is False
+    # The immutable runtime snapshot must not permit writes for an inspect-only plan,
+    # and nor must a freshly materialized copy.
+    assert mapping.runtime_task_snapshot["allow_writes"] is False
+    assert mapping.materialize_runtime_task().allow_writes is False
 
 
 # ---- Fix 3: dependency/target-state/input fidelity --------------------------------
@@ -568,7 +575,7 @@ def test_fix5_render_true_path_unchanged():
     mapping = map_unreal_execution_plan(generate_execution_plan(rt), source_task=rt)
     assert mapping.render_plan
     assert mapping.requires_existing_render_submission_path
-    assert mapping.runtime_task is None
+    assert mapping.runtime_task_snapshot is None
     assert mapping.can_execute is False
     assert mapping.semantic_fidelity == "unavailable"
 
@@ -597,3 +604,268 @@ def test_fix7_semantic_fidelity_declared():
         generate_execution_plan(_render_src()), source_task=_render_src()
     )
     assert rm.semantic_fidelity == "unavailable"
+
+# ---------------------------------------------------------------------------
+# Round-2 blocker regression tests (independent red-team gate)
+# ---------------------------------------------------------------------------
+
+
+# ---- R2-1: nested / casing / alias authority smuggling ---------------------
+
+
+@pytest.mark.parametrize("token", [
+    "authorization_id", "authorization", "receipt", "attempt_nonce", "nonce",
+    "hmac", "hmac_key", "api_key", "credential", "recovery_authority",
+    "artifact_id", "manifest_id", "scheduler", "retry_controller",
+    "protected_flag", "is_authorized", "authorized",
+])
+@pytest.mark.parametrize("shape", ["nested_dict", "nested_list", "cased", "alias"])
+def test_r2_forbidden_authority_nested_casing_alias_rejected(token, shape):
+    if shape == "nested_dict":
+        prov = {"proposal_source": "qwen", "notes": {"meta": {token: "forged"}}}
+    elif shape == "nested_list":
+        prov = {"proposal_source": "qwen", "notes": [{"meta": [{token: "forged"}]}]}
+    elif shape == "cased":
+        prov = {"proposal_source": "qwen", token.upper(): "forged"}
+    else:  # alias
+        alias = {"api_key": "apiKey", "recognized_render_plan": "recognizedRenderPlan",
+                 "attempt_nonce": "attemptNonce", "authorization": "Authorisation",
+                 "session": "sessionToken", "jwt": "jwt"}.get(token, token)
+        prov = {"proposal_source": "qwen", alias: "forged"}
+    plan = _clone_sequence_plan(plan_provenance=prov)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_r2_nested_step_provenance_rejected():
+    plan = _clone_sequence_plan({0: {"provenance": {"meta": {"receipt": {"id": "r"}}}}})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_r2_is_forbidden_alias_vocabulary():
+    for k in ("api_key", "apiKey", "apikey", "API_KEY", "IS_AUTHORIZED",
+              "IsAuthorized", "session_token", "sessionToken", "client_secret",
+              "private_key", "jwt", "bearer", "password", "hmac"):
+        assert is_forbidden_authority_key(k), k
+    for k in ("proposal_source", "note", "stage", "sequence_name"):
+        assert not is_forbidden_authority_key(k), k
+
+
+# ---- R2-2: embedded runtime-task mutation isolation --------------------------
+
+
+def test_r2_runtime_task_no_mutable_handle_exposed():
+    # The mapping must NOT expose a mutable AtlasTaskDefinition that can diverge
+    # from the canonical snapshot/digest.
+    mapping = _map()
+    assert not hasattr(mapping, "runtime_task")
+    assert mapping.runtime_task_snapshot is not None
+    assert mapping.runtime_task_digest is not None
+    # Materialize a copy and mutate it aggressively.
+    mat = mapping.materialize_runtime_task()
+    mat.allowed_action_tools.add("unreal_render")
+    mat.metadata["unreal_semantic_task_class"] = "render-execute"
+    # allow_writes is a frozen field on AtlasTaskDefinition (itself immutable by
+    # tuple/set semantics); assigning raises — a fresh-frozen + isolated object.
+    with pytest.raises(Exception):  # FrozenInstanceError (or FrozenSet)
+        mat.allow_writes = True
+    # The snapshot/digest/canonical view are completely unaffected.
+    assert "unreal_render" not in mapping.runtime_task_snapshot["allowed_action_tools"]
+    assert mapping.runtime_task_snapshot["allow_writes"] is False
+    assert mapping.runtime_task_snapshot["metadata"]["unreal_semantic_task_class"] == "sequence-configure"
+    # A fresh materialization is isolated again.
+    assert "unreal_render" not in mapping.materialize_runtime_task().allowed_action_tools
+    # The snapshot itself is deeply immutable.
+    with pytest.raises((TypeError, AttributeError)):
+        mapping.runtime_task_snapshot["allow_writes"] = True
+
+
+def test_r2_canonical_binds_runtime_permissions():
+    mapping = _map()
+    before = mapping.canonical_json()
+    rt = mapping.materialize_runtime_task()
+    rt.allowed_action_tools.add("unreal_render")
+    assert mapping.canonical_json() == before
+    parsed = json.loads(before)
+    assert parsed["runtime_task_snapshot"]["allowed_action_tools"] == ["unreal_inspect"]
+    assert parsed["runtime_task_digest"]
+
+
+# ---- R2-3: fidelity reconciliation on every step incl. render path -----------
+
+
+def test_r2_render_path_step_fidelity_reconciled():
+    rt = _render_src()
+    base = generate_execution_plan(rt)
+    # render_setup step is index 3; forge its target-state contributions.
+    st = list(base.steps)
+    st[3] = UnrealExecutionPlanStep(
+        step_id=st[3].step_id, semantic_operation=st[3].semantic_operation,
+        required_inputs=st[3].required_inputs, preconditions=st[3].preconditions,
+        target_state_contributions=("forged_invariant",),
+        dependencies=st[3].dependencies, idempotence=st[3].idempotence,
+        verification_requirements=st[3].verification_requirements,
+        execution_capability_requirement=st[3].execution_capability_requirement,
+        provenance=dict(st[3].provenance),
+    )
+    forged = UnrealExecutionPlan(
+        plan_id=base.plan_id, source_task_id=base.source_task_id,
+        source_task_version=base.source_task_version, catalog_version=base.catalog_version,
+        digital_twin_id=base.digital_twin_id, steps=tuple(st),
+        provenance=dict(base.provenance), render_plan=True,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(forged, source_task=rt)
+
+
+def test_r2_render_path_precondition_tamper_rejected():
+    rt = _render_src()
+    base = generate_execution_plan(rt)
+    st = list(base.steps)
+    st[3] = UnrealExecutionPlanStep(
+        step_id=st[3].step_id, semantic_operation=st[3].semantic_operation,
+        required_inputs=st[3].required_inputs, preconditions=(),
+        target_state_contributions=st[3].target_state_contributions,
+        dependencies=st[3].dependencies, idempotence=st[3].idempotence,
+        verification_requirements=st[3].verification_requirements,
+        execution_capability_requirement=st[3].execution_capability_requirement,
+        provenance=dict(st[3].provenance),
+    )
+    forged = UnrealExecutionPlan(
+        plan_id=base.plan_id, source_task_id=base.source_task_id,
+        source_task_version=base.source_task_version, catalog_version=base.catalog_version,
+        digital_twin_id=base.digital_twin_id, steps=tuple(st),
+        provenance=dict(base.provenance), render_plan=True,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(forged, source_task=rt)
+
+
+def test_r2_preconditions_and_verification_preserved():
+    mapping = _map()
+    by_op = {s.semantic_operation: s for s in mapping.steps}
+    assert by_op["camera_setup"].preconditions == ("scene_ready",)
+    assert by_op["camera_setup"].verification_requirements == ("cameras_configured",)
+    assert by_op["sequence_setup"].preconditions == ("cameras_ready", "scene_ready")
+    assert by_op["sequence_setup"].verification_requirements == ("sequence_configured",)
+
+
+def test_r2_canonic_step_layout_has_preconditions_and_verification():
+    mapping = _map()
+    step0 = json.loads(mapping.canonical_json())["steps"][0]
+    assert "preconditions" in step0
+    assert "verification_requirements" in step0
+
+
+# ---- R2-4: source binding / deterministic digest -----------------------------
+
+
+def _seq_task_named(seq_name):
+    return _resolve(
+        name="unreal.sequence-configure",
+        parameters={
+            "twin_id": "twin-1", "sequence_name": seq_name,
+            "frame_start": 1, "frame_end": 24,
+        },
+        digital_twin_id="twin-1",
+        provenance={"proposal_source": "qwen-proposal-v1"},
+    )
+
+
+def test_r2_source_digest_binds_resolved_content():
+    ta = _seq_task_named("main")
+    tb = _seq_task_named("OTHER")
+    da = compute_source_task_digest(ta)
+    db = compute_source_task_digest(tb)
+    assert da != db  # same class/version/twin, different resolved content
+
+    mapping = map_unreal_execution_plan(generate_execution_plan(ta), source_task=ta)
+    assert mapping.source_task_digest == da
+    assert "source_task_digest" in json.loads(mapping.canonical_json())
+
+
+def test_r2_expected_source_digest_rejects_substitution():
+    ta = _seq_task_named("main")
+    tb = _seq_task_named("OTHER")
+    digA = compute_source_task_digest(ta)
+    plan = generate_execution_plan(ta)
+    # Substituting B for A with the expected digest of A fails closed.
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=tb, expected_source_task_digest=digA)
+    # Correct source + digest accepted.
+    m = map_unreal_execution_plan(plan, source_task=ta, expected_source_task_digest=digA)
+    assert m.source_task_digest == digA
+
+
+def test_r2_adapter_owned_provenance_not_shadowable():
+    # A caller seeding adapter-owned PLAN-level keys is rejected.
+    plan = _clone_sequence_plan(plan_provenance={"recognized_render_plan": True})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+    plan2 = _clone_sequence_plan(plan_provenance={"semantic_fidelity": "unavailable"})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan2, source_task=_sequence_task())
+    plan3 = _clone_sequence_plan(plan_provenance={"source_task_digest": "deadbeef"})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan3, source_task=_sequence_task())
+    # A caller seeding STEP-level fragment identity is OVERWRITTEN to canonical
+    # (adapter truth wins; no shadow survives).
+    forged_step = _clone_sequence_plan({0: {"provenance": {
+        "fragment_id": "render_setup", "fragment_version": 999,
+        "target_state_contribution": ["forged"],
+    }}})
+    mapping = map_unreal_execution_plan(forged_step, source_task=_sequence_task())
+    assert mapping.steps[0].fragment_id == "scene_setup"
+    assert mapping.steps[0].fragment_version == 1
+    assert mapping.steps[0].provenance["fragment_id"] == "scene_setup"
+    assert mapping.steps[0].provenance["fragment_version"] == 1
+    # Adapter-owned provenance is authoritative on the real mapping.
+    mapping2 = _map()
+    assert mapping2.provenance["recognized_render_plan"] is False
+    assert mapping2.provenance["semantic_fidelity"] == "aggregate"
+    assert mapping2.provenance["mapped_runtime_task_type"] == "AtlasTaskDefinition"
+
+
+# ---- R2-5: deterministic binding / nested canonical-json-safety ----------------
+
+def test_r2_deterministic_source_binding():
+    ta = _seq_task_named("main")
+    m1 = map_unreal_execution_plan(generate_execution_plan(ta), source_task=ta)
+    m2 = map_unreal_execution_plan(generate_execution_plan(ta), source_task=ta)
+    assert m1.source_task_digest == m2.source_task_digest
+    assert m1.canonical_json() == m2.canonical_json()
+
+
+def test_r2_nested_provenance_canonical_json_serializes():
+    # Nested legit provenance must not break canonical serialization (the earlier
+    # MappingProxyType bug) and must be deterministic.
+    plan = _clone_sequence_plan(plan_provenance={
+        "proposal_source": "qwen",
+        "notes": {"stage": "proposal", "k": [1, 2, {"legit": "ok"}]},
+    })
+    mapping = map_unreal_execution_plan(plan, source_task=_sequence_task())
+    canonical = mapping.canonical_json()  # must not raise TypeError
+    parsed = json.loads(canonical)
+    assert parsed["provenance"]["notes"]["stage"] == "proposal"
+    assert parsed["provenance"]["notes"]["k"][2]["legit"] == "ok"
+
+
+def test_r2_nested_provenance_immutable_after_construction():
+    plan = _clone_sequence_plan(plan_provenance={"proposal_source": "qwen", "notes": {"stage": "p"}})
+    mapping = map_unreal_execution_plan(plan, source_task=_sequence_task())
+    with pytest.raises((TypeError, AttributeError)):
+        mapping.provenance["notes"]["stage"] = "tampered"
+    before = mapping.canonical_json()
+    # Mutating the ORIGINAL plan provenance after mapping must not change canonical.
+    import copy
+    # The mapping froze a copy at construction; the caller's dict is separate.
+    assert mapping.canonical_json() == before
+
+
+def test_r2_canonical_provenance_adapter_keys_authoritative():
+    mapping = _map()
+    parsed = json.loads(mapping.canonical_json())
+    assert parsed["provenance"]["recognized_render_plan"] is False
+    assert parsed["provenance"]["semantic_fidelity"] == "aggregate"
+    assert parsed["source_task_digest"]

@@ -14,15 +14,23 @@ produces evidence, or executes anything.
 - `UnrealRuntimeStepMapping` — immutable per-step mapping (step_id,
   semantic_operation, supported, target_runtime_operation, required_inputs,
   dependencies, target_state_contributions, idempotence, capability_requirement,
-  unsupported_reason).
+  fragment_id, fragment_version, preconditions, verification_requirements,
+  unsupported_reason, declared, provenance). Every reconciled field is re-derived
+  from the canonical fragment; a crafted plan cannot distort it.
 - `UnrealRuntimeMapping` — immutable result (plan_id, source_task_id/version,
-  catalog_version, digital_twin_id, ordered step mappings, render_plan,
-  requires_existing_render_submission_path, runtime_task, provenance) with stable
-  canonical JSON.
-- `map_unreal_execution_plan(plan, *, source_task, catalog_version=None)` —
-  deterministic mapping. Identity-locks the plan to its exact source task,
-  reuses the existing M12.1 compiler to build the existing
-  `AtlasTaskDefinition` runtime representation, and fails closed for render.
+  catalog_version, digital_twin_id, source_task_digest, ordered step mappings,
+  render_plan, requires_existing_render_submission_path,
+  runtime_task_snapshot, runtime_task_digest, semantic_fidelity, provenance)
+  with stable canonical JSON.
+- `compute_source_task_digest(source_task)` — deterministic SHA-256 binding of
+  the resolved canonical source content (substitution detector).
+- `map_unreal_execution_plan(plan, *, source_task, catalog_version=None,
+  expected_source_task_digest=None)` — deterministic mapping. Identity-locks the
+  plan to its exact source task, reconciles every step against the canonical
+  fragment (including render steps), recursively rejects authority/security
+  material in provenance, reuses the existing M12.1 compiler to build the
+  existing `AtlasTaskDefinition` runtime representation, and fails closed for
+  render and on source-content substitution.
 
 ## Architecture
 
@@ -74,8 +82,8 @@ contributions, idempotence, capability requirement, and provenance.
 ## Unsupported mappings (fail closed)
 
 - **Render-bearing plans** (`render-execute`, `artifact-validate`) are recognized
-  via `render_plan`/`requires_existing_render_submission_path=True` and produce
-  **no** runtime task (`runtime_task=None`). M12.4 does not fabricate render
+  from the AUTHORITATIVE source-task classification and produce **no** runtime
+  representation (`runtime_task_snapshot=None`). M12.4 does not fabricate render
   authorization, does not submit MRQ, does not create receipts, and does not mark
   anything verified. It records a structured
   `requires-existing-render-submission-path` boundary on every step.
@@ -95,7 +103,7 @@ For a render-bearing plan the adapter:
 
 - explicitly recognizes render intent (`render_plan=True`);
 - produces a structured `requires_existing_render_submission_path=True` mapping;
-- sets `runtime_task=None` (no runtime representation is fabricated);
+- sets `runtime_task_snapshot=None` (no runtime representation is fabricated);
 - never calls `compile_unreal_semantic_task` for a render-bearing task (the
   existing M12.1 `UnsupportedCompileMappingError` rule is preserved and
   re-verified by tests);
@@ -128,10 +136,35 @@ authoritative.
 ## Provenance
 
 Preserved through the mapping: digital-twin id, semantic task id/version,
-catalog version, execution-plan id, fragment ids/versions (via steps), and
-proposal provenance. The mapping never collapses canonical digital-twin
-identity, semantic task identity, execution-plan identity, or runtime job
-identity.
+catalog version, execution-plan id, source-content digest, fragment ids/versions
+(via steps), preconditions, verification requirements, and legitimate proposal
+provenance. The mapping never collapses canonical digital-twin identity, semantic
+task identity, execution-plan identity, or runtime job identity.
+
+**Authority/security material is REJECTED, never forwarded.** `map_unreal_execution_plan`
+recursively validates every key in plan and step provenance (nested dicts and
+lists at any depth), normalizing casing/separators, and rejects any
+authorization/receipt/nonce/HMAC/credential/secret/session/jwt/bearer/recovery/
+scheduler/artifact/manifest-like key, including aliases (`apiKey`/`apikey`) and
+casing tricks (`IS_AUTHORIZED`). Non-string mapping keys and non-JSON values are
+rejected. Adapter-owned provenance fields are authoritative and cannot be
+shadowed by a caller.
+
+**Source-content binding.** `compute_source_task_digest` hashes the resolved
+canonical source content; every mapping carries and serializes it. Two
+same-identity tasks with different resolved content yield different digests, and
+a caller may pass `expected_source_task_digest` to fail closed on substitution.
+
+## Immutability of the embedded runtime task
+
+The mapping does **not** expose a mutable `AtlasTaskDefinition` handle. It stores
+`runtime_task_snapshot` (a deeply immutable, JSON-serializable snapshot covering
+name, evidence, actions, `allowed_action_tools`, `allow_writes`,
+`verify_after_action`, and metadata) plus `runtime_task_digest`. Callers that need
+the existing runtime object call `mapping.materialize_runtime_task()` to obtain a
+**fresh, isolated deep copy** — mutating that copy (e.g. adding `unreal_render` to
+`allowed_action_tools`, editing metadata) can never change the mapping's
+snapshot, digest, or canonical JSON.
 
 ## Target-state requirements
 
@@ -175,9 +208,9 @@ mappings stay inside `planning/m12/`.
 
 ## Validation
 
-- `pytest tests/m12/` → **143 passed** (88 prior + 55 new M12.4)
-- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **480 passed**
-- `pytest -m "not integration"` → **1594 passed** (was 1539, +55)
+- `pytest tests/m12/` → **226 passed** (88 prior + 138 M12.4, incl. Round-2 blocker tests)
+- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **594 passed**
+- `pytest -m "not integration"` → **1677 passed** (was 1594, +83)
 - Authority-isolation import scan clean (adapter imports only M12 + `AtlasTaskDefinition`, no production-authority module).
 - No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4–M10 change.
 
@@ -287,8 +320,85 @@ distinguishes:
 
 ## Validation (after red-team remediation)
 
-- `pytest tests/m12/` → **143 passed** (88 prior + 55 M12.4 tests, incl. 31 adversarial regression tests)
-- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **511 passed**
-- `pytest -m "not integration"` → **1594 passed** (no regressions)
+- `pytest tests/m12/` → **226 passed** (incl. Round-2 blocker regression tests)
+- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **594 passed**
+- `pytest -m "not integration"` → **1677 passed** (no regressions)
 - Authority-isolation import scan clean. No M4–M10 / Blender / authority change.
+
+## Round-2 remediation (independent red-team BLOCKERS)
+
+An independent adversarial gate returned BLOCK with a specific blocker list.
+All are remediated in this M12.4 line (still no new milestone, still adapter-only).
+
+### B1. Nested / casing / alias provenance smuggling — FIXED
+`is_forbidden_authority_key` now normalizes casing/separators and checks a broad
+authority/credential vocabulary (authorization, receipt, nonce, HMAC, credential,
+password/secret, session, jwt, bearer, recovery, scheduler/retry, protected,
+artifact/manifest, token, api-key, ...). `_validate_provenance` recurses through
+mappings and sequences at any depth, rejects non-string keys and non-JSON values,
+rejects adapter-reserved shadow keys, and never strips-and-continues.
+Tests: `test_r2_forbidden_authority_nested_casing_alias_rejected`,
+`test_r2_nested_step_provenance_rejected`, `test_r2_is_forbidden_alias_vocabulary`.
+
+### B2. Embedded runtime_task mutability — FIXED
+The mapping no longer exposes a mutable `AtlasTaskDefinition`. It stores an
+immutable `runtime_task_snapshot` + `runtime_task_digest`; callers use
+`materialize_runtime_task()` for a fresh isolated deep copy. `canonical_json`
+serializes the full snapshot, so `runtime_task_snapshot.allowed_action_tools` can never gain
+`unreal_render` in the canonical view and metadata cannot be changed to alter
+semantics undetected.
+Tests: `test_r2_runtime_task_no_mutable_handle_exposed`,
+`test_r2_canonical_binds_runtime_permissions`.
+
+### B3. Asymmetric render-path fidelity — FIXED
+The same `_reconcile_step_fidelity` (inputs, target-state contributions,
+idempotence, prefix-only dependencies, preconditions, verification requirements)
+is applied to EVERY step, including render-bearing steps. A forged
+render-path target-state or preconditions now fails closed.
+Tests: `test_r2_render_path_step_fidelity_reconciled`,
+`test_r2_render_path_precondition_tamper_rejected`,
+`test_r2_preconditions_and_verification_preserved`.
+
+### B4. Source binding — FIXED
+`compute_source_task_digest` deterministically binds the resolved canonical
+source content. The mapping carries and serializes `source_task_digest`; a caller
+may pass `expected_source_task_digest` to fail closed on same-identity /
+different-content substitution. Plan target-state is also reconciled against the
+source task's target-state invariants.
+Tests: `test_r2_source_digest_binds_resolved_content`,
+`test_r2_expected_source_digest_rejects_substitution`,
+`test_r2_deterministic_source_binding`.
+
+### B5. Adapter-owned provenance shadowing — FIXED
+Adapter-owned keys (`recognized_render_plan`, `semantic_fidelity`,
+`mapped_runtime_task_type`, `source_task_digest`, `runtime_task_digest`,
+`declared`) are reserved: a caller supplying them is rejected. Fragment identity
+in step provenance (M12.3-declared) is overwritten with canonical truth rather
+than surviving as a shadow.
+Tests: `test_r2_adapter_owned_provenance_not_shadowable`.
+
+### B6. Immutability / serialization — FIXED
+Provenance and runtime-task snapshot are deeply frozen and recursively thawed
+inside the canonical serializer, so nested structures are both immutable and
+JSON-serializable (no MappingProxyType serialization error).
+Tests: `test_r2_nested_provenance_canonical_json_serializes`,
+`test_r2_nested_provenance_immutable_after_construction`.
+
+## Contract alignment (authoritative / validated / declared / deferred)
+
+- **Authoritative**: source-task render classification, source-content digest,
+  adapter-owned provenance field values, allowed-action-tools snapshot.
+- **Validated**: every `_RECONCILED_FIELDS` step field (required inputs,
+  dependencies, target-state contributions, idempotence, fragment id/version,
+  preconditions, verification requirements) is re-derived from the canonical
+  fragment and reconciled; divergence fails closed.
+- **Immutable**: `UnrealRuntimeMapping` / `UnrealRuntimeStepMapping` are frozen;
+  provenance and runtime-task snapshot are deeply frozen and canonically bound.
+- **Merely declared (not validated truth)**: nothing in a step mapping is
+  presented as validated runtime truth unless it is both reconciled against the
+  canonical fragment AND materialized through the existing runtime; M12.4 never
+  claims per-fragment executable fidelity.
+- **Intentionally deferred to M12.5**: independent evidence verification and the
+  authoritative render-submission entry point. M12.4 performs no verification and
+  never marks anything verified.
 
