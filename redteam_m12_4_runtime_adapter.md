@@ -366,3 +366,30 @@ Round-6 — an incremental repair, not a rollback.
 - can_execute remains False (plan, mapping, steps); no
   execute/authorize/submit/recover/verify authority; no M4-M10 authority imports.
 
+
+---
+
+# ROUND-8 — TARGETED CANONICAL SNAPSHOT RECONSTRUCTION
+
+The seventh gate (independent Astra BLOCK with 8 blockers; Claude BLOCK with 2 core
+F1/F2) confirmed two concrete blocker classes. Round-8 is a targeted correction,
+preserving all confirmed-working R6/R7 controls.
+
+## Finding -> root cause -> fix -> test -> result
+
+| R8 | Seventh-gate finding | Root cause | Fix | Test(s) | Post-fix result |
+|---|---|---|---|---|---|
+| R8-1 Broken unsupported-step guard | Astra B7 / Claude F1: the `"target the "<none>" operation"` message is a broken literal parsed as a chained comparison vs undefined `none` -> `NameError`; `test_r7_unsupported_step_non_none_operation_rejected` never reached the guard (false-green) | R7-1's own guard message was an invalid string literal; the test's `_r7_step` defaulted `unsupported_reason=None` so the earlier reason-guard rejected first | fixed literal to `must target the '<none>' operation`; added `test_r8_unsupported_step_non_none_guard_reached` that mutates ONLY `target_runtime_operation` on a valid render mapping (preserving provenance/declared/plan_id/fragment identity) and asserts the exact adapter message | `test_r8_unsupported_step_non_none_guard_reached` | branch now raises `UnrealRuntimeAdapterError` (empirically verified; was `NameError`); message-specific assertion means the test FAILS if the guard is removed |
+| R8-2 Snapshot semantic content not canonically reconstructed | Astra B2/B3 / Claude F2: direct construction could inject forged `unreal_target_state.invariant_names`, `expects_render`, `unreal_semantic_task_class`, `unreal_semantic_dependencies`, and nested `parameters`, reaching `materialize_runtime_task()` | `_validate_source_metadata_parameters` was factory-only; snapshot identity (task id/version/catalog) was checked but NOT semantic content | `_reconstruct_canonical_targets` now derives authoritative expected snapshot semantics from the mapping's steps/source: invariants == union of step contributions; expects_render == render_plan; class render semantics == render_plan; dependencies == ordered step ops; parameters pass the shared structural gate | `test_r8_snapshot_invariant_names_forged_rejected`, `test_r8_snapshot_expects_render_forged_rejected`, `test_r8_snapshot_render_class_forged_rejected`, `test_r8_snapshot_dependencies_forged_rejected`, `test_r8_snapshot_parameters_forged_rejected`, `test_r8_snapshot_invariant_omission_fails_closed`, `test_r8_factory_snapshot_still_accepted` | forged invariants / expects_render / render class / deps / nested parameter all REJECTED with the intended guard message (empirically verified); omission fails closed; factory snapshot still accepted (no false reject) |
+| R8-3 Direct-route authority guard coverage | Gate Area 19: direct-route snapshot tools/authority-scan guards had no genuine coverage | earlier direct tests rejected on unrelated digest/declared/plan_id checks | `test_r8_direct_snapshot_authority_tool_guard_reached` builds from a valid mapping, mutates ONLY `allowed_action_tools`, recomputes digest, asserts the non-inspect-tool guard | `test_r8_direct_snapshot_authority_tool_guard_reached` | non-inspect tool in snapshot rejected by the intended authority guard |
+| R8-4 False-green tests | Astra audit / Claude F8 | tests mutated setup-breaking fields (provenance/digest/plan_id/declared) before the intended guard | direct tests now use "valid factory mapping + one mutation + valid provenance/digest/plan_id/declared + `match=` on the unique guard message" | all R8 tests | guards genuinely reached; removal-sensitive |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **324 passed** (was 314; +10 R8 tests)
+- `pytest -m "not integration"` -> **1775 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- semantic/runtime subset -> **80 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only. M12.3, M12.1, M4-M10, M12.5
+  untouched. can_execute False; no new authority.
+

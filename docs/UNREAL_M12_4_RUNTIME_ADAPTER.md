@@ -834,3 +834,66 @@ Tests: `test_r7_source_task_version_mismatch_rejected`,
 - can_execute remains False (plan, mapping, steps); no
   execute/authorize/submit/recover/verify authority; no M4-M10 authority imports.
 
+
+## Round-8 — Targeted canonical snapshot reconstruction (R8-1..R8-4)
+
+The seventh gate (independent Astra BLOCK + Claude BLOCK) confirmed two concrete
+blockers: a broken unsupported-step guard raising `NameError`, and the direct
+construction path not canonically reconstructing snapshot *semantic* content.
+Round-8 is a targeted correction that preserves all confirmed-working R6/R7
+controls.
+
+### R8-1 — Repaired unsupported-step guard (`NameError` fix)
+The R7-1 unsupported-step target-operation message literal
+`"target the "<none>" operation"` was a broken string that Python parsed as a
+chained comparison against the undefined name `none`, raising `NameError` instead
+of `UnrealRuntimeAdapterError` when that branch was reached. It is fixed to a valid
+literal (`must target the '<none>' operation`). Added a guard-reaching test that
+mutates ONLY `target_runtime_operation` on a valid render mapping's `render_setup`
+step (preserving provenance, declared state, derived plan_id, fragment identity),
+and asserts the exact `UnrealRuntimeAdapterError` message — so it FAILS if the
+guard is removed. Empirically verified: the branch now raises
+`UnrealRuntimeAdapterError`, not `NameError`.
+
+### R8-2 — Canonical snapshot semantic reconstruction (shared path)
+`_reconstruct_canonical_targets` (used by BOTH factory and direct construction)
+now derives authoritative expected snapshot semantics from the mapping's own
+canonical source/steps and rejects any supplied snapshot that disagrees (fail
+closed on omission, never skip-on-absence):
+- (A) `unreal_target_state.invariant_names` must equal the canonical union of the
+  step target-state contributions;
+- (B) `unreal_target_state.expects_render` must equal `render_plan`;
+- (C) `unreal_semantic_task_class` render semantics must be consistent with
+  `render_plan` (a render-bearing class cannot appear in an inspect-only snapshot);
+- (D) `unreal_semantic_dependencies` must equal the deterministic ordered semantic
+  step operations;
+- (E) snapshot `parameters` must pass the SAME structural catalog-parameter schema
+  gate the factory applies (`_validate_source_metadata_parameters`, now shared).
+
+All five checks hold for every factory-produced mapping and close the
+factory/direct divergence the gate confirmed (a directly-constructed mapping could
+previously inject forged invariants / render axis / class / dependencies /
+nested parameters and have them reach `materialize_runtime_task()`).
+
+### R8-3 — direct-route authority guard coverage
+Direct-construction tests now build from a valid factory mapping, mutate exactly
+one security/semantic field, preserve valid provenance/digest/plan_id/declared
+state, and assert the intended canonical guard message.
+
+### R8-4 — false-green test audit
+The previously suspect tests are corrected so they cannot pass via accidental
+setup exceptions (valid provenance first, recomputed digest/plan_id, `match=` on
+the unique guard message).
+
+## Round-8 validation
+
+- `pytest tests/m12/` → **324 passed** (was 314; +10 R8 tests; R8-1 guard-reaching
+  test, 6 snapshot semantic-forgery tests, omission + positive controls)
+- `pytest -m "not integration"` → **1775 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` → **5 passed**
+- semantic/runtime deterministic subset → **80 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only. M12.3, M12.1, M4-M10, M12.5
+  untouched.
+- can_execute remains False; no execute/authorize/submit/recover/verify authority;
+  no M4-M10 authority imports.
+
