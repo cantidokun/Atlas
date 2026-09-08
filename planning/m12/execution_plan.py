@@ -16,13 +16,108 @@ implemented here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from planning.m12.fragments import UnrealProductionFragment
 from planning.m12.fragments_registry import canonical_fragment
 from planning.m12.semantic_task import UnrealProductionTaskDefinition
+
+
+
+def _validate_strict_json(value: Any, owner: str, path: str, depth: int = 0) -> None:
+    """Recursively validate a value is STRICT canonical JSON (R6-2).
+
+    Shared by source hashing, plan canonical JSON, and identity digests. Rejects:
+    - non-string mapping keys (so ``{1: "x"}`` cannot be coerced to ``{"1": "x"}``);
+    - NaN / Infinity;
+    - non-JSON-native numeric types (Fraction, Decimal, numpy scalars);
+    - bool/int collisions are preserved (bool is a distinct scalar, not an int);
+    - unsupported structures and excessive depth.
+
+    Raises ``UnrealExecutionPlanError`` on violation — the SAME strict
+    canonicalization boundary used for serialization and identity, so hashing and
+    canonical serialization can never diverge.
+    """
+    if depth > 20:
+        raise UnrealExecutionPlanError(
+            f"{owner}.{path}: nesting exceeds safety limit (20)"
+        )
+    if isinstance(value, (dict, Mapping)):
+        for k, v in value.items():
+            if not isinstance(k, str):
+                raise UnrealExecutionPlanError(
+                    f"{owner}.{path}: mapping key must be a string, got "
+                    f"{type(k).__name__} (no implicit key coercion in canonical form)"
+                )
+            _validate_strict_json(v, owner, f"{path}.{k}", depth + 1)
+        return
+    if isinstance(value, (list, tuple)):
+        for i, item in enumerate(value):
+            _validate_strict_json(item, owner, f"{path}[{i}]", depth + 1)
+        return
+    if value is None or isinstance(value, (bool, str)):
+        return
+    if type(value) is int:  # exact int; bool excluded (handled above)
+        return
+    if type(value) is float:
+        if not (value == value) or value in (float("inf"), float("-inf")):
+            raise UnrealExecutionPlanError(
+                f"{owner}.{path}: non-finite number {value!r} not allowed in "
+                "strict canonical JSON"
+            )
+        return
+    raise UnrealExecutionPlanError(
+        f"{owner}.{path}: unsupported value type {type(value).__name__} "
+        "(strict canonical JSON: str/bool/int/float/None/mapping/sequence only)"
+    )
+
+
+def _canonical_bytes(value: Any, owner: str) -> bytes:
+    """Strict-JSON canonical byte serialization (sorted keys, compact, no NaN)."""
+    _validate_strict_json(value, owner, "<root>")
+    try:
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False,
+        ).encode("utf-8")
+    except (ValueError, TypeError) as exc:
+        raise UnrealExecutionPlanError(
+            f"{owner}: not strictly JSON-serializable: {exc}"
+        ) from exc
+
+
+def _canonical_sha256(value: Any, owner: str) -> str:
+    return hashlib.sha256(_canonical_bytes(value, owner)).hexdigest()
+
+
+def compute_source_content_digest(source_task: UnrealProductionTaskDefinition) -> str:
+    """Deterministic SHA-256 binding of the authoritative resolved source content.
+
+    This is the SINGLE source-content-commitment implementation for the M12
+    layer (owned here in M12.3). :func:`generate_execution_plan` computes it from
+    the authoritative resolved source and carries it immutably on the plan;
+    M12.4 recomputes it (via the same function) to verify the plan's commitment.
+
+    It binds the task identity, version, digital-twin id, target state,
+    dependencies, evidence, actions, allowed tools/mutations, and resolved
+    catalog metadata (parameters, fragments) via STRICT JSON (``allow_nan=False``,
+    sorted keys, compact separators), so two same-identity tasks with different
+    resolved content yield different digests and coercion cannot collapse distinct
+    inputs. Deterministic and stable for semantically equivalent source content.
+
+    Raises ``UnrealExecutionPlanError`` on non-JSON data.
+    """
+    if not isinstance(source_task, UnrealProductionTaskDefinition):
+        raise TypeError("source_task must be an UnrealProductionTaskDefinition")
+    payload = source_task.to_json_compatible()
+    # R6-2: canonicalize through the SHARED strict-JSON canonicalizer (the same
+    # one serialization/identity use) so hashing cannot coerce typed distinctions
+    # (e.g. {1:"x"} vs {"1":"x"}, True vs 1) that canonical JSON would preserve.
+    return _canonical_sha256(payload, "source_task_digest")
+
 
 Idempotence = str  # "idempotent" | "non-idempotent" | "unknown"
 
@@ -107,8 +202,9 @@ class UnrealExecutionPlan:
     """Immutable, language-neutral semantic execution plan.
 
     Describes canonical plan id, source semantic task, catalog version,
-    digital-twin identity, ordered steps, render-bearing classification, and
-    provenance. It is a plan only: no execution, authorization, verification,
+    digital-twin identity, the immutable M12.3 source-content commitment
+    (``source_content_digest``), ordered steps, render-bearing classification,
+    and provenance. It is a plan only: no execution, authorization, verification,
     receipt, or recovery authority.
     """
 
@@ -117,6 +213,7 @@ class UnrealExecutionPlan:
     source_task_version: int
     catalog_version: int
     digital_twin_id: str
+    source_content_digest: str
     steps: Tuple[UnrealExecutionPlanStep, ...]
     provenance: Dict[str, Any] = field(default_factory=dict)
     render_plan: bool = False
@@ -129,6 +226,39 @@ class UnrealExecutionPlan:
         if not isinstance(self.catalog_version, int) or self.catalog_version < 1:
             raise UnrealExecutionPlanError("catalog_version must be a positive int")
         _check_token(self.digital_twin_id, "digital_twin_id")
+        # M12.3 source-content commitment (R5-1). Immutable, canonicalized; it is
+        # generated by generate_execution_plan from the authoritative resolved
+        # source content. A missing/invalid commitment FAILS CLOSED: a caller
+        # cannot construct a plan without a well-formed source binding, and M12.4
+        # verifies against this exact commitment (see compute_source_content_digest).
+        if not (
+            isinstance(self.source_content_digest, str)
+            and len(self.source_content_digest) == 64
+            and all(c in "0123456789abcdef" for c in self.source_content_digest)
+        ):
+            raise UnrealExecutionPlanError(
+                "source_content_digest must be a 64-char lowercase hex SHA-256 of "
+                "the authoritative resolved source content (missing or invalid "
+                "source commitment fails closed)"
+            )
+        _check_tokens(self.ordered_step_ids(), "step_ids")
+        # R6-1: plan_id is DERIVED, not caller-controlled. __post_init__ recomputes
+        # the authoritative plan identity from the canonical identity inputs and
+        # rejects any supplied plan_id that disagrees. A caller can never create
+        # "plan A identity + source commitment B" or "source commitment A + an
+        # arbitrary/external plan ID", and there is no digest-less identity path.
+        _derived_plan_id = _build_plan_id(
+            self.source_task_id,
+            self.source_task_version,
+            tuple(s.semantic_operation for s in self.steps),
+            self.source_content_digest,
+        )
+        if self.plan_id != _derived_plan_id:
+            raise UnrealExecutionPlanError(
+                f"plan_id is DERIVED from the canonical identity inputs and cannot "
+                f"be caller-controlled: supplied {self.plan_id!r} != derived "
+                f"{_derived_plan_id!r}"
+            )
         if not isinstance(self.steps, tuple) or not self.steps:
             raise UnrealExecutionPlanError("execution plan must have at least one step")
         if any(not isinstance(s, UnrealExecutionPlanStep) for s in self.steps):
@@ -165,21 +295,20 @@ class UnrealExecutionPlan:
             "source_task_version": self.source_task_version,
             "catalog_version": self.catalog_version,
             "digital_twin_id": self.digital_twin_id,
+            "source_content_digest": self.source_content_digest,
             "render_plan": self.render_plan,
             "steps": [s.to_json_compatible() for s in self.steps],
             "provenance": dict(self.provenance),
         }
 
     def canonical_json(self) -> str:
-        """Deterministic canonical serialization (sorted keys, compact)."""
-        return json.dumps(
-            self.to_json_compatible(), sort_keys=True, separators=(",", ":")
-        )
-
-
-# ---------------------------------------------------------------------------
-# Generator
-# ---------------------------------------------------------------------------
+        """Deterministic STRICT canonical serialization (sorted keys, compact,
+        allow_nan=False, string keys only). Shares the R6-2 canonicalizer used by
+        source hashing and identity, so a plan's canonical form is stable,
+        non-coercing, and cannot diverge from its digest."""
+        return _canonical_bytes(
+            self.to_json_compatible(), "execution_plan"
+        ).decode("utf-8")
 
 
 def _deterministic_step_id(source_task_id: str, operation: str, index: int) -> str:
@@ -204,9 +333,21 @@ def _build_plan_id(
     source_task_id: str,
     source_task_version: int,
     fragment_ids: Tuple[str, ...],
+    source_content_digest: str,
 ) -> str:
+    """Deterministic plan identity (R6-1, no digest-less fallback).
+
+    The plan_id is DERIVED from the canonical identity inputs — source task
+    identity, source task version, ordered canonical fragment identities, and the
+    full source-content commitment. There is NO digest-less path: every plan is
+    identity-bound to its resolved source content, so two plans with the same
+    identity/fragments but different source commitments necessarily differ, and a
+    caller can never substitute a plan identity independently of its commitment
+    (no "plan A identity + source commitment B").
+    """
     deps = "|".join(fragment_ids)
-    return f"plan:{source_task_id}:{source_task_version}:{deps}"
+    short = source_content_digest[:12]
+    return f"plan:{source_task_id}:{source_task_version}:{deps}:{short}"
 
 
 def generate_execution_plan(
@@ -219,6 +360,12 @@ def generate_execution_plan(
     Uses the task's ordered fragment dependencies (``task.dependencies``) and the
     resolved target state. Identical semantic input yields canonical-equivalent
     output. No authorization, side effect, or execution occurs.
+
+    The plan carries an immutable source-content commitment
+    (``source_content_digest``) as a STRICT-JSON SHA-256 of the authoritative
+    resolved source content; it participates in plan identity so same-identity
+    tasks with different resolved content yield different plans. A caller cannot
+    inject a digest assertion as authoritative.
 
     The plan's render-bearing classification (``render_plan``) is carried from the
     task's authoritative ``render_task`` flag, so every render-bearing semantic
@@ -287,14 +434,21 @@ def generate_execution_plan(
 
     plan_provenance = dict(task.provenance or {})
     plan_provenance.setdefault("source_task_version", task.task_version)
+    # M12.3 authoritative source commitment (R5-1): derived from the resolved
+    # source task content itself, NOT from a caller assertion. It is bound into
+    # the plan's identity and canonical representation; M12.4 recomputes and
+    # verifies it.
+    source_content_digest = compute_source_content_digest(task)
     return UnrealExecutionPlan(
         plan_id=_build_plan_id(
-            task.canonical_task_id, task.task_version, fragment_ids
+            task.canonical_task_id, task.task_version, fragment_ids,
+            source_content_digest,
         ),
         source_task_id=task.canonical_task_id,
         source_task_version=task.task_version,
         catalog_version=catalog_version,
         digital_twin_id=task.digital_twin_id,
+        source_content_digest=source_content_digest,
         steps=tuple(steps),
         provenance=plan_provenance,
         render_plan=task.render_task,
@@ -307,4 +461,5 @@ __all__ = [
     "UnrealExecutionPlanStep",
     "UnrealExecutionPlan",
     "generate_execution_plan",
+    "compute_source_content_digest",
 ]

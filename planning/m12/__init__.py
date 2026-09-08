@@ -31,7 +31,16 @@ from planning.m12.execution_plan import (
     UnrealExecutionPlan,
     UnrealExecutionPlanError,
     UnrealExecutionPlanStep,
+    compute_source_content_digest,
     generate_execution_plan,
+)
+from planning.m12.runtime_adapter import (
+    UnrealRuntimeAdapterError,
+    UnrealRuntimeMapping,
+    UnrealRuntimeStepMapping,
+    compute_source_task_digest,
+    is_forbidden_authority_key,
+    map_unreal_execution_plan,
 )
 from planning.m12.fragments import UnrealProductionFragment
 from planning.m12.fragments_registry import (
@@ -94,4 +103,12 @@ __all__ = [
     "UnrealExecutionPlanStep",
     "UnrealExecutionPlan",
     "generate_execution_plan",
+    "compute_source_content_digest",
+    # M12.4
+    "UnrealRuntimeAdapterError",
+    "UnrealRuntimeStepMapping",
+    "UnrealRuntimeMapping",
+    "map_unreal_execution_plan",
+    "is_forbidden_authority_key",
+    "compute_source_task_digest",
 ]

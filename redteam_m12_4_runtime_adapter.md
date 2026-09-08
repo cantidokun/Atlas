@@ -1,0 +1,454 @@
+# M12.4 Red-Team Package — REMEDIATED (PR #91)
+
+**Scope:** `planning/m12/runtime_adapter.py` + M12.1/M12.2/M12.3 contracts + existing runtime boundary.
+**Head:** `338573c84fbba9d2b79699e0f1e61845e8ca1b97` — current PR #91 head (after Round-4 structural hardening).
+**Rounds covered:** Round-1 (original 8 findings), Round-2 (B1-B9 blockers, gate #1), Round-3 (gate #2), Round-4 (R4-1..R4-12).
+**Method:** Original 8 findings reproduced black-box on head `ba3b360`; remediation applied as a single M12.4 change (no new milestone); each fix verified by deterministic adversarial regression tests and re-probed.
+
+This document records, for every original finding: the attack scenario/invariant, how it was fixed, and the regression test that now prevents recurrence. A section at the end re-runs the original probes against the remediated code to confirm each behavior changed.
+
+---
+
+## Finding 1 — Authority/secret smuggling via plan provenance (HIGH)
+
+- **Original behavior:** `map_unreal_execution_plan` copied `dict(plan.provenance)` verbatim into the mapping and its canonical JSON; a crafted plan with `authorization_id`/`hmac_key` in provenance forwarded them.
+- **Fix (in `runtime_adapter.py`):** added `is_forbidden_authority_key()` (mirrors M12.1 exact+substring matcher) and `_validate_provenance()`; both plan-level and per-step provenance are validated and **rejected** on forbidden key (raise `UnrealRuntimeAdapterError`). Legitimate fields preserved.
+- **Regression tests:** `test_fix1_forbidden_authority_in_plan_provenance_rejected` (parametrized over `authorization_id`, `receipt`, `attempt_nonce`, `hmac_key`, `api_key`, `credential`, `recovery_authority`, `artifact_id`, `manifest_id`, `scheduler`, `retry_controller`, `protected_flag`, `is_authorized`, ...), `test_fix1_forbidden_authority_in_step_provenance_rejected`, `test_fix1_legitimate_provenance_preserved`, `test_fix1_is_forbidden_helper`.
+- **Re-probe result:** `plan.provenance={'authorization_id':'f','hmac_key':'s'}` → rejected; `{'proposal_source':'qwen'}` → preserved.
+
+## Finding 2 — Runtime write-authority mismatch (MEDIUM)  [SUPERSEDED by R4-4]
+
+- **Original behavior:** an all-inspect-only plan compiled to `AtlasTaskDefinition` with `allow_writes=True`.
+- **Original fix (superseded):** the adapter reconciled `allow_writes` to the plan's capability by emitting `allow_writes=False` via `dataclasses.replace(compiled, allow_writes=False)`.
+- **Round-4 supersession (R4-4 — REJECT, DON'T REWRITE):** silently dropping the source's write intent was flagged as a surviving concern (a caller asking for writes was silently downgraded). The `dataclasses.replace(..., allow_writes=False)` rewrite is **removed**. A source task that declares write mutations (`allowed_mutations` non-empty) under an inspect-only mapping, or a compiled task with `allow_writes=True`, is now **REJECTED** with `UnrealRuntimeAdapterError`. This is an intentional contract tightening: catalog-resolved tasks declare `allowed_mutations={task_class}`, so they must first be tied to genuinely inspect-only intent (empty `allowed_mutations`, expressible upstream in M12.1 via `normalize_unreal_semantic_request`) before the inspect-only adapter will map them.
+- **Regression tests:** `test_r4_write_capable_source_rejected_not_rewritten`, `test_r4_compiled_allow_writes_rejected_not_rewritten`, `test_r4_allow_writes_tool_violation_rejected`; `test_fix2_inspect_only_plan_does_not_claim_write_authority` (now maps an inspect-only source).
+- **Re-probe result:** a write-declaring source raises `UnrealRuntimeAdapterError` (was silently zeroed); a genuinely inspect-only source compiles to `allow_writes=False` and maps.
+
+## Finding 3 — Dependency/target-state/input fidelity (MEDIUM)
+
+- **Original behavior:** copied plan `dependencies`/`required_inputs`/`target_state_contributions` verbatim; crafted alterations mapped anyway.
+- **Fix:** `_reconcile_step_fidelity()` re-derives required inputs, target-state contributions, idempotence, and dependencies from the **canonical fragment** (`canonical_fragment`) plus a reconstruction of M12.3's producer→step map; any mismatch raises `UnrealRuntimeAdapterError`. The mapping is now independent of crafted plan contents on these critical fields.
+- **Regression tests:** `test_fix3_dropped_dependency_rejected`, `test_fix3_target_state_tamper_rejected`, `test_fix3_idempotence_tamper_rejected`, `test_fix3_operation_reorder_rejected`.
+- **Re-probe result:** dropping a dependency, blanking target-state contributions, changing idempotence, or reordering operations all rejected. (Required-input tamper cannot diverge from canonical because every canonical M12 fragment has empty `inputs`; the check makes any non-empty divergence fail.)
+
+## Finding 4 — Per-step fragment provenance lost (LOW/MEDIUM)
+
+- **Original behavior:** `UnrealRuntimeStepMapping` had no provenance; `fragment_id`/`fragment_version` dropped.
+- **Fix:** each step mapping now carries `fragment_id`, `fragment_version`, and a deep-frozen step `provenance`, included in `to_json_compatible()` and canonical JSON.
+- **Regression test:** `test_fix4_fragment_identity_version_preserved_in_steps`.
+- **Re-probe result:** steps carry `(scene_setup, 1)`, `(camera_setup, 1)`, `(sequence_setup, 1)` and serialized fragment ids/versions.
+
+## Finding 5 — Render-plan classification trust (LOW)
+
+- **Original behavior:** `require_render_boundary = plan.render_plan` trusted a caller-supplied flag (under-flag was only caught by the compile fence).
+- **Fix:** reconcile `plan.render_plan` against authoritative `source_task.render_task`; fail closed on **any** mismatch (over-flag or under-flag). Render path preserved: render-bearing → `requires_existing_render_submission_path=True`, `runtime_task=None`, `can_execute=False`.
+- **Regression tests:** `test_fix5_render_underflag_rejected`, `test_fix5_render_overflag_rejected`, `test_fix5_render_true_path_unchanged`.
+- **Re-probe result:** under-flag and over-flag both rejected with `render_plan mismatch`; true render path yields boundary + no runtime task.
+
+## Finding 6 — Immutable provenance (LOW)
+
+- **Original behavior:** mapping frozen at attribute level but nested `provenance` dict mutable; mutation changed `canonical_json()`.
+- **Fix:** `_deep_freeze()` converts mapping-level and step-level provenance to `MappingProxyType`/tuple at construction; mutation after construction raises `TypeError`.
+- **Regression test:** `test_fix6_provenance_deep_frozen`.
+- **Re-probe result:** `mapping.provenance['x']='y'` raises `TypeError`; canonical JSON stable.
+
+## Finding 7 — Semantic fidelity (aggregation) — EXPLICIT CONCLUSION
+
+- **Conclusion (code-carried, not doc-only):** the existing Atlas runtime represents an M12 task as **one aggregate `AtlasTaskDefinition`** (one `unreal_inspect` action via the M12.1 compiler); it has **no per-fragment runtime operations**. Therefore M12.4 does **not** claim per-fragment executable fidelity. The mapping carries `semantic_fidelity="aggregate"` (non-render) / `"unavailable"` (render); a step whose semantic operation is not a known canonical fragment fails closed. M12.4 does not redesign M4–M10 and introduces no second runtime; per-fragment distinctions remain declared semantics that M12.5's verifier consumes from the plan.
+- **Regression test:** `test_fix7_semantic_fidelity_declared`.
+
+## Finding 8 — Placeholder verifier (M12.5, documented)
+
+- **Conclusion:** deferred to M12.5. M12.4 performs no verification and never claims verified status. Documentation distinguishes:
+  - **target-state declaration** — declared semantic invariants (no verification authority);
+  - **runtime evaluator representation** — M12.1 structural placeholder (must not be treated as independent verification);
+  - **actual independent verification** — M12.5's job via the existing evidence machinery (must not trust self-reported evidence).
+- **Regression test:** none added (M12.5 work); existing `test_mapping_object_has_no_authority_methods` (no `verify`) and `test_render_mapping_does_not_submit_or_fabricate` still pass.
+
+---
+
+## Verification of remediation (exact)
+
+- `pytest tests/m12/` → **143 passed** (88 prior + 55 M12.4, of which 31 are adversarial regression tests)
+- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **511 passed**
+- `pytest -m "not integration"` → **1594 passed** (no regressions)
+- Authority-isolation import scan clean; no M4–M10 / Blender / authority module / C++ change; no new runtime or authority field.
+- GitHub Actions on head `a90d021…`: `tests (3.9)` → success; `tests (3.11)` → success.
+
+## Post-remediation re-probe (original adversarial cases)
+
+| Probe | Before (ba3b360) | After (a90d021) |
+|---|---|---|
+| `authorization_id`/`hmac_key` in plan provenance | forwarded into mapping + canonical JSON | `UnrealRuntimeAdapterError` |
+| spoofed render_plan under/over-flag | under-flag only blocked by compile fence | both rejected explicitly |
+| dropped dependency / blanked target-state / idempotence tamper / op reorder | accepted (dependency silent drop) | `UnrealRuntimeAdapterError` |
+| `allow_writes` on inspect-only plan | True | False |
+| fragment id/version in step mapping | absent | present (id + version) |
+| mutate `mapping.provenance` | succeeds, changes canonical | `TypeError` (deep-frozen) |
+| identity mismatch / foreign plan | rejected | rejected (unchanged) |
+| render → runtime task | None (boundary) | None (boundary), fidelity `unavailable` |
+
+## Scope guard
+No production authority changed, no M4–M10 behavior change, no Blender, no live Unreal launched, no workflow/action-runner tests, no M12.5 begun, PR #91 not merged.
+
+---
+
+# ROUND-2 REMEDIATION — Independent Red-Team BLOCKERS (head 648a657+)
+
+## Blocker 1 — Nested / casing / alias provenance smuggling
+
+- **Probe on a90d021 (confirmed):** nested `{"notes": {"authorization_id": ...}}` accepted; `apiKey`/`IS_AUTHORIZED`/`session_token` bypassed the filter.
+- **Fix:** `is_forbidden_authority_key` now normalizes casing/separators (`api_key`/`apikey`/`API_KEY` → `apikey`; `is_authorized`/`IS_AUTHORIZED` → `isauthorized`) and checks a broad authority/credential vocabulary (authorization, receipt, nonce, HMAC, credential, password/secret, session, jwt, bearer, recovery, scheduler/retry, protected, artifact/manifest, token, api-key, cert). `_validate_provenance` recurses through mappings and sequences at any depth, rejects non-string keys and non-JSON values, rejects adapter-reserved keys, and never strips-and-continues.
+- **Regression tests:** `test_r2_forbidden_authority_nested_casing_alias_rejected` (parametrized token × shape), `test_r2_nested_step_provenance_rejected`, `test_r2_is_forbidden_alias_vocabulary`.
+
+## Blocker 2 — Embedded runtime_task mutability
+
+- **Probe (confirmed):** `mapping.runtime_task.allowed_action_tools.add("unreal_render")` succeeded; canonical JSON did not bind it.
+- **Fix:** the mapping no longer exposes a mutable `AtlasTaskDefinition`. It stores an immutable `runtime_task_snapshot` + `runtime_task_digest`; `materialize_runtime_task()` returns a fresh isolated deep copy. `canonical_json` serializes the full snapshot.
+- **Regression tests:** `test_r2_runtime_task_no_mutable_handle_exposed`, `test_r2_canonical_binds_runtime_permissions`.
+
+## Blocker 3 — Asymmetric render-path fidelity (and dropped preconditions/verification)
+
+- **Probe (confirmed):** render-path steps bypassed `_reconcile_step_fidelity`; preconditions/verification_requirements dropped.
+- **Fix:** the same `_reconcile_step_fidelity` (inputs, target-state, idempotence, prefix-only dependencies, preconditions, verification requirements) applies to EVERY step including render steps; preconditions/verification_requirements are now first-class reconciled fields carried in the mapping.
+- **Regression tests:** `test_r2_render_path_step_fidelity_reconciled`, `test_r2_render_path_precondition_tamper_rejected`, `test_r2_preconditions_and_verification_preserved`, `test_r2_canonic_step_layout_has_preconditions_and_verification`.
+
+## Blocker 4 — Source binding
+
+- **Probe (confirmed):** same-identity / different-content substitution undetected from the plan alone.
+- **Fix:** `compute_source_task_digest` deterministically binds resolved canonical source content; the mapping carries/serializes `source_task_digest`; optional `expected_source_task_digest` rejects substitution; plan target-state is reconciled against the source task's target-state invariants.
+- **Regression tests:** `test_r2_source_digest_binds_resolved_content`, `test_r2_expected_source_digest_rejects_substitution`, `test_r2_deterministic_source_binding`.
+
+## Blocker 5 — Adapter-owned provenance shadowing
+
+- **Probe (confirmed):** `setdefault` let caller seed `recognized_render_plan`/`fragment_version` shadows.
+- **Fix:** adapter-owned keys are reserved (caller-supplied → rejected); fragment identity in step provenance is overwritten with canonical truth.
+- **Regression tests:** `test_r2_adapter_owned_provenance_not_shadowable`.
+
+## Blocker 6 — Immutability / serialization (nested MappingProxyType crash)
+
+- **Probe (confirmed):** nested MappingProxyType broke `canonical_json()` with `TypeError`.
+- **Fix:** provenance and runtime-task snapshot are deeply frozen AND recursively thawed inside the canonical serializer; nested structures are both immutable and JSON-safe.
+- **Regression tests:** `test_r2_nested_provenance_canonical_json_serializes`, `test_r2_nested_provenance_immutable_after_construction`.
+
+## Blocker 7 — Contract / documentation alignment
+
+See `docs/UNREAL_M12_4_RUNTIME_ADAPTER.md` "Contract alignment" section: authoritative vs validated vs immutable vs declared vs deferred-to-M12.5 are stated explicitly.
+
+## Post-remediation replay (probes re-run on the fixed head)
+
+| Probe (was true defect) | After remediation |
+|---|---|
+| nested `authorization_id`/`hmac_key` in plan provenance | `UnrealRuntimeAdapterError` |
+| `apiKey`/`IS_AUTHORIZED`/`session_token` (casing/alias) | `UnrealRuntimeAdapterError` |
+| `mapping.runtime_task.allowed_action_tools.add("unreal_render")` | no `runtime_task` attribute; snapshot toolset immutable; `materialize` copy isolated |
+| render-path target-state / precondition tamper | `UnrealRuntimeAdapterError` |
+| same-identity/different-content substitution | rejected with `expected_source_task_digest` |
+| congruent fragment_version shadow | overwritten to canonical (1) |
+| nested MappingProxyType in canonical_json | serializes cleanly (no TypeError) |
+
+## Validation (Round-2 head)
+
+- `pytest tests/m12/` → **226 passed**
+- `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **594 passed**
+- `pytest -m "not integration"` → **1677 passed** (was 1594, +83; no regressions)
+- Authority-isolation import scan clean; no M4–M10 / Blender / authority change; no execution/verification authority added.
+
+---
+
+# ROUND-3 REMEDIATION — Independent Red-Team Gate #2 (Astra + Claude 5 BLOCK)
+
+Second gate found 9 concrete blockers, all independently confirmed by both
+reviewers + Hermes black-box probes. All remediated in this M12.4 line.
+
+## Blocker -> root cause -> fix -> regression test -> post-fix result
+
+| B | Root cause | Fix (code) | Regression test(s) | Post-fix probe |
+|---|---|---|---|---|
+| B1 Runtime action authority | compiled AtlasTaskDefinition tool/action authority never reconciled | `_reconcile_runtime_authority` rejects non-inspect tools/actions/evidence + allow_writes, fail closed | `test_b1_render_tool_in_inspect_task_rejected`, `test_b1_extra_render_tool_rejected`, `test_b1_unknown_tool_in_actions_rejected` | unreal_render/unknown tool -> rejected |
+| B2 Render classification | derived only from task_class; render fragment escaped | UNION of class + canonical fragment render semantics; render fragment under non-render class fails closed | `test_b2_render_setup_via_non_render_class_rejected`, `test_b2_render_class_still_fails_toward_boundary`, `test_b2_artifact_validate_still_routes_to_boundary` | render_setup via non-render -> rejected |
+| B3 Provenance smuggling | denylist-only + source metadata/snapshot unvalidated | CLOSED ALLOWLIST for caller provenance; source-metadata allowlist + recursive high-confidence authority scan on snapshot | `test_b3_unknown_provenance_key_rejected`, `test_b3_source_metadata_smuggling_rejected`, `test_b3_legitimate_provenance_preserved` | camera_slots authorization_id -> rejected |
+| B4 Hidden mutable backing task | `__dict__["_materialized_runtime_task"]` retained | snapshot sole source of truth; materialize rebuilds from snapshot + asserts digest | `test_b4_no_hidden_backing_task`, `test_b4_materialize_rebuild_matches_digest` | no hidden attr; materialize isolated |
+| B5 Unresolved requirements | missing producer -> empty deps accepted | every fragment requirement must resolve to earlier producer; else fail closed | `test_b5_orphan_step_fails_closed` | orphan camera -> rejected |
+| B6 Catalog version override | caller could set catalog_version freely | catalog_version must equal plan (and source metadata); else fail closed | `test_b6_catalog_version_conflict_rejected`, `test_b6_catalog_version_agrees_accepted` | cv=999 -> rejected |
+| B7 declared/validated | declared constant False; _RECONCILED_FIELDS doc-only | declared True only when non-canonical caller content carried; reconciled flag on mapping | `test_b7_declared_false_for_clean_mapping`, `test_b7_step_with_caller_provenance_is_declared` | clean steps declared=False |
+| B8 Strict JSON | allow_nan=True; NaN/Infinity/Fraction; key coercion | allow_nan=False in all canonical paths; strict-JSON walk on snapshot | `test_b8_nan_via_source_parameter_rejected`, `test_b8_canonical_json_is_strict_and_stable` | NaN -> rejected |
+| B9 Self-validating construction | UnrealRuntimeMapping could be constructed invalid | __post_init__ runs same canonical validation (provenance, digest, render, authority) | `test_b9_direct_invalid_render_contradiction_rejected`, `test_b9_direct_invalid_snapshot_tools_rejected` | invalid direct construction rejected |
+
+## Validation (Round-3 head)
+
+- `pytest tests/m12/` -> 246 passed
+- semantic/runtime/Unreal subset -> 614 passed
+- `pytest -m "not integration"` -> 1697 passed (was 1677, +20 Round-3 tests)
+- authority-isolation import scan clean (5 passed); no M4-M10 / Blender / authority change
+
+
+---
+
+# ROUND-4 STRUCTURAL HARDENING — R4-1 .. R4-12
+
+Fourth adversarial gate returned groups of surviving findings. Rather than expand
+vocabulary-based filters further, Round-4 made the trust boundary STRUCTURAL:
+invalid states are unrepresentable / fail closed, and the adapter never relies on
+caller cooperation for security-critical invariants. Architecture changed to make
+the invariants true; every fix is covered by deterministic `test_r4_*` adversarial
+regression tests.
+
+The reviewers' surviving concerns (source binding caller-cooperative; direct
+construction not on the same validation path; `target_state.expects_render`
+axis missing; `allow_writes` silently zeroed; vocabulary-scan provenance;
+lossy catalog-version coercion; Fraction/unsupported-numeric acceptance;
+snapshot metadata not authority-scanned on direct construction) map 1:1 to
+R4-1/R4-2/R4-3/R4-4/R4-5/R4-8/R4-10 below.
+
+## Blocker -> root cause -> structural fix -> regression test -> result
+
+| R4 | Root cause | Structural fix | Regression test(s) | Post-fix result |
+|---|---|---|---|---|
+| R4-1 Mandatory source binding | `expected_source_task_digest` optional/omittable -> caller-cooperative binding; same identity could attach to different content | Digest is a REQUIRED keyword; adapter always recomputes from authoritative resolved source and requires the caller's assertion to match; omission/malformed/mismatch FAIL CLOSED. Caller's value is never the source of truth. | `test_r4_mandatory_source_digest_omitted_rejected`, `test_r4_mandatory_source_digest_malformed_rejected`, `test_r4_same_identity_different_content_binding`, `test_r4_changed_parameters_digest_differs` | omitted digest -> TypeError (required kw); malformed -> error; same-identity/different-content (main vs OTHER) -> rejected; correct binding succeeds and carries authoritative digest |
+| R4-2 / R4-11 Single canonical validation path | direct `UnrealRuntimeMapping(...)` construction did not necessarily run the same security path as the factory | `__post_init__` now runs the SAME canonical validation (provenance typed schema + authority scan, source-digest shape, render/requirements consistency, runtime-action authority, snapshot<->digest binding, snapshot metadata strict-JSON + reserved-key scan). | `test_r4_direct_snapshot_metadata_authority_scan`, `test_b9_direct_invalid_render_contradiction_rejected`, `test_b9_direct_invalid_snapshot_tools_rejected` | directly-constructed invalid mapping (snapshot metadata carrying `authorization_id`) -> `UnrealRuntimeAdapterError`; identical to malformed factory input |
+| R4-3 Complete render axes | `target_state.expects_render` not an authoritative axis; could disagree with class silently | Render classification = union of source class (`render_task`), canonical fragment render semantics (render-constrained / non-`expandable`), AND `target_state.expects_render`. Any authoritative render requirement -> render boundary; conflicting render/non-render -> FAIL CLOSED. Benign render-class-without-render-fragment (artifact-validate) preserved. | `test_r4_target_state_render_axis_recognized`, `test_r4_render_class_with_target_state_axis_authoritative`, `test_b2_render_setup_via_non_render_class_rejected` | target-state render axis recognized; forged under-flag of a render-class task -> rejected |
+| R4-4 Runtime action authority (REJECT, DON'T REWRITE) | `allow_writes` silently zeroed (dataclasses.replace) when source asked for writes; caller/source intent rewritten | `dataclasses.replace(..., allow_writes=False)` REMOVED. Source declaring `allowed_mutations` under inspect-only mapping, or compiled task with `allow_writes=True`, now REJECTED. Inspect-only requires `allowed_action_tools == {unreal_inspect}` and all action/evidence tools inspect-only. Intentional contract tightening (see R4-4 CONTRACT DECISION below). | `test_r4_write_capable_source_rejected_not_rewritten`, `test_r4_compiled_allow_writes_rejected_not_rewritten`, `test_r4_allow_writes_tool_violation_rejected`, `test_b1_*` | write-declaring source -> `UnrealRuntimeAdapterError` (was zeroed); genuinely inspect-only source maps with `allow_writes=False` |
+| R4-5 Closed TYPED provenance schema | provenance gated by vocabulary scan + allowlist; unknown/ambiguous/nested/free-form content still a concern; not structural | Caller provenance validated against an explicit typed schema (`proposal_source:str`, `source_task_version:int`, `note:str`, `fragment_id:str`, `fragment_version:int`, `target_state_contribution:list[str]`). Unknown keys, nested undeclared structures, free-form caller metadata, authority-shaped values REJECTED structurally (no keyword guessing). Fragment identity/version/contribution reconciled ADAPTER TRUTH (caller-forged overwritten). Scalar `note` is the only free-form shape, never promoted to trusted authority/verification. | `test_r2_nested_freeform_provenance_rejected_structural`, `test_r2_freeform_provenance_rejected_in_step_and_nested_list`, `test_r4_authority_value_structurally_rejected`, `test_r4_scalar_note_frozen_and_roundtripped`, `test_b3_*` | `auth_token`/`grant_id`/`capability`/nested-`note` -> structurally rejected; scalar `note` preserved + deep-frozen |
+| R4-6 Snapshot is sole runtime source | (held at Round-3; re-verified) no hidden live `AtlasTaskDefinition`; materialize rebuilds from snapshot + asserts digest | No code change required beyond Round-3; verified | `test_b4_no_hidden_backing_task`, `test_b4_materialize_rebuild_matches_digest` | no hidden attr; materialized copy isolated; rebuilt snapshot digest matches |
+| R4-7 Unresolved requirements fail closed | (held at Round-3; re-verified) empty-dependency representation forbidden | No code change required beyond Round-3; verified | `test_b5_orphan_step_fails_closed` | orphan step -> rejected |
+| R4-8 Catalog version exact-int identity | lossy `int()` coercion could collapse `"1"`/`1.9`/`True`; single-authoritative-source violated | `catalog_version`/source metadata must be EXACT `int` and equal to plan; bool/float/str and coercion FAIL CLOSED; `used_catalog_version = plan.catalog_version` (no `int()`). | `test_r4_catalog_version_type_coercion_rejected`, `test_r4_source_metadata_catalog_version_exact_int`, `test_b6_catalog_version_conflict_rejected` | `"1"`/`True`/`1.9` override -> rejected; source metadata `"1"` (str) -> rejected; exact int 1 -> accepted |
+| R4-9 Declared vs reconciled truthful | caller-carried data must not be presented as reconciled | `declared` True only when non-canonical caller content carried verbatim; reconciled fields re-derived from canonical fragment. | `test_b7_declared_false_for_clean_mapping`, `test_b7_step_with_caller_provenance_is_declared` | clean steps declared=False; caller-provenance step declared=True |
+| R4-10 Strict JSON rejects unsupported numeric types | `Fraction` (a `numbers.Real`) passed validation then crashed `json.dumps` | `_validate_strict_json_value` uses exact `type() is int` / `type() is float`; Fraction/Decimal/numpy scalars/other `numbers.Real|Integral` subclasses REJECTED structurally with `UnrealRuntimeAdapterError` (declared canonical-contract error) before serialization. | `test_r4_fraction_rejected_structurally`, `test_r4_decimal_rejected_structurally`, `test_b8_*` | Fraction(3,4) and Decimal("1.5") -> `UnrealRuntimeAdapterError` (no leaked TypeError at json.dumps) |
+| R4-12 M12.5 boundary | must not grant M12.4 verification authority; evaluator must stay a structural placeholder | No verification authority added; snapshot carries explicit disclosure (`m12.4.evaluator_kind`, `m12.4.independently_verified=False`, `m12.4.declared`). | existing M12.5-boundary tests | no verification; disclosure fields present |
+
+## R4-4 CONTRACT DECISION (verified, intentional tightening)
+
+`planning/m12/catalog.py:350` (`catalog.resolve()`) sets `allowed_mutations=[entry.task_class]`
+for every catalog entry, so a catalog-resolved task compiles to `allow_writes=True`
+(write intent). M12.4 is a semantically INSPECT-ONLY adapter. Per R4-4 it must
+REJECT (not silently downgrade) a source that asks for writes. The genuinely
+inspect-only state IS expressible upstream in M12.1: `normalize_unreal_semantic_request`
+accepts `allowed_mutations=()` and a task with empty `allowed_mutations` compiles
+to `allow_writes=False`. Therefore:
+
+- **Decision:** M12.4 intentionally rejects catalog-resolved tasks that still carry
+  `allowed_mutations` — the caller must have already resolved the source to
+  genuinely inspect-only intent. This is an intentional contract tightening, NOT a
+  contradiction with M12.1/M12.2 (read-only semantics are representable; they just
+  must be declared). No authority was broadened; no silent mutation stripping was
+  reintroduced.
+- **Proof tests:** `test_r4_write_capable_source_rejected_not_rewritten` (catalog
+  task with mutations -> rejected),
+  `test_r4_compiled_allow_writes_rejected_not_rewritten` (inspect-only source
+  compiles to `allow_writes=False` and passes unchanged),
+  `test_r4_allow_writes_tool_violation_rejected` (compiled `allow_writes=True`
+  -> `_reconcile_runtime_authority` rejects).
+
+## Validation (current PR #91 head `338573c`)
+
+- `pytest tests/m12/` -> **263 passed** (incl. Round-1/2/3 and new `test_r4_*`)
+- `pytest -m "not integration"` -> **1714 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed** (adapter imports only
+  M12 + `AtlasTaskDefinition`; no production-authority module)
+- No Unreal, no Blender, no workflow/action-runner, no production tests run.
+- `can_execute` remains False; no execute/authorize/submit/recover/verify authority;
+  no M4-M10 files changed; M12.5 untouched.
+
+
+---
+
+# ROUND-5 — SOURCE-COMMITMENT + SINGLE CANONICAL VALIDATION PATH
+
+Fourth-gate synthesis (independent Astra BLOCK, 4 blockers; Claude PASS-with-
+concerns, corroborating the substance) converged on two architectural fixes:
+the caller-cooperative source binding and the direct-construction validation-path
+divergence. Round-5 implements exactly those, plus the coupled issues they expose.
+No new keyword filters were added; the modeling is structural.
+
+## Blocker -> root cause -> structural fix -> regression test -> result
+
+| R5 | Root cause | Structural fix | Regression test(s) | Post-fix result |
+|---|---|---|---|---|
+| R5-1 Plan source commitment (Astra B2 / Claude F6) | M12.3 plan carried no authoritative source-content commitment, so the caller supplied BOTH source and matching digest -> the adapter proved consistency with the supplied source, not the plan's original source | `generate_execution_plan` computes an immutable `source_content_digest` (STRICT-JSON SHA-256 of the resolved source content), embeds it in the plan's canonical form + plan id; missing/invalid commitment fails closed at plan construction; M12.1 untouched (impl lives in M12.3) | `test_r5_same_identity_different_content_plan_identity`, `test_r4_changed_parameters_digest_differs` | same-identity/different-parameter plans have different plan_ids and digests |
+| R5-2 M12.4 verifies plan commitment (Astra B2 / Claude F6) | M12.4 trusted a caller-supplied digest as the binding mechanism | `map_unreal_execution_plan` recomputes the digest from the supplied source and REQUIRES it to equal `plan.source_content_digest`; `expected_source_task_digest` is now OPTIONAL/redundant, never authoritative | `test_r5_plan_a_source_b_digest_b_rejected`, `test_r5_expected_digest_is_redundant_assertion`, `test_r5_source_binding_uses_plan_commitment_not_caller_digest` | **PLAN_A + SOURCE_B + DIGEST(SOURCE_B) REJECTED** (was accepted); omission of the caller digest is fine (plan commitment is authoritative) |
+| R5-3 Per-step consistency in single path (Astra B1 / Claude F5) | factory-only per-step gates (capability/render/expandability) let a direct construction represent a render step as a supported inspect op | per-step consistency (supported -> must target `unreal_inspect`, `inspect-only` capability, canonical fragment id; unsupported -> explicit render-boundary reason) enforced in the SHARED `__post_init__` | `test_r5_direct_step_supported_non_inspect_rejected`, `test_r5_direct_step_write_capability_rejected`, `test_r5_direct_unsupported_step_without_reason_rejected` | directly-built render step targeting `unreal_render` / `write` capability -> rejected |
+| R5-4 Adapter-owned provenance cross-validation (Astra B1/B4 / Claude F3) | direct construction could assert `independently_verified=True`, forged digests, or render/fidelity claims contradicting canonical fields | `_validate_mapping_provenance` cross-validates adapter-owned keys against authoritative dataclass fields; pins `independently_verified is False`, `runtime_evaluator_kind == "structural-placeholder"`; caller `source_task_version` must equal plan version (no shadow identity) | `test_r5_direct_independently_verified_true_rejected`, `test_r5_direct_invalid_evaluator_kind_rejected`, `test_r5_direct_forged_digest_rejected*`, `test_r5_direct_render_flag_contradiction_rejected`, `test_r5_source_task_version_provenance_reconciled_not_shadow` | directly-constructed mapping asserting `independently_verified=True` / wrong digests / wrong render flag -> rejected |
+| R5-5 Source-metadata schema in shared path (Astra B3 / Claude F7) | source-derived runtime metadata richer checks (allowlist) ran only in the factory; nested scheduler/retry/scope-shaped keys could reach the snapshot on direct construction | `__post_init__` now enforces the closed `_ALLOWED_SOURCE_METADATA_KEYS` schema on snapshot metadata (same path as factory) | `test_r5_factory_and_direct_use_same_validator` | `scheduler`/`retry`-shaped metadata in snapshot -> rejected on direct construction |
+| R5-6 Truthful declared/reconciled (Astra B4 / Claude F1) | mapping claimed `declared=False / reconciled=True` while carrying caller-verbatim `proposal_source`/`note` (the prior test ENCODED the defect) | `declared` is set from actual caller-carried content; explicit `declared_caller_fields` list emitted; `reconciled` scoped to the adapter's re-derived/validated authoritative fields | `test_b7_declared_true_when_caller_provenance_carried`, `test_b7_declared_false_only_when_no_caller_verbatim_content`, `test_b7_step_with_caller_provenance_is_declared` | mapping carrying `proposal_source` reports `declared=True` + `declared_caller_fields=("proposal_source",)`; a provenance-free plan reports `declared=False` truthfully |
+
+## R5-7 Direct-construction adversarial gates
+`test_r5_direct_*` (9 tests) construct `UnrealRuntimeMapping` directly with every
+forgery the fourth gate named — `independently_verified=True`, invalid
+`runtime_evaluator_kind`, forged `source_task_digest`/`runtime_task_digest`,
+contradictory `recognized_render_plan`/`semantic_fidelity`/`mapped_runtime_task_type`,
+non-inspect / write-capable / reason-less steps, out-of-schema snapshot metadata,
+non-bool `declared` — and verify each FAILS CLOSED through the SAME `__post_init__`
+path the factory uses. `test_r5_valid_direct_roundtrip_accepted` confirms the
+path is not over-restrictive for legitimate state.
+
+## M12.1 untouched (strict scope)
+The source-commitment implementation lives in M12.3 (`planning/m12/execution_plan.py:compute_source_content_digest`);
+M12.1 `semantic_task.py` is unchanged in this round (net-zero diff vs the previous
+PR head). M12.4 imports it from M12.3; `compute_source_task_digest` delegates to
+it.
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **279 passed** (was 263; +16 R5 tests)
+- `pytest -m "not integration"` -> **1730 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- No Unreal, no Blender, no workflow/action-runner, no production tests run.
+- `can_execute` remains False; no execute/authorize/submit/verify authority;
+  no M4-M10 change; M12.5 untouched.
+- Source-binding data flow (end-to-end): M12.1 task -> M12.3
+  `generate_execution_plan` -> `compute_source_content_digest(task)` -> immutable
+  plan `source_content_digest` (+ folded into plan_id) -> M12.4
+  `map_unreal_execution_plan(source_task=...)` ->
+  `compute_source_task_digest(source_task)` (delegates to the same function) ->
+  REQUIRES == plan.source_content_digest, else `UnrealRuntimeAdapterError`.
+  No caller-controlled value becomes authoritative at any step.
+
+
+---
+
+# ROUND-6 — CANONICAL IDENTITY + RECONSTRUCTION HARDENING
+
+Fifth-gate synthesis (independent Astra BLOCK with 5 blockers; Claude BLOCK with 3
+blockers) found the R5 "one canonical validation path" and "source commitment
+participates in plan identity" claims were not yet true by construction. Round-6
+makes them true structurally, not by adding assertions around caller-controlled data.
+
+## Blocker -> root cause -> structural fix -> regression test -> result
+
+| R6 | Fifth-gate blocker | Root cause | Structural fix | Regression test(s) | Post-fix result |
+|---|---|---|---|---|---|
+| R6-1 plan_id caller-controlled (Astra B2 / Claude B3) | plan_id validatable only as a non-empty string; `_build_plan_id` had a digest-less fallback | `UnrealExecutionPlan.__post_init__` DERIVES plan_id from canonical inputs (identity, version, fragment ops, digest) and rejects mismatch; no digest-less fallback; `map_unreal_execution_plan` independently recomputes expected plan_id | `test_r6_plan_id_cannot_be_forged`, `test_r6_plan_a_identity_source_b_commitment_rejected`, `test_r6_no_digestless_plan_identity` | plan A identity + source B commitment -> rejected; arbitrary plan_id -> rejected at construction and at mapping |
+| R6-2 coercion in source hashing (Astra B5 / Claude N1) | json.dumps coerces int keys/values; hashing not strict | `compute_source_content_digest` + plan `canonical_json()` + identity digests share ONE `_validate_strict_json`/`_canonical_sha256` that rejects non-string keys/NaN/non-JSON numerics and preserves typed distinctions | `test_r6_non_string_key_rejected_in_digest`, `test_r6_typed_distinctions_preserved_in_digest` | `{1:"x"}` rejected; 1 vs 1.0 / 1 vs True distinct; ordering-stable |
+| R6-3 direct construction not canonical (Astra B1 / Claude B2) | __post_init__ was a shape validator (checked tool/capability only), never reconciled fragments/producers/render/snapshot identity | `_reconstruct_canonical_targets` invoked from __post_init__: resolves canonical_fragment, requires id/version equality, runs _reconcile_step_fidelity with derived producer map, enforces render/support consistency, cross-checks snapshot identity/catalog | `test_r6_render_setup_as_supported_inspect_rejected`, `test_r6_forged_fragment_id_rejected`, `test_r6_forged_fragment_version_rejected`, `test_r6_forged_idempotence_rejected`, `test_r6_forged_verification_requirements_rejected`, `test_r6_snapshot_identity_cross_consistency` | render_setup-as-supported-inspect, forged fragment id/version/idempotence/verification, contradictory snapshot identity -> ALL rejected (canonical reconstruction) |
+| R6-4 competing provenance scope (Astra B4 / Claude B1) | plan-level provenance accepted step-scoped fragment fields while claiming declared=False/reconciled=True | provenance validated with explicit scope; step-scoped fields (`fragment_id`/`fragment_version`/`target_state_contribution`) rejected at PLAN scope; derived truthful declared/reconciled from surviving caller content + cross-validated | `test_r6_plan_level_step_scoped_provenance_rejected`, `test_r6_declared_matches_surviving_caller_content`, `test_r6_direct_false_declaration_with_caller_content_rejected` | plan-level fragment provenance -> rejected; false declared=False with caller content -> rejected |
+| R6-5 non-structural source metadata (Astra B3 / Claude N4) | nested free-form catalog params scanned by vocabulary, not schema | `_validate_source_metadata_parameters` bounds snapshot `parameters` to the catalog entry's declared `parameter_kinds` (structural type/shape check, not vocabulary) | `test_r6_undefined_catalog_parameter_rejected` | undeclared param (e.g. `scheduler`) -> structurally rejected |
+| R6-6 single source of truth for adapter-owned identity | fragment/version/render/source digest/catalog could appear in multiple representations without reconciliation | canonical reconstruction + provenance cross-validation pin one canonical derivation; snapshot identity cross-checked against mapping; declared/reconciled_caller_fields emitted and cross-validated | `test_r6_snapshot_identity_cross_consistency`, `test_r6_declared_reconciled_not_hardcoded` | one canonical value per identity field; no shadow |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **296 passed** (was 279; +17 R6 tests)
+- `pytest -m "not integration"` -> **1747 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- Scope: M12.3 (`execution_plan.py`) + M12.4 (`runtime_adapter.py`) + tests. M12.1,
+  M4-M10, M12.5 untouched.
+- can_execute remains False (plan, mapping, steps); no
+  execute/authorize/submit/recover/verify authority added; no M4-M10 authority imports.
+
+
+---
+
+# ROUND-7 — TARGETED REGRESSION + IDENTITY HARDENING
+
+The sixth gate (independent Astra BLOCK with 9 blockers; Claude BLOCK with 4,
+sharing one CRITICAL regression) identified a concrete R5→R6 regression and three
+coupled identity/truthfulness blockers. Round-7 is a targeted correction on top of
+Round-6 — an incremental repair, not a rollback.
+
+## Finding -> root cause -> regression -> fix -> test -> result
+
+| R7 | Sixth-gate finding | Root cause | Fix | Regression/adhoc test(s) | Post-fix result |
+|---|---|---|---|---|---|
+| R7-1 Restore inspect-only step authority | Astra B3 / Claude B1 (CRITICAL): a directly-constructed SUPPORTED step may target `unreal_render` / `write` | R6-3 replaced the R5-3 per-step inspect-only checks (target_runtime_operation==inspect, capability==inspect-only, reason None, fragment_id present) with only a fragment-render/expandability check | `_reconstruct_canonical_targets` restores the full supported/unsupported authority contract (supported ⇒ inspect target + inspect-only + no reason + fragment_id; unsupported ⇒ "<none>" + render-boundary reason) in the shared path | `test_r7_supported_step_write_capability_rejected_for_right_reason`, `test_r7_supported_step_render_target_rejected_for_right_reason`, `test_r7_supported_step_unknown_operation_rejected`, `test_r7_supported_step_missing_fragment_id_rejected`, `test_r7_supported_step_with_unsupported_reason_rejected`, `test_r7_unsupported_step_non_none_operation_rejected` | supported+write and supported+render steps now FAIL CLOSED with the intended authority message (empirically verified) |
+| R7-2 Repair false-green direct-step tests | Astra note / Claude N9: `test_r5_direct_step_*` / R6 direct-step tests passed via an unrelated frozen-provenance TypeError | tests called `dataclasses.replace(m, steps=(s,))` without valid provenance | `dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))` in all such tests + `match="inspect-only authority"` assertions | repaired R5/R6/R7 direct-step tests | tests now genuinely reach the intended guards (verified with `match` + valid provenance) |
+| R7-3 Bind mapping-level identity | Astra B2 / Claude B2: `plan_id`/`source_task_digest` shape-checked only; snapshot identity optional | mapping never derived plan_id; snapshot identity "if present" | `_derive_mapping_plan_id` + require plan_id == derived; require non-render snapshot identity/catalog keys PRESENT and equal (fail closed on omission) | `test_r7_forged_mapping_plan_id_rejected`, `test_r7_correct_mapping_plan_id_accepted`, `test_r7_snapshot_identity_omission_fails_closed`, `test_r7_source_commitment_mismatch_rejected` | forged/arbitrary plan_id rejected; missing snapshot identity fails closed (no skip-on-absence) |
+| R7-4 Reconcile step provenance + truthful step declared | Astra B6 / Claude B3: step provenance copies not reconciled on direct route; step declared unvalidated | direct route validated only types | per-step: IF provenance carries fragment_id/version/target_state_contribution it must equal canonical; step.declared must equal bool(surviving caller-controlled fields) | `test_r7_step_provenance_forged_*`, `test_r7_step_false_declared_rejected`, `test_r7_step_declared_true_when_caller_content_present` | forged step provenance rejected; false declared=False with caller content rejected |
+| R7-5 Reconcile mapping source_task_version | Astra B6 / Claude B4: source_task_version labelled reconciled without comparison | `_validate_mapping_provenance` cross-checked only adapter-owned keys, not the caller-part version | require caller provenance `source_task_version` == mapping.source_task_version | `test_r7_source_task_version_mismatch_rejected`, `test_r7_source_task_version_match_accepted` | shadow version 999 rejected; matching version accepted and reconciled |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **314 passed** (was 296; +18 R7 tests; R5 direct-step
+  authority tests now genuinely exercise the restored guards)
+- `pytest -m "not integration"` -> **1765 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only this round. M12.3, M12.1, M4-M10,
+  M12.5 untouched.
+- can_execute remains False (plan, mapping, steps); no
+  execute/authorize/submit/recover/verify authority; no M4-M10 authority imports.
+
+
+---
+
+# ROUND-8 — TARGETED CANONICAL SNAPSHOT RECONSTRUCTION
+
+The seventh gate (independent Astra BLOCK with 8 blockers; Claude BLOCK with 2 core
+F1/F2) confirmed two concrete blocker classes. Round-8 is a targeted correction,
+preserving all confirmed-working R6/R7 controls.
+
+## Finding -> root cause -> fix -> test -> result
+
+| R8 | Seventh-gate finding | Root cause | Fix | Test(s) | Post-fix result |
+|---|---|---|---|---|---|
+| R8-1 Broken unsupported-step guard | Astra B7 / Claude F1: the `"target the "<none>" operation"` message is a broken literal parsed as a chained comparison vs undefined `none` -> `NameError`; `test_r7_unsupported_step_non_none_operation_rejected` never reached the guard (false-green) | R7-1's own guard message was an invalid string literal; the test's `_r7_step` defaulted `unsupported_reason=None` so the earlier reason-guard rejected first | fixed literal to `must target the '<none>' operation`; added `test_r8_unsupported_step_non_none_guard_reached` that mutates ONLY `target_runtime_operation` on a valid render mapping (preserving provenance/declared/plan_id/fragment identity) and asserts the exact adapter message | `test_r8_unsupported_step_non_none_guard_reached` | branch now raises `UnrealRuntimeAdapterError` (empirically verified; was `NameError`); message-specific assertion means the test FAILS if the guard is removed |
+| R8-2 Snapshot semantic content not canonically reconstructed | Astra B2/B3 / Claude F2: direct construction could inject forged `unreal_target_state.invariant_names`, `expects_render`, `unreal_semantic_task_class`, `unreal_semantic_dependencies`, and nested `parameters`, reaching `materialize_runtime_task()` | `_validate_source_metadata_parameters` was factory-only; snapshot identity (task id/version/catalog) was checked but NOT semantic content | `_reconstruct_canonical_targets` now derives authoritative expected snapshot semantics from the mapping's steps/source: invariants == union of step contributions; expects_render == render_plan; class render semantics == render_plan; dependencies == ordered step ops; parameters pass the shared structural gate | `test_r8_snapshot_invariant_names_forged_rejected`, `test_r8_snapshot_expects_render_forged_rejected`, `test_r8_snapshot_render_class_forged_rejected`, `test_r8_snapshot_dependencies_forged_rejected`, `test_r8_snapshot_parameters_forged_rejected`, `test_r8_snapshot_invariant_omission_fails_closed`, `test_r8_factory_snapshot_still_accepted` | forged invariants / expects_render / render class / deps / nested parameter all REJECTED with the intended guard message (empirically verified); omission fails closed; factory snapshot still accepted (no false reject) |
+| R8-3 Direct-route authority guard coverage | Gate Area 19: direct-route snapshot tools/authority-scan guards had no genuine coverage | earlier direct tests rejected on unrelated digest/declared/plan_id checks | `test_r8_direct_snapshot_authority_tool_guard_reached` builds from a valid mapping, mutates ONLY `allowed_action_tools`, recomputes digest, asserts the non-inspect-tool guard | `test_r8_direct_snapshot_authority_tool_guard_reached` | non-inspect tool in snapshot rejected by the intended authority guard |
+| R8-4 False-green tests | Astra audit / Claude F8 | tests mutated setup-breaking fields (provenance/digest/plan_id/declared) before the intended guard | direct tests now use "valid factory mapping + one mutation + valid provenance/digest/plan_id/declared + `match=` on the unique guard message" | all R8 tests | guards genuinely reached; removal-sensitive |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **324 passed** (was 314; +10 R8 tests)
+- `pytest -m "not integration"` -> **1775 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- semantic/runtime subset -> **80 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only. M12.3, M12.1, M4-M10, M12.5
+  untouched. can_execute False; no new authority.
+
+
+---
+
+# ROUND-9 — TARGETED CATALOG + SNAPSHOT HARDENING
+
+The eighth gate (independent Astra BLOCK with 6 blockers; Claude BLOCK with 3 core
+F1-F3) confirmed three blocker classes. Round-9 is a targeted correction preserving
+all confirmed-working R6/R7/R8 controls.
+
+## Finding -> root cause -> fix -> test -> result
+
+| R9 | Eighth-gate finding | Root cause | Fix | Tests | Post-fix result |
+|---|---|---|---|---|---|
+| R9-1 Frozen/thawed JSON parameter regression | Astra B5 / Claude F1: inspect-only camera/lighting (with json params) falsely rejected (`got tuple`) | R8 (E) applied the json-kind check to the FROZEN snapshot (tuple/MappingProxyType) instead of the thawed canonical form | thaw the json value (`_thaw_json`) before type-checking in `_validate_source_metadata_parameters`; storage vs semantic representation separated | `test_r9_json_parameter_tasks_map_and_roundtrip` (camera + lighting), `test_r9_scalar_parameter_task_roundtrip` | camera/lighting/sequence all map + materialize (empirically verified) |
+| R9-2 Self-referential catalog parameter gate | Astra B3 / Claude F3: attacker self-declares parameter_kinds + parameters | direct route derived schema from the same untrusted snapshot | resolve the TRUSTED catalog entry via `DEFAULT_UNREAL_CATALOG.get_entry(name, version)` and validate parameters against its canonical parameter_kinds; unresolvable/version-mismatch/disagreement FAILS CLOSED | `test_r9_self_declared_parameter_schema_rejected`, `test_r9_undeclared_snapshot_parameter_rejected` | attacker-declared scheduler/grant rejected (cannot manufacture the schema) |
+| R9-3 Incomplete snapshot identity reconstruction | Astra B1 / Claude F2: twin/fragments/class/parameters-omission accepted | snapshot checked identity/catalog/invariant but not twin, fragments, exact class, parameters | shared path now requires+verifies twin id, fragments==step ops, class==trusted-catalog class, parameters present when declared | `test_r9_snapshot_twin_identity_forged_rejected`, `test_r9_snapshot_task_class_forged_rejected`, `test_r9_snapshot_fragments_forged_rejected`, `test_r9_snapshot_parameters_omission_fails_closed`, `test_r9_source_snapshot_binding` | forged twin/class/fragments + omission + source↔snapshot swap all rejected |
+| R9-7 Snapshot schema error contract | Astra B6-attack-C / Claude N9: missing allowed_action_tools -> KeyError; empty actions -> ValueError at materialize | snapshot schema not validated before indexing | validate required keys present + nonempty actions/evidence/allowed_action_tools in __post_init__ before indexing | `test_r9_snapshot_missing_tools_error_contract`, `test_r9_snapshot_empty_actions_error_contract`, `test_r9_snapshot_empty_evidence_error_contract` | malformed snapshots raise `UnrealRuntimeAdapterError` (no KeyError/ValueError leak) |
+| False-green cleanup | Astra audit / Claude N11 | suspect tests passed via earlier branches or were vacuous | single-step guard tests now carry correct contributions; vacuous `test_r8_unsupported_step_non_none_guard_is_effective` removed | repaired `test_unknown_idempotence_fails_closed`, `test_unsupported_capability_fails_closed` | idempotence/capability guards are the reason for rejection (verified live) |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **336 passed**
+- `pytest -m "not integration"` -> **1787 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- semantic/runtime subset -> **80 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only (read-only import of M12.2
+  `DEFAULT_UNREAL_CATALOG`). M12.3, M12.1, M4-M10, M12.5 untouched.
+- can_execute False; no new authority; no M4-M10 authority imports.
+---
+
+# ROUND-10 — TRUSTED CATALOG + DISCLOSURE + ERROR-BOUNDARY HARDENING
+
+Ninth gate: BOTH reviewers BLOCK. Shared blockers (Astra B2=Claude B1, Astra B4=Claude B2,
+Astra B5=Claude B3) + scalar-JSON residual + false-green tests.
+
+## Findings -> Fixes
+
+| # | Finding | Root cause | Structural fix | Regression test | Result |
+|---|---------|-----------|----------------|-----------------|--------|
+| R10-1 | Catalog axis still self-referential: trusted entry chosen by snapshot `catalog_entry.name`, schema/required_params tied to that bad | `_validate_source_metadata_parameters` + block(E) resolved trusted by snapshot's catalog_entry.name; required_parameters read from snapshot | Resolve trusted from `mapping.source_task_id` -> `DEFAULT_UNREAL_CATALOG`; require snapshot `catalog_entry == trusted.snapshot()` byte-for-byte; require params per trusted; non-int version fails closed | `test_r10_catalog_entry_*`, `test_r10_source_snapshot_swap_rejected_self_consistent` | CLOSED (both routes) |
+| R10-2/6 | Parameter VALUES unbound to commitment | values only schema-validated | Demonstrate coverage: `source_content_digest` hashes resolved metadata incl params; PLAN_A+SOURCE_B+digest(B) fails | `test_r10_parameter_values_bound_to_source_commitment` | CLOSED |
+| R10-3 | Snapshot can claim `independently_verified: true` | disclosure keys allowlisted, never emitted/pinned | Remove disclosure keys from accepted snapshot metadata schema (reject as unknown) | `test_r10_snapshot_disclosure_claim_rejected` | CLOSED |
+| R10-4 | Nested snapshot leaks KeyError/TypeError/ValueError | only top-level shape checked | `_validate_snapshot_schema` deep type-check before indexing (action/evidence/dep depends_on/invariant_names/deps) | `test_r10_snapshot_schema_errors_are_declared` (parametrized) | CLOSED |
+| R10-5 | Scalar JSON false-reject (Astra B6 / Claude N3) | `json` kind required dict/list | `json` accepts any strict-JSON value (scalar/list/mapping/nested) | `test_r10_scalar_and_nested_json_parameters_map_and_roundtrip`, `test_r10_invalid_json_parameter_rejected` | CLOSED |
+| R10-8 | 4 false-green direct tests reject on digest/plan_id, not intended guard | stale digests / bad baselines | Rebuild each: valid factory baseline, mutate ONE field, recompute digest, assert unique guard message | repaired 4 tests with `match=` | CLOSED |
+
+## Direct/factory parity
+Shared `_reconstruct_canonical_targets` now begins with `_validate_snapshot_schema`; both
+routes resolve the trusted catalog from mapping/plan source identity and share
+`_validate_source_metadata_parameters` + the same disclosure closure. Probed empirically.
+
+## Boundary
+can_execute=False; no authority methods; no M4-M10 imports; snapshot authority still
+inspect-only; rendering classification/reject-not-rewrite/digest/plan_id/source
+commitment all preserved. M12.5 deferred.
+
+## Commit evidence
+adapter m12/passed counts after R10: m12 354, not-integration 1805, authority 5.
+
