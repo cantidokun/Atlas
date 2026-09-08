@@ -103,6 +103,7 @@ from planning.m12.semantic_task import (
     UnrealProductionTaskDefinition,
     compile_unreal_semantic_task,
 )
+from planning.m12.catalog import DEFAULT_UNREAL_CATALOG
 from planning.m12.task_classes import is_render_task_class
 from planning.task_definition import AtlasTaskDefinition
 from action_plan import ActionSpec
@@ -1348,8 +1349,87 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
                 f"semantic step operations {_ops!r}"
             )
         # (E) snapshot parameters must pass the SAME structural catalog-parameter
-        #     schema validation the factory applies.
+        #     schema validation the factory applies, AND the parameters mapping must
+        #     be present (not omitted) whenever the trusted catalog entry declares
+        #     required parameters — fail closed on omission.
+        _entry_for_params = meta.get("catalog_entry")
+        _required = []
+        if isinstance(_entry_for_params, (dict, Mapping, MappingProxyType)):
+            _required = list(
+                _entry_for_params.get("required_parameters") or []
+            )
+        if _required:
+            if "parameters" not in meta or not isinstance(
+                meta.get("parameters"), (dict, Mapping, MappingProxyType)
+            ):
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot metadata is missing/empty parameters; the "
+                    "trusted catalog entry declares required parameters "
+                    f"{_required!r} (fail closed on omission)"
+                )
         _validate_source_metadata_parameters(meta, "runtime_task_snapshot.metadata")
+        # R9-3: COMPLETE snapshot identity reconstruction (no shadow identity).
+        # (a) digital-twin identity must match the mapping (fail closed on omission).
+        _snap_twin = meta.get("unreal_digital_twin_id")
+        if _snap_twin is None:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing unreal_digital_twin_id; "
+                "required for canonical identity (fail closed on omission)"
+            )
+        if _snap_twin != mapping.digital_twin_id:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_digital_twin_id {_snap_twin!r} "
+                f"does not match the mapping's authoritative "
+                f"digital_twin_id={mapping.digital_twin_id!r}"
+            )
+        # (b) canonical snapshot fragment sequence/identity must equal the
+        #     mapping's ordered canonical fragments.
+        _snap_fragments = meta.get("fragments")
+        if not isinstance(_snap_fragments, (list, tuple)) or not _snap_fragments:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata fragments is missing/empty; required "
+                "for canonical semantic reconstruction"
+            )
+        _snap_frag_ids = []
+        for _fr in _snap_fragments:
+            if not isinstance(_fr, (dict, Mapping, MappingProxyType)):
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot metadata fragments entries must be dicts"
+                )
+            _snap_frag_ids.append(_fr.get("canonical_id"))
+        _ops = [s.semantic_operation for s in mapping.steps]
+        if _snap_frag_ids != _ops:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata fragments {_snap_frag_ids!r} does not "
+                f"match the canonical ordered semantic step operations {_ops!r}"
+            )
+        # (c) exact semantic task class must match the canonical source task class
+        #     (not merely the render axis). Derived from the trusted catalog via the
+        #     mapping's source_task_id.
+        _snap_class = meta.get("unreal_semantic_task_class")
+        if _snap_class is None:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing unreal_semantic_task_class; "
+                "required for canonical identity (fail closed on omission)"
+            )
+        _canonical_class = None
+        try:
+            _ce = DEFAULT_UNREAL_CATALOG.get_entry(mapping.source_task_id)
+            _canonical_class = _ce.task_class
+        except Exception:
+            _canonical_class = None
+        if _canonical_class is None:
+            raise UnrealRuntimeAdapterError(
+                f"cannot derive the canonical task class for "
+                f"{mapping.source_task_id!r}; cannot structurally validate the "
+                "snapshot task class (fail closed)"
+            )
+        if _snap_class != _canonical_class:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_semantic_task_class "
+                f"{_snap_class!r} does not match the canonical source task class "
+                f"{_canonical_class!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -2009,38 +2089,55 @@ def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str) -
         return
     if not isinstance(entry, (dict, Mapping, MappingProxyType)):
         raise UnrealRuntimeAdapterError(f"{owner}: catalog_entry must be a dict")
-    kinds = entry.get("parameter_kinds")
-    if kinds is None:
+    # R9-2: the parameter schema is TRUSTED from the canonical catalog, NEVER from
+    # the caller-supplied snapshot. Resolve the authoritative entry by name/version
+    # and use its declared parameter kinds. A resolved entry that disagrees with
+    # the supplied catalog_entry's name/version, or an unresolvable entry, FAILS
+    # CLOSED. The snapshot cannot manufacture its own schema (no
+    # self-validation).
+    _entry_name = entry.get("name")
+    _entry_version = entry.get("version")
+    if not isinstance(_entry_name, str) or not _entry_name.strip():
         raise UnrealRuntimeAdapterError(
-            f"{owner}: catalog_entry has no declared parameter_kinds; cannot "
-            "structurally validate source parameters (fail closed)"
+            f"{owner}: catalog_entry.name is required (trusted catalog axis)"
         )
-    if isinstance(kinds, (dict, Mapping, MappingProxyType)):
-        # snapshot form: {param_name: kind}
-        allowed: Dict[str, str] = {}
-        for kname, kkind in kinds.items():
-            if not isinstance(kname, str) or not isinstance(kkind, str):
-                raise UnrealRuntimeAdapterError(
-                    f"{owner}: parameter_kinds must map str name -> str kind"
-                )
-            allowed[kname] = kkind
-    elif isinstance(kinds, (list, tuple)):
-        # list-of-(name, kind) pairs form
-        allowed: Dict[str, str] = {}
-        for kd in kinds:
-            if not isinstance(kd, (list, tuple)) or len(kd) != 2:
-                raise UnrealRuntimeAdapterError(
-                    f"{owner}: malformed parameter_kinds entry {kd!r}"
-                )
-            kname, kkind = kd
-            if not isinstance(kname, str) or not isinstance(kkind, str):
-                raise UnrealRuntimeAdapterError(
-                    f"{owner}: parameter_kinds must be (name, kind) string pairs"
-                )
-            allowed[kname] = kkind
-    else:
+    # Resolve the trusted entry (highest version when none given).
+    try:
+        trusted_entry = DEFAULT_UNREAL_CATALOG.get_entry(
+            _entry_name, version=(_entry_version if isinstance(_entry_version, int) and not isinstance(_entry_version, bool) else None)
+        )
+    except Exception as exc:
         raise UnrealRuntimeAdapterError(
-            f"{owner}: parameter_kinds must be a dict or a list of (name, kind) pairs"
+            f"{owner}: cannot resolve trusted catalog entry {_entry_name!r}; "
+            f"cannot structurally validate source parameters (fail closed): {type(exc).__name__}: {exc}"
+        ) from exc
+    # If the snapshot asserts a version, it must agree with the trusted entry.
+    if isinstance(_entry_version, int) and not isinstance(_entry_version, bool):
+        if _entry_version != trusted_entry.version:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}: catalog_entry.version {_entry_version!r} does not match "
+                f"the trusted catalog version {trusted_entry.version}"
+            )
+    trusted_snapshot = trusted_entry.snapshot()
+    allowed: Dict[str, str] = dict(trusted_snapshot.get("parameter_kinds") or {})
+    if not allowed:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}: trusted catalog entry {_entry_name!r} declares no "
+            "parameter_kinds; cannot structurally validate (fail closed)"
+        )
+    # The supplied catalog_entry must not contradict the trusted schema.
+    _supplied_kinds = entry.get("parameter_kinds")
+    if isinstance(_supplied_kinds, (dict, Mapping, MappingProxyType)):
+        _supplied_dict = dict(_supplied_kinds)
+    elif isinstance(_supplied_kinds, (list, tuple)):
+        _supplied_dict = dict(_supplied_kinds)
+    else:
+        _supplied_dict = None
+    if _supplied_dict is not None and _supplied_dict != allowed:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}: supplied catalog_entry.parameter_kinds does not match the "
+            "trusted catalog schema (the snapshot cannot declare its own parameter "
+            "schema)"
         )
     params = params or {}
     if not isinstance(params, (dict, Mapping, MappingProxyType)):
@@ -2080,14 +2177,21 @@ def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str) -
                         f"{type(val).__name__}"
                     )
             elif expected_kind == "json":
-                if not isinstance(val, (dict, list)):
+                # R9-1: the frozen snapshot stores json values as tuple /
+                # MappingProxyType. Thaw them back to the canonical JSON semantic
+                # form (list / dict) BEFORE type-checking, so a freeze/thaw
+                # round-trip never changes the semantic type, and a legitimate
+                # camera_slots=[1,2] / lighting_rig=[{...}] validates.
+                _js = _thaw_json(val)
+                if not isinstance(_js, (dict, list)):
                     raise UnrealRuntimeAdapterError(
                         f"{owner}.parameters.{key}: expected a JSON value, got "
-                        f"{type(val).__name__}"
+                        f"{type(val).__name__} (reconstructed "
+                        f"{type(_js).__name__})"
                     )
                 # json params must be structural strict-JSON (string keys).
                 _validate_strict_json_value(
-                    val, f"{owner}.parameters.{key}", "<root>",
+                    _js, f"{owner}.parameters.{key}", "<root>",
                     reject_forbidden=False,
                 )
             else:
