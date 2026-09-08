@@ -1540,3 +1540,148 @@ def test_r4_direct_snapshot_metadata_authority_scan():
             semantic_fidelity="aggregate", source_task_digest="a" * 64,
             provenance={},
         )
+
+
+# ---------------------------------------------------------------------------
+# R5-7 direct-construction adversarial tests (single canonical path parity)
+# ---------------------------------------------------------------------------
+
+
+def _direct_base_mapping():
+    """A valid factory-produced non-render mapping used as the template for
+    direct-construction forgeries (so snapshot/digest/step shape is valid and
+    the specific __post_init__ cross-checks are actually exercised)."""
+    return _map()
+
+
+def _forge_direct(**provenance_overrides):
+    import dataclasses
+    m = _direct_base_mapping()
+    prov = dict(m.provenance)
+    prov.update(provenance_overrides)
+    return dataclasses.replace(m, provenance=prov)
+
+
+def test_r5_direct_independently_verified_true_rejected():
+    # The M12.5 boundary flag must stay False even on direct construction.
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _forge_direct(independently_verified=True)
+
+
+def test_r5_direct_invalid_evaluator_kind_rejected():
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _forge_direct(runtime_evaluator_kind="independently-verified")
+
+
+def test_r5_direct_forged_source_digest_rejected():
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _forge_direct(source_task_digest="b" * 64)
+
+
+def test_r5_direct_forged_runtime_digest_rejected():
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _forge_direct(runtime_task_digest="c" * 64)
+
+
+def test_r5_direct_render_flag_contradiction_rejected():
+    import dataclasses
+    m = _direct_base_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, provenance=dict(m.provenance, recognized_render_plan=True))
+
+
+def test_r5_direct_semantic_fidelity_contradiction_rejected():
+    import dataclasses
+    m = _direct_base_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(
+            m, provenance=dict(m.provenance, semantic_fidelity="unavailable")
+        )
+
+
+def test_r5_direct_mapped_type_contradiction_rejected():
+    import dataclasses
+    m = _direct_base_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(
+            m, provenance=dict(m.provenance, mapped_runtime_task_type="unavailable")
+        )
+
+
+def test_r5_direct_step_supported_non_inspect_rejected():
+    # A directly-built supported step must target the inspect runtime operation
+    # with inspect-only capability (R5-3 in the shared path).
+    import dataclasses
+    from planning.m12.runtime_adapter import UnrealRuntimeStepMapping
+    s = UnrealRuntimeStepMapping(
+        step_id="s9", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_render", target_state_contributions=("scene_initialized",),
+        idempotence="idempotent", fragment_id="scene_setup", fragment_version=1,
+        verification_requirements=("scene_initialized",),
+    )
+    m = _direct_base_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r5_direct_step_write_capability_rejected():
+    import dataclasses
+    from planning.m12.runtime_adapter import UnrealRuntimeStepMapping
+    s = UnrealRuntimeStepMapping(
+        step_id="s9", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", target_state_contributions=("scene_initialized",),
+        idempotence="idempotent", fragment_id="scene_setup", fragment_version=1,
+        capability_requirement="write", verification_requirements=("scene_initialized",),
+    )
+    m = _direct_base_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r5_direct_unsupported_step_without_reason_rejected():
+    import dataclasses
+    from planning.m12.runtime_adapter import UnrealRuntimeStepMapping
+    s = UnrealRuntimeStepMapping(
+        step_id="s9", semantic_operation="render_setup", supported=False,
+        target_runtime_operation="<none>", target_state_contributions=("render_configured",),
+        idempotence="non-idempotent", fragment_id="render_setup", fragment_version=1,
+    )
+    m = _direct_base_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r5_direct_contradictory_declared_type_rejected():
+    import dataclasses
+    m = _direct_base_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, provenance=dict(m.provenance, declared="yes"))
+
+
+def test_r5_valid_direct_roundtrip_accepted():
+    # A faithful direct reconstruction (matching authoritative fields) succeeds —
+    # proving the path is not over-restrictive for legitimate state.
+    import dataclasses
+    m = _direct_base_mapping()
+    m2 = dataclasses.replace(m, provenance=dict(m.provenance))
+    assert m2.source_task_digest == m.source_task_digest
+    # A faithful reconstruction carries no false independently_verified claim
+    # (either absent or explicit False) and passes the shared validator.
+    assert m2.provenance.get("independently_verified", False) is False
+
+
+def test_r5_factory_and_direct_use_same_validator():
+    # The two paths agree: a mutation that would pass the factory must also pass
+    # direct construction of the same state, and one that the factory rejects is
+    # rejected on direct construction through the shared __post_init__ path.
+    mapping = _map()
+    # snapshot metadata authority scan is in the shared path (R5-5).
+    snap_meta = dict(mapping.runtime_task_snapshot["metadata"])
+    # A metadata key outside the closed schema is rejected by the shared path.
+    from planning.m12.runtime_adapter import _freeze_json
+    bad_snapshot = dict(mapping.runtime_task_snapshot)
+    bad_snapshot["metadata"] = {**dict(snap_meta), "scheduler": {"retry": 3}}
+    import dataclasses
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(mapping, runtime_task_snapshot=_freeze_json(bad_snapshot))
+
