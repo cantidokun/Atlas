@@ -768,3 +768,69 @@ asserting `declared=False` while carrying caller content is rejected. Tests:
 - can_execute remains False on plan, mapping, and steps; no
   execute/authorize/submit/recover/verify authority added.
 
+
+## Round-7 — Targeted regression + identity hardening (R7-1..R7-5)
+
+The sixth gate independently confirmed a critical regression and three coupled
+identity/truthfulness blockers. Round-7 is a TARGETED incremental repair on top of
+Round-6's canonical reconstruction — it does not roll back or broaden anything.
+
+### R7-1 — Restore direct-construction inspect-only step authority (regression fix)
+Round-6's `_reconstruct_canonical_targets` dropped the R5-3 checks that a SUPPORTED
+step must target `unreal_inspect` with `inspect-only` capability. Round-7 restores
+them in the SAME canonical path used by factory and direct construction:
+- supported ⇒ `target_runtime_operation == "unreal_inspect"`, `capability_requirement ==
+  "inspect-only"`, `unsupported_reason is None`, `fragment_id` present;
+- unsupported ⇒ `target_runtime_operation == "<none>"` (and the explicit
+  render-boundary reason).
+A directly-constructed supported step with `unreal_render`/`write` now FAILS CLOSED.
+Tests: `test_r7_supported_step_*`, `test_r5_direct_step_supported_non_inspect_rejected`,
+`test_r5_direct_step_write_capability_rejected`.
+
+### R7-2 — False-green tests repaired (mandatory)
+The R5/R6 direct-step authority tests previously passed because `dataclasses.replace(m,
+steps=(s,))` without valid provenance tripped an unrelated frozen-provenance
+`TypeError`, not the authority guard. All such tests now construct valid
+`provenance=dict(m.provenance)` first and, where applicable, assert the specific
+`"inspect-only authority"` message — proving the rejection is caused by the intended
+contract validation, not a setup error.
+
+### R7-3 — Mapping-level identity is MANDATORY and DERIVED
+`_reconstruct_canonical_targets` now requires:
+- `mapping.plan_id == _build_plan_id(source_task_id, version, ordered step
+  operations, source_task_digest)` (derived, never caller-supplied; no "identity A +
+  commitment B", no arbitrary plan_id);
+- for non-render mappings, the snapshot metadata identity/catalog fields
+  (`unreal_semantic_task_id`, `unreal_semantic_task_version`, `catalog_version`) must
+  be PRESENT and equal — fail closed on omission (no "skip validation because absent");
+- render-bound mappings (no snapshot) preserve the non-executable boundary.
+Tests: `test_r7_forged_mapping_plan_id_rejected`, `test_r7_correct_mapping_plan_id_accepted`,
+`test_r7_snapshot_identity_omission_fails_closed`, `test_r7_source_commitment_mismatch_rejected`.
+
+### R7-4 — Step provenance reconciles; step `declared` is derived
+Within a step, the canonical fragment id/version and target-state contributions are
+authoritative: any step-provenance copy that carries one of these fields must equal
+canonical truth (fail closed), and `step.declared` must equal
+`bool(surviving caller-controlled fields)` — never hard-coded and never a false
+"no caller content" claim.
+Tests: `test_r7_step_provenance_forged_*`, `test_r7_step_false_declared_rejected`,
+`test_r7_step_declared_true_when_caller_content_present`.
+
+### R7-5 — mapping source_task_version is reconciled
+`mapping.source_task_version` is authoritative; if caller provenance also carries
+`source_task_version` it must equal it exactly, otherwise reject. The field is only
+labelled reconciled after that comparison.
+Tests: `test_r7_source_task_version_mismatch_rejected`,
+`test_r7_source_task_version_match_accepted`.
+
+## Round-7 validation
+
+- `pytest tests/m12/` → **314 passed** (was 296; +18 R7 tests; the R5 direct-step
+  authority tests now genuinely exercise the restored guards)
+- `pytest -m "not integration"` → **1765 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` → **5 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only this round. M12.3, M12.1, M4-M10,
+  M12.5 untouched.
+- can_execute remains False (plan, mapping, steps); no
+  execute/authorize/submit/recover/verify authority; no M4-M10 authority imports.
+

@@ -335,3 +335,34 @@ makes them true structurally, not by adding assertions around caller-controlled 
 - can_execute remains False (plan, mapping, steps); no
   execute/authorize/submit/recover/verify authority added; no M4-M10 authority imports.
 
+
+---
+
+# ROUND-7 — TARGETED REGRESSION + IDENTITY HARDENING
+
+The sixth gate (independent Astra BLOCK with 9 blockers; Claude BLOCK with 4,
+sharing one CRITICAL regression) identified a concrete R5→R6 regression and three
+coupled identity/truthfulness blockers. Round-7 is a targeted correction on top of
+Round-6 — an incremental repair, not a rollback.
+
+## Finding -> root cause -> regression -> fix -> test -> result
+
+| R7 | Sixth-gate finding | Root cause | Fix | Regression/adhoc test(s) | Post-fix result |
+|---|---|---|---|---|---|
+| R7-1 Restore inspect-only step authority | Astra B3 / Claude B1 (CRITICAL): a directly-constructed SUPPORTED step may target `unreal_render` / `write` | R6-3 replaced the R5-3 per-step inspect-only checks (target_runtime_operation==inspect, capability==inspect-only, reason None, fragment_id present) with only a fragment-render/expandability check | `_reconstruct_canonical_targets` restores the full supported/unsupported authority contract (supported ⇒ inspect target + inspect-only + no reason + fragment_id; unsupported ⇒ "<none>" + render-boundary reason) in the shared path | `test_r7_supported_step_write_capability_rejected_for_right_reason`, `test_r7_supported_step_render_target_rejected_for_right_reason`, `test_r7_supported_step_unknown_operation_rejected`, `test_r7_supported_step_missing_fragment_id_rejected`, `test_r7_supported_step_with_unsupported_reason_rejected`, `test_r7_unsupported_step_non_none_operation_rejected` | supported+write and supported+render steps now FAIL CLOSED with the intended authority message (empirically verified) |
+| R7-2 Repair false-green direct-step tests | Astra note / Claude N9: `test_r5_direct_step_*` / R6 direct-step tests passed via an unrelated frozen-provenance TypeError | tests called `dataclasses.replace(m, steps=(s,))` without valid provenance | `dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))` in all such tests + `match="inspect-only authority"` assertions | repaired R5/R6/R7 direct-step tests | tests now genuinely reach the intended guards (verified with `match` + valid provenance) |
+| R7-3 Bind mapping-level identity | Astra B2 / Claude B2: `plan_id`/`source_task_digest` shape-checked only; snapshot identity optional | mapping never derived plan_id; snapshot identity "if present" | `_derive_mapping_plan_id` + require plan_id == derived; require non-render snapshot identity/catalog keys PRESENT and equal (fail closed on omission) | `test_r7_forged_mapping_plan_id_rejected`, `test_r7_correct_mapping_plan_id_accepted`, `test_r7_snapshot_identity_omission_fails_closed`, `test_r7_source_commitment_mismatch_rejected` | forged/arbitrary plan_id rejected; missing snapshot identity fails closed (no skip-on-absence) |
+| R7-4 Reconcile step provenance + truthful step declared | Astra B6 / Claude B3: step provenance copies not reconciled on direct route; step declared unvalidated | direct route validated only types | per-step: IF provenance carries fragment_id/version/target_state_contribution it must equal canonical; step.declared must equal bool(surviving caller-controlled fields) | `test_r7_step_provenance_forged_*`, `test_r7_step_false_declared_rejected`, `test_r7_step_declared_true_when_caller_content_present` | forged step provenance rejected; false declared=False with caller content rejected |
+| R7-5 Reconcile mapping source_task_version | Astra B6 / Claude B4: source_task_version labelled reconciled without comparison | `_validate_mapping_provenance` cross-checked only adapter-owned keys, not the caller-part version | require caller provenance `source_task_version` == mapping.source_task_version | `test_r7_source_task_version_mismatch_rejected`, `test_r7_source_task_version_match_accepted` | shadow version 999 rejected; matching version accepted and reconciled |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **314 passed** (was 296; +18 R7 tests; R5 direct-step
+  authority tests now genuinely exercise the restored guards)
+- `pytest -m "not integration"` -> **1765 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only this round. M12.3, M12.1, M4-M10,
+  M12.5 untouched.
+- can_execute remains False (plan, mapping, steps); no
+  execute/authorize/submit/recover/verify authority; no M4-M10 authority imports.
+
