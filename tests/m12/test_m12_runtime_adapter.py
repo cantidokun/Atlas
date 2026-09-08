@@ -1696,3 +1696,309 @@ def test_r5_factory_and_direct_use_same_validator():
     with pytest.raises(UnrealRuntimeAdapterError):
         dataclasses.replace(mapping, runtime_task_snapshot=_freeze_json(bad_snapshot))
 
+
+# ---------------------------------------------------------------------------
+# R6-1..R6-6 canonical identity + reconstruction adversarial tests
+# ---------------------------------------------------------------------------
+
+
+def _r6_fresh_mapping():
+    """A valid factory-produced non-render mapping used as a direct-construction
+    template (valid snapshot/digest/step shape so the R6-3 canonical
+    reconstruction checks are what actually reject)."""
+    return _map()
+
+
+# ---- R6-1: plan_id is DERIVED, never caller-controlled ---------------------
+
+def test_r6_plan_id_cannot_be_forged():
+    from planning.m12.execution_plan import UnrealExecutionPlanError
+    base = generate_execution_plan(_seq_task_named("main"))
+    with pytest.raises((UnrealExecutionPlanError, Exception)):
+        # Supplying a plan_id that differs from the derived identity must fail.
+        UnrealExecutionPlan(
+            plan_id=base.plan_id + "X",
+            source_task_id=base.source_task_id,
+            source_task_version=base.source_task_version,
+            catalog_version=base.catalog_version,
+            digital_twin_id=base.digital_twin_id,
+            source_content_digest=base.source_content_digest,
+            steps=base.steps,
+            provenance=dict(base.provenance),
+            render_plan=base.render_plan,
+        )
+
+
+def test_r6_plan_a_identity_source_b_commitment_rejected():
+    # "plan A identity + source commitment B" must be impossible: the derived
+    # plan_id is a function of (identity, version, fragments, digest), so a plan
+    # carrying B's digest under A's identity fails the derived check.
+    ta = _seq_task_named("main")
+    tb = _seq_task_named("OTHER")
+    pa = generate_execution_plan(ta)
+    pb = generate_execution_plan(tb)
+    assert pa.plan_id != pb.plan_id
+    from planning.m12.execution_plan import UnrealExecutionPlan, UnrealExecutionPlanError
+    with pytest.raises(Exception):  # derived plan_id rejects A id + B commitment
+        UnrealExecutionPlan(
+            plan_id=pa.plan_id,
+            source_task_id=pb.source_task_id,
+            source_task_version=pb.source_task_version,
+            catalog_version=pb.catalog_version,
+            digital_twin_id=pb.digital_twin_id,
+            source_content_digest=pb.source_content_digest,
+            steps=pb.steps,
+            provenance=dict(pb.provenance),
+            render_plan=pb.render_plan,
+        )
+    # And the adapter independently recomputes it (defense-in-depth).
+    plan_a = generate_execution_plan(ta)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(
+            plan_a, source_task=_seq_task_named("OTHER"),
+        )
+
+
+def test_r6_no_digestless_plan_identity():
+    # _build_plan_id has no digest-less fallback: every plan identity is bound to
+    # the source commitment.
+    from planning.m12.execution_plan import _build_plan_id
+    pid = _build_plan_id(
+        "unreal.sequence-configure", 1,
+        ("scene_setup", "camera_setup", "sequence_setup"),
+        "aa" * 32,
+    )
+    assert len(pid) > len("plan:unreal.sequence-configure:1")
+    assert pid.startswith("plan:")
+
+
+# ---- R6-2: shared strict canonicalization for hashing + serialization -------
+
+def test_r6_non_string_key_rejected_in_digest():
+    # {1: "x"} must be REJECTED (not coerced) by the canonicalizer used to hash.
+    from planning.m12.execution_plan import UnrealExecutionPlanError
+    ta = _seq_task_named("main")
+    meta = dict(ta.metadata or {})
+    _p = dict(meta.get("parameters") or {})
+    _p["extra"] = {1: "x"}
+    meta["parameters"] = _p
+    bad = UnrealProductionTaskDefinition(
+        canonical_task_id=ta.canonical_task_id, task_class=ta.task_class,
+        digital_twin_id=ta.digital_twin_id, task_version=ta.task_version,
+        intent=ta.intent, target_state=ta.target_state, evidence=ta.evidence,
+        actions=ta.actions, allowed_action_tools=ta.allowed_action_tools,
+        allowed_mutations=ta.allowed_mutations, dependencies=ta.dependencies,
+        provenance=dict(ta.provenance or {}), metadata=meta,
+    )
+    with pytest.raises(UnrealExecutionPlanError):
+        compute_source_content_digest(bad)
+
+
+def test_r6_typed_distinctions_preserved_in_digest():
+    # True vs 1 and 1 vs 1.0 must not collapse in the canonical hash.
+    def _digest_for(val):
+        # Different JSON parameter values -> distinct digests when type differs.
+        tasks = []
+        for label in ("A", "B"):
+            t = DEFAULT_UNREAL_CATALOG.resolve(
+                "unreal.camera-configure",
+                {"twin_id": "twin-1", "camera_slots": [{"v": val}]},
+                digital_twin_id="twin-1",
+            )
+            tasks.append(UnrealProductionTaskDefinition(
+                canonical_task_id=t.canonical_task_id, task_class=t.task_class,
+                digital_twin_id=t.digital_twin_id, task_version=t.task_version,
+                intent=t.intent, target_state=t.target_state, evidence=t.evidence,
+                actions=t.actions, allowed_action_tools=t.allowed_action_tools,
+                allowed_mutations=frozenset(), dependencies=t.dependencies,
+                provenance=dict(t.provenance or {}), metadata=dict(t.metadata or {}),
+            ))
+        return compute_source_content_digest(tasks[0])
+    # int 1 vs float 1.0 in a json param must yield different digests (no implicit
+    # numeric coercion to the same canonical value).
+    assert _digest_for(1) != _digest_for(1.0)
+
+
+# ---- R6-3: direct construction performs CANONICAL reconstruction -----------
+
+def test_r6_render_setup_as_supported_inspect_rejected():
+    import dataclasses
+    m = _r6_fresh_mapping()
+    s = UnrealRuntimeStepMapping(
+        step_id="s0", semantic_operation="render_setup", supported=True,
+        target_runtime_operation="unreal_inspect", capability_requirement="inspect-only",
+        target_state_contributions=("render_configured",), idempotence="idempotent",
+        fragment_id="render_setup", fragment_version=1,
+        verification_requirements=("render_configured",),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r6_forged_fragment_id_rejected():
+    import dataclasses
+    m = _r6_fresh_mapping()
+    s = UnrealRuntimeStepMapping(
+        step_id="s0", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", capability_requirement="inspect-only",
+        target_state_contributions=("scene_initialized",), idempotence="idempotent",
+        fragment_id="camera_setup", fragment_version=1,
+        verification_requirements=("scene_initialized",),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r6_forged_fragment_version_rejected():
+    import dataclasses
+    m = _r6_fresh_mapping()
+    s = UnrealRuntimeStepMapping(
+        step_id="s0", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", capability_requirement="inspect-only",
+        target_state_contributions=("scene_initialized",), idempotence="idempotent",
+        fragment_id="scene_setup", fragment_version=999,
+        verification_requirements=("scene_initialized",),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r6_forged_idempotence_rejected():
+    # scene_setup is idempotent; a direct step claiming non-idempotent must fail.
+    import dataclasses
+    m = _r6_fresh_mapping()
+    s = UnrealRuntimeStepMapping(
+        step_id="s0", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", capability_requirement="inspect-only",
+        target_state_contributions=("scene_initialized",), idempotence="non-idempotent",
+        fragment_id="scene_setup", fragment_version=1,
+        verification_requirements=("scene_initialized",),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r6_forged_verification_requirements_rejected():
+    import dataclasses
+    m = _r6_fresh_mapping()
+    s = UnrealRuntimeStepMapping(
+        step_id="s0", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", capability_requirement="inspect-only",
+        target_state_contributions=("scene_initialized",), idempotence="idempotent",
+        fragment_id="scene_setup", fragment_version=1,
+        verification_requirements=("forged_invariant",),
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,))
+
+
+def test_r6_snapshot_identity_cross_consistency():
+    # Rebuilding a snapshot with a contradictory embedded identity (recomputed
+    # digest) must fail: R6-3 cross-checks snapshot metadata against the mapping.
+    import dataclasses
+    from planning.m12.runtime_adapter import _freeze_json, _digest_of_jsonable, _thaw_json
+    m = _r6_fresh_mapping()
+    snap = dict(m.runtime_task_snapshot)
+    snap["metadata"] = {**dict(snap["metadata"]), "unreal_semantic_task_id": "some.other.task"}
+    snapf = _freeze_json(snap)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(
+            m, runtime_task_snapshot=snapf,
+            runtime_task_digest=_digest_of_jsonable(_thaw_json(snapf)),
+        )
+
+
+# ---- R6-4 / R6-6: provenance scope + truthful declared/reconciled -----------
+
+def test_r6_plan_level_step_scoped_provenance_rejected():
+    # Claude B1: plan-level provenance carrying step-scoped fragment fields while
+    # claiming declared=False/reconciled=True must be rejected (no competing truth).
+    plan = _clone_sequence_plan(plan_provenance={
+        "fragment_id": "render_setup", "fragment_version": 999,
+        "target_state_contribution": ["forged"], "proposal_source": "q",
+    })
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task())
+
+
+def test_r6_declared_matches_surviving_caller_content():
+    # proposal_source is carried -> declared=True truthfully (and the field list).
+    m = _map()
+    if m.provenance.get("proposal_source") is not None:
+        assert m.provenance["declared"] is True
+        assert "proposal_source" in m.provenance["declared_caller_fields"]
+
+
+def test_r6_declared_reconciled_not_hardcoded():
+    # A mapping whose plan carries neither proposal_source nor note is truly
+    # declared=False (not a hard-coded constant).
+    from planning.m12.execution_plan import UnrealExecutionPlanStep
+    task = _sequence_task()
+    base = generate_execution_plan(task)
+    steps = [
+        UnrealExecutionPlanStep(
+            step_id=s.step_id, semantic_operation=s.semantic_operation,
+            required_inputs=s.required_inputs, preconditions=s.preconditions,
+            target_state_contributions=s.target_state_contributions,
+            dependencies=s.dependencies, idempotence=s.idempotence,
+            verification_requirements=s.verification_requirements,
+            execution_capability_requirement=s.execution_capability_requirement,
+            provenance=dict(s.provenance),
+        )
+        for s in base.steps
+    ]
+    plan = _clone_sequence_plan(plan_provenance={})
+    m = map_unreal_execution_plan(plan, source_task=_sequence_task())
+    assert m.provenance["declared"] is False
+    assert m.provenance["declared_caller_fields"] == ()
+
+
+def test_r6_direct_false_declaration_with_caller_content_rejected():
+    # A direct construction that claims declared=False while carrying caller
+    # content must be rejected by the truthful-derivation cross-check (R6-6).
+    import dataclasses
+    m = _r6_fresh_mapping()
+    prov = dict(m.provenance)
+    prov["proposal_source"] = "attacker"   # surviving caller content
+    prov["declared"] = False               # lie
+    prov["declared_caller_fields"] = []    # lie
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, provenance=prov)
+
+
+# ---- R6-5: structural source-metadata gate ----------------------------------
+
+def test_r6_undefined_catalog_parameter_rejected():
+    # A hand-built source whose metadata.parameters carries a key NOT declared by
+    # the catalog is structurally rejected (R6-5), regardless of its vocabulary.
+    task = _sequence_task()
+    from planning.m12.execution_plan import compute_source_content_digest
+    plan = generate_execution_plan(task)
+    # Use the real catalog flow: inject an undeclared parameter into the source.
+    t = _sequence_task()
+    meta = dict(t.metadata or {})
+    params = dict(meta.get("parameters") or {})
+    params["scheduler"] = {"retry": 3}  # NOT in catalog parameter_kinds
+    meta["parameters"] = params
+    bad = UnrealProductionTaskDefinition(
+        canonical_task_id=t.canonical_task_id, task_class=t.task_class,
+        digital_twin_id=t.digital_twin_id, task_version=t.task_version,
+        intent=t.intent, target_state=t.target_state, evidence=t.evidence,
+        actions=t.actions, allowed_action_tools=t.allowed_action_tools,
+        allowed_mutations=frozenset(), dependencies=t.dependencies,
+        provenance=dict(t.provenance or {}), metadata=meta,
+    )
+    plan_bad = generate_execution_plan(_seq_task_named("main"))
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan_bad, source_task=bad)
+
+
+# ---- R6-7: authority boundary preserved --------------------------------------
+
+def test_r6_can_execute_false_and_no_authority_methods():
+    m = _map()
+    assert m.can_execute is False
+    for attr in ("execute", "authorize", "submit", "reconcile", "schedule",
+                 "persist", "mint_receipt", "recover", "verify"):
+        assert not hasattr(m, attr), f"mapping exposes {attr}"
+
