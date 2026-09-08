@@ -34,7 +34,10 @@ from planning.m12.runtime_adapter import (
     compute_source_task_digest,
     is_forbidden_authority_key,
 )
-from planning.m12.semantic_task import UnrealProductionTaskDefinition
+from planning.m12.semantic_task import (
+    UnrealProductionTaskDefinition,
+    compute_source_content_digest,
+)
 from planning.m12.target_state import target_state_spec
 # StateInvariant / TargetStateEvaluator come from planning.target_state (M4 base).
 from action_plan import ActionSpec
@@ -299,12 +302,16 @@ def _plan_with_single_step(task, idempotence, capability="inspect-only"):
         execution_capability_requirement=capability,
         provenance={},
     )
+    source_digest = compute_source_content_digest(task)
     return UnrealExecutionPlan(
-        plan_id=_build_plan_id(task.canonical_task_id, task.task_version, fragment_ids),
+        plan_id=_build_plan_id(
+            task.canonical_task_id, task.task_version, fragment_ids, source_digest
+        ),
         source_task_id=task.canonical_task_id,
         source_task_version=task.task_version,
         catalog_version=1,
         digital_twin_id=task.digital_twin_id,
+        source_content_digest=source_digest,
         steps=(step,),
         provenance={},
         render_plan=task.render_task,
@@ -470,6 +477,7 @@ def _clone_sequence_plan(step_overrides=None, plan_provenance=None, render=None)
         source_task_version=base.source_task_version,
         catalog_version=base.catalog_version,
         digital_twin_id=base.digital_twin_id,
+        source_content_digest=base.source_content_digest,
         steps=tuple(steps),
         provenance=plan_provenance if plan_provenance is not None else dict(base.provenance),
     )
@@ -591,7 +599,9 @@ def test_fix5_render_underflag_rejected():
     under = UnrealExecutionPlan(
         plan_id=base.plan_id, source_task_id=base.source_task_id,
         source_task_version=base.source_task_version, catalog_version=base.catalog_version,
-        digital_twin_id=base.digital_twin_id, steps=tuple(steps),
+        digital_twin_id=base.digital_twin_id,
+        source_content_digest=base.source_content_digest,
+        steps=tuple(steps),
         provenance=dict(base.provenance), render_plan=False,
     )
     with pytest.raises(UnrealRuntimeAdapterError):
@@ -747,7 +757,9 @@ def test_r2_render_path_step_fidelity_reconciled():
     forged = UnrealExecutionPlan(
         plan_id=base.plan_id, source_task_id=base.source_task_id,
         source_task_version=base.source_task_version, catalog_version=base.catalog_version,
-        digital_twin_id=base.digital_twin_id, steps=tuple(st),
+        digital_twin_id=base.digital_twin_id,
+        source_content_digest=base.source_content_digest,
+        steps=tuple(st),
         provenance=dict(base.provenance), render_plan=True,
     )
     with pytest.raises(UnrealRuntimeAdapterError):
@@ -770,7 +782,9 @@ def test_r2_render_path_precondition_tamper_rejected():
     forged = UnrealExecutionPlan(
         plan_id=base.plan_id, source_task_id=base.source_task_id,
         source_task_version=base.source_task_version, catalog_version=base.catalog_version,
-        digital_twin_id=base.digital_twin_id, steps=tuple(st),
+        digital_twin_id=base.digital_twin_id,
+        source_content_digest=base.source_content_digest,
+        steps=tuple(st),
         provenance=dict(base.provenance), render_plan=True,
     )
     with pytest.raises(UnrealRuntimeAdapterError):
@@ -1118,12 +1132,17 @@ def test_b7_step_with_caller_provenance_is_declared():
 
 
 def test_b8_nan_via_source_parameter_rejected():
+    from planning.m12.semantic_task import UnrealSemanticTaskError
     task = DEFAULT_UNREAL_CATALOG.resolve(
         "unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": [float("nan")]},
         digital_twin_id="twin-1",
     )
-    with pytest.raises(UnrealRuntimeAdapterError):
-        map_unreal_execution_plan(generate_execution_plan(task), source_task=task, expected_source_task_digest=compute_source_task_digest(task))
+    # Under R5-1 the source-content commitment is computed at PLAN GENERATION from
+    # the resolved source content, so the non-finite float fails closed there (the
+    # EARLIEST authoritative boundary) rather than surviving to the runtime
+    # adapter. Both failure points use the strict-JSON canonical contract.
+    with pytest.raises((UnrealSemanticTaskError, UnrealRuntimeAdapterError)):
+        generate_execution_plan(task)
 
 
 def test_b8_canonical_json_is_strict_and_stable():
@@ -1191,44 +1210,69 @@ def test_b9_direct_invalid_snapshot_tools_rejected():
 
 # ---- R4-1: MANDATORY SOURCE BINDING ---------------------------------------
 
-def test_r4_mandatory_source_digest_omitted_rejected():
-    plan = _plan()
-    # Omitting expected_source_task_digest must FAIL CLOSED (no caller-cooperative
-    # binding): the adapter will not derive the bond from the caller's plan alone.
-    with pytest.raises(TypeError):  # required keyword
-        map_unreal_execution_plan(plan, source_task=_sequence_task())
-
-
-def test_r4_mandatory_source_digest_malformed_rejected():
-    plan = _plan()
-    with pytest.raises(UnrealRuntimeAdapterError):
-        map_unreal_execution_plan(
-            plan, source_task=_sequence_task(),
-            expected_source_task_digest="not-hex",
-        )
-
-
-def test_r4_same_identity_different_content_binding():
+def test_r5_source_binding_uses_plan_commitment_not_caller_digest():
+    # R5-2: the plan carries the authoritative source commitment. Omission of the
+    # caller's expected digest is FINE (it was only ever a redundant assertion);
+    # a correct plan + source pair maps without it.
     ta = _seq_task_named("main")
-    tb = _seq_task_named("OTHER")  # same identity, different resolved content
-    digA = compute_source_task_digest(ta)
-    # Passing B (different content, same identity) with A's expected digest fails.
     plan = generate_execution_plan(ta)
+    m = map_unreal_execution_plan(plan, source_task=ta)
+    assert m.source_task_digest == plan.source_content_digest
+    assert m.source_task_digest == compute_source_content_digest(ta)
+
+
+def test_r5_plan_a_source_b_digest_b_rejected():
+    # THE R5-2 EXPLOIT: PLAN_A + SOURCE_B + DIGEST(SOURCE_B). Previously the
+    # caller supplied both halves of the binding; now the plan carries PLAN_A's
+    # immutable commitment (digest of SOURCE_A), so SOURCE_B must fail even when
+    # the caller supplies a digest that matches SOURCE_B.
+    ta = _seq_task_named("main")
+    tb = _seq_task_named("OTHER")  # same identity, different content
+    assert compute_source_content_digest(ta) != compute_source_content_digest(tb)
+    plan_a = generate_execution_plan(ta)
+    digB = compute_source_content_digest(tb)
     with pytest.raises(UnrealRuntimeAdapterError):
-        map_unreal_execution_plan(plan, source_task=tb, expected_source_task_digest=digA)
-    # Correct binding succeeds and the mapping carries the authoritative digest.
+        map_unreal_execution_plan(plan_a, source_task=tb, expected_source_task_digest=digB)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan_a, source_task=tb)
+
+
+def test_r5_expected_digest_is_redundant_assertion():
+    # Correct source + correct expected digest: accepted, commitment authoritative.
+    ta = _seq_task_named("main")
+    plan = generate_execution_plan(ta)
+    digA = compute_source_content_digest(ta)
     m = map_unreal_execution_plan(plan, source_task=ta, expected_source_task_digest=digA)
-    assert m.source_task_digest == digA
+    assert m.source_task_digest == plan.source_content_digest
+    # A malformed caller-supplied assertion STILL fails closed (it is validated).
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=ta, expected_source_task_digest="not-hex")
+    # A caller-supplied assertion that contradicts the plan commitment fails.
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=ta, expected_source_task_digest="b" * 64)
 
 
-def test_r4_changed_parameters_digest_differs():
+def test_r5_same_identity_different_content_plan_identity():
+    # R5-1: same task identity, different resolved content => different plan
+    # identity (source commitment participates in plan_id).
+    ta = _seq_task_named("main")
+    tb = _seq_task_named("OTHER")
+    plan_a = generate_execution_plan(ta)
+    plan_b = generate_execution_plan(tb)
+    assert plan_a.source_task_id == plan_b.source_task_id
+    assert plan_a.source_content_digest != plan_b.source_content_digest
+    assert plan_a.plan_id != plan_b.plan_id
+
+
+def test_r5_changed_parameters_digest_differs():
     ta = _seq_task_named("main")
     tb = _seq_task_named("frame24b")  # different parameter value -> different content
-    assert compute_source_task_digest(ta) != compute_source_task_digest(tb)
+    assert compute_source_content_digest(ta) != compute_source_content_digest(tb)
+    plan_a = generate_execution_plan(ta)
     with pytest.raises(UnrealRuntimeAdapterError):
         map_unreal_execution_plan(
-            generate_execution_plan(ta), source_task=tb,
-            expected_source_task_digest=compute_source_task_digest(ta),
+            plan_a, source_task=tb,
+            expected_source_task_digest=compute_source_content_digest(ta),
         )
 
 
@@ -1272,7 +1316,9 @@ def test_r4_render_class_with_target_state_axis_authoritative():
     forged = UnrealExecutionPlan(
         plan_id=base.plan_id, source_task_id=base.source_task_id,
         source_task_version=base.source_task_version, catalog_version=base.catalog_version,
-        digital_twin_id=base.digital_twin_id, steps=tuple(steps),
+        digital_twin_id=base.digital_twin_id,
+        source_content_digest=base.source_content_digest,
+        steps=tuple(steps),
         provenance=dict(base.provenance), render_plan=False,
     )
     with pytest.raises(UnrealRuntimeAdapterError):
