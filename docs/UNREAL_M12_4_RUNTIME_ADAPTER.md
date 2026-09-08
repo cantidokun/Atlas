@@ -897,3 +897,72 @@ the unique guard message).
 - can_execute remains False; no execute/authorize/submit/recover/verify authority;
   no M4-M10 authority imports.
 
+
+## Round-9 — Targeted catalog + snapshot hardening (R9-1..R9-7)
+
+The eighth gate (independent Astra BLOCK + Claude BLOCK) confirmed three blocker
+classes. Round-9 is a targeted correction preserving all confirmed-working
+R6/R7/R8 controls.
+
+### R9-1 — Frozen/thawed JSON parameters (regression fix)
+A `json`-kind catalog parameter (e.g. `camera_slots=[1,2]`) is stored in the
+immutable snapshot as a `tuple`/`MappingProxyType`; the JSON-kind validator then
+rejected it (`expected a JSON value, got tuple`), falsely rejecting legitimate
+inspect-only `unreal.camera-configure` / `unreal.lighting-configure` tasks. Round-9
+separates the immutable storage representation from the canonical semantic
+validation representation: the validator now recursively THAWS the frozen value
+back to list/dict before type-checking, so a freeze/thaw round-trip never changes
+the semantic type. Positive controls prove camera, lighting, nested-JSON, array,
+and scalar parameter tasks map and materialize.
+
+### R9-2 — Canonical catalog schema is TRUSTED (no self-validation)
+The direct route previously derived BOTH `catalog_entry.parameter_kinds` and
+`parameters` from the caller-controlled snapshot (self-validation). Round-9 resolves
+the AUTHORITATIVE catalog entry from the trusted `DEFAULT_UNREAL_CATALOG` by
+name/version and validates the snapshot's `parameters` against that canonical schema.
+The snapshot can no longer declare its own parameter kinds; an unresolvable entry,
+a version mismatch, or a supplied schema that disagrees with the trusted one FAILS
+CLOSED. Attack: snapshot declaring `scheduler`/`grant` in both parameter_kinds and
+parameters is still rejected because the attacker cannot manufacture the schema.
+
+### R9-3 — Complete snapshot identity reconstruction
+For non-render mappings, the shared path now requires and verifies (fail closed on
+omission or conflict):
+- `unreal_digital_twin_id == mapping.digital_twin_id`
+- `unreal_semantic_task_id` / `unreal_semantic_task_version` / `catalog_version` (R7-3)
+- `unreal_semantic_task_class` == the canonical source task class (derived from the
+  trusted catalog entry; not merely the render axis)
+- `fragments` canonical_id sequence == ordered semantic step operations
+- `parameters` present (when the catalog entry declares required parameters) and
+  schema-valid
+- `unreal_semantic_dependencies` == ordered steps; `invariant_names` == step union;
+  `expects_render` == render_plan (R8-2)
+
+Every identity-bearing snapshot value is treated as an assertion to be checked
+against the mapping's authoritative source/plan commitment, never a source of
+truth. One-field-at-a-time direct-construction tests from a valid factory baseline
+cover each (twin, class, fragments, parameters-omission, self-schema, source↔snapshot).
+
+### R9-7 — Snapshot schema errors are DECLARED
+The complete snapshot schema (required keys present, exact shapes, nonempty
+`actions`/`evidence`/`allowed_action_tools`) is validated BEFORE indexing, so a
+malformed snapshot raises `UnrealRuntimeAdapterError` (not `KeyError`/`ValueError`)
+and represents a valid existing runtime task for materialization.
+
+### False-green cleanup
+`test_r8_unsupported_step_non_none_guard_is_effective` (a vacuous `pass`) was
+removed; `test_unknown_idempotence_fails_closed` / `test_unsupported_capability_fails_closed`
+now build a plan with correct single-fragment contributions so the intended
+idempotence/capability guards (not an earlier aggregate-target-state check) are the
+reason for rejection — verified live.
+
+## Round-9 validation
+
+- `pytest tests/m12/` → **336 passed**
+- `pytest -m "not integration"` → **1787 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` → **5 passed**
+- semantic/runtime deterministic subset → **80 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only (read-only import of the M12.2
+  `DEFAULT_UNREAL_CATALOG`). M12.3, M12.1, M4-M10, M12.5 untouched.
+- can_execute remains False; no new authority; no M4-M10 authority imports.
+

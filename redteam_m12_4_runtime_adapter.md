@@ -393,3 +393,32 @@ preserving all confirmed-working R6/R7 controls.
 - Scope: M12.4 (`runtime_adapter.py`) + tests only. M12.3, M12.1, M4-M10, M12.5
   untouched. can_execute False; no new authority.
 
+
+---
+
+# ROUND-9 — TARGETED CATALOG + SNAPSHOT HARDENING
+
+The eighth gate (independent Astra BLOCK with 6 blockers; Claude BLOCK with 3 core
+F1-F3) confirmed three blocker classes. Round-9 is a targeted correction preserving
+all confirmed-working R6/R7/R8 controls.
+
+## Finding -> root cause -> fix -> test -> result
+
+| R9 | Eighth-gate finding | Root cause | Fix | Tests | Post-fix result |
+|---|---|---|---|---|---|
+| R9-1 Frozen/thawed JSON parameter regression | Astra B5 / Claude F1: inspect-only camera/lighting (with json params) falsely rejected (`got tuple`) | R8 (E) applied the json-kind check to the FROZEN snapshot (tuple/MappingProxyType) instead of the thawed canonical form | thaw the json value (`_thaw_json`) before type-checking in `_validate_source_metadata_parameters`; storage vs semantic representation separated | `test_r9_json_parameter_tasks_map_and_roundtrip` (camera + lighting), `test_r9_scalar_parameter_task_roundtrip` | camera/lighting/sequence all map + materialize (empirically verified) |
+| R9-2 Self-referential catalog parameter gate | Astra B3 / Claude F3: attacker self-declares parameter_kinds + parameters | direct route derived schema from the same untrusted snapshot | resolve the TRUSTED catalog entry via `DEFAULT_UNREAL_CATALOG.get_entry(name, version)` and validate parameters against its canonical parameter_kinds; unresolvable/version-mismatch/disagreement FAILS CLOSED | `test_r9_self_declared_parameter_schema_rejected`, `test_r9_undeclared_snapshot_parameter_rejected` | attacker-declared scheduler/grant rejected (cannot manufacture the schema) |
+| R9-3 Incomplete snapshot identity reconstruction | Astra B1 / Claude F2: twin/fragments/class/parameters-omission accepted | snapshot checked identity/catalog/invariant but not twin, fragments, exact class, parameters | shared path now requires+verifies twin id, fragments==step ops, class==trusted-catalog class, parameters present when declared | `test_r9_snapshot_twin_identity_forged_rejected`, `test_r9_snapshot_task_class_forged_rejected`, `test_r9_snapshot_fragments_forged_rejected`, `test_r9_snapshot_parameters_omission_fails_closed`, `test_r9_source_snapshot_binding` | forged twin/class/fragments + omission + source↔snapshot swap all rejected |
+| R9-7 Snapshot schema error contract | Astra B6-attack-C / Claude N9: missing allowed_action_tools -> KeyError; empty actions -> ValueError at materialize | snapshot schema not validated before indexing | validate required keys present + nonempty actions/evidence/allowed_action_tools in __post_init__ before indexing | `test_r9_snapshot_missing_tools_error_contract`, `test_r9_snapshot_empty_actions_error_contract`, `test_r9_snapshot_empty_evidence_error_contract` | malformed snapshots raise `UnrealRuntimeAdapterError` (no KeyError/ValueError leak) |
+| False-green cleanup | Astra audit / Claude N11 | suspect tests passed via earlier branches or were vacuous | single-step guard tests now carry correct contributions; vacuous `test_r8_unsupported_step_non_none_guard_is_effective` removed | repaired `test_unknown_idempotence_fails_closed`, `test_unsupported_capability_fails_closed` | idempotence/capability guards are the reason for rejection (verified live) |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **336 passed**
+- `pytest -m "not integration"` -> **1787 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- semantic/runtime subset -> **80 passed**
+- Scope: M12.4 (`runtime_adapter.py`) + tests only (read-only import of M12.2
+  `DEFAULT_UNREAL_CATALOG`). M12.3, M12.1, M4-M10, M12.5 untouched.
+- can_execute False; no new authority; no M4-M10 authority imports.
+
