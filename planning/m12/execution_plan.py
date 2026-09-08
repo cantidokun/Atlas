@@ -19,12 +19,78 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from planning.m12.fragments import UnrealProductionFragment
 from planning.m12.fragments_registry import canonical_fragment
 from planning.m12.semantic_task import UnrealProductionTaskDefinition
 
+
+
+def _validate_strict_json(value: Any, owner: str, path: str, depth: int = 0) -> None:
+    """Recursively validate a value is STRICT canonical JSON (R6-2).
+
+    Shared by source hashing, plan canonical JSON, and identity digests. Rejects:
+    - non-string mapping keys (so ``{1: "x"}`` cannot be coerced to ``{"1": "x"}``);
+    - NaN / Infinity;
+    - non-JSON-native numeric types (Fraction, Decimal, numpy scalars);
+    - bool/int collisions are preserved (bool is a distinct scalar, not an int);
+    - unsupported structures and excessive depth.
+
+    Raises ``UnrealExecutionPlanError`` on violation — the SAME strict
+    canonicalization boundary used for serialization and identity, so hashing and
+    canonical serialization can never diverge.
+    """
+    if depth > 20:
+        raise UnrealExecutionPlanError(
+            f"{owner}.{path}: nesting exceeds safety limit (20)"
+        )
+    if isinstance(value, (dict, Mapping)):
+        for k, v in value.items():
+            if not isinstance(k, str):
+                raise UnrealExecutionPlanError(
+                    f"{owner}.{path}: mapping key must be a string, got "
+                    f"{type(k).__name__} (no implicit key coercion in canonical form)"
+                )
+            _validate_strict_json(v, owner, f"{path}.{k}", depth + 1)
+        return
+    if isinstance(value, (list, tuple)):
+        for i, item in enumerate(value):
+            _validate_strict_json(item, owner, f"{path}[{i}]", depth + 1)
+        return
+    if value is None or isinstance(value, (bool, str)):
+        return
+    if type(value) is int:  # exact int; bool excluded (handled above)
+        return
+    if type(value) is float:
+        if not (value == value) or value in (float("inf"), float("-inf")):
+            raise UnrealExecutionPlanError(
+                f"{owner}.{path}: non-finite number {value!r} not allowed in "
+                "strict canonical JSON"
+            )
+        return
+    raise UnrealExecutionPlanError(
+        f"{owner}.{path}: unsupported value type {type(value).__name__} "
+        "(strict canonical JSON: str/bool/int/float/None/mapping/sequence only)"
+    )
+
+
+def _canonical_bytes(value: Any, owner: str) -> bytes:
+    """Strict-JSON canonical byte serialization (sorted keys, compact, no NaN)."""
+    _validate_strict_json(value, owner, "<root>")
+    try:
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False,
+        ).encode("utf-8")
+    except (ValueError, TypeError) as exc:
+        raise UnrealExecutionPlanError(
+            f"{owner}: not strictly JSON-serializable: {exc}"
+        ) from exc
+
+
+def _canonical_sha256(value: Any, owner: str) -> str:
+    return hashlib.sha256(_canonical_bytes(value, owner)).hexdigest()
 
 
 def compute_source_content_digest(source_task: UnrealProductionTaskDefinition) -> str:
@@ -46,17 +112,11 @@ def compute_source_content_digest(source_task: UnrealProductionTaskDefinition) -
     """
     if not isinstance(source_task, UnrealProductionTaskDefinition):
         raise TypeError("source_task must be an UnrealProductionTaskDefinition")
-    try:
-        payload = source_task.to_json_compatible()
-        encoded = json.dumps(
-            payload, sort_keys=True, separators=(",", ":"),
-            ensure_ascii=True, allow_nan=False,
-        ).encode("utf-8")
-    except (ValueError, TypeError) as exc:
-        raise UnrealExecutionPlanError(
-            f"source content not strictly JSON-serializable: {exc}"
-        ) from exc
-    return hashlib.sha256(encoded).hexdigest()
+    payload = source_task.to_json_compatible()
+    # R6-2: canonicalize through the SHARED strict-JSON canonicalizer (the same
+    # one serialization/identity use) so hashing cannot coerce typed distinctions
+    # (e.g. {1:"x"} vs {"1":"x"}, True vs 1) that canonical JSON would preserve.
+    return _canonical_sha256(payload, "source_task_digest")
 
 
 Idempotence = str  # "idempotent" | "non-idempotent" | "unknown"
@@ -181,6 +241,24 @@ class UnrealExecutionPlan:
                 "the authoritative resolved source content (missing or invalid "
                 "source commitment fails closed)"
             )
+        _check_tokens(self.ordered_step_ids(), "step_ids")
+        # R6-1: plan_id is DERIVED, not caller-controlled. __post_init__ recomputes
+        # the authoritative plan identity from the canonical identity inputs and
+        # rejects any supplied plan_id that disagrees. A caller can never create
+        # "plan A identity + source commitment B" or "source commitment A + an
+        # arbitrary/external plan ID", and there is no digest-less identity path.
+        _derived_plan_id = _build_plan_id(
+            self.source_task_id,
+            self.source_task_version,
+            tuple(s.semantic_operation for s in self.steps),
+            self.source_content_digest,
+        )
+        if self.plan_id != _derived_plan_id:
+            raise UnrealExecutionPlanError(
+                f"plan_id is DERIVED from the canonical identity inputs and cannot "
+                f"be caller-controlled: supplied {self.plan_id!r} != derived "
+                f"{_derived_plan_id!r}"
+            )
         if not isinstance(self.steps, tuple) or not self.steps:
             raise UnrealExecutionPlanError("execution plan must have at least one step")
         if any(not isinstance(s, UnrealExecutionPlanStep) for s in self.steps):
@@ -224,10 +302,13 @@ class UnrealExecutionPlan:
         }
 
     def canonical_json(self) -> str:
-        """Deterministic canonical serialization (sorted keys, compact)."""
-        return json.dumps(
-            self.to_json_compatible(), sort_keys=True, separators=(",", ":")
-        )
+        """Deterministic STRICT canonical serialization (sorted keys, compact,
+        allow_nan=False, string keys only). Shares the R6-2 canonicalizer used by
+        source hashing and identity, so a plan's canonical form is stable,
+        non-coercing, and cannot diverge from its digest."""
+        return _canonical_bytes(
+            self.to_json_compatible(), "execution_plan"
+        ).decode("utf-8")
 
 
 def _deterministic_step_id(source_task_id: str, operation: str, index: int) -> str:
@@ -252,20 +333,21 @@ def _build_plan_id(
     source_task_id: str,
     source_task_version: int,
     fragment_ids: Tuple[str, ...],
-    source_content_digest: Optional[str] = None,
+    source_content_digest: str,
 ) -> str:
-    """Deterministic plan identity.
+    """Deterministic plan identity (R6-1, no digest-less fallback).
 
-    The M12.3 source-content commitment participates in plan identity (R5-1): a
-    plan whose resolved source content differs yields a different plan_id even
-    for the same task identity/version/fragments. ``source_content_digest`` is
-    shortened to its first 12 hex chars for a bounded, still-distinguishing id.
+    The plan_id is DERIVED from the canonical identity inputs — source task
+    identity, source task version, ordered canonical fragment identities, and the
+    full source-content commitment. There is NO digest-less path: every plan is
+    identity-bound to its resolved source content, so two plans with the same
+    identity/fragments but different source commitments necessarily differ, and a
+    caller can never substitute a plan identity independently of its commitment
+    (no "plan A identity + source commitment B").
     """
     deps = "|".join(fragment_ids)
-    if source_content_digest and isinstance(source_content_digest, str):
-        short = source_content_digest[:12]
-        return f"plan:{source_task_id}:{source_task_version}:{deps}:{short}"
-    return f"plan:{source_task_id}:{source_task_version}:{deps}"
+    short = source_content_digest[:12]
+    return f"plan:{source_task_id}:{source_task_version}:{deps}:{short}"
 
 
 def generate_execution_plan(

@@ -617,37 +617,13 @@ class UnrealRuntimeMapping:
                 "all runtime mapping steps must be UnrealRuntimeStepMapping"
             )
         _check_tokens(tuple(s.step_id for s in self.steps), "step_ids")
-        # R5-3: per-step consistency is part of the single canonical path.
-        # A supported step must target the inspect runtime operation with
-        # inspect-only capability and a real (canonical) fragment identity;
-        # a render-bound step must be marked unsupported with the explicit
-        # render-boundary reason. Direct construction cannot represent a render
-        # step as a supported inspect operation, nor grant a non-inspect
-        # capability.
-        for _step in self.steps:
-            if _step.supported:
-                if _step.target_runtime_operation != EXISTING_RUNTIME_INSPECT_TOOL:
-                    raise UnrealRuntimeAdapterError(
-                        f"step {_step.step_id!r} is supported but does not target "
-                        "the existing inspect runtime operation"
-                    )
-                if _step.capability_requirement != "inspect-only":
-                    raise UnrealRuntimeAdapterError(
-                        f"step {_step.step_id!r} is supported with unsupported "
-                        f"capability {_step.capability_requirement!r}; only "
-                        "inspect-only is representable"
-                    )
-                if _step.fragment_id is None or _step.unsupported_reason is not None:
-                    raise UnrealRuntimeAdapterError(
-                        f"step {_step.step_id!r} claims supported but has no "
-                        "canonical fragment identity or carries an unsupported reason"
-                    )
-            else:  # unsupported (render-bound or unsupported) step
-                if _step.unsupported_reason is None:
-                    raise UnrealRuntimeAdapterError(
-                        f"step {_step.step_id!r} is unsupported without an explicit "
-                        "unsupported_reason; invalid state"
-                    )
+        # R6-3: ONE canonical reconstruction path. Direct construction performs
+        # CANONICAL semantic reconstruction against the fragment registry + a
+        # derived producer map + render axes + snapshot identity — not merely
+        # shape checking — and fails closed on any disagreement. Both the factory
+        # (which also reconciles against the resolved source) and this
+        # __post_init__ share it.
+        _reconstruct_canonical_targets(self)
         if not isinstance(self.render_plan, bool):
             raise UnrealRuntimeAdapterError("render_plan must be a bool")
         if not isinstance(self.requires_existing_render_submission_path, bool):
@@ -1032,6 +1008,134 @@ def _reconcile_step_fidelity(
     if pre_reason is not None:
         return pre_reason
     return None
+
+
+# ---------------------------------------------------------------------------
+# R6-3: ONE canonical step/snapshot reconstruction path used by BOTH the factory
+# and __post_init__ (direct construction). This makes "one canonical validation
+# path" TRUE: direct construction performs canonical semantic reconstruction
+# against the fragment registry + producer map + render axes, not just shape checks.
+# ---------------------------------------------------------------------------
+
+
+def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
+    """Canonically RECONSTRUCT a mapping's steps and snapshot identity from the
+    canonical fragment registry, deriving a producer map from the mapping's own
+    step order. Rejects (fail closed) any supplied value that disagrees with the
+    reconstructed canonical result.
+
+    Enforced for EVERY construction route (factory and direct):
+    - every step's semantic_operation must be a known canonical fragment;
+    - fragment_id / fragment_version must equal the canonical fragment;
+    - required_inputs / target_state_contributions / idempotence / dependencies /
+      preconditions / verification_requirements must reconcile against the
+      canonical fragment (same _reconcile_step_fidelity used by the factory);
+    - a supported step must be expandable and non-render-configured; a
+      render-configured fragment must be marked unsupported with the render
+      boundary reason and the mapping must be render_plan=True;
+    - unresolved requirements fail closed (no empty-dependency-but-supported);
+    - the runtime snapshot's embedded identity/catalog/invariant metadata must
+      agree with the mapping's authoritative identity fields (no shadow identity).
+    """
+    prefix_producers: Dict[str, str] = {}
+    for index, _step in enumerate(mapping.steps):
+        if _step.capability_requirement == "unknown":
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r}: unknown capability (fail closed)"
+            )
+        fragment = _candidate_fragment(_step.semantic_operation)
+        if fragment is None:
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r} semantic_operation "
+                f"{_step.semantic_operation!r} is not a known canonical fragment "
+                "(fail closed)"
+            )
+        # Canonical fragment identity/version.
+        if _step.fragment_id != fragment.canonical_id:
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r} fragment_id {_step.fragment_id!r} does "
+                f"not match canonical {fragment.canonical_id!r}"
+            )
+        if _step.fragment_version != fragment.version:
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r} fragment_version {_step.fragment_version!r} "
+                f"does not match canonical {fragment.version}"
+            )
+        if _step.idempotence == "unknown":
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r}: unknown idempotence (fail closed)"
+            )
+        # Fidelity reconciliation (same function the factory uses).
+        fid_reason = _reconcile_step_fidelity(_step, fragment, prefix_producers)
+        if fid_reason is not None:
+            raise UnrealRuntimeAdapterError(fid_reason)
+        # Render/support consistency: a render-configured fragment can NEVER be a
+        # supported inspect step; a supported step must be expandable non-render.
+        render_frag = _fragment_is_render_configured(fragment)
+        if _step.supported:
+            if render_frag or not fragment.expandable:
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r}: render-configured/non-expandable "
+                    f"fragment {fragment.canonical_id!r} cannot be a SUPPORTED "
+                    f"inspect step (a render step may not claim supported=True)"
+                )
+        else:
+            if _step.unsupported_reason != REQUIRES_EXISTING_RENDER_SUBMISSION_PATH:
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r} is unsupported without the explicit "
+                    f"render-boundary reason {REQUIRES_EXISTING_RENDER_SUBMISSION_PATH!r}"
+                )
+        for produced in fragment.produces:
+            prefix_producers.setdefault(produced, _step.step_id)
+
+    # Render classification consistency on the mapping as a whole: if any step is
+    # render-configured it must be unsupported AND the mapping must be render_plan.
+    any_render_frag = any(
+        _fragment_is_render_configured(_candidate_fragment(s.semantic_operation))
+        for s in mapping.steps
+    )
+    if mapping.render_plan != mapping.requires_existing_render_submission_path:
+        raise UnrealRuntimeAdapterError(
+            "render_plan and requires_existing_render_submission_path must agree"
+        )
+    if any_render_frag and not mapping.render_plan:
+        raise UnrealRuntimeAdapterError(
+            "mapping carries a render-configured fragment but render_plan=False; "
+            "refusing to route render semantics through the non-render path"
+        )
+    # A NON-render mapping must have NO unsupported step: every step of an
+    # inspect-only mapping is a supported inspect operation. An unsupported step
+    # is only valid inside a render-bound marker (render_plan=True).
+    if not mapping.render_plan:
+        if any(not s.supported for s in mapping.steps):
+            raise UnrealRuntimeAdapterError(
+                "a non-render mapping must not contain an unsupported step; "
+                "unsupported steps are only valid on a render-bound mapping"
+            )
+
+    # Snapshot identity cross-check (R6-3): the snapshot's embedded semantics must
+    # agree with the mapping's authoritative identity fields — no shadow identity.
+    if mapping.runtime_task_snapshot is not None:
+        meta = dict(mapping.runtime_task_snapshot.get("metadata") or {})
+        snap_task_id = meta.get("unreal_semantic_task_id")
+        if snap_task_id is not None and snap_task_id != mapping.source_task_id:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_semantic_task_id {snap_task_id!r} "
+                f"contradicts mapping source_task_id {mapping.source_task_id!r}"
+            )
+        snap_version = meta.get("unreal_semantic_task_version")
+        if snap_version is not None and snap_version != mapping.source_task_version:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_semantic_task_version "
+                f"{snap_version!r} contradicts mapping source_task_version "
+                f"{mapping.source_task_version!r}"
+            )
+        snap_cv = meta.get("catalog_version")
+        if snap_cv is not None and snap_cv != mapping.catalog_version:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata catalog_version {snap_cv!r} contradicts "
+                f"mapping catalog_version {mapping.catalog_version!r}"
+            )
 
 
 # ---------------------------------------------------------------------------

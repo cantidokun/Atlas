@@ -471,14 +471,26 @@ def _clone_sequence_plan(step_overrides=None, plan_provenance=None, render=None)
                 provenance=ov.get("provenance", dict(s.provenance)),
             )
         )
+    from planning.m12.execution_plan import _build_plan_id
+    _steps = tuple(steps)
+    # R6-1: plan_id is DERIVED from the actual steps + commitment. Because a
+    # caller cannot supply plan_id independently of the derived identity, the
+    # helper recomputes it from the (possibly tampered) steps so the tampering is
+    # still propagated to the caller/harness exactly as a real plan would be, and
+    # the adapter's step/fidelity checks (not plan_id) detect the forgery.
+    _plan_id = _build_plan_id(
+        base.source_task_id, base.source_task_version,
+        tuple(s.semantic_operation for s in _steps),
+        base.source_content_digest,
+    )
     kw = dict(
-        plan_id=base.plan_id,
+        plan_id=_plan_id,
         source_task_id=base.source_task_id,
         source_task_version=base.source_task_version,
         catalog_version=base.catalog_version,
         digital_twin_id=base.digital_twin_id,
         source_content_digest=base.source_content_digest,
-        steps=tuple(steps),
+        steps=_steps,
         provenance=plan_provenance if plan_provenance is not None else dict(base.provenance),
     )
     if render is not None:
