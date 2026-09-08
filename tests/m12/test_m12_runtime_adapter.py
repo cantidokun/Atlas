@@ -27,17 +27,17 @@ from planning.m12 import (
     generate_execution_plan,
     map_unreal_execution_plan,
 )
-from planning.m12.execution_plan import _deterministic_step_id
+from planning.m12.execution_plan import (
+    _deterministic_step_id,
+    compute_source_content_digest,
+)
 from planning.m12.runtime_adapter import (
     EXISTING_RUNTIME_INSPECT_TOOL,
     REQUIRES_EXISTING_RENDER_SUBMISSION_PATH,
     compute_source_task_digest,
     is_forbidden_authority_key,
 )
-from planning.m12.semantic_task import (
-    UnrealProductionTaskDefinition,
-    compute_source_content_digest,
-)
+from planning.m12.semantic_task import UnrealProductionTaskDefinition
 from planning.m12.target_state import target_state_spec
 # StateInvariant / TargetStateEvaluator come from planning.target_state (M4 base).
 from action_plan import ActionSpec
@@ -1129,7 +1129,6 @@ def test_b7_declared_true_when_caller_provenance_carried():
 def test_b7_declared_false_only_when_no_caller_verbatim_content():
     # A mapping whose plan provenance carries NO caller-verbatim content reports
     # declared=False truthfully (not by hard-coding).
-    from planning.m12.execution_plan import _deterministic_step_id
     task = _sequence_task()
     # Rebuild plan provenance without proposal_source/note.
     base = generate_execution_plan(task)
@@ -1178,7 +1177,7 @@ def test_r5_source_task_version_provenance_reconciled_not_shadow():
 
 
 def test_b8_nan_via_source_parameter_rejected():
-    from planning.m12.semantic_task import UnrealSemanticTaskError
+    from planning.m12.execution_plan import UnrealExecutionPlanError
     task = DEFAULT_UNREAL_CATALOG.resolve(
         "unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": [float("nan")]},
         digital_twin_id="twin-1",
@@ -1187,7 +1186,7 @@ def test_b8_nan_via_source_parameter_rejected():
     # the resolved source content, so the non-finite float fails closed there (the
     # EARLIEST authoritative boundary) rather than surviving to the runtime
     # adapter. Both failure points use the strict-JSON canonical contract.
-    with pytest.raises((UnrealSemanticTaskError, UnrealRuntimeAdapterError)):
+    with pytest.raises((UnrealExecutionPlanError, UnrealRuntimeAdapterError)):
         generate_execution_plan(task)
 
 
