@@ -26,11 +26,15 @@ produces evidence, or executes anything.
   the resolved canonical source content (substitution detector).
 - `map_unreal_execution_plan(plan, *, source_task, catalog_version=None,
   expected_source_task_digest=None)` — deterministic mapping. Identity-locks the
-  plan to its exact source task, reconciles every step against the canonical
-  fragment (including render steps), recursively rejects authority/security
-  material in provenance, reuses the existing M12.1 compiler to build the
-  existing `AtlasTaskDefinition` runtime representation, and fails closed for
-  render and on source-content substitution.
+  plan to its exact source task, VERIFIES the plan's immutable
+  M12.3 `source_content_digest` against the digest recomputed from the supplied
+  source (the caller-supplied `expected_source_task_digest`, if present, is a
+  redundant assertion only and NEVER establishes authority), reconciles every
+  step against the canonical fragment (including render steps), validates closed
+  typed provenance and source-metadata against the ONE canonical
+  `__post_init__` path, reuses the existing M12.1 compiler to build the existing
+  `AtlasTaskDefinition` runtime representation, and fails closed for render and
+  on source substitution (PLAN_A + SOURCE_B rejected).
 
 ## Architecture
 
@@ -150,10 +154,14 @@ casing tricks (`IS_AUTHORIZED`). Non-string mapping keys and non-JSON values are
 rejected. Adapter-owned provenance fields are authoritative and cannot be
 shadowed by a caller.
 
-**Source-content binding.** `compute_source_task_digest` hashes the resolved
-canonical source content; every mapping carries and serializes it. Two
-same-identity tasks with different resolved content yield different digests, and
-a caller may pass `expected_source_task_digest` to fail closed on substitution.
+**Source-content binding (R5-1/R5-2).** M12.3 embeds an immutable
+`source_content_digest` on the plan, computed from the authoritative resolved
+source content. `map_unreal_execution_plan` recomputes that digest from the
+supplied source and REQUIRES it to equal the plan's commitment; a
+same-identity/different-content substitution is rejected EVEN when the caller
+supplies a digest matching the substituted source (PLAN_A + SOURCE_B +
+DIGEST(SOURCE_B) fails). The caller-supplied `expected_source_task_digest`, if
+present, is a redundant assertion only — it never establishes authority.
 
 ## Immutability of the embedded runtime task
 
@@ -208,9 +216,9 @@ mappings stay inside `planning/m12/`.
 
 ## Validation
 
-- `pytest tests/m12/` → **263 passed** (incl. Round-1/2/3 blocker tests and Round-4 hardening)
+- `pytest tests/m12/` → **279 passed** (incl. Round-1/2/3 blocker tests and Round-4 hardening)
 - `pytest tests/m12/ tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/test_unreal_task_planner.py tests/test_unreal_autonomous_executor.py tests/test_task_definition.py tests/test_authorized_task_runtime.py tests/m10/ tests/m11/` → **614 passed**
-- `pytest -m "not integration"` → **1714 passed** (no regressions)
+- `pytest -m "not integration"` → **1730 passed** (no regressions)
 - Authority-isolation import scan clean (adapter imports only M12 + `AtlasTaskDefinition`, no production-authority module).
 - No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4–M10 change.
 
@@ -486,19 +494,17 @@ A fourth adversarial gate returned groups of surviving findings. Rather than
 expanding vocabulary filters further, R4 made the trust boundary **structural**
 — invalid states are now unrepresentable / fail closed — and each change is
 covered by deterministic `test_r4_*` adversarial regression tests
-(`pytest tests/m12/` → **263 passed**).
+(`pytest tests/m12/` → **279 passed**).
 
-### R4-1. MANDATORY source binding
-`expected_source_task_digest` is now a **REQUIRED** keyword (no optional/silent
-omission). The adapter ALWAYS recomputes the digest from the authoritative
-resolved source and REQUIRES the caller's assertion to match. The caller-supplied
-value is never the source of truth. Omission, a malformed value, or a
-same-identity/different-content substitution FAILS CLOSED. A plan can no longer
-attach to a resolved source merely because identity metadata is compatible.
-Tests: `test_r4_mandatory_source_digest_omitted_rejected`,
-`test_r4_mandatory_source_digest_malformed_rejected`,
-`test_r4_same_identity_different_content_binding`,
-`test_r4_changed_parameters_digest_differs`.
+### R4-1. Source binding (SUPERSEDED by R5-1/R5-2)
+R4-1 made `expected_source_task_digest` a REQUIRED keyword (no silent omission)
+so the adapter could not attach to an unbound source. The fourth gate then showed
+this was still caller-cooperative: a caller could supply BOTH an alternate
+same-identity source AND that source's matching digest. **Round-5 supersedes
+R4-1** (see R5-1/R5-2 below): the M12.3 plan now carries the authoritative source
+commitment, the caller digest is optional/redundant, and PLAN_A + SOURCE_B +
+DIGEST(SOURCE_B) is rejected independently of any caller assertion. The R4-1
+tests were replaced by the R5 source-binding tests.
 
 ### R4-2 / R4-11. SINGLE canonical validation path
 `UnrealRuntimeMapping.__post_init__` runs the SAME canonical validation as the
@@ -589,9 +595,96 @@ verified evidence. No verification authority is granted at M12.4.
 
 ## Validation (after Round-4 hardening)
 
-- `pytest tests/m12/` → **263 passed** (incl. Round-1/2/3 and new `test_r4_*`)
-- `pytest -m "not integration"` → **1714 passed**
+- `pytest tests/m12/` → **279 passed** (incl. Round-1/2/3 and new `test_r4_*`)
+- `pytest -m "not integration"` → **1730 passed**
 - `tests/m12/test_m12_authority_isolation.py` → **5 passed** (adapter imports
   only M12 + `AtlasTaskDefinition`; no production-authority module).
 - No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4-M10
   change.
+
+
+## Round-5 — Source-commitment + single canonical validation path (R5-1..R5-7)
+
+Fourth-gate synthesis (independent Astra BLOCK + Claude PASS-with-concerns) both
+flagged the caller-cooperative source binding and the direct-construction
+validation-path divergence. Round-5 restructures rather than adding keyword
+filters.
+
+### R5-1 — M12.3 plan carries the authoritative source commitment
+`generate_execution_plan` computes an immutable `source_content_digest`
+(STRICT-JSON SHA-256 of the resolved source content) and embeds it in the plan's
+canonical representation and plan id. Same-identity/different-content tasks yield
+different plans. A caller cannot inject a digest assertion as authoritative;
+missing/invalid commitment fails closed at plan construction.
+
+### R5-2 — M12.4 verifies the plan commitment (binding no longer caller-cooperative)
+`map_unreal_execution_plan` recomputes the digest from the supplied source and
+REQUIRES it to equal the plan's `source_content_digest`. The
+`expected_source_task_digest` argument is now OPTIONAL and is a redundant
+assertion only. The exact exploit PLAN_A + SOURCE_B + DIGEST(SOURCE_B) FAILS
+because PLAN_A's commitment is DIGEST(SOURCE_A).
+Tests: `test_r5_plan_a_source_b_digest_b_rejected`,
+`test_r5_expected_digest_is_redundant_assertion`,
+`test_r5_source_binding_uses_plan_commitment_not_caller_digest`,
+`test_r5_same_identity_different_content_plan_identity`.
+
+### R5-3 / R5-5 — ONE canonical validation path (incl. source-metadata)
+`UnrealRuntimeMapping.__post_init__` is the single validation entry for BOTH the
+factory and direct construction. In addition to the R4-inherited checks it now
+enforces, in the SAME path:
+- per-step consistency (a supported step must target `unreal_inspect` with
+  `inspect-only` capability and a canonical fragment identity; an unsupported
+  step must carry the explicit render-boundary reason) — R5-3;
+- source-derived runtime metadata must conform to the closed
+  `_ALLOWED_SOURCE_METADATA_KEYS` schema (direct construction can no longer
+  inject `scheduler`/`retry`/`scope`-shaped keys into the trusted snapshot) —
+  R5-5.
+Tests: `test_r5_direct_step_supported_non_inspect_rejected`,
+`test_r5_direct_step_write_capability_rejected`,
+`test_r5_direct_unsupported_step_without_reason_rejected`,
+`test_r5_factory_and_direct_use_same_validator`.
+
+### R5-4 — Adapter-owned provenance must match authoritative fields
+`_validate_mapping_provenance` now CROSS-VALIDATES adapter-owned provenance keys
+against the mapping's authoritative dataclass fields (`recognized_render_plan ==
+render_plan`, `semantic_fidelity`, `source_task_digest`, `runtime_task_digest`,
+`mapped_runtime_task_type`), and pins `independently_verified is False` and
+`runtime_evaluator_kind == structural-placeholder`. A caller-supplied
+`source_task_version` in provenance must equal the plan's authoritative version
+(no shadow identity). A directly-constructed mapping carrying
+`independently_verified=True` / a contradictory render/digest/fidelity claim
+FAILS CLOSED.
+Tests: `test_r5_direct_independently_verified_true_rejected`,
+`test_r5_direct_invalid_evaluator_kind_rejected`,
+`test_r5_direct_forged_source_digest_rejected`,
+`test_r5_direct_forged_runtime_digest_rejected`,
+`test_r5_direct_render_flag_contradiction_rejected`,
+`test_r5_source_task_version_provenance_reconciled_not_shadow`.
+
+### R5-6 — Declared / reconciled is truthful
+`declared` is now set from actual caller-carried content: True exactly when
+`proposal_source`/`note` survive, and an explicit `declared_caller_fields` list
+is emitted. A mapping no longer claims `declared=False` while carrying caller
+strings (`test_b7_*` was corrected, having previously encoded the defect).
+`reconciled=True` is scoped to the adapter's authoritative/security-relevant
+fields, which are re-derived and validated.
+Tests: `test_b7_declared_true_when_caller_provenance_carried`,
+`test_b7_declared_false_only_when_no_caller_verbatim_content`.
+
+### R5-7 — Direct-construction adversarial tests
+`test_r5_direct_*` constructs `UnrealRuntimeMapping` directly with forged
+provenance (`independently_verified`, `runtime_evaluator_kind`, source/runtime
+digests, render/fidelity/type contradictions), forgeable steps (non-inspect
+target, write capability, unsupported-without-reason), and out-of-schema snapshot
+metadata — every one fails closed through the SAME `__post_init__` path the
+factory uses. A faithful reconstruction succeeds.
+
+## Round-5 validation
+
+- `pytest tests/m12/` → **279 passed** (was 263; +16 R5 tests)
+- `pytest -m "not integration"` → **1730 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` → **5 passed**
+- M12.1 (`semantic_task.py`) is UNTOUCHED; the source-commitment implementation
+  lives in M12.3 (`execution_plan.py`).
+- No live Unreal, no workflow/action-runner tests, no Blender, no M4-M10 change.
+

@@ -14,11 +14,32 @@ M12.3 is a PLAN, not an executor.
   idempotence, verification_requirements, execution_capability_requirement,
   provenance).
 - `UnrealExecutionPlan` — immutable plan (plan_id, source_task_id/version,
-  catalog_version, digital_twin_id, ordered steps, provenance) with stable
-  canonical JSON.
+  catalog_version, digital_twin_id, **source_content_digest**, ordered steps,
+  provenance) with stable canonical JSON.
+- `compute_source_content_digest(task)` — the SINGLE authoritative
+  source-content commitment (STRICT-JSON SHA-256 of the resolved source content).
 - `generate_execution_plan(task, *, catalog_version)` — deterministic plan
   generation from a resolved `UnrealProductionTaskDefinition` and its ordered
-  fragment dependencies.
+  fragment dependencies; computes and embeds the immutable
+  `source_content_digest`.
+
+### Source-content commitment (R5-1)
+`generate_execution_plan` computes an immutable `source_content_digest` — a
+STRICT-JSON SHA-256 (`allow_nan=False`, sorted keys) of the AUTHORITATIVE
+resolved source content (identity, version, twin, target state, dependencies,
+evidence, actions, allowed tools/mutations, catalog metadata). It is:
+- computed from the resolved source task content itself (never from a caller
+  assertion — a caller cannot inject a digest as authoritative);
+- embedded in the plan's canonical representation and participates in plan
+  identity (same task identity with different resolved content yields a
+  different plan_id);
+- immutable and validated at construction (missing/invalid commitment fails
+  closed);
+- deterministic and stable for semantically equivalent source content.
+
+A caller cannot SUPPLY the plan's commitment; M12.4 recomputes it from the
+supplied source and verifies it equals the plan's commitment (closing the
+PLAN_A + SOURCE_B + DIGEST(SOURCE_B) substitution).
 
 ### What it describes (no execution)
 - canonical plan ID + source semantic task ID/version + catalog version +
@@ -109,9 +130,8 @@ NOT implement that adapter.
 
 ## Validation
 
-- `pytest tests/m12/` → 87 passed (16 new in M12.3)
-- `pytest tests/test_unreal_render_submission.py tests/test_unreal_recovery_coordinator.py tests/m10/ tests/m11/ tests/m12/` → 434 passed
-- `pytest -m "not integration"` → **1538 passed** (was 1522)
+- `pytest tests/m12/` → **279 passed** (incl. M12.3 + R5 source-commitment tests)
+- `pytest -m "not integration"` → **1730 passed** (no regressions)
 
 No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4-M10
 change.

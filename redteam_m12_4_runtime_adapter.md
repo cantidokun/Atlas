@@ -250,3 +250,57 @@ to `allow_writes=False`. Therefore:
 - `can_execute` remains False; no execute/authorize/submit/recover/verify authority;
   no M4-M10 files changed; M12.5 untouched.
 
+
+---
+
+# ROUND-5 — SOURCE-COMMITMENT + SINGLE CANONICAL VALIDATION PATH
+
+Fourth-gate synthesis (independent Astra BLOCK, 4 blockers; Claude PASS-with-
+concerns, corroborating the substance) converged on two architectural fixes:
+the caller-cooperative source binding and the direct-construction validation-path
+divergence. Round-5 implements exactly those, plus the coupled issues they expose.
+No new keyword filters were added; the modeling is structural.
+
+## Blocker -> root cause -> structural fix -> regression test -> result
+
+| R5 | Root cause | Structural fix | Regression test(s) | Post-fix result |
+|---|---|---|---|---|
+| R5-1 Plan source commitment (Astra B2 / Claude F6) | M12.3 plan carried no authoritative source-content commitment, so the caller supplied BOTH source and matching digest -> the adapter proved consistency with the supplied source, not the plan's original source | `generate_execution_plan` computes an immutable `source_content_digest` (STRICT-JSON SHA-256 of the resolved source content), embeds it in the plan's canonical form + plan id; missing/invalid commitment fails closed at plan construction; M12.1 untouched (impl lives in M12.3) | `test_r5_same_identity_different_content_plan_identity`, `test_r4_changed_parameters_digest_differs` | same-identity/different-parameter plans have different plan_ids and digests |
+| R5-2 M12.4 verifies plan commitment (Astra B2 / Claude F6) | M12.4 trusted a caller-supplied digest as the binding mechanism | `map_unreal_execution_plan` recomputes the digest from the supplied source and REQUIRES it to equal `plan.source_content_digest`; `expected_source_task_digest` is now OPTIONAL/redundant, never authoritative | `test_r5_plan_a_source_b_digest_b_rejected`, `test_r5_expected_digest_is_redundant_assertion`, `test_r5_source_binding_uses_plan_commitment_not_caller_digest` | **PLAN_A + SOURCE_B + DIGEST(SOURCE_B) REJECTED** (was accepted); omission of the caller digest is fine (plan commitment is authoritative) |
+| R5-3 Per-step consistency in single path (Astra B1 / Claude F5) | factory-only per-step gates (capability/render/expandability) let a direct construction represent a render step as a supported inspect op | per-step consistency (supported -> must target `unreal_inspect`, `inspect-only` capability, canonical fragment id; unsupported -> explicit render-boundary reason) enforced in the SHARED `__post_init__` | `test_r5_direct_step_supported_non_inspect_rejected`, `test_r5_direct_step_write_capability_rejected`, `test_r5_direct_unsupported_step_without_reason_rejected` | directly-built render step targeting `unreal_render` / `write` capability -> rejected |
+| R5-4 Adapter-owned provenance cross-validation (Astra B1/B4 / Claude F3) | direct construction could assert `independently_verified=True`, forged digests, or render/fidelity claims contradicting canonical fields | `_validate_mapping_provenance` cross-validates adapter-owned keys against authoritative dataclass fields; pins `independently_verified is False`, `runtime_evaluator_kind == "structural-placeholder"`; caller `source_task_version` must equal plan version (no shadow identity) | `test_r5_direct_independently_verified_true_rejected`, `test_r5_direct_invalid_evaluator_kind_rejected`, `test_r5_direct_forged_digest_rejected*`, `test_r5_direct_render_flag_contradiction_rejected`, `test_r5_source_task_version_provenance_reconciled_not_shadow` | directly-constructed mapping asserting `independently_verified=True` / wrong digests / wrong render flag -> rejected |
+| R5-5 Source-metadata schema in shared path (Astra B3 / Claude F7) | source-derived runtime metadata richer checks (allowlist) ran only in the factory; nested scheduler/retry/scope-shaped keys could reach the snapshot on direct construction | `__post_init__` now enforces the closed `_ALLOWED_SOURCE_METADATA_KEYS` schema on snapshot metadata (same path as factory) | `test_r5_factory_and_direct_use_same_validator` | `scheduler`/`retry`-shaped metadata in snapshot -> rejected on direct construction |
+| R5-6 Truthful declared/reconciled (Astra B4 / Claude F1) | mapping claimed `declared=False / reconciled=True` while carrying caller-verbatim `proposal_source`/`note` (the prior test ENCODED the defect) | `declared` is set from actual caller-carried content; explicit `declared_caller_fields` list emitted; `reconciled` scoped to the adapter's re-derived/validated authoritative fields | `test_b7_declared_true_when_caller_provenance_carried`, `test_b7_declared_false_only_when_no_caller_verbatim_content`, `test_b7_step_with_caller_provenance_is_declared` | mapping carrying `proposal_source` reports `declared=True` + `declared_caller_fields=("proposal_source",)`; a provenance-free plan reports `declared=False` truthfully |
+
+## R5-7 Direct-construction adversarial gates
+`test_r5_direct_*` (9 tests) construct `UnrealRuntimeMapping` directly with every
+forgery the fourth gate named — `independently_verified=True`, invalid
+`runtime_evaluator_kind`, forged `source_task_digest`/`runtime_task_digest`,
+contradictory `recognized_render_plan`/`semantic_fidelity`/`mapped_runtime_task_type`,
+non-inspect / write-capable / reason-less steps, out-of-schema snapshot metadata,
+non-bool `declared` — and verify each FAILS CLOSED through the SAME `__post_init__`
+path the factory uses. `test_r5_valid_direct_roundtrip_accepted` confirms the
+path is not over-restrictive for legitimate state.
+
+## M12.1 untouched (strict scope)
+The source-commitment implementation lives in M12.3 (`planning/m12/execution_plan.py:compute_source_content_digest`);
+M12.1 `semantic_task.py` is unchanged in this round (net-zero diff vs the previous
+PR head). M12.4 imports it from M12.3; `compute_source_task_digest` delegates to
+it.
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **279 passed** (was 263; +16 R5 tests)
+- `pytest -m "not integration"` -> **1730 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- No Unreal, no Blender, no workflow/action-runner, no production tests run.
+- `can_execute` remains False; no execute/authorize/submit/verify authority;
+  no M4-M10 change; M12.5 untouched.
+- Source-binding data flow (end-to-end): M12.1 task -> M12.3
+  `generate_execution_plan` -> `compute_source_content_digest(task)` -> immutable
+  plan `source_content_digest` (+ folded into plan_id) -> M12.4
+  `map_unreal_execution_plan(source_task=...)` ->
+  `compute_source_task_digest(source_task)` (delegates to the same function) ->
+  REQUIRES == plan.source_content_digest, else `UnrealRuntimeAdapterError`.
+  No caller-controlled value becomes authoritative at any step.
+
