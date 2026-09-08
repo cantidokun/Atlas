@@ -1115,10 +1115,46 @@ def test_b6_catalog_version_agrees_accepted():
 # ---- B7: declared / validated semantics machine-visible -----------------------------
 
 
-def test_b7_declared_false_for_clean_mapping():
+def test_b7_declared_true_when_caller_provenance_carried():
+    # R5-6 (truthful declared): `_map()` uses _sequence_task() which carries
+    # caller-verbatim proposal_source in plan provenance, so mapping-level
+    # declared MUST be True — not hard-coded False.
     m = _map()
-    assert all(s.declared is False for s in m.steps)
+    assert m.provenance["proposal_source"] == "qwen-proposal-v1"
+    assert m.provenance["declared"] is True
+    assert m.provenance["declared_caller_fields"] == ("proposal_source",)
+    assert m.provenance["reconciled"] is True
+
+
+def test_b7_declared_false_only_when_no_caller_verbatim_content():
+    # A mapping whose plan provenance carries NO caller-verbatim content reports
+    # declared=False truthfully (not by hard-coding).
+    from planning.m12.execution_plan import _deterministic_step_id
+    task = _sequence_task()
+    # Rebuild plan provenance without proposal_source/note.
+    base = generate_execution_plan(task)
+    steps = [
+        UnrealExecutionPlanStep(
+            step_id=s.step_id, semantic_operation=s.semantic_operation,
+            required_inputs=s.required_inputs, preconditions=s.preconditions,
+            target_state_contributions=s.target_state_contributions,
+            dependencies=s.dependencies, idempotence=s.idempotence,
+            verification_requirements=s.verification_requirements,
+            execution_capability_requirement=s.execution_capability_requirement,
+            provenance=dict(s.provenance),
+        )
+        for s in base.steps
+    ]
+    clean_plan = UnrealExecutionPlan(
+        plan_id=base.plan_id, source_task_id=base.source_task_id,
+        source_task_version=base.source_task_version, catalog_version=base.catalog_version,
+        digital_twin_id=base.digital_twin_id,
+        source_content_digest=base.source_content_digest,
+        steps=tuple(steps), provenance={}, render_plan=base.render_plan,
+    )
+    m = map_unreal_execution_plan(clean_plan, source_task=task)
     assert m.provenance["declared"] is False
+    assert m.provenance["declared_caller_fields"] == ()
     assert m.provenance["reconciled"] is True
 
 
@@ -1126,6 +1162,16 @@ def test_b7_step_with_caller_provenance_is_declared():
     plan = _clone_sequence_plan({0: {"provenance": {"proposal_source": "other"}}})
     m = map_unreal_execution_plan(plan, source_task=_sequence_task(), expected_source_task_digest=compute_source_task_digest(_sequence_task()))
     assert m.steps[0].declared is True
+
+
+def test_r5_source_task_version_provenance_reconciled_not_shadow():
+    # R5-4: a caller-supplied source_task_version in provenance must not create a
+    # shadow identity. It is validated against schema; the adapter carries the
+    # authoritative plan/source version field as truth, and declared only reflects
+    # prose fields — a version assertion is reconciled (matches plan) or rejected.
+    plan = _clone_sequence_plan(plan_provenance={"source_task_version": 999})
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan, source_task=_sequence_task(), expected_source_task_digest=compute_source_task_digest(_sequence_task()))
 
 
 # ---- B8: strict JSON / canonical representation --------------------------------------

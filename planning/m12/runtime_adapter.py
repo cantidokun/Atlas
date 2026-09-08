@@ -127,6 +127,7 @@ _ADAPTER_RESERVED_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
         "runtime_task_digest",
         "declared",
         "reconciled",
+        "declared_caller_fields",
         "runtime_evaluator_kind",
         "independently_verified",
     }
@@ -614,6 +615,37 @@ class UnrealRuntimeMapping:
                 "all runtime mapping steps must be UnrealRuntimeStepMapping"
             )
         _check_tokens(tuple(s.step_id for s in self.steps), "step_ids")
+        # R5-3: per-step consistency is part of the single canonical path.
+        # A supported step must target the inspect runtime operation with
+        # inspect-only capability and a real (canonical) fragment identity;
+        # a render-bound step must be marked unsupported with the explicit
+        # render-boundary reason. Direct construction cannot represent a render
+        # step as a supported inspect operation, nor grant a non-inspect
+        # capability.
+        for _step in self.steps:
+            if _step.supported:
+                if _step.target_runtime_operation != EXISTING_RUNTIME_INSPECT_TOOL:
+                    raise UnrealRuntimeAdapterError(
+                        f"step {_step.step_id!r} is supported but does not target "
+                        "the existing inspect runtime operation"
+                    )
+                if _step.capability_requirement != "inspect-only":
+                    raise UnrealRuntimeAdapterError(
+                        f"step {_step.step_id!r} is supported with unsupported "
+                        f"capability {_step.capability_requirement!r}; only "
+                        "inspect-only is representable"
+                    )
+                if _step.fragment_id is None or _step.unsupported_reason is not None:
+                    raise UnrealRuntimeAdapterError(
+                        f"step {_step.step_id!r} claims supported but has no "
+                        "canonical fragment identity or carries an unsupported reason"
+                    )
+            else:  # unsupported (render-bound or unsupported) step
+                if _step.unsupported_reason is None:
+                    raise UnrealRuntimeAdapterError(
+                        f"step {_step.step_id!r} is unsupported without an explicit "
+                        "unsupported_reason; invalid state"
+                    )
         if not isinstance(self.render_plan, bool):
             raise UnrealRuntimeAdapterError("render_plan must be a bool")
         if not isinstance(self.requires_existing_render_submission_path, bool):
@@ -701,6 +733,17 @@ class UnrealRuntimeMapping:
                         f"runtime snapshot metadata contains adapter-owned key "
                         f"{mkey!r}; invalid snapshot state"
                     )
+            # R5-5: source-derived runtime metadata must conform to the SAME closed
+            # snapshot-metadata schema the factory enforces — so direct construction
+            # cannot inject arbitrary nested metadata (scheduler/retry/scope/etc.)
+            # into the trusted runtime snapshot.
+            for mkey in meta:
+                if mkey not in _ALLOWED_SOURCE_METADATA_KEYS and mkey not in _ADAPTER_METADATA_DISCLOSURE_KEYS:
+                    raise UnrealRuntimeAdapterError(
+                        f"runtime snapshot metadata key {mkey!r} is not part of "
+                        "the closed source-metadata schema; invalid snapshot state "
+                        "(source metadata must conform or be rejected)"
+                    )
             _validate_strict_json_value(
                 _thaw_json(self.runtime_task_snapshot),
                 "runtime_task_snapshot", "<root>", reject_forbidden=True,
@@ -718,7 +761,7 @@ class UnrealRuntimeMapping:
         # canonical path accepts adapter-owned fields + typed caller fields and
         # rejects anything else (direct construction shares this path).
         prov = _validate_mapping_provenance(
-            dict(self.provenance), "mapping.provenance"
+            dict(self.provenance), "mapping.provenance", mapping=self
         )
         object.__setattr__(self, "provenance", _freeze_json(prov))
         # Re-freeze snapshot to a fresh deep-frozen mapping (defensive; already
@@ -1059,6 +1102,17 @@ def map_unreal_execution_plan(
     clean_plan_provenance = _validate_caller_provenance(
         dict(plan.provenance or {}), "plan.provenance"
     )
+    # R5-4: a caller-supplied source_task_version assertion must not create a
+    # shadow identity contradicting the plan's authoritative version field.
+    if (
+        "source_task_version" in clean_plan_provenance
+        and clean_plan_provenance["source_task_version"] != plan.source_task_version
+    ):
+        raise UnrealRuntimeAdapterError(
+            "plan.provenance.source_task_version contradicts the plan's "
+            f"authoritative source_task_version={plan.source_task_version}; "
+            "no shadow identity survives"
+        )
 
     # --- M12.3-SOURCE-COMMITMENT BINDING (R5-2). The plan carries an immutable
     # source-content commitment (source_content_digest) generated by M12.3 from
@@ -1337,8 +1391,19 @@ def map_unreal_execution_plan(
     provenance["semantic_fidelity"] = semantic_fidelity
     provenance["source_task_digest"] = source_digest
     provenance["runtime_task_digest"] = runtime_task_digest
-    provenance["declared"] = False
+    # R5-6: `declared` is TRUTHFUL — True exactly when caller-verbatim content
+    # (proposal_source / note) is carried in the mapping provenance. The mapping
+    # may not claim a clean (declared=False) state while carrying caller strings.
+    # `reconciled` is True only for the adapter's authoritative/security-relevant
+    # fields (source commitment, render classification, runtime authority,
+    # fragment identity/version), all of which are re-derived and validated.
+    caller_verbatim_keys = {
+        k for k in clean_plan_provenance
+        if k in ("proposal_source", "note")
+    }
+    provenance["declared"] = bool(caller_verbatim_keys)
     provenance["reconciled"] = True
+    provenance["declared_caller_fields"] = sorted(caller_verbatim_keys)
 
     return UnrealRuntimeMapping(
         plan_id=plan.plan_id,
@@ -1426,15 +1491,22 @@ def _validate_caller_provenance(payload: Dict[str, Any], owner: str) -> Dict[str
     return cleaned
 
 
-def _validate_mapping_provenance(payload: Dict[str, Any], owner: str) -> Dict[str, Any]:
+def _validate_mapping_provenance(
+    payload: Dict[str, Any], owner: str,
+    *,
+    mapping: "UnrealRuntimeMapping",
+) -> Dict[str, Any]:
     """Closed validation for a FULLY-ASSEMBLED mapping's provenance dict
     (R4-5, R4-9). Accepts exactly: the adapter-owned fields (validated as
     strict-JSON, adapter truth) plus the caller-visible typed schema fields
     (validated via the schema). Any other key is rejected (fail closed).
 
-    Used by BOTH the factory (which assembles deterministic adapter fields) and
-    ``__post_init__`` (direct construction), so one canonical path governs every
-    provenance shape that can reach a mapping.
+    R5-4: adapter-owned keys, when present, are CROSS-validated against the
+    mapping's authoritative dataclass fields so a directly-constructed mapping
+    cannot carry a provenance claim that contradicts canonical state (e.g.
+    ``independently_verified=True``, ``recognized_render_plan`` disagreeing with
+    ``render_plan``). Used by BOTH the factory and ``__post_init__`` — one
+    canonical path governs every provenance shape that can reach a mapping.
     """
     if not isinstance(payload, dict):
         raise UnrealRuntimeAdapterError(f"{owner} must be a dict")
@@ -1457,6 +1529,48 @@ def _validate_mapping_provenance(payload: Dict[str, Any], owner: str) -> Dict[st
     _validate_strict_json_value(
         adapter_part, owner, "<root>", reject_forbidden=True, high_confidence=True,
     )
+    # --- R5-4: cross-validate adapter-owned claims against authoritative fields.
+    if "recognized_render_plan" in adapter_part and adapter_part["recognized_render_plan"] != mapping.render_plan:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.recognized_render_plan contradicts the mapping's "
+            f"authoritative render_plan={mapping.render_plan!r}"
+        )
+    if "semantic_fidelity" in adapter_part and adapter_part["semantic_fidelity"] != mapping.semantic_fidelity:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.semantic_fidelity contradicts the mapping's authoritative "
+            f"semantic_fidelity={mapping.semantic_fidelity!r}"
+        )
+    if "source_task_digest" in adapter_part and adapter_part["source_task_digest"] != mapping.source_task_digest:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.source_task_digest contradicts the mapping's authoritative source_task_digest"
+        )
+    if "runtime_task_digest" in adapter_part and adapter_part["runtime_task_digest"] != mapping.runtime_task_digest:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.runtime_task_digest contradicts the mapping's authoritative runtime_task_digest"
+        )
+    if "mapped_runtime_task_type" in adapter_part:
+        expected_type = (
+            "AtlasTaskDefinition" if not mapping.render_plan else "unavailable"
+        )
+        if adapter_part["mapped_runtime_task_type"] != expected_type:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.mapped_runtime_task_type contradicts the mapping's "
+                f"render classification (expected {expected_type!r})"
+            )
+    if "declared" in adapter_part and type(adapter_part["declared"]) is not bool:
+        raise UnrealRuntimeAdapterError(f"{owner}.declared must be a bool")
+    if "reconciled" in adapter_part and type(adapter_part["reconciled"]) is not bool:
+        raise UnrealRuntimeAdapterError(f"{owner}.reconciled must be a bool")
+    if adapter_part.get("independently_verified", False) is not False:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.independently_verified MUST remain False at M12.4; "
+            "nothing is independently verified"
+        )
+    if adapter_part.get("runtime_evaluator_kind") not in (None, "structural-placeholder"):
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.runtime_evaluator_kind MUST be the structural-placeholder "
+            "classification at M12.4"
+        )
     return dict(payload)
 
 
