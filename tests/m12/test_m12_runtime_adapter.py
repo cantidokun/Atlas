@@ -1620,8 +1620,10 @@ def test_r5_direct_mapped_type_contradiction_rejected():
 
 
 def test_r5_direct_step_supported_non_inspect_rejected():
-    # A directly-built supported step must target the inspect runtime operation
-    # with inspect-only capability (R5-3 in the shared path).
+    # R7-1 (restored R5-3): a directly-built SUPPORTED step must target the
+    # inspect runtime operation. This MUST construct valid provenance first so the
+    # rejection is caused by the intended authority guard, not an unrelated
+    # frozen-provenance TypeError (Round-7 false-green fix).
     import dataclasses
     from planning.m12.runtime_adapter import UnrealRuntimeStepMapping
     s = UnrealRuntimeStepMapping(
@@ -1631,11 +1633,14 @@ def test_r5_direct_step_supported_non_inspect_rejected():
         verification_requirements=("scene_initialized",),
     )
     m = _direct_base_mapping()
-    with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+    with pytest.raises(UnrealRuntimeAdapterError, match="inspect-only authority"):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r5_direct_step_write_capability_rejected():
+    # R7-1: a SUPPORTED step with write capability must be rejected by the
+    # inspect-only authority guard (with valid provenance so the rejection is
+    # genuine, not an unrelated setup error).
     import dataclasses
     from planning.m12.runtime_adapter import UnrealRuntimeStepMapping
     s = UnrealRuntimeStepMapping(
@@ -1645,8 +1650,8 @@ def test_r5_direct_step_write_capability_rejected():
         capability_requirement="write", verification_requirements=("scene_initialized",),
     )
     m = _direct_base_mapping()
-    with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+    with pytest.raises(UnrealRuntimeAdapterError, match="inspect-only authority"):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r5_direct_unsupported_step_without_reason_rejected():
@@ -1659,7 +1664,7 @@ def test_r5_direct_unsupported_step_without_reason_rejected():
     )
     m = _direct_base_mapping()
     with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r5_direct_contradictory_declared_type_rejected():
@@ -1832,7 +1837,7 @@ def test_r6_render_setup_as_supported_inspect_rejected():
         verification_requirements=("render_configured",),
     )
     with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r6_forged_fragment_id_rejected():
@@ -1846,7 +1851,7 @@ def test_r6_forged_fragment_id_rejected():
         verification_requirements=("scene_initialized",),
     )
     with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r6_forged_fragment_version_rejected():
@@ -1860,7 +1865,7 @@ def test_r6_forged_fragment_version_rejected():
         verification_requirements=("scene_initialized",),
     )
     with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r6_forged_idempotence_rejected():
@@ -1875,7 +1880,7 @@ def test_r6_forged_idempotence_rejected():
         verification_requirements=("scene_initialized",),
     )
     with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r6_forged_verification_requirements_rejected():
@@ -1889,7 +1894,7 @@ def test_r6_forged_verification_requirements_rejected():
         verification_requirements=("forged_invariant",),
     )
     with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(m, steps=(s,))
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
 
 
 def test_r6_snapshot_identity_cross_consistency():
@@ -2001,4 +2006,264 @@ def test_r6_can_execute_false_and_no_authority_methods():
     for attr in ("execute", "authorize", "submit", "reconcile", "schedule",
                  "persist", "mint_receipt", "recover", "verify"):
         assert not hasattr(m, attr), f"mapping exposes {attr}"
+
+
+# ---------------------------------------------------------------------------
+# R7-1..R7-5 targeted regression + identity hardening tests
+# ---------------------------------------------------------------------------
+
+
+def _r7_mapping():
+    """Valid factory-produced non-render mapping (template for direct forgeries)."""
+    return _map()
+
+
+def _r7_step(**kw):
+    base = dict(
+        step_id="s0", semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", capability_requirement="inspect-only",
+        target_state_contributions=("scene_initialized",), idempotence="idempotent",
+        fragment_id="scene_setup", fragment_version=1,
+        verification_requirements=("scene_initialized",),
+    )
+    base.update(kw)
+    return UnrealRuntimeStepMapping(**base)
+
+
+# ---- R7-1: restore direct-step inspect-only authority --------------------
+
+def test_r7_supported_step_write_capability_rejected_for_right_reason():
+    import dataclasses
+    m = _r7_mapping()
+    s = _r7_step(capability_requirement="write")
+    # valid provenance first -> the rejection must come from the authority guard.
+    with pytest.raises(UnrealRuntimeAdapterError, match="inspect-only authority"):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
+
+
+def test_r7_supported_step_render_target_rejected_for_right_reason():
+    import dataclasses
+    m = _r7_mapping()
+    s = _r7_step(target_runtime_operation="unreal_render")
+    with pytest.raises(UnrealRuntimeAdapterError, match="inspect-only authority"):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
+
+
+def test_r7_supported_step_unknown_operation_rejected():
+    import dataclasses
+    m = _r7_mapping()
+    s = _r7_step(target_runtime_operation="some.unknown.op")
+    with pytest.raises(UnrealRuntimeAdapterError, match="inspect-only authority"):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
+
+
+def test_r7_supported_step_missing_fragment_id_rejected():
+    import dataclasses
+    m = _r7_mapping()
+    s = _r7_step(fragment_id=None)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
+
+
+def test_r7_supported_step_with_unsupported_reason_rejected():
+    import dataclasses
+    m = _r7_mapping()
+    from planning.m12.runtime_adapter import REQUIRES_EXISTING_RENDER_SUBMISSION_PATH
+    s = _r7_step(unsupported_reason=REQUIRES_EXISTING_RENDER_SUBMISSION_PATH)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
+
+
+def test_r7_unsupported_step_non_none_operation_rejected():
+    # An unsupported step must target "<none>".
+    import dataclasses
+    m = _r7_mapping()
+    s = _r7_step(supported=False, target_runtime_operation="unreal_render")
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, steps=(s,), provenance=dict(m.provenance))
+
+
+def test_r7_factory_and_direct_step_reject_aligned():
+    # The factory can never emit a write/render supported step, and direct
+    # construction now rejects the same — proving ONE canonical path.
+    m = _r7_mapping()
+    assert all(s.capability_requirement == "inspect-only" for s in m.steps)
+    assert all(s.target_runtime_operation == "unreal_inspect" for s in m.steps)
+
+
+# ---- R7-3: mapping-level identity is mandatory and derived -----------------
+
+def test_r7_forged_mapping_plan_id_rejected():
+    import dataclasses
+    m = _r7_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError, match="DERIVED"):
+        dataclasses.replace(m, plan_id="caller-selected", provenance=dict(m.provenance))
+
+
+def test_r7_correct_mapping_plan_id_accepted():
+    import dataclasses
+    from planning.m12.execution_plan import _build_plan_id
+    m = _r7_mapping()
+    expected = _build_plan_id(
+        m.source_task_id, m.source_task_version,
+        tuple(s.semantic_operation for s in m.steps),
+        m.source_task_digest,
+    )
+    m2 = dataclasses.replace(m, plan_id=expected, provenance=dict(m.provenance))
+    assert m2.plan_id == expected
+
+
+def test_r7_snapshot_identity_omission_fails_closed():
+    # Missing snapshot identity must NOT skip validation (R7-3).
+    import dataclasses
+    from planning.m12.runtime_adapter import _freeze_json
+    m = _r7_mapping()
+    snap = dict(m.runtime_task_snapshot)
+    meta = dict(snap["metadata"])
+    del meta["unreal_semantic_task_id"]
+    snap["metadata"] = meta
+    snapf = _freeze_json(snap)
+    from planning.m12.runtime_adapter import _digest_of_jsonable, _thaw_json
+    with pytest.raises(UnrealRuntimeAdapterError, match="missing unreal_semantic_task_id"):
+        dataclasses.replace(
+            m, runtime_task_snapshot=snapf,
+            runtime_task_digest=_digest_of_jsonable(_thaw_json(snapf)),
+            provenance=dict(m.provenance),
+        )
+
+
+def test_r7_source_commitment_mismatch_rejected():
+    import dataclasses
+    m = _r7_mapping()
+    with pytest.raises(UnrealRuntimeAdapterError):
+        dataclasses.replace(m, source_task_digest="b" * 64, provenance=dict(m.provenance))
+
+
+# ---- R7-4: step provenance reconciliation + truthful step declared ---------
+
+def test_r7_step_provenance_forged_fragment_id_rejected():
+    import dataclasses
+    from planning.m12.execution_plan import _build_plan_id
+    m = _r7_mapping()
+    steps = list(m.steps)
+    s = _r7_step(
+        step_id=steps[0].step_id, provenance={"fragment_id": "render_setup"}
+    )
+    steps[0] = s
+    new_plan_id = _build_plan_id(
+        m.source_task_id, m.source_task_version,
+        tuple(st.semantic_operation for st in steps),
+        m.source_task_digest,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError, match="provenance fragment_id"):
+        dataclasses.replace(
+            m, steps=tuple(steps), plan_id=new_plan_id, provenance=dict(m.provenance)
+        )
+
+
+def test_r7_step_provenance_forged_fragment_version_rejected():
+    import dataclasses
+    from planning.m12.execution_plan import _build_plan_id
+    m = _r7_mapping()
+    steps = list(m.steps)
+    s = _r7_step(step_id=steps[0].step_id, provenance={"fragment_version": 999})
+    steps[0] = s
+    new_plan_id = _build_plan_id(
+        m.source_task_id, m.source_task_version,
+        tuple(st.semantic_operation for st in steps),
+        m.source_task_digest,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError, match="provenance fragment_version"):
+        dataclasses.replace(
+            m, steps=tuple(steps), plan_id=new_plan_id, provenance=dict(m.provenance)
+        )
+
+
+def test_r7_step_provenance_forged_contribution_rejected():
+    import dataclasses
+    from planning.m12.execution_plan import _build_plan_id
+    m = _r7_mapping()
+    steps = list(m.steps)
+    s = _r7_step(
+        step_id=steps[0].step_id, provenance={"target_state_contribution": ["forged"]}
+    )
+    steps[0] = s
+    new_plan_id = _build_plan_id(
+        m.source_task_id, m.source_task_version,
+        tuple(st.semantic_operation for st in steps),
+        m.source_task_digest,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError, match="target_state_contribution"):
+        dataclasses.replace(
+            m, steps=tuple(steps), plan_id=new_plan_id, provenance=dict(m.provenance)
+        )
+
+
+def test_r7_step_false_declared_rejected():
+    # step.declared must be TRUE when caller-controlled (non-scoped) content is
+    # carried in step provenance; a hard-coded False claim fails.
+    import dataclasses
+    from planning.m12.execution_plan import _build_plan_id
+    m = _r7_mapping()
+    steps = list(m.steps)
+    s = UnrealRuntimeStepMapping(
+        step_id=steps[0].step_id, semantic_operation="scene_setup", supported=True,
+        target_runtime_operation="unreal_inspect", capability_requirement="inspect-only",
+        target_state_contributions=("scene_initialized",), idempotence="idempotent",
+        fragment_id="scene_setup", fragment_version=1,
+        verification_requirements=("scene_initialized",),
+        declared=False, provenance={"note": "attacker content"},
+    )
+    steps[0] = s
+    new_plan_id = _build_plan_id(
+        m.source_task_id, m.source_task_version,
+        tuple(st.semantic_operation for st in steps),
+        m.source_task_digest,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError, match="declared"):
+        dataclasses.replace(
+            m, steps=tuple(steps), plan_id=new_plan_id, provenance=dict(m.provenance)
+        )
+
+
+def test_r7_step_declared_true_when_caller_content_present():
+    import dataclasses
+    from planning.m12.execution_plan import _build_plan_id
+    m = _r7_mapping()
+    # Reconstruct a consistent 3-step mapping (matching the source task's
+    # fragment operations) so the DERIVED plan_id stays valid, and mark the one
+    # altered step declared=True (it carries caller `note` content).
+    steps = list(m.steps)
+    steps[0] = _r7_step(
+        step_id=steps[0].step_id, declared=True, provenance={"note": "caller transcript"}
+    )
+    new_plan_id = _build_plan_id(
+        m.source_task_id, m.source_task_version,
+        tuple(s.semantic_operation for s in steps),
+        m.source_task_digest,
+    )
+    m2 = dataclasses.replace(
+        m, steps=tuple(steps), plan_id=new_plan_id, provenance=dict(m.provenance)
+    )
+    assert m2.steps[0].declared is True
+
+
+# ---- R7-5: mapping source_task_version must be reconciled -------------------
+
+def test_r7_source_task_version_mismatch_rejected():
+    import dataclasses
+    m = _r7_mapping()
+    prov = dict(m.provenance)
+    prov["source_task_version"] = 999
+    with pytest.raises(UnrealRuntimeAdapterError, match="source_task_version"):
+        dataclasses.replace(m, provenance=prov)
+
+
+def test_r7_source_task_version_match_accepted():
+    import dataclasses
+    m = _r7_mapping()
+    prov = dict(m.provenance)
+    prov["source_task_version"] = m.source_task_version
+    m2 = dataclasses.replace(m, provenance=prov)
+    assert m2.provenance["source_task_version"] == m.source_task_version
 

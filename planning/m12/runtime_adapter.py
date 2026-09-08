@@ -1030,6 +1030,26 @@ def _reconcile_step_fidelity(
 # ---------------------------------------------------------------------------
 
 
+def _derive_mapping_plan_id(mapping: "UnrealRuntimeMapping") -> str:
+    """Derive the authoritative plan identity for a mapping from its own canonical
+    inputs: source identity, version, ordered canonical step operations, and the
+    source commitment. Requires the source commitment to be present (64-hex) so a
+    mapping cannot carry a forged/absent commitment under a caller-selected plan id.
+    """
+    if not _is_hex64(mapping.source_task_digest):
+        raise UnrealRuntimeAdapterError(
+            "source_task_digest must be a 64-char lowercase hex SHA-256; cannot "
+            "derive the authoritative plan identity without the source commitment"
+        )
+    from planning.m12.execution_plan import _build_plan_id
+    return _build_plan_id(
+        mapping.source_task_id,
+        mapping.source_task_version,
+        tuple(s.semantic_operation for s in mapping.steps),
+        mapping.source_task_digest,
+    )
+
+
 def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
     """Canonically RECONSTRUCT a mapping's steps and snapshot identity from the
     canonical fragment registry, deriving a producer map from the mapping's own
@@ -1081,10 +1101,38 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
         fid_reason = _reconcile_step_fidelity(_step, fragment, prefix_producers)
         if fid_reason is not None:
             raise UnrealRuntimeAdapterError(fid_reason)
-        # Render/support consistency: a render-configured fragment can NEVER be a
-        # supported inspect step; a supported step must be expandable non-render.
+        # R7-1 (RESTORED R5-3): inspect-only step authority. A supported step must
+        # target the existing inspect runtime operation with inspect-only
+        # capability, carry a canonical fragment identity, and have no unsupported
+        # reason; an unsupported step must carry the explicit render-boundary
+        # reason AND target the "<none>" operation. This is enforced on BOTH the
+        # factory and direct-construction routes (single canonical path).
         render_frag = _fragment_is_render_configured(fragment)
         if _step.supported:
+            if _step.target_runtime_operation != EXISTING_RUNTIME_INSPECT_TOOL:
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r} is supported but does not target the "
+                    f"existing inspect runtime operation "
+                    f"{EXISTING_RUNTIME_INSPECT_TOOL!r} (got "
+                    f"{_step.target_runtime_operation!r}); inspect-only authority "
+                    "violated"
+                )
+            if _step.capability_requirement != "inspect-only":
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r} is supported with capability "
+                    f"{_step.capability_requirement!r}; only inspect-only is "
+                    "representable (inspect-only authority violated)"
+                )
+            if _step.unsupported_reason is not None:
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r} claims supported but carries an "
+                    "unsupported reason; invalid state"
+                )
+            if _step.fragment_id is None:
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r} claims supported but has no canonical "
+                    "fragment identity; invalid state"
+                )
             if render_frag or not fragment.expandable:
                 raise UnrealRuntimeAdapterError(
                     f"step {_step.step_id!r}: render-configured/non-expandable "
@@ -1097,6 +1145,48 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
                     f"step {_step.step_id!r} is unsupported without the explicit "
                     f"render-boundary reason {REQUIRES_EXISTING_RENDER_SUBMISSION_PATH!r}"
                 )
+            if _step.target_runtime_operation != "<none>":
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r} is unsupported but targets "
+                    f"{_step.target_runtime_operation!r}; an unsupported step must "
+                    "target the "<none>" operation"
+                )
+        # R7-4: step provenance copies of canonical fragment fields MUST reconcile.
+        # The canonical fragment id/version and target-state contributions are
+        # authoritative: IF the step provenance carries one of these fields it
+        # must equal canonical truth (a conflicting value fails closed — no
+        # competing truth inside a step). An omitted field is not itself a
+        # violation (step semantics are carried by the first-class step fields the
+        # authority/fidelity checks enforce); the factory emits the canonical
+        # copies, and direct construction may too.
+        step_prov = dict(_step.provenance or {})
+        if "fragment_id" in step_prov and step_prov["fragment_id"] != fragment.canonical_id:
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r} provenance fragment_id {step_prov['fragment_id']!r} "
+                f"does not match canonical {fragment.canonical_id!r}"
+            )
+        if "fragment_version" in step_prov and step_prov["fragment_version"] != fragment.version:
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r} provenance fragment_version "
+                f"{step_prov['fragment_version']!r} does not match canonical "
+                f"{fragment.version}"
+            )
+        if "target_state_contribution" in step_prov:
+            _canonical_contrib = tuple(sorted(set(fragment.contributed_invariant_names())))
+            if tuple(step_prov["target_state_contribution"] or ()) != _canonical_contrib:
+                raise UnrealRuntimeAdapterError(
+                    f"step {_step.step_id!r} provenance target_state_contribution "
+                    f"does not match canonical {list(_canonical_contrib)!r}"
+                )
+        # R7-4: step `declared` must be DERIVED from actual surviving caller-
+        # controlled (non-canonical-step-scoped) content, not hard-coded.
+        _caller_step_keys = set(step_prov) - _STEP_SCOPED_PROVENANCE_KEYS
+        if _step.declared != bool(_caller_step_keys):
+            raise UnrealRuntimeAdapterError(
+                f"step {_step.step_id!r} declared={_step.declared!r} is not "
+                "truthful: derived=" + str(bool(_caller_step_keys)) + " from "
+                "surviving caller content " + str(sorted(_caller_step_keys))
+            )
         for produced in fragment.produces:
             prefix_producers.setdefault(produced, _step.step_id)
 
@@ -1125,25 +1215,65 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
                 "unsupported steps are only valid on a render-bound mapping"
             )
 
-    # Snapshot identity cross-check (R6-3): the snapshot's embedded semantics must
-    # agree with the mapping's authoritative identity fields — no shadow identity.
+    # R7-3 / R7-5: MAPPING-LEVEL IDENTITY IS MANDATORY AND DERIVED.
+    #   * plan_id MUST equal the identity derived from the mapping's own canonical
+    #     inputs (source id, version, ordered step operations, source commitment).
+    #   * mapping.source_task_version is authoritative; if caller provenance also
+    #     carries source_task_version it must match exactly.
+    #   * source_task_digest is the permanent binding (requires presence).
+    if mapping.plan_id != _derive_mapping_plan_id(mapping):
+        raise UnrealRuntimeAdapterError(
+            f"mapping.plan_id {mapping.plan_id!r} does not equal the DERIVED "
+            f"identity {_derive_mapping_plan_id(mapping)!r} from the mapping's "
+            "canonical identity inputs; plan identity cannot be caller-controlled "
+            "(no identity A + commitment B, no arbitrary plan_id)"
+        )
+    _mapping_sv = dict(mapping.provenance).get("source_task_version")
+    if _mapping_sv is not None and _mapping_sv != mapping.source_task_version:
+        raise UnrealRuntimeAdapterError(
+            f"mapping provenance source_task_version {_mapping_sv!r} contradicts "
+            f"authoritative source_task_version {mapping.source_task_version!r}"
+        )
+
+    # Snapshot identity cross-check (R6-3/R7-3): for a NON-render mapping the
+    # snapshot's embedded identity/catalog fields are REQUIRED (not optional) and
+    # must agree with the mapping's authoritative fields — no shadow identity and
+    # no "skip validation because the key is absent". Render-bound mappings carry
+    # no snapshot and preserve the non-executable boundary.
     if mapping.runtime_task_snapshot is not None:
         meta = dict(mapping.runtime_task_snapshot.get("metadata") or {})
         snap_task_id = meta.get("unreal_semantic_task_id")
-        if snap_task_id is not None and snap_task_id != mapping.source_task_id:
+        if snap_task_id is None:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing unreal_semantic_task_id; "
+                "required for non-render canonical identity (fail closed on "
+                "omission)"
+            )
+        if snap_task_id != mapping.source_task_id:
             raise UnrealRuntimeAdapterError(
                 f"runtime snapshot metadata unreal_semantic_task_id {snap_task_id!r} "
                 f"contradicts mapping source_task_id {mapping.source_task_id!r}"
             )
         snap_version = meta.get("unreal_semantic_task_version")
-        if snap_version is not None and snap_version != mapping.source_task_version:
+        if snap_version is None:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing unreal_semantic_task_version; "
+                "required for non-render canonical identity (fail closed on "
+                "omission)"
+            )
+        if snap_version != mapping.source_task_version:
             raise UnrealRuntimeAdapterError(
                 f"runtime snapshot metadata unreal_semantic_task_version "
                 f"{snap_version!r} contradicts mapping source_task_version "
                 f"{mapping.source_task_version!r}"
             )
         snap_cv = meta.get("catalog_version")
-        if snap_cv is not None and snap_cv != mapping.catalog_version:
+        if snap_cv is None:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing catalog_version; required "
+                "for non-render canonical identity (fail closed on omission)"
+            )
+        if snap_cv != mapping.catalog_version:
             raise UnrealRuntimeAdapterError(
                 f"runtime snapshot metadata catalog_version {snap_cv!r} contradicts "
                 f"mapping catalog_version {mapping.catalog_version!r}"
