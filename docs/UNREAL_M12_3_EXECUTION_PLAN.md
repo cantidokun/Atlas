@@ -23,11 +23,11 @@ M12.3 is a PLAN, not an executor.
   fragment dependencies; computes and embeds the immutable
   `source_content_digest`.
 
-### Source-content commitment (R5-1)
+### Source-content commitment (R5-1) + derived plan identity (R6-1)
 `generate_execution_plan` computes an immutable `source_content_digest` — a
-STRICT-JSON SHA-256 (`allow_nan=False`, sorted keys) of the AUTHORITATIVE
-resolved source content (identity, version, twin, target state, dependencies,
-evidence, actions, allowed tools/mutations, catalog metadata). It is:
+STRICT-JSON SHA-256 (`allow_nan=False`, sorted keys, string-only keys) of the
+AUTHORITATIVE resolved source content (identity, version, twin, target state,
+dependencies, evidence, actions, allowed tools/mutations, catalog metadata). It is:
 - computed from the resolved source task content itself (never from a caller
   assertion — a caller cannot inject a digest as authoritative);
 - embedded in the plan's canonical representation and participates in plan
@@ -37,9 +37,28 @@ evidence, actions, allowed tools/mutations, catalog metadata). It is:
   closed);
 - deterministic and stable for semantically equivalent source content.
 
+**R6-1: plan_id is DERIVED, not caller-controlled.** `UnrealExecutionPlan.__post_init__`
+recomputes the authoritative `plan_id` from the canonical identity inputs (source
+task identity, version, ordered canonical fragment operations, source commitment)
+via `_build_plan_id` and rejects any supplied value that differs. There is no
+digest-less identity fallback. This makes impossible:
+- "plan A identity + source commitment B" (the digest is part of the identity);
+- "source commitment A + arbitrary plan ID" (plan_id is a pure function of the
+  canonical inputs).
+
 A caller cannot SUPPLY the plan's commitment; M12.4 recomputes it from the
 supplied source and verifies it equals the plan's commitment (closing the
-PLAN_A + SOURCE_B + DIGEST(SOURCE_B) substitution).
+PLAN_A + SOURCE_B + DIGEST(SOURCE_B) substitution), and independently recomputes
+the expected plan_id and rejects mismatches.
+
+**R6-2: one shared strict canonicalizer.** `_validate_strict_json` /
+`_canonical_bytes` / `_canonical_sha256` are the SINGLE strict canonicalization used
+for source hashing, plan `canonical_json()`, and identity digests. It rejects
+non-string mapping keys (so `{1:"x"}` is not coerced), NaN/Infinity, non-JSON-native
+numeric types (Fraction/Decimal/numpy), preserves bool/int/float distinctions, and
+orders mappings deterministically. Hashing and serialization therefore can never
+diverge, and a caller cannot collapse distinct typed source content into one digest
+via json coercion.
 
 ### What it describes (no execution)
 - canonical plan ID + source semantic task ID/version + catalog version +
@@ -130,8 +149,8 @@ NOT implement that adapter.
 
 ## Validation
 
-- `pytest tests/m12/` → **279 passed** (incl. M12.3 + R5 source-commitment tests)
-- `pytest -m "not integration"` → **1730 passed** (no regressions)
+- `pytest tests/m12/` → **296 passed** (incl. M12.3 + R5/R6 source-commitment & identity tests)
+- `pytest -m "not integration"` → **1747 passed** (no regressions)
 
 No live Unreal, no workflow/action-runner tests, no Blender, no M11, no M4-M10
 change.

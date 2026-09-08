@@ -688,3 +688,83 @@ factory uses. A faithful reconstruction succeeds.
   lives in M12.3 (`execution_plan.py`).
 - No live Unreal, no workflow/action-runner tests, no Blender, no M4-M10 change.
 
+
+## Round-6 — Canonical identity + reconstruction hardening (R6-1..R6-6)
+
+Fifth-gate synthesis (independent Astra BLOCK, 5 blockers; Claude BLOCK, 3
+blockers) converged on the surviving structural gaps: caller-controlled plan
+identity, a shape-only (not canonical) `__post_init__`, un-scoped provenance that
+could create competing truths, coercion in source hashing, and non-structural
+source-metadata filtering. Round-6 makes the five central claims TRUE by
+construction.
+
+### R6-1 — plan_id is DERIVED, never caller-authoritative
+`UnrealExecutionPlan.__post_init__` recomputes `plan_id` from the canonical
+identity inputs (source task id/version, ordered canonical fragment operations,
+source commitment) and rejects any mismatch; `_build_plan_id` has NO digest-less
+fallback. `map_unreal_execution_plan` independently recomputes the expected
+plan_id and rejects a plan whose `plan_id` disagrees with its own canonical inputs.
+Tests: `test_r6_plan_id_cannot_be_forged`,
+`test_r6_plan_a_identity_source_b_commitment_rejected`,
+`test_r6_no_digestless_plan_identity`.
+
+### R6-2 — one shared strict canonicalization for hashing + serialization
+`compute_source_content_digest`, plan `canonical_json()`, and identity digests all
+go through the single `_validate_strict_json` / `_canonical_sha256` in M12.3. They
+reject non-string keys, NaN/Infinity, non-JSON-native numeric types, preserve
+bool/int/float distinction, and order mappings deterministically — so json.dumps
+implicit coercion can no longer collapse distinct typed source content into one
+commitment. Tests: `test_r6_non_string_key_rejected_in_digest`,
+`test_r6_typed_distinctions_preserved_in_digest`.
+
+### R6-3 — direct construction is CANONICAL (not shape checking)
+`UnrealRuntimeMapping.__post_init__` now invokes `_reconstruct_canonical_targets`,
+which resolves every step's `canonical_fragment`, requires `fragment_id`/`version`
+to equal canonical, runs `_reconcile_step_fidelity` against a producer map derived
+from the mapping's own step order, enforces render/support consistency (a
+render-configured fragment can never be a supported inspect step; an unsupported
+step must carry the render-boundary reason and only on a render-plan), and
+cross-checks the runtime snapshot's embedded identity/catalog fields against the
+mapping's authoritative identity. A direct mapping that cannot be canonically
+reconstructed fails closed — identical to the factory's validation of the same
+state. Tests: `test_r6_render_setup_as_supported_inspect_rejected`,
+`test_r6_forged_fragment_id_rejected`, `test_r6_forged_fragment_version_rejected`,
+`test_r6_forged_idempotence_rejected`, `test_r6_forged_verification_requirements_rejected`,
+`test_r6_snapshot_identity_cross_consistency`.
+
+### R6-4 — explicit provenance scope; no competing truths
+Provenance is validated with an explicit scope. Step/fragment-authoritative fields
+(`fragment_id`, `fragment_version`, `target_state_contribution`) are only valid at
+STEP scope (where the adapter reconciles them to canonical truth); at PLAN/mapping
+scope they are REJECTED, so the same semantic value cannot exist as both caller
+provenance and adapter canonical state. Tests:
+`test_r6_plan_level_step_scoped_provenance_rejected`.
+
+### R6-5 — structural source-metadata gate
+`_validate_source_metadata_parameters` bounds the snapshot's source-derived
+`parameters` against the catalog entry's declared `parameter_kinds` (explicit
+schema/type/meaning) — a STRUCTURAL gate, not a suspicious-vocabulary scan.
+Undeclared parameter keys (whatever their spelling) and unsupported `json` shapes
+are rejected, so nested authority/security-shaped values inside a catalog parameter
+cannot enter the trusted snapshot. Test: `test_r6_undefined_catalog_parameter_rejected`.
+
+### R6-6 — declared/reconciled derived from actual content, cross-validated
+`declared` / `declared_caller_fields` / `reconciled_caller_fields` are DERIVED from
+the mapping's actual surviving plan-level caller content (informational
+`proposal_source`/`note` mark declared; reconciled `source_task_version` does not)
+and cross-validated in `_validate_mapping_provenance`: a direct construction
+asserting `declared=False` while carrying caller content is rejected. Tests:
+`test_r6_declared_matches_surviving_caller_content`,
+`test_r6_declared_reconciled_not_hardcoded`,
+`test_r6_direct_false_declaration_with_caller_content_rejected`.
+
+## Round-6 validation
+
+- `pytest tests/m12/` → **296 passed** (was 279; +17 R6 tests)
+- `pytest -m "not integration"` → **1747 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` → **5 passed**
+- Scope: M12.3 (`execution_plan.py`) + M12.4 (`runtime_adapter.py`) + tests. M12.1,
+  M4-M10, M12.5 untouched.
+- can_execute remains False on plan, mapping, and steps; no
+  execute/authorize/submit/recover/verify authority added.
+

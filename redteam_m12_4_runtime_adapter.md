@@ -304,3 +304,34 @@ it.
   REQUIRES == plan.source_content_digest, else `UnrealRuntimeAdapterError`.
   No caller-controlled value becomes authoritative at any step.
 
+
+---
+
+# ROUND-6 — CANONICAL IDENTITY + RECONSTRUCTION HARDENING
+
+Fifth-gate synthesis (independent Astra BLOCK with 5 blockers; Claude BLOCK with 3
+blockers) found the R5 "one canonical validation path" and "source commitment
+participates in plan identity" claims were not yet true by construction. Round-6
+makes them true structurally, not by adding assertions around caller-controlled data.
+
+## Blocker -> root cause -> structural fix -> regression test -> result
+
+| R6 | Fifth-gate blocker | Root cause | Structural fix | Regression test(s) | Post-fix result |
+|---|---|---|---|---|---|
+| R6-1 plan_id caller-controlled (Astra B2 / Claude B3) | plan_id validatable only as a non-empty string; `_build_plan_id` had a digest-less fallback | `UnrealExecutionPlan.__post_init__` DERIVES plan_id from canonical inputs (identity, version, fragment ops, digest) and rejects mismatch; no digest-less fallback; `map_unreal_execution_plan` independently recomputes expected plan_id | `test_r6_plan_id_cannot_be_forged`, `test_r6_plan_a_identity_source_b_commitment_rejected`, `test_r6_no_digestless_plan_identity` | plan A identity + source B commitment -> rejected; arbitrary plan_id -> rejected at construction and at mapping |
+| R6-2 coercion in source hashing (Astra B5 / Claude N1) | json.dumps coerces int keys/values; hashing not strict | `compute_source_content_digest` + plan `canonical_json()` + identity digests share ONE `_validate_strict_json`/`_canonical_sha256` that rejects non-string keys/NaN/non-JSON numerics and preserves typed distinctions | `test_r6_non_string_key_rejected_in_digest`, `test_r6_typed_distinctions_preserved_in_digest` | `{1:"x"}` rejected; 1 vs 1.0 / 1 vs True distinct; ordering-stable |
+| R6-3 direct construction not canonical (Astra B1 / Claude B2) | __post_init__ was a shape validator (checked tool/capability only), never reconciled fragments/producers/render/snapshot identity | `_reconstruct_canonical_targets` invoked from __post_init__: resolves canonical_fragment, requires id/version equality, runs _reconcile_step_fidelity with derived producer map, enforces render/support consistency, cross-checks snapshot identity/catalog | `test_r6_render_setup_as_supported_inspect_rejected`, `test_r6_forged_fragment_id_rejected`, `test_r6_forged_fragment_version_rejected`, `test_r6_forged_idempotence_rejected`, `test_r6_forged_verification_requirements_rejected`, `test_r6_snapshot_identity_cross_consistency` | render_setup-as-supported-inspect, forged fragment id/version/idempotence/verification, contradictory snapshot identity -> ALL rejected (canonical reconstruction) |
+| R6-4 competing provenance scope (Astra B4 / Claude B1) | plan-level provenance accepted step-scoped fragment fields while claiming declared=False/reconciled=True | provenance validated with explicit scope; step-scoped fields (`fragment_id`/`fragment_version`/`target_state_contribution`) rejected at PLAN scope; derived truthful declared/reconciled from surviving caller content + cross-validated | `test_r6_plan_level_step_scoped_provenance_rejected`, `test_r6_declared_matches_surviving_caller_content`, `test_r6_direct_false_declaration_with_caller_content_rejected` | plan-level fragment provenance -> rejected; false declared=False with caller content -> rejected |
+| R6-5 non-structural source metadata (Astra B3 / Claude N4) | nested free-form catalog params scanned by vocabulary, not schema | `_validate_source_metadata_parameters` bounds snapshot `parameters` to the catalog entry's declared `parameter_kinds` (structural type/shape check, not vocabulary) | `test_r6_undefined_catalog_parameter_rejected` | undeclared param (e.g. `scheduler`) -> structurally rejected |
+| R6-6 single source of truth for adapter-owned identity | fragment/version/render/source digest/catalog could appear in multiple representations without reconciliation | canonical reconstruction + provenance cross-validation pin one canonical derivation; snapshot identity cross-checked against mapping; declared/reconciled_caller_fields emitted and cross-validated | `test_r6_snapshot_identity_cross_consistency`, `test_r6_declared_reconciled_not_hardcoded` | one canonical value per identity field; no shadow |
+
+## Validation (current PR #91 head)
+
+- `pytest tests/m12/` -> **296 passed** (was 279; +17 R6 tests)
+- `pytest -m "not integration"` -> **1747 passed** (no regressions)
+- `tests/m12/test_m12_authority_isolation.py` -> **5 passed**
+- Scope: M12.3 (`execution_plan.py`) + M12.4 (`runtime_adapter.py`) + tests. M12.1,
+  M4-M10, M12.5 untouched.
+- can_execute remains False (plan, mapping, steps); no
+  execute/authorize/submit/recover/verify authority added; no M4-M10 authority imports.
+
