@@ -31,6 +31,7 @@ from planning.m12.execution_plan import (
     UnrealExecutionPlan,
     UnrealExecutionPlanError,
     UnrealExecutionPlanStep,
+    compute_source_content_digest,
     generate_execution_plan,
 )
 from planning.m12.runtime_adapter import (
@@ -102,6 +103,7 @@ __all__ = [
     "UnrealExecutionPlanStep",
     "UnrealExecutionPlan",
     "generate_execution_plan",
+    "compute_source_content_digest",
     # M12.4
     "UnrealRuntimeAdapterError",
     "UnrealRuntimeStepMapping",
