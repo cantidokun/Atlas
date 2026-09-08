@@ -2561,3 +2561,34 @@ def test_r9_source_snapshot_binding():
     with pytest.raises(UnrealRuntimeAdapterError):
         _r9_reapply(m, other_snap)
 
+
+# ---- R9-7: snapshot schema errors are declared (no KeyError/ValueError leak) ---
+
+def test_r9_snapshot_missing_tools_error_contract():
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s.pop("allowed_action_tools", None)
+    with pytest.raises(UnrealRuntimeAdapterError, match="allowed_action_tools"):
+        _r9_reapply(m, s)
+
+
+def test_r9_snapshot_empty_actions_error_contract():
+    # An empty-actions snapshot must be rejected at mapping construction (declared
+    # error), not survive to raise ValueError at materialization.
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["actions"] = []
+    with pytest.raises(UnrealRuntimeAdapterError, match="actions"):
+        _r9_reapply(m, s)
+
+
+def test_r9_snapshot_empty_evidence_error_contract():
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["evidence"] = []
+    with pytest.raises(UnrealRuntimeAdapterError, match="evidence"):
+        _r9_reapply(m, s)
+

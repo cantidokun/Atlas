@@ -687,6 +687,36 @@ class UnrealRuntimeMapping:
             )
         # Runtime authority consistency on the snapshot.
         if self.runtime_task_snapshot is not None:
+            # R9-7: validate the COMPLETE snapshot schema (required keys present,
+            # exact shapes, nonempty collections) BEFORE any indexing, so malformed
+            # snapshots fail with UnrealRuntimeAdapterError (not KeyError/ValueError)
+            # and represent a valid existing runtime task for materialization.
+            _SNAP_REQUIRED = ("allowed_action_tools", "actions", "evidence",
+                              "allow_writes", "name", "verify_after_action")
+            for _k in _SNAP_REQUIRED:
+                if _k not in self.runtime_task_snapshot:
+                    raise UnrealRuntimeAdapterError(
+                        f"runtime snapshot is missing required key {_k!r}; "
+                        "invalid snapshot schema (fail closed)"
+                    )
+            if not isinstance(self.runtime_task_snapshot["allowed_action_tools"],
+                              (list, tuple)) or not self.runtime_task_snapshot["allowed_action_tools"]:
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot allowed_action_tools must be a non-empty "
+                    "sequence (a valid existing runtime task must carry the "
+                    "inspect tool)"
+                )
+            if not isinstance(self.runtime_task_snapshot["actions"], (list, tuple)) or not self.runtime_task_snapshot["actions"]:
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot actions must be a non-empty sequence (a "
+                    "valid existing runtime task must define at least one action)"
+                )
+            if not isinstance(self.runtime_task_snapshot["evidence"], (list, tuple)) or not self.runtime_task_snapshot["evidence"]:
+                raise UnrealRuntimeAdapterError(
+                    "runtime snapshot evidence must be a non-empty sequence (a "
+                    "valid existing runtime task must define at least one evidence "
+                    "request)"
+                )
             tools = tuple(self.runtime_task_snapshot["allowed_action_tools"])
             if any(t != EXISTING_RUNTIME_INSPECT_TOOL for t in tools):
                 raise UnrealRuntimeAdapterError(
