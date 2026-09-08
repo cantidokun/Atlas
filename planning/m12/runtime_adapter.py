@@ -130,6 +130,7 @@ _ADAPTER_RESERVED_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
         "declared",
         "reconciled",
         "declared_caller_fields",
+        "reconciled_caller_fields",
         "runtime_evaluator_kind",
         "independently_verified",
     }
@@ -159,6 +160,16 @@ _CALLER_PROVENANCE_SCHEMA: Dict[str, type] = {
     "fragment_version": int,
     "target_state_contribution": list,
 }
+# R6-4: PROVENANCE SCOPE. Step/fragment-authoritative fields are scoped to STEP
+# provenance (where the adapter reconciles them against the canonical fragment).
+# At PLAN/mapping level they have no legitimate aggregate meaning and MUST NOT be
+# accepted — otherwise the same semantic value could exist as both caller
+# provenance and adapter-owned canonical state without reconciliation, and
+# declared/reconciled could be falsely reported. A plan-level provenance object
+# containing these fields is REJECTED.
+_STEP_SCOPED_PROVENANCE_KEYS: FrozenSet[str] = frozenset(
+    {"fragment_id", "fragment_version", "target_state_contribution"}
+)
 # Adapter-owned keys are the MAPPING-level authoritative fields; a caller may
 # never supply them (no shadow truth survives), even nested.
 _ADAPTER_OWNED_KEYS: FrozenSet[str] = _ADAPTER_RESERVED_PROVENANCE_KEYS
@@ -514,7 +525,8 @@ class UnrealRuntimeStepMapping:
         # Typed closed provenance schema + authority/strict-JSON validation
         # (single canonical path, also run on direct construction) (R4-5).
         prov = _validate_caller_provenance(
-            dict(self.provenance), f"step.provenance[{self.step_id!r}]"
+            dict(self.provenance), f"step.provenance[{self.step_id!r}]",
+            scope="step",
         )
         object.__setattr__(self, "provenance", _freeze_json(prov))
 
@@ -1203,10 +1215,29 @@ def map_unreal_execution_plan(
             "dependencies"
         )
 
+    # --- R6-1: plan identity is DERIVED. M12.4 recomputes the expected plan_id
+    # from the authoritative inputs (source identity, ordered canonical fragment
+    # operations, source commitment) and REQUIRES it to equal the plan's plan_id.
+    # This blocks "plan A identity + source commitment B" and any caller-injected
+    # (or stale/aliased) plan identity: the plan_id is never caller-authoritative.
+    from planning.m12.execution_plan import _build_plan_id
+    _derived_plan_id = _build_plan_id(
+        plan.source_task_id,
+        plan.source_task_version,
+        tuple(s.semantic_operation for s in plan.steps),
+        plan.source_content_digest,
+    )
+    if plan.plan_id != _derived_plan_id:
+        raise UnrealRuntimeAdapterError(
+            f"plan.plan_id {plan.plan_id!r} does not match the DERIVED identity "
+            f"{_derived_plan_id!r} from the plan's canonical identity inputs; "
+            "plan identity cannot be caller-controlled"
+        )
+
     # --- B3: closed-allowlist provenance (plan + steps), recursive authority
     # scan, strict JSON. Reject adapter-reserved keys (no shadow truth).
     clean_plan_provenance = _validate_caller_provenance(
-        dict(plan.provenance or {}), "plan.provenance"
+        dict(plan.provenance or {}), "plan.provenance", scope="plan"
     )
     # R5-4: a caller-supplied source_task_version assertion must not create a
     # shadow identity contradicting the plan's authoritative version field.
@@ -1387,7 +1418,7 @@ def map_unreal_execution_plan(
         # carried — so a crafted fragment identity can never shadow the truth.
         step_prov_in = dict(step.provenance or {})
         step_provenance = _validate_caller_provenance(
-            step_prov_in, f"step.provenance[{step.step_id!r}]"
+            step_prov_in, f"step.provenance[{step.step_id!r}]", scope="step"
         )
         # Overwrite the reconciled fields with canonical truth (adapter wins).
         step_provenance["fragment_id"] = fragment.canonical_id
@@ -1475,6 +1506,12 @@ def map_unreal_execution_plan(
             dict(compiled.metadata or {}), "source.metadata", "<root>",
             reject_forbidden=True,
         )
+        # R6-5: STRUCTURAL source-metadata gate — parameters must conform to the
+        # catalog entry's declared parameter_kinds (explicit schema/type/meaning),
+        # not be vocabulary-filtered. This is what makes the boundary structural.
+        _validate_source_metadata_parameters(
+            dict(compiled.metadata or {}), "source.metadata"
+        )
         # Deep-copy so callers mutating source/compile cannot affect the mapping.
         compiled = _copy.deepcopy(compiled)
         snapshot_mapping = _atlas_to_snapshot(compiled)
@@ -1497,19 +1534,24 @@ def map_unreal_execution_plan(
     provenance["semantic_fidelity"] = semantic_fidelity
     provenance["source_task_digest"] = source_digest
     provenance["runtime_task_digest"] = runtime_task_digest
-    # R5-6: `declared` is TRUTHFUL — True exactly when caller-verbatim content
-    # (proposal_source / note) is carried in the mapping provenance. The mapping
-    # may not claim a clean (declared=False) state while carrying caller strings.
-    # `reconciled` is True only for the adapter's authoritative/security-relevant
-    # fields (source commitment, render classification, runtime authority,
-    # fragment identity/version), all of which are re-derived and validated.
-    caller_verbatim_keys = {
-        k for k in clean_plan_provenance
-        if k in ("proposal_source", "note")
+    # R5-6 + R6-4/R6-6: `declared` is TRUTHFUL — True exactly when caller-verbatim
+    # content survives in the mapping provenance. Under R6-4, plan-level caller
+    # provenance can only contain plan-scoped fields: `proposal_source` and `note`
+    # (purely informational, never reconciled to a canonical truth) and
+    # `source_task_version` (reconciled: required to equal the plan's authoritative
+    # version, so it does not mark the portage declared). Step/fragment-scoped
+    # fields are rejected at plan scope, so no caller-verbatim step field can
+    # survive to create a competing truth.
+    _informational_caller = {
+        k for k in clean_plan_provenance if k in ("proposal_source", "note")
     }
-    provenance["declared"] = bool(caller_verbatim_keys)
+    _reconciled_caller = {
+        k for k in clean_plan_provenance if k == "source_task_version"
+    }
+    provenance["declared"] = bool(_informational_caller)
     provenance["reconciled"] = True
-    provenance["declared_caller_fields"] = sorted(caller_verbatim_keys)
+    provenance["declared_caller_fields"] = sorted(_informational_caller)
+    provenance["reconciled_caller_fields"] = sorted(_reconciled_caller)
 
     return UnrealRuntimeMapping(
         plan_id=plan.plan_id,
@@ -1528,8 +1570,10 @@ def map_unreal_execution_plan(
     )
 
 
-def _validate_caller_provenance(payload: Dict[str, Any], owner: str) -> Dict[str, Any]:
-    """R4-5: TYPED CLOSED-SCHEMA validation of caller-provided provenance.
+def _validate_caller_provenance(
+    payload: Dict[str, Any], owner: str, *, scope: str = "plan"
+) -> Dict[str, Any]:
+    """R4-5 + R6-4: TYPED CLOSED-SCHEMA validation of caller-provided provenance.
 
     Accepts ONLY the fields in ``_CALLER_PROVENANCE_SCHEMA``, each with its exact
     declared type. Rejects (fail closed, never strips-and-continues):
@@ -1540,9 +1584,17 @@ def _validate_caller_provenance(payload: Dict[str, Any], owner: str) -> Dict[str
       such as ``note`` must be a plain str; a dict/list is rejected rather than
       being promoted into trusted provenance).
 
-    Returns a clean deep copy of the validated scalar fields.
+    R6-4 SCOPE: ``scope`` is ``"plan"`` or ``"step"``. Step/fragment-authoritative
+    fields (fragment_id, fragment_version, target_state_contribution) are only
+    valid at STEP scope (where the adapter reconciles them to canonical truth);
+    at PLAN scope they are REJECTED so the same semantic value cannot exist as
+    both caller provenance and adapter canonical state without reconciliation.
+
+    Returns a clean deep copy of the validated fields.
     """
     real_owner = owner
+    if scope not in ("plan", "step"):
+        raise UnrealRuntimeAdapterError(f"{owner}: invalid provenance scope {scope!r}")
     if not isinstance(payload, dict):
         raise UnrealRuntimeAdapterError(f"{owner} must be a dict")
     # Structural key gate: only schema fields, and no adapter-owned keys.
@@ -1559,6 +1611,12 @@ def _validate_caller_provenance(payload: Dict[str, Any], owner: str) -> Dict[str
             raise UnrealRuntimeAdapterError(
                 f"{owner}.{key!r} is not an allowed provenance field (closed, "
                 "typed schema)"
+            )
+        if key in _STEP_SCOPED_PROVENANCE_KEYS and scope == "plan":
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{key!r} is a step/fragment-scoped provenance field and "
+                "is not allowed at plan scope; it would create a competing truth "
+                "with adapter-owned canonical step state"
             )
         if is_forbidden_authority_key(key):
             raise UnrealRuntimeAdapterError(
@@ -1631,7 +1689,7 @@ def _validate_mapping_provenance(
             )
     caller_part = {k: v for k, v in payload.items() if k in _CALLER_PROVENANCE_SCHEMA}
     adapter_part = {k: v for k, v in payload.items() if k in _ADAPTER_RESERVED_PROVENANCE_KEYS}
-    _ = _validate_caller_provenance(caller_part, owner)
+    _ = _validate_caller_provenance(caller_part, owner, scope="plan")
     _validate_strict_json_value(
         adapter_part, owner, "<root>", reject_forbidden=True, high_confidence=True,
     )
@@ -1667,6 +1725,37 @@ def _validate_mapping_provenance(
         raise UnrealRuntimeAdapterError(f"{owner}.declared must be a bool")
     if "reconciled" in adapter_part and type(adapter_part["reconciled"]) is not bool:
         raise UnrealRuntimeAdapterError(f"{owner}.reconciled must be a bool")
+    # R6-6: declared / declared_caller_fields / reconciled_caller_fields must be
+    # DERIVED from the mapping's actual surviving caller content, not hard-coded.
+    # Recompute the expected truthful values from the mapping's own provenance and
+    # require the supplied adapter-owned claim to agree.
+    _informational = {
+        k for k in caller_part if k in ("proposal_source", "note")
+    }
+    _reconciled_caller = {
+        k for k in caller_part if k == "source_task_version"
+    }
+    if adapter_part.get("declared") != bool(_informational):
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.declared is not truthful: mapping carries caller content "
+            f"{sorted(_informational)} but declared={adapter_part.get('declared')!r}"
+        )
+    if "declared_caller_fields" in adapter_part:
+        expected = sorted(_informational)
+        actual = list(adapter_part["declared_caller_fields"] or ())
+        if sorted(actual) != expected:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.declared_caller_fields is not truthful: expected "
+                f"{expected}, got {sorted(actual)}"
+            )
+    if "reconciled_caller_fields" in adapter_part:
+        expected = sorted(_reconciled_caller)
+        actual = list(adapter_part.get("reconciled_caller_fields") or ())
+        if sorted(actual) != expected:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.reconciled_caller_fields is not truthful: expected "
+                f"{expected}, got {sorted(actual)}"
+            )
     if adapter_part.get("independently_verified", False) is not False:
         raise UnrealRuntimeAdapterError(
             f"{owner}.independently_verified MUST remain False at M12.4; "
@@ -1678,6 +1767,132 @@ def _validate_mapping_provenance(
             "classification at M12.4"
         )
     return dict(payload)
+
+
+def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str) -> None:
+    """R6-5: STRUCTURAL source-metadata gate for the runtime snapshot.
+
+    The snapshot's metadata is source-derived (from the M12.1-validated source
+    task's catalog metadata). In particular ``parameters`` must conform to the
+    catalog entry's declared ``parameter_kinds`` — a STRUCTURAL constraint, not a
+    suspicious-vocabulary scan. This prevents nested free-form authority/security-
+    shaped entries (scheduler/retry/scope/grant_id/session/...) from being smuggled
+    into the trusted runtime snapshot inside a catalog parameter.
+
+    Rules (fail closed):
+    - if the source declares a catalog_entry, its declared parameter kinds bound
+      the ``parameters`` mapping: every key must be a declared parameter name and
+      every value must match the declared kind structurally;
+    - unknown/extra parameter keys are rejected;
+    - a ``json`` kind requires a JSON-native (dict/list) value and must itself be
+      strict-JSON with string keys; a ``string`` kind must be a str; an ``int``
+      kind an exact int (not bool); a ``float`` kind an exact float; ``bool`` a bool.
+
+    When no catalog_entry is present (hand-built source), the parameters mapping
+    must still be strict-JSON with a bounded set of declared parameter keys taken
+    from the source metadata itself; absent a catalog, the free-form set is
+    rejected (only the catalog may define parameter shapes).
+    """
+    entry = metadata.get("catalog_entry")
+    params = metadata.get("parameters", {})
+    if entry is None:
+        # No catalog entry -> no legitimate parameter shape authority. The only
+        # acceptable shape is an empty parameters mapping (or no parameters key).
+        if params not in ({}, None):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}: source parameters without a catalog_entry are not "
+                "structurally bounded; refusing to carry free-form parameters "
+                "into the trusted runtime snapshot"
+            )
+        return
+    if not isinstance(entry, dict):
+        raise UnrealRuntimeAdapterError(f"{owner}: catalog_entry must be a dict")
+    kinds = entry.get("parameter_kinds")
+    if kinds is None:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}: catalog_entry has no declared parameter_kinds; cannot "
+            "structurally validate source parameters (fail closed)"
+        )
+    if isinstance(kinds, dict):
+        # snapshot form: {param_name: kind}
+        allowed: Dict[str, str] = {}
+        for kname, kkind in kinds.items():
+            if not isinstance(kname, str) or not isinstance(kkind, str):
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}: parameter_kinds must map str name -> str kind"
+                )
+            allowed[kname] = kkind
+    elif isinstance(kinds, (list, tuple)):
+        # list-of-(name, kind) pairs form
+        allowed: Dict[str, str] = {}
+        for kd in kinds:
+            if not isinstance(kd, (list, tuple)) or len(kd) != 2:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}: malformed parameter_kinds entry {kd!r}"
+                )
+            kname, kkind = kd
+            if not isinstance(kname, str) or not isinstance(kkind, str):
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}: parameter_kinds must be (name, kind) string pairs"
+                )
+            allowed[kname] = kkind
+    else:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}: parameter_kinds must be a dict or a list of (name, kind) pairs"
+        )
+    params = params or {}
+    if not isinstance(params, dict):
+        raise UnrealRuntimeAdapterError(f"{owner}: parameters must be a dict")
+    for key in params:
+        if key not in allowed:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}: parameter {key!r} is not a declared catalog parameter "
+                "(structural source-metadata gate); free-form catalog metadata is "
+                "rejected"
+            )
+    for key, expected_kind in allowed.items():
+        if key in params:
+            val = params[key]
+            if expected_kind == "string":
+                if not isinstance(val, str):
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.parameters.{key}: expected string, got "
+                        f"{type(val).__name__}"
+                    )
+            elif expected_kind == "int":
+                if type(val) is not int:
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.parameters.{key}: expected exact int, got "
+                        f"{type(val).__name__}"
+                    )
+            elif expected_kind == "float":
+                if type(val) is not float:
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.parameters.{key}: expected exact float, got "
+                        f"{type(val).__name__}"
+                    )
+            elif expected_kind == "bool":
+                if type(val) is not bool:
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.parameters.{key}: expected bool, got "
+                        f"{type(val).__name__}"
+                    )
+            elif expected_kind == "json":
+                if not isinstance(val, (dict, list)):
+                    raise UnrealRuntimeAdapterError(
+                        f"{owner}.parameters.{key}: expected a JSON value, got "
+                        f"{type(val).__name__}"
+                    )
+                # json params must be structural strict-JSON (string keys).
+                _validate_strict_json_value(
+                    val, f"{owner}.parameters.{key}", "<root>",
+                    reject_forbidden=False,
+                )
+            else:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.parameters.{key}: unsupported catalog parameter kind "
+                    f"{expected_kind!r}"
+                )
 
 
 def _reconcile_runtime_authority(compiled: AtlasTaskDefinition) -> AtlasTaskDefinition:
