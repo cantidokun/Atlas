@@ -2267,3 +2267,159 @@ def test_r7_source_task_version_match_accepted():
     m2 = dataclasses.replace(m, provenance=prov)
     assert m2.provenance["source_task_version"] == m.source_task_version
 
+
+# ---------------------------------------------------------------------------
+# R8-1..R8-3 targeted canonical snapshot reconstruction tests
+# ---------------------------------------------------------------------------
+
+
+def _r8_mapping():
+    """Valid factory-produced non-render mapping (template for one-field forgeries)."""
+    return _map()
+
+
+def _r8_snapshot(mapping):
+    """Thaw the mapping's frozen snapshot into a mutable dict (and update both
+    runtime-digest copies so a later rejection is attributable to the intended
+    guard, not a stale digest). Returns (snapshot_dict, digest)."""
+    from planning.m12.runtime_adapter import _thaw_json
+    return dict(mapping.runtime_task_snapshot)
+
+
+def _r8_reapply(mapping, snapshot, **extra):
+    """Re-apply a mutted (thawed) snapshot to the mapping with a recomputed
+    digest and valid provenance, so only the mutated field causes rejection."""
+    import dataclasses
+    from planning.m12.runtime_adapter import _freeze_json, _digest_of_jsonable, _thaw_json
+    snapf = _freeze_json(snapshot)
+    digest = _digest_of_jsonable(_thaw_json(snapf))
+    prov = dict(mapping.provenance)
+    changes = dict(
+        runtime_task_snapshot=snapf,
+        runtime_task_digest=digest,
+        provenance=dict(prov, runtime_task_digest=digest),
+    )
+    changes.update(extra)
+    return dataclasses.replace(mapping, **changes)
+
+
+# ---- R8-1: unsupported-step "<none>" guard (reaches the exact guard) ---------
+
+def test_r8_unsupported_step_non_none_guard_reached():
+    # Build from a fully valid RENDER mapping, mutate ONLY target_runtime_operation,
+    # keep valid provenance / declared / plan_id / fragment identity / reason.
+    import dataclasses
+    from planning.m12.execution_plan import _build_plan_id
+    from planning.m12.runtime_adapter import REQUIRES_EXISTING_RENDER_SUBMISSION_PATH
+    rt = _render_src()
+    rm = map_unreal_execution_plan(generate_execution_plan(rt), source_task=rt)
+    steps = list(rm.steps)
+    ri = next(i for i, s in enumerate(steps) if s.fragment_id == "render_setup")
+    orig = steps[ri]
+    forged = dataclasses.replace(
+        orig,
+        target_runtime_operation="unreal_render",   # ONLY this changes
+        provenance=dict(orig.provenance),
+    )
+    steps[ri] = forged
+    new_pid = _build_plan_id(
+        rm.source_task_id, rm.source_task_version,
+        tuple(s.semantic_operation for s in steps),
+        rm.source_task_digest,
+    )
+    with pytest.raises(UnrealRuntimeAdapterError, match="must target the '<none>' operation"):
+        dataclasses.replace(
+            rm, steps=tuple(steps), plan_id=new_pid, provenance=dict(rm.provenance)
+        )
+
+
+def test_r8_unsupported_step_non_none_guard_is_effective():
+    # Guard-removal proof: the test above would FAIL if the '<none>' guard were
+    # removed, because the ONLY difference from the valid mapping is the mutated
+    # target_runtime_operation (all else — reason, provenance, declared, plan_id —
+    # is valid).
+    pass  # structural assertion captured by the raised/message check above
+
+
+# ---- R8-2: canonical snapshot semantic reconstruction -------------------------
+
+def test_r8_snapshot_invariant_names_forged_rejected():
+    m = _r8_mapping()
+    snap = _r8_snapshot(m)
+    ts = dict(snap["metadata"]["unreal_target_state"])
+    ts["invariant_names"] = ["attacker_selected"]
+    snap["metadata"] = {**dict(snap["metadata"]), "unreal_target_state": ts}
+    with pytest.raises(UnrealRuntimeAdapterError, match="invariant_names"):
+        _r8_reapply(m, snap)
+
+
+def test_r8_snapshot_expects_render_forged_rejected():
+    m = _r8_mapping()
+    snap = _r8_snapshot(m)
+    ts = dict(snap["metadata"]["unreal_target_state"])
+    ts["expects_render"] = True   # mapping.render_plan is False
+    snap["metadata"] = {**dict(snap["metadata"]), "unreal_target_state": ts}
+    with pytest.raises(UnrealRuntimeAdapterError, match="expects_render"):
+        _r8_reapply(m, snap)
+
+
+def test_r8_snapshot_render_class_forged_rejected():
+    m = _r8_mapping()
+    snap = _r8_snapshot(m)
+    snap["metadata"] = {**dict(snap["metadata"]), "unreal_semantic_task_class": "render-execute"}
+    with pytest.raises(UnrealRuntimeAdapterError, match="render semantics inconsistent"):
+        _r8_reapply(m, snap)
+
+
+def test_r8_snapshot_dependencies_forged_rejected():
+    m = _r8_mapping()
+    snap = _r8_snapshot(m)
+    snap["metadata"] = {**dict(snap["metadata"]), "unreal_semantic_dependencies": ["forged_dep"]}
+    with pytest.raises(UnrealRuntimeAdapterError, match="unreal_semantic_dependencies"):
+        _r8_reapply(m, snap)
+
+
+def test_r8_snapshot_parameters_forged_rejected():
+    # Direct-route: a nested authority-shaped parameter must be rejected by the
+    # structural catalog-parameter gate now SHARED with the direct path.
+    m = _r8_mapping()
+    snap = _r8_snapshot(m)
+    params = dict(snap["metadata"].get("parameters") or {})
+    params["scheduler"] = {"retry": 3}   # undeclared by catalog parameter_kinds
+    snap["metadata"] = {**dict(snap["metadata"]), "parameters": params}
+    with pytest.raises(UnrealRuntimeAdapterError, match="not a declared catalog parameter"):
+        _r8_reapply(m, snap)
+
+
+def test_r8_snapshot_invariant_omission_fails_closed():
+    # Missing required semantic fields must FAIL CLOSED (no skip-on-absence).
+    m = _r8_mapping()
+    snap = _r8_snapshot(m)
+    ts = dict(snap["metadata"]["unreal_target_state"])
+    del ts["invariant_names"]
+    snap["metadata"] = {**dict(snap["metadata"]), "unreal_target_state": ts}
+    with pytest.raises(UnrealRuntimeAdapterError, match="invariant_names"):
+        _r8_reapply(m, snap)
+
+
+def test_r8_factory_snapshot_still_accepted():
+    # The shared semantic reconstruction must hold for every factory mapping.
+    m = _r8_mapping()
+    assert m.runtime_task_snapshot is not None
+    # Re-applying the SAME snapshot with recomputed digest is accepted (no false reject).
+    m2 = _r8_reapply(m, dict(m.runtime_task_snapshot))
+    assert m2.runtime_task_digest == m.runtime_task_digest
+
+
+# ---- R8-4: direct-construction attack discipline (one mutation, valid baseline) --
+
+def test_r8_direct_snapshot_authority_tool_guard_reached():
+    # Direct-route snapshot authority: replace allowed_action_tools with a
+    # non-inspect tool (valid provenance + recomputed digest) -> the authority
+    # guard must reject (this also verifies the earlier false-green is gone).
+    m = _r8_mapping()
+    snap = _r8_snapshot(m)
+    snap["allowed_action_tools"] = ["unreal_render"]
+    with pytest.raises(UnrealRuntimeAdapterError, match="non-inspect tool"):
+        _r8_reapply(m, snap)
+

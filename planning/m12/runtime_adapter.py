@@ -103,6 +103,7 @@ from planning.m12.semantic_task import (
     UnrealProductionTaskDefinition,
     compile_unreal_semantic_task,
 )
+from planning.m12.task_classes import is_render_task_class
 from planning.task_definition import AtlasTaskDefinition
 from action_plan import ActionSpec
 from planning.evidence_plan import EvidenceRequest
@@ -1149,7 +1150,7 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
                 raise UnrealRuntimeAdapterError(
                     f"step {_step.step_id!r} is unsupported but targets "
                     f"{_step.target_runtime_operation!r}; an unsupported step must "
-                    "target the "<none>" operation"
+                    "target the '<none>' operation"
                 )
         # R7-4: step provenance copies of canonical fragment fields MUST reconcile.
         # The canonical fragment id/version and target-state contributions are
@@ -1278,6 +1279,77 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
                 f"runtime snapshot metadata catalog_version {snap_cv!r} contradicts "
                 f"mapping catalog_version {mapping.catalog_version!r}"
             )
+
+        # R8-2: CANONICAL SNAPSHOT SEMANTIC RECONSTRUCTION (shared path). The
+        # supplied snapshot's semantic content is NOT trusted; it is compared
+        # against the authoritative derivation from the mapping's own canonical
+        # source/steps. Missing required fields FAIL CLOSED (no skip-on-absence).
+        #
+        # (A) invariant_names must equal the canonical union of step
+        #     target-state contributions.
+        _ts_contribution_union = sorted(
+            {
+                inv
+                for s in mapping.steps
+                for inv in s.target_state_contributions
+            }
+        )
+        _ts = meta.get("unreal_target_state")
+        if not isinstance(_ts, (dict, Mapping, MappingProxyType)):
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing unreal_target_state; "
+                "required for canonical semantic reconstruction (fail closed on "
+                "omission)"
+            )
+        _snap_invariants = list(_ts.get("invariant_names") or [])
+        if not _snap_invariants:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata unreal_target_state.invariant_names is "
+                "missing/empty; required for canonical semantic reconstruction"
+            )
+        if sorted(_snap_invariants) != _ts_contribution_union:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_target_state.invariant_names "
+                f"{sorted(_snap_invariants)!r} does not match the canonical union "
+                f"of step target-state contributions {_ts_contribution_union!r}"
+            )
+        # (B) expects_render must equal render_plan (non-render mapping => False).
+        _snap_expects_render = bool(_ts.get("expects_render", False))
+        if _snap_expects_render != mapping.render_plan:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_target_state.expects_render "
+                f"{_snap_expects_render!r} does not match the mapping's "
+                f"render_plan={mapping.render_plan!r}"
+            )
+        # (C) unreal_semantic_task_class must have render semantics consistent
+        #     with render_plan (a render-bearing class cannot appear in an
+        #     inspect-only snapshot, and vice versa). Missing fails closed.
+        _snap_class = meta.get("unreal_semantic_task_class")
+        if _snap_class is None:
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing unreal_semantic_task_class; "
+                "required for canonical render classification (fail closed on "
+                "omission)"
+            )
+        if is_render_task_class(_snap_class) != mapping.render_plan:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_semantic_task_class "
+                f"{_snap_class!r} has render semantics inconsistent with the "
+                f"mapping's render_plan={mapping.render_plan!r}"
+            )
+        # (D) unreal_semantic_dependencies must equal the deterministic ordered
+        #     canonical step operations.
+        _snap_deps = list(meta.get("unreal_semantic_dependencies") or [])
+        _ops = [s.semantic_operation for s in mapping.steps]
+        if _snap_deps != _ops:
+            raise UnrealRuntimeAdapterError(
+                f"runtime snapshot metadata unreal_semantic_dependencies "
+                f"{_snap_deps!r} does not match the deterministic ordered "
+                f"semantic step operations {_ops!r}"
+            )
+        # (E) snapshot parameters must pass the SAME structural catalog-parameter
+        #     schema validation the factory applies.
+        _validate_source_metadata_parameters(meta, "runtime_task_snapshot.metadata")
 
 
 # ---------------------------------------------------------------------------
@@ -1935,7 +2007,7 @@ def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str) -
                 "into the trusted runtime snapshot"
             )
         return
-    if not isinstance(entry, dict):
+    if not isinstance(entry, (dict, Mapping, MappingProxyType)):
         raise UnrealRuntimeAdapterError(f"{owner}: catalog_entry must be a dict")
     kinds = entry.get("parameter_kinds")
     if kinds is None:
@@ -1943,7 +2015,7 @@ def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str) -
             f"{owner}: catalog_entry has no declared parameter_kinds; cannot "
             "structurally validate source parameters (fail closed)"
         )
-    if isinstance(kinds, dict):
+    if isinstance(kinds, (dict, Mapping, MappingProxyType)):
         # snapshot form: {param_name: kind}
         allowed: Dict[str, str] = {}
         for kname, kkind in kinds.items():
@@ -1971,7 +2043,7 @@ def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str) -
             f"{owner}: parameter_kinds must be a dict or a list of (name, kind) pairs"
         )
     params = params or {}
-    if not isinstance(params, dict):
+    if not isinstance(params, (dict, Mapping, MappingProxyType)):
         raise UnrealRuntimeAdapterError(f"{owner}: parameters must be a dict")
     for key in params:
         if key not in allowed:
