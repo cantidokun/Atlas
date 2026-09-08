@@ -92,14 +92,16 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Dict, FrozenSet, Iterable, Mapping, Optional, Tuple
 
-from planning.m12.execution_plan import UnrealExecutionPlan
+from planning.m12.execution_plan import (
+    UnrealExecutionPlan,
+    UnrealExecutionPlanError,
+    compute_source_content_digest,
+)
 from planning.m12.fragments import UnrealProductionFragment
 from planning.m12.fragments_registry import canonical_fragment
 from planning.m12.semantic_task import (
     UnrealProductionTaskDefinition,
-    UnrealSemanticTaskError,
     compile_unreal_semantic_task,
-    compute_source_content_digest,
 )
 from planning.task_definition import AtlasTaskDefinition
 from action_plan import ActionSpec
@@ -541,7 +543,7 @@ def compute_source_task_digest(source_task: UnrealProductionTaskDefinition) -> s
     """Deterministic SHA-256 binding of the RESOLVED canonical source content.
 
     Delegates to the SINGLE M12-layer implementation
-    :func:`planning.m12.semantic_task.compute_source_content_digest`, the same
+    :func:`planning.m12.execution_plan.compute_source_content_digest`, the same
     function M12.3 uses to produce the plan's immutable ``source_content_digest`.
     This guarantees the adapter's recomputation equals the plan's commitment.
     Raises ``UnrealRuntimeAdapterError`` on non-JSON data.
@@ -550,7 +552,7 @@ def compute_source_task_digest(source_task: UnrealProductionTaskDefinition) -> s
         raise TypeError("source_task must be an UnrealProductionTaskDefinition")
     try:
         return compute_source_content_digest(source_task)
-    except UnrealSemanticTaskError as exc:
+    except UnrealExecutionPlanError as exc:
         raise UnrealRuntimeAdapterError(str(exc)) from exc
 
 

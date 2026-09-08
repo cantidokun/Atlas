@@ -16,16 +16,48 @@ implemented here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from planning.m12.fragments import UnrealProductionFragment
 from planning.m12.fragments_registry import canonical_fragment
-from planning.m12.semantic_task import (
-    UnrealProductionTaskDefinition,
-    compute_source_content_digest,
-)
+from planning.m12.semantic_task import UnrealProductionTaskDefinition
+
+
+
+def compute_source_content_digest(source_task: UnrealProductionTaskDefinition) -> str:
+    """Deterministic SHA-256 binding of the authoritative resolved source content.
+
+    This is the SINGLE source-content-commitment implementation for the M12
+    layer (owned here in M12.3). :func:`generate_execution_plan` computes it from
+    the authoritative resolved source and carries it immutably on the plan;
+    M12.4 recomputes it (via the same function) to verify the plan's commitment.
+
+    It binds the task identity, version, digital-twin id, target state,
+    dependencies, evidence, actions, allowed tools/mutations, and resolved
+    catalog metadata (parameters, fragments) via STRICT JSON (``allow_nan=False``,
+    sorted keys, compact separators), so two same-identity tasks with different
+    resolved content yield different digests and coercion cannot collapse distinct
+    inputs. Deterministic and stable for semantically equivalent source content.
+
+    Raises ``UnrealExecutionPlanError`` on non-JSON data.
+    """
+    if not isinstance(source_task, UnrealProductionTaskDefinition):
+        raise TypeError("source_task must be an UnrealProductionTaskDefinition")
+    try:
+        payload = source_task.to_json_compatible()
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False,
+        ).encode("utf-8")
+    except (ValueError, TypeError) as exc:
+        raise UnrealExecutionPlanError(
+            f"source content not strictly JSON-serializable: {exc}"
+        ) from exc
+    return hashlib.sha256(encoded).hexdigest()
+
 
 Idempotence = str  # "idempotent" | "non-idempotent" | "unknown"
 
@@ -347,4 +379,5 @@ __all__ = [
     "UnrealExecutionPlanStep",
     "UnrealExecutionPlan",
     "generate_execution_plan",
+    "compute_source_content_digest",
 ]
