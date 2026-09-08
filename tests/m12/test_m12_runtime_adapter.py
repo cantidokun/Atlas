@@ -290,17 +290,24 @@ def _plan_with_single_step(task, idempotence, capability="inspect-only"):
     assert len(fragment_ids) == 1, "guard tests need a single-fragment task"
     from planning.m12.execution_plan import _build_plan_id
 
+    from planning.m12.fragments_registry import canonical_fragment
+    frag = canonical_fragment(fragment_ids[0])
+    contributions = tuple(frag.contributed_invariant_names())
     step = UnrealExecutionPlanStep(
         step_id=_deterministic_step_id(task.canonical_task_id, fragment_ids[0], 0),
         semantic_operation=fragment_ids[0],
         required_inputs=(),
-        preconditions=(),
-        target_state_contributions=(),
+        preconditions=tuple(sorted(frag.requires)),
+        target_state_contributions=contributions,
         dependencies=(),
         idempotence=idempotence,
-        verification_requirements=("scene_initialized",),
+        verification_requirements=contributions,
         execution_capability_requirement=capability,
-        provenance={},
+        provenance={
+            "fragment_id": frag.canonical_id,
+            "fragment_version": frag.version,
+            "target_state_contribution": list(contributions),
+        },
     )
     source_digest = compute_source_content_digest(task)
     return UnrealExecutionPlan(
@@ -2333,14 +2340,6 @@ def test_r8_unsupported_step_non_none_guard_reached():
         )
 
 
-def test_r8_unsupported_step_non_none_guard_is_effective():
-    # Guard-removal proof: the test above would FAIL if the '<none>' guard were
-    # removed, because the ONLY difference from the valid mapping is the mutated
-    # target_runtime_operation (all else — reason, provenance, declared, plan_id —
-    # is valid).
-    pass  # structural assertion captured by the raised/message check above
-
-
 # ---- R8-2: canonical snapshot semantic reconstruction -------------------------
 
 def test_r8_snapshot_invariant_names_forged_rejected():
@@ -2422,4 +2421,143 @@ def test_r8_direct_snapshot_authority_tool_guard_reached():
     snap["allowed_action_tools"] = ["unreal_render"]
     with pytest.raises(UnrealRuntimeAdapterError, match="non-inspect tool"):
         _r8_reapply(m, snap)
+
+
+# ---------------------------------------------------------------------------
+# R9-1..R9-3 frozen/thawed JSON + trusted catalog schema + snapshot identity
+# ---------------------------------------------------------------------------
+
+
+def _r9_mapping():
+    return _map()
+
+
+def _r9_reapply(mapping, snapshot):
+    import dataclasses
+    from planning.m12.runtime_adapter import _freeze_json, _digest_of_jsonable, _thaw_json
+    f = _freeze_json(snapshot)
+    d = _digest_of_jsonable(_thaw_json(f))
+    return dataclasses.replace(
+        mapping, runtime_task_snapshot=f, runtime_task_digest=d,
+        provenance=dict(mapping.provenance, runtime_task_digest=d),
+    )
+
+
+# ---- R9-1: frozen/thawed JSON parameters remain supported --------------------
+
+@pytest.mark.parametrize("name,params", [
+    ("unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": [1, 2]}),
+    ("unreal.lighting-configure", {"twin_id": "twin-1", "lighting_rig": [{"id": "r1", "n": 1.0}]}),
+])
+def test_r9_json_parameter_tasks_map_and_roundtrip(name, params):
+    # A legitimate inspect-only source with a JSON catalog parameter must map
+    # (the frozen/tuple representation must not become a different semantic type).
+    from planning.m12.runtime_adapter import UnrealRuntimeAdapterError
+    task = DEFAULT_UNREAL_CATALOG.resolve(name, params, digital_twin_id="twin-1")
+    task = _inspect_only(task)
+    m = map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+    assert m.runtime_task_snapshot is not None
+    # Materialization must succeed (round-trip).
+    rt = m.materialize_runtime_task()
+    assert rt is not None
+    # Recomputing the snapshot digest matches (representation is stable).
+    from planning.m12.runtime_adapter import _thaw_json, _digest_of_jsonable
+    assert _digest_of_jsonable(_thaw_json(m.runtime_task_snapshot)) == m.runtime_task_digest
+
+
+def test_r9_scalar_parameter_task_roundtrip():
+    # Scalar (non-json) parameters remain supported and round-trip.
+    m = _map()
+    assert m.materialize_runtime_task() is not None
+
+
+# ---- R9-2: the snapshot cannot declare its own parameter schema ---------------
+
+def test_r9_self_declared_parameter_schema_rejected():
+    # Attacker self-declares scheduler/grant in catalog_entry.parameter_kinds AND
+    # ships matching parameters. The trusted catalog schema must still reject.
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    meta = dict(s["metadata"])
+    entry = dict(meta["catalog_entry"])
+    entry["parameter_kinds"] = dict(entry["parameter_kinds"], scheduler="string", grant="string")
+    meta["catalog_entry"] = entry
+    meta["parameters"] = dict(meta["parameters"], scheduler="retry=3", grant="production")
+    s["metadata"] = meta
+    with pytest.raises(UnrealRuntimeAdapterError, match="trusted catalog schema"):
+        _r9_reapply(m, s)
+
+
+def test_r9_undeclared_snapshot_parameter_rejected():
+    # An undeclared parameter key is still structurally rejected (catalog schema).
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    meta = dict(s["metadata"])
+    meta["parameters"] = dict(meta["parameters"], scheduler={"retry": 3})
+    s["metadata"] = meta
+    with pytest.raises(UnrealRuntimeAdapterError, match="not a declared catalog parameter"):
+        _r9_reapply(m, s)
+
+
+# ---- R9-3: complete snapshot identity reconstruction --------------------------
+
+def test_r9_snapshot_twin_identity_forged_rejected():
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["metadata"] = {**dict(s["metadata"]), "unreal_digital_twin_id": "twin-attacker"}
+    with pytest.raises(UnrealRuntimeAdapterError, match="unreal_digital_twin_id"):
+        _r9_reapply(m, s)
+
+
+def test_r9_snapshot_task_class_forged_rejected():
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["metadata"] = {**dict(s["metadata"]), "unreal_semantic_task_class": "scene-prepare"}
+    with pytest.raises(UnrealRuntimeAdapterError, match="unreal_semantic_task_class"):
+        _r9_reapply(m, s)
+
+
+def test_r9_snapshot_fragments_forged_rejected():
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["metadata"] = {**dict(s["metadata"]),
+                     "fragments": [{"canonical_id": "render_setup", "version": 999}]}
+    with pytest.raises(UnrealRuntimeAdapterError, match="fragments"):
+        _r9_reapply(m, s)
+
+
+def test_r9_snapshot_parameters_omission_fails_closed():
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    meta = dict(s["metadata"])
+    meta.pop("parameters", None)
+    s["metadata"] = meta
+    with pytest.raises(UnrealRuntimeAdapterError, match="parameters"):
+        _r9_reapply(m, s)
+
+
+def test_r9_source_snapshot_binding():
+    # "source A with source B's snapshot" must be rejected: the snapshot is an
+    # assertion to be checked against the mapping's authoritative identity, never
+    # a source of truth. Build B from a DIFFERENT source (camera-configure) whose
+    # snapshot carries different identity/fragments/parameters, then attach it to A.
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()  # sequence-configure, twin-1
+    camera = _inspect_only(DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": [1, 2]},
+        digital_twin_id="twin-1",
+    ))
+    cmap = map_unreal_execution_plan(generate_execution_plan(camera), source_task=camera)
+    other_snap = _thaw_json(cmap.runtime_task_snapshot)
+    # Attaching camera's snapshot to the sequence mapping must be rejected (the
+    # snapshot's semantic identity/fragments/class/parameters contradict the
+    # mapping's authoritative source).
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _r9_reapply(m, other_snap)
 
