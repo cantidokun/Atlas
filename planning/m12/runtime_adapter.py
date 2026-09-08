@@ -755,16 +755,25 @@ class UnrealRuntimeMapping:
                         f"runtime snapshot metadata contains adapter-owned key "
                         f"{mkey!r}; invalid snapshot state"
                     )
-            # R5-5: source-derived runtime metadata must conform to the SAME closed
-            # snapshot-metadata schema the factory enforces — so direct construction
-            # cannot inject arbitrary nested metadata (scheduler/retry/scope/etc.)
-            # into the trusted runtime snapshot.
+            # R5-5 / R10-3: source-derived runtime metadata must conform to the SAME
+            # closed snapshot-metadata schema the factory enforces — so direct
+            # construction cannot inject arbitrary nested metadata (scheduler/
+            # retry/scope/etc.) OR adapter-disclosure claims into the trusted
+            # runtime snapshot. The un-emitted disclosure keys
+            # (_ADAPTER_METADATA_DISCLOSURE_KEYS: m12.4.evaluator_kind /
+            # m12.4.independently_verified / m12.4.declared) are NOT part of the
+            # accepted schema: they are never emitted here, so a caller-supplied
+            # value for them (e.g. independently_verified=True) is REJECTED as an
+            # unknown metadata key — a caller cannot fabricate a verification
+            # disclosure (M12.5 boundary). If M12.5 ever needs them, they must be
+            # emitted and value-pinned adapter-side, never accepted from callers.
             for mkey in meta:
-                if mkey not in _ALLOWED_SOURCE_METADATA_KEYS and mkey not in _ADAPTER_METADATA_DISCLOSURE_KEYS:
+                if mkey not in _ALLOWED_SOURCE_METADATA_KEYS:
                     raise UnrealRuntimeAdapterError(
                         f"runtime snapshot metadata key {mkey!r} is not part of "
                         "the closed source-metadata schema; invalid snapshot state "
-                        "(source metadata must conform or be rejected)"
+                        "(source metadata must conform or be rejected; disclosure "
+                        "claims must be adapter-derived, never caller-supplied)"
                     )
             _validate_strict_json_value(
                 _thaw_json(self.runtime_task_snapshot),
@@ -858,6 +867,161 @@ def _digest_of_jsonable(value: Any) -> str:
         json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
                    allow_nan=False).encode("utf-8")
     ).hexdigest()
+
+
+def _validate_snapshot_schema(snap: Any, owner: str = "runtime_task_snapshot") -> None:
+    """R10-4: COMPLETE snapshot schema validation run BEFORE any indexing, sorting,
+    conversion, or graph operations.
+
+    Validates exact types/shapes of every runtime snapshot field so a malformed
+    nested structure (an action missing ``tool``, ``actions=["x"]``, an int
+    ``invariant_names``, an empty ``name``, a ``depends_on`` reference to a
+    non-existent action, a string ``allow_writes``, ...) raises the declared
+    ``UnrealRuntimeAdapterError`` instead of leaking ``KeyError`` / ``TypeError`` /
+    ``ValueError``. Requires the snapshot to represent a VALID existing runtime
+    task (action dependency graph resolvable, non-empty task name) so
+    ``materialize_runtime_task()`` cannot fail with a raw ``ValueError``.
+    """
+    s = _thaw_json(snap)
+    if not isinstance(s, dict):
+        raise UnrealRuntimeAdapterError(f"{owner} must be a dict snapshot")
+    # name: non-empty str (materialization requires a valid task name).
+    if not isinstance(s.get("name"), str) or not s["name"].strip():
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.name must be a non-empty string (a valid existing runtime "
+            "task requires a task name; fail closed)"
+        )
+    # exact booleans
+    for _b in ("allow_writes", "verify_after_action"):
+        if _b in s and type(s[_b]) is not bool:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.{_b} must be an exact bool (no lossy coercion)"
+            )
+    # allowed tools: non-empty list of str
+    _tools = s.get("allowed_action_tools")
+    if not isinstance(_tools, list) or not _tools:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.allowed_action_tools must be a non-empty list of strings"
+        )
+    if any(not isinstance(t, str) or not t.strip() for t in _tools):
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.allowed_action_tools must contain only non-empty strings"
+        )
+    # actions: non-empty list of dict entries with the exact full shape
+    _actions = s.get("actions")
+    if not isinstance(_actions, list) or not _actions:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.actions must be a non-empty list"
+        )
+    _action_names = set()
+    for _i, _a in enumerate(_actions):
+        if not isinstance(_a, dict):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.actions[{_i}] must be a mapping, got {type(_a).__name__}"
+            )
+        for _k in ("tool", "arguments", "name", "requires_success", "depends_on"):
+            if _k not in _a:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.actions[{_i}] is missing required key {_k!r}; "
+                    "invalid action entry shape (fail closed)"
+                )
+        if not isinstance(_a["tool"], str) or not _a["tool"].strip():
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.actions[{_i}].tool must be a non-empty string"
+            )
+        if not isinstance(_a["arguments"], dict):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.actions[{_i}].arguments must be a mapping"
+            )
+        if not isinstance(_a["name"], str) or not _a["name"].strip():
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.actions[{_i}].name must be a non-empty string"
+            )
+        if type(_a["requires_success"]) is not bool:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.actions[{_i}].requires_success must be an exact bool"
+            )
+        if not isinstance(_a["depends_on"], list):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.actions[{_i}].depends_on must be a list of action names"
+            )
+        if any(not isinstance(_n, str) or not _n.strip() for _n in _a["depends_on"]):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.actions[{_i}].depends_on must be strings"
+            )
+        _action_names.add(_a["name"])
+    # depends_on references must resolve to a defined action (no ghost deps) so
+    # materialization's dependency-graph validation cannot raise a raw ValueError.
+    for _i, _a in enumerate(_actions):
+        for _dep in _a.get("depends_on", []):
+            if _dep not in _action_names:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.actions[{_i}].depends_on references undefined "
+                    f"action {_dep!r}; the action dependency graph must be "
+                    "resolvable (fail closed)"
+                )
+    # evidence: non-empty list of dicts with tool/arguments/name
+    _ev = s.get("evidence")
+    if not isinstance(_ev, list) or not _ev:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.evidence must be a non-empty list"
+        )
+    for _i, _e in enumerate(_ev):
+        if not isinstance(_e, dict):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.evidence[{_i}] must be a mapping, got {type(_e).__name__}"
+            )
+        for _k in ("tool", "arguments", "name"):
+            if _k not in _e:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.evidence[{_i}] is missing required key {_k!r}; "
+                    "invalid evidence entry shape (fail closed)"
+                )
+        if not isinstance(_e["tool"], str) or not _e["tool"].strip():
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.evidence[{_i}].tool must be a non-empty string"
+            )
+        if not isinstance(_e["arguments"], dict):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.evidence[{_i}].arguments must be a mapping"
+            )
+        if not isinstance(_e["name"], str) or not _e["name"].strip():
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.evidence[{_i}].name must be a non-empty string"
+            )
+    # metadata: dict. Structural identity/semantic fields type-guarded so later
+    # list()/sorted() can never raise on an int or mixed-type collection.
+    _meta = s.get("metadata")
+    if _meta is not None and not isinstance(_meta, dict):
+        raise UnrealRuntimeAdapterError(
+            f"{owner}.metadata must be a mapping"
+        )
+    _ts = (_meta or {}).get("unreal_target_state")
+    if isinstance(_ts, dict):
+        _inv = _ts.get("invariant_names")
+        if _inv is not None:
+            if not isinstance(_inv, list):
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.metadata.unreal_target_state.invariant_names must "
+                    "be a list of strings"
+                )
+            if any(not isinstance(_n, str) for _n in _inv):
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.metadata.unreal_target_state.invariant_names must "
+                    "contain only strings (no mixed-type/integer invariants)"
+                )
+    _deps = (_meta or {}).get("unreal_semantic_dependencies")
+    if _deps is not None:
+        if not isinstance(_deps, list):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.metadata.unreal_semantic_dependencies must be a list "
+                "of strings"
+            )
+        if any(not isinstance(_d, str) for _d in _deps):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.metadata.unreal_semantic_dependencies must contain "
+                "only strings"
+            )
 
 
 def _atlas_to_snapshot(rt: AtlasTaskDefinition) -> Dict[str, Any]:
@@ -1102,6 +1266,11 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
       agree with the mapping's authoritative identity fields (no shadow identity).
     """
     prefix_producers: Dict[str, str] = {}
+    # R10-4: complete snapshot schema validation runs FIRST (before any indexing,
+    # list(), sorted(), graph/semantic reconstruction), so a malformed nested
+    # structure fails with the declared UnrealRuntimeAdapterError.
+    if mapping.runtime_task_snapshot is not None:
+        _validate_snapshot_schema(mapping.runtime_task_snapshot)
     for index, _step in enumerate(mapping.steps):
         if _step.capability_requirement == "unknown":
             raise UnrealRuntimeAdapterError(
@@ -1378,26 +1547,38 @@ def _reconstruct_canonical_targets(mapping: "UnrealRuntimeMapping") -> None:
                 f"{_snap_deps!r} does not match the deterministic ordered "
                 f"semantic step operations {_ops!r}"
             )
-        # (E) snapshot parameters must pass the SAME structural catalog-parameter
-        #     schema validation the factory applies, AND the parameters mapping must
-        #     be present (not omitted) whenever the trusted catalog entry declares
-        #     required parameters — fail closed on omission.
-        _entry_for_params = meta.get("catalog_entry")
-        _required = []
-        if isinstance(_entry_for_params, (dict, Mapping, MappingProxyType)):
-            _required = list(
-                _entry_for_params.get("required_parameters") or []
+        # (E) R10-1: CATALOG AUTHORITY COMES FROM THE MAPPING'S SOURCE IDENTITY
+        # (mapping.source_task_id), NEVER from a caller/snapshot-supplied
+        # catalog_entry.name or required_parameters. The authoritative catalog
+        # entry is resolved from the mapping source identity and the snapshot's
+        # catalog_entry must equal the trusted entry's snapshot() byte-for-byte.
+        # Snapshot parameter presence is validated per the TRUSTED entry's
+        # required_parameters. This enforces:
+        #   mapping.source_task_id -> DEFAULT_UNREAL_CATALOG -> authoritative
+        #   schema -> validate supplied snapshot
+        # NOT: snapshot.catalog_entry.name -> choose schema -> self-validate.
+        _trusted_entry = _resolve_trusted_source_entry(
+            mapping.source_task_id, mapping.catalog_version
+        )
+        _factory_expected = meta.get("catalog_entry")
+        if _factory_expected is None:
+            # A non-render, snapshot-bearing mapping must declare the catalog
+            # entry that its source identity pins (fail closed on omission).
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata is missing catalog_entry; the mapping's "
+                f"authoritative source {mapping.source_task_id!r} requires the "
+                "trusted catalog identity (fail closed)"
             )
-        if _required:
-            if "parameters" not in meta or not isinstance(
-                meta.get("parameters"), (dict, Mapping, MappingProxyType)
-            ):
-                raise UnrealRuntimeAdapterError(
-                    "runtime snapshot metadata is missing/empty parameters; the "
-                    "trusted catalog entry declares required parameters "
-                    f"{_required!r} (fail closed on omission)"
-                )
-        _validate_source_metadata_parameters(meta, "runtime_task_snapshot.metadata")
+        if not isinstance(_factory_expected, dict) and not isinstance(_factory_expected, (Mapping, MappingProxyType)):
+            raise UnrealRuntimeAdapterError(
+                "runtime snapshot metadata catalog_entry must be a dict"
+            )
+        _validate_source_metadata_parameters(
+            meta, "runtime_task_snapshot.metadata",
+            source_task_id=mapping.source_task_id,
+            catalog_version=mapping.catalog_version,
+            trusted_entry=_trusted_entry,
+        )
         # R9-3: COMPLETE snapshot identity reconstruction (no shadow identity).
         # (a) digital-twin identity must match the mapping (fail closed on omission).
         _snap_twin = meta.get("unreal_digital_twin_id")
@@ -1818,11 +1999,14 @@ def map_unreal_execution_plan(
             dict(compiled.metadata or {}), "source.metadata", "<root>",
             reject_forbidden=True,
         )
-        # R6-5: STRUCTURAL source-metadata gate — parameters must conform to the
-        # catalog entry's declared parameter_kinds (explicit schema/type/meaning),
-        # not be vocabulary-filtered. This is what makes the boundary structural.
+        # R6-5 / R10-1: STRUCTURAL source-metadata gate — parameters must conform to
+        # the AUTHORITATIVE catalog entry resolved from the mapping's source
+        # identity (plan.source_task_id), not a caller/snapshot-declared schema.
+        # This is what makes the boundary structural and prevents self-validation.
         _validate_source_metadata_parameters(
-            dict(compiled.metadata or {}), "source.metadata"
+            dict(compiled.metadata or {}), "source.metadata",
+            source_task_id=plan.source_task_id,
+            catalog_version=plan.catalog_version,
         )
         # Deep-copy so callers mutating source/compile cannot affect the mapping.
         compiled = _copy.deepcopy(compiled)
@@ -2081,154 +2265,153 @@ def _validate_mapping_provenance(
     return dict(payload)
 
 
-def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str) -> None:
-    """R6-5: STRUCTURAL source-metadata gate for the runtime snapshot.
-
-    The snapshot's metadata is source-derived (from the M12.1-validated source
-    task's catalog metadata). In particular ``parameters`` must conform to the
-    catalog entry's declared ``parameter_kinds`` — a STRUCTURAL constraint, not a
-    suspicious-vocabulary scan. This prevents nested free-form authority/security-
-    shaped entries (scheduler/retry/scope/grant_id/session/...) from being smuggled
-    into the trusted runtime snapshot inside a catalog parameter.
-
-    Rules (fail closed):
-    - if the source declares a catalog_entry, its declared parameter kinds bound
-      the ``parameters`` mapping: every key must be a declared parameter name and
-      every value must match the declared kind structurally;
-    - unknown/extra parameter keys are rejected;
-    - a ``json`` kind requires a JSON-native (dict/list) value and must itself be
-      strict-JSON with string keys; a ``string`` kind must be a str; an ``int``
-      kind an exact int (not bool); a ``float`` kind an exact float; ``bool`` a bool.
-
-    When no catalog_entry is present (hand-built source), the parameters mapping
-    must still be strict-JSON with a bounded set of declared parameter keys taken
-    from the source metadata itself; absent a catalog, the free-form set is
-    rejected (only the catalog may define parameter shapes).
-    """
-    entry = metadata.get("catalog_entry")
-    params = metadata.get("parameters", {})
-    if entry is None:
-        # No catalog entry -> no legitimate parameter shape authority. The only
-        # acceptable shape is an empty parameters mapping (or no parameters key).
-        if params not in ({}, None):
-            raise UnrealRuntimeAdapterError(
-                f"{owner}: source parameters without a catalog_entry are not "
-                "structurally bounded; refusing to carry free-form parameters "
-                "into the trusted runtime snapshot"
-            )
-        return
-    if not isinstance(entry, (dict, Mapping, MappingProxyType)):
-        raise UnrealRuntimeAdapterError(f"{owner}: catalog_entry must be a dict")
-    # R9-2: the parameter schema is TRUSTED from the canonical catalog, NEVER from
-    # the caller-supplied snapshot. Resolve the authoritative entry by name/version
-    # and use its declared parameter kinds. A resolved entry that disagrees with
-    # the supplied catalog_entry's name/version, or an unresolvable entry, FAILS
-    # CLOSED. The snapshot cannot manufacture its own schema (no
-    # self-validation).
-    _entry_name = entry.get("name")
-    _entry_version = entry.get("version")
-    if not isinstance(_entry_name, str) or not _entry_name.strip():
+def _resolve_trusted_source_entry(source_task_id, source_task_version=None):
+    """R10-1: resolve the AUTHORITATIVE trusted catalog entry from the mapping's
+    source identity (source_task_id), never from a caller/snapshot-supplied
+    catalog_entry name. Fail closed if unresolvable."""
+    if not isinstance(source_task_id, str) or not source_task_id.strip():
         raise UnrealRuntimeAdapterError(
-            f"{owner}: catalog_entry.name is required (trusted catalog axis)"
+            "cannot resolve a trusted catalog entry from an empty source identity "
+            "(fail closed)"
         )
-    # Resolve the trusted entry (highest version when none given).
     try:
-        trusted_entry = DEFAULT_UNREAL_CATALOG.get_entry(
-            _entry_name, version=(_entry_version if isinstance(_entry_version, int) and not isinstance(_entry_version, bool) else None)
+        return DEFAULT_UNREAL_CATALOG.get_entry(
+            source_task_id,
+            version=(
+                source_task_version
+                if isinstance(source_task_version, int) and not isinstance(source_task_version, bool)
+                else None
+            ),
         )
     except Exception as exc:
         raise UnrealRuntimeAdapterError(
-            f"{owner}: cannot resolve trusted catalog entry {_entry_name!r}; "
-            f"cannot structurally validate source parameters (fail closed): {type(exc).__name__}: {exc}"
+            f"cannot resolve the authoritative trusted catalog entry for source "
+            f"{source_task_id!r} (fail closed): {type(exc).__name__}: {exc}"
         ) from exc
-    # If the snapshot asserts a version, it must agree with the trusted entry.
-    if isinstance(_entry_version, int) and not isinstance(_entry_version, bool):
-        if _entry_version != trusted_entry.version:
+
+
+def _validate_source_metadata_parameters(metadata: Dict[str, Any], owner: str, *,
+                                         source_task_id=None,
+                                         catalog_version=None,
+                                         trusted_entry=None) -> None:
+    """R6-5 / R10-1: STRUCTURAL source-metadata gate for the runtime snapshot.
+
+    The snapshot's metadata is source-derived. The parameter schema
+    (parameter_kinds, required parameters) comes from the AUTHORITATIVE catalog
+    entry resolved from the SOURCE IDENTITY (source_task_id), never from the
+    supplied snapshot: the snapshot can neither select which catalog entry
+    validates it nor declare its own parameter schema / required list / version /
+    task class (no self-validation). If the snapshot carries a catalog_entry it
+    must equal the authoritative entry's ``snapshot()`` byte-for-byte; any
+    contradiction (including a non-int version, which would otherwise resolve to
+    the highest version and skip the agreement check) fails closed.
+
+    Rules (fail closed):
+    - when a catalog_entry is supplied, it must equal ``trusted_entry.snapshot()``;
+    - parameter presence is required per ``trusted_entry.required_parameters``
+      (never per a snapshot-supplied list) and extra keys are rejected;
+    - a ``json`` kind accepts ANY strict-JSON value (scalar, list, mapping, nested)
+      after canonical thaw (R5), rejecting NaN/Infinity, non-string mapping keys and
+      unsupported numeric types. Other kinds: ``string``->str; ``int``->exact int
+      (not bool); ``float``->exact float; ``bool``->exact bool.
+    """
+    if trusted_entry is None:
+        if source_task_id is None:
             raise UnrealRuntimeAdapterError(
-                f"{owner}: catalog_entry.version {_entry_version!r} does not match "
-                f"the trusted catalog version {trusted_entry.version}"
+                f"{owner}: no authoritative catalog entry; cannot structurally "
+                "validate source parameters (fail closed)"
             )
-    trusted_snapshot = trusted_entry.snapshot()
-    allowed: Dict[str, str] = dict(trusted_snapshot.get("parameter_kinds") or {})
+        trusted_entry = _resolve_trusted_source_entry(source_task_id, catalog_version)
+    trusted_snap = dict(trusted_entry.snapshot())
+    entry = metadata.get("catalog_entry")
+    params_in = metadata.get("parameters")
+    if entry is None:
+        # No catalog_entry -> the only acceptable parameter shape is empty.
+        if params_in not in ({}, None):
+            raise UnrealRuntimeAdapterError(
+                f"{owner}: snapshot parameters without an authoritative catalog_entry "
+                "are not structurally bounded; refusing to carry free-form parameters "
+                "into the trusted runtime snapshot (fail closed)"
+            )
+        return
+    if not isinstance(entry, dict) and not isinstance(entry, (Mapping, MappingProxyType)):
+        raise UnrealRuntimeAdapterError(f"{owner}: catalog_entry must be a dict")
+    # R10: the snapshot must NOT select the schema. If it declares a catalog, it
+    # must EQUAL the authoritative trusted entry (byte-for-byte).
+    if dict(_thaw_json(entry)) != trusted_snap:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}: supplied catalog_entry does not equal the authoritative "
+            f"trusted catalog entry {trusted_entry.name!r} v{trusted_entry.version}: "
+            "the snapshot cannot select its own schema or declare its own "
+            "required_parameters / version / task_class / fragment identity"
+        )
+    allowed: Dict[str, str] = dict(trusted_snap.get("parameter_kinds") or {})
     if not allowed:
         raise UnrealRuntimeAdapterError(
-            f"{owner}: trusted catalog entry {_entry_name!r} declares no "
+            f"{owner}: trusted catalog entry {trusted_entry.name!r} declares no "
             "parameter_kinds; cannot structurally validate (fail closed)"
         )
-    # The supplied catalog_entry must not contradict the trusted schema.
-    _supplied_kinds = entry.get("parameter_kinds")
-    if isinstance(_supplied_kinds, (dict, Mapping, MappingProxyType)):
-        _supplied_dict = dict(_supplied_kinds)
-    elif isinstance(_supplied_kinds, (list, tuple)):
-        _supplied_dict = dict(_supplied_kinds)
-    else:
-        _supplied_dict = None
-    if _supplied_dict is not None and _supplied_dict != allowed:
-        raise UnrealRuntimeAdapterError(
-            f"{owner}: supplied catalog_entry.parameter_kinds does not match the "
-            "trusted catalog schema (the snapshot cannot declare its own parameter "
-            "schema)"
-        )
-    params = params or {}
-    if not isinstance(params, (dict, Mapping, MappingProxyType)):
+    params = {} if params_in is None else params_in
+    if not isinstance(params, dict) and not isinstance(params, (Mapping, MappingProxyType)):
         raise UnrealRuntimeAdapterError(f"{owner}: parameters must be a dict")
+    params = dict(_thaw_json(params))
+    required = set(trusted_snap.get("required_parameters") or [])
+    missing = sorted(required - set(params))
+    if missing:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}: parameters missing required catalog fields {missing} "
+            "(presence per authoritative catalog entry, fail closed)"
+        )
     for key in params:
-        if key not in allowed:
+        if key not in required:
             raise UnrealRuntimeAdapterError(
                 f"{owner}: parameter {key!r} is not a declared catalog parameter "
                 "(structural source-metadata gate); free-form catalog metadata is "
                 "rejected"
             )
     for key, expected_kind in allowed.items():
-        if key in params:
-            val = params[key]
-            if expected_kind == "string":
-                if not isinstance(val, str):
-                    raise UnrealRuntimeAdapterError(
-                        f"{owner}.parameters.{key}: expected string, got "
-                        f"{type(val).__name__}"
-                    )
-            elif expected_kind == "int":
-                if type(val) is not int:
-                    raise UnrealRuntimeAdapterError(
-                        f"{owner}.parameters.{key}: expected exact int, got "
-                        f"{type(val).__name__}"
-                    )
-            elif expected_kind == "float":
-                if type(val) is not float:
-                    raise UnrealRuntimeAdapterError(
-                        f"{owner}.parameters.{key}: expected exact float, got "
-                        f"{type(val).__name__}"
-                    )
-            elif expected_kind == "bool":
-                if type(val) is not bool:
-                    raise UnrealRuntimeAdapterError(
-                        f"{owner}.parameters.{key}: expected bool, got "
-                        f"{type(val).__name__}"
-                    )
-            elif expected_kind == "json":
-                # R9-1: the frozen snapshot stores json values as tuple /
-                # MappingProxyType. Thaw them back to the canonical JSON semantic
-                # form (list / dict) BEFORE type-checking, so a freeze/thaw
-                # round-trip never changes the semantic type, and a legitimate
-                # camera_slots=[1,2] / lighting_rig=[{...}] validates.
-                _js = _thaw_json(val)
-                if not isinstance(_js, (dict, list)):
-                    raise UnrealRuntimeAdapterError(
-                        f"{owner}.parameters.{key}: expected a JSON value, got "
-                        f"{type(val).__name__} (reconstructed "
-                        f"{type(_js).__name__})"
-                    )
-                # json params must be structural strict-JSON (string keys).
-                _validate_strict_json_value(
-                    _js, f"{owner}.parameters.{key}", "<root>",
-                    reject_forbidden=False,
-                )
-            else:
+        if key not in params:
+            continue
+        val = params[key]
+        if expected_kind == "string":
+            if not isinstance(val, str):
                 raise UnrealRuntimeAdapterError(
-                    f"{owner}.parameters.{key}: unsupported catalog parameter kind "
-                    f"{expected_kind!r}"
+                    f"{owner}.parameters.{key}: expected string, got "
+                    f"{type(val).__name__}"
                 )
+        elif expected_kind == "int":
+            if type(val) is not int:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.parameters.{key}: expected exact int, got "
+                    f"{type(val).__name__}"
+                )
+        elif expected_kind == "float":
+            if type(val) is not float:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.parameters.{key}: expected exact float, got "
+                    f"{type(val).__name__}"
+                )
+        elif expected_kind == "bool":
+            if type(val) is not bool:
+                raise UnrealRuntimeAdapterError(
+                    f"{owner}.parameters.{key}: expected bool, got "
+                    f"{type(val).__name__} (no lossy coercion)"
+                )
+        elif expected_kind == "json":
+            _js = _thaw_json(val)
+            # R10: json kind accepts ANY strict-JSON value (scalar, list, mapping,
+            # nested) semantically valid. NaN/Infinity, non-string keys and
+            # unsupported numeric types are rejected by the strict validator. The
+            # immutable frozen form is thawed FIRST so the SEMANTIC JSON type is
+            # checked (freeze/thaw never changes meaning).
+            _validate_strict_json_value(
+                _js, f"{owner}.parameters.{key}", "<root>", reject_forbidden=False,
+            )
+        else:
+            raise UnrealRuntimeAdapterError(
+                f"{owner}.parameters.{key}: unsupported catalog parameter kind "
+                f"{expected_kind!r}"
+            )
 
 
 def _reconcile_runtime_authority(compiled: AtlasTaskDefinition) -> AtlasTaskDefinition:

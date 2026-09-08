@@ -421,4 +421,34 @@ all confirmed-working R6/R7/R8 controls.
 - Scope: M12.4 (`runtime_adapter.py`) + tests only (read-only import of M12.2
   `DEFAULT_UNREAL_CATALOG`). M12.3, M12.1, M4-M10, M12.5 untouched.
 - can_execute False; no new authority; no M4-M10 authority imports.
+---
+
+# ROUND-10 — TRUSTED CATALOG + DISCLOSURE + ERROR-BOUNDARY HARDENING
+
+Ninth gate: BOTH reviewers BLOCK. Shared blockers (Astra B2=Claude B1, Astra B4=Claude B2,
+Astra B5=Claude B3) + scalar-JSON residual + false-green tests.
+
+## Findings -> Fixes
+
+| # | Finding | Root cause | Structural fix | Regression test | Result |
+|---|---------|-----------|----------------|-----------------|--------|
+| R10-1 | Catalog axis still self-referential: trusted entry chosen by snapshot `catalog_entry.name`, schema/required_params tied to that bad | `_validate_source_metadata_parameters` + block(E) resolved trusted by snapshot's catalog_entry.name; required_parameters read from snapshot | Resolve trusted from `mapping.source_task_id` -> `DEFAULT_UNREAL_CATALOG`; require snapshot `catalog_entry == trusted.snapshot()` byte-for-byte; require params per trusted; non-int version fails closed | `test_r10_catalog_entry_*`, `test_r10_source_snapshot_swap_rejected_self_consistent` | CLOSED (both routes) |
+| R10-2/6 | Parameter VALUES unbound to commitment | values only schema-validated | Demonstrate coverage: `source_content_digest` hashes resolved metadata incl params; PLAN_A+SOURCE_B+digest(B) fails | `test_r10_parameter_values_bound_to_source_commitment` | CLOSED |
+| R10-3 | Snapshot can claim `independently_verified: true` | disclosure keys allowlisted, never emitted/pinned | Remove disclosure keys from accepted snapshot metadata schema (reject as unknown) | `test_r10_snapshot_disclosure_claim_rejected` | CLOSED |
+| R10-4 | Nested snapshot leaks KeyError/TypeError/ValueError | only top-level shape checked | `_validate_snapshot_schema` deep type-check before indexing (action/evidence/dep depends_on/invariant_names/deps) | `test_r10_snapshot_schema_errors_are_declared` (parametrized) | CLOSED |
+| R10-5 | Scalar JSON false-reject (Astra B6 / Claude N3) | `json` kind required dict/list | `json` accepts any strict-JSON value (scalar/list/mapping/nested) | `test_r10_scalar_and_nested_json_parameters_map_and_roundtrip`, `test_r10_invalid_json_parameter_rejected` | CLOSED |
+| R10-8 | 4 false-green direct tests reject on digest/plan_id, not intended guard | stale digests / bad baselines | Rebuild each: valid factory baseline, mutate ONE field, recompute digest, assert unique guard message | repaired 4 tests with `match=` | CLOSED |
+
+## Direct/factory parity
+Shared `_reconstruct_canonical_targets` now begins with `_validate_snapshot_schema`; both
+routes resolve the trusted catalog from mapping/plan source identity and share
+`_validate_source_metadata_parameters` + the same disclosure closure. Probed empirically.
+
+## Boundary
+can_execute=False; no authority methods; no M4-M10 imports; snapshot authority still
+inspect-only; rendering classification/reject-not-rewrite/digest/plan_id/source
+commitment all preserved. M12.5 deferred.
+
+## Commit evidence
+adapter m12/passed counts after R10: m12 354, not-integration 1805, authority 5.
 

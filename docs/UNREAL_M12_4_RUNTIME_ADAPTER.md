@@ -965,4 +965,115 @@ reason for rejection — verified live.
 - Scope: M12.4 (`runtime_adapter.py`) + tests only (read-only import of the M12.2
   `DEFAULT_UNREAL_CATALOG`). M12.3, M12.1, M4-M10, M12.5 untouched.
 - can_execute remains False; no new authority; no M4-M10 authority imports.
+## Round-10 — Trusted catalog authority, disclosure closure, scalar JSON, error boundary (R10-1..R10-8)
+
+Round-10 addresses the shared blockers of the ninth independent gate (both reviewers
+BLOCK): the trusted catalog resolution was still partly self-referential, snapshot
+disclosure fields could assert verification state, and malformed nested snapshot
+structures could leak raw Python exceptions. It is a targeted correction, preserving
+the verified-good source commitment, derived plan identity, canonical reconstruction,
+inspect-only runtime authority, render classification, and M4-M10 isolation.
+
+### R10-1 — Catalog authority comes from the mapping SOURCE identity (not the snapshot)
+Resolved the authoritative catalog entry from `mapping.source_task_id` /
+`plan.source_task_id` via `DEFAULT_UNREAL_CATALOG.get_entry(...)` and FAIL
+CLOSED if it cannot resolve. The snapshot's `catalog_entry`, when present, must
+equal the trusted entry's `snapshot()` byte-for-byte (name, version, task_class,
+fragment_ids, required_parameters, parameter_kinds), so:
+
+- the snapshot can no longer *choose* which catalog validates it (schema shopping
+  `unreal.camera-configure` schema onto a `sequence-configure` source is rejected);
+- `required_parameters` comes from the TRUSTED entry, never the snapshot (the
+  parameters-omission guard can no longer be bypassed by emptying the field);
+- a non-int / mismatched `catalog_entry.version` fails closed (it cannot silently
+  resolve to the highest version and skip the agreement check);
+- `task_class` / `fragment_ids` / `objective` are pinned as part of the whole-entry
+  equality, so contradictory identity-bearing snapshot catalog fields cannot survive.
+- The relation is `mapping.source_task_id -> trusted catalog entry -> schema ->
+  validate supplied snapshot`, never `snapshot.catalog_entry.name -> choose schema ->
+  self-validate`.
+
+Adversarial tests: forged `catalog_entry.name` (foreign camera entry on a sequence
+source), forged/tampered `required_parameters`, non-int `catalog_entry.version`, the
+R10-1H aggregated self-declaration attack (name/required_parameters/parameter_kinds/
+version/task_class all forged with matching parameters), and a genuine
+**SOURCE A + SNAPSHOT B** swap where B is a real, internally self-consistent camera
+snapshot — all fail closed.
+
+### R10-3 — False-verification disclosure channel closed
+Previously `_ADAPTER_METADATA_DISCLOSURE_KEYS` (`m12.4.evaluator_kind`,
+`m12.4.independently_verified`, `m12.4.declared`) were accepted in snapshot
+metadata but never value-pinned, so a caller could set
+`m12.4.independently_verified: true` and it would survive into
+`materialize_runtime_task().metadata`. These keys are **not part of the accepted
+closed snapshot-metadata schema any more** (R10-3). A caller-supplied disclosure
+claim (including `independently_verified: true`) is rejected as an unknown metadata
+key. Actual verification remains M12.5-deferred; the evaluator stays structural and
+a caller can never assert that verification has already occurred.
+
+### R10-4 — Complete snapshot schema / error boundary
+Added `_validate_snapshot_schema`, run at the very start of the shared
+`_reconstruct_canonical_targets` (before any indexing, `list()`, `sorted()`, or
+graph operations). It type-checks the full snapshot shape:
+
+- `name` non-empty string; `allow_writes` / `verify_after_action` exact bool;
+- `allowed_action_tools` non-empty list of strings;
+- every action entry a dict with `tool`/`arguments`/`name`/`requires_success`/
+  `depends_on`, each typed, and every `depends_on` reference resolvable to a
+  defined action (no dangling deps so dependency-graph validation cannot raise a
+  raw `ValueError` at materialization);
+- every evidence entry a dict with `tool`/`arguments`/`name`;
+- `unreal_target_state.invariant_names` and `unreal_semantic_dependencies`
+  type-guarded to lists of strings before `list()`/`sorted()`.
+
+A malformed nested snapshot now raises the declared `UnrealRuntimeAdapterError`
+instead of `KeyError` / `TypeError` / `ValueError`. Tests: missing action `tool`,
+string-in-actions, int `invariant_names`, empty `name`, dangling `depends_on`,
+int `unreal_semantic_dependencies`.
+
+### R10-5 — Scalar and nested JSON parameter compatibility
+The catalog `json` kind now accepts **any** strict-JSON value that is semantically
+valid — scalar (`camera_slots: 1`), list (`[1,2]`), mapping, or nested
+combinations — after the immutable snapshot representation is thawed back to the
+canonical semantic form. `NaN`/`Infinity`, non-string mapping keys, and unsupported
+numeric types remain rejected by the shared strict-JSON canonicalizer. Positive
+controls for scalar/list/nested JSON parameters map and round-trip; `NaN` fails
+closed.
+
+### R10-2 / R10-6 — Parameter VALUES bound to authoritative source content
+Parameter **values** are already covered by the existing source-content commitment:
+`compute_source_content_digest` hashes the resolved source metadata (including
+`parameters`) via strict JSON. The adapter recomputes that digest and requires it to
+equal the plan's immutable `source_content_digest` (PLAN_A + SOURCE_B + DIGEST_B
+fails). A test demonstrates that two same-identity sources differing only in
+parameter **values** produce different commitments and cannot be mapped against the
+original plan. No second/competing source-digest system was introduced.
+
+### R10-7 — Direct/factory parity preserved
+Both routes resolve the trusted catalog entry from the mapping/plan source identity,
+share `_validate_source_metadata_parameters` and `_validate_snapshot_schema`, and
+share the same disclosure closure. Tests assert the same closed-metadata schema
+applies on direct construction as on the factory path.
+
+### R10-8 — Test-quality audit
+The ninth gate flagged four false-green direct-construction tests that rejected via
+an unrelated earlier guard (digest binding / plan identity) rather than the intended
+one. They were repaired to: begin from a valid factory baseline, mutate exactly ONE
+property, recompute the derived snapshot digest, and assert the specific intended
+guard message:
+
+- `test_b9_direct_invalid_render_contradiction_rejected` -> flips ONLY
+  `render_plan` against `requires_existing_render_submission_path`, asserts
+  `"requires_existing_render_submission_path must agree"`.
+- `test_b9_direct_invalid_snapshot_tools_rejected` -> mutates ONLY the snapshot
+  tool to `unreal_render`, recomputes digest, asserts `"inspect-only contract"`.
+- `test_r4_direct_snapshot_metadata_authority_scan` -> injects `authorization_id`
+  into snapshot metadata, recomputes digest, asserts the closed-metadata error.
+- `test_r5_factory_and_direct_use_same_validator` -> injects `scheduler` metadata,
+  recomputes digest, asserts the closed-metadata error.
+
+### R10-X — Authority / M12.5 boundary
+`can_execute` remains `False`; no execute/authorize/submit/schedule/recover/verify/
+receipt/transport surface; no M4-M10 authority imports. The evaluator stays
+structural; caller assertions cannot claim independent verification. No M12.5.
 

@@ -1222,57 +1222,23 @@ def test_b8_canonical_json_is_strict_and_stable():
 
 
 def test_b9_direct_invalid_render_contradiction_rejected():
-    from types import MappingProxyType
-    s = UnrealRuntimeStepMapping(
-        step_id="s0", semantic_operation="scene_setup", supported=True,
-        target_runtime_operation="unreal_inspect", target_state_contributions=("scene_initialized",),
-        idempotence="idempotent", fragment_id="scene_setup", fragment_version=1,
-        verification_requirements=("scene_initialized",), provenance={"proposal_source": "q"},
-    )
-    with pytest.raises(UnrealRuntimeAdapterError):
-        UnrealRuntimeMapping(
-            plan_id="p", source_task_id="t", source_task_version=1, catalog_version=1,
-            digital_twin_id="twin-1", steps=(s,),
-            render_plan=True, requires_existing_render_submission_path=False,
-            runtime_task_snapshot=None, runtime_task_digest=None,
-            semantic_fidelity="aggregate", source_task_digest="a" * 64,
-            provenance={"proposal_source": "q"},
-        )
+    import dataclasses
+    m = _map()  # valid non-render baseline (render_plan=False)
+    with pytest.raises(UnrealRuntimeAdapterError, match="requires_existing_render_submission_path must agree"):
+        dataclasses.replace(m, render_plan=True, requires_existing_render_submission_path=False)
 
 
 def test_b9_direct_invalid_snapshot_tools_rejected():
-    from types import MappingProxyType
-    from planning.m12.runtime_adapter import _freeze_json
-    s = UnrealRuntimeStepMapping(
-        step_id="s0", semantic_operation="scene_setup", supported=True,
-        target_runtime_operation="unreal_inspect", target_state_contributions=("scene_initialized",),
-        idempotence="idempotent", fragment_id="scene_setup", fragment_version=1,
-        verification_requirements=("scene_initialized",), provenance={"proposal_source": "q"},
-    )
-    snap = _freeze_json({
-        "name": "x", "evidence": [],
-        "actions": [{"tool": "unreal_inspect", "arguments": {}, "name": "a",
-                     "requires_success": True, "depends_on": []}],
-        "allowed_action_tools": ["unreal_render"],
-        "allow_writes": False, "verify_after_action": True, "metadata": {},
-    })
-    with pytest.raises(UnrealRuntimeAdapterError):
-        UnrealRuntimeMapping(
-            plan_id="p", source_task_id="t", source_task_version=1, catalog_version=1,
-            digital_twin_id="twin-1", steps=(s,),
-            render_plan=False, requires_existing_render_submission_path=False,
-            runtime_task_snapshot=snap, runtime_task_digest="deadbeef",
-            semantic_fidelity="aggregate", source_task_digest="a" * 64,
-            provenance={"proposal_source": "q"},
-        )
+    import dataclasses
+    from planning.m12.runtime_adapter import _freeze_json, _thaw_json, _digest_of_jsonable
+    m = _map()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["allowed_action_tools"] = ["unreal_render"]
+    f = _freeze_json(s)
+    d = _digest_of_jsonable(_thaw_json(f))
+    with pytest.raises(UnrealRuntimeAdapterError, match="inspect-only contract"):
+        dataclasses.replace(m, runtime_task_snapshot=f, runtime_task_digest=d, provenance=dict(m.provenance, runtime_task_digest=d))
 
-
-# ---------------------------------------------------------------------------
-# Round-4 structural hardening adversarial tests (R4-1..R4-12)
-# ---------------------------------------------------------------------------
-
-
-# ---- R4-1: MANDATORY SOURCE BINDING ---------------------------------------
 
 def test_r5_source_binding_uses_plan_commitment_not_caller_digest():
     # R5-2: the plan carries the authoritative source commitment. Omission of the
@@ -1531,38 +1497,15 @@ def test_r4_decimal_rejected_structurally():
 # ---- R4-11: self-validating mapping (single canonical path) ------------------
 
 def test_r4_direct_snapshot_metadata_authority_scan():
-    # Directly-constructed mapping whose snapshot metadata carries an adapter-owned
-    # or authority-shaped key must fail — the single path guards it.
-    from types import MappingProxyType
-    from planning.m12.runtime_adapter import _freeze_json
-    s = UnrealRuntimeStepMapping(
-        step_id="s0", semantic_operation="scene_setup", supported=True,
-        target_runtime_operation="unreal_inspect", target_state_contributions=("scene_initialized",),
-        idempotence="idempotent", fragment_id="scene_setup", fragment_version=1,
-        verification_requirements=("scene_initialized",), provenance={},
-    )
-    snap = _freeze_json({
-        "name": "x", "evidence": [],
-        "actions": [{"tool": "unreal_inspect", "arguments": {}, "name": "a",
-                     "requires_success": True, "depends_on": []}],
-        "allowed_action_tools": ["unreal_inspect"],
-        "allow_writes": False, "verify_after_action": True,
-        "metadata": {"authorization_id": "forged"},
-    })
-    with pytest.raises(UnrealRuntimeAdapterError):
-        UnrealRuntimeMapping(
-            plan_id="p", source_task_id="t", source_task_version=1, catalog_version=1,
-            digital_twin_id="twin-1", steps=(s,),
-            render_plan=False, requires_existing_render_submission_path=False,
-            runtime_task_snapshot=snap, runtime_task_digest="deadbeef",
-            semantic_fidelity="aggregate", source_task_digest="a" * 64,
-            provenance={},
-        )
-
-
-# ---------------------------------------------------------------------------
-# R5-7 direct-construction adversarial tests (single canonical path parity)
-# ---------------------------------------------------------------------------
+    import dataclasses
+    from planning.m12.runtime_adapter import _freeze_json, _thaw_json, _digest_of_jsonable
+    m = _map()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["metadata"] = {**dict(s["metadata"]), "authorization_id": "forged"}
+    f = _freeze_json(s)
+    d = _digest_of_jsonable(_thaw_json(f))
+    with pytest.raises(UnrealRuntimeAdapterError, match="closed source-metadata schema"):
+        dataclasses.replace(m, runtime_task_snapshot=f, runtime_task_digest=d, provenance=dict(m.provenance, runtime_task_digest=d))
 
 
 def _direct_base_mapping():
@@ -1694,24 +1637,15 @@ def test_r5_valid_direct_roundtrip_accepted():
 
 
 def test_r5_factory_and_direct_use_same_validator():
-    # The two paths agree: a mutation that would pass the factory must also pass
-    # direct construction of the same state, and one that the factory rejects is
-    # rejected on direct construction through the shared __post_init__ path.
-    mapping = _map()
-    # snapshot metadata authority scan is in the shared path (R5-5).
-    snap_meta = dict(mapping.runtime_task_snapshot["metadata"])
-    # A metadata key outside the closed schema is rejected by the shared path.
-    from planning.m12.runtime_adapter import _freeze_json
-    bad_snapshot = dict(mapping.runtime_task_snapshot)
-    bad_snapshot["metadata"] = {**dict(snap_meta), "scheduler": {"retry": 3}}
     import dataclasses
-    with pytest.raises(UnrealRuntimeAdapterError):
-        dataclasses.replace(mapping, runtime_task_snapshot=_freeze_json(bad_snapshot))
-
-
-# ---------------------------------------------------------------------------
-# R6-1..R6-6 canonical identity + reconstruction adversarial tests
-# ---------------------------------------------------------------------------
+    from planning.m12.runtime_adapter import _freeze_json, _thaw_json, _digest_of_jsonable
+    m = _map()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["metadata"] = {**dict(s["metadata"]), "scheduler": {"retry": 3}}
+    f = _freeze_json(s)
+    d = _digest_of_jsonable(_thaw_json(f))
+    with pytest.raises(UnrealRuntimeAdapterError, match="closed source-metadata schema"):
+        dataclasses.replace(m, runtime_task_snapshot=f, runtime_task_digest=d, provenance=dict(m.provenance, runtime_task_digest=d))
 
 
 def _r6_fresh_mapping():
@@ -2485,7 +2419,7 @@ def test_r9_self_declared_parameter_schema_rejected():
     meta["catalog_entry"] = entry
     meta["parameters"] = dict(meta["parameters"], scheduler="retry=3", grant="production")
     s["metadata"] = meta
-    with pytest.raises(UnrealRuntimeAdapterError, match="trusted catalog schema"):
+    with pytest.raises(UnrealRuntimeAdapterError, match="does not equal the authoritative"):
         _r9_reapply(m, s)
 
 
@@ -2592,3 +2526,206 @@ def test_r9_snapshot_empty_evidence_error_contract():
     with pytest.raises(UnrealRuntimeAdapterError, match="evidence"):
         _r9_reapply(m, s)
 
+
+
+
+
+# ---------------------------------------------------------------------------
+# R10-1..R10-5: trusted catalog authority from source identity, disclosure
+# closure, complete snapshot schema / error boundary, scalar JSON, parameter
+# values bound to source commitment
+# ---------------------------------------------------------------------------
+
+
+def _r10_rebuild(mapping, snapshot):
+    """Direct-construction replay helper (recompute snapshot digest so each
+    mutation reaches the intended canonical guard, mirroring _r9_reapply)."""
+    return _r9_reapply(mapping, snapshot)
+
+
+# ---- R10-1: catalog DENIED from snapshot; authority from mapping source id ---
+
+def test_r10_catalog_entry_forged_name_rejected():
+    # Attacker supplies a foreign catalog_entry (camera) on a sequence source.
+    # The mapping's source identity pins the trusted entry; any other catalog
+    # entry (different name/version/task_class/fragments/params) fails closed.
+    from planning.m12.runtime_adapter import _thaw_json
+    from planning.m12.catalog import DEFAULT_UNREAL_CATALOG
+    m = _r9_mapping()  # sequence-configure source
+    s = _thaw_json(m.runtime_task_snapshot)
+    meta = dict(s["metadata"])
+    meta["catalog_entry"] = DEFAULT_UNREAL_CATALOG.get_entry("unreal.camera-configure").snapshot()
+    meta["parameters"] = {"twin_id": "twin-1", "camera_slots": [1, 2]}
+    s["metadata"] = meta
+    with pytest.raises(UnrealRuntimeAdapterError, match="does not equal the authoritative"):
+        _r10_rebuild(m, s)
+
+
+def test_r10_catalog_entry_required_parameters_tamper_rejected():
+    # required_parameters must come from the TRUSTED entry, never the snapshot.
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    meta = dict(s["metadata"])
+    entry = dict(meta["catalog_entry"])
+    entry["required_parameters"] = []
+    meta["catalog_entry"] = entry
+    meta["parameters"] = {}
+    s["metadata"] = meta
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _r10_rebuild(m, s)
+
+
+def test_r10_catalog_entry_version_tamper_rejected():
+    # A non-int / mismatched catalog_entry.version must fail closed (it must NOT
+    # silently resolve to the highest version and skip the agreement check).
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    meta = dict(s["metadata"])
+    entry = dict(meta["catalog_entry"])
+    entry["version"] = "99"
+    meta["catalog_entry"] = entry
+    s["metadata"] = meta
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _r10_rebuild(m, s)
+
+
+def test_r10_catalog_entry_direct_construction_adversarial():
+    # The R10-1H aggregated attack: change name/required_parameters/parameter_kinds/
+    # version/task_class AND supply matching forged parameters; direct construction
+    # must still reject because the attacker cannot manufacture the authoritative
+    # trusted catalog entry (it must equal the entry derived from the source id).
+    from planning.m12.runtime_adapter import _thaw_json
+    from planning.m12.catalog import DEFAULT_UNREAL_CATALOG
+    m = _r9_mapping()  # sequence source
+    s = _thaw_json(m.runtime_task_snapshot)
+    forged = DEFAULT_UNREAL_CATALOG.get_entry("unreal.camera-configure").snapshot()
+    forged = dict(forged, version=2, task_class="camera-forged",
+                  required_parameters=["twin_id", "camera_slots"],
+                  parameter_kinds={"twin_id": "string", "camera_slots": "json"})
+    s["metadata"] = dict(
+        dict(s["metadata"]),
+        catalog_entry=forged,
+        parameters={"twin_id": "twin-1", "camera_slots": [[{"auth": "x"}]]},
+    )
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _r10_rebuild(m, s)
+
+
+def test_r10_source_snapshot_swap_rejected_self_consistent():
+    # SOURCE A + SNAPSHOT B must fail even when B's OWN internal catalog fields
+    # are self-consistent (B is a real camera snapshot). B's trusted-entry name
+    # contradicts mapping.source_task_id (sequence), so it fails closed.
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()  # sequence
+    camera = _inspect_only(DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": [1, 2]},
+        digital_twin_id="twin-1",
+    ))
+    b = map_unreal_execution_plan(generate_execution_plan(camera), source_task=camera)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _r10_rebuild(m, _thaw_json(b.runtime_task_snapshot))
+
+
+# ---- R10-5: scalar JSON parameter compatibility -------------------------------
+
+@pytest.mark.parametrize("name,params", [
+    ("unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": 1}),
+    ("unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": [1, 2]}),
+    ("unreal.lighting-configure", {"twin_id": "twin-1", "lighting_rig": [{"a": [1, 2]}]}),
+    ("unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": {"nested": [1, 2]}}),
+])
+def test_r10_scalar_and_nested_json_parameters_map_and_roundtrip(name, params):
+    task = _inspect_only(DEFAULT_UNREAL_CATALOG.resolve(name, params, digital_twin_id="twin-1"))
+    m = map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+    assert m.runtime_task_snapshot is not None
+    assert m.materialize_runtime_task() is not None
+
+
+def test_r10_invalid_json_parameter_rejected():
+    # NaN/Infinity is not strict JSON. Whether it is rejected by the M12.3 strict
+    # source-content canonicalizer (UnrealExecutionPlanError) or the M12.4 adapter
+    # json validator (UnrealRuntimeAdapterError), it must FAIL CLOSED and never be
+    # accepted into the trusted snapshot.
+    from planning.m12.execution_plan import UnrealExecutionPlanError
+    from planning.m12.runtime_adapter import UnrealRuntimeAdapterError
+    from planning.m12.catalog import DEFAULT_UNREAL_CATALOG
+    task = DEFAULT_UNREAL_CATALOG.resolve(
+        "unreal.camera-configure", {"twin_id": "twin-1", "camera_slots": float("nan")},
+        digital_twin_id="twin-1")
+    task = _inspect_only(task)
+    with pytest.raises((UnrealRuntimeAdapterError, UnrealExecutionPlanError)):
+        map_unreal_execution_plan(generate_execution_plan(task), source_task=task)
+
+
+# ---- R10-4: complete snapshot error boundary (no KeyError/TypeError/ValueError)
+
+@pytest.mark.parametrize("name,mutate", [
+    ("missing_action_tool", lambda s: s.__setitem__("actions", [{"name": "a", "arguments": {}, "requires_success": True, "depends_on": []}])),
+    ("string_action", lambda s: s.__setitem__("actions", ["x"])),
+    ("int_invariant_names", lambda s: s["metadata"]["unreal_target_state"].__setitem__("invariant_names", 5)),
+    ("empty_name", lambda s: s.__setitem__("name", "")),
+    ("dangling_depends_on", lambda s: s["actions"][0].__setitem__("depends_on", ["ghost"])),
+    ("int_dependencies", lambda s: s["metadata"].__setitem__("unreal_semantic_dependencies", 5)),
+])
+def test_r10_snapshot_schema_errors_are_declared(name, mutate):
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    mutate(s)
+    with pytest.raises(UnrealRuntimeAdapterError):
+        _r10_rebuild(m, s)
+
+
+# ---- R10: parameter VALUES bound to authoritative source content --------------
+
+def test_r10_parameter_values_bound_to_source_commitment():
+    # compute_source_content_digest includes the resolved source metadata
+    # (parameters). Two same-identity sources with different parameter VALUES
+    # yield different digests -> differ plan commitments -> the adapter rejects
+    # PLAN_A + SOURCE(with-different-values) + DIGEST(matching THAT source).
+    base = _sequence_task()
+    import copy as _c
+    alt = _c.deepcopy(base)
+    alt_meta = dict(alt.metadata or {})
+    alt_params = dict(alt_meta.get("parameters") or {})
+    alt_params["sequence_name"] = "attacker"
+    alt_params["frame_end"] = 99999
+    alt_meta = dict(alt_meta, parameters=alt_params)
+    _c.deepcopy(alt)
+    # rebuild the semantic task with the altered parameters
+    alt = UnrealProductionTaskDefinition(
+        canonical_task_id=alt.canonical_task_id,
+        task_class=alt.task_class,
+        digital_twin_id=alt.digital_twin_id,
+        task_version=alt.task_version,
+        intent=alt.intent,
+        target_state=alt.target_state,
+        evidence=alt.evidence,
+        actions=alt.actions,
+        allowed_action_tools=alt.allowed_action_tools,
+        allowed_mutations=alt.allowed_mutations,
+        dependencies=alt.dependencies,
+        provenance=dict(alt.provenance or {}),
+        metadata=alt_meta,
+    )
+    plan_a = generate_execution_plan(base)           # PLAN_A commits to base params
+    # SOURCE_D (same id, different parameter VALUES) + DIGEST(SOURCE_D) must NOT
+    # be accepted against PLAN_A's commitment.
+    with pytest.raises(UnrealRuntimeAdapterError):
+        map_unreal_execution_plan(plan_a, source_task=alt,
+                                  expected_source_task_digest=compute_source_task_digest(alt))
+
+
+# ---- R10-3: disclosure claims are adapter-derived, not caller-supplied ---------
+
+def test_r10_snapshot_disclosure_claim_rejected():
+    from planning.m12.runtime_adapter import _thaw_json
+    m = _r9_mapping()
+    s = _thaw_json(m.runtime_task_snapshot)
+    s["metadata"] = {**dict(s["metadata"]),
+                     "m12.4.independently_verified": True,
+                     "m12.4.evaluator_kind": "independent-verifier"}
+    with pytest.raises(UnrealRuntimeAdapterError, match="not part of the closed"):
+        _r10_rebuild(m, s)
