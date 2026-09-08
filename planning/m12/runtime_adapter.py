@@ -107,6 +107,10 @@ from planning.m12.catalog import DEFAULT_UNREAL_CATALOG
 from planning.m12.task_classes import is_render_task_class
 from planning.task_definition import AtlasTaskDefinition
 from action_plan import ActionSpec
+from planning.action_dependencies import (
+    ActionDependencyError,
+    validate_action_dependencies,
+)
 from planning.evidence_plan import EvidenceRequest
 from planning.target_state import StateInvariant, TargetStateEvaluator
 
@@ -960,6 +964,36 @@ def _validate_snapshot_schema(snap: Any, owner: str = "runtime_task_snapshot") -
                     f"action {_dep!r}; the action dependency graph must be "
                     "resolvable (fail closed)"
                 )
+    # R10-F1/F3: DEPENDENCY-GRAPH TOPOLOGY validation via the authoritative
+    # runtime helper. validate_action_dependencies() is the SINGLE source of
+    # truth for action dependency topology (it is the exact validator
+    # AtlasTaskDefinition.__post_init__ runs on materialization). Reusing it
+    # here (never duplicating the rules) enforces self-dependency, forward
+    # reference, cycle, and dependency-requires_success rules at the snapshot
+    # boundary so a malformed graph cannot be ACCEPTED at construction and later
+    # leak a raw ActionDependencyError (a ValueError) from
+    # materialize_runtime_task(). Any topology violation is converted to the
+    # declared UnrealRuntimeAdapterError, preserving the useful message.
+    # Every action shape field is already validated above (non-empty tool/name,
+    # dict arguments, exact-bool requires_success, list-of-strings depends_on),
+    # so building ActionSpec here is safe and cannot introduce a new error path.
+    try:
+        validate_action_dependencies(
+            [
+                ActionSpec(
+                    tool=_a["tool"],
+                    arguments=_a["arguments"],
+                    name=_a["name"],
+                    requires_success=_a["requires_success"],
+                    depends_on=tuple(_a["depends_on"]),
+                )
+                for _a in _actions
+            ]
+        )
+    except ActionDependencyError as _exc:
+        raise UnrealRuntimeAdapterError(
+            f"{owner}: invalid snapshot action dependency graph: {_exc}"
+        ) from _exc
     # evidence: non-empty list of dicts with tool/arguments/name
     _ev = s.get("evidence")
     if not isinstance(_ev, list) or not _ev:

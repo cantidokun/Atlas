@@ -2678,6 +2678,79 @@ def test_r10_snapshot_schema_errors_are_declared(name, mutate):
         _r10_rebuild(m, s)
 
 
+# ---- R10-F1/F3: snapshot action dependency-graph TOPOLOGY validation ---------
+# A snapshot whose action graph is topologically invalid (self-dependency,
+# forward reference, cycle, or a dependency on an action that does not require
+# success) must be REJECTED at construction with the declared
+# UnrealRuntimeAdapterError — NOT accepted and left to leak a raw
+# ActionDependencyError/ValueError from materialize_runtime_task(). These
+# negative tests assert UnrealRuntimeAdapterError SPECIFICALLY (a raw
+# ActionDependencyError is a ValueError, not an UnrealRuntimeAdapterError, so
+# the assert cannot pass on a leak).
+
+def _r10_multi_action_snapshot(mapping):
+    """A thawed snapshot carrying a two-action graph (A, then B). Building it
+    from action dicts in the exact factory shape so the ONLY difference from a
+    valid snapshot is the dependency topology under test."""
+    from planning.m12.runtime_adapter import _thaw_json
+    s = _thaw_json(mapping.runtime_task_snapshot)
+    s["actions"] = [
+        {"tool": "unreal_inspect", "arguments": {}, "name": "A",
+         "requires_success": True, "depends_on": []},
+        {"tool": "unreal_inspect", "arguments": {}, "name": "B",
+         "requires_success": True, "depends_on": ["A"]},
+    ]
+    return s
+
+
+def test_r10_snapshot_dependency_self_rejected():
+    m = _r9_mapping()
+    s = _r10_multi_action_snapshot(m)
+    s["actions"][0] = dict(s["actions"][0], depends_on=["A"])  # self-dependency
+    with pytest.raises(UnrealRuntimeAdapterError, match="cannot depend on itself"):
+        _r10_rebuild(m, s)
+
+
+def test_r10_snapshot_dependency_forward_rejected():
+    m = _r9_mapping()
+    s = _r10_multi_action_snapshot(m)
+    # A depends on the LATER action B (forward reference).
+    s["actions"][0] = dict(s["actions"][0], depends_on=["B"])
+    with pytest.raises(UnrealRuntimeAdapterError, match="depends on a later action"):
+        _r10_rebuild(m, s)
+
+
+def test_r10_snapshot_dependency_cycle_rejected():
+    m = _r9_mapping()
+    s = _r10_multi_action_snapshot(m)
+    # A -> B and B -> A form a cycle.
+    s["actions"][0] = dict(s["actions"][0], depends_on=["B"])
+    s["actions"][1] = dict(s["actions"][1], depends_on=["A"])
+    with pytest.raises(UnrealRuntimeAdapterError, match="depends on a later action"):
+        _r10_rebuild(m, s)
+
+
+def test_r10_snapshot_dependency_non_required_rejected():
+    m = _r9_mapping()
+    s = _r10_multi_action_snapshot(m)
+    # B depends on A, but A does not require success -> invalid dependency.
+    s["actions"][0] = dict(s["actions"][0], requires_success=False)
+    s["actions"][1] = dict(s["actions"][1], depends_on=["A"])
+    with pytest.raises(UnrealRuntimeAdapterError, match="does not require success"):
+        _r10_rebuild(m, s)
+
+
+def test_r10_snapshot_dependency_valid_multi_action_positive_control():
+    # A well-formed multi-action graph (A, then B requiring A's success) is
+    # ACCEPTED and materializes — guards against false rejection from the
+    # tightened validator. Same helper would reject only on the array of
+    # topology mutations below.
+    m = _r9_mapping()
+    s = _r10_multi_action_snapshot(m)
+    m2 = _r10_rebuild(m, s)
+    assert m2.materialize_runtime_task() is not None
+
+
 # ---- R10: parameter VALUES bound to authoritative source content --------------
 
 def test_r10_parameter_values_bound_to_source_commitment():
