@@ -1,15 +1,9 @@
-"""Deterministic evaluation metrics for Atlas repository-context selection.
-
-M13.5 measures context quality without invoking a model. The evaluator compares
-selected paths against task-declared relevant/required paths and reports recall,
-precision, budget utilization, truncation, and deterministic fingerprints.
-It is development tooling only and has no production authority imports.
-"""
+"""Deterministic evaluation metrics for Atlas repository-context selection."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence
+from typing import Sequence
 
 from planning.repository_intelligence.context import ContextPackage
 
@@ -55,12 +49,7 @@ def evaluate_context(
     *,
     baseline_context: ContextPackage | None = None,
 ) -> ContextEvaluationResult:
-    """Score a compiled package against explicit ground truth.
-
-    ``baseline_context`` is optional and is used only to establish whether the
-    same compiler inputs produce the same fingerprint; no model judgment is
-    inferred from the baseline.
-    """
+    """Score a compiled package against explicit ground truth."""
     selected = {item.path for item in context.included}
     relevant = set(case.relevant_paths)
     required = set(case.required_paths)
@@ -71,7 +60,7 @@ def evaluate_context(
     recall = tp / len(relevant) if relevant else 1.0
     precision = tp / len(selected) if selected else (1.0 if not relevant else 0.0)
     f1 = (2 * precision * recall / (precision + recall)) if precision + recall else 0.0
-    utilization = context.context_chars / context_budget(context)
+    utilization = min(1.0, context.context_chars / max(1, context.max_context_chars))
     deterministic = baseline_context is None or baseline_context.fingerprint == context.fingerprint
     return ContextEvaluationResult(
         case_id=case.case_id,
@@ -89,16 +78,6 @@ def evaluate_context(
         truncated_files=sum(1 for item in context.included if item.truncated),
         deterministic=deterministic,
     )
-
-
-def context_budget(context: ContextPackage) -> int:
-    """Recover the compiler's configured context budget from its manifest."""
-    payload = context.to_dict()
-    # Fingerprint inputs contain the manifest, but it is intentionally not
-    # exposed separately. For evaluation, context_chars is the safe denominator
-    # only when the package exposes a positive budget attribute in the future.
-    # Current packages have a fixed M13 default budget.
-    return max(1, 48_000)
 
 
 def aggregate_evaluations(results: Sequence[ContextEvaluationResult]) -> dict:
