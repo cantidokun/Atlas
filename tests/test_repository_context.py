@@ -38,16 +38,34 @@ def test_explicit_context_anchors_are_admitted_before_secondary_context(tmp_path
         "planning/helper.py": "helper content\n",
         "docs/contract.md": "contract content\n",
     }
-    query = RelevanceQuery.from_values(
-        paths=["planning/target.py"],
-        contract_paths=["docs/contract.md"],
-    )
+    query = RelevanceQuery.from_values(paths=["planning/target.py"], contract_paths=["docs/contract.md"])
 
     package = compile_context(index, query, sources, max_context_chars=30, max_file_chars=100)
 
     selected = [item.path for item in package.included]
     assert selected == ["planning/target.py", "docs/contract.md"]
     assert "planning/helper.py" in package.excluded_paths
+
+
+def test_secondary_signal_coverage_precedes_remaining_ranked_context(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "planning" / "target.py").write_text("target content\n", encoding="utf-8")
+    (tmp_path / "planning" / "helper.py").write_text("helper content\n", encoding="utf-8")
+    (tmp_path / "docs" / "recovery_notes.md").write_text("recovery notes\n", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    sources = {
+        "planning/target.py": "target content\n",
+        "planning/helper.py": "helper content\n",
+        "docs/recovery_notes.md": "recovery notes\n",
+    }
+    query = RelevanceQuery.from_values(paths=["planning/target.py"], text="recovery")
+
+    package = compile_context(index, query, sources, max_context_chars=35, max_file_chars=100)
+
+    selected = [item.path for item in package.included]
+    assert selected[0] == "planning/target.py"
+    assert "docs/recovery_notes.md" in selected
 
 
 def test_truncation_prefers_line_boundary(tmp_path):
