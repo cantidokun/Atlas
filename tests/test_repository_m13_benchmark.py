@@ -1,0 +1,43 @@
+from hashlib import sha256
+
+from planning.repository_intelligence.benchmark import ContextBenchmarkResult
+from planning.repository_intelligence.evaluation import ContextEvaluationResult
+from planning.repository_intelligence.index import GitHistory, RepositoryIndex
+from planning.repository_intelligence.m13_benchmark import benchmark_report, load_repository_sources, validate_source_snapshot
+
+
+def _index(*paths: str) -> RepositoryIndex:
+    files = tuple({"path": path, "kind": "python_source" if path.endswith(".py") else "file", "language": "python" if path.endswith(".py") else "text", "size_bytes": 1, "line_count": 1, "sha256": sha256(b"safe = True\n").hexdigest(), "is_test": path.startswith("tests/"), "parse_status": "ok" if path.endswith(".py") else "not_applicable"} for path in paths)
+    return RepositoryIndex(".", files, (), (), GitHistory(None, ()), "index-fingerprint")
+
+
+def test_load_repository_sources_excludes_sensitive_paths(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "planning" / "context.py").write_text("safe = True\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=do-not-load\n", encoding="utf-8")
+    sources = load_repository_sources(tmp_path, _index("planning/context.py", ".env"))
+    assert sources == {"planning/context.py": "safe = True\n"}
+
+
+def test_benchmark_report_contains_metrics_but_not_source_content():
+    evaluation = ContextEvaluationResult("case", ("planning/context.py",), ("planning/context.py",), ("planning/context.py",), 1, 0, 0, 0, 1.0, 1.0, 1.0, 0.25, 0, True)
+    result = ContextBenchmarkResult((evaluation,), {"recall": 1.0, "precision": 1.0})
+    report = benchmark_report(result, index=_index("planning/context.py"))
+    assert report["benchmark"] == "M13.7"
+    assert report["case_count"] == 1
+    assert report["cases"][0]["required_missing"] == 0
+    assert report["cases"][0]["truncated_files"] == 0
+    assert "content" not in report["cases"][0]
+
+
+def test_validate_source_snapshot_rejects_changed_source(tmp_path):
+    (tmp_path / "context.py").write_text("safe = True\n", encoding="utf-8")
+    source = "safe = False\n"
+    digest = sha256(source.encode("utf-8")).hexdigest()
+    index = RepositoryIndex(".", ({"path": "context.py", "sha256": digest},), (), (), GitHistory(None, ()), "fingerprint")
+    try:
+        validate_source_snapshot(index, tmp_path, {"context.py": source})
+    except ValueError as exc:
+        assert str(exc) == "source changed after indexing: context.py"
+    else:
+        raise AssertionError("changed source must be rejected")
