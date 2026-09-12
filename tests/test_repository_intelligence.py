@@ -72,9 +72,27 @@ def test_malformed_python_remains_visible_without_fabricated_structure(tmp_path)
     assert index.imports == ()
 
 
+def test_content_terms_are_bounded_deterministic_and_ranked_by_frequency(tmp_path):
+    path = tmp_path / "notes.md"
+    path.write_text("rareconcept common common common another another\n", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    record = index.files[0]
+    assert record["content_terms"][:2] == ("common", "another")
+    assert len(record["content_terms"]) <= 512
+    assert build_repository_index(tmp_path, include_git_history=False).files[0]["content_terms"] == record["content_terms"]
+
+
+def test_sensitive_content_is_not_indexed(tmp_path):
+    (tmp_path / ".env").write_text("SUPER_SECRET_TOKEN=should_not_appear\n", encoding="utf-8")
+    (tmp_path / "credentials.json").write_text("private_value", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    assert all(record["content_terms"] == () for record in index.files)
+
+
 def test_json_serialization_is_stable(tmp_path):
     (tmp_path / "README.md").write_text("Atlas\n", encoding="utf-8")
     index = build_repository_index(tmp_path, include_git_history=False)
     decoded = json.loads(index.to_json())
     assert decoded["fingerprint"] == index.fingerprint
     assert decoded["files"][0]["kind"] == "documentation"
+    assert decoded["files"][0]["content_terms"] == ["atlas"]
