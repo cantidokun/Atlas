@@ -20,12 +20,7 @@ from planning.repository_intelligence.index import RepositoryIndex, SymbolRecord
 
 @dataclass(frozen=True)
 class RelevanceWeights:
-    """Frozen scoring weights for M13.2.
-
-    The defaults prioritize exact structural relationships over lexical overlap.
-    They are configuration, not model output, and are included in result
-    fingerprints so identical inputs produce identical selections.
-    """
+    """Frozen scoring weights for M13.2."""
 
     exact_path: int = 100
     exact_symbol: int = 90
@@ -75,8 +70,6 @@ class RelevanceQuery:
 
 @dataclass(frozen=True)
 class RelevanceExplanation:
-    """Auditable contribution breakdown for one repository file."""
-
     path: str
     score: int
     reasons: tuple[str, ...]
@@ -84,8 +77,6 @@ class RelevanceExplanation:
 
 @dataclass(frozen=True)
 class RelevanceResult:
-    """Deterministic ranked repository relevance result."""
-
     query: RelevanceQuery
     explanations: tuple[RelevanceExplanation, ...]
 
@@ -105,12 +96,7 @@ def rank_repository_files(
     *,
     weights: RelevanceWeights = RelevanceWeights(),
 ) -> RelevanceResult:
-    """Rank every indexed file against a structured development query.
-
-    Structural signals are derived only from the immutable repository index and
-    explicit query fields. No embeddings, model judgments, filesystem reads, or
-    hidden heuristics are used during scoring.
-    """
+    """Rank every indexed file against a structured development query."""
     file_paths = {item["path"] for item in index.files}
     direct_paths = set(query.paths) & file_paths
     contract_paths = set(query.contract_paths) & file_paths
@@ -120,7 +106,6 @@ def rank_repository_files(
 
     dependency_map = _dependency_map(index)
     reverse_map = _reverse_dependency_map(dependency_map)
-
     anchor_paths = direct_paths | symbol_paths
     lexical_terms = _query_terms(query)
     explanations: list[RelevanceExplanation] = []
@@ -136,18 +121,16 @@ def rank_repository_files(
         if path in symbol_paths:
             score += weights.exact_symbol
             reasons.append("exact_symbol")
-
         if any(path in dependency_map.get(anchor, set()) for anchor in anchor_paths):
             score += weights.direct_dependency
             reasons.append("direct_dependency")
         if any(path in reverse_map.get(anchor, set()) for anchor in anchor_paths):
             score += weights.reverse_dependency
             reasons.append("reverse_dependency")
-
-        if path in test_paths or _is_associated_test(path, anchor_paths, index):
+        if path in test_paths or _is_associated_test(path, anchor_paths):
             score += weights.test_association
             reasons.append("test_association")
-        if path in contract_paths or _is_contract_associated(path, anchor_paths, file_paths):
+        if path in contract_paths or _is_contract_associated(path, anchor_paths):
             score += weights.contract_association
             reasons.append("contract_association")
         if path in recent_paths:
@@ -158,7 +141,6 @@ def rank_repository_files(
         if lexical_hits:
             score += min(weights.lexical_match * lexical_hits, weights.lexical_match * 3)
             reasons.append(f"lexical_match:{min(lexical_hits, 3)}")
-
         if anchor_paths and any(_same_directory(path, anchor) for anchor in anchor_paths if anchor != path):
             score += weights.same_directory
             reasons.append("same_directory")
@@ -166,7 +148,17 @@ def rank_repository_files(
         if score > 0:
             explanations.append(RelevanceExplanation(path, score, tuple(reasons)))
 
-    explanations.sort(key=lambda item: (-item.score, item.path, item.reasons))
+    # Explicit path/symbol anchors are authoritative relevance anchors for a
+    # development query. Secondary relationships must not displace the file the
+    # query directly identified merely because several secondary signals stack.
+    explanations.sort(
+        key=lambda item: (
+            0 if item.path in direct_paths or item.path in symbol_paths else 1,
+            -item.score,
+            item.path,
+            item.reasons,
+        )
+    )
     return RelevanceResult(query=query, explanations=tuple(explanations))
 
 
@@ -195,7 +187,7 @@ def _reverse_dependency_map(dependencies: dict[str, set[str]]) -> dict[str, set[
     return result
 
 
-def _is_associated_test(path: str, anchors: set[str], index: RepositoryIndex) -> bool:
+def _is_associated_test(path: str, anchors: set[str]) -> bool:
     if not anchors or not path.lower().endswith(".py"):
         return False
     if not any(part == "tests" for part in path.split("/")) and not path.split("/")[-1].startswith("test_"):
@@ -205,13 +197,10 @@ def _is_associated_test(path: str, anchors: set[str], index: RepositoryIndex) ->
         anchor_stem = anchor.rsplit("/", 1)[-1].removesuffix(".py")
         if anchor_stem and anchor_stem in stem:
             return True
-    # A test file importing an anchor is a stronger association and is already
-    # represented as a reverse dependency; this fallback handles conventional
-    # colocated test names when no import resolves.
     return False
 
 
-def _is_contract_associated(path: str, anchors: set[str], file_paths: set[str]) -> bool:
+def _is_contract_associated(path: str, anchors: set[str]) -> bool:
     lowered = path.lower()
     contract_named = "contract" in lowered or "schema" in lowered or "protocol" in lowered
     if not contract_named or not anchors:
@@ -230,17 +219,10 @@ def _query_terms(query: RelevanceQuery) -> tuple[str, ...]:
     return tuple(sorted(set(raw)))
 
 
-def _lexical_hits(
-    path: str,
-    file_record: dict,
-    symbols: Sequence[SymbolRecord],
-    terms: Sequence[str],
-) -> int:
+def _lexical_hits(path: str, file_record: dict, symbols: Sequence[SymbolRecord], terms: Sequence[str]) -> int:
     if not terms:
         return 0
     haystack = path.lower()
     if file_record.get("kind") == "python_source":
-        haystack += " " + " ".join(
-            item.qualified_name.lower() for item in symbols if item.path == path
-        )
+        haystack += " " + " ".join(item.qualified_name.lower() for item in symbols if item.path == path)
     return sum(1 for term in terms if term and term in haystack)
