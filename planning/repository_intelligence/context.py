@@ -8,7 +8,7 @@ import json
 from typing import Mapping
 
 from planning.repository_intelligence.index import RepositoryIndex
-from planning.repository_intelligence.relevance import RelevanceQuery, RelevanceWeights, rank_repository_files
+from planning.repository_intelligence.relevance import RelevanceQuery, RelevanceWeights, RelevanceExplanation, rank_repository_files
 
 
 DEFAULT_MAX_CONTEXT_CHARS = 48_000
@@ -78,10 +78,11 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     excluded: set[str] = set()
     remaining = max_context_chars
 
-    # Explicit task inputs are protected anchors. Structural and secondary
-    # expansion must never displace an explicit path association.
+    # Explicit task inputs are protected anchors. Resolve them directly from the
+    # query rather than requiring the relevance ranker to emit an explanation.
+    # This preserves explicit intent even when a relevance signal has zero weight.
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
-    anchors = [item for item in ranking.explanations if item.path in anchor_paths]
+    anchors = _explicit_anchor_explanations(anchor_paths, ranking.explanations, records)
     structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
     secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural]
     coverage = _coverage_candidates(secondary)
@@ -95,7 +96,9 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     anchor_count = len(anchors)
     anchor_budget = remaining
     anchor_file_budget = max(1, anchor_budget // anchor_count) if anchor_count else 0
-    anchor_used = _append_context_files(anchors, anchor_budget, max_file_chars, minimum_score, source_by_path, included, excluded, per_file_budget=anchor_file_budget)
+    # Explicit anchors are admitted independently of relevance score. A zero
+    # score here means "explicitly selected", not "irrelevant".
+    anchor_used = _append_context_files(anchors, anchor_budget, max_file_chars, 0, source_by_path, included, excluded, per_file_budget=anchor_file_budget)
     remaining -= anchor_used
 
     # Structural expansion comes only after explicit anchors have been admitted.
@@ -159,6 +162,20 @@ def _explicit_anchor_paths(explanations: tuple, query: RelevanceQuery) -> set[st
         if "exact_symbol" in explanation.reasons:
             anchors.add(explanation.path)
     return anchors
+
+
+def _explicit_anchor_explanations(anchor_paths: set[str], explanations: tuple, records: Mapping[str, dict]) -> list[RelevanceExplanation]:
+    """Materialize every valid explicit anchor, including unranked paths."""
+    by_path = {item.path: item for item in explanations}
+    materialized: list[RelevanceExplanation] = []
+    for path in sorted(anchor_paths):
+        if path not in records:
+            continue
+        explanation = by_path.get(path)
+        if explanation is None:
+            explanation = RelevanceExplanation(path, 0, ("explicit_anchor",))
+        materialized.append(explanation)
+    return materialized
 
 
 def _coverage_candidates(explanations: list) -> list:
