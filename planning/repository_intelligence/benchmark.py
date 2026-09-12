@@ -18,6 +18,7 @@ from planning.repository_intelligence.evaluation import (
     ContextEvaluationResult,
     aggregate_evaluations,
     evaluate_context,
+    repeat_context,
 )
 from planning.repository_intelligence.index import RepositoryIndex
 from planning.repository_intelligence.relevance import RelevanceQuery, RelevanceWeights
@@ -64,6 +65,28 @@ class ContextBenchmarkResult:
     aggregate: dict
 
 
+def compile_benchmark_context(
+    index: RepositoryIndex,
+    case: ContextBenchmarkCase,
+    source_by_path: Mapping[str, str],
+    *,
+    stable_instructions: str = "",
+    dynamic_state: Mapping[str, object] | None = None,
+    weights: RelevanceWeights = RelevanceWeights(),
+) -> ContextPackage:
+    """Compile one benchmark case with its declared limits and query."""
+    return compile_context(
+        index,
+        case.query,
+        source_by_path,
+        stable_instructions=stable_instructions,
+        dynamic_state=dynamic_state,
+        max_context_chars=case.max_context_chars,
+        max_file_chars=case.max_file_chars,
+        weights=weights,
+    )
+
+
 def run_context_benchmark(
     index: RepositoryIndex,
     cases: Sequence[ContextBenchmarkCase],
@@ -74,20 +97,44 @@ def run_context_benchmark(
     weights: RelevanceWeights = RelevanceWeights(),
 ) -> ContextBenchmarkResult:
     """Compile and evaluate every curated case without model or runtime calls."""
+    validate_benchmark_corpus(cases)
     results: list[ContextEvaluationResult] = []
     for case in cases:
-        context = compile_context(
+        context = compile_benchmark_context(
             index,
-            case.query,
+            case,
             source_by_path,
             stable_instructions=stable_instructions,
             dynamic_state=dynamic_state,
-            max_context_chars=case.max_context_chars,
-            max_file_chars=case.max_file_chars,
             weights=weights,
         )
-        results.append(evaluate_context(case.evaluation_case(), context))
+        repeat = compile_benchmark_context(
+            index,
+            case,
+            source_by_path,
+            stable_instructions=stable_instructions,
+            dynamic_state=dynamic_state,
+            weights=weights,
+        )
+        results.append(evaluate_context(case.evaluation_case(), context, deterministic=repeat_context(context, repeat)))
     return ContextBenchmarkResult(tuple(results), aggregate_evaluations(results))
+
+
+def validate_benchmark_inputs(
+    index: RepositoryIndex,
+    cases: Sequence[ContextBenchmarkCase],
+    source_by_path: Mapping[str, str],
+) -> None:
+    """Reject ground-truth paths absent from the indexed repository."""
+    validate_benchmark_corpus(cases)
+    indexed = {item["path"] for item in index.files}
+    for case in cases:
+        missing = (case.relevant_paths | case.required_paths) - indexed
+        if missing:
+            raise ValueError(f"benchmark case {case.case_id} references missing indexed paths: {sorted(missing)}")
+        absent_source = case.required_paths - set(source_by_path)
+        if absent_source:
+            raise ValueError(f"benchmark case {case.case_id} is missing required source: {sorted(absent_source)}")
 
 
 def validate_benchmark_corpus(cases: Sequence[ContextBenchmarkCase]) -> None:
@@ -132,16 +179,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 paths=["planning/unreal_autonomous_executor.py", "planning/unreal_execution_boundary.py"],
                 task_classes=["docs"],
             ),
-            relevant_paths=frozenset({
-                "planning/unreal_autonomous_executor.py",
-                "planning/unreal_execution_boundary.py",
-                "README.md",
-                "UNREAL_AGENT_HANDOFF_CURRENT.md",
-            }),
-            required_paths=frozenset({
-                "planning/unreal_autonomous_executor.py",
-                "planning/unreal_execution_boundary.py",
-            }),
+            relevant_paths=frozenset({"planning/unreal_autonomous_executor.py", "planning/unreal_execution_boundary.py", "README.md", "UNREAL_AGENT_HANDOFF_CURRENT.md"}),
+            required_paths=frozenset({"planning/unreal_autonomous_executor.py", "planning/unreal_execution_boundary.py"}),
         ),
         ContextBenchmarkCase(
             case_id="test-relevance-engine",
@@ -154,15 +193,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 task_classes=["test"],
                 test_paths=["tests/test_repository_relevance.py"],
             ),
-            relevant_paths=frozenset({
-                "planning/repository_intelligence/relevance.py",
-                "planning/repository_intelligence/index.py",
-                "tests/test_repository_relevance.py",
-            }),
-            required_paths=frozenset({
-                "planning/repository_intelligence/relevance.py",
-                "tests/test_repository_relevance.py",
-            }),
+            relevant_paths=frozenset({"planning/repository_intelligence/relevance.py", "planning/repository_intelligence/index.py", "tests/test_repository_relevance.py"}),
+            required_paths=frozenset({"planning/repository_intelligence/relevance.py", "tests/test_repository_relevance.py"}),
         ),
         ContextBenchmarkCase(
             case_id="bug-fix-context-budget",
@@ -170,23 +202,12 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
             description="Fix context budget accounting so evaluation uses the package budget rather than a constant.",
             query=RelevanceQuery.from_values(
                 text="fix context budget evaluation package max_context_chars",
-                paths=[
-                    "planning/repository_intelligence/context.py",
-                    "planning/repository_intelligence/evaluation.py",
-                ],
+                paths=["planning/repository_intelligence/context.py", "planning/repository_intelligence/evaluation.py"],
                 symbols=["evaluate_context", "ContextPackage"],
                 task_classes=["bug_fix"],
             ),
-            relevant_paths=frozenset({
-                "planning/repository_intelligence/context.py",
-                "planning/repository_intelligence/evaluation.py",
-                "tests/test_repository_context.py",
-                "tests/test_repository_context_evaluation.py",
-            }),
-            required_paths=frozenset({
-                "planning/repository_intelligence/context.py",
-                "planning/repository_intelligence/evaluation.py",
-            }),
+            relevant_paths=frozenset({"planning/repository_intelligence/context.py", "planning/repository_intelligence/evaluation.py", "tests/test_repository_context.py", "tests/test_repository_context_evaluation.py"}),
+            required_paths=frozenset({"planning/repository_intelligence/context.py", "planning/repository_intelligence/evaluation.py"}),
         ),
         ContextBenchmarkCase(
             case_id="refactor-router-bridge",
@@ -197,16 +218,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 paths=["planning/repository_intelligence/m13_router.py"],
                 task_classes=["refactor"],
             ),
-            relevant_paths=frozenset({
-                "planning/repository_intelligence/m13_router.py",
-                "planning/repository_intelligence/context.py",
-                "planning/m11_router/router.py",
-                "docs/ATLAS_M11_ADAPTIVE_MODEL_ROUTING_DESIGN.md",
-            }),
-            required_paths=frozenset({
-                "planning/repository_intelligence/m13_router.py",
-                "planning/m11_router/router.py",
-            }),
+            relevant_paths=frozenset({"planning/repository_intelligence/m13_router.py", "planning/repository_intelligence/context.py", "planning/m11_router/router.py", "docs/ATLAS_M11_ADAPTIVE_MODEL_ROUTING_DESIGN.md"}),
+            required_paths=frozenset({"planning/repository_intelligence/m13_router.py", "planning/m11_router/router.py"}),
         ),
         ContextBenchmarkCase(
             case_id="api-boundary-semantic-adapter",
@@ -219,18 +232,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 task_classes=["api_boundary"],
                 contract_paths=["docs/UNREAL_M12_4_RUNTIME_ADAPTER.md"],
             ),
-            relevant_paths=frozenset({
-                "planning/m12/runtime_adapter.py",
-                "planning/m12/semantic_task.py",
-                "planning/unreal_task_planner.py",
-                "planning/unreal_autonomous_executor.py",
-                "docs/UNREAL_M12_4_RUNTIME_ADAPTER.md",
-            }),
-            required_paths=frozenset({
-                "planning/m12/runtime_adapter.py",
-                "planning/m12/semantic_task.py",
-                "docs/UNREAL_M12_4_RUNTIME_ADAPTER.md",
-            }),
+            relevant_paths=frozenset({"planning/m12/runtime_adapter.py", "planning/m12/semantic_task.py", "planning/unreal_task_planner.py", "planning/unreal_autonomous_executor.py", "docs/UNREAL_M12_4_RUNTIME_ADAPTER.md"}),
+            required_paths=frozenset({"planning/m12/runtime_adapter.py", "planning/m12/semantic_task.py", "docs/UNREAL_M12_4_RUNTIME_ADAPTER.md"}),
         ),
         ContextBenchmarkCase(
             case_id="recovery-failure-semantics",
@@ -242,16 +245,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 task_classes=["recovery"],
                 recent_paths=["planning/unreal_recovery_coordinator.py"],
             ),
-            relevant_paths=frozenset({
-                "planning/unreal_recovery_coordinator.py",
-                "planning/unreal_execution_boundary.py",
-                "docs/UNREAL_M12_4_RUNTIME_ADAPTER.md",
-                "UNREAL_AGENT_HANDOFF_CURRENT.md",
-            }),
-            required_paths=frozenset({
-                "planning/unreal_recovery_coordinator.py",
-                "planning/unreal_execution_boundary.py",
-            }),
+            relevant_paths=frozenset({"planning/unreal_recovery_coordinator.py", "planning/unreal_execution_boundary.py", "docs/UNREAL_M12_4_RUNTIME_ADAPTER.md", "UNREAL_AGENT_HANDOFF_CURRENT.md"}),
+            required_paths=frozenset({"planning/unreal_recovery_coordinator.py", "planning/unreal_execution_boundary.py"}),
         ),
         ContextBenchmarkCase(
             case_id="concurrency-retry-isolation",
@@ -262,15 +257,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 paths=["planning/unreal_execution_boundary.py"],
                 task_classes=["concurrency"],
             ),
-            relevant_paths=frozenset({
-                "planning/unreal_execution_boundary.py",
-                "planning/unreal_recovery_coordinator.py",
-                "UNREAL_AGENT_HANDOFF_CURRENT.md",
-            }),
-            required_paths=frozenset({
-                "planning/unreal_execution_boundary.py",
-                "planning/unreal_recovery_coordinator.py",
-            }),
+            relevant_paths=frozenset({"planning/unreal_execution_boundary.py", "planning/unreal_recovery_coordinator.py", "UNREAL_AGENT_HANDOFF_CURRENT.md"}),
+            required_paths=frozenset({"planning/unreal_execution_boundary.py", "planning/unreal_recovery_coordinator.py"}),
         ),
         ContextBenchmarkCase(
             case_id="authority-sensitive-model-input",
@@ -282,17 +270,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 task_classes=["authority_sensitive"],
                 contract_paths=["docs/ATLAS_ARCHITECTURE_CONTRACT.md"],
             ),
-            relevant_paths=frozenset({
-                "controller/agent_controller_host.py",
-                "planning/task_planner.py",
-                "docs/ATLAS_ARCHITECTURE_CONTRACT.md",
-                "planning/m11_router/router.py",
-            }),
-            required_paths=frozenset({
-                "controller/agent_controller_host.py",
-                "planning/task_planner.py",
-                "docs/ATLAS_ARCHITECTURE_CONTRACT.md",
-            }),
+            relevant_paths=frozenset({"controller/agent_controller_host.py", "planning/task_planner.py", "docs/ATLAS_ARCHITECTURE_CONTRACT.md", "planning/m11_router/router.py"}),
+            required_paths=frozenset({"controller/agent_controller_host.py", "planning/task_planner.py", "docs/ATLAS_ARCHITECTURE_CONTRACT.md"}),
         ),
         ContextBenchmarkCase(
             case_id="m12-semantic-production",
@@ -300,29 +279,12 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
             description="Extend semantic soccer production tasks while preserving the existing planner/runtime boundary.",
             query=RelevanceQuery.from_values(
                 text="M12 semantic soccer production task catalog composition runtime adapter",
-                paths=[
-                    "planning/m12/semantic_task.py",
-                    "planning/m12/catalog.py",
-                    "planning/m12/composition.py",
-                    "planning/m12/runtime_adapter.py",
-                ],
+                paths=["planning/m12/semantic_task.py", "planning/m12/catalog.py", "planning/m12/composition.py", "planning/m12/runtime_adapter.py"],
                 task_classes=["m12_semantic"],
                 contract_paths=["docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md"],
             ),
-            relevant_paths=frozenset({
-                "planning/m12/semantic_task.py",
-                "planning/m12/catalog.py",
-                "planning/m12/composition.py",
-                "planning/m12/runtime_adapter.py",
-                "docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md",
-                "docs/UNREAL_M12_3_EXECUTION_PLAN.md",
-            }),
-            required_paths=frozenset({
-                "planning/m12/semantic_task.py",
-                "planning/m12/catalog.py",
-                "planning/m12/composition.py",
-                "planning/m12/runtime_adapter.py",
-            }),
+            relevant_paths=frozenset({"planning/m12/semantic_task.py", "planning/m12/catalog.py", "planning/m12/composition.py", "planning/m12/runtime_adapter.py", "docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md", "docs/UNREAL_M12_3_EXECUTION_PLAN.md"}),
+            required_paths=frozenset({"planning/m12/semantic_task.py", "planning/m12/catalog.py", "planning/m12/composition.py", "planning/m12/runtime_adapter.py"}),
         ),
         ContextBenchmarkCase(
             case_id="security-sensitive-config",
@@ -333,15 +295,8 @@ def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
                 paths=["planning/repository_intelligence/context.py"],
                 task_classes=["security"],
             ),
-            relevant_paths=frozenset({
-                "planning/repository_intelligence/context.py",
-                "planning/repository_intelligence/index.py",
-                "tests/test_repository_context.py",
-            }),
-            required_paths=frozenset({
-                "planning/repository_intelligence/context.py",
-                "tests/test_repository_context.py",
-            }),
+            relevant_paths=frozenset({"planning/repository_intelligence/context.py", "planning/repository_intelligence/index.py", "tests/test_repository_context.py"}),
+            required_paths=frozenset({"planning/repository_intelligence/context.py", "tests/test_repository_context.py"}),
         ),
     )
     validate_benchmark_corpus(cases)
