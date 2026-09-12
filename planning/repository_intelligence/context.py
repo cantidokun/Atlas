@@ -65,15 +65,12 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     structural = _structural_candidates(ranking.explanations, anchor_paths)
     secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural and item.score >= max(minimum_score, SECONDARY_MIN_SCORE)]
     coverage = _coverage_candidates(secondary)
-    coverage_paths = {item.path for item in coverage}
-    secondary_remainder = [item for item in secondary if item.path not in coverage_paths]
-    ordered_secondary = coverage + secondary_remainder
     anchor_count = len(anchors)
     anchor_budget = remaining
     anchor_file_budget = max(1, anchor_budget // anchor_count) if anchor_count else 0
     anchor_used = _append_context_files(anchors, anchor_budget, max_file_chars, 0, source_by_path, included, excluded, per_file_budget=anchor_file_budget)
     remaining -= anchor_used
-    reserve = min(max(0, remaining - 1), int(remaining * SECONDARY_CONTEXT_RESERVE_RATIO)) if ordered_secondary else 0
+    reserve = min(max(0, remaining - 1), int(remaining * SECONDARY_CONTEXT_RESERVE_RATIO)) if coverage else 0
     priority_budget = remaining - reserve
     structural_used = _append_context_files(structural, priority_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
     remaining -= structural_used
@@ -82,8 +79,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     coverage_slots = min(len(coverage), SECONDARY_COVERAGE_SIGNAL_SLOTS)
     coverage_file_budget = max(1, coverage_budget // coverage_slots) if coverage_slots else 0
     coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, max(minimum_score, SECONDARY_MIN_SCORE), source_by_path, included, excluded, per_file_budget=coverage_file_budget)
-    secondary_remaining_budget = secondary_budget - coverage_used
-    secondary_used = coverage_used + _append_context_files(secondary_remainder, secondary_remaining_budget, max_file_chars, max(minimum_score, SECONDARY_MIN_SCORE), source_by_path, included, excluded)
+    secondary_used = coverage_used
     remaining -= secondary_used
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
