@@ -61,6 +61,7 @@ class ContextPackage:
             "stable_instructions": self.stable_instructions,
             "dynamic_state": dict(self.dynamic_state),
             "fingerprint": self.fingerprint,
+            "selection_fingerprint": self.selection_fingerprint,
             "max_context_chars": self.max_context_chars,
             "max_file_chars": self.max_file_chars,
         }
@@ -71,6 +72,27 @@ class ContextPackage:
     @property
     def context_chars(self) -> int:
         return sum(len(item.content) for item in self.included)
+
+    @property
+    def selection_fingerprint(self) -> str:
+        """Fingerprint selection decisions independently of runtime state/content."""
+        selection = {
+            "repository_fingerprint": self.repository_fingerprint,
+            "query": {
+                "text": self.query.text,
+                "paths": list(self.query.paths),
+                "symbols": list(self.query.symbols),
+                "task_classes": list(self.query.task_classes),
+                "contract_paths": list(self.query.contract_paths),
+                "test_paths": list(self.query.test_paths),
+                "recent_paths": list(self.query.recent_paths),
+            },
+            "included": [(item.path, item.score, item.reasons, item.truncated) for item in self.included],
+            "excluded_paths": list(self.excluded_paths),
+            "max_context_chars": self.max_context_chars,
+            "max_file_chars": self.max_file_chars,
+        }
+        return hashlib.sha256(json.dumps(selection, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def compile_context(
@@ -108,11 +130,11 @@ def compile_context(
         if not isinstance(source, str) or not source:
             excluded.add(path)
             continue
-        content = source[: min(len(source), max_file_chars, remaining)]
+        content, truncated = _bounded_source(source, min(max_file_chars, remaining))
         if not content:
             excluded.add(path)
             continue
-        included.append(ContextFile(path, explanation.score, explanation.reasons, content, len(content) < len(source)))
+        included.append(ContextFile(path, explanation.score, explanation.reasons, content, truncated))
         remaining -= len(content)
         if remaining <= 0:
             break
@@ -135,6 +157,18 @@ def compile_context(
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
 
 
+def _bounded_source(source: str, limit: int) -> tuple[str, bool]:
+    """Bound source without cutting a normal line in half when possible."""
+    if limit <= 0:
+        return "", bool(source)
+    if len(source) <= limit:
+        return source, False
+    boundary = source.rfind("\n", 0, limit + 1)
+    if boundary > 0:
+        return source[:boundary], True
+    return source[:limit], True
+
+
 def _sensitive_path(path: str) -> bool:
     lowered = path.lower()
     name = lowered.rsplit("/", 1)[-1]
@@ -143,3 +177,8 @@ def _sensitive_path(path: str) -> bool:
     if name.endswith((".pem", ".key", ".p12", ".pfx")):
         return True
     return any(marker in lowered.split("/") for marker in ("credentials", "secrets", "secret"))
+
+
+def is_sensitive_context_path(path: str) -> bool:
+    """Return whether a repository path is excluded from model context."""
+    return _sensitive_path(path)
