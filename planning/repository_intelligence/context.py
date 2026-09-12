@@ -82,7 +82,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     # query rather than requiring the relevance ranker to emit an explanation.
     # This preserves explicit intent even when a relevance signal has zero weight.
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
-    anchors = _explicit_anchor_explanations(anchor_paths, ranking.explanations, records)
+    anchors = _explicit_anchor_explanations(anchor_paths, query, ranking.explanations, records)
     structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
     secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural]
     coverage = _coverage_candidates(secondary)
@@ -164,12 +164,19 @@ def _explicit_anchor_paths(explanations: tuple, query: RelevanceQuery) -> set[st
     return anchors
 
 
-def _explicit_anchor_explanations(anchor_paths: set[str], explanations: tuple, records: Mapping[str, dict]) -> list[RelevanceExplanation]:
-    """Materialize every valid explicit anchor, including unranked paths."""
+def _explicit_anchor_explanations(anchor_paths: set[str], query: RelevanceQuery, explanations: tuple, records: Mapping[str, dict]) -> list[RelevanceExplanation]:
+    """Materialize every valid explicit anchor, preserving query order."""
     by_path = {item.path: item for item in explanations}
+    ordered_paths: list[str] = []
+    for path in (*query.paths, *query.contract_paths, *query.test_paths, *query.recent_paths):
+        if path not in ordered_paths:
+            ordered_paths.append(path)
+    for explanation in explanations:
+        if "exact_symbol" in explanation.reasons and explanation.path not in ordered_paths:
+            ordered_paths.append(explanation.path)
     materialized: list[RelevanceExplanation] = []
-    for path in sorted(anchor_paths):
-        if path not in records:
+    for path in ordered_paths:
+        if path not in anchor_paths or path not in records:
             continue
         explanation = by_path.get(path)
         if explanation is None:
