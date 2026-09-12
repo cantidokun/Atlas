@@ -47,6 +47,28 @@ def test_explicit_context_anchors_are_admitted_before_secondary_context(tmp_path
     assert "planning/helper.py" in package.excluded_paths
 
 
+def test_structural_context_is_bounded_before_secondary_expansion(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "planning" / "target.py").write_text(
+        "from planning.helper_a import A\nfrom planning.helper_b import B\nfrom planning.helper_c import C\nfrom planning.helper_d import D\nfrom planning.helper_e import E\n\nclass Target:\n    pass\n",
+        encoding="utf-8",
+    )
+    for name in ("helper_a", "helper_b", "helper_c", "helper_d", "helper_e"):
+        (tmp_path / "planning" / f"{name}.py").write_text(f"class {name.title().replace('_', '')}: pass\n", encoding="utf-8")
+    (tmp_path / "docs" / "semantic.md").write_text("recovery boundary evidence semantic\n", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    sources = {item["path"]: (tmp_path / item["path"]).read_text(encoding="utf-8") for item in index.files}
+    query = RelevanceQuery.from_values(paths=["planning/target.py"], text="recovery boundary evidence semantic")
+
+    package = compile_context(index, query, sources, max_context_chars=1000, max_file_chars=100)
+
+    selected = [item.path for item in package.included]
+    assert selected[0] == "planning/target.py"
+    assert "docs/semantic.md" in selected
+    assert len([path for path in selected if path.startswith("planning/helper_")]) <= 6
+
+
 def test_secondary_signal_coverage_precedes_remaining_ranked_context(tmp_path):
     (tmp_path / "planning").mkdir()
     (tmp_path / "docs").mkdir()
