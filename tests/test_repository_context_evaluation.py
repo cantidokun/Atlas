@@ -2,6 +2,7 @@ from planning.repository_intelligence.evaluation import (
     ContextEvaluationCase,
     aggregate_evaluations,
     evaluate_context,
+    repeat_context,
 )
 
 
@@ -27,11 +28,18 @@ def test_evaluation_uses_actual_context_budget():
     assert result.budget_utilization == len("content") / 100
 
 
-def test_evaluation_detects_non_deterministic_baseline():
+def test_repeat_context_requires_identical_package_output():
+    context = _context(["src/a.py"])
+    identical = _context(["src/a.py"])
+    different = _context(["src/b.py"])
+    assert repeat_context(context, identical) is True
+    assert repeat_context(context, different) is False
+
+
+def test_evaluation_can_accept_explicit_determinism_result():
     case = ContextEvaluationCase("case-3", frozenset({"src/a.py"}))
     context = _context(["src/a.py"])
-    different = _context(["src/b.py"])
-    result = evaluate_context(case, context, baseline_context=different)
+    result = evaluate_context(case, context, deterministic=False)
     assert result.deterministic is False
 
 
