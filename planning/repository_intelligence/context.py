@@ -18,7 +18,7 @@ SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "cre
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
 SECONDARY_COVERAGE_FILE_RATIO = 0.5
-SECONDARY_COVERAGE_SIGNAL_SLOTS = 7
+SECONDARY_COVERAGE_SIGNAL_SLOTS = 8
 
 @dataclass(frozen=True)
 class ContextFile:
@@ -30,7 +30,6 @@ class ContextFile:
 
 @dataclass(frozen=True)
 class ContextPackage:
-    """Deterministic model context plus its selection manifest."""
     query: RelevanceQuery
     repository_fingerprint: str
     included: tuple[ContextFile, ...]
@@ -40,17 +39,13 @@ class ContextPackage:
     fingerprint: str
     max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS
     max_file_chars: int = DEFAULT_MAX_FILE_CHARS
-
     def to_dict(self) -> dict:
         return {"query": {"text": self.query.text, "paths": list(self.query.paths), "symbols": list(self.query.symbols), "task_classes": list(self.query.task_classes), "contract_paths": list(self.query.contract_paths), "test_paths": list(self.query.test_paths), "recent_paths": list(self.query.recent_paths)}, "repository_fingerprint": self.repository_fingerprint, "included": [{"path": item.path, "score": item.score, "reasons": list(item.reasons), "content": item.content, "truncated": item.truncated} for item in self.included], "excluded_paths": list(self.excluded_paths), "stable_instructions": self.stable_instructions, "dynamic_state": dict(self.dynamic_state), "fingerprint": self.fingerprint, "selection_fingerprint": self.selection_fingerprint, "max_context_chars": self.max_context_chars, "max_file_chars": self.max_file_chars}
-
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
-
     @property
     def context_chars(self) -> int:
         return sum(len(item.content) for item in self.included)
-
     @property
     def selection_fingerprint(self) -> str:
         selection = {"repository_fingerprint": self.repository_fingerprint, "query": {"text": self.query.text, "paths": list(self.query.paths), "symbols": list(self.query.symbols), "task_classes": list(self.query.task_classes), "contract_paths": list(self.query.contract_paths), "test_paths": list(self.query.test_paths), "recent_paths": list(self.query.recent_paths)}, "included": [(item.path, item.score, item.reasons, item.truncated) for item in self.included], "excluded_paths": list(self.excluded_paths), "max_context_chars": self.max_context_chars, "max_file_chars": self.max_file_chars}
@@ -78,8 +73,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     anchor_file_budget = max(1, anchor_budget // anchor_count) if anchor_count else 0
     anchor_used = _append_context_files(anchors, anchor_budget, max_file_chars, 0, source_by_path, included, excluded, per_file_budget=anchor_file_budget)
     remaining -= anchor_used
-    secondary_exists = bool(ordered_secondary)
-    reserve = min(max(0, remaining - 1), int(remaining * SECONDARY_CONTEXT_RESERVE_RATIO)) if secondary_exists else 0
+    reserve = min(max(0, remaining - 1), int(remaining * SECONDARY_CONTEXT_RESERVE_RATIO)) if ordered_secondary else 0
     priority_budget = remaining - reserve
     structural_used = _append_context_files(structural, priority_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
     remaining -= structural_used
@@ -135,21 +129,19 @@ def _explicit_anchor_explanations(anchor_paths: set[str], query: RelevanceQuery,
     materialized: list[RelevanceExplanation] = []
     for path in ordered_paths:
         if path not in anchor_paths or path not in records: continue
-        explanation = by_path.get(path)
-        if explanation is None: explanation = RelevanceExplanation(path, 0, ("explicit_anchor",))
-        materialized.append(explanation)
+        materialized.append(by_path.get(path, RelevanceExplanation(path, 0, ("explicit_anchor",))))
     return materialized
 
 def _structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[RelevanceExplanation]:
-    """Return direct dependencies before weaker secondary context."""
-    return [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
+    """Prioritize direct dependencies and explicit architectural boundary roles."""
+    return [item for item in explanations if item.path not in anchor_paths and ("direct_dependency" in item.reasons or any(reason.startswith("architectural_role:") for reason in item.reasons))]
 
 def _coverage_candidates(explanations: list) -> list:
-    signal_order = ("reverse_dependency", "test_association", "contract_association", "recent_change", "content_match", "documentation_role", "lexical_match", "same_directory")
+    signal_order = ("reverse_dependency", "test_association", "contract_association", "architectural_role", "recent_change", "content_match", "documentation_role", "lexical_match", "same_directory")
     selected: list = []
     selected_paths: set[str] = set()
     for signal in signal_order:
-        candidates = [item for item in explanations if signal in item.reasons and item.path not in selected_paths]
+        candidates = [item for item in explanations if signal in item.reasons or (signal == "architectural_role" and any(reason.startswith("architectural_role:") for reason in item.reasons)) if item.path not in selected_paths]
         for candidate in candidates[:SECONDARY_COVERAGE_PER_SIGNAL]:
             selected.append(candidate); selected_paths.add(candidate.path)
     return selected
