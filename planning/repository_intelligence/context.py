@@ -145,7 +145,7 @@ def _structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[
     return [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
 
 def _coverage_candidates(explanations: list) -> list:
-    signal_order = ("reverse_dependency", "test_association", "contract_association", "recent_change", "content_match", "lexical_match", "same_directory")
+    signal_order = ("reverse_dependency", "test_association", "contract_association", "recent_change", "content_match", "documentation_role", "lexical_match", "same_directory")
     selected: list = []
     selected_paths: set[str] = set()
     for signal in signal_order:
