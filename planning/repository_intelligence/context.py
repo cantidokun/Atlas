@@ -18,6 +18,7 @@ SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "cre
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
 SECONDARY_COVERAGE_FILE_RATIO = 0.5
+SECONDARY_COVERAGE_SIGNAL_SLOTS = 7
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,9 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     # the reserved amount itself is never consumed by priority context.
     secondary_budget = min(remaining, reserve + max(0, priority_budget - priority_used))
     coverage_budget = min(secondary_budget, max(1, int(secondary_budget * SECONDARY_COVERAGE_FILE_RATIO))) if coverage else 0
-    coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
+    coverage_slots = min(len(coverage), SECONDARY_COVERAGE_SIGNAL_SLOTS)
+    coverage_file_budget = max(1, coverage_budget // coverage_slots) if coverage_slots else 0
+    coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, minimum_score, source_by_path, included, excluded, per_file_budget=coverage_file_budget)
     secondary_remaining_budget = secondary_budget - coverage_used
     secondary_used = coverage_used + _append_context_files(secondary_remainder, secondary_remaining_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
     remaining -= secondary_used
@@ -116,7 +119,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
 
 
-def _append_context_files(explanations: list, budget: int, max_file_chars: int, minimum_score: int, source_by_path: Mapping[str, str], included: list[ContextFile], excluded: set[str]) -> int:
+def _append_context_files(explanations: list, budget: int, max_file_chars: int, minimum_score: int, source_by_path: Mapping[str, str], included: list[ContextFile], excluded: set[str], *, per_file_budget: int | None = None) -> int:
     """Append bounded context from one selection stage and return chars used."""
     used = 0
     for explanation in explanations:
@@ -129,6 +132,8 @@ def _append_context_files(explanations: list, budget: int, max_file_chars: int, 
             excluded.add(path)
             continue
         limit = min(max_file_chars, budget - used)
+        if per_file_budget is not None:
+            limit = min(limit, per_file_budget)
         content, truncated = _bounded_source(source, limit)
         if not content:
             excluded.add(path)
