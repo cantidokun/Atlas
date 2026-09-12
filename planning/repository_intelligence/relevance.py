@@ -66,6 +66,7 @@ _ARCHITECTURAL_ROLES = {
     "task_planner": frozenset({"planner", "planning", "task", "authorization", "authority"}),
     "router": frozenset({"router", "routing", "model", "authority"}),
     "execution_plan": frozenset({"execution", "plan", "semantic", "m12"}),
+    "semantic_task": frozenset({"semantic", "task", "production", "catalog", "composition"}),
 }
 
 def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weights: RelevanceWeights = RelevanceWeights()) -> RelevanceResult:
@@ -191,6 +192,9 @@ def _architectural_role_matches(path: str, query: RelevanceQuery, anchors: set[s
     if "execution_plan" in name or "execution-plan" in name:
         if {"execution", "plan", "semantic", "m12"} & terms:
             matches.append("execution_plan")
+    if name == "semantic_task.py":
+        if {"semantic", "task", "production"} & terms and any(_domain_path(a) for a in anchors):
+            matches.append("semantic_task")
     return tuple(matches)
 
 def _domain_path(path: str) -> bool:
