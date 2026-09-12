@@ -74,13 +74,17 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     excluded: set[str] = set()
     remaining = max_context_chars
 
-    # Explicit context anchors are the files the caller named directly or
-    # associated explicitly with the task. They must be admitted before
-    # secondary ranked context so weaker signals cannot consume the budget.
+    # Selection is staged so explicit intent is protected, structural context
+    # is expanded next, and secondary signals get a bounded coverage pass before
+    # ordinary score ordering fills the remaining budget.
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
+    anchors = [item for item in ranking.explanations if item.path in anchor_paths]
     structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
     secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural]
-    ordered = [item for item in ranking.explanations if item.path in anchor_paths] + structural + secondary
+    coverage = _coverage_candidates(secondary)
+    coverage_paths = {item.path for item in coverage}
+    secondary_remainder = [item for item in secondary if item.path not in coverage_paths]
+    ordered = anchors + structural + coverage + secondary_remainder
 
     for explanation in ordered:
         path = explanation.path
@@ -117,6 +121,28 @@ def _explicit_anchor_paths(explanations: tuple, query: RelevanceQuery) -> set[st
         if "exact_symbol" in explanation.reasons:
             anchors.add(explanation.path)
     return anchors
+
+
+def _coverage_candidates(explanations: list) -> list:
+    """Select one deterministic representative for each available secondary signal."""
+    signal_order = (
+        "reverse_dependency",
+        "test_association",
+        "contract_association",
+        "recent_change",
+        "lexical_match",
+        "same_directory",
+    )
+    selected: list = []
+    selected_paths: set[str] = set()
+    for signal in signal_order:
+        candidates = [item for item in explanations if signal in item.reasons and item.path not in selected_paths]
+        if not candidates:
+            continue
+        candidate = candidates[0]
+        selected.append(candidate)
+        selected_paths.add(candidate.path)
+    return selected
 
 
 def _bounded_source(source: str, limit: int) -> tuple[str, bool]:
