@@ -17,6 +17,7 @@ DEFAULT_MIN_SCORE = 1
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
+SECONDARY_COVERAGE_FILE_RATIO = 0.5
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,10 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     # Transfer unused priority budget to secondary only after the priority pass;
     # the reserved amount itself is never consumed by priority context.
     secondary_budget = min(remaining, reserve + max(0, priority_budget - priority_used))
-    secondary_used = _append_context_files(ordered_secondary, secondary_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
+    coverage_budget = min(secondary_budget, max(1, int(secondary_budget * SECONDARY_COVERAGE_FILE_RATIO))) if coverage else 0
+    coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
+    secondary_remaining_budget = secondary_budget - coverage_used
+    secondary_used = coverage_used + _append_context_files(secondary_remainder, secondary_remaining_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
     remaining -= secondary_used
 
     selected = {item.path for item in included}
