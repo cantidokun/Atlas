@@ -67,12 +67,22 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
         raise ValueError("context limits must be positive")
     if minimum_score < 0:
         raise ValueError("minimum_score must be non-negative")
+
     ranking = rank_repository_files(index, query, weights=weights)
     records = {item["path"]: item for item in index.files}
     included: list[ContextFile] = []
     excluded: set[str] = set()
     remaining = max_context_chars
-    for explanation in ranking.explanations:
+
+    # Explicit context anchors are the files the caller named directly or
+    # associated explicitly with the task. They must be admitted before
+    # secondary ranked context so weaker signals cannot consume the budget.
+    anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
+    structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
+    secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural]
+    ordered = [item for item in ranking.explanations if item.path in anchor_paths] + structural + secondary
+
+    for explanation in ordered:
         path = explanation.path
         if explanation.score < minimum_score or _sensitive_path(path) or path not in source_by_path:
             excluded.add(path)
@@ -89,6 +99,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
         remaining -= len(content)
         if remaining <= 0:
             break
+
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
     excluded.update(path for path in source_by_path if path not in records)
@@ -97,6 +108,15 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__}
     fingerprint = hashlib.sha256(json.dumps({"manifest": manifest, "stable_instructions": stable, "dynamic_state": dynamic, "content": [(item.path, item.content) for item in included]}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
+
+
+def _explicit_anchor_paths(explanations: tuple, query: RelevanceQuery) -> set[str]:
+    """Resolve the query's explicit context associations to indexed paths."""
+    anchors = set(query.paths) | set(query.contract_paths) | set(query.test_paths) | set(query.recent_paths)
+    for explanation in explanations:
+        if "exact_symbol" in explanation.reasons:
+            anchors.add(explanation.path)
+    return anchors
 
 
 def _bounded_source(source: str, limit: int) -> tuple[str, bool]:
