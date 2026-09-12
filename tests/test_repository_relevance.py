@@ -74,6 +74,20 @@ def test_contract_and_recent_signals_are_explicit(tmp_path):
     assert "recent_change" in helper.reasons
 
 
+def test_explicit_anchors_are_not_displaced_by_secondary_associations(tmp_path):
+    index = _fixture_index(tmp_path)
+    query = RelevanceQuery.from_values(
+        paths=["planning/target.py"],
+        contract_paths=["docs/target_contract.md"],
+        test_paths=["tests/test_target.py"],
+    )
+    result = rank_repository_files(index, query)
+    ranked = result.ranked_paths()
+    explicit = {"planning/target.py", "docs/target_contract.md", "tests/test_target.py"}
+    first_secondary = next(i for i, path in enumerate(ranked) if path not in explicit)
+    assert all(path in explicit for path in ranked[:first_secondary])
+
+
 def test_limit_and_minimum_score_are_deterministic(tmp_path):
     index = _fixture_index(tmp_path)
     result = rank_repository_files(index, RelevanceQuery.from_values(paths=["planning/target.py"]))
