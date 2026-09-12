@@ -193,7 +193,7 @@ def _architectural_role_matches(path: str, query: RelevanceQuery, anchors: set[s
         if {"execution", "plan", "semantic", "m12"} & terms:
             matches.append("execution_plan")
     if name == "semantic_task.py":
-        if {"semantic", "task", "production"} & terms and any(_domain_path(a) for a in anchors):
+        if {"semantic", "task"}.issubset(terms) and any(_domain_path(a) for a in anchors):
             matches.append("semantic_task")
     return tuple(matches)
 
