@@ -16,6 +16,7 @@ DEFAULT_MAX_FILE_CHARS = 16_000
 DEFAULT_MIN_SCORE = 1
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
+SECONDARY_COVERAGE_PER_SIGNAL = 2
 
 
 @dataclass(frozen=True)
@@ -145,7 +146,7 @@ def _explicit_anchor_paths(explanations: tuple, query: RelevanceQuery) -> set[st
 
 
 def _coverage_candidates(explanations: list) -> list:
-    """Select one deterministic representative for each available secondary signal."""
+    """Select bounded deterministic representatives for each secondary signal."""
     signal_order = (
         "reverse_dependency",
         "test_association",
@@ -159,11 +160,9 @@ def _coverage_candidates(explanations: list) -> list:
     selected_paths: set[str] = set()
     for signal in signal_order:
         candidates = [item for item in explanations if signal in item.reasons and item.path not in selected_paths]
-        if not candidates:
-            continue
-        candidate = candidates[0]
-        selected.append(candidate)
-        selected_paths.add(candidate.path)
+        for candidate in candidates[:SECONDARY_COVERAGE_PER_SIGNAL]:
+            selected.append(candidate)
+            selected_paths.add(candidate.path)
     return selected
 
 
