@@ -68,6 +68,27 @@ def test_secondary_signal_coverage_precedes_remaining_ranked_context(tmp_path):
     assert "docs/recovery_notes.md" in selected
 
 
+def test_content_signal_gets_coverage_slot_before_generic_lexical_fill(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "planning" / "target.py").write_text("class Target:\n    pass\n", encoding="utf-8")
+    (tmp_path / "planning" / "helper.py").write_text("target helper implementation\n", encoding="utf-8")
+    (tmp_path / "docs" / "semantic_notes.md").write_text("semantic recovery boundary\n", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    sources = {
+        "planning/target.py": "class Target:\n    pass\n",
+        "planning/helper.py": "target helper implementation\n",
+        "docs/semantic_notes.md": "semantic recovery boundary\n",
+    }
+    query = RelevanceQuery.from_values(paths=["planning/target.py"], text="semantic recovery boundary")
+
+    package = compile_context(index, query, sources, max_context_chars=80, max_file_chars=100)
+    selected = [item.path for item in package.included]
+    assert selected[0] == "planning/target.py"
+    semantic = next(item for item in package.included if item.path == "docs/semantic_notes.md")
+    assert "content_match:3" in semantic.reasons
+
+
 def test_truncation_prefers_line_boundary(tmp_path):
     (tmp_path / "target.py").write_text("line one\nline two\nline three\n", encoding="utf-8")
     index = build_repository_index(tmp_path, include_git_history=False)
