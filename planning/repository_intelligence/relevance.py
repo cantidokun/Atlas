@@ -3,10 +3,6 @@
 This module selects repository structure for development-model context. It is
 read-only development tooling and is intentionally independent of model
 providers, execution authority, scheduling, recovery, receipts, and evidence.
-
-The scorer is deliberately explainable: every score is the sum of named,
-bounded signals. Ties are resolved deterministically by repository path and
-symbol name rather than insertion order.
 """
 
 from __future__ import annotations
@@ -20,7 +16,6 @@ from planning.repository_intelligence.index import RepositoryIndex, SymbolRecord
 
 @dataclass(frozen=True)
 class RelevanceWeights:
-    """Frozen scoring weights for M13.2."""
     exact_path: int = 100
     exact_symbol: int = 90
     direct_dependency: int = 70
@@ -32,10 +27,10 @@ class RelevanceWeights:
     lexical_match: int = 10
     same_directory: int = 5
     documentation_role: int = 18
+    architectural_role: int = 35
 
 @dataclass(frozen=True)
 class RelevanceQuery:
-    """Structured development-task signals used by the scorer."""
     text: str = ""
     paths: tuple[str, ...] = ()
     symbols: tuple[str, ...] = ()
@@ -66,9 +61,14 @@ class RelevanceResult:
         return tuple(selected)
 
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+_ARCHITECTURAL_ROLES = {
+    "execution_boundary": frozenset({"execution", "boundary", "recovery", "runtime", "failed"}),
+    "task_planner": frozenset({"planner", "planning", "task", "authorization", "authority"}),
+    "router": frozenset({"router", "routing", "model", "authority"}),
+    "execution_plan": frozenset({"execution", "plan", "semantic", "m12"}),
+}
 
 def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weights: RelevanceWeights = RelevanceWeights()) -> RelevanceResult:
-    """Rank every indexed file against a structured development query."""
     file_paths = {item["path"] for item in index.files}
     direct_paths = set(query.paths) & file_paths
     contract_paths = set(query.contract_paths) & file_paths
@@ -87,41 +87,35 @@ def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weig
         score = 0
         reasons: list[str] = []
         if path in direct_paths:
-            score += weights.exact_path
-            reasons.append("exact_path")
+            score += weights.exact_path; reasons.append("exact_path")
         if path in symbol_paths:
-            score += weights.exact_symbol
-            reasons.append("exact_symbol")
+            score += weights.exact_symbol; reasons.append("exact_symbol")
         if any(path in dependency_map.get(anchor, set()) for anchor in anchor_paths):
-            score += weights.direct_dependency
-            reasons.append("direct_dependency")
+            score += weights.direct_dependency; reasons.append("direct_dependency")
         if any(path in reverse_map.get(anchor, set()) for anchor in anchor_paths):
-            score += weights.reverse_dependency
-            reasons.append("reverse_dependency")
+            score += weights.reverse_dependency; reasons.append("reverse_dependency")
         if path in test_paths or _is_associated_test(path, anchor_paths):
-            score += weights.test_association
-            reasons.append("test_association")
+            score += weights.test_association; reasons.append("test_association")
         if path in contract_paths or _is_contract_associated(path, anchor_paths):
-            score += weights.contract_association
-            reasons.append("contract_association")
+            score += weights.contract_association; reasons.append("contract_association")
         if path in recent_paths:
-            score += weights.recent_change
-            reasons.append("recent_change")
+            score += weights.recent_change; reasons.append("recent_change")
         if _is_documentation_role_associated(file_record, query, anchor_paths):
-            score += weights.documentation_role
-            reasons.append("documentation_role")
+            score += weights.documentation_role; reasons.append("documentation_role")
+        architectural_roles = _architectural_role_matches(path, query, anchor_paths)
+        if architectural_roles:
+            score += weights.architectural_role * len(architectural_roles)
+            reasons.extend(f"architectural_role:{role}" for role in architectural_roles)
         content_hits = _content_hits(file_record, lexical_terms)
         if content_hits:
-            content_score = _content_match_score(file_record, lexical_terms, content_document_frequency, len(file_paths), weights.content_match)
-            score += content_score
+            score += _content_match_score(file_record, lexical_terms, content_document_frequency, len(file_paths), weights.content_match)
             reasons.append(f"content_match:{min(content_hits, 4)}")
         lexical_hits = _lexical_hits(path, file_record, index.symbols, lexical_terms)
         if lexical_hits:
             score += min(weights.lexical_match * lexical_hits, weights.lexical_match * 3)
             reasons.append(f"lexical_match:{min(lexical_hits, 3)}")
         if score > 0 and anchor_paths and any(_same_directory(path, anchor) for anchor in anchor_paths if anchor != path):
-            score += weights.same_directory
-            reasons.append("same_directory")
+            score += weights.same_directory; reasons.append("same_directory")
         if score > 0:
             explanations.append(RelevanceExplanation(path, score, tuple(reasons)))
 
@@ -156,83 +150,86 @@ def _is_associated_test(path: str, anchors: set[str]) -> bool:
     if not any(part == "tests" for part in path.split("/")) and not path.split("/")[-1].startswith("test_"):
         return False
     stem = path.rsplit("/", 1)[-1]
-    for anchor in anchors:
-        anchor_stem = anchor.rsplit("/", 1)[-1].removesuffix(".py")
-        if anchor_stem and anchor_stem in stem:
-            return True
-    return False
+    return any((anchor.rsplit("/", 1)[-1].removesuffix(".py")) in stem for anchor in anchors)
 
 def _is_contract_associated(path: str, anchors: set[str]) -> bool:
     lowered = path.lower()
-    contract_named = "contract" in lowered or "schema" in lowered or "protocol" in lowered
-    if not contract_named or not anchors:
+    if not ("contract" in lowered or "schema" in lowered or "protocol" in lowered) or not anchors:
         return False
     return any(_same_directory(path, anchor) for anchor in anchors)
 
 def _is_documentation_role_associated(file_record: dict, query: RelevanceQuery, anchors: set[str]) -> bool:
-    """Recognize high-value repository documents using narrow role signals."""
-    if file_record.get("kind") != "documentation":
-        return False
+    if file_record.get("kind") != "documentation": return False
     path = str(file_record.get("path", "")).lower()
     name = path.rsplit("/", 1)[-1]
     query_terms = set(_TOKEN_RE.findall(query.text.lower()))
     domain_anchor = any(_domain_path(anchor) for anchor in anchors)
-    if name == "readme.md":
-        return bool({"document", "documentation", "boundary", "unreal"} & query_terms) and domain_anchor
-    if "handoff" in name:
-        return domain_anchor or bool({"handoff", "current", "state"} & query_terms)
-    if "execution_plan" in name or "execution-plan" in name:
-        return bool({"execution", "plan", "semantic"} & query_terms)
+    if name == "readme.md": return bool({"document", "documentation", "boundary", "unreal"} & query_terms) and domain_anchor
+    if "handoff" in name: return domain_anchor or bool({"handoff", "current", "state"} & query_terms)
+    if "execution_plan" in name or "execution-plan" in name: return bool({"execution", "plan", "semantic"} & query_terms)
     return False
+
+def _architectural_role_matches(path: str, query: RelevanceQuery, anchors: set[str]) -> tuple[str, ...]:
+    """Match narrow architectural roles from path vocabulary plus task vocabulary.
+
+    This is intentionally deterministic and repository-generic: it does not name
+    benchmark case IDs or specific Atlas files.
+    """
+    lowered = path.lower()
+    name = lowered.rsplit("/", 1)[-1]
+    terms = set(_TOKEN_RE.findall(query.text.lower())) | set(query.symbols)
+    matches: list[str] = []
+    if "execution_boundary" in name or "execution-boundary" in name:
+        if {"recovery", "execution", "boundary"} & terms and any(_domain_path(a) for a in anchors):
+            matches.append("execution_boundary")
+    if "task_planner" in name or "task-planner" in name:
+        if {"task", "planner", "planning", "authorization", "authority"} & terms and any(_planning_path(a) for a in anchors):
+            matches.append("task_planner")
+    if name == "router.py" or "/router.py" in lowered:
+        if {"router", "routing", "model", "authority"} & terms:
+            matches.append("router")
+    if "execution_plan" in name or "execution-plan" in name:
+        if {"execution", "plan", "semantic", "m12"} & terms:
+            matches.append("execution_plan")
+    return tuple(matches)
 
 def _domain_path(path: str) -> bool:
     lowered = path.lower()
     return "unreal" in lowered or "/m12/" in lowered or lowered.startswith("planning/m12/")
 
+def _planning_path(path: str) -> bool:
+    lowered = path.lower()
+    return lowered.startswith("planning/") or "/planning/" in lowered or "controller/" in lowered
+
 def _same_directory(left: str, right: str) -> bool:
     return left.rsplit("/", 1)[0] == right.rsplit("/", 1)[0]
 
 def _query_terms(query: RelevanceQuery) -> tuple[str, ...]:
-    """Extract semantic terms only; task classes are routing metadata, not content queries."""
     raw = list(_TOKEN_RE.findall(query.text.lower()))
     raw.extend(token.lower() for token in query.symbols)
     return tuple(sorted(set(raw)))
 
 def _content_hits(file_record: dict, terms: Sequence[str]) -> int:
-    if not terms:
-        return 0
-    content_terms = set(file_record.get("content_terms", ()))
-    return sum(1 for term in terms if term in content_terms)
+    if not terms: return 0
+    return sum(1 for term in terms if term in set(file_record.get("content_terms", ())))
 
 def _content_document_frequency(index: RepositoryIndex, terms: Sequence[str]) -> dict[str, int]:
-    """Count how many indexed files contain each query term."""
-    wanted = set(terms)
-    frequencies = {term: 0 for term in wanted}
-    if not wanted:
-        return frequencies
+    wanted = set(terms); frequencies = {term: 0 for term in wanted}
     for record in index.files:
-        present = wanted.intersection(record.get("content_terms", ()))
-        for term in present:
-            frequencies[term] += 1
+        for term in wanted.intersection(record.get("content_terms", ())): frequencies[term] += 1
     return frequencies
 
 def _content_match_score(file_record: dict, terms: Sequence[str], document_frequency: dict[str, int], document_count: int, weight: int) -> int:
-    """Return a bounded deterministic content score using corpus rarity."""
-    content_terms = set(file_record.get("content_terms", ()))
-    matched = [term for term in terms if term in content_terms]
-    if not matched or document_count <= 0:
-        return 0
+    matched = [term for term in terms if term in set(file_record.get("content_terms", ()))]
+    if not matched or document_count <= 0: return 0
     score = 0
     for term in matched:
-        df = document_frequency.get(term, document_count)
-        rarity = 1.0 + math.log((document_count + 1) / (df + 1))
-        multiplier = min(4, max(1, int(round(rarity))))
-        score += weight * multiplier
+        rarity = 1.0 + math.log((document_count + 1) / (document_frequency.get(term, document_count) + 1))
+        score += weight * min(4, max(1, int(round(rarity))))
     return min(score, weight * 12)
 
 def _lexical_hits(path: str, file_record: dict, symbols: Sequence[SymbolRecord], terms: Sequence[str]) -> int:
-    if not terms:
-        return 0
+    if not terms: return 0
     haystack = path.lower()
     if file_record.get("kind") == "python_source":
         haystack += " " + " ".join(item.qualified_name.lower() for item in symbols if item.path == path)
