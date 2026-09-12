@@ -9,7 +9,7 @@ from planning.repository_intelligence.benchmark import (
     validate_benchmark_corpus,
     validate_benchmark_inputs,
 )
-from planning.repository_intelligence.index import RepositoryIndex
+from planning.repository_intelligence.index import GitHistory, RepositoryIndex
 from planning.repository_intelligence.relevance import RelevanceQuery
 
 
@@ -79,6 +79,10 @@ def _case(case_id: str, *, required: set[str], relevant: set[str]) -> ContextBen
 
 def _index(paths: list[str]) -> RepositoryIndex:
     return RepositoryIndex(
+        root=".",
+        files=tuple({"path": path, "size_bytes": 1} for path in paths),
+        symbols=(),
+        imports=(),
+        git=GitHistory(None, ()),
         fingerprint="test-repo",
-        files=tuple({"path": path, "size": 1, "symbols": [], "imports": []} for path in paths),
     )
