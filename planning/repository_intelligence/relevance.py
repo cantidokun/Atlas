@@ -12,6 +12,7 @@ symbol name rather than insertion order.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import re
 from typing import Iterable, Sequence
 
@@ -83,6 +84,7 @@ def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weig
     reverse_map = _reverse_dependency_map(dependency_map)
     anchor_paths = direct_paths | symbol_paths
     lexical_terms = _query_terms(query)
+    content_document_frequency = _content_document_frequency(index, lexical_terms)
     explanations: list[RelevanceExplanation] = []
 
     for file_record in index.files:
@@ -113,7 +115,8 @@ def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weig
 
         content_hits = _content_hits(file_record, lexical_terms)
         if content_hits:
-            score += min(weights.content_match * content_hits, weights.content_match * 4)
+            content_score = _content_match_score(file_record, lexical_terms, content_document_frequency, len(file_paths), weights.content_match)
+            score += content_score
             reasons.append(f"content_match:{min(content_hits, 4)}")
 
         lexical_hits = _lexical_hits(path, file_record, index.symbols, lexical_terms)
@@ -193,6 +196,38 @@ def _content_hits(file_record: dict, terms: Sequence[str]) -> int:
         return 0
     content_terms = set(file_record.get("content_terms", ()))
     return sum(1 for term in terms if term in content_terms)
+
+
+def _content_document_frequency(index: RepositoryIndex, terms: Sequence[str]) -> dict[str, int]:
+    """Count how many indexed files contain each query term.
+
+    This is deterministic corpus-local IDF: rare terms receive more weight than
+    repository-generic words, without introducing embeddings or model calls.
+    """
+    wanted = set(terms)
+    frequencies = {term: 0 for term in wanted}
+    if not wanted:
+        return frequencies
+    for record in index.files:
+        present = wanted.intersection(record.get("content_terms", ()))
+        for term in present:
+            frequencies[term] += 1
+    return frequencies
+
+
+def _content_match_score(file_record: dict, terms: Sequence[str], document_frequency: dict[str, int], document_count: int, weight: int) -> int:
+    """Return a bounded deterministic content score using corpus rarity."""
+    content_terms = set(file_record.get("content_terms", ()))
+    matched = [term for term in terms if term in content_terms]
+    if not matched or document_count <= 0:
+        return 0
+    score = 0
+    for term in matched:
+        df = document_frequency.get(term, document_count)
+        rarity = 1.0 + math.log((document_count + 1) / (df + 1))
+        multiplier = min(4, max(1, int(round(rarity))))
+        score += weight * multiplier
+    return min(score, weight * 12)
 
 
 def _lexical_hits(path: str, file_record: dict, symbols: Sequence[SymbolRecord], terms: Sequence[str]) -> int:
