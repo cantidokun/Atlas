@@ -133,8 +133,10 @@ def _explicit_anchor_explanations(anchor_paths: set[str], query: RelevanceQuery,
     return materialized
 
 def _structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[RelevanceExplanation]:
-    """Prioritize direct dependencies and explicit architectural boundary roles."""
-    return [item for item in explanations if item.path not in anchor_paths and ("direct_dependency" in item.reasons or any(reason.startswith("architectural_role:") for reason in item.reasons))]
+    """Place explicit architectural boundaries before generic dependency expansion."""
+    architectural = [item for item in explanations if item.path not in anchor_paths and any(reason.startswith("architectural_role:") for reason in item.reasons)]
+    dependencies = [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons and item not in architectural]
+    return architectural + dependencies
 
 def _coverage_candidates(explanations: list) -> list:
     signal_order = ("reverse_dependency", "test_association", "contract_association", "architectural_role", "recent_change", "content_match", "documentation_role", "lexical_match", "same_directory")
