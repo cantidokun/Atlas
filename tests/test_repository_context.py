@@ -68,6 +68,31 @@ def test_secondary_signal_coverage_precedes_remaining_ranked_context(tmp_path):
     assert "docs/recovery_notes.md" in selected
 
 
+def test_secondary_budget_is_reserved_when_priority_files_are_large(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "docs").mkdir()
+    target = "target\n" * 20
+    helper = "helper\n" * 20
+    semantic = "semantic recovery boundary\n" * 20
+    (tmp_path / "planning" / "target.py").write_text(target, encoding="utf-8")
+    (tmp_path / "planning" / "helper.py").write_text(helper, encoding="utf-8")
+    (tmp_path / "docs" / "semantic_notes.md").write_text(semantic, encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    sources = {
+        "planning/target.py": target,
+        "planning/helper.py": helper,
+        "docs/semantic_notes.md": semantic,
+    }
+    query = RelevanceQuery.from_values(paths=["planning/target.py"], text="semantic recovery boundary")
+
+    package = compile_context(index, query, sources, max_context_chars=100, max_file_chars=100)
+
+    selected = [item.path for item in package.included]
+    assert selected[0] == "planning/target.py"
+    assert "docs/semantic_notes.md" in selected
+    assert package.context_chars <= 100
+
+
 def test_content_signal_gets_coverage_slot_before_generic_lexical_fill(tmp_path):
     (tmp_path / "planning").mkdir()
     (tmp_path / "docs").mkdir()
