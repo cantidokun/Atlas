@@ -33,8 +33,8 @@ def test_explicit_anchors_are_all_admitted_under_budget_pressure(tmp_path):
 
     selected = [item.path for item in package.included]
     assert selected[:3] == [
-        "docs/contract.md",
         "planning/target.py",
+        "docs/contract.md",
         "tests/test_target.py",
     ]
     assert all(item.truncated for item in package.included[:3])
