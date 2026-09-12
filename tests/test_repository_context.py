@@ -26,6 +26,30 @@ def test_context_compilation_is_bounded_and_explainable(tmp_path):
     assert package.selection_fingerprint == repeated.selection_fingerprint
 
 
+def test_explicit_context_anchors_are_admitted_before_secondary_context(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "planning" / "target.py").write_text("target content\n", encoding="utf-8")
+    (tmp_path / "planning" / "helper.py").write_text("helper content\n", encoding="utf-8")
+    (tmp_path / "docs" / "contract.md").write_text("contract content\n", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    sources = {
+        "planning/target.py": "target content\n",
+        "planning/helper.py": "helper content\n",
+        "docs/contract.md": "contract content\n",
+    }
+    query = RelevanceQuery.from_values(
+        paths=["planning/target.py"],
+        contract_paths=["docs/contract.md"],
+    )
+
+    package = compile_context(index, query, sources, max_context_chars=30, max_file_chars=100)
+
+    selected = [item.path for item in package.included]
+    assert selected == ["planning/target.py", "docs/contract.md"]
+    assert "planning/helper.py" in package.excluded_paths
+
+
 def test_truncation_prefers_line_boundary(tmp_path):
     (tmp_path / "target.py").write_text("line one\nline two\nline three\n", encoding="utf-8")
     index = build_repository_index(tmp_path, include_git_history=False)
