@@ -86,6 +86,21 @@ def test_task_classes_do_not_become_semantic_content_terms(tmp_path):
     assert result.ranked_paths() == ()
 
 
+def test_documentation_roles_are_deterministic_and_narrow(tmp_path):
+    (tmp_path / "UNREAL_AGENT_HANDOFF_CURRENT.md").write_text("current Unreal state", encoding="utf-8")
+    (tmp_path / "README.md").write_text("Atlas documentation", encoding="utf-8")
+    (tmp_path / "docs" / "UNREAL_M12_3_EXECUTION_PLAN.md").write_text("semantic execution plan", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    query = RelevanceQuery.from_values(text="document Unreal autonomous executor execution boundary", paths=["planning/target.py"])
+    result = rank_repository_files(index, query)
+    handoff = next(item for item in result.explanations if item.path == "UNREAL_AGENT_HANDOFF_CURRENT.md")
+    readme = next(item for item in result.explanations if item.path == "README.md")
+    plan = next(item for item in result.explanations if item.path == "docs/UNREAL_M12_3_EXECUTION_PLAN.md")
+    assert "documentation_role" in handoff.reasons
+    assert "documentation_role" in readme.reasons
+    assert "documentation_role" not in plan.reasons
+
+
 def test_sensitive_files_do_not_expose_content_terms(tmp_path):
     (tmp_path / ".env").write_text("ATLAS_SECRET_TOKEN=do-not-index", encoding="utf-8")
     (tmp_path / "safe.md").write_text("safe repository documentation", encoding="utf-8")
