@@ -149,11 +149,13 @@ def rank_repository_files(
             explanations.append(RelevanceExplanation(path, score, tuple(reasons)))
 
     # Explicit path/symbol anchors are authoritative relevance anchors for a
-    # development query. Secondary relationships must not displace the file the
-    # query directly identified merely because several secondary signals stack.
+    # development query. Direct dependencies are the next structural tier;
+    # secondary associations must not displace them merely because several
+    # weaker signals stack on an associated file.
     explanations.sort(
         key=lambda item: (
             0 if item.path in direct_paths or item.path in symbol_paths else 1,
+            0 if "direct_dependency" in item.reasons else 1,
             -item.score,
             item.path,
             item.reasons,

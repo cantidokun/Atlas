@@ -28,8 +28,24 @@ def _router() -> ModelRouter:
     ])
 
 
+def _low_risk_scores() -> dict[str, int]:
+    return {
+        "code_complexity": 0,
+        "security_sensitivity": 0,
+        "authorization_identity": 0,
+        "cryptography": 0,
+        "concurrency": 0,
+        "cross_process": 0,
+        "recovery_statefulness": 0,
+        "provenance_receipt": 0,
+        "external_side_effects": 0,
+        "production_destructive": 0,
+        "difficulty_of_verification": 0,
+    }
+
+
 def test_context_is_compiled_before_routing_and_payload_is_bounded():
-    advice = advise_context_route(task_id="m13.4-test", dimension_scores={"correctness": 1}, index=_index(), query=RelevanceQuery.from_values(text="Target", paths=["planning/target.py"]), source_by_path={"planning/target.py": "class Target:\n    pass\n", "tests/test_target.py": "def test_target():\n    assert True\n"}, router=_router(), task_classes=["docs"], stable_instructions="stable", dynamic_state={"step": 1}, max_context_chars=100)
+    advice = advise_context_route(task_id="m13.4-test", dimension_scores=_low_risk_scores(), index=_index(), query=RelevanceQuery.from_values(text="Target", paths=["planning/target.py"]), source_by_path={"planning/target.py": "class Target:\n    pass\n", "tests/test_target.py": "def test_target():\n    assert True\n"}, router=_router(), task_classes=["docs"], stable_instructions="stable", dynamic_state={"step": 1}, max_context_chars=100)
     assert advice.decision.selection is not None
     assert advice.decision.selection.selected_model_id == "test-l0"
     assert advice.context.context_chars <= 100
@@ -48,7 +64,7 @@ def test_router_failure_remains_fail_closed_while_context_is_preserved():
 
 
 def test_advisory_result_does_not_contain_provider_or_authorization_fields():
-    advice = advise_context_route(task_id="m13.4-boundary", dimension_scores={"correctness": 0}, index=_index(), query=RelevanceQuery.from_values(paths=["planning/target.py"]), source_by_path={"planning/target.py": "class Target: pass\n"}, router=_router(), task_classes=["docs"])
+    advice = advise_context_route(task_id="m13.4-boundary", dimension_scores=_low_risk_scores(), index=_index(), query=RelevanceQuery.from_values(paths=["planning/target.py"]), source_by_path={"planning/target.py": "class Target: pass\n"}, router=_router(), task_classes=["docs"])
     payload = advice.model_payload()
     assert "authorization_id" not in payload
     assert "receipt" not in payload
