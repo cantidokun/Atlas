@@ -104,6 +104,20 @@ def test_documentation_roles_are_deterministic_and_narrow(tmp_path):
     assert "documentation_role" not in plan.reasons
 
 
+def test_semantic_task_role_is_narrow_and_domain_anchored(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "planning" / "unreal_runtime_adapter.py").write_text("from planning.m12.semantic_task import Task\n", encoding="utf-8")
+    (tmp_path / "planning" / "m12_semantic_task.py").write_text("class Task: pass\n", encoding="utf-8")
+    (tmp_path / "planning" / "other_task.py").write_text("class Task: pass\n", encoding="utf-8")
+    index = build_repository_index(tmp_path, include_git_history=False)
+    query = RelevanceQuery.from_values(text="M12 semantic task production", paths=["planning/unreal_runtime_adapter.py"])
+    result = rank_repository_files(index, query)
+    item = next(item for item in result.explanations if item.path == "planning/m12_semantic_task.py")
+    assert "architectural_role:semantic_task" in item.reasons
+    unrelated = next(item for item in result.explanations if item.path == "planning/other_task.py")
+    assert "architectural_role:semantic_task" not in unrelated.reasons
+
+
 def test_sensitive_files_do_not_expose_content_terms(tmp_path):
     (tmp_path / ".env").write_text("ATLAS_SECRET_TOKEN=do-not-index", encoding="utf-8")
     (tmp_path / "safe.md").write_text("safe repository documentation", encoding="utf-8")
