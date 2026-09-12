@@ -1,13 +1,7 @@
 """Executable M13.7 repository context benchmark harness.
 
-Development tooling only. This module creates a read-only repository snapshot,
-builds an explicit source mapping, runs the curated context benchmark, and emits
-machine-readable metrics. It never invokes model providers, production authority,
-Blender/Unreal, schedulers, retries, persistence, or workflow/action runners.
-
-The pure compiler remains intentionally filesystem-free; filesystem access is
-confined to this top-level benchmark harness so the benchmark is reproducible
-against an actual checkout without changing compiler trust boundaries.
+Development tooling only. Filesystem access is confined to this harness; the
+compiler, ranking, and evaluation layers remain model/runtime independent.
 """
 
 from __future__ import annotations
@@ -24,6 +18,10 @@ from planning.repository_intelligence.index import RepositoryIndex, build_reposi
 from planning.repository_intelligence.m13_benchmark_diagnostics import diagnose_results
 
 
+def _normalize_text(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def load_repository_sources(root: str | Path, index: RepositoryIndex) -> dict[str, str]:
     """Load UTF-8 repository text into an explicit, secret-safe source mapping."""
     root_path = Path(root).resolve()
@@ -34,27 +32,30 @@ def load_repository_sources(root: str | Path, index: RepositoryIndex) -> dict[st
             continue
         candidate = root_path / Path(path)
         try:
-            raw = candidate.read_bytes()
-            text = raw.decode("utf-8")
+            text = candidate.read_bytes().decode("utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        sources[path] = text
+        sources[path] = _normalize_text(text)
     return sources
 
 
 def validate_source_snapshot(index: RepositoryIndex, root: str | Path, sources: Mapping[str, str]) -> None:
-    """Ensure source text matches the indexed checkout before reporting metrics."""
+    """Ensure the supplied source snapshot still matches the indexed checkout."""
     root_path = Path(root).resolve()
     records = {str(item["path"]): item for item in index.files}
     for path, source in sources.items():
         record = records.get(path)
         if record is None:
             raise ValueError(f"source path is absent from repository index: {path}")
-        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-        if digest != record["sha256"]:
-            raise ValueError(f"source changed after indexing: {path}")
-        if not (root_path / Path(path)).is_file():
+        candidate = root_path / Path(path)
+        try:
+            raw = candidate.read_bytes()
+        except OSError:
             raise ValueError(f"source disappeared after indexing: {path}")
+        if hashlib.sha256(raw).hexdigest() != record["sha256"]:
+            raise ValueError(f"source changed after indexing: {path}")
+        if _normalize_text(raw.decode("utf-8")) != _normalize_text(source):
+            raise ValueError(f"source changed after indexing: {path}")
 
 
 def benchmark_report(result: ContextBenchmarkResult, *, index: RepositoryIndex) -> dict:
@@ -62,23 +63,7 @@ def benchmark_report(result: ContextBenchmarkResult, *, index: RepositoryIndex) 
     diagnostics = diagnose_results(result.cases)
     cases = []
     for item in result.cases:
-        cases.append({
-            "case_id": item.case_id,
-            "selected_paths": list(item.selected_paths),
-            "relevant_paths": list(item.relevant_paths),
-            "required_paths": list(item.required_paths),
-            "true_positive": item.true_positive,
-            "false_positive": item.false_positive,
-            "false_negative": item.false_negative,
-            "required_missing": item.required_missing,
-            "recall": item.recall,
-            "precision": item.precision,
-            "f1": item.f1,
-            "budget_utilization": item.budget_utilization,
-            "truncated_files": item.truncated_files,
-            "deterministic": item.deterministic,
-            "diagnostic": next(item_diag.status for item_diag in diagnostics if item_diag.case_id == item.case_id),
-        })
+        cases.append({"case_id": item.case_id, "selected_paths": list(item.selected_paths), "relevant_paths": list(item.relevant_paths), "required_paths": list(item.required_paths), "true_positive": item.true_positive, "false_positive": item.false_positive, "false_negative": item.false_negative, "required_missing": item.required_missing, "recall": item.recall, "precision": item.precision, "f1": item.f1, "budget_utilization": item.budget_utilization, "truncated_files": item.truncated_files, "deterministic": item.deterministic, "diagnostic": next(item_diag.status for item_diag in diagnostics if item_diag.case_id == item.case_id)})
     return {
         "report_schema_version": 1,
         "benchmark": "M13.7",
@@ -88,24 +73,12 @@ def benchmark_report(result: ContextBenchmarkResult, *, index: RepositoryIndex) 
         "index_fingerprint": index.fingerprint,
         "case_count": len(cases),
         "aggregate": result.aggregate,
-        "diagnostics": [
-            {
-                "case_id": item.case_id,
-                "status": item.status,
-                "missing_required": list(item.missing_required),
-                "missing_relevant": list(item.missing_relevant),
-                "extra_selected": list(item.extra_selected),
-                "truncated_files": list(item.truncated_files),
-                "deterministic": item.deterministic,
-            }
-            for item in diagnostics
-        ],
+        "diagnostics": [{"case_id": item.case_id, "status": item.status, "missing_required": list(item.missing_required), "missing_relevant": list(item.missing_relevant), "extra_selected": list(item.extra_selected), "truncated_files": item.truncated_files, "deterministic": item.deterministic} for item in diagnostics],
         "cases": cases,
     }
 
 
 def run_repository_benchmark(root: str | Path) -> dict:
-    """Run the curated ten-case benchmark against an actual repository checkout."""
     index = build_repository_index(root, include_git_history=True)
     sources = load_repository_sources(root, index)
     validate_source_snapshot(index, root, sources)
