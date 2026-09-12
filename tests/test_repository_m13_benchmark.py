@@ -7,19 +7,7 @@ from planning.repository_intelligence.m13_benchmark import benchmark_report, loa
 
 
 def _index(*paths: str) -> RepositoryIndex:
-    files = tuple(
-        {
-            "path": path,
-            "kind": "python_source" if path.endswith(".py") else "file",
-            "language": "python" if path.endswith(".py") else "text",
-            "size_bytes": 1,
-            "line_count": 1,
-            "sha256": "0" * 64,
-            "is_test": path.startswith("tests/"),
-            "parse_status": "ok" if path.endswith(".py") else "not_applicable",
-        }
-        for path in paths
-    )
+    files = tuple({"path": path, "kind": "python_source" if path.endswith(".py") else "file", "language": "python" if path.endswith(".py") else "text", "size_bytes": 1, "line_count": 1, "sha256": sha256(b"safe = True\n").hexdigest(), "is_test": path.startswith("tests/"), "parse_status": "ok" if path.endswith(".py") else "not_applicable"} for path in paths)
     return RepositoryIndex(".", files, (), (), GitHistory(None, ()), "index-fingerprint")
 
 
@@ -27,37 +15,18 @@ def test_load_repository_sources_excludes_sensitive_paths(tmp_path):
     (tmp_path / "planning").mkdir()
     (tmp_path / "planning" / "context.py").write_text("safe = True\n", encoding="utf-8")
     (tmp_path / ".env").write_text("SECRET=do-not-load\n", encoding="utf-8")
-
-    index = _index("planning/context.py", ".env")
-    sources = load_repository_sources(tmp_path, index)
-
+    sources = load_repository_sources(tmp_path, _index("planning/context.py", ".env"))
     assert sources == {"planning/context.py": "safe = True\n"}
 
 
 def test_benchmark_report_contains_metrics_but_not_source_content():
-    evaluation = ContextEvaluationResult(
-        case_id="case",
-        selected_paths=("planning/context.py",),
-        relevant_paths=("planning/context.py",),
-        required_paths=("planning/context.py",),
-        true_positive=1,
-        false_positive=0,
-        false_negative=0,
-        required_missing=(),
-        recall=1.0,
-        precision=1.0,
-        f1=1.0,
-        budget_utilization=0.25,
-        truncated_files=(),
-        deterministic=True,
-    )
+    evaluation = ContextEvaluationResult("case", ("planning/context.py",), ("planning/context.py",), ("planning/context.py",), 1, 0, 0, 0, 1.0, 1.0, 1.0, 0.25, 0, True)
     result = ContextBenchmarkResult((evaluation,), {"recall": 1.0, "precision": 1.0})
-
     report = benchmark_report(result, index=_index("planning/context.py"))
-
     assert report["benchmark"] == "M13.7"
     assert report["case_count"] == 1
-    assert report["cases"][0]["required_missing"] == []
+    assert report["cases"][0]["required_missing"] == 0
+    assert report["cases"][0]["truncated_files"] == 0
     assert "content" not in report["cases"][0]
 
 
@@ -65,15 +34,7 @@ def test_validate_source_snapshot_rejects_changed_source(tmp_path):
     (tmp_path / "context.py").write_text("safe = True\n", encoding="utf-8")
     source = "safe = False\n"
     digest = sha256(source.encode("utf-8")).hexdigest()
-    index = RepositoryIndex(
-        ".",
-        ({"path": "context.py", "sha256": digest},),
-        (),
-        (),
-        GitHistory(None, ()),
-        "fingerprint",
-    )
-
+    index = RepositoryIndex(".", ({"path": "context.py", "sha256": digest},), (), (), GitHistory(None, ()), "fingerprint")
     try:
         validate_source_snapshot(index, tmp_path, {"context.py": source})
     except ValueError as exc:
