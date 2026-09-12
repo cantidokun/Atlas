@@ -21,7 +21,7 @@ class ContextDiagnostic:
     missing_required: tuple[str, ...]
     missing_relevant: tuple[str, ...]
     extra_selected: tuple[str, ...]
-    truncated_files: tuple[str, ...]
+    truncated_files: int
     deterministic: bool
 
 
@@ -51,7 +51,7 @@ def diagnose_case(result: ContextEvaluationResult) -> ContextDiagnostic:
         missing_required=required,
         missing_relevant=relevant,
         extra_selected=extra,
-        truncated_files=tuple(sorted(result.truncated_files)),
+        truncated_files=result.truncated_files,
         deterministic=result.deterministic,
     )
 
