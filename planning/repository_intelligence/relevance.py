@@ -148,12 +148,15 @@ def rank_repository_files(
         if score > 0:
             explanations.append(RelevanceExplanation(path, score, tuple(reasons)))
 
-    # Explicit path/symbol anchors are authoritative relevance anchors for a
-    # development query. Direct dependencies are the next structural tier;
-    # secondary associations must not displace them merely because several
-    # weaker signals stack on an associated file.
+    # Explicit repository-intent anchors are the highest-confidence selection
+    # tier. This includes paths/symbols supplied directly by the task as well
+    # as explicit contract/test/recent paths. These signals represent concrete
+    # context the caller has named and therefore must not be crowded out by a
+    # large number of secondary structural associations.
+    explicit_paths = direct_paths | symbol_paths | contract_paths | test_paths | recent_paths
     explanations.sort(
         key=lambda item: (
+            0 if item.path in explicit_paths else 1,
             0 if item.path in direct_paths or item.path in symbol_paths else 1,
             0 if "direct_dependency" in item.reasons else 1,
             -item.score,
