@@ -21,7 +21,6 @@ from planning.repository_intelligence.index import RepositoryIndex, SymbolRecord
 @dataclass(frozen=True)
 class RelevanceWeights:
     """Frozen scoring weights for M13.2."""
-
     exact_path: int = 100
     exact_symbol: int = 90
     direct_dependency: int = 70
@@ -29,6 +28,7 @@ class RelevanceWeights:
     test_association: int = 50
     contract_association: int = 45
     recent_change: int = 20
+    content_match: int = 8
     lexical_match: int = 10
     same_directory: int = 5
 
@@ -36,7 +36,6 @@ class RelevanceWeights:
 @dataclass(frozen=True)
 class RelevanceQuery:
     """Structured development-task signals used by the scorer."""
-
     text: str = ""
     paths: tuple[str, ...] = ()
     symbols: tuple[str, ...] = ()
@@ -46,26 +45,8 @@ class RelevanceQuery:
     recent_paths: tuple[str, ...] = ()
 
     @classmethod
-    def from_values(
-        cls,
-        *,
-        text: str = "",
-        paths: Iterable[str] = (),
-        symbols: Iterable[str] = (),
-        task_classes: Iterable[str] = (),
-        contract_paths: Iterable[str] = (),
-        test_paths: Iterable[str] = (),
-        recent_paths: Iterable[str] = (),
-    ) -> "RelevanceQuery":
-        return cls(
-            text=text.strip() if isinstance(text, str) else "",
-            paths=_normalized_tuple(paths),
-            symbols=_normalized_tuple(symbols),
-            task_classes=_normalized_tuple(task_classes),
-            contract_paths=_normalized_tuple(contract_paths),
-            test_paths=_normalized_tuple(test_paths),
-            recent_paths=_normalized_tuple(recent_paths),
-        )
+    def from_values(cls, *, text: str = "", paths: Iterable[str] = (), symbols: Iterable[str] = (), task_classes: Iterable[str] = (), contract_paths: Iterable[str] = (), test_paths: Iterable[str] = (), recent_paths: Iterable[str] = ()) -> "RelevanceQuery":
+        return cls(text=text.strip() if isinstance(text, str) else "", paths=_normalized_tuple(paths), symbols=_normalized_tuple(symbols), task_classes=_normalized_tuple(task_classes), contract_paths=_normalized_tuple(contract_paths), test_paths=_normalized_tuple(test_paths), recent_paths=_normalized_tuple(recent_paths))
 
 
 @dataclass(frozen=True)
@@ -90,12 +71,7 @@ class RelevanceResult:
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
 
 
-def rank_repository_files(
-    index: RepositoryIndex,
-    query: RelevanceQuery,
-    *,
-    weights: RelevanceWeights = RelevanceWeights(),
-) -> RelevanceResult:
+def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weights: RelevanceWeights = RelevanceWeights()) -> RelevanceResult:
     """Rank every indexed file against a structured development query."""
     file_paths = {item["path"] for item in index.files}
     direct_paths = set(query.paths) & file_paths
@@ -103,7 +79,6 @@ def rank_repository_files(
     test_paths = set(query.test_paths) & file_paths
     recent_paths = set(query.recent_paths) & file_paths
     symbol_paths = _symbol_paths(index.symbols, query.symbols)
-
     dependency_map = _dependency_map(index)
     reverse_map = _reverse_dependency_map(dependency_map)
     anchor_paths = direct_paths | symbol_paths
@@ -114,7 +89,6 @@ def rank_repository_files(
         path = file_record["path"]
         score = 0
         reasons: list[str] = []
-
         if path in direct_paths:
             score += weights.exact_path
             reasons.append("exact_path")
@@ -137,6 +111,11 @@ def rank_repository_files(
             score += weights.recent_change
             reasons.append("recent_change")
 
+        content_hits = _content_hits(file_record, lexical_terms)
+        if content_hits:
+            score += min(weights.content_match * content_hits, weights.content_match * 4)
+            reasons.append(f"content_match:{min(content_hits, 4)}")
+
         lexical_hits = _lexical_hits(path, file_record, index.symbols, lexical_terms)
         if lexical_hits:
             score += min(weights.lexical_match * lexical_hits, weights.lexical_match * 3)
@@ -144,26 +123,11 @@ def rank_repository_files(
         if score > 0 and anchor_paths and any(_same_directory(path, anchor) for anchor in anchor_paths if anchor != path):
             score += weights.same_directory
             reasons.append("same_directory")
-
         if score > 0:
             explanations.append(RelevanceExplanation(path, score, tuple(reasons)))
 
-    # Explicit repository-intent anchors are the highest-confidence selection
-    # tier. This includes paths/symbols supplied directly by the task as well
-    # as explicit contract/test/recent paths. These signals represent concrete
-    # context the caller has named and therefore must not be crowded out by a
-    # large number of secondary structural associations.
     explicit_paths = direct_paths | symbol_paths | contract_paths | test_paths | recent_paths
-    explanations.sort(
-        key=lambda item: (
-            0 if item.path in explicit_paths else 1,
-            0 if item.path in direct_paths or item.path in symbol_paths else 1,
-            0 if "direct_dependency" in item.reasons else 1,
-            -item.score,
-            item.path,
-            item.reasons,
-        )
-    )
+    explanations.sort(key=lambda item: (0 if item.path in explicit_paths else 1, 0 if item.path in direct_paths or item.path in symbol_paths else 1, 0 if "direct_dependency" in item.reasons else 1, -item.score, item.path, item.reasons))
     return RelevanceResult(query=query, explanations=tuple(explanations))
 
 
@@ -222,6 +186,13 @@ def _query_terms(query: RelevanceQuery) -> tuple[str, ...]:
     raw.extend(token.lower() for token in query.symbols)
     raw.extend(token.lower() for token in query.task_classes)
     return tuple(sorted(set(raw)))
+
+
+def _content_hits(file_record: dict, terms: Sequence[str]) -> int:
+    if not terms:
+        return 0
+    content_terms = set(file_record.get("content_terms", ()))
+    return sum(1 for term in terms if term in content_terms)
 
 
 def _lexical_hits(path: str, file_record: dict, symbols: Sequence[SymbolRecord], terms: Sequence[str]) -> int:
