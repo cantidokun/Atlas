@@ -15,6 +15,7 @@ DEFAULT_MAX_CONTEXT_CHARS = 48_000
 DEFAULT_MAX_FILE_CHARS = 16_000
 DEFAULT_MIN_SCORE = 1
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
+SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,9 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
 
     # Selection is staged so explicit intent is protected, structural context
     # is expanded next, and secondary signals get a bounded coverage pass before
-    # ordinary score ordering fills the remaining budget.
+    # ordinary score ordering fills the remaining budget. A secondary reserve
+    # prevents large high-priority files from consuming the entire budget before
+    # semantic/reverse/test/contract coverage can be represented.
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
     anchors = [item for item in ranking.explanations if item.path in anchor_paths]
     structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
@@ -84,25 +87,19 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     coverage = _coverage_candidates(secondary)
     coverage_paths = {item.path for item in coverage}
     secondary_remainder = [item for item in secondary if item.path not in coverage_paths]
-    ordered = anchors + structural + coverage + secondary_remainder
+    ordered_priority = anchors + structural
+    ordered_secondary = coverage + secondary_remainder
 
-    for explanation in ordered:
-        path = explanation.path
-        if explanation.score < minimum_score or _sensitive_path(path) or path not in source_by_path:
-            excluded.add(path)
-            continue
-        source = source_by_path[path]
-        if not isinstance(source, str) or not source:
-            excluded.add(path)
-            continue
-        content, truncated = _bounded_source(source, min(max_file_chars, remaining))
-        if not content:
-            excluded.add(path)
-            continue
-        included.append(ContextFile(path, explanation.score, explanation.reasons, content, truncated))
-        remaining -= len(content)
-        if remaining <= 0:
-            break
+    reserve = min(max(0, remaining - 1), int(max_context_chars * SECONDARY_CONTEXT_RESERVE_RATIO)) if ordered_secondary else 0
+    priority_budget = remaining - reserve
+    priority_used = _append_context_files(ordered_priority, priority_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
+    remaining -= priority_used
+
+    # Transfer unused priority budget to secondary only after the priority pass;
+    # the reserved amount itself is never consumed by priority context.
+    secondary_budget = min(remaining, reserve + max(0, priority_budget - priority_used))
+    secondary_used = _append_context_files(ordered_secondary, secondary_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
+    remaining -= secondary_used
 
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
@@ -112,6 +109,30 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__}
     fingerprint = hashlib.sha256(json.dumps({"manifest": manifest, "stable_instructions": stable, "dynamic_state": dynamic, "content": [(item.path, item.content) for item in included]}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
+
+
+def _append_context_files(explanations: list, budget: int, max_file_chars: int, minimum_score: int, source_by_path: Mapping[str, str], included: list[ContextFile], excluded: set[str]) -> int:
+    """Append bounded context from one selection stage and return chars used."""
+    used = 0
+    for explanation in explanations:
+        path = explanation.path
+        if explanation.score < minimum_score or _sensitive_path(path) or path not in source_by_path:
+            excluded.add(path)
+            continue
+        source = source_by_path[path]
+        if not isinstance(source, str) or not source:
+            excluded.add(path)
+            continue
+        limit = min(max_file_chars, budget - used)
+        content, truncated = _bounded_source(source, limit)
+        if not content:
+            excluded.add(path)
+            continue
+        included.append(ContextFile(path, explanation.score, explanation.reasons, content, truncated))
+        used += len(content)
+        if used >= budget:
+            break
+    return used
 
 
 def _explicit_anchor_paths(explanations: tuple, query: RelevanceQuery) -> set[str]:
