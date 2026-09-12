@@ -80,6 +80,12 @@ def test_content_terms_rank_semantic_document_without_path_match(tmp_path):
     assert result.ranked_paths()[0] == "docs/boundary_notes.md"
 
 
+def test_task_classes_do_not_become_semantic_content_terms(tmp_path):
+    index = _fixture_index(tmp_path)
+    result = rank_repository_files(index, RelevanceQuery.from_values(task_classes=["test"]))
+    assert result.ranked_paths() == ()
+
+
 def test_sensitive_files_do_not_expose_content_terms(tmp_path):
     (tmp_path / ".env").write_text("ATLAS_SECRET_TOKEN=do-not-index", encoding="utf-8")
     (tmp_path / "safe.md").write_text("safe repository documentation", encoding="utf-8")
