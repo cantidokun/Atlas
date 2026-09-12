@@ -3,8 +3,7 @@
 This module is development tooling only. Ground truth is explicitly authored by
 humans rather than inferred from models, execution results, or repository writes.
 The benchmark compiles context from an explicit source mapping and evaluates it
-with the objective M13.5 metrics; it does not invoke model providers or any
-production authority path.
+with objective metrics; it does not invoke model providers or production authority paths.
 """
 
 from __future__ import annotations
@@ -13,13 +12,7 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 from planning.repository_intelligence.context import ContextPackage, compile_context, is_sensitive_context_path
-from planning.repository_intelligence.evaluation import (
-    ContextEvaluationCase,
-    ContextEvaluationResult,
-    aggregate_evaluations,
-    evaluate_context,
-    repeat_context,
-)
+from planning.repository_intelligence.evaluation import ContextEvaluationCase, ContextEvaluationResult, aggregate_evaluations, evaluate_context, repeat_context
 from planning.repository_intelligence.index import RepositoryIndex
 from planning.repository_intelligence.relevance import RelevanceQuery, RelevanceWeights
 
@@ -27,7 +20,6 @@ from planning.repository_intelligence.relevance import RelevanceQuery, Relevance
 @dataclass(frozen=True)
 class ContextBenchmarkCase:
     """One curated Atlas development task with explicit context ground truth."""
-
     case_id: str
     task_class: str
     description: str
@@ -50,89 +42,35 @@ class ContextBenchmarkCase:
             raise ValueError("context limits must be positive")
 
     def evaluation_case(self) -> ContextEvaluationCase:
-        return ContextEvaluationCase(
-            case_id=self.case_id,
-            relevant_paths=self.relevant_paths,
-            required_paths=self.required_paths,
-        )
+        return ContextEvaluationCase(self.case_id, self.relevant_paths, self.required_paths)
 
 
 @dataclass(frozen=True)
 class ContextBenchmarkResult:
     """Objective result bundle for one benchmark corpus run."""
-
     cases: tuple[ContextEvaluationResult, ...]
     aggregate: dict
 
 
-def compile_benchmark_context(
-    index: RepositoryIndex,
-    case: ContextBenchmarkCase,
-    source_by_path: Mapping[str, str],
-    *,
-    stable_instructions: str = "",
-    dynamic_state: Mapping[str, object] | None = None,
-    weights: RelevanceWeights = RelevanceWeights(),
-) -> ContextPackage:
+def compile_benchmark_context(index: RepositoryIndex, case: ContextBenchmarkCase, source_by_path: Mapping[str, str], *, stable_instructions: str = "", dynamic_state: Mapping[str, object] | None = None, weights: RelevanceWeights = RelevanceWeights()) -> ContextPackage:
     """Compile one benchmark case with its declared limits and query."""
-    return compile_context(
-        index,
-        case.query,
-        source_by_path,
-        stable_instructions=stable_instructions,
-        dynamic_state=dynamic_state,
-        max_context_chars=case.max_context_chars,
-        max_file_chars=case.max_file_chars,
-        weights=weights,
-    )
+    return compile_context(index, case.query, source_by_path, stable_instructions=stable_instructions, dynamic_state=dynamic_state, max_context_chars=case.max_context_chars, max_file_chars=case.max_file_chars, weights=weights)
 
 
-def run_context_benchmark(
-    index: RepositoryIndex,
-    cases: Sequence[ContextBenchmarkCase],
-    source_by_path: Mapping[str, str],
-    *,
-    stable_instructions: str = "",
-    dynamic_state: Mapping[str, object] | None = None,
-    weights: RelevanceWeights = RelevanceWeights(),
-) -> ContextBenchmarkResult:
+def run_context_benchmark(index: RepositoryIndex, cases: Sequence[ContextBenchmarkCase], source_by_path: Mapping[str, str], *, stable_instructions: str = "", dynamic_state: Mapping[str, object] | None = None, weights: RelevanceWeights = RelevanceWeights()) -> ContextBenchmarkResult:
     """Compile and evaluate every curated case without model or runtime calls."""
+    validate_benchmark_corpus(cases)
     validate_benchmark_inputs(index, cases, source_by_path)
     results: list[ContextEvaluationResult] = []
     for case in cases:
-        context = compile_benchmark_context(
-            index,
-            case,
-            source_by_path,
-            stable_instructions=stable_instructions,
-            dynamic_state=dynamic_state,
-            weights=weights,
-        )
-        repeat = compile_benchmark_context(
-            index,
-            case,
-            source_by_path,
-            stable_instructions=stable_instructions,
-            dynamic_state=dynamic_state,
-            weights=weights,
-        )
-        results.append(
-            evaluate_context(
-                case.evaluation_case(),
-                context,
-                deterministic=repeat_context(context, repeat),
-            )
-        )
+        context = compile_benchmark_context(index, case, source_by_path, stable_instructions=stable_instructions, dynamic_state=dynamic_state, weights=weights)
+        repeat = compile_benchmark_context(index, case, source_by_path, stable_instructions=stable_instructions, dynamic_state=dynamic_state, weights=weights)
+        results.append(evaluate_context(case.evaluation_case(), context, deterministic=repeat_context(context, repeat)))
     return ContextBenchmarkResult(tuple(results), aggregate_evaluations(results))
 
 
-def validate_benchmark_inputs(
-    index: RepositoryIndex,
-    cases: Sequence[ContextBenchmarkCase],
-    source_by_path: Mapping[str, str],
-) -> None:
+def validate_benchmark_inputs(index: RepositoryIndex, cases: Sequence[ContextBenchmarkCase], source_by_path: Mapping[str, str]) -> None:
     """Reject invalid or sensitive ground-truth paths before benchmarking."""
-    validate_benchmark_corpus(cases)
     indexed = {item["path"] for item in index.files}
     for case in cases:
         ground_truth = case.relevant_paths | case.required_paths
@@ -155,10 +93,7 @@ def validate_benchmark_corpus(cases: Sequence[ContextBenchmarkCase]) -> None:
     if not cases:
         raise ValueError("benchmark corpus must not be empty")
     classes = {case.task_class for case in cases}
-    required_classes = {
-        "docs", "test", "bug_fix", "refactor", "api_boundary", "recovery", "concurrency",
-        "authority_sensitive", "m12_semantic", "security",
-    }
+    required_classes = {"docs", "test", "bug_fix", "refactor", "api_boundary", "recovery", "concurrency", "authority_sensitive", "m12_semantic", "security"}
     missing = required_classes - classes
     if missing:
         raise ValueError(f"benchmark corpus missing task classes: {sorted(missing)}")
