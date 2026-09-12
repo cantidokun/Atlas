@@ -30,15 +30,21 @@ def _router() -> ModelRouter:
         [
             ModelProfile(
                 tier=ModelTier.L0,
+                provider="test-provider",
                 model_id="test-l0",
-                capabilities=frozenset({"docs"}),
+                capability_floor=ModelTier.L0,
+                supported_task_classes=frozenset({"docs"}),
                 token_budget=1000,
+                timeout_s=30,
             ),
             ModelProfile(
                 tier=ModelTier.L1,
+                provider="test-provider",
                 model_id="test-l1",
-                capabilities=frozenset({"tests"}),
+                capability_floor=ModelTier.L1,
+                supported_task_classes=frozenset({"test"}),
                 token_budget=2000,
+                timeout_s=30,
             ),
         ]
     )
@@ -81,7 +87,7 @@ def test_router_failure_remains_fail_closed_while_context_is_preserved():
         query=RelevanceQuery.from_values(paths=["planning/target.py"]),
         source_by_path={"planning/target.py": "class Target: pass\n"},
         router=router,
-        task_classes=["tests"],
+        task_classes=["test"],
     )
 
     assert advice.decision.needs_human_review is True
