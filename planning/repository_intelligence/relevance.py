@@ -18,7 +18,6 @@ from typing import Iterable, Sequence
 
 from planning.repository_intelligence.index import RepositoryIndex, SymbolRecord
 
-
 @dataclass(frozen=True)
 class RelevanceWeights:
     """Frozen scoring weights for M13.2."""
@@ -32,7 +31,6 @@ class RelevanceWeights:
     content_match: int = 8
     lexical_match: int = 10
     same_directory: int = 5
-
 
 @dataclass(frozen=True)
 class RelevanceQuery:
@@ -49,13 +47,11 @@ class RelevanceQuery:
     def from_values(cls, *, text: str = "", paths: Iterable[str] = (), symbols: Iterable[str] = (), task_classes: Iterable[str] = (), contract_paths: Iterable[str] = (), test_paths: Iterable[str] = (), recent_paths: Iterable[str] = ()) -> "RelevanceQuery":
         return cls(text=text.strip() if isinstance(text, str) else "", paths=_normalized_tuple(paths), symbols=_normalized_tuple(symbols), task_classes=_normalized_tuple(task_classes), contract_paths=_normalized_tuple(contract_paths), test_paths=_normalized_tuple(test_paths), recent_paths=_normalized_tuple(recent_paths))
 
-
 @dataclass(frozen=True)
 class RelevanceExplanation:
     path: str
     score: int
     reasons: tuple[str, ...]
-
 
 @dataclass(frozen=True)
 class RelevanceResult:
@@ -68,9 +64,7 @@ class RelevanceResult:
             selected = selected[: max(0, limit)]
         return tuple(selected)
 
-
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
-
 
 def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weights: RelevanceWeights = RelevanceWeights()) -> RelevanceResult:
     """Rank every indexed file against a structured development query."""
@@ -112,13 +106,11 @@ def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weig
         if path in recent_paths:
             score += weights.recent_change
             reasons.append("recent_change")
-
         content_hits = _content_hits(file_record, lexical_terms)
         if content_hits:
             content_score = _content_match_score(file_record, lexical_terms, content_document_frequency, len(file_paths), weights.content_match)
             score += content_score
             reasons.append(f"content_match:{min(content_hits, 4)}")
-
         lexical_hits = _lexical_hits(path, file_record, index.symbols, lexical_terms)
         if lexical_hits:
             score += min(weights.lexical_match * lexical_hits, weights.lexical_match * 3)
@@ -133,15 +125,12 @@ def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weig
     explanations.sort(key=lambda item: (0 if item.path in explicit_paths else 1, 0 if item.path in direct_paths or item.path in symbol_paths else 1, 0 if "direct_dependency" in item.reasons else 1, -item.score, item.path, item.reasons))
     return RelevanceResult(query=query, explanations=tuple(explanations))
 
-
 def _normalized_tuple(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(sorted({value.strip().replace("\\", "/") for value in values if isinstance(value, str) and value.strip()}))
-
 
 def _symbol_paths(symbols: Sequence[SymbolRecord], requested: Sequence[str]) -> set[str]:
     wanted = set(requested)
     return {item.path for item in symbols if item.qualified_name in wanted or f"{item.path}:{item.qualified_name}" in wanted}
-
 
 def _dependency_map(index: RepositoryIndex) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
@@ -150,14 +139,12 @@ def _dependency_map(index: RepositoryIndex) -> dict[str, set[str]]:
             result.setdefault(item.path, set()).add(item.resolved_path)
     return result
 
-
 def _reverse_dependency_map(dependencies: dict[str, set[str]]) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     for source, targets in dependencies.items():
         for target in targets:
             result.setdefault(target, set()).add(source)
     return result
-
 
 def _is_associated_test(path: str, anchors: set[str]) -> bool:
     if not anchors or not path.lower().endswith(".py"):
@@ -171,7 +158,6 @@ def _is_associated_test(path: str, anchors: set[str]) -> bool:
             return True
     return False
 
-
 def _is_contract_associated(path: str, anchors: set[str]) -> bool:
     lowered = path.lower()
     contract_named = "contract" in lowered or "schema" in lowered or "protocol" in lowered
@@ -179,17 +165,14 @@ def _is_contract_associated(path: str, anchors: set[str]) -> bool:
         return False
     return any(_same_directory(path, anchor) for anchor in anchors)
 
-
 def _same_directory(left: str, right: str) -> bool:
     return left.rsplit("/", 1)[0] == right.rsplit("/", 1)[0]
 
-
 def _query_terms(query: RelevanceQuery) -> tuple[str, ...]:
+    """Extract semantic terms only; task classes are routing metadata, not content queries."""
     raw = list(_TOKEN_RE.findall(query.text.lower()))
     raw.extend(token.lower() for token in query.symbols)
-    raw.extend(token.lower() for token in query.task_classes)
     return tuple(sorted(set(raw)))
-
 
 def _content_hits(file_record: dict, terms: Sequence[str]) -> int:
     if not terms:
@@ -197,13 +180,8 @@ def _content_hits(file_record: dict, terms: Sequence[str]) -> int:
     content_terms = set(file_record.get("content_terms", ()))
     return sum(1 for term in terms if term in content_terms)
 
-
 def _content_document_frequency(index: RepositoryIndex, terms: Sequence[str]) -> dict[str, int]:
-    """Count how many indexed files contain each query term.
-
-    This is deterministic corpus-local IDF: rare terms receive more weight than
-    repository-generic words, without introducing embeddings or model calls.
-    """
+    """Count how many indexed files contain each query term."""
     wanted = set(terms)
     frequencies = {term: 0 for term in wanted}
     if not wanted:
@@ -213,7 +191,6 @@ def _content_document_frequency(index: RepositoryIndex, terms: Sequence[str]) ->
         for term in present:
             frequencies[term] += 1
     return frequencies
-
 
 def _content_match_score(file_record: dict, terms: Sequence[str], document_frequency: dict[str, int], document_count: int, weight: int) -> int:
     """Return a bounded deterministic content score using corpus rarity."""
@@ -228,7 +205,6 @@ def _content_match_score(file_record: dict, terms: Sequence[str], document_frequ
         multiplier = min(4, max(1, int(round(rarity))))
         score += weight * multiplier
     return min(score, weight * 12)
-
 
 def _lexical_hits(path: str, file_record: dict, symbols: Sequence[SymbolRecord], terms: Sequence[str]) -> int:
     if not terms:
