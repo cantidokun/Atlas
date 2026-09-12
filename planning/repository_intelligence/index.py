@@ -15,6 +15,7 @@ import hashlib
 import json
 import re
 import subprocess
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -118,8 +119,9 @@ def _decode_text(raw: bytes) -> str:
 def _content_terms(rel: str, text: str) -> tuple[str, ...]:
     if not text or _is_sensitive_path(rel):
         return ()
-    terms = {token.lower() for token in CONTENT_TOKEN_RE.findall(text) if len(token) >= 3 and token.lower() not in CONTENT_STOP_WORDS}
-    return tuple(sorted(terms)[:CONTENT_TERM_LIMIT])
+    counts = Counter(token.lower() for token in CONTENT_TOKEN_RE.findall(text) if len(token) >= 3 and token.lower() not in CONTENT_STOP_WORDS)
+    ranked = sorted(counts, key=lambda token: (-counts[token], token))
+    return tuple(ranked[:CONTENT_TERM_LIMIT])
 
 def _is_sensitive_path(rel: str) -> bool:
     path = Path(rel)
