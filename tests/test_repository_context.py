@@ -69,6 +69,35 @@ def test_structural_context_is_bounded_before_secondary_expansion(tmp_path):
     assert len([path for path in selected if path.startswith("planning/helper_")]) <= 6
 
 
+def test_architectural_context_precedes_generic_dependencies_under_budget_pressure(tmp_path):
+    (tmp_path / "planning").mkdir()
+    (tmp_path / "planning" / "target.py").write_text(
+        "from planning.helper_a import A\nfrom planning.helper_b import B\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "planning" / "helper_a.py").write_text("class A: pass\n", encoding="utf-8")
+    (tmp_path / "planning" / "helper_b.py").write_text("class B: pass\n", encoding="utf-8")
+    (tmp_path / "planning" / "unreal_execution_boundary.py").write_text(
+        "def execute():\n    return 'boundary'\n",
+        encoding="utf-8",
+    )
+    index = build_repository_index(tmp_path, include_git_history=False)
+    sources = {item["path"]: (tmp_path / item["path"]).read_text(encoding="utf-8") for item in index.files}
+    query = RelevanceQuery.from_values(
+        paths=["planning/target.py"],
+        text="Unreal execution boundary recovery",
+    )
+
+    package = compile_context(index, query, sources, max_context_chars=75, max_file_chars=40)
+
+    selected = [item.path for item in package.included]
+    assert selected[0] == "planning/target.py"
+    assert "planning/unreal_execution_boundary.py" in selected
+    boundary_index = selected.index("planning/unreal_execution_boundary.py")
+    dependency_indexes = [selected.index(path) for path in ("planning/helper_a.py", "planning/helper_b.py") if path in selected]
+    assert not dependency_indexes or boundary_index < min(dependency_indexes)
+
+
 def test_secondary_signal_coverage_precedes_remaining_ranked_context(tmp_path):
     (tmp_path / "planning").mkdir()
     (tmp_path / "docs").mkdir()
