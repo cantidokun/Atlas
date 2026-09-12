@@ -94,7 +94,7 @@ def test_documentation_roles_are_deterministic_and_narrow(tmp_path):
     (tmp_path / "planning").mkdir()
     (tmp_path / "planning" / "unreal_target.py").write_text("class UnrealTarget: pass\n", encoding="utf-8")
     index = build_repository_index(tmp_path, include_git_history=False)
-    query = RelevanceQuery.from_values(text="document Unreal autonomous executor execution boundary", paths=["planning/unreal_target.py"])
+    query = RelevanceQuery.from_values(text="document Unreal autonomous executor boundary", paths=["planning/unreal_target.py"])
     result = rank_repository_files(index, query)
     handoff = next(item for item in result.explanations if item.path == "UNREAL_AGENT_HANDOFF_CURRENT.md")
     readme = next(item for item in result.explanations if item.path == "README.md")
