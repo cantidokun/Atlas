@@ -30,8 +30,9 @@ def test_required_context_missing_has_highest_priority():
         false_negative=1,
         required_missing=1,
     )
-    assert diagnose_case(result).status == "required_context_missing"
-    assert diagnose_case(result).missing_required == ("a.py",)
+    diagnostic = diagnose_case(result)
+    assert diagnostic.status == "required_context_missing"
+    assert diagnostic.missing_required == ("a.py",)
 
 
 def test_non_determinism_is_reported_before_selection_quality():
@@ -46,5 +47,6 @@ def test_diagnostics_are_sorted_by_case_id():
 
 def test_complete_selection_with_truncation_is_distinguished():
     result = _result(truncated_files=1)
-    assert diagnose_case(result).status == "complete_selection_truncated"
-    assert diagnose_case(result).truncated_files == ()
+    diagnostic = diagnose_case(result)
+    assert diagnostic.status == "complete_selection_truncated"
+    assert diagnostic.truncated_files == 1
