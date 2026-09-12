@@ -31,6 +31,7 @@ class RelevanceWeights:
     content_match: int = 8
     lexical_match: int = 10
     same_directory: int = 5
+    documentation_role: int = 18
 
 @dataclass(frozen=True)
 class RelevanceQuery:
@@ -106,6 +107,9 @@ def rank_repository_files(index: RepositoryIndex, query: RelevanceQuery, *, weig
         if path in recent_paths:
             score += weights.recent_change
             reasons.append("recent_change")
+        if _is_documentation_role_associated(file_record, query, anchor_paths):
+            score += weights.documentation_role
+            reasons.append("documentation_role")
         content_hits = _content_hits(file_record, lexical_terms)
         if content_hits:
             content_score = _content_match_score(file_record, lexical_terms, content_document_frequency, len(file_paths), weights.content_match)
@@ -164,6 +168,26 @@ def _is_contract_associated(path: str, anchors: set[str]) -> bool:
     if not contract_named or not anchors:
         return False
     return any(_same_directory(path, anchor) for anchor in anchors)
+
+def _is_documentation_role_associated(file_record: dict, query: RelevanceQuery, anchors: set[str]) -> bool:
+    """Recognize high-value repository documents using narrow role signals."""
+    if file_record.get("kind") != "documentation":
+        return False
+    path = str(file_record.get("path", "")).lower()
+    name = path.rsplit("/", 1)[-1]
+    query_terms = set(_TOKEN_RE.findall(query.text.lower()))
+    domain_anchor = any(_domain_path(anchor) for anchor in anchors)
+    if name == "readme.md":
+        return bool({"document", "documentation", "boundary", "unreal"} & query_terms) and domain_anchor
+    if "handoff" in name:
+        return domain_anchor or bool({"handoff", "current", "state"} & query_terms)
+    if "execution_plan" in name or "execution-plan" in name:
+        return bool({"execution", "plan", "semantic"} & query_terms)
+    return False
+
+def _domain_path(path: str) -> bool:
+    lowered = path.lower()
+    return "unreal" in lowered or "/m12/" in lowered or lowered.startswith("planning/m12/")
 
 def _same_directory(left: str, right: str) -> bool:
     return left.rsplit("/", 1)[0] == right.rsplit("/", 1)[0]
