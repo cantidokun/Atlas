@@ -15,6 +15,7 @@ DEFAULT_MAX_CONTEXT_CHARS = 48_000
 DEFAULT_MAX_FILE_CHARS = 16_000
 DEFAULT_MIN_SCORE = 1
 SECONDARY_MIN_SCORE = 15
+STRUCTURAL_CANDIDATE_LIMIT = 6
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
@@ -48,7 +49,7 @@ class ContextPackage:
         return {
             "query": {"text": self.query.text, "paths": list(self.query.paths), "symbols": list(self.query.symbols), "task_classes": list(self.query.task_classes), "contract_paths": list(self.query.contract_paths), "test_paths": list(self.query.test_paths), "recent_paths": list(self.query.recent_paths)},
             "repository_fingerprint": self.repository_fingerprint,
-            "included": [{"path": item.path, "score": item.score, "reasons": list(item.reasons), "content": item.content, "truncated": item.truncated} for item in self.included],
+            "included": [{"path": item.path, "score": item.score, "reasons": list(item.reasons), "content": item.content, "truncated": item.truncated} for item in self.included},
             "excluded_paths": list(self.excluded_paths), "stable_instructions": self.stable_instructions, "dynamic_state": dict(self.dynamic_state), "fingerprint": self.fingerprint, "selection_fingerprint": self.selection_fingerprint, "max_context_chars": self.max_context_chars, "max_file_chars": self.max_file_chars,
         }
 
@@ -83,33 +84,29 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     # query rather than requiring the relevance ranker to emit an explanation.
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
     anchors = _explicit_anchor_explanations(anchor_paths, query, ranking.explanations, records)
-    structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
+
+    # Structural expansion is intentionally bounded. A highly-connected anchor
+    # must not crowd out independently relevant contracts, tests, handoffs, and
+    # semantic matches.
+    structural = _bounded_structural_candidates(ranking.explanations, anchor_paths)
     secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural and item.score >= max(minimum_score, SECONDARY_MIN_SCORE)]
     coverage = _coverage_candidates(secondary)
     coverage_paths = {item.path for item in coverage}
     secondary_remainder = [item for item in secondary if item.path not in coverage_paths]
     ordered_secondary = coverage + secondary_remainder
 
-    # Give each explicit anchor an equal slice first. This keeps a large source
-    # file from consuming the entire context window before another explicit
-    # contract/test/recent/path anchor is admitted.
     anchor_count = len(anchors)
     anchor_budget = remaining
     anchor_file_budget = max(1, anchor_budget // anchor_count) if anchor_count else 0
-    # Explicit anchors are admitted independently of relevance score. A zero
-    # score here means "explicitly selected", not "irrelevant".
     anchor_used = _append_context_files(anchors, anchor_budget, max_file_chars, 0, source_by_path, included, excluded, per_file_budget=anchor_file_budget)
     remaining -= anchor_used
 
-    # Structural expansion comes only after explicit anchors have been admitted.
     secondary_exists = bool(ordered_secondary)
     reserve = min(max(0, remaining - 1), int(remaining * SECONDARY_CONTEXT_RESERVE_RATIO)) if secondary_exists else 0
     priority_budget = remaining - reserve
     structural_used = _append_context_files(structural, priority_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
     remaining -= structural_used
 
-    # Keep the existing deterministic secondary coverage strategy, with a
-    # bounded per-candidate allocation so one file cannot monopolize coverage.
     secondary_budget = min(remaining, reserve + max(0, priority_budget - structural_used))
     coverage_budget = min(secondary_budget, max(1, int(secondary_budget * SECONDARY_COVERAGE_FILE_RATIO))) if coverage else 0
     coverage_slots = min(len(coverage), SECONDARY_COVERAGE_SIGNAL_SLOTS)
@@ -124,7 +121,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     excluded.update(path for path in source_by_path if path not in records)
     stable = stable_instructions
     dynamic = dict(dynamic_state or {})
-    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__, "secondary_min_score": SECONDARY_MIN_SCORE}
+    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__, "secondary_min_score": SECONDARY_MIN_SCORE, "structural_candidate_limit": STRUCTURAL_CANDIDATE_LIMIT}
     fingerprint = hashlib.sha256(json.dumps({"manifest": manifest, "stable_instructions": stable, "dynamic_state": dynamic, "content": [(item.path, item.content) for item in included]}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
 
@@ -183,6 +180,12 @@ def _explicit_anchor_explanations(anchor_paths: set[str], query: RelevanceQuery,
             explanation = RelevanceExplanation(path, 0, ("explicit_anchor",))
         materialized.append(explanation)
     return materialized
+
+
+def _bounded_structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[RelevanceExplanation]:
+    """Return a bounded deterministic set of direct-dependency candidates."""
+    candidates = [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
+    return candidates[:STRUCTURAL_CANDIDATE_LIMIT]
 
 
 def _coverage_candidates(explanations: list) -> list:
