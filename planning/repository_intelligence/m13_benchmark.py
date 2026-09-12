@@ -21,6 +21,7 @@ from typing import Mapping
 from planning.repository_intelligence.benchmark import ContextBenchmarkResult, curated_context_benchmark_cases, run_context_benchmark
 from planning.repository_intelligence.context import is_sensitive_context_path
 from planning.repository_intelligence.index import RepositoryIndex, build_repository_index
+from planning.repository_intelligence.m13_benchmark_diagnostics import diagnose_results
 
 
 def load_repository_sources(root: str | Path, index: RepositoryIndex) -> dict[str, str]:
@@ -58,6 +59,7 @@ def validate_source_snapshot(index: RepositoryIndex, root: str | Path, sources: 
 
 def benchmark_report(result: ContextBenchmarkResult, *, index: RepositoryIndex) -> dict:
     """Build a machine-readable report without embedding source contents."""
+    diagnostics = diagnose_results(result.cases)
     cases = []
     for item in result.cases:
         cases.append({
@@ -68,15 +70,17 @@ def benchmark_report(result: ContextBenchmarkResult, *, index: RepositoryIndex) 
             "true_positive": item.true_positive,
             "false_positive": item.false_positive,
             "false_negative": item.false_negative,
-            "required_missing": list(item.required_missing),
+            "required_missing": item.required_missing,
             "recall": item.recall,
             "precision": item.precision,
             "f1": item.f1,
             "budget_utilization": item.budget_utilization,
-            "truncated_files": list(item.truncated_files),
+            "truncated_files": item.truncated_files,
             "deterministic": item.deterministic,
+            "diagnostic": next(item_diag.status for item_diag in diagnostics if item_diag.case_id == item.case_id),
         })
     return {
+        "report_schema_version": 1,
         "benchmark": "M13.7",
         "development_only": True,
         "production_execution_invoked": False,
@@ -84,6 +88,18 @@ def benchmark_report(result: ContextBenchmarkResult, *, index: RepositoryIndex) 
         "index_fingerprint": index.fingerprint,
         "case_count": len(cases),
         "aggregate": result.aggregate,
+        "diagnostics": [
+            {
+                "case_id": item.case_id,
+                "status": item.status,
+                "missing_required": list(item.missing_required),
+                "missing_relevant": list(item.missing_relevant),
+                "extra_selected": list(item.extra_selected),
+                "truncated_files": list(item.truncated_files),
+                "deterministic": item.deterministic,
+            }
+            for item in diagnostics
+        ],
         "cases": cases,
     }
 
