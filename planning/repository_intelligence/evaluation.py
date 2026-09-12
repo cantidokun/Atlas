@@ -48,8 +48,15 @@ def evaluate_context(
     context: ContextPackage,
     *,
     baseline_context: ContextPackage | None = None,
+    deterministic: bool | None = None,
 ) -> ContextEvaluationResult:
-    """Score a compiled package against explicit ground truth."""
+    """Score a compiled package against explicit ground truth.
+
+    ``baseline_context`` is retained for compatibility as an explicit comparison
+    mechanism. New benchmark code should pass ``deterministic`` from
+    ``repeat_context`` so repeatability is tested with identical inputs rather than
+    by comparing unrelated runtime packages.
+    """
     selected = {item.path for item in context.included}
     relevant = set(case.relevant_paths)
     required = set(case.required_paths)
@@ -61,7 +68,8 @@ def evaluate_context(
     precision = tp / len(selected) if selected else (1.0 if not relevant else 0.0)
     f1 = (2 * precision * recall / (precision + recall)) if precision + recall else 0.0
     utilization = min(1.0, context.context_chars / max(1, context.max_context_chars))
-    deterministic = baseline_context is None or baseline_context.fingerprint == context.fingerprint
+    if deterministic is None:
+        deterministic = baseline_context is None or baseline_context.fingerprint == context.fingerprint
     return ContextEvaluationResult(
         case_id=case.case_id,
         selected_paths=tuple(sorted(selected)),
@@ -78,6 +86,11 @@ def evaluate_context(
         truncated_files=sum(1 for item in context.included if item.truncated),
         deterministic=deterministic,
     )
+
+
+def repeat_context(first: ContextPackage, second: ContextPackage) -> bool:
+    """Return whether two packages are byte-identical deterministic outputs."""
+    return first.fingerprint == second.fingerprint and first.to_json() == second.to_json()
 
 
 def aggregate_evaluations(results: Sequence[ContextEvaluationResult]) -> dict:
