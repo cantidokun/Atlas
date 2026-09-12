@@ -14,6 +14,7 @@ from planning.repository_intelligence.relevance import RelevanceQuery, Relevance
 DEFAULT_MAX_CONTEXT_CHARS = 48_000
 DEFAULT_MAX_FILE_CHARS = 16_000
 DEFAULT_MIN_SCORE = 1
+SECONDARY_MIN_SCORE = 15
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
@@ -80,11 +81,10 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
 
     # Explicit task inputs are protected anchors. Resolve them directly from the
     # query rather than requiring the relevance ranker to emit an explanation.
-    # This preserves explicit intent even when a relevance signal has zero weight.
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
     anchors = _explicit_anchor_explanations(anchor_paths, query, ranking.explanations, records)
     structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
-    secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural]
+    secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural and item.score >= max(minimum_score, SECONDARY_MIN_SCORE)]
     coverage = _coverage_candidates(secondary)
     coverage_paths = {item.path for item in coverage}
     secondary_remainder = [item for item in secondary if item.path not in coverage_paths]
@@ -114,9 +114,9 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     coverage_budget = min(secondary_budget, max(1, int(secondary_budget * SECONDARY_COVERAGE_FILE_RATIO))) if coverage else 0
     coverage_slots = min(len(coverage), SECONDARY_COVERAGE_SIGNAL_SLOTS)
     coverage_file_budget = max(1, coverage_budget // coverage_slots) if coverage_slots else 0
-    coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, minimum_score, source_by_path, included, excluded, per_file_budget=coverage_file_budget)
+    coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, max(minimum_score, SECONDARY_MIN_SCORE), source_by_path, included, excluded, per_file_budget=coverage_file_budget)
     secondary_remaining_budget = secondary_budget - coverage_used
-    secondary_used = coverage_used + _append_context_files(secondary_remainder, secondary_remaining_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
+    secondary_used = coverage_used + _append_context_files(secondary_remainder, secondary_remaining_budget, max_file_chars, max(minimum_score, SECONDARY_MIN_SCORE), source_by_path, included, excluded)
     remaining -= secondary_used
 
     selected = {item.path for item in included}
@@ -124,7 +124,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     excluded.update(path for path in source_by_path if path not in records)
     stable = stable_instructions
     dynamic = dict(dynamic_state or {})
-    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__}
+    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__, "secondary_min_score": SECONDARY_MIN_SCORE}
     fingerprint = hashlib.sha256(json.dumps({"manifest": manifest, "stable_instructions": stable, "dynamic_state": dynamic, "content": [(item.path, item.content) for item in included]}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
 
