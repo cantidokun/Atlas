@@ -141,7 +141,7 @@ def rank_repository_files(
         if lexical_hits:
             score += min(weights.lexical_match * lexical_hits, weights.lexical_match * 3)
             reasons.append(f"lexical_match:{min(lexical_hits, 3)}")
-        if anchor_paths and any(_same_directory(path, anchor) for anchor in anchor_paths if anchor != path):
+        if score > 0 and anchor_paths and any(_same_directory(path, anchor) for anchor in anchor_paths if anchor != path):
             score += weights.same_directory
             reasons.append("same_directory")
 
