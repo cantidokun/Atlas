@@ -9,7 +9,7 @@ from planning.repository_intelligence.benchmark import (
     validate_benchmark_corpus,
     validate_benchmark_inputs,
 )
-from planning.repository_intelligence.benchmark_diagnostics import (
+from planning.repository_intelligence.m13_benchmark_diagnostics import (
     ContextDiagnostic,
     diagnose_case,
     diagnose_results,
