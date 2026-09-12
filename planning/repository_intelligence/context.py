@@ -14,7 +14,6 @@ DEFAULT_MAX_CONTEXT_CHARS = 48_000
 DEFAULT_MAX_FILE_CHARS = 16_000
 DEFAULT_MIN_SCORE = 1
 SECONDARY_MIN_SCORE = 15
-STRUCTURAL_CANDIDATE_LIMIT = 6
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
@@ -68,7 +67,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     remaining = max_context_chars
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
     anchors = _explicit_anchor_explanations(anchor_paths, query, ranking.explanations, records)
-    structural = _bounded_structural_candidates(ranking.explanations, anchor_paths)
+    structural = _structural_candidates(ranking.explanations, anchor_paths)
     secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural and item.score >= max(minimum_score, SECONDARY_MIN_SCORE)]
     coverage = _coverage_candidates(secondary)
     coverage_paths = {item.path for item in coverage}
@@ -97,7 +96,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     excluded.update(path for path in source_by_path if path not in records)
     stable = stable_instructions
     dynamic = dict(dynamic_state or {})
-    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__, "secondary_min_score": SECONDARY_MIN_SCORE, "structural_candidate_limit": STRUCTURAL_CANDIDATE_LIMIT}
+    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__, "secondary_min_score": SECONDARY_MIN_SCORE}
     fingerprint = hashlib.sha256(json.dumps({"manifest": manifest, "stable_instructions": stable, "dynamic_state": dynamic, "content": [(item.path, item.content) for item in included]}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
 
@@ -141,9 +140,9 @@ def _explicit_anchor_explanations(anchor_paths: set[str], query: RelevanceQuery,
         materialized.append(explanation)
     return materialized
 
-def _bounded_structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[RelevanceExplanation]:
-    candidates = [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
-    return candidates[:STRUCTURAL_CANDIDATE_LIMIT]
+def _structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[RelevanceExplanation]:
+    """Return direct dependencies before weaker secondary context."""
+    return [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
 
 def _coverage_candidates(explanations: list) -> list:
     signal_order = ("reverse_dependency", "test_association", "contract_association", "recent_change", "content_match", "lexical_match", "same_directory")
