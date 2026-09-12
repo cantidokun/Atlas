@@ -181,7 +181,7 @@ def _architectural_role_matches(path: str, query: RelevanceQuery, anchors: set[s
     terms = set(_TOKEN_RE.findall(query.text.lower())) | set(query.symbols)
     matches: list[str] = []
     if "execution_boundary" in name or "execution-boundary" in name:
-        if {"recovery", "execution", "boundary"} & terms and any(_domain_path(a) for a in anchors):
+        if {"recovery", "execution", "boundary"} & terms and _domain_path(path) and any(_domain_path(a) for a in anchors):
             matches.append("execution_boundary")
     if "task_planner" in name or "task-planner" in name:
         if {"task", "planner", "planning", "authorization", "authority"} & terms and any(_planning_path(a) for a in anchors):
