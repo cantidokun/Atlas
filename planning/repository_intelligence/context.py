@@ -130,6 +130,7 @@ def _coverage_candidates(explanations: list) -> list:
         "test_association",
         "contract_association",
         "recent_change",
+        "content_match",
         "lexical_match",
         "same_directory",
     )
