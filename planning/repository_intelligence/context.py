@@ -78,11 +78,8 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     excluded: set[str] = set()
     remaining = max_context_chars
 
-    # Selection is staged so explicit intent is protected, structural context
-    # is expanded next, and secondary signals get a bounded coverage pass before
-    # ordinary score ordering fills the remaining budget. A secondary reserve
-    # prevents large high-priority files from consuming the entire budget before
-    # semantic/reverse/test/contract coverage can be represented.
+    # Explicit task inputs are protected anchors. Structural and secondary
+    # expansion must never displace an explicit path association.
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
     anchors = [item for item in ranking.explanations if item.path in anchor_paths]
     structural = [item for item in ranking.explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons]
@@ -90,17 +87,27 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     coverage = _coverage_candidates(secondary)
     coverage_paths = {item.path for item in coverage}
     secondary_remainder = [item for item in secondary if item.path not in coverage_paths]
-    ordered_priority = anchors + structural
     ordered_secondary = coverage + secondary_remainder
 
-    reserve = min(max(0, remaining - 1), int(max_context_chars * SECONDARY_CONTEXT_RESERVE_RATIO)) if ordered_secondary else 0
-    priority_budget = remaining - reserve
-    priority_used = _append_context_files(ordered_priority, priority_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
-    remaining -= priority_used
+    # Give each explicit anchor an equal slice first. This keeps a large source
+    # file from consuming the entire context window before another explicit
+    # contract/test/recent/path anchor is admitted.
+    anchor_count = len(anchors)
+    anchor_budget = remaining
+    anchor_file_budget = max(1, anchor_budget // anchor_count) if anchor_count else 0
+    anchor_used = _append_context_files(anchors, anchor_budget, max_file_chars, minimum_score, source_by_path, included, excluded, per_file_budget=anchor_file_budget)
+    remaining -= anchor_used
 
-    # Transfer unused priority budget to secondary only after the priority pass;
-    # the reserved amount itself is never consumed by priority context.
-    secondary_budget = min(remaining, reserve + max(0, priority_budget - priority_used))
+    # Structural expansion comes only after explicit anchors have been admitted.
+    secondary_exists = bool(ordered_secondary)
+    reserve = min(max(0, remaining - 1), int(remaining * SECONDARY_CONTEXT_RESERVE_RATIO)) if secondary_exists else 0
+    priority_budget = remaining - reserve
+    structural_used = _append_context_files(structural, priority_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
+    remaining -= structural_used
+
+    # Keep the existing deterministic secondary coverage strategy, with a
+    # bounded per-candidate allocation so one file cannot monopolize coverage.
+    secondary_budget = min(remaining, reserve + max(0, priority_budget - structural_used))
     coverage_budget = min(secondary_budget, max(1, int(secondary_budget * SECONDARY_COVERAGE_FILE_RATIO))) if coverage else 0
     coverage_slots = min(len(coverage), SECONDARY_COVERAGE_SIGNAL_SLOTS)
     coverage_file_budget = max(1, coverage_budget // coverage_slots) if coverage_slots else 0
@@ -156,15 +163,7 @@ def _explicit_anchor_paths(explanations: tuple, query: RelevanceQuery) -> set[st
 
 def _coverage_candidates(explanations: list) -> list:
     """Select bounded deterministic representatives for each secondary signal."""
-    signal_order = (
-        "reverse_dependency",
-        "test_association",
-        "contract_association",
-        "recent_change",
-        "content_match",
-        "lexical_match",
-        "same_directory",
-    )
+    signal_order = ("reverse_dependency", "test_association", "contract_association", "recent_change", "content_match", "lexical_match", "same_directory")
     selected: list = []
     selected_paths: set[str] = set()
     for signal in signal_order:
