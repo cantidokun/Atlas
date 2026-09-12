@@ -9,6 +9,11 @@ from planning.repository_intelligence.benchmark import (
     validate_benchmark_corpus,
     validate_benchmark_inputs,
 )
+from planning.repository_intelligence.benchmark_diagnostics import (
+    ContextDiagnostic,
+    diagnose_case,
+    diagnose_results,
+)
 from planning.repository_intelligence.context import ContextFile, ContextPackage, compile_context, is_sensitive_context_path
 from planning.repository_intelligence.evaluation import (
     ContextEvaluationCase,
@@ -34,11 +39,11 @@ from planning.repository_intelligence.relevance import (
 )
 
 __all__ = [
-    "ContextBenchmarkCase", "ContextBenchmarkResult", "ContextEvaluationCase", "ContextEvaluationResult",
+    "ContextBenchmarkCase", "ContextBenchmarkResult", "ContextDiagnostic", "ContextEvaluationCase", "ContextEvaluationResult",
     "ContextFile", "ContextPackage", "ContextRoutingAdvice", "GitHistory", "ImportRecord",
     "RelevanceExplanation", "RelevanceQuery", "RelevanceResult", "RelevanceWeights", "RepositoryIndex",
     "SymbolRecord", "advise_context_route", "aggregate_evaluations", "build_repository_index",
-    "compile_benchmark_context", "compile_context", "curated_context_benchmark_cases", "evaluate_context",
-    "is_sensitive_context_path", "rank_repository_files", "repeat_context", "run_context_benchmark",
-    "validate_benchmark_corpus", "validate_benchmark_inputs",
+    "compile_benchmark_context", "compile_context", "curated_context_benchmark_cases", "diagnose_case",
+    "diagnose_results", "evaluate_context", "is_sensitive_context_path", "rank_repository_files",
+    "repeat_context", "run_context_benchmark", "validate_benchmark_corpus", "validate_benchmark_inputs",
 ]
