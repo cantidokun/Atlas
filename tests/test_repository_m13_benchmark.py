@@ -1,7 +1,9 @@
+from hashlib import sha256
+
 from planning.repository_intelligence.benchmark import ContextBenchmarkResult
 from planning.repository_intelligence.evaluation import ContextEvaluationResult
 from planning.repository_intelligence.index import GitHistory, RepositoryIndex
-from planning.repository_intelligence.m13_benchmark import benchmark_report, load_repository_sources
+from planning.repository_intelligence.m13_benchmark import benchmark_report, load_repository_sources, validate_source_snapshot
 
 
 def _index(*paths: str) -> RepositoryIndex:
@@ -57,3 +59,24 @@ def test_benchmark_report_contains_metrics_but_not_source_content():
     assert report["case_count"] == 1
     assert report["cases"][0]["required_missing"] == []
     assert "content" not in report["cases"][0]
+
+
+def test_validate_source_snapshot_rejects_changed_source(tmp_path):
+    (tmp_path / "context.py").write_text("safe = True\n", encoding="utf-8")
+    source = "safe = False\n"
+    digest = sha256(source.encode("utf-8")).hexdigest()
+    index = RepositoryIndex(
+        ".",
+        ({"path": "context.py", "sha256": digest},),
+        (),
+        (),
+        GitHistory(None, ()),
+        "fingerprint",
+    )
+
+    try:
+        validate_source_snapshot(index, tmp_path, {"context.py": source})
+    except ValueError as exc:
+        assert str(exc) == "source changed after indexing: context.py"
+    else:
+        raise AssertionError("changed source must be rejected")
