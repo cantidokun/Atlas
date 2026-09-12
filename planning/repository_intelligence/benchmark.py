@@ -1,10 +1,4 @@
-"""Curated deterministic benchmark corpus for Atlas repository context selection.
-
-This module is development tooling only. Ground truth is explicitly authored by
-humans rather than inferred from models, execution results, or repository writes.
-The benchmark compiles context from an explicit source mapping and evaluates it
-with objective metrics; it does not invoke model providers or production authority paths.
-"""
+"""Curated deterministic benchmark corpus for Atlas repository context selection."""
 
 from __future__ import annotations
 
@@ -19,7 +13,6 @@ from planning.repository_intelligence.relevance import RelevanceQuery, Relevance
 
 @dataclass(frozen=True)
 class ContextBenchmarkCase:
-    """One curated Atlas development task with explicit context ground truth."""
     case_id: str
     task_class: str
     description: str
@@ -47,20 +40,20 @@ class ContextBenchmarkCase:
 
 @dataclass(frozen=True)
 class ContextBenchmarkResult:
-    """Objective result bundle for one benchmark corpus run."""
     cases: tuple[ContextEvaluationResult, ...]
     aggregate: dict
 
 
 def compile_benchmark_context(index: RepositoryIndex, case: ContextBenchmarkCase, source_by_path: Mapping[str, str], *, stable_instructions: str = "", dynamic_state: Mapping[str, object] | None = None, weights: RelevanceWeights = RelevanceWeights()) -> ContextPackage:
-    """Compile one benchmark case with its declared limits and query."""
     return compile_context(index, case.query, source_by_path, stable_instructions=stable_instructions, dynamic_state=dynamic_state, max_context_chars=case.max_context_chars, max_file_chars=case.max_file_chars, weights=weights)
 
 
 def run_context_benchmark(index: RepositoryIndex, cases: Sequence[ContextBenchmarkCase], source_by_path: Mapping[str, str], *, stable_instructions: str = "", dynamic_state: Mapping[str, object] | None = None, weights: RelevanceWeights = RelevanceWeights()) -> ContextBenchmarkResult:
     """Compile and evaluate every curated case without model or runtime calls."""
-    validate_benchmark_corpus(cases)
+    # Input safety/ground-truth validation comes first so malformed isolated
+    # cases fail for their concrete defect before corpus-wide coverage checks.
     validate_benchmark_inputs(index, cases, source_by_path)
+    validate_benchmark_corpus(cases)
     results: list[ContextEvaluationResult] = []
     for case in cases:
         context = compile_benchmark_context(index, case, source_by_path, stable_instructions=stable_instructions, dynamic_state=dynamic_state, weights=weights)
@@ -70,7 +63,6 @@ def run_context_benchmark(index: RepositoryIndex, cases: Sequence[ContextBenchma
 
 
 def validate_benchmark_inputs(index: RepositoryIndex, cases: Sequence[ContextBenchmarkCase], source_by_path: Mapping[str, str]) -> None:
-    """Reject invalid or sensitive ground-truth paths before benchmarking."""
     indexed = {item["path"] for item in index.files}
     for case in cases:
         ground_truth = case.relevant_paths | case.required_paths
@@ -86,7 +78,6 @@ def validate_benchmark_inputs(index: RepositoryIndex, cases: Sequence[ContextBen
 
 
 def validate_benchmark_corpus(cases: Sequence[ContextBenchmarkCase]) -> None:
-    """Validate corpus-level uniqueness and useful task-class coverage."""
     ids = [case.case_id for case in cases]
     if len(ids) != len(set(ids)):
         raise ValueError("benchmark case IDs must be unique")
@@ -100,7 +91,6 @@ def validate_benchmark_corpus(cases: Sequence[ContextBenchmarkCase]) -> None:
 
 
 def curated_context_benchmark_cases() -> tuple[ContextBenchmarkCase, ...]:
-    """Return the initial curated Atlas context-quality corpus."""
     cases = (
         ContextBenchmarkCase("docs-runtime-boundary", "docs", "Update documentation describing the autonomous Unreal execution boundary.", RelevanceQuery.from_values(text="document Unreal autonomous executor execution boundary", paths=["planning/unreal_autonomous_executor.py", "planning/unreal_execution_boundary.py"], task_classes=["docs"]), frozenset({"planning/unreal_autonomous_executor.py", "planning/unreal_execution_boundary.py", "README.md", "UNREAL_AGENT_HANDOFF_CURRENT.md"}), frozenset({"planning/unreal_autonomous_executor.py", "planning/unreal_execution_boundary.py"})),
         ContextBenchmarkCase("test-relevance-engine", "test", "Add unit coverage for deterministic repository relevance scoring.", RelevanceQuery.from_values(text="test deterministic repository relevance scoring", paths=["planning/repository_intelligence/relevance.py"], symbols=["rank_repository_files"], task_classes=["test"], test_paths=["tests/test_repository_relevance.py"]), frozenset({"planning/repository_intelligence/relevance.py", "planning/repository_intelligence/index.py", "tests/test_repository_relevance.py"}), frozenset({"planning/repository_intelligence/relevance.py", "tests/test_repository_relevance.py"})),
