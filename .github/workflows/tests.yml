@@ -39,7 +39,7 @@ jobs:
           report = json.loads(Path('/tmp/m13.7-benchmark.json').read_text(encoding='utf-8'))
           aggregate = report['aggregate']
           print('M13.7 benchmark aggregate:')
-          for key in ('case_count', 'precision', 'recall', 'f1', 'avg_budget_utilization', 'required_missing', 'truncated_files'):
+          for key in ('cases', 'precision', 'recall', 'f1', 'avg_budget_utilization', 'required_missing', 'truncated_files'):
               print(f'{key}={aggregate[key]}')
           print(f"deterministic={all(item['deterministic'] for item in report['cases'])}")
           print(f"production_execution_invoked={report['production_execution_invoked']}")
