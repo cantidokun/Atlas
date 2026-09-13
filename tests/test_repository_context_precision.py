@@ -26,6 +26,21 @@ def test_token_aware_secondary_order_skips_missing_or_empty_sources():
     assert [item.path for item in ordered] == ["docs/usable.md"]
 
 
+def test_token_aware_secondary_order_prefers_complete_fit_when_budget_is_tight():
+    explanations = [
+        RelevanceExplanation("docs/long.md", 100, ("content_match:1",)),
+        RelevanceExplanation("docs/short.md", 60, ("content_match:1",)),
+        RelevanceExplanation("docs/tiny.md", 40, ("content_match:1",)),
+    ]
+    sources = {
+        "docs/long.md": "x" * 80,
+        "docs/short.md": "x" * 50,
+        "docs/tiny.md": "x" * 20,
+    }
+    ordered = _token_aware_secondary_order(explanations, sources, 100, budget=70)
+    assert [item.path for item in ordered] == ["docs/tiny.md", "docs/short.md", "docs/long.md"]
+
+
 def test_token_aware_secondary_context_keeps_explicit_anchor(tmp_path):
     (tmp_path / "planning").mkdir()
     (tmp_path / "docs").mkdir()
