@@ -139,7 +139,7 @@ def _coverage_candidates(explanations: list) -> list:
     selected: list = []
     selected_paths: set[str] = set()
     for signal in signal_order:
-        candidates = [item for item in explanations if signal in item.reasons or (signal == "architectural_role" and any(reason.startswith("architectural_role:") for reason in item.reasons)) if item.path not in selected_paths]
+        candidates = [item for item in explanations if any(reason == signal or reason.startswith(signal + ":") for reason in item.reasons) and item.path not in selected_paths]
         for candidate in candidates[:SECONDARY_COVERAGE_PER_SIGNAL]:
             selected.append(candidate); selected_paths.add(candidate.path)
     return selected
