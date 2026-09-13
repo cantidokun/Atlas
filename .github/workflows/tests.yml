@@ -28,3 +28,20 @@ jobs:
 
       - name: Run offline test suite
         run: python -m pytest -q -m "not integration"
+
+      - name: Run M13.7 repository benchmark
+        if: matrix.python-version == '3.11'
+        run: |
+          python -m planning.repository_intelligence.m13_benchmark . --output /tmp/m13.7-benchmark.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('/tmp/m13.7-benchmark.json').read_text(encoding='utf-8'))
+          aggregate = report['aggregate']
+          print('M13.7 benchmark aggregate:')
+          for key in ('case_count', 'precision', 'recall', 'f1', 'avg_budget_utilization', 'required_missing', 'truncated_files'):
+              print(f'{key}={aggregate[key]}')
+          print(f"deterministic={all(item['deterministic'] for item in report['cases'])}")
+          print(f"production_execution_invoked={report['production_execution_invoked']}")
+          print(f"model_provider_invoked={report['model_provider_invoked']}")
+          PY
