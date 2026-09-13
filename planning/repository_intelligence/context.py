@@ -17,7 +17,7 @@ DEFAULT_MIN_SCORE = 1
 SECONDARY_MIN_SCORE = 15
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
-SECONDARY_COVERAGE_PER_SIGNAL = 2
+SECONDARY_COVERAGE_PER_SIGNAL = 1
 SECONDARY_COVERAGE_FILE_RATIO = 0.5
 SECONDARY_COVERAGE_SIGNAL_SLOTS = 8
 SECONDARY_SNIPPET_CONTEXT_LINES = 1
@@ -171,11 +171,9 @@ def _token_aware_secondary_order(explanations: list, source_by_path: Mapping[str
         if cost <= 0: continue
         utility = item.score + sum(1 for reason in item.reasons if reason.startswith(("architectural_role:", "documentation_role:")))
         candidates.append((utility, cost, item.path, item))
-
     if budget is None:
         candidates.sort(key=lambda value: (-value[0] / value[1], -value[0], value[1], value[2]))
         return [value[3] for value in candidates]
-
     remaining = budget
     ordered = []
     pending = list(candidates)
