@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import re
 from typing import Mapping
 
 from planning.repository_intelligence.index import RepositoryIndex
@@ -19,6 +20,9 @@ SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
 SECONDARY_COVERAGE_FILE_RATIO = 0.5
 SECONDARY_COVERAGE_SIGNAL_SLOTS = 8
+SECONDARY_SNIPPET_CONTEXT_LINES = 1
+SECONDARY_SNIPPET_HEADER_LINES = 3
+_CONTENT_TERM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
 
 @dataclass(frozen=True)
 class ContextFile:
@@ -84,7 +88,12 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     if remaining > 0:
         coverage_paths = {candidate.path for candidate in coverage}
         remainder = [item for item in secondary if item.path not in coverage_paths]
-        _append_context_files(_token_aware_secondary_order(remainder, source_by_path, max_file_chars, budget=remaining), remaining, max_file_chars, SECONDARY_MIN_SCORE, source_by_path, included, excluded)
+        optimized_sources = {
+            item.path: _secondary_context_source(item, query, source_by_path[item.path], min(max_file_chars, remaining))
+            for item in remainder
+            if item.path in source_by_path and isinstance(source_by_path[item.path], str)
+        }
+        _append_context_files(_token_aware_secondary_order(remainder, optimized_sources, max_file_chars, budget=remaining), remaining, max_file_chars, SECONDARY_MIN_SCORE, optimized_sources, included, excluded)
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
     excluded.update(path for path in source_by_path if path not in records)
@@ -183,6 +192,39 @@ def _token_aware_secondary_order(explanations: list, source_by_path: Mapping[str
             remaining = 0
             break
     return ordered
+
+def _secondary_context_source(explanation: RelevanceExplanation, query: RelevanceQuery, source: str, limit: int) -> str:
+    """Extract high-information lines for a secondary file under a tight budget.
+
+    This is deliberately deterministic and conservative: matching lines are retained
+    with one line of local context, plus a short file header. Explicit anchors and
+    structural candidates never pass through this optimizer.
+    """
+    if not source or limit <= 0 or len(source) <= limit:
+        return source
+    lines = source.splitlines(keepends=True)
+    if len(lines) <= SECONDARY_SNIPPET_HEADER_LINES:
+        return _bounded_source(source, limit)[0]
+    terms = set(_CONTENT_TERM_RE.findall(query.text.lower()))
+    for value in query.symbols:
+        terms.update(_CONTENT_TERM_RE.findall(value.lower()))
+    if not terms:
+        return _bounded_source(source, limit)[0]
+    matched: set[int] = set()
+    for index, line in enumerate(lines):
+        line_terms = set(_CONTENT_TERM_RE.findall(line.lower()))
+        if terms & line_terms:
+            matched.update(range(max(0, index - SECONDARY_SNIPPET_CONTEXT_LINES), min(len(lines), index + SECONDARY_SNIPPET_CONTEXT_LINES + 1)))
+    if not matched:
+        return _bounded_source(source, limit)[0]
+    selected = set(range(min(SECONDARY_SNIPPET_HEADER_LINES, len(lines)))) | matched
+    candidate = "".join(lines[index] for index in sorted(selected))
+    if len(candidate) <= limit:
+        return candidate
+    matched_only = "".join(lines[index] for index in sorted(matched))
+    if len(matched_only) <= limit:
+        return matched_only
+    return _bounded_source(matched_only, limit)[0]
 
 def _bounded_source(source: str, limit: int) -> tuple[str, bool]:
     if limit <= 0: return "", bool(source)
