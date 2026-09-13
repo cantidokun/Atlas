@@ -82,8 +82,9 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     secondary_used = coverage_used
     remaining -= secondary_used
     if remaining > 0:
-        remainder = [item for item in secondary if item.path not in {candidate.path for candidate in coverage}]
-        _append_context_files(_token_aware_secondary_order(remainder, source_by_path, max_file_chars), remaining, max_file_chars, SECONDARY_MIN_SCORE, source_by_path, included, excluded)
+        coverage_paths = {candidate.path for candidate in coverage}
+        remainder = [item for item in secondary if item.path not in coverage_paths]
+        _append_context_files(_token_aware_secondary_order(remainder, source_by_path, max_file_chars, budget=remaining), remaining, max_file_chars, SECONDARY_MIN_SCORE, source_by_path, included, excluded)
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
     excluded.update(path for path in source_by_path if path not in records)
@@ -146,18 +147,42 @@ def _coverage_candidates(explanations: list) -> list:
             selected.append(candidate); selected_paths.add(candidate.path)
     return selected
 
-def _token_aware_secondary_order(explanations: list, source_by_path: Mapping[str, str], max_file_chars: int) -> list:
-    """Rank secondary files by deterministic relevance gained per bounded context character."""
-    ranked = []
+def _token_aware_secondary_order(explanations: list, source_by_path: Mapping[str, str], max_file_chars: int, *, budget: int | None = None) -> list:
+    """Rank secondary files by deterministic relevance per bounded context character.
+
+    When a budget is supplied, prefer candidates that fit completely in the remaining
+    budget before considering candidates that would have to be truncated. This keeps
+    the token-aware stage from spending the tail of the budget on a partial file when
+    a complete, useful file would fit.
+    """
+    candidates = []
     for item in explanations:
         source = source_by_path.get(item.path, "")
         cost = min(max_file_chars, len(source)) if isinstance(source, str) else 0
         if cost <= 0: continue
-        reason_bonus = sum(1 for reason in item.reasons if reason.startswith(("architectural_role:", "documentation_role:")))
-        utility = item.score + reason_bonus
-        ranked.append((-(utility / cost), -utility, cost, item.path, item))
-    ranked.sort(key=lambda value: value[:4])
-    return [value[4] for value in ranked]
+        utility = item.score + sum(1 for reason in item.reasons if reason.startswith(("architectural_role:", "documentation_role:")))
+        candidates.append((utility, cost, item.path, item))
+
+    if budget is None:
+        candidates.sort(key=lambda value: (-value[0] / value[1], -value[0], value[1], value[2]))
+        return [value[3] for value in candidates]
+
+    remaining = budget
+    ordered = []
+    pending = list(candidates)
+    while pending:
+        fitting = [value for value in pending if value[1] <= remaining]
+        pool = fitting if fitting else pending
+        pool.sort(key=lambda value: (-value[0] / value[1], -value[0], value[1], value[2]))
+        chosen = pool[0]
+        ordered.append(chosen[3])
+        pending.remove(chosen)
+        if chosen[1] <= remaining:
+            remaining -= chosen[1]
+        else:
+            remaining = 0
+            break
+    return ordered
 
 def _bounded_source(source: str, limit: int) -> tuple[str, bool]:
     if limit <= 0: return "", bool(source)
