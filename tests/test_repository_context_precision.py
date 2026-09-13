@@ -11,8 +11,8 @@ def test_token_aware_secondary_order_prefers_relevance_per_context_character():
 
 
 def test_token_aware_secondary_order_is_deterministic_for_equal_utility():
-    explanations = [RelevanceExplanation("docs/b.md", 20, ("content_match:1",)), RelevanceExplanation("docs/a.md", 10, ("content_match:1",))]
-    sources = {"docs/a.md": "x" * 10, "docs/b.md": "x" * 20}
+    explanations = [RelevanceExplanation("docs/b.md", 10, ("content_match:1",)), RelevanceExplanation("docs/a.md", 10, ("content_match:1",))]
+    sources = {"docs/a.md": "x" * 10, "docs/b.md": "x" * 10}
     first = _token_aware_secondary_order(explanations, sources, 100)
     second = _token_aware_secondary_order(list(reversed(explanations)), sources, 100)
     assert [item.path for item in first] == ["docs/a.md", "docs/b.md"]
