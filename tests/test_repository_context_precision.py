@@ -45,10 +45,6 @@ def test_token_aware_secondary_order_skips_missing_or_empty_sources():
     assert [item.path for item in ordered] == ["docs/usable.md"]
 
 
-def test_token_aware_secondary_context_keeps_explicit_anchor():
-    (tmp_path := __import__("pathlib").Path("."))
-
-
 def test_token_aware_secondary_order_does_not_change_anchor_selection(tmp_path):
     (tmp_path / "planning").mkdir()
     (tmp_path / "docs").mkdir()
