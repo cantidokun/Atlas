@@ -1,5 +1,5 @@
 from planning.repository_intelligence import build_repository_index
-from planning.repository_intelligence.context import _token_aware_secondary_order, compile_context
+from planning.repository_intelligence.context import _secondary_context_source, _token_aware_secondary_order, compile_context
 from planning.repository_intelligence.relevance import RelevanceExplanation, RelevanceQuery
 
 
@@ -39,6 +39,28 @@ def test_token_aware_secondary_order_prefers_complete_fit_when_budget_is_tight()
     }
     ordered = _token_aware_secondary_order(explanations, sources, 100, budget=70)
     assert [item.path for item in ordered] == ["docs/tiny.md", "docs/short.md", "docs/long.md"]
+
+
+def test_secondary_context_source_keeps_query_match_and_local_context():
+    explanation = RelevanceExplanation("docs/context.md", 20, ("content_match:1",))
+    query = RelevanceQuery.from_values(text="recovery boundary")
+    source = "header one\nheader two\nheader three\nnoise before\nrecovery boundary found here\nnoise after\n" + "filler\n" * 20
+    snippet = _secondary_context_source(explanation, query, source, 90)
+    assert "header one" in snippet
+    assert "recovery boundary found here" in snippet
+    assert "noise before" in snippet
+    assert "noise after" in snippet
+    assert len(snippet) <= 90
+
+
+def test_secondary_context_source_is_deterministic_and_falls_back_without_matches():
+    explanation = RelevanceExplanation("docs/context.md", 20, ("content_match:1",))
+    query = RelevanceQuery.from_values(text="not-present")
+    source = "first line\nsecond line\nthird line\n" + "filler\n" * 20
+    first = _secondary_context_source(explanation, query, source, 40)
+    second = _secondary_context_source(explanation, query, source, 40)
+    assert first == second
+    assert len(first) <= 40
 
 
 def test_token_aware_secondary_context_keeps_explicit_anchor(tmp_path):
