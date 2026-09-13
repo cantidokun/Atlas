@@ -19,6 +19,7 @@ SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
 SECONDARY_COVERAGE_FILE_RATIO = 0.5
 SECONDARY_COVERAGE_SIGNAL_SLOTS = 8
+SECONDARY_CANDIDATE_LIMIT = 12
 
 @dataclass(frozen=True)
 class ContextFile:
@@ -81,6 +82,10 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, minimum_score, source_by_path, included, excluded, per_file_budget=coverage_file_budget)
     secondary_used = coverage_used
     remaining -= secondary_used
+    if remaining > 0:
+        remainder = [item for item in secondary if item.path not in {candidate.path for candidate in coverage}]
+        remainder_budget = remaining
+        _append_context_files(_token_aware_secondary_order(remainder), remainder_budget, max_file_chars, SECONDARY_MIN_SCORE, source_by_path, included, excluded)
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
     excluded.update(path for path in source_by_path if path not in records)
@@ -143,6 +148,18 @@ def _coverage_candidates(explanations: list) -> list:
         for candidate in candidates[:SECONDARY_COVERAGE_PER_SIGNAL]:
             selected.append(candidate); selected_paths.add(candidate.path)
     return selected
+
+def _token_aware_secondary_order(explanations: list) -> list:
+    """Prefer high relevance density and complete smaller files over broad low-value context."""
+    ranked = []
+    for item in explanations:
+        reason_count = len(item.reasons)
+        structural_bonus = 2 if any(reason.startswith("architectural_role:") for reason in item.reasons) else 0
+        documentation_bonus = 1 if any(reason.startswith("documentation_role") for reason in item.reasons) else 0
+        density = item.score / max(1, reason_count)
+        ranked.append((-(item.score + structural_bonus + documentation_bonus), -density, item.path, item))
+    ranked.sort(key=lambda value: value[:3])
+    return [value[3] for value in ranked[:SECONDARY_CANDIDATE_LIMIT]]
 
 def _bounded_source(source: str, limit: int) -> tuple[str, bool]:
     if limit <= 0: return "", bool(source)
