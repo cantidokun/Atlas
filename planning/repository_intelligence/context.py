@@ -19,7 +19,6 @@ SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 2
 SECONDARY_COVERAGE_FILE_RATIO = 0.5
 SECONDARY_COVERAGE_SIGNAL_SLOTS = 8
-SECONDARY_CANDIDATE_LIMIT = 12
 
 @dataclass(frozen=True)
 class ContextFile:
@@ -84,8 +83,7 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     remaining -= secondary_used
     if remaining > 0:
         remainder = [item for item in secondary if item.path not in {candidate.path for candidate in coverage}]
-        remainder_budget = remaining
-        _append_context_files(_token_aware_secondary_order(remainder), remainder_budget, max_file_chars, SECONDARY_MIN_SCORE, source_by_path, included, excluded)
+        _append_context_files(_token_aware_secondary_order(remainder, source_by_path, max_file_chars), remaining, max_file_chars, SECONDARY_MIN_SCORE, source_by_path, included, excluded)
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
     excluded.update(path for path in source_by_path if path not in records)
@@ -134,7 +132,6 @@ def _explicit_anchor_explanations(anchor_paths: set[str], query: RelevanceQuery,
     return materialized
 
 def _structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[RelevanceExplanation]:
-    """Place explicit architectural boundaries before generic dependency expansion."""
     architectural = [item for item in explanations if item.path not in anchor_paths and any(reason.startswith("architectural_role:") for reason in item.reasons)]
     dependencies = [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons and item not in architectural]
     return architectural + dependencies
@@ -149,17 +146,18 @@ def _coverage_candidates(explanations: list) -> list:
             selected.append(candidate); selected_paths.add(candidate.path)
     return selected
 
-def _token_aware_secondary_order(explanations: list) -> list:
-    """Prefer high relevance density and complete smaller files over broad low-value context."""
+def _token_aware_secondary_order(explanations: list, source_by_path: Mapping[str, str], max_file_chars: int) -> list:
+    """Rank secondary files by deterministic relevance gained per bounded context character."""
     ranked = []
     for item in explanations:
-        reason_count = len(item.reasons)
-        structural_bonus = 2 if any(reason.startswith("architectural_role:") for reason in item.reasons) else 0
-        documentation_bonus = 1 if any(reason.startswith("documentation_role") for reason in item.reasons) else 0
-        density = item.score / max(1, reason_count)
-        ranked.append((-(item.score + structural_bonus + documentation_bonus), -density, item.path, item))
-    ranked.sort(key=lambda value: value[:3])
-    return [value[3] for value in ranked[:SECONDARY_CANDIDATE_LIMIT]]
+        source = source_by_path.get(item.path, "")
+        cost = min(max_file_chars, len(source)) if isinstance(source, str) else 0
+        if cost <= 0: continue
+        reason_bonus = sum(1 for reason in item.reasons if reason.startswith(("architectural_role:", "documentation_role:")))
+        utility = item.score + reason_bonus
+        ranked.append((-(utility / cost), -utility, cost, item.path, item))
+    ranked.sort(key=lambda value: value[:4])
+    return [value[4] for value in ranked]
 
 def _bounded_source(source: str, limit: int) -> tuple[str, bool]:
     if limit <= 0: return "", bool(source)
