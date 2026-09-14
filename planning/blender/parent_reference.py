@@ -32,7 +32,7 @@ class ParentReferenceError(CorrectionPlannerError):
         self.failure_code = failure_code
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ParentPresentedWork:
     correction_id: str
     plan_id: str
@@ -41,7 +41,7 @@ class ParentPresentedWork:
     expected_parent_id: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ParentAuthorizationVerdict:
     verified: bool
     outcome: str
@@ -74,6 +74,10 @@ def _find_object(scene_model: Any, object_id: str) -> Any:
     return matches[0]
 
 
+def _object_identity(obj: Any) -> Any:
+    return _get(obj, "object_id", _get(obj, "id"))
+
+
 def _parent_id(obj: Any) -> Optional[str]:
     value = _get(obj, "parent_id", _get(obj, "parent"))
     if value is None:
@@ -92,6 +96,29 @@ def _non_parent_projection(obj: Any) -> Any:
         if hasattr(obj, name):
             result[name] = getattr(obj, name)
     return result
+
+
+def _full_object_projection(obj: Any) -> Any:
+    if isinstance(obj, Mapping):
+        return dict(obj)
+    result = {}
+    for name in ("object_id", "id", "name", "mesh_id", "transform", "location", "rotation", "scale", "children", "data", "parent_id", "parent"):
+        if hasattr(obj, name):
+            result[name] = getattr(obj, name)
+    return result
+
+
+def _scene_identity_snapshot(scene_model: Any) -> Tuple[Any, ...]:
+    return tuple(sorted(_object_identity(obj) for obj in _target_objects(scene_model)))
+
+
+def _scene_unrelated_snapshot(scene_model: Any, target_object_id: str) -> Tuple[Tuple[Any, Any], ...]:
+    snapshot = []
+    for obj in _target_objects(scene_model):
+        if _object_identity(obj) == target_object_id:
+            continue
+        snapshot.append((_object_identity(obj), _full_object_projection(obj)))
+    return tuple(sorted(snapshot, key=lambda item: str(item[0])))
 
 
 def _has_cycle(scene_model: Any, target_object_id: str) -> bool:
@@ -214,7 +241,7 @@ def _extract(extractor: Callable[[], Tuple[Any, str]]) -> Tuple[Any, str]:
     return result
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class _ExecutionOutcome:
     ok: bool
     outcome: str
@@ -260,8 +287,6 @@ def execute_repair_parent_reference(
         return _ExecutionOutcome(False, "AUTHORIZATION_REFUSED", auth.failure_code, source_digest, None)
 
     scene_before, fresh_digest = _extract(extractor)
-    # Critical stale-plan guard: never mutate a scene that does not match the
-    # digest the authorization approved.
     if fresh_digest != source_digest:
         return _ExecutionOutcome(False, "PLAN_INVALID", "SOURCE_DIGEST_MISMATCH", fresh_digest, None)
 
@@ -272,8 +297,10 @@ def execute_repair_parent_reference(
         return _ExecutionOutcome(False, "PLAN_INVALID", "EXPECTED_PARENT_MISMATCH", fresh_digest, None)
     if _find_object(scene_before, expected_parent_id) is not None:
         return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_STILL_PRESENT", fresh_digest, None)
+
     before_non_parent = _non_parent_projection(target)
-    object_count_before = len(_target_objects(scene_before))
+    before_identity = _scene_identity_snapshot(scene_before)
+    before_unrelated = _scene_unrelated_snapshot(scene_before, str(target_id))
 
     mutator(str(target_id), None)
 
@@ -285,8 +312,10 @@ def execute_repair_parent_reference(
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "PARENT_NOT_DETACHED", fresh_digest, output_digest)
     if _non_parent_projection(target_after) != before_non_parent:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_NON_PARENT_CHANGED", fresh_digest, output_digest)
-    if len(_target_objects(scene_after)) != object_count_before:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_COUNT_CHANGED", fresh_digest, output_digest)
+    if _scene_identity_snapshot(scene_after) != before_identity:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_IDENTITY_CHANGED", fresh_digest, output_digest)
+    if _scene_unrelated_snapshot(scene_after, str(target_id)) != before_unrelated:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
     if _find_object(scene_after, expected_parent_id) is not None:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "PARENT_REAPPEARED", fresh_digest, output_digest)
 
