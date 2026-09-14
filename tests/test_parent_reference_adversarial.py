@@ -6,7 +6,7 @@ the critical fail-closed invariant: no hostile case reaches the mutation seam.
 
 The corpus does not classify inert authorization metadata as hostile: Wave-4
 binding verification is intentionally binding-only, so unrelated metadata
-must not change an otherwise valid authorization decision.
+must not change an otherwise valid authorization.
 """
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def _hostile_cases() -> list[tuple[str, Callable[[dict[str, Any], dict[str, Any]
         ("auth-empty-correction", auth_field("correction_id", lambda i: "")),
         ("auth-empty-source", auth_field("source_report_digest", lambda i: "")),
         ("auth-empty-target", auth_field("target_object_id", lambda i: "")),
-        ("auth-parent-present", auth_field("expected_parent_id", lambda i: MISSING_PARENT if i % 2 else "parent:hostile-present")),
+        ("auth-parent-nonstring", auth_field("expected_parent_id", lambda i: None if i % 2 == 0 else {"id": f"hostile:{i}"})),
     ]
     return families
 
