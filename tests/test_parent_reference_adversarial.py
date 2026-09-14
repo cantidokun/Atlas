@@ -1,8 +1,12 @@
 """Permanent deterministic hostile corpus for Wave-4 parent-reference execution.
 
-This is deliberately separate from the ordinary unit tests.  It exercises a
-fixed 500-case corpus of malformed plans/authorizations and proves the critical
-fail-closed invariant: no hostile case reaches the mutation seam.
+This is deliberately separate from the ordinary unit tests. It exercises a
+fixed 500-case corpus of semantically malformed plans/authorizations and proves
+the critical fail-closed invariant: no hostile case reaches the mutation seam.
+
+The corpus does not classify inert authorization metadata as hostile: Wave-4
+binding verification is intentionally binding-only, so unrelated metadata
+must not change an otherwise valid authorization decision.
 """
 from __future__ import annotations
 
@@ -13,7 +17,6 @@ from planning.blender.parent_reference import (
     execute_repair_parent_reference,
     plan_parent_reference_correction,
 )
-
 
 TARGET = "object:child"
 MISSING_PARENT = "parent:missing"
@@ -62,7 +65,7 @@ def _base_plan() -> dict[str, Any]:
 
 
 def _hostile_cases() -> list[tuple[str, Callable[[dict[str, Any], dict[str, Any], int], None]]]:
-    """Return 25 deterministic mutation families, expanded to 500 cases."""
+    """Return 25 deterministic hostile mutation families, expanded to 500 cases."""
 
     def plan_field(field: str, value_factory: Callable[[int], Any]):
         def mutate(plan: dict[str, Any], auth: dict[str, Any], i: int) -> None:
@@ -78,7 +81,7 @@ def _hostile_cases() -> list[tuple[str, Callable[[dict[str, Any], dict[str, Any]
         ("plan-type", plan_field("correction_type", lambda i: f"HOSTILE_TYPE_{i}")),
         ("plan-id", plan_field("plan_id", lambda i: f"{i:064x}"[-64:])),
         ("correction-id", plan_field("correction_id", lambda i: f"{i + 1:064x}"[-64:])),
-        ("source-digest", plan_field("source_report_digest", lambda i: (f"{i + 1:064x}"[-64:]))),
+        ("source-digest", plan_field("source_report_digest", lambda i: f"{i + 1:064x}"[-64:])),
         ("target-id", plan_field("target_object_id", lambda i: f"object:hostile:{i}")),
         ("params-extra", plan_field("params", lambda i: {"expected_parent_id": MISSING_PARENT, "detach_to": None, "extra": i})),
         ("params-missing", plan_field("params", lambda i: {"expected_parent_id": MISSING_PARENT})),
@@ -94,12 +97,12 @@ def _hostile_cases() -> list[tuple[str, Callable[[dict[str, Any], dict[str, Any]
         ("auth-source", auth_field("source_report_digest", lambda i: f"{i + 3000:064x}"[-64:])),
         ("auth-target", auth_field("target_object_id", lambda i: f"object:hostile-auth:{i}")),
         ("auth-parent", auth_field("expected_parent_id", lambda i: f"parent:hostile-auth:{i}")),
-        ("auth-extra", auth_field("unexpected", lambda i: i)),
         ("auth-empty-type", auth_field("correction_type", lambda i: "")),
         ("auth-empty-plan", auth_field("plan_id", lambda i: "")),
         ("auth-empty-correction", auth_field("correction_id", lambda i: "")),
         ("auth-empty-source", auth_field("source_report_digest", lambda i: "")),
         ("auth-empty-target", auth_field("target_object_id", lambda i: "")),
+        ("auth-parent-present", auth_field("expected_parent_id", lambda i: MISSING_PARENT if i % 2 else "parent:hostile-present")),
     ]
     return families
 
@@ -127,12 +130,9 @@ def test_500_case_deterministic_hostile_corpus_is_fail_closed():
 
             try:
                 outcome = execute_repair_parent_reference(
-                    plan,
-                    auth,
-                    extractor=extractor,
-                    mutator=mutator,
+                    plan, auth, extractor=extractor, mutator=mutator
                 )
-            except Exception as exc:  # hostile corpus must not escape raw exceptions
+            except Exception as exc:
                 raise AssertionError(f"raw exception in {family_name}[{i}]: {exc!r}") from exc
 
             assert outcome.ok is False, f"hostile case unexpectedly applied: {family_name}[{i}]"
@@ -141,3 +141,25 @@ def test_500_case_deterministic_hostile_corpus_is_fail_closed():
             total += 1
 
     assert total == 500
+
+
+def test_inert_authorization_metadata_is_not_a_semantic_attack():
+    plan = _base_plan()
+    auth = auth_for(plan)
+    auth["unexpected"] = "inert metadata"
+    scene = make_scene()
+    mutations: list[tuple[str, None]] = []
+
+    def extractor() -> tuple[Scene, str]:
+        return scene, SOURCE
+
+    def mutator(target_id: str, detach_to: None) -> None:
+        mutations.append((target_id, detach_to))
+        scene.objects[0].parent_id = None
+
+    outcome = execute_repair_parent_reference(
+        plan, auth, extractor=extractor, mutator=mutator
+    )
+    assert outcome.ok is True
+    assert mutations == [(TARGET, None)]
+    assert scene.objects[0].parent_id is None
