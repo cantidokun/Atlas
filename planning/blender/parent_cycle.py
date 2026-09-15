@@ -125,10 +125,20 @@ def _cycle_from_target(scene_model: Any, target_object_id: str) -> Tuple[str, ..
     return ()
 
 
+def _cycle_sets(scene_model: Any) -> frozenset[frozenset[str]]:
+    """Return canonical directed-parent cycle membership sets."""
+    by_id = _index_objects(scene_model)
+    cycles = set()
+    for ident in by_id:
+        cycle = _cycle_from_target(scene_model, ident)
+        if cycle:
+            cycles.add(frozenset(cycle))
+    return frozenset(cycles)
+
+
 def _has_any_parent_cycle(scene_model: Any) -> bool:
     """Return whether any authoritative object participates in a parent cycle."""
-    by_id = _index_objects(scene_model)
-    return any(_cycle_from_target(scene_model, ident) for ident in by_id)
+    return bool(_cycle_sets(scene_model))
 
 
 def target_is_in_parent_cycle(scene_model: Any, target_object_id: str) -> bool:
@@ -350,9 +360,11 @@ def execute_repair_parent_cycle(
         return _ExecutionOutcome(False, "PLAN_INVALID", "EXPECTED_PARENT_MISMATCH", fresh_digest, None)
     if expected_parent_id not in by_id:
         return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_IS_DANGLING", fresh_digest, None)
-    if not target_is_in_parent_cycle(scene_before, target_id):
+    before_cycles = _cycle_sets(scene_before)
+    selected_cycle = frozenset(_cycle_from_target(scene_before, target_id))
+    if not selected_cycle:
         return _ExecutionOutcome(False, "PLAN_INVALID", "CYCLE_NOT_FOUND", fresh_digest, None)
-    if expected_parent_id not in _cycle_from_target(scene_before, target_id):
+    if expected_parent_id not in selected_cycle:
         return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_NOT_IN_CYCLE", fresh_digest, None)
 
     before_identity = tuple(sorted(by_id))
@@ -377,7 +389,11 @@ def execute_repair_parent_cycle(
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_IDENTITY_CHANGED", fresh_digest, output_digest)
     if _scene_projection(scene_after, exclude_object_id=target_id) != before_unrelated:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
-    if _has_any_parent_cycle(scene_after):
+
+    after_cycles = _cycle_sets(scene_after)
+    if selected_cycle in after_cycles:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "CYCLE_REMAINS", fresh_digest, output_digest)
+    if not after_cycles.issubset(before_cycles - selected_cycle):
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "NEW_CYCLE_CREATED", fresh_digest, output_digest)
 
     return _ExecutionOutcome(True, "CORRECTION_APPLIED", None, fresh_digest, output_digest)
