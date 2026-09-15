@@ -32,7 +32,7 @@ Execution authority remains separate from the canonical analysis/model layer. Bl
 
 Branch: `feat/blender-wave12-reference-integrity`
 
-Status: **DESIGN / NOT IMPLEMENTED**
+Status: **IMPLEMENTATION / VALIDATION IN PROGRESS**
 
 Design gate: `BLENDER_WAVE12_PARENT_CYCLE_REPAIR_DESIGN.md`
 
@@ -40,10 +40,12 @@ Wave 12 extends the existing Wave 4 hierarchy-correction boundary to one additio
 
 The correction is intentionally bounded to one selected parent edge: the explicitly authorized target object's `parent_object_id` is detached to `None`. No new parent is inferred, no other hierarchy edge is changed, and no geometry, transform, naming, collection, persistence, recovery, receipt, workflow, or action-runner authority is introduced.
 
+The canonical executor preserves the selected target's local `location`, `rotation`, and `scale`. A malformed cyclic graph has no defined world pose under the existing parent-chain engine, so world-pose preservation is proven separately at the live Blender boundary using an acyclic disposable parent relationship and `CLEAR_KEEP_TRANSFORM`.
+
 ## Validation / merge rule
 
 Wave 12 is not complete until its deterministic cycle/reference tests, adversarial fail-closed checks, live Blender boundary gate, focused Wave 1–Wave 12 regression, final-head CI, and independent red-team review all pass.
 
 Workflow/action-runner tests remain excluded unless explicitly authorized.
 
-Do not broaden a cycle repair into general hierarchy normalization. A multi-edge mutation, stale authorization acceptance, hidden re-parenting, or ambiguous target selection blocks merge.
+Do not broaden a cycle repair into general hierarchy normalization. A multi-edge mutation, stale authorization acceptance, hidden re-parenting, canonical local-transform drift, world-pose drift at the live boundary, or ambiguous target selection blocks merge.
