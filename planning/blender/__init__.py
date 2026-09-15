@@ -10,11 +10,13 @@ rules, profiles, readiness criteria, complexity, and C++-replacement seams.
 
 # Python 3.9 compatibility: some canonical value contracts use ``slots=True`` when the
 # interpreter supports it. Keep those contracts importable on Atlas's supported 3.9 runtime
-# without changing their semantic frozen-value behavior. On 3.10+ the stdlib decorator is
-# untouched and native slots remain enabled.
+# without changing their semantic frozen-value behavior. The shim is restored before this
+# package import completes so it does not permanently monkeypatch the process-wide dataclasses
+# module.
 import dataclasses as _dataclasses
 import sys as _sys
 
+_native_dataclass = None
 if _sys.version_info < (3, 10):
     _native_dataclass = _dataclasses.dataclass
 
@@ -112,6 +114,9 @@ from planning.blender.transforms import (
     world_points,
     world_pose_for,
 )
+
+if _native_dataclass is not None:
+    _dataclasses.dataclass = _native_dataclass
 
 # NOTE: bpy_extraction is intentionally NOT imported at package load — it imports ``bpy`` lazily
 # from within a Blender process only, so deterministic (non-Blender) import of ``planning.blender``
