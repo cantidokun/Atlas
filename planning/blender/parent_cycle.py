@@ -243,7 +243,10 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
     before_target_local_transform = _target_local_transform(target)
     before_unrelated = _scene_projection(scene_before, exclude_object_id=target_id)
     before_scene_non_object = _scene_non_object_projection(scene_before)
-    mutator(target_id, expected_parent_id, None)
+    try:
+        mutator(target_id, expected_parent_id, None)
+    except Exception:
+        return _ExecutionOutcome(False, "MUTATION_FAILED", "MUTATOR_EXCEPTION", fresh_digest, None)
     scene_after, output_digest = _extract(extractor)
     after_by_id = _index_objects(scene_after)
     target_after = after_by_id.get(target_id)
