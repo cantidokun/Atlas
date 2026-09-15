@@ -115,7 +115,8 @@ def _cycle_from_target(scene_model: Any, target_object_id: str) -> Tuple[str, ..
     positions = {}
     while current is not None:
         if current in positions:
-            return tuple(path[positions[current]:])
+            cycle = tuple(path[positions[current]:])
+            return cycle if target_object_id in cycle else ()
         if current not in by_id:
             return ()
         positions[current] = len(path)
