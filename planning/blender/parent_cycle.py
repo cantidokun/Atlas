@@ -125,8 +125,43 @@ def _cycle_from_target(scene_model: Any, target_object_id: str) -> Tuple[str, ..
     return ()
 
 
+def _cycle_edges_from_target(scene_model: Any, target_object_id: str) -> Tuple[Tuple[str, str], ...]:
+    """Return the exact directed parent edges of the target's concrete cycle."""
+    by_id = _index_objects(scene_model)
+    current = target_object_id
+    path = []
+    positions = {}
+    while current is not None:
+        if current in positions:
+            cycle_nodes = path[positions[current]:]
+            edges = []
+            for child_id in cycle_nodes:
+                parent_id = _parent_id(by_id[child_id])
+                if parent_id is None:
+                    return ()
+                edges.append((child_id, parent_id))
+            return tuple(sorted(edges)) if target_object_id in cycle_nodes else ()
+        if current not in by_id:
+            return ()
+        positions[current] = len(path)
+        path.append(current)
+        current = _parent_id(by_id[current])
+    return ()
+
+
+def _cycle_signatures(scene_model: Any) -> frozenset[Tuple[Tuple[str, str], ...]]:
+    """Return canonical directed cycle topologies, not merely node membership sets."""
+    by_id = _index_objects(scene_model)
+    cycles = set()
+    for ident in by_id:
+        edges = _cycle_edges_from_target(scene_model, ident)
+        if edges:
+            cycles.add(edges)
+    return frozenset(cycles)
+
+
 def _cycle_sets(scene_model: Any) -> frozenset[frozenset[str]]:
-    """Return canonical directed-parent cycle membership sets."""
+    """Return cycle membership sets for compatibility with existing callers/tests."""
     by_id = _index_objects(scene_model)
     cycles = set()
     for ident in by_id:
@@ -138,7 +173,7 @@ def _cycle_sets(scene_model: Any) -> frozenset[frozenset[str]]:
 
 def _has_any_parent_cycle(scene_model: Any) -> bool:
     """Return whether any authoritative object participates in a parent cycle."""
-    return bool(_cycle_sets(scene_model))
+    return bool(_cycle_signatures(scene_model))
 
 
 def target_is_in_parent_cycle(scene_model: Any, target_object_id: str) -> bool:
@@ -360,9 +395,10 @@ def execute_repair_parent_cycle(
         return _ExecutionOutcome(False, "PLAN_INVALID", "EXPECTED_PARENT_MISMATCH", fresh_digest, None)
     if expected_parent_id not in by_id:
         return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_IS_DANGLING", fresh_digest, None)
-    before_cycles = _cycle_sets(scene_before)
-    selected_cycle = frozenset(_cycle_from_target(scene_before, target_id))
-    if not selected_cycle:
+    before_cycles = _cycle_signatures(scene_before)
+    selected_cycle = _cycle_from_target(scene_before, target_id)
+    selected_cycle_signature = _cycle_edges_from_target(scene_before, target_id)
+    if not selected_cycle_signature:
         return _ExecutionOutcome(False, "PLAN_INVALID", "CYCLE_NOT_FOUND", fresh_digest, None)
     if expected_parent_id not in selected_cycle:
         return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_NOT_IN_CYCLE", fresh_digest, None)
@@ -390,10 +426,10 @@ def execute_repair_parent_cycle(
     if _scene_projection(scene_after, exclude_object_id=target_id) != before_unrelated:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
 
-    after_cycles = _cycle_sets(scene_after)
-    if selected_cycle in after_cycles:
+    after_cycles = _cycle_signatures(scene_after)
+    if selected_cycle_signature in after_cycles:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "CYCLE_REMAINS", fresh_digest, output_digest)
-    if not after_cycles.issubset(before_cycles - selected_cycle):
+    if not after_cycles.issubset(before_cycles - {selected_cycle_signature}):
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "NEW_CYCLE_CREATED", fresh_digest, output_digest)
 
     return _ExecutionOutcome(True, "CORRECTION_APPLIED", None, fresh_digest, output_digest)
