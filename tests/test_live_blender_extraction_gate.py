@@ -48,30 +48,40 @@ import bpy, json, os, sys
 sys.path.insert(0, os.environ["ATLAS_REPO_ROOT"])
 
 # Build a minimal deterministic, in-memory soccer-ish scene (read-only; nothing saved).
-# Use the profile's permitted collections so this fixture exercises the intended valid path.
-field_collection = bpy.data.collections.get("Field")
-if field_collection is None:
-    field_collection = bpy.data.collections.new("Field")
-    bpy.context.scene.collection.children.link(field_collection)
+# The current extraction contract enumerates direct scene-collection membership, while the
+# validation profile reads the object's first linked collection. Therefore fixture objects are
+# linked to their semantic collection FIRST and also linked directly to the scene master collection
+# so the thin adapter can discover them without extending its extraction boundary.
+def _ensure_collection(name):
+    collection = bpy.data.collections.get(name)
+    if collection is None:
+        collection = bpy.data.collections.new(name)
+    if collection.name not in {c.name for c in bpy.context.scene.collection.children}:
+        bpy.context.scene.collection.children.link(collection)
+    return collection
 
-goals_collection = bpy.data.collections.get("Goals")
-if goals_collection is None:
-    goals_collection = bpy.data.collections.new("Goals")
-    bpy.context.scene.collection.children.link(goals_collection)
+field_collection = _ensure_collection("Field")
+goals_collection = _ensure_collection("Goals")
 
-if "Pitch" not in bpy.data.meshes:
-    me = bpy.data.meshes.new("Pitch")
-    verts = [(0.0,0.0,0.0),(1.0,0.0,0.0),(0.0,1.0,0.0),(1.0,1.0,0.0)]
-    faces = [(0,1,2),(1,3,2)]
-    me.from_pydata(verts, [], faces)
-    me.update()
-    obj = bpy.data.objects.new("pitch", me)
-    field_collection.objects.link(obj)
+# Remove Blender's default startup objects so the fixture contains only the intended production
+# roles and cannot generate unrelated collection findings. This is confined to the disposable
+# in-memory test scene and never touches a .blend asset.
+for obj in list(bpy.context.scene.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+
+me = bpy.data.meshes.new("Pitch")
+verts = [(0.0,0.0,0.0),(1.0,0.0,0.0),(0.0,1.0,0.0),(1.0,1.0,0.0)]
+faces = [(0,1,2),(1,3,2)]
+me.from_pydata(verts, [], faces)
+me.update()
+obj = bpy.data.objects.new("pitch", me)
+field_collection.objects.link(obj)
+bpy.context.scene.collection.objects.link(obj)
 
 for role in ("goal_left", "goal_right"):
-    if role not in bpy.data.objects:
-        mt = bpy.data.objects.new(role, None)
-        goals_collection.objects.link(mt)
+    mt = bpy.data.objects.new(role, None)
+    goals_collection.objects.link(mt)
+    bpy.context.scene.collection.objects.link(mt)
 
 # Extract the canonical payload (the same shape the deterministic bpy_extraction emits).
 from planning.blender.bpy_extraction import run_live_blender_extraction
