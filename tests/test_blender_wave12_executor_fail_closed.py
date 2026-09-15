@@ -112,3 +112,25 @@ def test_post_mutation_extractor_exception_is_explicit_non_success():
     assert result.source_report_digest == "a" * 64
     assert calls == [("a", "b", None)]
     assert scene["objects"][0]["parent_object_id"] is None
+
+
+def test_invalid_output_digest_is_not_reported_as_success():
+    scene = _scene()
+    plan = plan_parent_cycle_correction(
+        scene, "a" * 64, target_object_id="a", expected_parent_id="b"
+    )
+
+    def mutate(*args):
+        scene["objects"][0]["parent_object_id"] = None
+
+    result = execute_repair_parent_cycle(
+        plan,
+        _auth(plan),
+        extractor=lambda: (scene, "a" * 64 if scene["objects"][0]["parent_object_id"] == "b" else None),
+        mutator=mutate,
+    )
+
+    assert result.ok is False
+    assert result.outcome == "POSTCONDITION_FAILED"
+    assert result.failure_code == "OUTPUT_DIGEST_INVALID"
+    assert result.output_report_digest is None
