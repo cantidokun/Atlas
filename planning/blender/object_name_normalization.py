@@ -18,6 +18,13 @@ CORRECTION_TYPE = "NORMALIZE_OBJECT_NAME"
 PLANNER_VERSION = "1"
 _ALLOWED_PARAMS = frozenset({"expected_object_id", "current_name", "target_name", "name_pattern"})
 _SUPPORTED_PATTERN = r"^[a-z0-9][a-z0-9._-]*$"
+_AUTHORIZATION_FIELDS = frozenset({
+    "decision",
+    "correction_type",
+    "correction_id",
+    "plan_id",
+    "source_report_digest",
+})
 
 
 class ObjectNameNormalizationError(ValueError):
@@ -222,15 +229,8 @@ def _scene_non_name_payload(scene: SceneModel) -> dict:
     return payload
 
 
-def _authorization_is_exact(authorization: Mapping[str, Any], plan: Mapping[str, Any]) -> bool:
-    expected = {
-        "decision": "APPROVED",
-        "correction_type": CORRECTION_TYPE,
-        "correction_id": plan.get("correction_id"),
-        "plan_id": plan.get("plan_id"),
-        "source_report_digest": plan.get("source_report_digest"),
-    }
-    return type(authorization) is dict and authorization == expected
+def _authorization_shape_is_valid(authorization: Mapping[str, Any]) -> bool:
+    return type(authorization) is dict and set(authorization) == _AUTHORIZATION_FIELDS
 
 
 def execute_object_name_normalization(
@@ -255,8 +255,18 @@ def execute_object_name_normalization(
         target = _validate_target_name(target, pattern)
     except ObjectNameNormalizationError as exc:
         return ExecutionOutcome(False, "PLAN_INVALID", exc.code, source, None)
-    if not _authorization_is_exact(authorization, plan):
+
+    if not _authorization_shape_is_valid(authorization):
         return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", "AUTHORIZATION_INVALID", source, None)
+    if authorization.get("decision") != "APPROVED" or authorization.get("correction_type") != CORRECTION_TYPE:
+        return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", "AUTHORIZATION_INVALID", source, None)
+    if authorization.get("correction_id") != plan.get("correction_id"):
+        return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", "CORRECTION_ID_MISMATCH", source, None)
+    if authorization.get("plan_id") != plan.get("plan_id"):
+        return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", "PLAN_ID_MISMATCH", source, None)
+    if authorization.get("source_report_digest") != plan.get("source_report_digest"):
+        return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", "SOURCE_REPORT_DIGEST_MISMATCH", source, None)
+
     scene_id = plan.get("scene_id")
     expected_plan = _plan_body(
         scene_id=scene_id,
@@ -272,7 +282,7 @@ def execute_object_name_normalization(
     before, fresh_digest = extractor()
     actual_digest = scene_digest(before)
     if fresh_digest != actual_digest:
-        return ExecutionOutcome(False, "SOURCE_MISMATCH", "SOURCE_DIGEST_INVALID", actual_digest, None)
+        return ExecutionOutcome(False, "PRECONDITION_FAILED", "SOURCE_DIGEST_INVALID", actual_digest, None)
     if actual_digest != source:
         return ExecutionOutcome(False, "SOURCE_MISMATCH", "SOURCE_DIGEST_MISMATCH", actual_digest, None)
     if before.scene_id != scene_id:
