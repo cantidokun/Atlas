@@ -1,6 +1,6 @@
 # Atlas Blender Wave 11 — Empty-Mesh Canonical Contract Design Gate
 
-**Status:** DESIGN / NOT IMPLEMENTED  
+**Status:** IMPLEMENTATION / VALIDATION IN PROGRESS  
 **Branch:** `feat/blender-wave11-empty-mesh-contract`  
 **Baseline:** Wave 10 collection normalization merged to `main` at `d1c2a5a804ad801c67cc05d439bc6dc921ac8f4e`
 
@@ -8,67 +8,47 @@
 
 Wave 11 is a canonical-model contract hardening wave, not a new scene-repair capability.
 
-It resolves the deferred representation gap exposed by Wave 6: the current `MeshModel` contract requires non-empty `faces`, so a mesh containing only isolated vertices, including the all-isolated/zero-face case, cannot be represented faithfully even though Wave 6 explicitly requires that case to be tested.
+It resolves the deferred representation gap exposed by Wave 6: the canonical `MeshModel` contract could not faithfully represent the result of removing every isolated vertex from an all-isolated mesh. Wave 6 explicitly requires that case in its deterministic test plan.
 
-Wave 11 must make the canonical representation truthful for:
+Wave 11 establishes one truthful closed-topology representation boundary:
 
-- zero-face meshes with vertices;
-- empty post-correction mesh topology when all faces have been removed by a future bounded capability;
-- ordinary meshes with one or more faces;
-- deterministic round-tripping without fabricating faces or silently dropping vertices.
+- vertices present, faces present — ordinary mesh;
+- vertices present, faces empty — a real vertex-only/zero-polygon mesh;
+- vertices empty, faces empty — the exact canonical result of removing every vertex from an all-isolated mesh;
+- vertices empty, faces present — invalid and rejected.
 
-## 2. Why this is the next bounded scope
+## 2. Exact semantic rules
 
-Wave 6 explicitly names `all vertices isolated with zero faces` as a deterministic test case while also requiring the canonical result to remain language-neutral and truthful. The current `MeshModel` constructor rejects an empty `faces` tuple, creating a representation-level contradiction that should be resolved before introducing another topology mutation.
+1. `MeshModel.vertices` and `MeshModel.faces` remain immutable tuples.
+2. `faces == ()` is valid.
+3. `vertices == ()` is valid only when `faces == ()`.
+4. A non-empty face set still requires valid integer indices into the vertex tuple.
+5. No placeholder face is synthesized.
+6. No vertex is fabricated or silently reintroduced merely because the face set is empty.
+7. `MeshModel(vertices=(), faces=())` is distinct from `ObjectModel.mesh is None`.
+8. Per-face normals and UVs remain cardinality-bound to the face set; they therefore must be empty when `faces == ()`.
+9. Materials and `local_frame_id` remain metadata and are not silently discarded solely because topology is empty.
+10. Serialization, parsing, equality, and scene-input digests must preserve the two zero-face states exactly.
 
-Wave 11 therefore repairs the contract seam rather than adding a higher-risk correction such as non-manifold repair, hole filling, origin movement, or transform reconstruction.
+## 3. Wave 6 relationship
 
-## 3. Allowed contract change
+Wave 6 continues to require a non-empty authorized isolated-vertex set. For an all-isolated source with `N > 0` vertices and zero faces, the authorized set is exactly `[0..N-1]`; execution removes those vertices and deterministically produces `MeshModel(vertices=(), faces=())`.
 
-`MeshModel` may represent:
+An empty authorization set remains rejected so Wave 6 cannot become a no-op deletion primitive.
 
-- non-empty `vertices` with zero faces;
-- non-empty `vertices` with one or more faces;
-- no fabricated placeholder face;
-- no implicit deletion of vertices merely because the face set is empty.
+## 4. Adapter boundary
 
-The contract must remain immutable and canonical. Existing valid meshes must serialize identically before and after this change.
+The live Blender extractor must truthfully emit a mesh with vertices and zero polygons as `faces == []` / canonical `faces == ()`.
 
-## 4. Exact semantic rules
+The live extraction boundary continues to fail closed for a Blender mesh with zero vertices. That is a source-extraction boundary, not a canonical-result restriction: the zero-vertex canonical state is produced only by a bounded canonical mutation such as Wave 6.
 
-1. `vertices` remains non-empty for a `MeshModel`.
-2. `faces` becomes an allowed empty tuple.
-3. Every existing face-index validation rule remains unchanged.
-4. An empty face set means exactly “the mesh has no polygonal faces”; it does not imply missing geometry metadata or an invalid mesh by itself.
-5. A zero-face mesh with vertices remains distinct from an absent mesh (`ObjectModel.mesh is None`).
-6. No placeholder face may be synthesized.
-7. Vertex order and values remain authoritative and deterministic.
-8. Normals/UVs, when present under the existing representation rules, must remain consistent with the zero-face semantics; no per-face data may be fabricated.
-9. Materials remain metadata and are not silently removed solely because the face set is empty.
-10. Serialization, deserialization, hashing, and equality must preserve the distinction exactly.
+No Blender mutation, persistence, save, receipt, recovery, workflow, or action-runner authority is introduced by Wave 11.
 
-## 5. Health-kernel implications
+## 5. Health-kernel semantics
 
-Wave 11 must separately establish the intended finding semantics for zero-face meshes.
+Zero-face meshes must not cause fabricated topology findings. Existing face-based checks simply have no faces to inspect. A profile may independently choose to treat a zero-face scene as unsuitable for a production role, but the canonical constructor must not encode that policy as a representation failure.
 
-It must not silently redefine existing health findings merely to make the new representation convenient. If zero-face meshes are structurally acceptable, the kernel must continue to emit no fabricated topology finding. If a profile needs to reject zero-face meshes, that must be an explicit profile policy rather than a constructor failure.
-
-No new correction authority is introduced by this wave.
-
-## 6. Adapter implications
-
-The Blender adapter must be able to extract a zero-face mesh without manufacturing topology.
-
-For a live Blender object with vertices and zero polygons:
-
-- extracted vertices remain exact and ordered under the existing adapter contract;
-- extracted `faces` is `()`;
-- object identity/name/collection/transform remain unchanged;
-- no save/persistence is performed by the boundary probe.
-
-Any Blender-specific limitation must remain in the adapter and must not leak into the canonical model.
-
-## 7. Non-goals
+## 6. Non-goals
 
 Wave 11 does not:
 
@@ -76,29 +56,25 @@ Wave 11 does not:
 - remove duplicate vertices;
 - repair non-manifold edges;
 - fill holes;
-- create faces;
-- infer topology;
-- alter transforms or origins;
-- modify collections, object names, or hierarchy;
-- add persistence, recovery, receipts, workflow, or action-runner authority;
-- modify M5, M12.5, or M11.
+- create or infer faces;
+- alter transforms, origins, collections, names, or hierarchy;
+- add execution authorization or persistence authority;
+- modify M5, M12.5, or frozen M11.
 
-## 8. Validation gate
+## 7. Validation gate
 
 Before merge:
 
-- deterministic canonical-model tests for zero-face construction, serialization, digest stability, equality, and round-trip;
-- regression proving all existing non-empty-face meshes remain byte/canonical-equivalent;
-- Wave 6 regression re-enabled for the all-isolated/zero-face case without weakening any safety condition;
-- live Blender disposable-scene extraction of a zero-face mesh;
-- full focused Wave 1–Wave 11 regression with workflow/action-runner tests excluded;
+- deterministic canonical-model tests for both zero-face states, strict invalid-state rejection, parsing, equality, digest stability, and round-trip;
+- full preservation of the pre-Wave-11 non-empty-mesh test coverage;
+- Wave 6 all-isolated execution producing the empty canonical mesh without weakening its authorization boundary;
+- live Blender disposable-scene extraction of a vertex-only mesh with zero polygons;
+- focused Wave 1–Wave 11 regression with workflow/action-runner tests excluded;
 - final-head CI on supported Python versions;
-- independent red-team review focused on accidental semantic broadening and hidden topology fabrication.
+- independent red-team review focused on hidden topology fabrication, accidental no-op deletion, and semantic broadening.
 
-## 9. Merge rule
+A representation failure blocks merge. No test may be weakened to accommodate an incorrect topology state.
 
-Wave 11 may merge only when every validation gate is green. A representation-level failure must block merge rather than being masked by changing tests or by silently coercing the mesh into a different topology.
+## 8. C++ seam
 
-## 10. C++ seam
-
-The resulting zero-face `MeshModel` must remain language-neutral. A future C++ implementation must be able to construct, serialize, hash, compare, and reproduce the same canonical representation without Blender-specific types.
+The resulting empty/zero-face states remain language-neutral canonical values. A future C++ implementation must be able to construct, serialize, hash, compare, and reproduce the same representations without Blender-specific types.
