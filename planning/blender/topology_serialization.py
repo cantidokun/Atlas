@@ -147,6 +147,22 @@ def topology_report_from_dict(value: Any) -> TopologyReport:
     if sorted(covered_faces) != list(range(report.face_count)):
         raise ValueError("components must partition all face indices")
 
+    component_edge_count = sum(c.edge_count for c in report.components)
+    component_boundary_count = sum(c.boundary_edge_count for c in report.components)
+    component_manifold_count = sum(c.manifold_edge_count for c in report.components)
+    component_non_manifold_count = sum(c.non_manifold_edge_count for c in report.components)
+    if component_edge_count != report.edge_count:
+        raise ValueError("component edge counts do not match edge_count")
+    if component_boundary_count != report.boundary_edge_count:
+        raise ValueError("component boundary edge counts do not match report")
+    if component_manifold_count != report.manifold_edge_count:
+        raise ValueError("component manifold edge counts do not match report")
+    if component_non_manifold_count != report.non_manifold_edge_count:
+        raise ValueError("component non-manifold edge counts do not match report")
+    component_vertices = sorted({vi for c in report.components for vi in c.vertex_indices})
+    if len(component_vertices) != report.referenced_vertex_count:
+        raise ValueError("component vertex coverage does not match referenced_vertex_count")
+
     if report.to_dict() != d:
         raise ValueError("topology report contains inconsistent derived fields")
     return report
