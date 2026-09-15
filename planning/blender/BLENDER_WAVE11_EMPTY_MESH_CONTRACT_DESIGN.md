@@ -1,6 +1,6 @@
 # Atlas Blender Wave 11 — Empty-Mesh Canonical Contract Design Gate
 
-**Status:** IMPLEMENTATION / VALIDATION IN PROGRESS  
+**Status:** VALIDATION COMPLETE / READY TO MERGE  
 **Branch:** `feat/blender-wave11-empty-mesh-contract`  
 **Baseline:** Wave 10 collection normalization merged to `main` at `d1c2a5a804ad801c67cc05d439bc6dc921ac8f4e`
 
@@ -63,17 +63,17 @@ Wave 11 does not:
 
 ## 7. Validation gate
 
-Before merge:
+Validation completed on the final branch head:
 
-- deterministic canonical-model tests for both zero-face states, strict invalid-state rejection, parsing, equality, digest stability, and round-trip;
-- full preservation of the pre-Wave-11 non-empty-mesh test coverage;
-- Wave 6 all-isolated execution producing the empty canonical mesh without weakening its authorization boundary;
-- live Blender disposable-scene extraction of a vertex-only mesh with zero polygons;
-- focused Wave 1–Wave 11 regression with workflow/action-runner tests excluded;
-- final-head CI on supported Python versions;
-- independent red-team review focused on hidden topology fabrication, accidental no-op deletion, and semantic broadening.
+- Wave 11 live Blender disposable-scene gate: **1 passed**;
+- focused Wave 6 + Wave 11 + scene-report regression: **43 passed**;
+- deterministic Wave 1–Wave 11 regression with workflow/action-runner tests excluded: **3570 passed, 27 skipped, 6 deselected**;
+- current-head CI run **1855: success**;
+- independent red-team review: **CLEAR / NO BLOCKER**.
 
-A representation failure blocks merge. No test may be weakened to accommodate an incorrect topology state.
+The full local suite with `ATLAS_RUN_LIVE_BLENDER=1` also exposed three pre-existing/legacy live gates that could not locate Blender because neither `blender` nor `ATLAS_BLENDER_EXECUTABLE` was available in the shell environment. Those failures were environmental and unrelated to the Wave 11 dedicated gate. The deterministic regression was therefore rerun with live Blender disabled and completed successfully as recorded above.
+
+A representation failure blocks merge. No test was weakened to accommodate an incorrect topology state.
 
 ## 8. C++ seam
 
