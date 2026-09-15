@@ -68,7 +68,25 @@ def _find_object(scene: SceneModel, object_id: str) -> Optional[ObjectModel]:
     return matches[0] if len(matches) == 1 else None
 
 
+def _validate_face_indices(mesh: MeshModel) -> None:
+    """Fail closed before any derived topology or index remap is computed."""
+    vertex_count = len(mesh.vertices)
+    for face_index, face in enumerate(mesh.faces):
+        for vertex_index in face:
+            if type(vertex_index) is not int or isinstance(vertex_index, bool):
+                raise IsolatedVertexRemovalError(
+                    f"face {face_index} contains a non-integer vertex index",
+                    "FACE_INDEX_INVALID",
+                )
+            if not (0 <= vertex_index < vertex_count):
+                raise IsolatedVertexRemovalError(
+                    f"face {face_index} contains vertex index {vertex_index} outside 0..{vertex_count - 1}",
+                    "FACE_INDEX_OUT_OF_RANGE",
+                )
+
+
 def _isolated_indices(mesh: MeshModel) -> Tuple[int, ...]:
+    _validate_face_indices(mesh)
     referenced = {idx for face in mesh.faces for idx in face}
     return tuple(i for i in range(len(mesh.vertices)) if i not in referenced)
 
@@ -212,7 +230,10 @@ def execute_remove_isolated_vertices(
     target = _find_object(before, target_id)
     if target is None or target.mesh is None or target.mesh.mesh_id != plan.get("mesh_id"):
         return ExecutionOutcome(False, "PRECONDITION_FAILED", "TARGET_MISMATCH", fresh_digest, None)
-    actual = _isolated_indices(target.mesh)
+    try:
+        actual = _isolated_indices(target.mesh)
+    except IsolatedVertexRemovalError as exc:
+        return ExecutionOutcome(False, "PRECONDITION_FAILED", exc.code, fresh_digest, None)
     if actual != expected:
         return ExecutionOutcome(False, "PRECONDITION_FAILED", "ISOLATED_SET_MISMATCH", fresh_digest, None)
 
@@ -239,7 +260,8 @@ def execute_remove_isolated_vertices(
         elif before_obj != after_obj:
             return ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, None)
     # Every face is retained in order/cardinality; only indices are remapped.
-    mapping = {old: new for new, old in enumerate(i for i in range(len(target.mesh.vertices)) if i not in set(expected))}
+    removed_set = set(expected)
+    mapping = {old: new for new, old in enumerate(i for i in range(len(target.mesh.vertices)) if i not in removed_set)}
     expected_faces = tuple(tuple(mapping[i] for i in face) for face in target.mesh.faces)
     if after_target.mesh.faces != expected_faces or len(after_target.mesh.faces) != len(target.mesh.faces):
         return ExecutionOutcome(False, "POSTCONDITION_FAILED", "FACE_REMAP_MISMATCH", fresh_digest, None)
