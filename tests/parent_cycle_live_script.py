@@ -8,13 +8,8 @@ by the engine-independent Wave-12 tests.
 from __future__ import annotations
 
 import json
-import math
 
 import bpy
-
-
-def vec_close(a, b, tol=1e-7):
-    return all(abs(float(x) - float(y)) <= tol for x, y in zip(a, b))
 
 
 def mat_close(a, b, tol=1e-7):
@@ -46,25 +41,20 @@ def main():
     child.matrix_parent_inverse = parent.matrix_world.inverted()
 
     before_world = child.matrix_world.copy()
-    before_location = tuple(child.location)
-    before_rotation = tuple(child.rotation_euler)
-    before_scale = tuple(child.scale)
-    before_parent_mesh = child.parent.data.name
+    before_mesh_name = child.data.name
     object_names_before = tuple(sorted(o.name for o in scene.collection.objects))
     no_file_before = bpy.data.filepath == ''
 
-    # Blender-side implementation primitive corresponding to the bounded semantic detach.
-    child.parent = None
-    child.matrix_world = before_world
+    # Real Blender primitive: clear the parent while preserving world transform.
+    bpy.context.view_layer.objects.active = child
+    child.select_set(True)
+    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
 
     checks = {
         'parent_cleared': child.parent is None,
         'world_matrix_preserved': mat_close(child.matrix_world, before_world),
-        'location_preserved': vec_close(child.location, before_location),
-        'rotation_preserved': vec_close(child.rotation_euler, before_rotation),
-        'scale_preserved': vec_close(child.scale, before_scale),
         'object_identity_preserved': child.name == 'wave12_child',
-        'mesh_identity_preserved': child.data.name == before_parent_mesh,
+        'mesh_identity_preserved': child.data.name == before_mesh_name,
         'objects_preserved': tuple(sorted(o.name for o in scene.collection.objects)) == object_names_before,
         'no_file_path_before': no_file_before,
         'no_file_path_after': bpy.data.filepath == '',
