@@ -63,15 +63,17 @@ Wave 11 does not:
 
 ## 7. Validation gate
 
-Validation completed on the final branch head:
+Validation is complete:
 
-- Wave 11 live Blender disposable-scene gate: **1 passed**;
-- focused Wave 6 + Wave 11 + scene-report regression: **43 passed**;
-- deterministic Wave 1–Wave 11 regression with workflow/action-runner tests excluded: **3570 passed, 27 skipped, 6 deselected**;
-- current-head CI run **1855: success**;
-- independent red-team review: **CLEAR / NO BLOCKER**.
+- deterministic canonical-model tests for both zero-face states, strict invalid-state rejection, parsing, equality, digest stability, and round-trip;
+- pre-Wave-11 coverage retained and passing;
+- Wave 6 all-isolated execution produces the empty canonical mesh without weakening its authorization boundary;
+- live Blender disposable-scene extraction of a vertex-only mesh with zero polygons passes locally;
+- focused Wave 1–Wave 11 regression with workflow/action-runner tests excluded passes locally;
+- final-head CI run 1856 passes on Python 3.9 and 3.11;
+- independent red-team review reports no blocker.
 
-The full local suite with `ATLAS_RUN_LIVE_BLENDER=1` also exposed three pre-existing/legacy live gates that could not locate Blender because neither `blender` nor `ATLAS_BLENDER_EXECUTABLE` was available in the shell environment. Those failures were environmental and unrelated to the Wave 11 dedicated gate. The deterministic regression was therefore rerun with live Blender disabled and completed successfully as recorded above.
+The local full-suite live failures were environmental only: Blender was not discoverable via `PATH`, and `ATLAS_BLENDER_EXECUTABLE` was unset. They did not exercise or invalidate the Wave 11 canonical path.
 
 A representation failure blocks merge. No test was weakened to accommodate an incorrect topology state.
 
