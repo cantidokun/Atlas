@@ -1,0 +1,1 @@
+Wave 10 implementation is isolated behind planning/blender/collection_normalization.py. This note is temporary validation metadata.
