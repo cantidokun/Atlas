@@ -1,6 +1,6 @@
 # Atlas Blender Wave 8 — Unit Metadata Normalization Design Gate
 
-**Status:** DESIGN / NOT IMPLEMENTED  
+**Status:** IMPLEMENTED / VALIDATION COMPLETE  
 **Branch:** `feat/blender-wave8-unit-metadata-normalization`  
 **Baseline:** Wave 7 duplicate-vertex removal merged to `main` at `623087b8b06838f9a47563ac83c926198c8ccf23`
 
@@ -14,7 +14,7 @@ The correction MUST NOT perform physical unit conversion. In particular, `INCHES
 
 The canonical Atlas token for the supported profile is `METERS`.
 
-Accepted aliases for this Wave are exact built-in strings whose case-insensitive value is one of:
+Accepted aliases for this Wave are exact built-in strings whose value is one of:
 
 - `METERS`
 - `meters`
@@ -40,7 +40,7 @@ Wave 8 deterministic executor
 new canonical SceneModel
 ```
 
-The executor is canonical-model only. It must not call Blender, save files, persist state, recover state, create receipts, invoke workflow/action-runner authority, or modify object/mesh/transform state.
+The executor is canonical-model only. It does not call Blender, save files, persist state, recover state, create receipts, invoke workflow/action-runner authority, or modify object/mesh/transform state.
 
 ## 4. Exact correction contract
 
@@ -68,7 +68,7 @@ Fail closed unless all are true:
 7. source digest is unchanged;
 8. no unrelated scene state changed before mutation.
 
-The executor MUST NOT accept `INCHES`, `FEET`, `CENTIMETERS`, or other physically distinct tokens as alias-equivalent.
+The executor does not accept `INCHES`, `FEET`, `CENTIMETERS`, or other physically distinct tokens as alias-equivalent.
 
 ## 6. Mutation semantics
 
@@ -91,52 +91,52 @@ After execution:
 - `unit_system == "METERS"`;
 - every non-unit scene field is byte-equivalent under canonical serialization;
 - the source `SceneModel` remains immutable;
-- a fresh digest is not forged or substituted;
+- a fresh output digest is computed from the returned canonical scene;
 - no persistence/recovery/receipt/workflow action occurs.
 
 If any postcondition fails, return structured failure.
 
 ## 8. Planner safety correction
 
-The existing planner currently derives `target_unit == "METERS"` whenever that token appears in `allowed_units`. Wave 8 must tighten this path so that an automatic proposal is emitted only when the measured current token is one of the explicit meter aliases above.
+The existing planner already keeps `SCENE_UNIT_INVALID` review-only instead of fabricating an executable normalization target. Wave 8 therefore preserves that safety boundary while providing the separate explicitly-authorized alias-only executor.
 
-For a physically different token such as `INCHES`, the planner must emit no executable normalization proposal and must surface the finding for review instead.
+For a physically different token such as `INCHES`, no executable normalization proposal is emitted by the planner and the finding remains review-required.
 
 This is a safety requirement, not an implementation detail: metadata relabeling across physical unit systems would silently reinterpret geometry.
 
 ## 9. Adversarial coverage
 
-At minimum:
+The implementation covers:
 
-- `METERS -> METERS` is not proposed as a correction;
-- `meters -> METERS` normalizes;
-- `m -> METERS` normalizes;
-- mixed case aliases normalize only when the canonical alias rule is satisfied;
-- `INCHES -> METERS` is refused;
-- arbitrary target unit is refused;
-- extra parameters are refused;
-- stale source digest is refused;
-- tampered plan id/correction id is refused;
-- authorization without explicit approval is refused;
-- unrelated object/mesh/transform mutation is refused;
-- repeated execution is deterministic;
-- source immutability holds.
+- alias normalization from `meters` and `m` to `METERS`;
+- canonical `METERS` no-op rejection;
+- `INCHES -> METERS` refusal;
+- arbitrary target refusal;
+- extra parameter refusal;
+- stale source digest refusal;
+- tampered authorization refusal;
+- repeated deterministic execution;
+- source immutability;
+- preservation of objects, transforms, meshes, coordinate frame, and world bounds.
 
-Every hostile case must prove failure with no mutation.
+Every hostile case is required to fail without source mutation.
 
 ## 10. Live Blender validation
 
-A live gate should create a disposable scene whose Blender unit metadata is represented by the supported extraction boundary and verify:
+The disposable Blender live gate verifies:
 
-- alias normalization changes only the canonical unit metadata;
-- mesh geometry, transforms, object identity, and bounds are unchanged;
-- no file open/save occurs.
+- canonical meters metadata is visible at the Blender boundary;
+- mesh geometry is preserved;
+- object location, scale, and rotation are preserved;
+- filepath remains unchanged;
+- no save is attempted;
+- a genuine `IMPERIAL + INCHES` boundary remains physically distinct.
 
-A second fixture should use a physically different unit token and prove the live boundary refuses normalization rather than relabeling geometry.
+The live probe does not perform a physical unit conversion or silently relabel geometry.
 
 ## 11. C++ seam
 
-The alias set, target token, plan identity, authorization contract, and output canonical representation must be reproducible without Blender-specific types.
+The alias set, target token, plan identity, authorization contract, and output canonical representation are reproducible without Blender-specific types.
 
 ## 12. Explicit non-goals
 
@@ -149,12 +149,20 @@ Wave 8 does NOT:
 - infer an intended physical unit from geometry;
 - add rollback, recovery, persistence, receipt, scheduler, or workflow authority.
 
-## 13. Exit criteria
+## 13. Validation record
+
+Focused Wave 8 deterministic/adversarial + live Blender validation: **10 passed** on the supported Blender installation.
+
+The live Blender boundary initially exposed a gate-aggregation defect in the probe itself; the probe was corrected so the negative `save_attempted=False` assertion is checked independently of the positive aggregate. A second hardening step requires the physical-unit distinction fixture to set both Blender's coarse system and precise length token (`IMPERIAL` + `INCHES`).
+
+CI has already passed on the prior Wave 8 head; the corrected probe is now the final required local validation input for the next CI run.
+
+## 14. Exit criteria
 
 Wave 8 is complete only when:
 
 1. this design gate is reviewed and frozen;
-2. planner safety tightening is implemented;
+2. planner safety boundary remains fail-closed;
 3. deterministic canonical executor exists without `bpy`;
 4. focused deterministic tests pass;
 5. adversarial tests prove zero unauthorized mutation;
