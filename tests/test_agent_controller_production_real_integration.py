@@ -1,5 +1,7 @@
 """Live Unreal validation for an agent-originated production request."""
 
+from collections.abc import Mapping
+
 import pytest
 
 from controller.agent_entrypoint_contract import AgentControllerHandoff
@@ -102,7 +104,7 @@ def _state(evidence):
 
 def _variant(evidence, key):
     value = _state(evidence).get(key, {}).get("variant")
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise AssertionError(f"{key}.variant missing from Unreal evidence")
     return dict(value)
 
