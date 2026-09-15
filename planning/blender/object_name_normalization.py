@@ -170,9 +170,10 @@ def plan_object_name_normalization(
     object_id = _validate_str(expected_object_id, "expected_object_id")
     current = _validate_str(current_name, "current_name")
     pattern = _validate_pattern(name_pattern)
-    target = _validate_target_name(target_name, pattern)
+    target = _validate_str(target_name, "target_name")
     if target == current:
         raise ObjectNameNormalizationError("already canonical; no normalization is required", "ALREADY_CANONICAL")
+    target = _validate_target_name(target, pattern)
     matches = [obj for obj in scene.objects if obj.object_id == object_id]
     if len(matches) != 1:
         raise ObjectNameNormalizationError("expected object id must resolve to exactly one object", "OBJECT_ID_RESOLUTION_INVALID")
@@ -221,6 +222,17 @@ def _scene_non_name_payload(scene: SceneModel) -> dict:
     return payload
 
 
+def _authorization_is_exact(authorization: Mapping[str, Any], plan: Mapping[str, Any]) -> bool:
+    expected = {
+        "decision": "APPROVED",
+        "correction_type": CORRECTION_TYPE,
+        "correction_id": plan.get("correction_id"),
+        "plan_id": plan.get("plan_id"),
+        "source_report_digest": plan.get("source_report_digest"),
+    }
+    return type(authorization) is dict and authorization == expected
+
+
 def execute_object_name_normalization(
     plan: Mapping[str, Any],
     authorization: Mapping[str, Any],
@@ -237,16 +249,14 @@ def execute_object_name_normalization(
         object_id = _validate_str(params.get("expected_object_id"), "expected_object_id")
         current = _validate_str(params.get("current_name"), "current_name")
         pattern = _validate_pattern(params.get("name_pattern"))
-        target = _validate_target_name(params.get("target_name"), pattern)
+        target = _validate_str(params.get("target_name"), "target_name")
+        if target == current:
+            return ExecutionOutcome(False, "PLAN_INVALID", "ALREADY_CANONICAL", source, None)
+        target = _validate_target_name(target, pattern)
     except ObjectNameNormalizationError as exc:
         return ExecutionOutcome(False, "PLAN_INVALID", exc.code, source, None)
-    if target == current:
-        return ExecutionOutcome(False, "PLAN_INVALID", "ALREADY_CANONICAL", source, None)
-    if authorization.get("decision") != "APPROVED" or authorization.get("correction_type") != CORRECTION_TYPE:
+    if not _authorization_is_exact(authorization, plan):
         return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", "AUTHORIZATION_INVALID", source, None)
-    for key in ("correction_id", "plan_id", "source_report_digest"):
-        if authorization.get(key) != plan.get(key):
-            return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", key.upper() + "_MISMATCH", source, None)
     scene_id = plan.get("scene_id")
     expected_plan = _plan_body(
         scene_id=scene_id,
@@ -260,17 +270,20 @@ def execute_object_name_normalization(
         return ExecutionOutcome(False, "PLAN_INVALID", "PLAN_ID_MISMATCH", source, None)
 
     before, fresh_digest = extractor()
-    if fresh_digest != source:
-        return ExecutionOutcome(False, "SOURCE_MISMATCH", "SOURCE_DIGEST_MISMATCH", fresh_digest, None)
+    actual_digest = scene_digest(before)
+    if fresh_digest != actual_digest:
+        return ExecutionOutcome(False, "SOURCE_MISMATCH", "SOURCE_DIGEST_INVALID", actual_digest, None)
+    if actual_digest != source:
+        return ExecutionOutcome(False, "SOURCE_MISMATCH", "SOURCE_DIGEST_MISMATCH", actual_digest, None)
     if before.scene_id != scene_id:
-        return ExecutionOutcome(False, "PRECONDITION_FAILED", "SCENE_ID_MISMATCH", fresh_digest, None)
+        return ExecutionOutcome(False, "PRECONDITION_FAILED", "SCENE_ID_MISMATCH", actual_digest, None)
     matches = [obj for obj in before.objects if obj.object_id == object_id]
     if len(matches) != 1:
-        return ExecutionOutcome(False, "PRECONDITION_FAILED", "OBJECT_ID_RESOLUTION_INVALID", fresh_digest, None)
+        return ExecutionOutcome(False, "PRECONDITION_FAILED", "OBJECT_ID_RESOLUTION_INVALID", actual_digest, None)
     if matches[0].name != current:
-        return ExecutionOutcome(False, "PRECONDITION_FAILED", "CURRENT_NAME_MISMATCH", fresh_digest, None)
+        return ExecutionOutcome(False, "PRECONDITION_FAILED", "CURRENT_NAME_MISMATCH", actual_digest, None)
     if any(obj.name == target and obj.object_id != object_id for obj in before.objects):
-        return ExecutionOutcome(False, "PRECONDITION_FAILED", "NAME_COLLISION", fresh_digest, None)
+        return ExecutionOutcome(False, "PRECONDITION_FAILED", "NAME_COLLISION", actual_digest, None)
 
     after = _replace_object_name(before, object_id, target)
     changed = [
@@ -279,12 +292,12 @@ def execute_object_name_normalization(
         if before_obj.name != after_obj.name
     ]
     if changed != [(object_id, current, target)]:
-        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNEXPECTED_NAME_CHANGES", fresh_digest, None)
+        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNEXPECTED_NAME_CHANGES", actual_digest, None)
     if _scene_non_name_payload(after) != _scene_non_name_payload(before):
-        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "NON_NAME_STATE_CHANGED", fresh_digest, None)
+        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "NON_NAME_STATE_CHANGED", actual_digest, None)
     if len({obj.name for obj in after.objects}) != len(after.objects):
-        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "NAME_NOT_UNIQUE", fresh_digest, None)
+        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "NAME_NOT_UNIQUE", actual_digest, None)
     if next(obj for obj in after.objects if obj.object_id == object_id).name != target:
-        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_NAME_NOT_APPLIED", fresh_digest, None)
+        return ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_NAME_NOT_APPLIED", actual_digest, None)
 
-    return ExecutionOutcome(True, "COMPLETED", None, fresh_digest, scene_digest(after), after)
+    return ExecutionOutcome(True, "COMPLETED", None, actual_digest, scene_digest(after), after)
