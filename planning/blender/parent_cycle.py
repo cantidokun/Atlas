@@ -254,6 +254,8 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
         scene_after, output_digest = _extract(extractor)
     except Exception:
         return _ExecutionOutcome(False, "MUTATION_FAILED", "POST_EXTRACTION_FAILED", fresh_digest, None)
+    if type(output_digest) is not str or len(output_digest) != 64:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OUTPUT_DIGEST_INVALID", fresh_digest, None)
     after_by_id = _index_objects(scene_after)
     target_after = after_by_id.get(target_id)
     if target_after is None:
