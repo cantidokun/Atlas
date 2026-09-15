@@ -1,0 +1,1 @@
+Wave 10 validation status is tracked through the branch and CI gates; no additional authority is introduced here.
