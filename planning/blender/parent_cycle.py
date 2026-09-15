@@ -157,14 +157,14 @@ def _object_projection(obj: Any) -> Any:
     if isinstance(obj, Mapping):
         return copy.deepcopy(dict(obj))
     result = {}
-    for name in ("object_id", "id", "name", "mesh_id", "transform", "location", "rotation", "scale", "children", "data", "parent_object_id", "parent_id", "parent", "collection_id", "collection", "metadata", "properties"):
+    for name in ("object_id", "name", "collection", "parent_object_id", "location", "scale", "rotation", "visible", "mesh"):
         if hasattr(obj, name):
             result[name] = copy.deepcopy(getattr(obj, name))
     return result
 
 def _non_parent_object_projection(obj: Any) -> Any:
     projection = _object_projection(obj)
-    return {k: copy.deepcopy(v) for k, v in projection.items() if k not in {"parent_object_id", "parent_id", "parent"}}
+    return {k: copy.deepcopy(v) for k, v in projection.items() if k != "parent_object_id"}
 
 def _scene_projection(scene_model: Any, *, exclude_object_id: Optional[str] = None) -> Tuple[Tuple[str, Any], ...]:
     rows = []
