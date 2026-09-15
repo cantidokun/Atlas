@@ -198,13 +198,7 @@ def execute_remove_isolated_vertices(
     *,
     extractor: Callable[[], Tuple[SceneModel, str]],
 ) -> ExecutionOutcome:
-    """Execute only an exactly-authorized isolated-vertex removal.
-
-    The extractor is the engine boundary. This function never mutates its returned
-    scene and has no Blender dependency. The returned SceneModel is the only mutation
-    result; a live adapter may apply the same canonical result through a separately
-    gated engine primitive.
-    """
+    """Execute only an exactly-authorized isolated-vertex removal."""
     source = plan.get("source_report_digest")
     if plan.get("correction_type") != CORRECTION_TYPE:
         return ExecutionOutcome(False, "PLAN_INVALID", "CORRECTION_TYPE_MISMATCH", str(source), None)
@@ -223,12 +217,24 @@ def execute_remove_isolated_vertices(
         if authorization.get(key) != plan.get(key):
             return ExecutionOutcome(False, "AUTHORIZATION_REFUSED", key.upper() + "_MISMATCH", str(source), None)
 
+    # Authenticate the plan body before evaluating the live source state. This prevents
+    # a tampered parameter set from being reclassified merely as a topology mismatch.
+    target_id = plan.get("target_object_id")
+    mesh_id = plan.get("mesh_id")
+    expected_plan = _plan_body(
+        target_object_id=target_id,
+        mesh_id=mesh_id,
+        expected=expected,
+        source_digest=source,
+    )
+    if plan.get("correction_id") != expected_plan["correction_id"] or plan.get("plan_id") != expected_plan["plan_id"]:
+        return ExecutionOutcome(False, "PLAN_INVALID", "PLAN_ID_MISMATCH", str(source), None)
+
     before, fresh_digest = extractor()
     if fresh_digest != source:
         return ExecutionOutcome(False, "SOURCE_MISMATCH", "SOURCE_DIGEST_MISMATCH", fresh_digest, None)
-    target_id = plan.get("target_object_id")
     target = _find_object(before, target_id)
-    if target is None or target.mesh is None or target.mesh.mesh_id != plan.get("mesh_id"):
+    if target is None or target.mesh is None or target.mesh.mesh_id != mesh_id:
         return ExecutionOutcome(False, "PRECONDITION_FAILED", "TARGET_MISMATCH", fresh_digest, None)
     try:
         actual = _isolated_indices(target.mesh)
@@ -237,15 +243,9 @@ def execute_remove_isolated_vertices(
     if actual != expected:
         return ExecutionOutcome(False, "PRECONDITION_FAILED", "ISOLATED_SET_MISMATCH", fresh_digest, None)
 
-    # Verify the plan itself before producing a result.
-    expected_plan = _plan_body(target_object_id=target_id, mesh_id=target.mesh.mesh_id, expected=expected, source_digest=source)
-    if plan.get("correction_id") != expected_plan["correction_id"] or plan.get("plan_id") != expected_plan["plan_id"]:
-        return ExecutionOutcome(False, "PLAN_INVALID", "PLAN_ID_MISMATCH", fresh_digest, None)
-
     new_mesh = _remap_mesh(target.mesh, expected)
     after = _replace_target(before, target_id, new_mesh)
 
-    # Postconditions are checked entirely against immutable canonical values.
     after_target = _find_object(after, target_id)
     if after_target is None or after_target.mesh is None:
         return ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_MISSING", fresh_digest, None)
@@ -259,7 +259,6 @@ def execute_remove_isolated_vertices(
                 return ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_OBJECT_STATE_CHANGED", fresh_digest, None)
         elif before_obj != after_obj:
             return ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, None)
-    # Every face is retained in order/cardinality; only indices are remapped.
     removed_set = set(expected)
     mapping = {old: new for new, old in enumerate(i for i in range(len(target.mesh.vertices)) if i not in removed_set)}
     expected_faces = tuple(tuple(mapping[i] for i in face) for face in target.mesh.faces)
