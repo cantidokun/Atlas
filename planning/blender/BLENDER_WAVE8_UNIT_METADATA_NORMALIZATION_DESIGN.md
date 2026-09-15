@@ -98,11 +98,11 @@ If any postcondition fails, return structured failure.
 
 ## 8. Planner safety correction
 
-The existing planner already keeps `SCENE_UNIT_INVALID` review-only instead of fabricating an executable normalization target. Wave 8 therefore preserves that safety boundary while providing the separate explicitly-authorized alias-only executor.
+The existing planner keeps `SCENE_UNIT_INVALID` review-only instead of fabricating an executable normalization target. Wave 8 therefore preserves that safety boundary while providing the separate explicitly-authorized alias-only executor.
 
 For a physically different token such as `INCHES`, no executable normalization proposal is emitted by the planner and the finding remains review-required.
 
-This is a safety requirement, not an implementation detail: metadata relabeling across physical unit systems would silently reinterpret geometry.
+The dedicated executor accepts only the explicit aliases listed in §2 and is intentionally stricter than the broader Blender-side `is_meters_like` helper, which recognizes additional meters-family spellings for validation/mapping purposes. Wave 8 does not inherit those broader aliases because metadata normalization must be an explicit contract, not a generalized string canonicalizer.
 
 ## 9. Adversarial coverage
 
@@ -155,7 +155,7 @@ Focused Wave 8 deterministic/adversarial + live Blender validation: **10 passed*
 
 The live Blender boundary initially exposed a gate-aggregation defect in the probe itself; the probe was corrected so the negative `save_attempted=False` assertion is checked independently of the positive aggregate. A second hardening step requires the physical-unit distinction fixture to set both Blender's coarse system and precise length token (`IMPERIAL` + `INCHES`).
 
-CI has already passed on the prior Wave 8 head; the corrected probe is now the final required local validation input for the next CI run.
+CI had already passed on a prior Wave 8 head; the corrected probe and frozen documentation are the final local validation inputs for the final CI run.
 
 ## 14. Exit criteria
 
