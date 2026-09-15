@@ -1,6 +1,6 @@
 # Atlas Blender Wave 12 — `REPAIR_PARENT_CYCLE` Design Gate
 
-**Status:** DESIGN / NOT IMPLEMENTED  
+**Status:** IMPLEMENTATION / VALIDATION IN PROGRESS  
 **Branch:** `feat/blender-wave12-reference-integrity`  
 **Baseline:** Wave 11 merged to `main` at `fda85a994ec0669d8ee9d1ff1ab6d52e9bfec0d3`
 
@@ -104,7 +104,7 @@ new_parent_object_id=None
 
 The executor performs no cascade and no retry. The canonical executor preserves the target's local transform fields exactly; it does not invent a world-space pose for a malformed cyclic graph.
 
-The Blender live boundary must separately prove that the underlying detach primitive can preserve world pose on an acyclic disposable parent relationship. Any Blender-specific parent-inverse adjustment needed to preserve world pose is part of that boundary implementation, not a second semantic parent mutation.
+The Blender live boundary separately proves that the underlying detach primitive preserves world pose on an acyclic disposable parent relationship. Any Blender-specific parent-inverse adjustment needed to preserve world pose is part of that boundary implementation, not a second semantic parent mutation.
 
 ## 7. Postconditions
 
@@ -123,7 +123,7 @@ A canonical world-space equality claim is intentionally **not** made for the mal
 
 ## 8. Live Blender boundary
 
-Blender's live object model naturally supports parent relationships and cycle-prevention behavior. The live gate must prove the actual detach primitive, world-pose preservation on a valid acyclic parent relationship, and the non-mutation invariants using a disposable in-memory scene.
+Blender's live object model naturally supports parent relationships and cycle-prevention behavior. The live gate proves the actual detach primitive, world-pose preservation on a valid acyclic parent relationship, and the non-mutation invariants using a disposable in-memory scene.
 
 The live gate must not open or save a `.blend`, must not modify frozen assets, and must not rely on an impossible dangling-reference or cyclic `bpy` state. Where Blender prevents creation of an illegal cycle, the canonical malformed-graph tests remain authoritative for cycle detection and repair semantics; the live gate proves only the real Blender detach primitive and its preservation behavior.
 
@@ -131,19 +131,18 @@ No live workflow or action-runner execution is part of Wave 12.
 
 ## 9. Validation gate
 
-Before merge:
+Implementation currently includes the bounded canonical planner/executor, deterministic cycle tests, and the disposable Blender boundary probe/gate. Merge remains blocked until:
 
-- deterministic cycle-detection reference-model tests;
-- self-cycle, two-node cycle, and multi-node cycle cases;
-- duplicate object-id rejection and ambiguous-target fail-closed cases;
-- stale-source, target-substitution, and expected-parent substitution rejection;
-- exact authorization and closed-parameter tests;
-- proof that one detached edge cannot silently repair or alter another cycle;
-- canonical local-transform preservation across the correction;
-- live Blender proof of world-pose preservation for the corresponding acyclic detach primitive;
-- full Wave 1–Wave 12 regression with workflow/action-runner tests excluded;
-- supported-Python final-head CI;
-- independent red-team review focused on graph-topology broadening, hidden re-parenting, stale authorization, world-pose drift at the live boundary, and accidental multi-edge mutation.
+- deterministic self-cycle, two-node, and multi-node cycle cases pass;
+- duplicate object-id and ambiguous-target fail-closed cases pass;
+- stale-source, target-substitution, and expected-parent substitution rejection pass;
+- exact authorization and closed-parameter tests pass;
+- one-edge-only and non-target preservation tests pass without aliasing false positives;
+- canonical local-transform preservation is verified;
+- live Blender proof of world-pose preservation passes on the user's Blender 4.4.3 host;
+- full Wave 1–Wave 12 regression passes with workflow/action-runner tests excluded;
+- supported-Python final-head CI is green;
+- independent red-team review is clear.
 
 A cycle repair that changes more than the explicitly selected parent edge, changes canonical local transform state, or causes world-pose drift in the live detach primitive blocks merge.
 
