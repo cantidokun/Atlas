@@ -8,6 +8,24 @@ See ``BLENDER_MESH_SCENE_HEALTH_KERNEL.md`` for the full architecture, finding c
 rules, profiles, readiness criteria, complexity, and C++-replacement seams.
 """
 
+# Python 3.9 compatibility: some canonical value contracts use ``slots=True`` when the
+# interpreter supports it. Keep those contracts importable on Atlas's supported 3.9 runtime
+# without changing their semantic frozen-value behavior. On 3.10+ the stdlib decorator is
+# untouched and native slots remain enabled.
+import dataclasses as _dataclasses
+import sys as _sys
+
+if _sys.version_info < (3, 10):
+    _native_dataclass = _dataclasses.dataclass
+
+    def _dataclass_compat(cls=None, **kwargs):
+        kwargs.pop("slots", None)
+        if cls is None:
+            return lambda target: _native_dataclass(target, **kwargs)
+        return _native_dataclass(cls, **kwargs)
+
+    _dataclasses.dataclass = _dataclass_compat
+
 from planning.blender.blender_adapter import (
     build_scene_model_from_blender,
     evaluate_blender_inspection,
