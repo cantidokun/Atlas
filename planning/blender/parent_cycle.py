@@ -220,7 +220,10 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
     verdict = verify_parent_cycle_authorization(CyclePresentedWork(correction_id, plan_id, source_digest, target_id, expected_parent_id), authorization)
     if not verdict.verified:
         return _ExecutionOutcome(False, "AUTHORIZATION_REFUSED", verdict.failure_code, source_digest, None)
-    scene_before, fresh_digest = _extract(extractor)
+    try:
+        scene_before, fresh_digest = _extract(extractor)
+    except Exception:
+        return _ExecutionOutcome(False, "MUTATION_FAILED", "EXTRACTION_FAILED", source_digest, None)
     if fresh_digest != source_digest:
         return _ExecutionOutcome(False, "PLAN_INVALID", "SOURCE_DIGEST_MISMATCH", fresh_digest, None)
     by_id = _index_objects(scene_before)
@@ -247,7 +250,10 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
         mutator(target_id, expected_parent_id, None)
     except Exception:
         return _ExecutionOutcome(False, "MUTATION_FAILED", "MUTATOR_EXCEPTION", fresh_digest, None)
-    scene_after, output_digest = _extract(extractor)
+    try:
+        scene_after, output_digest = _extract(extractor)
+    except Exception:
+        return _ExecutionOutcome(False, "MUTATION_FAILED", "POST_EXTRACTION_FAILED", fresh_digest, None)
     after_by_id = _index_objects(scene_after)
     target_after = after_by_id.get(target_id)
     if target_after is None:
