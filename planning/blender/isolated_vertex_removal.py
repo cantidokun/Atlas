@@ -61,6 +61,7 @@ def plan_isolated_vertex_removal(scene:SceneModel,source_report_digest:str,*,tar
     if type(source_report_digest) is not str or len(source_report_digest)!=64: raise IsolatedVertexRemovalError("source report digest must be a 64-character string","SOURCE_DIGEST_INVALID")
     if type(target_object_id) is not str or not target_object_id: raise IsolatedVertexRemovalError("target object id is required","TARGET_OBJECT_INVALID")
     expected=_validate_isolated_indices(expected_isolated_vertex_indices)
+    if not expected: raise IsolatedVertexRemovalError("Wave 6 requires at least one isolated vertex","EMPTY_REMOVAL")
     target=_find_object(scene,target_object_id)
     if target is None or target.mesh is None: raise IsolatedVertexRemovalError("target object must resolve to one mesh","TARGET_NOT_FOUND")
     actual=_isolated_indices(target.mesh)
@@ -81,6 +82,7 @@ def execute_remove_isolated_vertices(plan:Mapping[str,Any],authorization:Mapping
     if type(params) is not dict or set(params)!=_ALLOWED_PARAMS: return ExecutionOutcome(False,"PLAN_INVALID","PARAMS_INVALID",str(source),None)
     try: expected=_validate_isolated_indices(params["expected_isolated_vertex_indices"])
     except IsolatedVertexRemovalError as exc: return ExecutionOutcome(False,"PLAN_INVALID",exc.code,str(source),None)
+    if not expected: return ExecutionOutcome(False,"PLAN_INVALID","EMPTY_REMOVAL",str(source),None)
     if authorization.get("decision")!="APPROVED" or authorization.get("correction_type")!=CORRECTION_TYPE: return ExecutionOutcome(False,"AUTHORIZATION_REFUSED","AUTHORIZATION_INVALID",str(source),None)
     for key in ("correction_id","plan_id","source_report_digest"):
         if authorization.get(key)!=plan.get(key): return ExecutionOutcome(False,"AUTHORIZATION_REFUSED",key.upper()+"_MISMATCH",str(source),None)
