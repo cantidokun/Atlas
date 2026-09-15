@@ -37,7 +37,7 @@ def main():
     bpy.context.view_layer.update()
 
     vertices = len(mesh.vertices)
-    polygons = tuple(tuple(vertex.index for vertex in poly.vertices) for poly in mesh.polygons)
+    polygons = tuple(tuple(poly.vertices) for poly in mesh.polygons)
     referenced = {index for face in polygons for index in face}
     edges = set()
     edge_valence = {}
