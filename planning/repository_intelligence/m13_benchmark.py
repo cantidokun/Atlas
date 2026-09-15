@@ -16,6 +16,7 @@ from planning.repository_intelligence.benchmark import ContextBenchmarkResult, c
 from planning.repository_intelligence.context import is_sensitive_context_path
 from planning.repository_intelligence.index import RepositoryIndex, build_repository_index
 from planning.repository_intelligence.m13_benchmark_diagnostics import diagnose_results
+from planning.repository_intelligence.m13_rank_diagnostics import diagnose_rankings, ranking_diagnostic_report
 
 
 def _normalize_text(text: str) -> str:
@@ -78,24 +79,29 @@ def benchmark_report(result: ContextBenchmarkResult, *, index: RepositoryIndex) 
     }
 
 
-def run_repository_benchmark(root: str | Path) -> dict:
+def run_repository_benchmark(root: str | Path, *, include_ranking_diagnostics: bool = False) -> dict:
     index = build_repository_index(root, include_git_history=True)
     sources = load_repository_sources(root, index)
     validate_source_snapshot(index, root, sources)
-    result = run_context_benchmark(index, curated_context_benchmark_cases(), sources)
-    return benchmark_report(result, index=index)
+    cases = curated_context_benchmark_cases()
+    result = run_context_benchmark(index, cases, sources)
+    report = benchmark_report(result, index=index)
+    if include_ranking_diagnostics:
+        report["ranking_diagnostics"] = ranking_diagnostic_report(diagnose_rankings(index, cases, result))
+    return report
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Atlas M13.7 repository context benchmark")
     parser.add_argument("root", nargs="?", default=".", help="Atlas repository checkout (default: current directory)")
     parser.add_argument("--output", type=Path, help="Write JSON report to this path")
+    parser.add_argument("--ranking-diagnostics", action="store_true", help="Include deterministic score/rank/reason diagnostics for benchmark-relevant paths")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    report = run_repository_benchmark(args.root)
+    report = run_repository_benchmark(args.root, include_ranking_diagnostics=args.ranking_diagnostics)
     encoded = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
