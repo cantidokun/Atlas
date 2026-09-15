@@ -10,7 +10,7 @@ Wave 7 proposes the next narrowly bounded topology-informed mesh correction: det
 
 This is intentionally narrower than generic vertex merging. Wave 7 must not use spatial tolerances, nearest-neighbor clustering, smoothing, welding heuristics, or semantic inference.
 
-The correction may only collapse vertices that are exactly equal at the canonical representation level and whose collapse cannot create a face with duplicate vertex indices.
+The correction may only collapse vertices that are exactly equal at the canonical representation level and whose collapse cannot create a face with duplicate vertex indices or a duplicate face image.
 
 ## 2. Authority boundary
 
@@ -49,11 +49,19 @@ Closed parameter set:
 
 Each group is a sorted sequence of at least two vertex indices. Groups are pairwise disjoint and sorted lexicographically. Within each group all coordinates must be exactly equal at the canonical representation level. The minimum original index is the sole survivor.
 
-## 4. Safety rule: face-collision prohibition
+The authorized groups must equal the **complete current exact-duplicate partition** for the target mesh. Singleton coordinate classes are omitted; every class with cardinality >= 2 must appear exactly once.
 
-Reject any group if a face references two or more members of that group. Collapsing such a face would alter face corner identity and could manufacture a degenerate face. Wave 7 must fail closed rather than perform secondary topology repair.
+## 4. Safety rule: topology-collision prohibition
 
-Likewise, any authorized collapse that would cause repeated vertex indices in a face after remapping must be rejected.
+Reject any duplicate group if a face references two or more members of that group. Collapsing such a face would alter face corner identity and manufacture a repeated vertex index.
+
+Also reject any authorization if deterministic face remapping would cause two distinct source faces to become the same ordered vertex-index tuple. This is a **face-image collision**: the operation would manufacture a duplicate face even though no single face contains two members of the same duplicate group.
+
+Wave 7 must fail closed rather than perform secondary topology repair for either collision class.
+
+The planner should reject collision-producing duplicate groups before emitting an executable plan. The executor must re-check the collision predicates against fresh canonical state before constructing the output.
+
+The postcondition layer must additionally verify that no new duplicate face, degenerate face, or non-manifold condition is introduced by the remap. A postcondition failure is structured failure, never an implicit secondary repair.
 
 ## 5. Preconditions
 
@@ -67,9 +75,10 @@ The executor must fail closed unless all are true:
 6. all vertices within a group have exactly equal canonical coordinates;
 7. the complete current duplicate grouping equals the authorized grouping;
 8. no face references multiple members of a proposed group;
-9. no face index is malformed or out of range;
-10. source digest still matches;
-11. no unrelated state changes before mutation.
+9. deterministic face remapping produces no duplicate face image;
+10. no face index is malformed or out of range;
+11. source digest still matches;
+12. no unrelated state changes before mutation.
 
 The executor must reject a stale plan if vertex coordinates or face topology changed since planning.
 
@@ -112,6 +121,7 @@ After execution:
 - no exact duplicate coordinate groups remain;
 - every original face remains in the same order and with the same number of corners;
 - no face has repeated vertex indices;
+- no two output faces share the same ordered vertex-index tuple;
 - every face's vertex sequence equals the deterministic source remap;
 - survivor coordinates are unchanged;
 - target and unrelated object state are unchanged;
@@ -139,6 +149,7 @@ At minimum cover:
 - changed face topology after planning;
 - malformed face indices;
 - face containing two vertices from the same duplicate group;
+- two distinct source faces collapsing to the same output face;
 - tampered correction id;
 - tampered plan id;
 - extra plan parameters;
@@ -171,6 +182,8 @@ The live probe must independently verify:
 - unrelated object preservation;
 - no file-path mutation or save attempt.
 
+A second live fixture must exercise a collision-producing duplicate scenario and prove that the live validation boundary rejects the proposed collapse rather than silently repairing the resulting duplicate/degenerate face.
+
 If Blender's direct mesh operation has identity or ordering behavior that cannot be guaranteed, the limitation must be documented rather than hidden.
 
 ## 11. Deterministic test plan
@@ -184,6 +197,7 @@ Required cases:
 - groups separated by unrelated vertices;
 - remap of faces referencing later survivors;
 - collision-producing face rejection;
+- distinct faces collapsing to the same output face rejection;
 - deterministic plan identity;
 - deterministic output identity;
 - canonical serialization round-trip;
