@@ -8,6 +8,26 @@ See ``BLENDER_MESH_SCENE_HEALTH_KERNEL.md`` for the full architecture, finding c
 rules, profiles, readiness criteria, complexity, and C++-replacement seams.
 """
 
+# Python 3.9 compatibility: some canonical value contracts use ``slots=True`` when the
+# interpreter supports it. Keep those contracts importable on Atlas's supported 3.9 runtime
+# without changing their semantic frozen-value behavior. The shim is restored before this
+# package import completes so it does not permanently monkeypatch the process-wide dataclasses
+# module.
+import dataclasses as _dataclasses
+import sys as _sys
+
+_native_dataclass = None
+if _sys.version_info < (3, 10):
+    _native_dataclass = _dataclasses.dataclass
+
+    def _dataclass_compat(cls=None, **kwargs):
+        kwargs.pop("slots", None)
+        if cls is None:
+            return lambda target: _native_dataclass(target, **kwargs)
+        return _native_dataclass(cls, **kwargs)
+
+    _dataclasses.dataclass = _dataclass_compat
+
 from planning.blender.blender_adapter import (
     build_scene_model_from_blender,
     evaluate_blender_inspection,
@@ -94,6 +114,9 @@ from planning.blender.transforms import (
     world_points,
     world_pose_for,
 )
+
+if _native_dataclass is not None:
+    _dataclasses.dataclass = _native_dataclass
 
 # NOTE: bpy_extraction is intentionally NOT imported at package load — it imports ``bpy`` lazily
 # from within a Blender process only, so deterministic (non-Blender) import of ``planning.blender``
