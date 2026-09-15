@@ -259,7 +259,7 @@ def test_new_unrelated_cycle_must_fail_closed():
 
     result = execute_repair_parent_cycle(plan, auth, extractor=extract, mutator=mutate)
     assert result.ok is False
-    assert result.failure_code == "CYCLE_REMAINS"
+    assert result.failure_code == "NEW_CYCLE_CREATED"
 
 
 def test_forged_correction_id_rejected_before_mutation():
