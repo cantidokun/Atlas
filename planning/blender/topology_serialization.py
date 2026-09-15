@@ -65,6 +65,7 @@ def topology_report_from_dict(value: Any) -> TopologyReport:
     if type(d["mesh_id"]) is not str or not d["mesh_id"]:
         raise ValueError("mesh_id must be a non-empty exact string")
 
+    vertex_count = _int(d["vertex_count"], "vertex_count")
     components_raw = d["components"]
     if type(components_raw) is not list:
         raise ValueError("components must be a list")
@@ -86,6 +87,8 @@ def topology_report_from_dict(value: Any) -> TopologyReport:
             raise ValueError("face_indices must be sorted and unique")
         if tuple(sorted(vertex_indices)) != vertex_indices or len(set(vertex_indices)) != len(vertex_indices):
             raise ValueError("vertex_indices must be sorted and unique")
+        if any(index >= vertex_count for index in vertex_indices):
+            raise ValueError("component vertex_indices must be within vertex_count")
         components.append(TopologyComponent(
             component_id=component_id,
             face_indices=face_indices,
@@ -102,7 +105,7 @@ def topology_report_from_dict(value: Any) -> TopologyReport:
 
     report = TopologyReport(
         schema_version=d["schema_version"], mesh_id=d["mesh_id"],
-        vertex_count=_int(d["vertex_count"], "vertex_count"),
+        vertex_count=vertex_count,
         referenced_vertex_count=_int(d["referenced_vertex_count"], "referenced_vertex_count"),
         isolated_vertex_count=_int(d["isolated_vertex_count"], "isolated_vertex_count"),
         edge_count=_int(d["edge_count"], "edge_count"),
