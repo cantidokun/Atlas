@@ -35,6 +35,7 @@ def _report_dict():
         lambda d: d["components"].__setitem__(0, dict(d["components"][0], component_id=99)),
         lambda d: d["components"].__setitem__(0, dict(d["components"][0], face_indices=[0, 0])),
         lambda d: d["components"].__setitem__(0, dict(d["components"][0], vertex_indices=[2, 1, 0])),
+        lambda d: d["components"].__setitem__(0, dict(d["components"][0], vertex_indices=[0, 1, 3])),
         lambda d: d["components"].__setitem__(0, dict(d["components"][0], edge_count=999)),
         lambda d: d["components"].__setitem__(0, dict(d["components"][0], face_indices=[])),
         lambda d: d["components"].append(dict(d["components"][0])),
