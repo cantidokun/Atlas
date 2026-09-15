@@ -132,9 +132,21 @@ def _validate_groups(groups: Any, vertex_count: int) -> Tuple[Tuple[int, ...], .
 
 
 def _survivor_mapping(vertex_count: int, groups: Tuple[Tuple[int, ...], ...]) -> Dict[int, int]:
-    removed = {index for group in groups for index in group[1:]}
-    survivors = [index for index in range(vertex_count) if index not in removed]
-    return {old: new for new, old in enumerate(survivors)}
+    """Map every original vertex index to the compact output index.
+
+    Duplicate members map to their group's deterministic survivor; non-duplicate
+    vertices map to themselves before compacting. Survivor order is the original
+    index order, so output indices remain deterministic and stable.
+    """
+    survivor_for: Dict[int, int] = {index: index for index in range(vertex_count)}
+    for group in groups:
+        survivor = group[0]
+        for index in group[1:]:
+            survivor_for[index] = survivor
+
+    survivors = [index for index in range(vertex_count) if survivor_for[index] == index]
+    survivor_to_new = {old: new for new, old in enumerate(survivors)}
+    return {index: survivor_to_new[survivor_for[index]] for index in range(vertex_count)}
 
 
 def _face_edge_valence(faces: Tuple[Tuple[int, ...], ...]) -> Dict[Tuple[int, int], int]:
