@@ -5,6 +5,7 @@ from typing import Any, Mapping, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterProduction, UnrealAdapterError
 from planning.unreal_agent import UnrealCapability, UnrealOperation, UnrealOperationKind
+from planning.unreal_blueprint_verifier import verify_blueprint_state
 from planning.unreal_capability_registry import UnrealCapabilityRegistry
 from planning.unreal_evidence_contract import UnrealEvidence, validate_evidence_for_operation
 from planning.unreal_material_verifier import verify_material_variant
@@ -219,12 +220,18 @@ class UnrealPlanExecutor:
                     raise UnrealPlanExecutionError(
                         f"Write operation {index} ('{operation.name}') and compilation must target the same entities"
                     )
+                if verification.arguments.get("asset_path") != operation.arguments.get("asset_path"):
+                    raise UnrealPlanExecutionError(
+                        f"Write operation {index} ('{operation.name}') and compilation must target the same asset"
+                    )
                 continue
 
             if verification.kind is not UnrealOperationKind.VERIFY:
                 raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be immediately followed by verification")
             if tuple(verification.entity_ids) != tuple(operation.entity_ids):
                 raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') and verification must target the same entities")
+            if operation.capability is UnrealCapability.BLUEPRINT and verification.arguments.get("asset_path") != operation.arguments.get("asset_path"):
+                raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') and verification must target the same asset")
             expected = cls._expected_verifier(operation)
             if expected is not None and verification.name != expected:
                 raise UnrealPlanExecutionError(f"Write operation {index} ('{operation.name}') must be followed by '{expected}', not '{verification.name}'")
@@ -291,8 +298,18 @@ class UnrealPlanExecutor:
         if write_operation.name=="configure_render": return {key:a[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")}
         return {}
     @staticmethod
-    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range","verify_render_job","inspect_render_job"}
-    def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None,expected_start_frame=None,expected_end_frame=None):
+    def _blueprint_metadata_expectation(plan,index):
+        """Resolve the authorized metadata expectation for the verification unit at index."""
+        if index < 2: return {}
+        candidate=plan.operations[index-2]
+        if candidate.name!="set_blueprint_metadata": return {}
+        arguments=candidate.arguments; metadata_key=arguments.get("metadata_key"); metadata_value=arguments.get("metadata_value")
+        if not isinstance(metadata_key,str) or not metadata_key.strip() or not isinstance(metadata_value,str) or not metadata_value.strip():
+            raise UnrealPlanExecutionError(f"Blueprint metadata operation at index {index-2} is missing authorized metadata arguments")
+        return {"metadata":{"metadata_key":metadata_key,"metadata_value":metadata_value}}
+    @staticmethod
+    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range","verify_render_job","inspect_render_job","verify_blueprint_state"}
+    def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None,expected_start_frame=None,expected_end_frame=None,expected_metadata=None):
         arguments=dict(operation.arguments); arguments["entity_ids"]=tuple(operation.entity_ids); arguments["authorization_id"]=authorization_id; validate_unreal_tool_call(operation.name,arguments)
         method_name=self._DISPATCH[operation.kind]; evidence=getattr(self._adapter,method_name)(operation,authorization_id); validate_evidence_for_operation(evidence,operation.name,tuple(operation.entity_ids))
         if operation.kind is UnrealOperationKind.VERIFY:
@@ -304,6 +321,7 @@ class UnrealPlanExecutor:
             if operation.name == "verify_sequencer_playback_range" and expected_start_frame is not None and expected_end_frame is not None: evidence=verify_sequencer_playback_range(evidence,expected_start_frame,expected_end_frame)
             if operation.name == "verify_render_state": evidence=verify_render_config(evidence, {key: operation.arguments[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")})
             if operation.name == "verify_render_job": evidence=verify_render_job_completion(evidence)
+            if operation.name == "verify_blueprint_state": evidence=verify_blueprint_state(evidence,operation.arguments.get("expected_compile_status"),operation.arguments.get("asset_path"),expected_metadata)
 
         if operation.name == "inspect_render_job":
             evidence=verify_render_job_completion(evidence)
@@ -329,7 +347,9 @@ class UnrealPlanExecutor:
             if operation.kind is UnrealOperationKind.VERIFY:
                 previous=plan.operations[index-1] if index else None
                 if previous is None or previous.kind not in (UnrealOperationKind.WRITE,UnrealOperationKind.READ): raise UnrealPlanExecutionError(f"Verify operation {index} ('{operation.name}') must follow a read or write")
-                if previous.kind is UnrealOperationKind.WRITE: expected=self._verification_expectation(previous)
+                if previous.kind is UnrealOperationKind.WRITE:
+                    expected=self._verification_expectation(previous)
+                    if previous.name=="compile_blueprint": expected=dict(expected,**self._blueprint_metadata_expectation(plan,index))
                 if operation.name == "verify_render_job":
                     operation=UnrealOperation(
                         capability=operation.capability,
@@ -341,7 +361,7 @@ class UnrealPlanExecutor:
                         ),
                         entity_ids=operation.entity_ids,
                     )
-            try: evidence=self._execute_one(operation,authorization_id,expected_location=expected.get("location"),expected_rotation=expected.get("rotation"),expected_scale=expected.get("scale"),expected_material_variant=expected.get("material_variant"),expected_niagara_variant=expected.get("niagara_variant"),expected_start_frame=expected.get("start_frame"),expected_end_frame=expected.get("end_frame"))
+            try: evidence=self._execute_one(operation,authorization_id,expected_location=expected.get("location"),expected_rotation=expected.get("rotation"),expected_scale=expected.get("scale"),expected_material_variant=expected.get("material_variant"),expected_niagara_variant=expected.get("niagara_variant"),expected_start_frame=expected.get("start_frame"),expected_end_frame=expected.get("end_frame"),expected_metadata=expected.get("metadata"))
             except (UnrealAdapterError,ValueError,TypeError) as exc:
                 message=f"Operation {index} ('{operation.name}') failed: {exc}"; failure=UnrealPlanExecutionFailure(plan.intent_id,index,operation.name,tuple(ledger),message,tuple(operation.entity_ids),self._failure_context(operation),tuple(completed)); raise UnrealPlanExecutionError(message,failure=failure) from exc
             except Exception as exc:

@@ -62,6 +62,7 @@ def test_real_unreal_blueprint_compile_and_verify():
         assert result.evidence_ledger[0].operation_name == "inspect_blueprint_state"
         assert result.evidence_ledger[1].operation_name == "compile_blueprint"
         assert result.evidence_ledger[2].operation_name == "verify_blueprint_state"
+        assert result.evidence_ledger[2].verified is True
         assert _blueprint_state(result.evidence_ledger[1])["compile_status"].lower() == "success"
         assert _blueprint_state(result.evidence_ledger[2])["compile_status"].lower() == "success"
         assert _blueprint_state(original_result.evidence_ledger[0])["asset_path"] == ASSET_PATH
@@ -94,6 +95,7 @@ def test_real_unreal_blueprint_metadata_mutation_persists_after_compile():
         assert _blueprint_state(result.evidence_ledger[1])["metadata"][METADATA_KEY] == METADATA_VALUE
         assert _blueprint_state(result.evidence_ledger[2])["metadata"][METADATA_KEY] == METADATA_VALUE
         assert _blueprint_state(result.evidence_ledger[3])["metadata"][METADATA_KEY] == METADATA_VALUE
+        assert result.evidence_ledger[3].verified is True
         assert _blueprint_state(result.evidence_ledger[3])["compile_status"].lower() == "success"
         fresh_result = executor.execute(_inspection_plan(_intent("real-blueprint-metadata-fresh-inspection")), "real-blueprint-metadata-fresh-auth")
         assert _blueprint_state(fresh_result.evidence_ledger[0])["metadata"][METADATA_KEY] == METADATA_VALUE
