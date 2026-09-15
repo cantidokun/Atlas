@@ -31,23 +31,35 @@ def main() -> int:
     obj.data.update()
 
     checks = {
-        "metric_system": scene.unit_settings.system == "METRIC",
-        "meters_length_unit": scene.unit_settings.length_unit == "METERS",
-        "vertices_preserved": tuple(tuple(v.co) for v in mesh.vertices) == before_vertices,
-        "location_preserved": tuple(obj.location) == before_location,
-        "scale_preserved": tuple(obj.scale) == before_scale,
-        "rotation_preserved": tuple(obj.rotation_quaternion) == before_rotation,
-        "filepath_unchanged": pathlib.Path(bpy.data.filepath) == save_before,
+        "metric_system": bool(scene.unit_settings.system == "METRIC"),
+        "meters_length_unit": bool(scene.unit_settings.length_unit == "METERS"),
+        "vertices_preserved": bool(tuple(tuple(v.co) for v in mesh.vertices) == before_vertices),
+        "location_preserved": bool(tuple(obj.location) == before_location),
+        "scale_preserved": bool(tuple(obj.scale) == before_scale),
+        "rotation_preserved": bool(tuple(obj.rotation_quaternion) == before_rotation),
+        "filepath_unchanged": bool(pathlib.Path(bpy.data.filepath) == save_before),
         "save_attempted": False,
     }
 
+    # Exercise a genuinely distinct physical unit at Blender's supported boundary: both the
+    # coarse system and precise length token must change, so this cannot pass merely because
+    # `length_unit` remained METERS while `system` became IMPERIAL.
     scene.unit_settings.system = "IMPERIAL"
-    physically_distinct = scene.unit_settings.system == "IMPERIAL"
-    checks["physical_unit_boundary_distinct"] = physically_distinct
+    scene.unit_settings.length_unit = "INCHES"
+    physically_distinct = (
+        scene.unit_settings.system == "IMPERIAL"
+        and scene.unit_settings.length_unit == "INCHES"
+        and not (
+            scene.unit_settings.system == "METRIC"
+            and scene.unit_settings.length_unit == "METERS"
+        )
+    )
+    checks["physical_unit_boundary_distinct"] = bool(physically_distinct)
 
+    all_checks = all(bool(value) for value in checks.values())
     payload = {
         "checks": checks,
-        "all_checks": all(checks.values()),
+        "all_checks": bool(all_checks),
         "save_attempted": False,
     }
     _marker(payload)
