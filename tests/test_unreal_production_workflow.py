@@ -1,11 +1,9 @@
 """Deterministic tests for heterogeneous Unreal production orchestration."""
 
-from dataclasses import dataclass
-
 import pytest
 
-from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_evidence_contract import UnrealEvidence
+from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionResult
 from planning.unreal_production_executor import UnrealProductionExecutionResult, UnrealProductionExecutor
 from planning.unreal_production_operation import UnrealProductionPlan

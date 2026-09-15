@@ -36,11 +36,10 @@ class UnrealProductionWorkflowResult:
     def verified_render(self) -> bool:
         """Whether the render result contains a verified, internally consistent identity."""
         if not isinstance(self.production, UnrealProductionExecutionResult):
-            if not hasattr(self.production, "success") or not self.production.success:
-                return False
-            production_intent_id = self.render.intent_id
-        else:
-            production_intent_id = self.production.production.plan.intent_id
+            return False
+        if not isinstance(self.render, UnrealRenderWorkflowResult):
+            return False
+        production_intent_id = self.production.production.plan.intent_id
         if not isinstance(production_intent_id, str) or not production_intent_id.strip():
             return False
         if not isinstance(self.render.intent_id, str) or not self.render.intent_id.strip():
