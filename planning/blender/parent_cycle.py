@@ -357,6 +357,7 @@ def execute_repair_parent_cycle(
 
     before_identity = tuple(sorted(by_id))
     before_target_non_parent = _non_parent_object_projection(target)
+    before_target_local_transform = _target_local_transform(target)
     before_unrelated = _scene_projection(scene_before, exclude_object_id=target_id)
 
     mutator(target_id, expected_parent_id, None)
@@ -370,7 +371,7 @@ def execute_repair_parent_cycle(
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "PARENT_NOT_DETACHED", fresh_digest, output_digest)
     if _non_parent_object_projection(target_after) != before_target_non_parent:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_NON_PARENT_CHANGED", fresh_digest, output_digest)
-    if _target_local_transform(target_after) != _target_local_transform(target):
+    if _target_local_transform(target_after) != before_target_local_transform:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_LOCAL_TRANSFORM_CHANGED", fresh_digest, output_digest)
     if tuple(sorted(after_by_id)) != before_identity:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_IDENTITY_CHANGED", fresh_digest, output_digest)
