@@ -29,7 +29,7 @@ It does **not**:
 - repair dangling references (Wave 4 remains responsible for that case);
 - mutate collections, names, geometry, units, or mesh topology;
 - delete objects;
-- independently alter the object's intended world-space pose;
+- independently alter the object's canonical local transform fields;
 - persist or save Blender state;
 - add retry, rollback, recovery, receipt, workflow, or action-runner authority.
 
@@ -48,14 +48,15 @@ No caller-supplied cycle membership list is authoritative. The planner derives t
 
 A plan is rejected when:
 
-- the target object does not exist;
+- the target object does not exist exactly once;
 - the target has no parent;
 - the expected parent does not exactly match the fresh target parent;
 - the expected parent is absent from the fresh object identity set (that is Wave 4's dangling-reference case, not Wave 12);
 - the fresh authoritative graph no longer contains the target's parent-cycle relationship;
-- multiple candidate targets exist and no explicit target is supplied;
 - the target is not actually a member of the fresh cycle being corrected;
 - any unexpected plan parameter is present.
+
+An explicit target is required for a correction. The planner does not silently choose among multiple cycle members.
 
 ## 4. Cycle semantics
 
@@ -101,17 +102,16 @@ expected_parent_id=<expected_parent_id>,
 new_parent_object_id=None
 ```
 
-The underlying Blender-side detach must preserve the target's pre-mutation world-space transform/mesh positions. Any Blender-specific parent-inverse adjustment needed to preserve world pose is part of the boundary implementation, not a second semantic parent mutation.
+The executor performs no cascade and no retry. The canonical executor preserves the target's local transform fields exactly; it does not invent a world-space pose for a malformed cyclic graph.
 
-The executor performs no cascade and no retry.
+The Blender live boundary must separately prove that the underlying detach primitive can preserve world pose on an acyclic disposable parent relationship. Any Blender-specific parent-inverse adjustment needed to preserve world pose is part of that boundary implementation, not a second semantic parent mutation.
 
 ## 7. Postconditions
 
-After mutation, the executor re-extracts authoritative state and verifies:
+After canonical mutation, the executor re-extracts authoritative state and verifies:
 
 - target `parent_object_id == None`;
-- target world-space pose/mesh positions are unchanged within the established transform comparison tolerance;
-- every canonical target field other than `parent_object_id` is unchanged;
+- target local `location`, `rotation`, and `scale` are exactly unchanged;
 - every non-target object is exactly unchanged;
 - object identity set and object count are unchanged;
 - geometry, names, collections, units, and mesh metadata are unchanged;
@@ -119,13 +119,13 @@ After mutation, the executor re-extracts authoritative state and verifies:
 - no new hierarchy cycle has been introduced elsewhere;
 - the source digest relationship and authorization binding remain satisfied.
 
-The correction is intentionally local: one parent edge, one selected object.
+A canonical world-space equality claim is intentionally **not** made for the malformed pre-state, because the existing world-pose engine correctly cannot resolve a cyclic parent chain.
 
 ## 8. Live Blender boundary
 
-Blender's live object model naturally supports parent relationships and cycle-prevention behavior. The live gate must therefore prove the actual detach primitive, world-pose preservation, and the non-mutation invariants using a disposable in-memory scene.
+Blender's live object model naturally supports parent relationships and cycle-prevention behavior. The live gate must prove the actual detach primitive, world-pose preservation on a valid acyclic parent relationship, and the non-mutation invariants using a disposable in-memory scene.
 
-The live gate must not open or save a `.blend`, must not modify frozen assets, and must not rely on an impossible dangling-reference state. It should construct a small parent cycle only to the extent Blender's actual API permits; where Blender prevents creation of an illegal cycle, the gate must instead prove the bounded detach primitive and preserve the canonical malformed-graph test as the authority for the cycle semantics.
+The live gate must not open or save a `.blend`, must not modify frozen assets, and must not rely on an impossible dangling-reference or cyclic `bpy` state. Where Blender prevents creation of an illegal cycle, the canonical malformed-graph tests remain authoritative for cycle detection and repair semantics; the live gate proves only the real Blender detach primitive and its preservation behavior.
 
 No live workflow or action-runner execution is part of Wave 12.
 
@@ -135,18 +135,18 @@ Before merge:
 
 - deterministic cycle-detection reference-model tests;
 - self-cycle, two-node cycle, and multi-node cycle cases;
-- ambiguous-target and stale-source fail-closed cases;
-- target-substitution and expected-parent substitution rejection;
+- duplicate object-id rejection and ambiguous-target fail-closed cases;
+- stale-source, target-substitution, and expected-parent substitution rejection;
 - exact authorization and closed-parameter tests;
 - proof that one detached edge cannot silently repair or alter another cycle;
-- world-pose/mesh-position preservation across the live detach primitive;
+- canonical local-transform preservation across the correction;
+- live Blender proof of world-pose preservation for the corresponding acyclic detach primitive;
 - full Wave 1–Wave 12 regression with workflow/action-runner tests excluded;
-- live Blender boundary gate on the user's Blender 4.4.3 host;
 - supported-Python final-head CI;
-- independent red-team review focused on graph-topology broadening, hidden re-parenting, stale authorization, world-pose drift, and accidental multi-edge mutation.
+- independent red-team review focused on graph-topology broadening, hidden re-parenting, stale authorization, world-pose drift at the live boundary, and accidental multi-edge mutation.
 
-A cycle repair that changes more than the explicitly selected parent edge, or changes the target's world pose without an explicitly established tolerance-based equivalence, blocks merge.
+A cycle repair that changes more than the explicitly selected parent edge, changes canonical local transform state, or causes world-pose drift in the live detach primitive blocks merge.
 
 ## 10. C++ seam
 
-The semantic contract is language-neutral: cycle detection operates on immutable object identifiers and parent identifiers, and correction mutates exactly one canonical parent-reference field while preserving the selected object's world pose. A future C++ implementation must reproduce the same cycle detection, plan binding, and postcondition semantics without Blender-specific types.
+The semantic contract is language-neutral: cycle detection operates on immutable object identifiers and parent identifiers, and correction mutates exactly one canonical parent-reference field while preserving the selected object's canonical local transform. A future C++ implementation must reproduce the same cycle detection, plan binding, and postcondition semantics without Blender-specific types.
