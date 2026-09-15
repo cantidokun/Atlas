@@ -37,10 +37,15 @@ def _blender_command():
     return tb.BLENDER  # configured path, e.g. C:\\Program Files\\...\\blender.exe
 
 
-# A read-only bpy script: it builds a tiny deterministic in-memory mesh scene and emits the
+# A read-only bpy script: it builds a tiny deterministic, in-memory mesh scene and emits the
 # canonical payload (never saving to disk, never touching production assets).
 _LIVE_SCRIPT = r'''
-import bpy, json
+import bpy, json, os, sys
+
+# Blender's embedded Python does not reliably honor PYTHONPATH on all installations.
+# Bootstrap the repository root explicitly through an environment variable so the live gate
+# can import the canonical Atlas packages without depending on shell-specific path behavior.
+sys.path.insert(0, os.environ["ATLAS_REPO_ROOT"])
 
 # Build a minimal deterministic, in-memory soccer-ish scene (read-only; nothing saved).
 if "Pitch" not in bpy.data.meshes:
@@ -79,7 +84,7 @@ print("ATLAS_LIVE_END")
 
 
 def test_live_blender_extraction_to_report():
-    """Live: read-only bpy extraction -> payload -> kernel -> deterministic SceneReport."""
+    """Live: read-only bpy extraction -> payload -> deterministic SceneReport."""
     cmd = [
         _blender_command(),
         "--background",
@@ -90,6 +95,7 @@ def test_live_blender_extraction_to_report():
     env = dict(os.environ)
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = repo if not existing else repo + os.pathsep + existing
+    env["ATLAS_REPO_ROOT"] = repo
     proc = subprocess.run(
         cmd, capture_output=True, text=True, timeout=180, cwd=repo, env=env,
     )
