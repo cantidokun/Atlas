@@ -101,3 +101,23 @@ def test_forged_post_source_is_not_reported_as_success_when_digest_changes():
     state = [s, digest]
     result = execute_remove_isolated_vertices(plan, auth, extractor=lambda:(state[0], state[1]))
     assert result.ok
+
+
+def test_invalid_face_index_fails_closed_before_remap():
+    mesh = MeshModel(
+        mesh_id="malformed",
+        vertices=((0.,0.,0.), (1.,0.,0.), (0.,1.,0.), (9.,9.,9.)),
+        faces=((0,1,99),),
+    )
+    scene = SceneModel(
+        scene_id="malformed-scene",
+        unit_system="METERS",
+        objects=(ObjectModel(object_id="target", name="Target", mesh=mesh),),
+    )
+    with pytest.raises(ValueError):
+        plan_isolated_vertex_removal(
+            scene,
+            "a" * 64,
+            target_object_id="target",
+            expected_isolated_vertex_indices=[2,3],
+        )
