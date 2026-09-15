@@ -1,6 +1,6 @@
 # Atlas Blender Wave 10 — Object Collection Normalization Design Gate
 
-**Status:** DESIGN / NOT IMPLEMENTED  
+**Status:** IMPLEMENTATION / VALIDATION IN PROGRESS  
 **Branch:** `feat/blender-wave10-collection-normalization`  
 **Baseline:** Wave 9 object-name normalization merged to `main` at `4834a94ee72ece965682430f465ce1ff16233427`
 
@@ -45,7 +45,7 @@ allowed_collections
 
 The executor must reject:
 
-- missing/non-string current collection when the source object has no collection;
+- missing/non-string current collection;
 - empty/non-string target collections;
 - a target identical to the current collection (`ALREADY_CANONICAL`);
 - a target not present in the exact supplied `allowed_collections` set;
@@ -77,15 +77,13 @@ The operation remains human-authorized and content-bound:
 - authorization `correction_id`, `plan_id`, and `source_report_digest` must exactly match the plan;
 - the authorization object must use an exact closed schema with no ignored extra keys.
 
-Wave 10 must not broaden the generic authorization contract implicitly. The bounded executor uses a dedicated exact authorization shape following the proven Wave 8/9 pattern.
+Wave 10 does not broaden the generic authorization contract implicitly. The bounded executor uses a dedicated exact authorization shape following the proven Wave 8/9 pattern.
 
 ## 7. Source freshness
 
 Execution must call a supplied extractor and require the freshly extracted report digest to equal the plan's source digest.
 
-The executor must then verify that the expected object exists exactly once and still has the recorded `current_collection` value before producing a result.
-
-The supplied extractor result is untrusted input: the canonical executor must independently recompute the digest from the extracted `SceneModel` rather than treating a caller-supplied digest field as authoritative.
+The supplied extractor result is untrusted input: the canonical executor independently recomputes the digest from the extracted `SceneModel` rather than treating a caller-supplied digest field as authoritative.
 
 ## 8. Postconditions
 
