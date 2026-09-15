@@ -4,8 +4,7 @@ import difflib
 import re
 
 from tools import TOOLS
-from controller.agent_controller_loop import AgentControllerLoopAdapter
-from controller.agent_entrypoint_runtime import AtlasAgentEntrypointRuntime
+from controller.agent_controller_host import AgentControllerHost
 
 
 
@@ -1164,10 +1163,9 @@ tool_execution_history = []
 # No trusted authorization provider is supplied here. Protected
 # controller capabilities therefore remain fail-closed until a trusted
 # in-process authorization/context source is deliberately connected.
-agent_controller_runtime = AtlasAgentEntrypointRuntime()
-agent_controller_loop = AgentControllerLoopAdapter(
-    agent_controller_runtime
-)
+agent_controller_host = AgentControllerHost()
+agent_controller_runtime = agent_controller_host.runtime
+agent_controller_loop = agent_controller_host.loop
 
 
 def task_explicitly_authorizes_modification(messages):
