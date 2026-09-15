@@ -38,12 +38,10 @@ def main() -> int:
         "scale_preserved": bool(tuple(obj.scale) == before_scale),
         "rotation_preserved": bool(tuple(obj.rotation_quaternion) == before_rotation),
         "filepath_unchanged": bool(pathlib.Path(bpy.data.filepath) == save_before),
-        "save_attempted": False,
     }
 
     # Exercise a genuinely distinct physical unit at Blender's supported boundary: both the
-    # coarse system and precise length token must change, so this cannot pass merely because
-    # `length_unit` remained METERS while `system` became IMPERIAL.
+    # coarse system and precise length token must change.
     scene.unit_settings.system = "IMPERIAL"
     scene.unit_settings.length_unit = "INCHES"
     physically_distinct = (
@@ -56,14 +54,17 @@ def main() -> int:
     )
     checks["physical_unit_boundary_distinct"] = bool(physically_distinct)
 
+    # `save_attempted` is a negative assertion, so it must not participate in the
+    # positive all-checks aggregate. The outer pytest gate asserts it independently.
+    save_attempted = False
     all_checks = all(bool(value) for value in checks.values())
     payload = {
-        "checks": checks,
+        "checks": {**checks, "save_attempted": save_attempted},
         "all_checks": bool(all_checks),
-        "save_attempted": False,
+        "save_attempted": save_attempted,
     }
     _marker(payload)
-    if not payload["all_checks"]:
+    if not payload["all_checks"] or payload["save_attempted"]:
         return 2
     print("ATLAS_WAVE8_UNIT_METADATA_LIVE_PASS")
     return 0
