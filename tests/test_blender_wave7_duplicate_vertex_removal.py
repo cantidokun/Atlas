@@ -105,8 +105,9 @@ def test_one_representable_coordinate_difference_is_not_duplicate():
         faces=((0, 1, 3),),
     )
     s = SceneModel(scene_id="s", unit_system="METERS", objects=(ObjectModel(object_id="target", name="Target", mesh=mesh),))
-    with pytest.raises(DuplicateVertexRemovalError):
-        plan_duplicate_vertex_removal(s, "a" * 64, target_object_id="target", expected_duplicate_vertex_groups=[])
+    with pytest.raises(DuplicateVertexRemovalError) as exc:
+        plan_duplicate_vertex_removal(s, "a" * 64, target_object_id="target", expected_duplicate_vertex_groups=[[1, 2]])
+    assert exc.value.code == "DUPLICATE_GROUPS_MISMATCH"
 
 
 def test_face_containing_two_group_members_is_rejected():
