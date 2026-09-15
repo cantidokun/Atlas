@@ -1,0 +1,332 @@
+"""Wave-12 bounded parent-cycle correction.
+
+This module is intentionally narrower than the generic hierarchy finding:
+- plans and executes only one explicitly selected cycle edge;
+- detaches that edge to ``None``;
+- never selects a replacement parent or rewrites another edge;
+- binds the plan to the fresh source digest and exact target/parent identity;
+- performs no persistence, receipt, recovery, workflow, or action-runner work.
+
+The canonical cycle model is engine-independent. Blender-specific world-pose
+preservation belongs to the live boundary gate because a cyclic canonical graph
+has no defined world pose under the existing parent-chain transform engine.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
+
+from planning.blender.correction_values import CorrectionPlannerError
+
+CYCLE_CORRECTION_TYPE = "REPAIR_PARENT_CYCLE"
+CYCLE_PLANNER_VERSION = "1"
+_CYCLE_PARAMS = frozenset({"expected_parent_id"})
+_AUTH_KEYS = frozenset({
+    "decision",
+    "correction_type",
+    "correction_id",
+    "plan_id",
+    "source_report_digest",
+    "target_object_id",
+    "expected_parent_id",
+})
+
+
+class ParentCycleError(CorrectionPlannerError):
+    """Declared Wave-12 planning/execution failure."""
+
+    def __init__(self, message: str, failure_code: str) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
+
+
+@dataclass(frozen=True)
+class CyclePresentedWork:
+    correction_id: str
+    plan_id: str
+    source_report_digest: str
+    target_object_id: str
+    expected_parent_id: str
+
+
+@dataclass(frozen=True)
+class CycleAuthorizationVerdict:
+    verified: bool
+    outcome: str
+    failure_code: Optional[str] = None
+
+
+def _canon_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _digest(value: Any) -> str:
+    return hashlib.sha256(_canon_json(value).encode("utf-8")).hexdigest()
+
+
+def _get(mapping: Any, key: str, default: Any = None) -> Any:
+    if isinstance(mapping, Mapping):
+        return mapping.get(key, default)
+    return getattr(mapping, key, default)
+
+
+def _objects(scene_model: Any) -> Tuple[Any, ...]:
+    raw = _get(scene_model, "objects", ())
+    try:
+        return tuple(raw)
+    except TypeError as exc:
+        raise ParentCycleError("scene objects are not enumerable", "SCENE_OBJECTS_INVALID") from exc
+
+
+def _object_id(obj: Any) -> Optional[str]:
+    value = _get(obj, "object_id", _get(obj, "id"))
+    return value if isinstance(value, str) and value else None
+
+
+def _parent_id(obj: Any) -> Optional[str]:
+    value = _get(obj, "parent_object_id", _get(obj, "parent_id", _get(obj, "parent")))
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    ident = _get(value, "object_id", _get(value, "id"))
+    return ident if isinstance(ident, str) and ident else None
+
+
+def _index_objects(scene_model: Any) -> Mapping[str, Any]:
+    by_id = {}
+    for obj in _objects(scene_model):
+        ident = _object_id(obj)
+        if ident is None:
+            raise ParentCycleError("every object must have a non-empty object_id", "OBJECT_ID_INVALID")
+        if ident in by_id:
+            raise ParentCycleError(f"duplicate object id {ident!r}", "DUPLICATE_OBJECT_ID")
+        by_id[ident] = obj
+    return by_id
+
+
+def _cycle_from_target(scene_model: Any, target_object_id: str) -> Tuple[str, ...]:
+    by_id = _index_objects(scene_model)
+    current = target_object_id
+    path = []
+    positions = {}
+    while current is not None:
+        if current in positions:
+            return tuple(path[positions[current]:])
+        if current not in by_id:
+            return ()
+        positions[current] = len(path)
+        path.append(current)
+        current = _parent_id(by_id[current])
+    return ()
+
+
+def target_is_in_parent_cycle(scene_model: Any, target_object_id: str) -> bool:
+    """Return whether the target participates in a concrete parent cycle."""
+    return bool(_cycle_from_target(scene_model, target_object_id))
+
+
+def _proposal_id(target_object_id: str, expected_parent_id: str, source_report_digest: str) -> str:
+    return _digest({
+        "correction_type": CYCLE_CORRECTION_TYPE,
+        "target_object_id": target_object_id,
+        "expected_parent_id": expected_parent_id,
+        "source_report_digest": source_report_digest,
+    })
+
+
+def _make_plan(*, target_object_id: str, expected_parent_id: str, source_report_digest: str) -> Mapping[str, Any]:
+    correction_id = _proposal_id(target_object_id, expected_parent_id, source_report_digest)
+    body = {
+        "planner_version": CYCLE_PLANNER_VERSION,
+        "correction_type": CYCLE_CORRECTION_TYPE,
+        "correction_id": correction_id,
+        "source_report_digest": source_report_digest,
+        "target_object_id": target_object_id,
+        "params": {"expected_parent_id": expected_parent_id},
+    }
+    return {**body, "plan_id": _digest(body)}
+
+
+def plan_parent_cycle_correction(
+    scene_model: Any,
+    source_report_digest: str,
+    *,
+    target_object_id: str,
+    expected_parent_id: str,
+) -> Mapping[str, Any]:
+    """Create one explicit, cycle-bound repair plan."""
+    if type(source_report_digest) is not str or len(source_report_digest) != 64:
+        raise ParentCycleError("source report digest must be a 64-character digest", "SOURCE_DIGEST_INVALID")
+    if type(target_object_id) is not str or not target_object_id:
+        raise ParentCycleError("target object id is required", "TARGET_OBJECT_INVALID")
+    if type(expected_parent_id) is not str or not expected_parent_id:
+        raise ParentCycleError("expected parent id is required", "EXPECTED_PARENT_INVALID")
+
+    by_id = _index_objects(scene_model)
+    target = by_id.get(target_object_id)
+    if target is None:
+        raise ParentCycleError("target object must resolve exactly once", "TARGET_OBJECT_NOT_FOUND")
+    actual_parent = _parent_id(target)
+    if actual_parent != expected_parent_id:
+        raise ParentCycleError("target does not present the expected parent edge", "EXPECTED_PARENT_MISMATCH")
+    if expected_parent_id not in by_id:
+        raise ParentCycleError("expected parent identifier is dangling; use Wave 4", "PARENT_IS_DANGLING")
+    cycle = _cycle_from_target(scene_model, target_object_id)
+    if not cycle:
+        raise ParentCycleError("target is not a member of a parent cycle", "CYCLE_NOT_FOUND")
+    if expected_parent_id not in cycle:
+        raise ParentCycleError("target parent is not the cycle edge selected by the plan", "PARENT_NOT_IN_CYCLE")
+
+    return _make_plan(
+        target_object_id=target_object_id,
+        expected_parent_id=expected_parent_id,
+        source_report_digest=source_report_digest,
+    )
+
+
+def verify_parent_cycle_authorization(
+    presented: CyclePresentedWork,
+    authorization: Mapping[str, Any],
+) -> CycleAuthorizationVerdict:
+    """Verify exact closed Wave-12 authorization bindings."""
+    if not isinstance(authorization, Mapping):
+        return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "NOT_A_MAPPING")
+    if set(authorization) != _AUTH_KEYS:
+        return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "FIELDS_NOT_CLOSED")
+    if authorization.get("decision") != "APPROVED":
+        return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "DECISION_NOT_APPROVED")
+    checks = (
+        ("correction_type", CYCLE_CORRECTION_TYPE, "CORRECTION_TYPE_MISMATCH"),
+        ("correction_id", presented.correction_id, "CORRECTION_ID_MISMATCH"),
+        ("plan_id", presented.plan_id, "PLAN_ID_MISMATCH"),
+        ("source_report_digest", presented.source_report_digest, "SOURCE_DIGEST_MISMATCH"),
+        ("target_object_id", presented.target_object_id, "TARGET_OBJECT_MISMATCH"),
+        ("expected_parent_id", presented.expected_parent_id, "EXPECTED_PARENT_MISMATCH"),
+    )
+    for field, expected, code in checks:
+        if authorization.get(field) != expected:
+            return CycleAuthorizationVerdict(False, "AUTHORIZATION_SCOPE_MISMATCH", code)
+    return CycleAuthorizationVerdict(True, "AUTHORIZATION_VERIFIED")
+
+
+def _extract(extractor: Callable[[], Tuple[Any, str]]) -> Tuple[Any, str]:
+    result = extractor()
+    if not isinstance(result, tuple) or len(result) != 2:
+        raise ParentCycleError("extractor must return (scene_model, report_digest)", "EXTRACTOR_INVALID")
+    return result
+
+
+def _object_projection(obj: Any) -> Any:
+    if isinstance(obj, Mapping):
+        return dict(obj)
+    return obj
+
+
+def _scene_projection(scene_model: Any, *, exclude_object_id: Optional[str] = None) -> Tuple[Tuple[str, Any], ...]:
+    rows = []
+    for obj in _objects(scene_model):
+        ident = _object_id(obj)
+        if ident is None:
+            raise ParentCycleError("post-state contains an object without an id", "OBJECT_ID_INVALID")
+        if ident == exclude_object_id:
+            continue
+        rows.append((ident, _object_projection(obj)))
+    return tuple(sorted(rows, key=lambda row: row[0]))
+
+
+def _target_local_transform(obj: Any) -> Tuple[Any, Any, Any]:
+    return (
+        _get(obj, "location"),
+        _get(obj, "rotation"),
+        _get(obj, "scale"),
+    )
+
+
+@dataclass(frozen=True)
+class _ExecutionOutcome:
+    ok: bool
+    outcome: str
+    failure_code: Optional[str]
+    source_report_digest: str
+    output_report_digest: Optional[str]
+
+
+def execute_repair_parent_cycle(
+    plan: Mapping[str, Any],
+    authorization: Mapping[str, Any],
+    *,
+    extractor: Callable[[], Tuple[Any, str]],
+    mutator: Callable[[str, str, None], None],
+) -> _ExecutionOutcome:
+    """Execute one parent-edge detach after fresh cycle and authorization checks."""
+    if not isinstance(plan, Mapping):
+        return _ExecutionOutcome(False, "PLAN_INVALID", "NOT_A_MAPPING", "", None)
+    if plan.get("correction_type") != CYCLE_CORRECTION_TYPE:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "CORRECTION_TYPE_MISMATCH", str(plan.get("source_report_digest")), None)
+    params = plan.get("params")
+    if not isinstance(params, Mapping) or set(params) != _CYCLE_PARAMS:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "PARAMS_INVALID", str(plan.get("source_report_digest")), None)
+
+    source_digest = plan.get("source_report_digest")
+    target_id = plan.get("target_object_id")
+    correction_id = plan.get("correction_id")
+    plan_id = plan.get("plan_id")
+    expected_parent_id = params.get("expected_parent_id")
+    if not all(type(v) is str and v for v in (source_digest, target_id, correction_id, plan_id, expected_parent_id)):
+        return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_FIELDS_INVALID", str(source_digest), None)
+
+    verdict = verify_parent_cycle_authorization(
+        CyclePresentedWork(
+            correction_id=correction_id,
+            plan_id=plan_id,
+            source_report_digest=source_digest,
+            target_object_id=target_id,
+            expected_parent_id=expected_parent_id,
+        ),
+        authorization,
+    )
+    if not verdict.verified:
+        return _ExecutionOutcome(False, "AUTHORIZATION_REFUSED", verdict.failure_code, source_digest, None)
+
+    scene_before, fresh_digest = _extract(extractor)
+    if fresh_digest != source_digest:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "SOURCE_DIGEST_MISMATCH", fresh_digest, None)
+    by_id = _index_objects(scene_before)
+    target = by_id.get(target_id)
+    if target is None:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "TARGET_OBJECT_NOT_FOUND", fresh_digest, None)
+    if _parent_id(target) != expected_parent_id:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "EXPECTED_PARENT_MISMATCH", fresh_digest, None)
+    if expected_parent_id not in by_id:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_IS_DANGLING", fresh_digest, None)
+    if not target_is_in_parent_cycle(scene_before, target_id):
+        return _ExecutionOutcome(False, "PLAN_INVALID", "CYCLE_NOT_FOUND", fresh_digest, None)
+    if expected_parent_id not in _cycle_from_target(scene_before, target_id):
+        return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_NOT_IN_CYCLE", fresh_digest, None)
+
+    before_identity = tuple(sorted(by_id))
+    before_local_transform = _target_local_transform(target)
+    before_unrelated = _scene_projection(scene_before, exclude_object_id=target_id)
+
+    mutator(target_id, expected_parent_id, None)
+
+    scene_after, output_digest = _extract(extractor)
+    after_by_id = _index_objects(scene_after)
+    target_after = after_by_id.get(target_id)
+    if target_after is None:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_OBJECT_MISSING", fresh_digest, output_digest)
+    if _parent_id(target_after) is not None:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "PARENT_NOT_DETACHED", fresh_digest, output_digest)
+    if _target_local_transform(target_after) != before_local_transform:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_LOCAL_TRANSFORM_CHANGED", fresh_digest, output_digest)
+    if tuple(sorted(after_by_id)) != before_identity:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_IDENTITY_CHANGED", fresh_digest, output_digest)
+    if _scene_projection(scene_after, exclude_object_id=target_id) != before_unrelated:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
+    if target_is_in_parent_cycle(scene_after, target_id):
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "CYCLE_REMAINS", fresh_digest, output_digest)
+
+    return _ExecutionOutcome(True, "CORRECTION_APPLIED", None, fresh_digest, output_digest)
