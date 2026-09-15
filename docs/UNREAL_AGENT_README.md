@@ -156,11 +156,11 @@ Independent verification
 
 `already_applied` operations are not replayed. `replacement_required` operations require new exact authorization. `manual_review` never becomes an automatic mutation.
 
-## Blueprint — current development target
+## Blueprint production boundary — GREEN (September 15, 2026)
 
-Blueprint remains the next engine-dependent production capability.
+Blueprint is no longer a development target: the narrow production boundary is live-gated against real Unreal Engine 5.6.1 over the existing Named Pipe transport, and its semantic verification is implemented, registered and live-proven (3 passed; `evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path).
 
-The narrow first production slice is:
+The narrow first production slice that was completed is:
 
 ```text
 READ   inspect_blueprint_state
@@ -169,7 +169,7 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The live mutation/compile path had been proven to execute, but the remaining known issue is evidence shape: persisted Blueprint metadata must appear in the verified Blueprint state under `metadata`.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the live mutation/compile path had been proven to execute, but the remaining known issue is evidence shape: persisted Blueprint metadata must appear in the verified Blueprint state under `metadata`. **Resolved live:** it does, at the mutation, compile, verify and fresh-inspection stages; Atlas verification additionally binds asset identity, compile status and the authorized metadata key/value, and tolerates unrelated metadata keys (the fixture's `AtlasTestMarker`).
 
 The intended state evidence is:
 
@@ -186,15 +186,13 @@ The intended state evidence is:
 }
 ```
 
-Do not expand into arbitrary Blueprint graph authoring until this narrow production boundary is green.
+The narrow production boundary is now green; arbitrary Blueprint graph authoring remains out of scope and would need its own design gate.
 
 ## Validation status
 
-The reconciled Python/controller boundary is deterministic green (268 focused, 742 in the broader deterministic sweep, with Python 3.9 parity), and the live Unreal controller gate has passed: a real Unreal Engine 5.6.1 editor executed an already-authorized `FIELD_SURFACE` composite production through the host-owned controller path and the existing Named Pipe transport, returning fresh verified evidence, a matching render receipt, and a typed controller result contract.
+The reconciled Python/controller boundary is deterministic green (canonical focused suite 160 passed / 2 deselected — the earlier "268 focused" figure was not reproducible and is superseded; broader deterministic sweep 742 passed / 5 skipped as originally recorded, rising to 766 passed / 5 skipped with the Blueprint milestone cases; Python 3.9 parity confirmed), and the live Unreal controller gate has passed: a real Unreal Engine 5.6.1 editor executed an already-authorized `FIELD_SURFACE` composite production through the host-owned controller path and the existing Named Pipe transport, returning fresh verified evidence, a matching render receipt, and a typed controller result contract.
 
-The Blueprint evidence boundary remains a separate live gate and must be revalidated before declaring
-Blueprint production-complete. The test-only mapping compatibility repair in the older live controller test
-is **APPLIED (September 15, 2026)** and both live controller production tests were rerun green.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the Blueprint evidence boundary remains a separate live gate and must be revalidated before declaring Blueprint production-complete. **Resolved:** the Blueprint production boundary was gated green the same day, with the metadata mutation and compile-only paths both returning Atlas-verified evidence. The test-only mapping compatibility repair in the older live controller test is **APPLIED (September 15, 2026)** and both live controller production tests were rerun green.
 
 Residual follow-up (same defect class, NOT fixed): `tests/test_unreal_composite_real_integration.py`,
 `tests/test_unreal_heterogeneous_recovery_real_integration.py`,
@@ -203,7 +201,7 @@ Residual follow-up (same defect class, NOT fixed): `tests/test_unreal_composite_
 
 ## Next after Blueprint
 
-After Blueprint reaches a complete production boundary, build Render:
+With the Blueprint production boundary complete, the next engine-dependent surface is Render — configuration first, then execution. Note the deferred `verify_render_state` flag asymmetry (render-state verification is compared but not registered for semantic verification):
 
 ```text
 READ   inspect_render_state

@@ -3,7 +3,7 @@
 **Updated:** September 15, 2026
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10`
 **HEAD:** `fe2322f7e76caf3115e3e5be6dafce05d62251ca`
-**Status:** reconciled + deterministic green + live controller-to-Unreal production green
+**Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green (Blueprint semantic verification live-proven)
 
 ## Current checkpoint
 
@@ -16,6 +16,8 @@ live controller path green
 ≠
 live Blueprint production boundary green
 ```
+
+**SUPERSEDED (2026-09-15):** that distinction no longer holds — the live Blueprint production boundary has since been gated green against real UE 5.6.1 over the existing Named Pipe transport, and Blueprint semantic verification is implemented, registered and live-proven. See "Blueprint production milestone" and "Live Blueprint semantic verification gate" below.
 
 ## Reconciled baseline
 
@@ -325,7 +327,9 @@ The previously established live Unreal production/render receipt proof remains v
 
 ## Blueprint production milestone
 
-Blueprint remains a **separate, engine-dependent milestone and is not green**. The narrow sequence is still:
+**CURRENT STATE (2026-09-15): the narrow Blueprint production boundary is GREEN and live-gated, and Blueprint semantic verification is implemented, registered and live-proven — see "Live Blueprint semantic verification gate" below.**
+
+**SUPERSEDED (2026-09-15) — HISTORICAL:** Blueprint remains a **separate, engine-dependent milestone and is not green**. The narrow sequence is still:
 
 ```text
 READ   inspect_blueprint_state
@@ -334,7 +338,7 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The remaining live issue is evidence shape: persisted Blueprint metadata must appear under `metadata` in the post-mutation verified Blueprint state.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the remaining live issue is evidence shape: persisted Blueprint metadata must appear under `metadata` in the post-mutation verified Blueprint state. **Resolved:** the transport serializes `metadata` inside the Blueprint state, and the September 15 gate proved it present at the mutation, compile, verify and fresh-inspection stages over the real engine.
 
 The intended evidence remains:
 
@@ -351,17 +355,99 @@ The intended evidence remains:
 }
 ```
 
-Do not expand into arbitrary Blueprint graph authoring until this narrow production boundary is green. Do not begin Blueprint work while the follow-up items below are open.
+That intended evidence shape is now the observed shape (verified live). The verification contract additionally binds asset identity, compile status and — when the plan carries it — the authorized metadata key/value.
+
+**UPDATED (2026-09-15):** the narrow production boundary is now green, so graph authoring is no longer blocked *by that boundary*; arbitrary Blueprint graph authoring remains out of scope and would need its own design gate.
+
+## Live Blueprint semantic verification gate — PASSED (September 15, 2026)
+
+Exact test:
+
+```text
+tests/test_unreal_blueprint_real_integration.py
+```
+
+Exact command:
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/test_unreal_blueprint_real_integration.py -m integration -q -s
+```
+
+Result:
+
+```text
+3 passed
+```
+
+The narrow Blueprint production boundary is green and live-gated against real Unreal Engine 5.6.1 over the
+existing Named Pipe transport (`\\.\pipe\AtlasUnrealTransport`, fixture
+`/Game/AtlasTest/BP_AtlasTest.BP_AtlasTest`):
+
+```text
+metadata mutation path (inspect -> set_blueprint_metadata -> compile_blueprint -> verify_blueprint_state)
+    : evidence_ledger[3].verified is True
+compile-only path (inspect -> compile_blueprint -> verify_blueprint_state)
+    : evidence_ledger[2].verified is True
+missing-asset negative path : failed closed
+fresh post-plan inspection  : authorized metadata still present, compile_status success
+```
+
+Semantic verification contract now in force:
+
+- expected state is authorization-bound plan state (asset path and compile status from the VERIFY operation's
+  own authorized arguments; metadata key/value from the paired authorized `set_blueprint_metadata` WRITE in
+  the same plan) — never derived from returned evidence, the model, or the engine;
+- verification consumes fresh Unreal evidence (the VERIFY arm issues its own read);
+- asset identity is verified (observed `asset_path` must equal the authorized asset path);
+- Blueprint compile status is verified against the authorized `expected_compile_status`;
+- the authorized metadata key/value is verified when the metadata mutation plan is present (observed key
+  present, value a string, exactly equal to the normalized authorized value);
+- unrelated metadata keys are tolerated (the fixture's independent `AtlasTestMarker` is observed live and ignored);
+- fail-closed behavior is preserved (missing mapping/key, non-string value, value/identity/status mismatch all
+  raise through the existing failure-record mechanism; plan-shape violations are rejected before dispatch);
+- `verify_blueprint_state` sets `verified=True` only after the semantic comparison succeeds — the operation is
+  registered in the executor's semantic-verification registry and its verifier call site is unconditional for
+  that operation name, so registration alone can never produce a vacuous pass.
+
+Executor plumbing (no planner, tool schema, capability registry, adapter, authorization, recovery, transport or
+C++ change was required): Blueprint `asset_path` continuity is enforced in execution-shape validation for
+`set_blueprint_metadata` -> `compile_blueprint` -> `verify_blueprint_state`, and the metadata expectation is
+resolved positionally from the authorized metadata WRITE at index-2.
+
+Deterministic results at this milestone:
+
+```text
+Blueprint suites (semantic contract + verifier + planning) : 37 passed
+Executor core                                             : 16 passed
+Four affected contract surfaces                            : 37 passed
+Canonical focused suite (13 modules)                       : 160 passed, 2 deselected
+Broader deterministic sweep                                : 766 passed, 5 skipped
+Python 3.9 Blueprint parity                                : 37 passed
+Python 3.9 executor/contract parity                        : 53 passed
+```
+
+Fixture safety: the live metadata write persists through `UPackage::SavePackage`; the tracked
+`BP_AtlasTest.uasset` was afterwards restored to the committed HEAD bytes
+(`db15ec03c624fe1ad4f38b17e3b86f0064393111a384346f375bac30a63cdb7a`), so the repository fixture baseline is
+unchanged.
+
+Explicitly deferred (not part of this milestone): `verify_render_state` flag asymmetry; Blueprint metadata
+recovery coverage; verifier exception-type cleanup; production-spec Blueprint metadata expressiveness;
+`is_up_to_date` binding; the unused `evidence` parameter in the semantic-verification registry helper; and the
+live fixture value-idempotency limitation (the authorized value pre-existed, so the live pass proves the
+post-condition rather than a first-time write).
 
 ## Next development gate
 
 Current status:
 
 ```text
-RECONCILED + DETERMINISTIC GREEN + LIVE CONTROLLER-TO-UNREAL PRODUCTION GREEN
+RECONCILED + DETERMINISTIC GREEN
++ LIVE CONTROLLER-TO-UNREAL PRODUCTION GREEN
++ LIVE BLUEPRINT PRODUCTION BOUNDARY GREEN (semantic verification live-proven)
 ```
 
-The `AgentControllerHost` → real Unreal production boundary is now validated.
+The `AgentControllerHost` → real Unreal production boundary is validated, and the narrow Blueprint production boundary has since been gated green with Atlas semantic verification.
 
 The immediate follow-up is:
 
@@ -370,20 +456,20 @@ A. test-only _variant Mapping compatibility repair   — DONE (Sept 15, working 
 B. rerun both live controller production tests       — DONE (1 passed / 1 passed, live UE 5.6.1)
 ```
 
-Then the next genuine architectural/engine milestone is:
+Then the next genuine architectural/engine milestone was:
 
 ```text
-LIVE BLUEPRINT PRODUCTION BOUNDARY
+LIVE BLUEPRINT PRODUCTION BOUNDARY — COMPLETED AND GATED GREEN (2026-09-15)
 ```
 
 specifically:
 
-- narrow Blueprint metadata mutation;
-- compile;
-- verify;
-- ensure persisted metadata appears under `metadata` in post-mutation evidence.
+- narrow Blueprint metadata mutation — done;
+- compile — done;
+- verify — done;
+- ensure persisted metadata appears under `metadata` in post-mutation evidence — done and live-proven.
 
-Blueprint production is **not** green.
+**SUPERSEDED (2026-09-15):** "Blueprint production is **not** green." It is green — see the live gate section above. The next engine-dependent surface to investigate is render configuration/state semantic-verification parity (`verify_render_state`), which requires its own design gate.
 
 ## Resume checklist for the next session
 
@@ -402,7 +488,7 @@ HEAD   : fe2322f7e76caf3115e3e5be6dafce05d62251ca
 4. Run the deterministic focused suite first (see the numbers above) before any live run.
 5. For live runs, launch the editor with the fixture map and confirm the harness reports its fixtures ready before running the gate.
 6. Apply item A of the follow-up (test-only, one line), then rerun both live controller production tests.
-7. Only then consider the live Blueprint production boundary.
+7. The live Blueprint production boundary was gated green on September 15, 2026 (see the live gate section above); the next engine-dependent surface is render configuration/state semantic-verification parity, pending its own design gate.
 
 Do not push, do not open a PR, and do not begin Blueprint work as part of the controller milestone.
 

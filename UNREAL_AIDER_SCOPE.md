@@ -8,7 +8,7 @@ This workspace is for continued development of the Atlas Unreal Agent only. It s
 
 The real Unreal Engine 5.6 smoke test has passed, the first real Unreal production/render-receipt paths have been proven, and the agent-to-controller trust boundary has now been reconciled with origin and validated against real Unreal execution.
 
-The reconciled branch is deterministic green, and the explicitly authorized live controller gate passed. The next engine-dependent milestone is the live Blueprint production boundary, which is separate and is not green.
+The reconciled branch is deterministic green, and the explicitly authorized live controller gate passed. The live Blueprint production boundary has since been gated green with Atlas semantic verification (September 15, 2026); the next engine-dependent surface to investigate is render configuration/state semantic-verification parity.
 
 Current branch and HEAD:
 
@@ -158,7 +158,7 @@ The successful render receipt proof remains part of the established live boundar
 
 ## Blueprint status
 
-Blueprint remains a separate engine-dependent milestone. Its intended narrow production sequence is:
+**CURRENT STATE (2026-09-15): GREEN and live-gated against real UE 5.6.1 over the existing Named Pipe transport, with Blueprint semantic verification implemented, registered and live-proven (3 passed).** The narrow production sequence that was completed is:
 
 ```text
 READ   inspect_blueprint_state
@@ -167,7 +167,7 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The previously identified live issue is persistence of Blueprint metadata in the returned evidence shape. Do not expand into arbitrary Blueprint graph authoring until the narrow metadata/compile boundary is independently green.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the previously identified live issue is persistence of Blueprint metadata in the returned evidence shape. **Resolved live:** the persisted metadata appears under `metadata` in post-mutation and fresh-inspection evidence, and verification binds asset identity, compile status and the authorized metadata key/value while tolerating unrelated keys. Arbitrary Blueprint graph authoring remains out of scope and requires its own design gate.
 
 ## Next development phase
 
@@ -177,11 +177,11 @@ When development resumes:
 
 1. the test-only `_variant` Mapping compatibility repair in `tests/test_agent_controller_production_real_integration.py` — APPLIED (September 15, 2026), so the helper accepts `collections.abc.Mapping` instead of requiring `dict` (evidence is now frozen);
 2. both live controller production tests rerun green against real Unreal (1 passed each);
-3. then begin the separate live Blueprint production boundary: narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence.
+3. the separate live Blueprint production boundary was then completed and gated green on September 15, 2026: narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence, with Atlas semantic verification live-proven.
 
 Items 1 and 2 are closed as of September 15, 2026. Residual follow-up (same defect class, NOT fixed — out of scope for the controller gate): `tests/test_unreal_composite_real_integration.py`, `tests/test_unreal_heterogeneous_recovery_real_integration.py`, `tests/test_unreal_production_workflow_real_integration.py`, `tests/test_unreal_material_variant_real_integration.py`.
 
-Blueprint work must not begin until it is separately authorized as its own live gate, and no existing contract may be weakened to make a live test pass.
+The narrow Blueprint production boundary is complete; any further Blueprint work (for example graph authoring) must be separately authorized as its own gate, and no existing contract may be weakened to make a live test pass.
 
 ## Git/workspace separation
 

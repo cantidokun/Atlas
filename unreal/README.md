@@ -205,7 +205,9 @@ This is a pre-existing harness/setup characteristic. Do not compensate for it wi
 
 The multi-operation production execution boundary with failure containment has since been implemented, and the provider-neutral controller host path has now been validated live against this harness (see `UNREAL_AGENT_HANDOFF_CURRENT.md`).
 
-The current next engine-dependent target is the **live Blueprint production boundary**: narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence. It is **not** green and must not be conflated with the controller-layer success.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the current next engine-dependent target is the **live Blueprint production boundary**: narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence. It is **not** green and must not be conflated with the controller-layer success.
+
+**CURRENT STATE (2026-09-15): that boundary is GREEN and live-gated against this harness** — `tests/test_unreal_blueprint_real_integration.py` passed 3 tests against Unreal Engine 5.6.1 over `\\.\pipe\AtlasUnrealTransport`, with Atlas semantic verification now binding asset identity, compile status and the authorized metadata key/value (`evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path), while unrelated fixture metadata (`AtlasTestMarker`) is tolerated. The next engine-dependent surface to investigate is render configuration/state semantic-verification parity (`verify_render_state`), pending its own design gate.
 
 The original Python-side proof set for this milestone was:
 
@@ -222,7 +224,7 @@ The original Python-side proof set for this milestone was:
 
 After that boundary is green, run the expanded multi-operation scenario against the real Unreal Editor.
 
-Blueprint graph authoring must not be expanded until the narrow Blueprint metadata boundary above is green.
+The narrow Blueprint metadata boundary is now green; Blueprint graph authoring remains out of scope and must not be expanded without its own design gate.
 
 ## Detailed continuation state
 

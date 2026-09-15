@@ -206,7 +206,7 @@ Previously established live proofs include real Unreal production execution and 
 
 ## Blueprint production boundary
 
-Blueprint remains a separate engine-dependent milestone. The current narrow sequence is:
+**CURRENT STATE (2026-09-15): the narrow Blueprint production boundary is GREEN and live-gated against real Unreal Engine 5.6.1 over the existing Named Pipe transport, with Atlas semantic verification implemented, registered and live-proven (3 passed; `evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path).** The narrow sequence that was completed is:
 
 ```text
 READ   inspect_blueprint_state
@@ -215,9 +215,9 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The previously identified remaining live issue is evidence shape: persisted Blueprint metadata must appear under `metadata` in the independently observed state after mutation and compilation.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the previously identified remaining live issue is evidence shape: persisted Blueprint metadata must appear under `metadata` in the independently observed state after mutation and compilation. **Resolved live:** it does, and verification now binds asset identity, compile status and the authorized metadata key/value while tolerating unrelated metadata keys.
 
-The Blueprint milestone is **not yet declared green**, and graph authoring must not be expanded until this narrow boundary is complete.
+The Blueprint milestone is **declared green (2026-09-15)**; arbitrary Blueprint graph authoring remains out of scope and would require its own design gate.
 
 ## Next Unreal gate
 
@@ -234,9 +234,9 @@ Residual follow-up (same defect class, NOT fixed — out of scope for the contro
 `tests/test_unreal_production_workflow_real_integration.py`,
 `tests/test_unreal_material_variant_real_integration.py`.
 
-After that, the next engine-dependent milestone is the live Blueprint production boundary.
+After that, the next engine-dependent milestone was the live Blueprint production boundary — completed and gated green on September 15, 2026.
 
-Blueprint evidence validation remains a separate live gate, and Blueprint production is not green.
+**SUPERSEDED (2026-09-15):** "Blueprint evidence validation remains a separate live gate, and Blueprint production is not green." Blueprint production is green and its evidence is now Atlas-verified; the next engine-dependent surface is render configuration/state semantic-verification parity, pending its own design gate.
 
 ---
 
@@ -393,4 +393,4 @@ The live controller-to-Unreal production gate has passed. The next steps are rec
 
 1. the test-only `_variant` Mapping compatibility repair — APPLIED (September 15, 2026);
 2. both live controller production tests rerun green against real Unreal (1 passed each);
-3. then revalidate the live Blueprint metadata evidence boundary before declaring Blueprint production-complete.
+3. the live Blueprint production boundary was then revalidated and gated green on September 15, 2026 (3 passed; semantic verification binds asset identity, compile status and the authorized metadata key/value).

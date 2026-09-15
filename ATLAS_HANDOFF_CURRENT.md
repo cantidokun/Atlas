@@ -4,7 +4,7 @@
 **Current branch:** `reconcile/unreal-autonomy-origin-20c6d10`
 **HEAD:** `fe2322f7e76caf3115e3e5be6dafce05d62251ca`
 **Latest controller-boundary commit:** `fe2322f` — `test: align synthetic Unreal result fixtures with strict contract`
-**Status:** reconciled + deterministic green + live controller-to-Unreal production green
+**Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green
 
 ## Current milestone
 
@@ -17,7 +17,7 @@ reconciled baseline
  └── 09015d9 → c0321bd → bac08e8 → fe2322f
 ```
 
-The live controller path is green; the live Blueprint production boundary is separate and is still not green. See `UNREAL_AGENT_HANDOFF_CURRENT.md` for the full live gate record.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the live controller path is green; the live Blueprint production boundary is separate and is still not green. **CURRENT STATE:** both are green — the narrow Blueprint production boundary was live-gated on September 15, 2026 with Atlas semantic verification (see `UNREAL_AGENT_HANDOFF_CURRENT.md`, "Live Blueprint semantic verification gate").
 
 The current controller architecture is:
 
@@ -189,11 +189,13 @@ No other live Unreal/action-runner test was run as part of this development laye
 
 The existing live Unreal production/render receipt proof remains valid as previously established, including the real Named Pipe transport, production execution path, independent evidence, and render receipt verification.
 
-The live Blueprint production boundary remains a separate milestone and must not be considered green merely because the controller-layer tests pass.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the live Blueprint production boundary remains a separate milestone and must not be considered green merely because the controller-layer tests pass. It was subsequently gated green on its own live evidence, not on the controller-layer tests.
 
 ## Unreal Blueprint status
 
-The narrow Blueprint production boundary still follows:
+**CURRENT STATE (2026-09-15): the narrow Blueprint production boundary is GREEN, live-gated against real UE 5.6.1 over the existing Named Pipe transport, and Blueprint semantic verification is implemented, registered and live-proven (3 passed; `evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path). Full record: `UNREAL_AGENT_HANDOFF_CURRENT.md`.**
+
+The narrow Blueprint production boundary follows:
 
 ```text
 READ   inspect_blueprint_state
@@ -202,9 +204,9 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The previously identified remaining live issue is evidence shape: Blueprint state evidence must expose persisted metadata under `metadata` after the mutation/compile sequence.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the previously identified remaining live issue is evidence shape: Blueprint state evidence must expose persisted metadata under `metadata` after the mutation/compile sequence. **Resolved live:** the persisted metadata appears under `metadata` at the mutation, compile, verify and fresh-inspection stages, and verification now binds asset identity, compile status and the authorized metadata key/value.
 
-The next Unreal-dependent gate remains the real Blueprint integration suite. Do not broaden into arbitrary Blueprint graph authoring until that boundary is green.
+The real Blueprint integration suite has since been gated green (September 15, 2026). Arbitrary Blueprint graph authoring remains out of scope and would need its own design gate.
 
 ## Next development step
 
@@ -219,7 +221,7 @@ The next Unreal-dependent gate remains the real Blueprint integration suite. Do 
 `tests/test_unreal_heterogeneous_recovery_real_integration.py`,
 `tests/test_unreal_production_workflow_real_integration.py`,
 `tests/test_unreal_material_variant_real_integration.py`.
-4. Keep the live Blueprint metadata/evidence correction separate from controller-host work; Blueprint production is not green.
+4. The live Blueprint production boundary was completed and gated green on September 15, 2026 (metadata mutation, compile, verify, and verified metadata evidence) — Blueprint production is green; the next engine-dependent surface is render configuration/state semantic-verification parity, pending its own design gate.
 5. Only run live Unreal/action-runner gates when explicitly authorized.
 
 ## Architectural invariants
