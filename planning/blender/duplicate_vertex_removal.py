@@ -73,15 +73,9 @@ def _validate_face_indices(mesh: MeshModel) -> None:
     for face_index, face in enumerate(mesh.faces):
         for vertex_index in face:
             if type(vertex_index) is not int or isinstance(vertex_index, bool):
-                raise DuplicateVertexRemovalError(
-                    f"face {face_index} contains a non-integer vertex index",
-                    "FACE_INDEX_INVALID",
-                )
+                raise DuplicateVertexRemovalError(f"face {face_index} contains a non-integer vertex index", "FACE_INDEX_INVALID")
             if not (0 <= vertex_index < vertex_count):
-                raise DuplicateVertexRemovalError(
-                    f"face {face_index} contains vertex index {vertex_index} outside 0..{vertex_count - 1}",
-                    "FACE_INDEX_OUT_OF_RANGE",
-                )
+                raise DuplicateVertexRemovalError(f"face {face_index} contains vertex index {vertex_index} outside 0..{vertex_count - 1}", "FACE_INDEX_OUT_OF_RANGE")
 
 
 def _validate_coordinate(vertex: Any, index: int) -> Tuple[float, ...]:
@@ -93,11 +87,8 @@ def _validate_coordinate(vertex: Any, index: int) -> Tuple[float, ...]:
     for component in result:
         if type(component) not in (int, float) or isinstance(component, bool):
             raise DuplicateVertexRemovalError(f"vertex {index} contains a non-numeric coordinate", "COORDINATE_COMPONENT_INVALID")
-        try:
-            if component != component:
-                raise DuplicateVertexRemovalError(f"vertex {index} contains NaN", "COORDINATE_NAN")
-        except TypeError:
-            raise DuplicateVertexRemovalError(f"vertex {index} contains invalid coordinate data", "COORDINATE_COMPONENT_INVALID")
+        if component != component:
+            raise DuplicateVertexRemovalError(f"vertex {index} contains NaN", "COORDINATE_NAN")
     return result
 
 
@@ -182,10 +173,7 @@ def _face_image_collision_exists(source_faces: Tuple[Tuple[int, ...], ...], rema
     for source_index, face in enumerate(source_faces):
         prior = seen.get(face)
         if prior is not None:
-            raise DuplicateVertexRemovalError(
-                f"source mesh already contains duplicate face images at {prior} and {source_index}",
-                "SOURCE_DUPLICATE_FACE",
-            )
+            raise DuplicateVertexRemovalError(f"source mesh already contains duplicate face images at {prior} and {source_index}", "SOURCE_DUPLICATE_FACE")
         seen[face] = source_index
     seen_output: Dict[Tuple[int, ...], int] = {}
     for source_index, face in enumerate(remapped_faces):
@@ -197,12 +185,31 @@ def _face_image_collision_exists(source_faces: Tuple[Tuple[int, ...], ...], rema
 
 
 def _new_nonmanifold_edges(source_faces: Tuple[Tuple[int, ...], ...], remapped_faces: Tuple[Tuple[int, ...], ...], mapping: Mapping[int, int]) -> bool:
+    """Detect non-manifold edge valence newly created by duplicate-vertex quotienting."""
     source_valence = _face_edge_valence(source_faces)
-    output_valence_new_space = _face_edge_valence(remapped_faces)
-    inverse = {new: old for old, new in mapping.items()}
-    for new_edge, count in output_valence_new_space.items():
-        old_edge = tuple(sorted((inverse[new_edge[0]], inverse[new_edge[1]])))
-        if count > 2 and count > source_valence.get(old_edge, 0):
+    output_valence = _face_edge_valence(remapped_faces)
+    source_edges_for_output: Dict[Tuple[int, int], set] = {}
+
+    for face in source_faces:
+        if len(face) < 2:
+            continue
+        for a, b in zip(face, face[1:] + face[:1]):
+            old_edge = (a, b) if a <= b else (b, a)
+            new_a = mapping[a]
+            new_b = mapping[b]
+            new_edge = (new_a, new_b) if new_a <= new_b else (new_b, new_a)
+            source_edges_for_output.setdefault(new_edge, set()).add(old_edge)
+
+    for new_edge, count in output_valence.items():
+        if count <= 2:
+            continue
+        old_edges = source_edges_for_output.get(new_edge, set())
+        if len(old_edges) > 1:
+            return True
+        if len(old_edges) != 1:
+            return True
+        old_edge = next(iter(old_edges))
+        if source_valence.get(old_edge, 0) != count:
             return True
     return False
 
@@ -238,13 +245,7 @@ def _plan_body(*, target_object_id: str, mesh_id: str, expected: Tuple[Tuple[int
     return {**body, "plan_id": _digest(body)}
 
 
-def plan_duplicate_vertex_removal(
-    scene: SceneModel,
-    source_report_digest: str,
-    *,
-    target_object_id: str,
-    expected_duplicate_vertex_groups: Any,
-) -> Mapping[str, Any]:
+def plan_duplicate_vertex_removal(scene: SceneModel, source_report_digest: str, *, target_object_id: str, expected_duplicate_vertex_groups: Any) -> Mapping[str, Any]:
     if type(source_report_digest) is not str or len(source_report_digest) != 64:
         raise DuplicateVertexRemovalError("source report digest must be a 64-character string", "SOURCE_DIGEST_INVALID")
     if type(target_object_id) is not str or not target_object_id:
@@ -263,44 +264,15 @@ def plan_duplicate_vertex_removal(
         raise DuplicateVertexRemovalError("duplicate collapse would create duplicate face images", "FACE_IMAGE_COLLISION")
     if nonmanifold:
         raise DuplicateVertexRemovalError("duplicate collapse would introduce non-manifold edge valence", "NONMANIFOLD_INTRODUCED")
-    return _plan_body(
-        target_object_id=target.object_id,
-        mesh_id=target.mesh.mesh_id,
-        expected=expected,
-        source_digest=source_report_digest,
-    )
+    return _plan_body(target_object_id=target.object_id, mesh_id=target.mesh.mesh_id, expected=expected, source_digest=source_report_digest)
 
 
 def _replace_target(scene: SceneModel, target_id: str, new_mesh: MeshModel) -> SceneModel:
-    objects = tuple(
-        ObjectModel(
-            object_id=o.object_id,
-            name=o.name,
-            collection=o.collection,
-            parent_object_id=o.parent_object_id,
-            location=o.location,
-            scale=o.scale,
-            rotation=o.rotation,
-            visible=o.visible,
-            mesh=new_mesh if o.object_id == target_id else o.mesh,
-        )
-        for o in scene.objects
-    )
-    return SceneModel(
-        scene_id=scene.scene_id,
-        unit_system=scene.unit_system,
-        objects=objects,
-        coordinate_frame=scene.coordinate_frame,
-        world_bounds=scene.world_bounds,
-    )
+    objects = tuple(ObjectModel(object_id=o.object_id, name=o.name, collection=o.collection, parent_object_id=o.parent_object_id, location=o.location, scale=o.scale, rotation=o.rotation, visible=o.visible, mesh=new_mesh if o.object_id == target_id else o.mesh) for o in scene.objects)
+    return SceneModel(scene_id=scene.scene_id, unit_system=scene.unit_system, objects=objects, coordinate_frame=scene.coordinate_frame, world_bounds=scene.world_bounds)
 
 
-def execute_remove_duplicate_vertices(
-    plan: Mapping[str, Any],
-    authorization: Mapping[str, Any],
-    *,
-    extractor: Callable[[], Tuple[SceneModel, str]],
-) -> ExecutionOutcome:
+def execute_remove_duplicate_vertices(plan: Mapping[str, Any], authorization: Mapping[str, Any], *, extractor: Callable[[], Tuple[SceneModel, str]]) -> ExecutionOutcome:
     source = plan.get("source_report_digest")
     if plan.get("correction_type") != CORRECTION_TYPE:
         return ExecutionOutcome(False, "PLAN_INVALID", "CORRECTION_TYPE_MISMATCH", str(source), None)
@@ -349,15 +321,7 @@ def execute_remove_duplicate_vertices(
 
     mapping = _survivor_mapping(len(target.mesh.vertices), expected)
     removed = {index for group in expected for index in group[1:]}
-    new_mesh = MeshModel(
-        mesh_id=target.mesh.mesh_id,
-        vertices=tuple(target.mesh.vertices[i] for i in range(len(target.mesh.vertices)) if i not in removed),
-        faces=_remapped_faces(target.mesh, mapping),
-        normals=target.mesh.normals,
-        uvs=target.mesh.uvs,
-        materials=target.mesh.materials,
-        local_frame_id=target.mesh.local_frame_id,
-    )
+    new_mesh = MeshModel(mesh_id=target.mesh.mesh_id, vertices=tuple(target.mesh.vertices[i] for i in range(len(target.mesh.vertices)) if i not in removed), faces=_remapped_faces(target.mesh, mapping), normals=target.mesh.normals, uvs=target.mesh.uvs, materials=target.mesh.materials, local_frame_id=target.mesh.local_frame_id)
     after = _replace_target(before, target_id, new_mesh)
 
     after_target = _find_object(after, target_id)
@@ -367,8 +331,7 @@ def execute_remove_duplicate_vertices(
         return ExecutionOutcome(False, "POSTCONDITION_FAILED", "DUPLICATE_VERTICES_REMAIN", fresh_digest, None)
     if any(len(face) != len(set(face)) for face in after_target.mesh.faces):
         return ExecutionOutcome(False, "POSTCONDITION_FAILED", "FACE_VERTEX_COLLISION", fresh_digest, None)
-    output_face_keys = after_target.mesh.faces
-    if len(set(output_face_keys)) != len(output_face_keys):
+    if len(set(after_target.mesh.faces)) != len(after_target.mesh.faces):
         return ExecutionOutcome(False, "POSTCONDITION_FAILED", "DUPLICATE_FACE_CREATED", fresh_digest, None)
     if _new_nonmanifold_edges(target.mesh.faces, after_target.mesh.faces, mapping):
         return ExecutionOutcome(False, "POSTCONDITION_FAILED", "NONMANIFOLD_INTRODUCED", fresh_digest, None)
@@ -383,9 +346,5 @@ def execute_remove_duplicate_vertices(
     expected_faces = _remapped_faces(target.mesh, mapping)
     if after_target.mesh.faces != expected_faces or len(after_target.mesh.faces) != len(target.mesh.faces):
         return ExecutionOutcome(False, "POSTCONDITION_FAILED", "FACE_REMAP_MISMATCH", fresh_digest, None)
-    output_digest = _digest({
-        "mesh_id": after_target.mesh.mesh_id,
-        "vertices": after_target.mesh.vertices,
-        "faces": after_target.mesh.faces,
-    })
+    output_digest = _digest({"mesh_id": after_target.mesh.mesh_id, "vertices": after_target.mesh.vertices, "faces": after_target.mesh.faces})
     return ExecutionOutcome(True, "CORRECTION_APPLIED", None, fresh_digest, output_digest, after)
