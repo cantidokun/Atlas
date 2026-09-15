@@ -1,7 +1,5 @@
 """Synthetic end-to-end coverage for the agent host to Unreal capability boundary."""
 
-from types import SimpleNamespace
-
 import pytest
 
 from controller.agent_controller_host import AgentControllerHost
@@ -17,7 +15,12 @@ from planning.unreal_production_runtime_adapter import UnrealProductionRuntimeSn
 from planning.unreal_production_workflow import UnrealProductionWorkflowResult
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_workflow import UnrealRenderWorkflowResult
+from planning.unreal_plan_executor import UnrealPlanExecutionResult
+from planning.unreal_production_executor import UnrealProductionExecutionResult
+from planning.unreal_production_operation import build_unreal_production_plan
+from planning.unreal_task_planner import UnrealTaskIntent
 from controller.trusted_unreal_context import TrustedUnrealContext
+from tests.test_unreal_heterogeneous_production import _spec
 
 
 def _trusted_unreal_context():
@@ -72,6 +75,26 @@ def _verified_render_pair(job_id="job-contract-1"):
         source="synthetic-result-contract",
     )
     return evidence, UnrealRenderReceipt.issue(evidence)
+
+
+def _production_result(intent_id):
+    """Return a real typed production result bound to the given intent id."""
+    intent = UnrealTaskIntent(
+        intent_id=intent_id,
+        target_entity_ids=("FIELD_SURFACE",),
+        description="synthetic strict-contract production",
+    )
+    production = build_unreal_production_plan(intent, _spec())
+    return UnrealProductionExecutionResult(
+        production=production,
+        initial_result=UnrealPlanExecutionResult(
+            intent_id=production.plan.intent_id,
+            evidence_ledger=(),
+            success=True,
+        ),
+        failure=None,
+        recovery=None,
+    )
 
 
 def test_host_to_unreal_capability_preserves_host_trust(monkeypatch):
@@ -223,7 +246,7 @@ def test_controller_event_result_contract_carries_verified_render_pair():
         persisted_receipt={"job_id": receipt.job_id, "receipt_digest": receipt.receipt_digest},
     )
     workflow = UnrealProductionWorkflowResult(
-        production=SimpleNamespace(success=True),
+        production=_production_result("intent-contract-1"),
         render=render,
     )
     event = UnrealProductionControllerEvent(
@@ -263,7 +286,7 @@ def test_controller_event_result_contract_rejects_receipt_evidence_mismatch():
         persisted_receipt={},
     )
     workflow = UnrealProductionWorkflowResult(
-        production=SimpleNamespace(success=True),
+        production=_production_result("intent-contract-2"),
         render=render,
     )
     event = UnrealProductionControllerEvent(
