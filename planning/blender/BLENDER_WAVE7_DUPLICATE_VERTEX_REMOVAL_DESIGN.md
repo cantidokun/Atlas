@@ -1,6 +1,6 @@
 # Atlas Blender Wave 7 — Duplicate Vertex Removal Design Gate
 
-**Status:** DESIGN / NOT IMPLEMENTED  
+**Status:** IMPLEMENTED / VALIDATION COMPLETE  
 **Branch:** `feat/blender-wave7-duplicate-vertex-removal`  
 **Baseline:** Wave 6 isolated-vertex removal merged to `main` at `c4fb8d3681e4ea02387ce6ca7b366d929c7bbd5c`
 
