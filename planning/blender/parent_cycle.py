@@ -177,6 +177,15 @@ def _scene_projection(scene_model: Any, *, exclude_object_id: Optional[str] = No
         rows.append((ident, _object_projection(obj)))
     return tuple(sorted(rows, key=lambda row: row[0]))
 
+def _scene_non_object_projection(scene_model: Any) -> Any:
+    if isinstance(scene_model, Mapping):
+        return copy.deepcopy({key: value for key, value in scene_model.items() if key != "objects"})
+    result = {}
+    for name in ("scene_id", "unit_system", "coordinate_frame", "world_bounds"):
+        if hasattr(scene_model, name):
+            result[name] = copy.deepcopy(getattr(scene_model, name))
+    return result
+
 def _target_local_transform(obj: Any) -> Tuple[Any, Any, Any]:
     return (copy.deepcopy(_get(obj, "location")), copy.deepcopy(_get(obj, "rotation")), copy.deepcopy(_get(obj, "scale")))
 
@@ -233,6 +242,7 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
     before_target_non_parent = _non_parent_object_projection(target)
     before_target_local_transform = _target_local_transform(target)
     before_unrelated = _scene_projection(scene_before, exclude_object_id=target_id)
+    before_scene_non_object = _scene_non_object_projection(scene_before)
     mutator(target_id, expected_parent_id, None)
     scene_after, output_digest = _extract(extractor)
     after_by_id = _index_objects(scene_after)
@@ -254,4 +264,6 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "NEW_CYCLE_CREATED", fresh_digest, output_digest)
     if _scene_projection(scene_after, exclude_object_id=target_id) != before_unrelated:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
+    if _scene_non_object_projection(scene_after) != before_scene_non_object:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "SCENE_STATE_CHANGED", fresh_digest, output_digest)
     return _ExecutionOutcome(True, "CORRECTION_APPLIED", None, fresh_digest, output_digest)
