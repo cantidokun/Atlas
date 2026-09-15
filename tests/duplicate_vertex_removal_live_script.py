@@ -50,12 +50,9 @@ def run_safe_case():
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bm.verts.ensure_lookup_table()
-    for group in groups:
-        survivors = set(group[:1])
-        doomed = [bm.verts[i] for i in group[1:]]
-        # Delete exact duplicate vertices only; the selected duplicates are not referenced
-        # together in any source face, so this operation cannot manufacture a face collision.
-        bmesh.ops.delete(bm, geom=doomed, context='VERTS')
+    doomed_indices = [index for group in groups for index in group[1:]]
+    doomed_vertices = [bm.verts[index] for index in doomed_indices]
+    bmesh.ops.delete(bm, geom=doomed_vertices, context='VERTS')
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
@@ -67,7 +64,7 @@ def run_safe_case():
 
     checks = {
         'exact_duplicates_removed': len(mesh.vertices) == 4,
-        'survivor_coordinates_preserved': after_vertices == before_vertices[:3] + (before_vertices[5],),
+        'survivor_coordinates_preserved': after_vertices == (before_vertices[0], before_vertices[1], before_vertices[2], before_vertices[5]),
         'faces_preserved_by_remap': after_faces == ((0,1,2), (0,1,3)),
         'target_identity_preserved': obj.name == 'Wave7Target' and obj.data.name == 'Wave7Mesh',
         'transform_preserved': after_matrix == before_matrix,
