@@ -125,6 +125,12 @@ def _cycle_from_target(scene_model: Any, target_object_id: str) -> Tuple[str, ..
     return ()
 
 
+def _has_any_parent_cycle(scene_model: Any) -> bool:
+    """Return whether any authoritative object participates in a parent cycle."""
+    by_id = _index_objects(scene_model)
+    return any(_cycle_from_target(scene_model, ident) for ident in by_id)
+
+
 def target_is_in_parent_cycle(scene_model: Any, target_object_id: str) -> bool:
     """Return whether the target participates in a concrete parent cycle."""
     return bool(_cycle_from_target(scene_model, target_object_id))
@@ -139,9 +145,8 @@ def _proposal_id(target_object_id: str, expected_parent_id: str, source_report_d
     })
 
 
-def _make_plan(*, target_object_id: str, expected_parent_id: str, source_report_digest: str) -> Mapping[str, Any]:
-    correction_id = _proposal_id(target_object_id, expected_parent_id, source_report_digest)
-    body = {
+def _plan_body(*, target_object_id: str, expected_parent_id: str, source_report_digest: str, correction_id: str) -> Mapping[str, Any]:
+    return {
         "planner_version": CYCLE_PLANNER_VERSION,
         "correction_type": CYCLE_CORRECTION_TYPE,
         "correction_id": correction_id,
@@ -149,6 +154,16 @@ def _make_plan(*, target_object_id: str, expected_parent_id: str, source_report_
         "target_object_id": target_object_id,
         "params": {"expected_parent_id": expected_parent_id},
     }
+
+
+def _make_plan(*, target_object_id: str, expected_parent_id: str, source_report_digest: str) -> Mapping[str, Any]:
+    correction_id = _proposal_id(target_object_id, expected_parent_id, source_report_digest)
+    body = _plan_body(
+        target_object_id=target_object_id,
+        expected_parent_id=expected_parent_id,
+        source_report_digest=source_report_digest,
+        correction_id=correction_id,
+    )
     return {**body, "plan_id": _digest(body)}
 
 
@@ -222,9 +237,25 @@ def _extract(extractor: Callable[[], Tuple[Any, str]]) -> Tuple[Any, str]:
 
 
 def _object_projection(obj: Any) -> Any:
+    """Return a canonical snapshot of an object, including all mapping fields."""
     if isinstance(obj, Mapping):
         return copy.deepcopy(dict(obj))
-    return obj
+    result = {}
+    for name in (
+        "object_id", "id", "name", "mesh_id", "transform", "location", "rotation", "scale",
+        "children", "data", "parent_object_id", "parent_id", "parent", "collection_id", "collection",
+        "metadata", "properties",
+    ):
+        if hasattr(obj, name):
+            result[name] = copy.deepcopy(getattr(obj, name))
+    return result
+
+
+def _non_parent_object_projection(obj: Any) -> Any:
+    projection = _object_projection(obj)
+    if isinstance(projection, Mapping):
+        return {k: copy.deepcopy(v) for k, v in projection.items() if k not in {"parent_object_id", "parent_id", "parent"}}
+    return projection
 
 
 def _scene_projection(scene_model: Any, *, exclude_object_id: Optional[str] = None) -> Tuple[Tuple[str, Any], ...]:
@@ -279,6 +310,21 @@ def execute_repair_parent_cycle(
     expected_parent_id = params.get("expected_parent_id")
     if not all(type(v) is str and v for v in (source_digest, target_id, correction_id, plan_id, expected_parent_id)):
         return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_FIELDS_INVALID", str(source_digest), None)
+    if len(source_digest) != 64:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "SOURCE_DIGEST_INVALID", source_digest, None)
+
+    expected_correction_id = _proposal_id(target_id, expected_parent_id, source_digest)
+    if correction_id != expected_correction_id:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "CORRECTION_ID_INVALID", source_digest, None)
+    expected_body = _plan_body(
+        target_object_id=target_id,
+        expected_parent_id=expected_parent_id,
+        source_report_digest=source_digest,
+        correction_id=expected_correction_id,
+    )
+    expected_plan_id = _digest(expected_body)
+    if plan_id != expected_plan_id:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_ID_INVALID", source_digest, None)
 
     verdict = verify_parent_cycle_authorization(
         CyclePresentedWork(
@@ -310,7 +356,7 @@ def execute_repair_parent_cycle(
         return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_NOT_IN_CYCLE", fresh_digest, None)
 
     before_identity = tuple(sorted(by_id))
-    before_local_transform = _target_local_transform(target)
+    before_target_non_parent = _non_parent_object_projection(target)
     before_unrelated = _scene_projection(scene_before, exclude_object_id=target_id)
 
     mutator(target_id, expected_parent_id, None)
@@ -322,13 +368,15 @@ def execute_repair_parent_cycle(
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_OBJECT_MISSING", fresh_digest, output_digest)
     if _parent_id(target_after) is not None:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "PARENT_NOT_DETACHED", fresh_digest, output_digest)
-    if _target_local_transform(target_after) != before_local_transform:
+    if _non_parent_object_projection(target_after) != before_target_non_parent:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_NON_PARENT_CHANGED", fresh_digest, output_digest)
+    if _target_local_transform(target_after) != _target_local_transform(target):
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_LOCAL_TRANSFORM_CHANGED", fresh_digest, output_digest)
     if tuple(sorted(after_by_id)) != before_identity:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_IDENTITY_CHANGED", fresh_digest, output_digest)
     if _scene_projection(scene_after, exclude_object_id=target_id) != before_unrelated:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
-    if target_is_in_parent_cycle(scene_after, target_id):
+    if _has_any_parent_cycle(scene_after):
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "CYCLE_REMAINS", fresh_digest, output_digest)
 
     return _ExecutionOutcome(True, "CORRECTION_APPLIED", None, fresh_digest, output_digest)
