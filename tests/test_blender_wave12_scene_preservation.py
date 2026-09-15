@@ -17,7 +17,7 @@ def _scene() -> SceneModel:
         unit_system="METRIC",
         objects=(
             ObjectModel(object_id="a", name="target", parent_object_id="b", mesh=mesh),
-            ObjectModel(object_id="b", name="parent"),
+            ObjectModel(object_id="b", name="parent", parent_object_id="a"),
         ),
         coordinate_frame="WORLD",
         world_bounds=((0.0, 0.0, 0.0), (10.0, 10.0, 10.0)),
