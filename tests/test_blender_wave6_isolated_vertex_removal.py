@@ -97,3 +97,29 @@ def test_no_isolated_vertices_is_not_an_arbitrary_delete():
     clean_scene = SceneModel(scene_id=s.scene_id, unit_system=s.unit_system, objects=(ObjectModel(object_id="target", name="Target", mesh=clean), s.objects[1]))
     with pytest.raises(IsolatedVertexRemovalError):
         plan_isolated_vertex_removal(clean_scene, "a" * 64, target_object_id="target", expected_isolated_vertex_indices=[])
+
+
+def test_all_isolated_mesh_can_collapse_to_empty_canonical_mesh():
+    source = SceneModel(
+        scene_id="all_isolated",
+        unit_system="METERS",
+        objects=(
+            ObjectModel(object_id="target", name="Target", mesh=MeshModel(
+                mesh_id="mesh-empty-result",
+                vertices=((0.0,0.0,0.0),(1.0,1.0,1.0),(2.0,2.0,2.0)),
+                faces=(),
+                materials=("mat",),
+            )),
+            ObjectModel(object_id="other", name="Other"),
+        ),
+    )
+    digest = "c" * 64
+    plan = plan_isolated_vertex_removal(source, digest, target_object_id="target", expected_isolated_vertex_indices=[0,1,2])
+    auth = {"decision":"APPROVED","correction_type":CORRECTION_TYPE,"correction_id":plan["correction_id"],"plan_id":plan["plan_id"],"source_report_digest":digest}
+    result = execute_remove_isolated_vertices(plan, auth, extractor=lambda:(source,digest))
+    assert result.ok and result.scene is not None
+    out = result.scene.objects[0].mesh
+    assert out is not None
+    assert out.vertices == () and out.faces == ()
+    assert out.materials == ("mat",)
+    assert result.scene.objects[1] == source.objects[1]
