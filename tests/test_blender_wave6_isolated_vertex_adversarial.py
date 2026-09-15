@@ -95,12 +95,15 @@ def test_repeated_execution_is_deterministic_and_does_not_touch_source():
     assert s == make_scene()
 
 
-def test_forged_post_source_is_not_reported_as_success_when_digest_changes():
+def test_extractor_digest_mismatch_fails_closed_without_mutation():
     s = make_scene()
     plan, auth, digest = authorized(s)
-    state = [s, digest]
-    result = execute_remove_isolated_vertices(plan, auth, extractor=lambda:(state[0], state[1]))
-    assert result.ok
+    forged_digest = "b" * 64
+    result = execute_remove_isolated_vertices(plan, auth, extractor=lambda:(s, forged_digest))
+    assert not result.ok
+    assert result.failure_code == "SOURCE_DIGEST_MISMATCH"
+    assert result.scene is None
+    assert s == make_scene()
 
 
 def test_invalid_face_index_fails_closed_before_remap():
