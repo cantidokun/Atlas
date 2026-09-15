@@ -19,7 +19,7 @@ def _scene() -> SceneModel:
         unit_system="METRIC",
         objects=(
             ObjectModel(object_id="a", name="target", collection="Field", parent_object_id="b", mesh=mesh_a),
-            ObjectModel(object_id="b", name="parent", collection="Field"),
+            ObjectModel(object_id="b", name="parent", collection="Field", parent_object_id="a"),
         ),
     )
 
