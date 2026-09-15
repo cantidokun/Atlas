@@ -44,10 +44,9 @@ if isolated != (3, 4):
 import bmesh
 bm = bmesh.new()
 bm.from_mesh(mesh)
-for v in sorted((bm.verts[i] for i in isolated), key=lambda x: x.index, reverse=True):
-    bmesh.utils.vert_dissolve(bm, v, use_face_split=False) if False else None
-# Isolated verts have no linked faces; delete only the explicitly selected vertices.
-bmesh.ops.delete(bm, geom=[bm.verts[i] for i in isolated], context='VERTS')
+bm.verts.ensure_lookup_table()
+selected_vertices = [bm.verts[i] for i in isolated]
+bmesh.ops.delete(bm, geom=selected_vertices, context='VERTS')
 bm.to_mesh(mesh)
 bm.free()
 mesh.update()
