@@ -6,13 +6,20 @@ This workspace is for continued development of the Atlas Unreal Agent only. It s
 
 ## Current gate
 
-The real Unreal Engine 5.6 smoke test has passed, and the first real Unreal production/render-receipt paths have been proven. Development has now progressed into the agent-to-controller trust boundary.
+The real Unreal Engine 5.6 smoke test has passed, the first real Unreal production/render-receipt paths have been proven, and the agent-to-controller trust boundary has now been reconciled with origin and validated against real Unreal execution.
 
-The current controller-layer focused suite is green. The next engine-dependent gate is intentionally not being run until the source-level host integration is complete.
+The reconciled branch is deterministic green, and the explicitly authorized live controller gate passed. The next engine-dependent milestone is the live Blueprint production boundary, which is separate and is not green.
 
-## Current milestone — September 2, 2026
+Current branch and HEAD:
 
-The explicit model-to-controller path now has a host-owned execution context:
+```text
+reconcile/unreal-autonomy-origin-20c6d10
+fe2322f7e76caf3115e3e5be6dafce05d62251ca
+```
+
+## Current milestone — September 15, 2026
+
+The explicit model-to-controller path has a host-owned execution context and has been validated against real Unreal execution:
 
 ```text
 model response
@@ -40,13 +47,37 @@ provider integration
 
 The host owns trusted provider context for one agent execution. Trusted Unreal context is installed from an already-authorized production artifact and authoritative Unreal task intent.
 
-The focused controller/agent suite currently reports:
+The reconciled branch currently reports:
 
 ```text
-62 passed
+canonical focused suite (13 modules, exact command below) : 160 passed, 2 deselected
+broader deterministic Unreal/controller/agent/
+  capability/evidence/receipt sweep                 : 742 passed, 5 skipped
+Python 3.9 focused parity (same 13 modules)         : 160 passed, 2 deselected
+four directly affected contract surfaces
+  (unreal_production_result_contract, unreal_production_workflow,
+   unreal_evidence_contract, unreal_render_receipt) : 37 passed
+
+CORRECTED 2026-09-15: the previously recorded focused figure
+("268 passed, 1 skipped, 1 deselected") is not reproducible on fe2322f from any
+recorded selection and is superseded by the figures above. Exact focused command:
+
+.venv/Scripts/python.exe -m pytest tests/test_agent_controller_*.py tests/test_agent_entrypoint_*.py \
+  tests/test_agent_execution_context.py tests/test_agent_trusted_context.py tests/test_agent_task_request.py \
+  tests/test_agent_process_runtime.py tests/test_agent_process_runtime_identity.py \
+  tests/test_capability_admission.py tests/test_capability_execution.py \
+  tests/test_unreal_production_result_contract.py tests/test_unreal_evidence_contract.py \
+  tests/test_unreal_render_receipt.py tests/test_unreal_render_receipt_store.py -m "not integration" -q
 ```
 
-No workflow/action-runner tests were run.
+The explicitly authorized live controller gate also passed:
+
+```text
+tests/test_agent_controller_host_production_real_integration.py
+1 passed in 10.77s
+```
+
+No other workflow/action-runner tests were run.
 
 ## Architectural invariants
 
@@ -85,7 +116,9 @@ No workflow/action-runner tests were run.
 
 The current architecture includes the Unreal Agent planning boundary, capability registry, strict operation contract, deterministic task planning, engine-neutral evidence contract, production adapter boundary, Windows Named Pipe transport, plan executor, recovery policy, reassessment decision/planner, recovery orchestrator/coordinator, disposable Unreal Engine 5.6 validation harness, heterogeneous production boundary, render receipt verification, and provider-neutral controller capability runtime.
 
-## Controller trust-boundary milestone — PASSED
+## Controller trust-boundary milestone — PASSED, AND VALIDATED AGAINST REAL UNREAL EXECUTION
+
+The agent controller host trust boundary has now been validated live: a model response carrying forged authorization and context could not substitute host-installed trusted state, the authorized production executed against a real Unreal editor, and the result returned fresh verified evidence, a matching render receipt, and a typed controller result contract.
 
 The current source-level controller boundary proves:
 
@@ -138,21 +171,17 @@ The previously identified live issue is persistence of Blueprint metadata in the
 
 ## Next development phase
 
-When development resumes, continue with the smallest safe source-level integration that connects the actual Atlas agent-facing runtime to `AgentControllerHost` without changing the existing Blender/Qwen tool behavior.
+The source-level host integration and the live controller-to-production gate are both complete.
 
-Then develop the synthetic proof that a real already-authorized Unreal production artifact can cross:
+When development resumes:
 
-```text
-host
- ↓
-agent request
- ↓
-controller admission
- ↓
-Unreal production integration
-```
+1. the test-only `_variant` Mapping compatibility repair in `tests/test_agent_controller_production_real_integration.py` — APPLIED (September 15, 2026), so the helper accepts `collections.abc.Mapping` instead of requiring `dict` (evidence is now frozen);
+2. both live controller production tests rerun green against real Unreal (1 passed each);
+3. then begin the separate live Blueprint production boundary: narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence.
 
-Only after that source-level boundary is stable should a live Unreal controller-to-production test be considered.
+Items 1 and 2 are closed as of September 15, 2026. Residual follow-up (same defect class, NOT fixed — out of scope for the controller gate): `tests/test_unreal_composite_real_integration.py`, `tests/test_unreal_heterogeneous_recovery_real_integration.py`, `tests/test_unreal_production_workflow_real_integration.py`, `tests/test_unreal_material_variant_real_integration.py`.
+
+Blueprint work must not begin until it is separately authorized as its own live gate, and no existing contract may be weakened to make a live test pass.
 
 ## Git/workspace separation
 

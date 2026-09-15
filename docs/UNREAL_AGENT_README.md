@@ -7,16 +7,46 @@ The Unreal Agent has a tested production/recovery architecture for controlled Un
 Current branch:
 
 ```text
-integrate-origin-main-with-render-receipt
+reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-The current focused controller/agent boundary checkpoint is:
+Current HEAD:
 
 ```text
-62 passed
+fe2322f7e76caf3115e3e5be6dafce05d62251ca
 ```
 
-No live Unreal/action-runner test was run for that checkpoint.
+The reconciled branch is deterministic green:
+
+```text
+canonical focused suite (13 modules, exact command below) : 160 passed, 2 deselected
+broader deterministic Unreal/controller/agent/
+  capability/evidence/receipt sweep                 : 742 passed, 5 skipped
+Python 3.9 focused parity (same 13 modules)         : 160 passed, 2 deselected
+four directly affected contract surfaces
+  (unreal_production_result_contract, unreal_production_workflow,
+   unreal_evidence_contract, unreal_render_receipt) : 37 passed
+
+CORRECTED 2026-09-15: the previously recorded focused figure
+("268 passed, 1 skipped, 1 deselected") is not reproducible on fe2322f from any
+recorded selection and is superseded by the figures above. Exact focused command:
+
+.venv/Scripts/python.exe -m pytest tests/test_agent_controller_*.py tests/test_agent_entrypoint_*.py \
+  tests/test_agent_execution_context.py tests/test_agent_trusted_context.py tests/test_agent_task_request.py \
+  tests/test_agent_process_runtime.py tests/test_agent_process_runtime_identity.py \
+  tests/test_capability_admission.py tests/test_capability_execution.py \
+  tests/test_unreal_production_result_contract.py tests/test_unreal_evidence_contract.py \
+  tests/test_unreal_render_receipt.py tests/test_unreal_render_receipt_store.py -m "not integration" -q
+```
+
+The explicitly authorized live controller gate has passed:
+
+```text
+tests/test_agent_controller_host_production_real_integration.py
+1 passed in 10.77s
+```
+
+No other live Unreal/action-runner test was run for that checkpoint.
 
 ## Operating model
 
@@ -79,6 +109,8 @@ AgentControllerHost
 ```
 
 Trusted provider context is selected only by the parsed request provider. Model-supplied capability, intent metadata, and context values cannot create or replace trusted execution state.
+
+This boundary has been validated against real Unreal execution: a model response carrying forged authorization and context could not substitute the host-installed trusted state, and the authorized production executed against a real Unreal editor.
 
 ## Trusted Unreal context
 
@@ -158,15 +190,16 @@ Do not expand into arbitrary Blueprint graph authoring until this narrow product
 
 ## Validation status
 
-The Python/controller boundary currently has a green focused checkpoint of:
+The reconciled Python/controller boundary is deterministic green (268 focused, 742 in the broader deterministic sweep, with Python 3.9 parity), and the live Unreal controller gate has passed: a real Unreal Engine 5.6.1 editor executed an already-authorized `FIELD_SURFACE` composite production through the host-owned controller path and the existing Named Pipe transport, returning fresh verified evidence, a matching render receipt, and a typed controller result contract.
 
-```text
-62 passed
-```
+The Blueprint evidence boundary remains a separate live gate and must be revalidated before declaring
+Blueprint production-complete. The test-only mapping compatibility repair in the older live controller test
+is **APPLIED (September 15, 2026)** and both live controller production tests were rerun green.
 
-This does not replace the live Unreal integration gate.
-
-When the source-level host integration is complete and explicitly authorized, run the relevant live Unreal gate. Separately revalidate the Blueprint evidence boundary before declaring Blueprint production-complete.
+Residual follow-up (same defect class, NOT fixed): `tests/test_unreal_composite_real_integration.py`,
+`tests/test_unreal_heterogeneous_recovery_real_integration.py`,
+`tests/test_unreal_production_workflow_real_integration.py`,
+`tests/test_unreal_material_variant_real_integration.py`.
 
 ## Next after Blueprint
 

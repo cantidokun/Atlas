@@ -77,10 +77,16 @@ A successful write is never treated as proof that the desired state exists.
 The current development branch is:
 
 ```text
-integrate-origin-main-with-render-receipt
+reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-The Unreal work has now reached a provider-neutral **agent-to-controller trust boundary** above the existing production stack.
+Current HEAD:
+
+```text
+fe2322f7e76caf3115e3e5be6dafce05d62251ca
+```
+
+The Unreal work has reached a provider-neutral **agent-to-controller trust boundary** above the existing production stack, and that boundary has now been validated against real Unreal execution.
 
 The current source-level controller path is:
 
@@ -110,6 +116,8 @@ Authorization / execution / evidence / verification / recovery
 
 Ordinary Blender/Qwen tool execution remains separate and unchanged by this controller seam.
 
+The agent-facing runtime composes its controller boundary from `AgentControllerHost` (host-owned runtime plus loop) rather than constructing the entrypoint runtime and loop adapter directly, and the complete controller path has been validated live against real Unreal execution. See `UNREAL_AGENT_HANDOFF_CURRENT.md` for the live gate record.
+
 ## Controller trust boundary
 
 The explicit model request marker is:
@@ -134,15 +142,41 @@ The production plan and authoritative task intent must share the same intent ID 
 
 ## Latest controller checkpoint
 
-The focused host/controller test suite is green:
+The reconciled branch is deterministic green:
 
 ```text
-62 passed
+canonical focused suite (13 modules, exact command below) : 160 passed, 2 deselected
+broader deterministic Unreal/controller/agent/
+  capability/evidence/receipt sweep                 : 742 passed, 5 skipped
+Python 3.9 focused parity (same 13 modules)         : 160 passed, 2 deselected
+four directly affected contract surfaces
+  (unreal_production_result_contract, unreal_production_workflow,
+   unreal_evidence_contract, unreal_render_receipt) : 37 passed
+
+CORRECTED 2026-09-15: the previously recorded focused figure
+("268 passed, 1 skipped, 1 deselected") is not reproducible on fe2322f from any
+recorded selection and is superseded by the figures above. Exact focused command:
+
+.venv/Scripts/python.exe -m pytest tests/test_agent_controller_*.py tests/test_agent_entrypoint_*.py \
+  tests/test_agent_execution_context.py tests/test_agent_trusted_context.py tests/test_agent_task_request.py \
+  tests/test_agent_process_runtime.py tests/test_agent_process_runtime_identity.py \
+  tests/test_capability_admission.py tests/test_capability_execution.py \
+  tests/test_unreal_production_result_contract.py tests/test_unreal_evidence_contract.py \
+  tests/test_unreal_render_receipt.py tests/test_unreal_render_receipt_store.py -m "not integration" -q
 ```
 
 This confirms the current source-level intent parsing, trusted-context handling, host lifecycle, controller loop boundary, Unreal trusted-context binding, and synthetic end-to-end controller path.
 
-No live Unreal/action-runner test was run for this checkpoint.
+The explicitly authorized live controller gate has also passed:
+
+```text
+tests/test_agent_controller_host_production_real_integration.py
+1 passed in 10.77s
+```
+
+That gate drove an already-authorized `FIELD_SURFACE` composite production through the real controller host, the existing Named Pipe transport, and a real Unreal Engine 5.6.1 editor, and returned fresh verified evidence, a matching render receipt, and a typed controller result contract.
+
+No other live Unreal/action-runner test was run for this checkpoint.
 
 ---
 
@@ -187,9 +221,22 @@ The Blueprint milestone is **not yet declared green**, and graph authoring must 
 
 ## Next Unreal gate
 
-After the source-level host integration is complete, the next engine-dependent step is a live controller-to-Unreal production test using a real pre-authorized `TrustedUnrealContext`.
+The live controller-to-Unreal production test has passed using a real pre-authorized `TrustedUnrealContext`, so the controller host boundary is no longer source-level only.
 
-Blueprint evidence validation remains a separate live gate.
+The test-only repair is **APPLIED (September 15, 2026)** in the working tree (two lines:
+`from collections.abc import Mapping` and `if not isinstance(value, Mapping):`), and both live controller
+production tests were rerun green against a real UE 5.6.1 editor (1 passed in 9.53s and 1 passed in 6.10s)
+with the fixture restored to 0/0/0, identity rotation, 1/1/1.
+
+Residual follow-up (same defect class, NOT fixed — out of scope for the controller gate):
+`tests/test_unreal_composite_real_integration.py`,
+`tests/test_unreal_heterogeneous_recovery_real_integration.py`,
+`tests/test_unreal_production_workflow_real_integration.py`,
+`tests/test_unreal_material_variant_real_integration.py`.
+
+After that, the next engine-dependent milestone is the live Blueprint production boundary.
+
+Blueprint evidence validation remains a separate live gate, and Blueprint production is not green.
 
 ---
 
@@ -328,15 +375,22 @@ unreal/AtlasUnrealHarness
 
 # Resume the current Unreal development phase
 
-Bring the branch up to date:
-
 ```powershell
 cd "C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider"
-git pull --ff-only origin integrate-origin-main-with-render-receipt
+git status
 ```
 
-The next source-level task is to connect the actual Atlas agent-facing runtime to `AgentControllerHost` without changing the existing Blender/Qwen path.
+Resume on the reconciled branch:
 
-After that boundary is stable, the next explicitly authorized engine-dependent gate is a live controller-to-Unreal production test using a real authorized Unreal context.
+```text
+reconcile/unreal-autonomy-origin-20c6d10
+fe2322f7e76caf3115e3e5be6dafce05d62251ca
+```
 
-Separately, revalidate the live Blueprint metadata evidence boundary before declaring Blueprint production-complete.
+Do not pull, merge, rebase, reset or stash: the branch is already reconciled with `origin/integrate-origin-main-with-render-receipt`, and the local autonomy commit it builds on is published on a separate remote branch.
+
+The live controller-to-Unreal production gate has passed. The next steps are recorded in `UNREAL_AGENT_HANDOFF_CURRENT.md`:
+
+1. the test-only `_variant` Mapping compatibility repair — APPLIED (September 15, 2026);
+2. both live controller production tests rerun green against real Unreal (1 passed each);
+3. then revalidate the live Blueprint metadata evidence boundary before declaring Blueprint production-complete.

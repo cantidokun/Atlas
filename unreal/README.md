@@ -64,6 +64,28 @@ independent evidence / verification
 
 The recovery test additionally establishes that fresh live reassessment does **not** silently retry the previous mutation.
 
+### Live controller-to-production proof (September 15, 2026)
+
+The provider-neutral controller host path has now been exercised against this harness in real Unreal Engine 5.6.1:
+
+```text
+tests/test_agent_controller_host_production_real_integration.py
+```
+
+An already-authorized `FIELD_SURFACE` composite production travelled:
+
+```text
+model response → ATLAS_CONTROLLER_REQUEST → AgentControllerIntent → AgentTaskRequest
+→ AgentControllerHost → AgentControllerLoopAdapter → AgentEntrypointRuntime
+→ AgentProcessRuntime → capability admission → TrustedUnrealContext
+→ Unreal production capability → \\.\pipe\AtlasUnrealTransport → real Unreal
+→ fresh evidence → render receipt → UnrealProductionResultContract
+```
+
+The model supplied forged authorization and context; the host-installed `TrustedUnrealContext` overrode it and the execution used the host-authorized production plan, the trusted intent, and the trusted sequence asset path.
+
+The live render completed (24 frames, 1280x720 PNG, Movie Render Queue), fresh `inspect_render_job` evidence was produced with `verified = True`, the receipt matched the final evidence, and the fixture was restored afterwards to location 0/0/0, identity rotation, scale 1/1/1.
+
 This is a first production-boundary proof, not a claim that all future Unreal capabilities are implemented.
 
 ## Current real fixture identity
@@ -139,6 +161,35 @@ Atlas authorization
 → independent verification
 ```
 
+## Expected live running state
+
+The transport server starts automatically from `AtlasUnrealTransport` module startup (implemented in `AtlasTransportServer.cpp`) and listens on:
+
+```text
+\\.\pipe\AtlasUnrealTransport
+```
+
+The harness seeds its deterministic fixtures into the **active editor world** through a startup ticker. The expected live running state therefore requires the persistent fixture map to be loaded:
+
+```text
+/Game/AtlasTest/Generated/AtlasRenderFixture
+```
+
+The harness reports readiness in its log:
+
+```text
+Atlas transport server started successfully
+Atlas Unreal fixtures ready in world 'AtlasRenderFixture'
+```
+
+Launching the editor without that fixture map can leave the first world context pointing at a cleaned-up world, because the server-side entity lookup resolves `GEngine->GetWorldContexts()[0]` while fixture provisioning uses the editor world. Every entity-scoped operation then fails with:
+
+```text
+Actor not found for entity_id: FIELD_SURFACE
+```
+
+This is a pre-existing harness/setup characteristic. Do not compensate for it with Atlas-side entity discovery or an entity cache. A durable C++ fallback to the active editor world (rather than indexing `GetWorldContexts()[0]`) is a possible future harness improvement, separate from the controller milestone.
+
 ## Regression rules
 
 - Do not weaken a failing test to make it pass.
@@ -152,9 +203,11 @@ Atlas authorization
 
 ## Next milestone
 
-The next development target is **multi-operation production execution with failure containment**.
+The multi-operation production execution boundary with failure containment has since been implemented, and the provider-neutral controller host path has now been validated live against this harness (see `UNREAL_AGENT_HANDOFF_CURRENT.md`).
 
-The Python-side implementation should first prove, with offline regression coverage:
+The current next engine-dependent target is the **live Blueprint production boundary**: narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence. It is **not** green and must not be conflated with the controller-layer success.
+
+The original Python-side proof set for this milestone was:
 
 1. ordered evidence before mutation;
 2. exact authorization of the ordered operation set;
@@ -168,6 +221,8 @@ The Python-side implementation should first prove, with offline regression cover
 10. independent verification before completion.
 
 After that boundary is green, run the expanded multi-operation scenario against the real Unreal Editor.
+
+Blueprint graph authoring must not be expanded until the narrow Blueprint metadata boundary above is green.
 
 ## Detailed continuation state
 
