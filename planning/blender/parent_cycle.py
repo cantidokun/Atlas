@@ -13,10 +13,11 @@ has no defined world pose under the existing parent-chain transform engine.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Mapping, Optional, Tuple
 
 from planning.blender.correction_values import CorrectionPlannerError
 
@@ -221,7 +222,7 @@ def _extract(extractor: Callable[[], Tuple[Any, str]]) -> Tuple[Any, str]:
 
 def _object_projection(obj: Any) -> Any:
     if isinstance(obj, Mapping):
-        return dict(obj)
+        return copy.deepcopy(dict(obj))
     return obj
 
 
@@ -239,9 +240,9 @@ def _scene_projection(scene_model: Any, *, exclude_object_id: Optional[str] = No
 
 def _target_local_transform(obj: Any) -> Tuple[Any, Any, Any]:
     return (
-        _get(obj, "location"),
-        _get(obj, "rotation"),
-        _get(obj, "scale"),
+        copy.deepcopy(_get(obj, "location")),
+        copy.deepcopy(_get(obj, "rotation")),
+        copy.deepcopy(_get(obj, "scale")),
     )
 
 
