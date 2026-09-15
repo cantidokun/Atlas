@@ -46,15 +46,30 @@ def run_safe_case():
     if groups != [(1,3), (2,4)]:
         raise RuntimeError('unexpected duplicate groups: %r' % (groups,))
 
-    import bmesh
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.verts.ensure_lookup_table()
-    doomed_indices = [index for group in groups for index in group[1:]]
-    doomed_vertices = [bm.verts[index] for index in doomed_indices]
-    bmesh.ops.delete(bm, geom=doomed_vertices, context='VERTS')
-    bm.to_mesh(mesh)
-    bm.free()
+    survivor_for = {index: index for index in range(len(before_vertices))}
+    for group in groups:
+        survivor = group[0]
+        for index in group[1:]:
+            survivor_for[index] = survivor
+
+    survivors = [
+        index
+        for index in range(len(before_vertices))
+        if survivor_for[index] == index
+    ]
+    survivor_to_new = {
+        old_index: new_index
+        for new_index, old_index in enumerate(survivors)
+    }
+
+    remapped_vertices = [before_vertices[index] for index in survivors]
+    remapped_faces = [
+        tuple(survivor_to_new[survivor_for[index]] for index in face)
+        for face in before_faces
+    ]
+
+    mesh.clear_geometry()
+    mesh.from_pydata(remapped_vertices, [], remapped_faces)
     mesh.update()
 
     after_vertices = tuple(vec(v.co) for v in mesh.vertices)
