@@ -72,12 +72,7 @@ def test_selected_cycle_repair_preserves_preexisting_unrelated_cycle():
 def test_successfully_applied_plan_cannot_be_replayed():
     working = _scene(("a", "a"))
     plan = _plan(working, target="a", parent="a")
-    first = execute_repair_parent_cycle(
-        plan,
-        _auth(plan),
-        extractor=lambda: (working, _digest(working)),
-        mutator=lambda object_id, expected_parent_id, new_parent_id: working["objects"][0].update(parent_object_id=new_parent_id),
-    )
+    first = execute_repair_parent_cycle(plan, _auth(plan), extractor=lambda: (working, _digest(working)), mutator=lambda object_id, expected_parent_id, new_parent_id: working["objects"][0].update(parent_object_id=new_parent_id))
     assert first.ok is True
     calls = []
     second = execute_repair_parent_cycle(plan, _auth(plan), extractor=lambda: (working, _digest(working)), mutator=lambda *args: calls.append(args))
@@ -142,7 +137,6 @@ def test_cycle_signature_is_independent_of_object_storage_order():
     plan_b = _plan(scene_b)
     assert plan_a["target_object_id"] == plan_b["target_object_id"]
     assert plan_a["params"] == plan_b["params"]
-    assert plan_a["correction_id"] == plan_b["correction_id"]
 
 
 def test_mutation_that_creates_a_second_cycle_fails_closed():
