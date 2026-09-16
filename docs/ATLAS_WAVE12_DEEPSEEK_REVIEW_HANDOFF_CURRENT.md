@@ -1,10 +1,10 @@
 # Wave 12 — DeepSeek Review Current-Head Addendum
 
-**Date:** September 16, 2026 end-of-night
+**Date:** September 16, 2026 review-start preparation
 **Repository:** `cantidokun/Atlas`
 **Branch:** `feat/blender-wave12-reference-integrity`
-**PR:** #102
-**Current HEAD:** `53d2580529557902e72cf633a7cfe9ac17ab8973`
+**PR:** #102 — Wave 12 — bounded parent-cycle repair
+**Current PR HEAD:** `3c8593fc9f72fbfb1e9f3af9d8d91108498dca63`
 **Wave 12 implementation baseline before documentation-only handoff commits:** `a2bfdb19071594669f93cb6b81c448b36caf9600`
 **Wave 11 main baseline:** `fda85a994ec0669d8ee9d1ff1ab6d52e9bfec0d3`
 
@@ -12,12 +12,14 @@
 
 Review the **actual current branch HEAD** and complete PR #102 diff. The commits after `a2bfdb...` are documentation-only handoff/README updates; the Wave 12 production implementation and tests were already green before these documentation commits.
 
-Do not assume the embedded historical baseline is the current checkout. First record the actual result of:
+Do not assume an embedded historical baseline is the current checkout. First record the actual result of:
 
 ```powershell
 git rev-parse HEAD
 git status --short
 ```
+
+The GitHub PR currently reports HEAD `3c8593fc9f72fbfb1e9f3af9d8d91108498dca63`. If the local checkout differs, report the observed SHA and review that actual state rather than silently substituting another revision.
 
 ## Current evidence
 
@@ -55,6 +57,8 @@ Live boundary:
 - `tests/parent_cycle_live_script.py`
 - `tests/test_live_blender_wave12_parent_cycle_gate.py`
 
+Also inspect the complete PR #102 diff and surrounding Wave 4 hierarchy implementation when needed to establish compatibility and non-regression.
+
 ## Contract to challenge
 
 Wave 12 is exactly `REPAIR_PARENT_CYCLE` and permits exactly one selected edge removal:
@@ -83,7 +87,7 @@ Also challenge cycle semantics for self-cycles, multi-node cycles, and a non-cyc
 
 ## Live-boundary qualification
 
-The canonical malformed cycle has no well-defined world pose under the existing parent-chain engine. Therefore the canonical executor preserves local transform fields rather than fabricating a world-pose claim.
+The canonical malformed cycle has no well-defined world-space pose under the existing parent-chain engine. Therefore canonical correctness is graph/reference based and preserves canonical local transform fields.
 
 The live Blender proof is deliberately separate and uses an acyclic disposable parent relationship. Blender 4.4.3 passed the actual detach operation with world-matrix preservation within measured float32 round-off. Measured maximum matrix delta: `1.1920928955078125e-07`; acceptance threshold: `1e-6`.
 
@@ -91,7 +95,7 @@ The live gate also confirmed object identity, mesh identity, object-set preserva
 
 ## Required review output
 
-Use qualitative findings only. Do not assign a numerical score, rank, or winner.
+Use qualitative findings only. Do not assign a numerical score, rank, tier, or winner.
 
 ```text
 DEEPSEEK_WAVE12_REVIEW
@@ -130,4 +134,10 @@ RECOMMENDED_ACTION:
 
 The prior GitHub review submissions on PR #102 were authored by the repository owner. Their findings were incorporated during development, but they are not independent approval.
 
-DeepSeek's review should therefore be treated as a fresh adversarial evaluation of the current HEAD. If DeepSeek identifies a blocker, reproduce it before changing production code where practical. Do not weaken tests or contracts to make the review pass.
+DeepSeek's review should therefore be a fresh adversarial evaluation of the current HEAD. The reviewer should work from source and tests rather than trusting the handoff's claims. If a blocker is identified, reproduce it deterministically where practical before any production change. Do not weaken tests or contracts to make the review pass.
+
+## Review discipline
+
+Do not treat a `CLEAR` result as an automatic merge decision. Reconcile every finding against the implementation, tests, and design contract. If the review is clear and existing gates remain green, the human merge decision remains separate.
+
+Workflow/action-runner tests remain excluded unless explicitly authorized.
