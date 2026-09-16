@@ -96,7 +96,7 @@ def test_successfully_applied_plan_cannot_be_replayed():
 
     assert second.ok is False
     assert second.outcome == "PLAN_INVALID"
-    assert second.failure_code == "CYCLE_NOT_FOUND"
+    assert second.failure_code == "EXPECTED_PARENT_MISMATCH"
     assert calls == []
 
 
