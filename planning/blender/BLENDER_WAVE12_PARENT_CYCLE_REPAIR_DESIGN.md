@@ -56,6 +56,8 @@ A plan is rejected when:
 - the target is not actually a member of the fresh cycle being corrected;
 - any unexpected plan parameter is present.
 
+Malformed scene containers, object identifiers, and parent identifiers are also rejected with declared `ParentCycleError` failure codes rather than leaking unexpected exceptions from the public planner boundary.
+
 An explicit target is required for a correction. The planner does not silently choose among multiple cycle members.
 
 ## 4. Cycle semantics
@@ -75,7 +77,7 @@ For a valid Wave 12 plan:
 
 The executor must fail closed if the fresh graph contains a different cycle topology than the plan was derived from.
 
-## 5. Authorization binding
+## 5. Authorization and digest binding
 
 Authorization remains exact and separate from planning.
 
@@ -90,9 +92,15 @@ The authorization artifact binds:
 
 No free-form hierarchy fields are accepted in the authorization artifact.
 
-The executor independently recomputes the fresh source digest before mutation. A stale plan, target substitution, parent substitution, or changed cycle fails closed.
+Before mutation the executor independently computes the canonical Wave-12 scene digest from the extracted authoritative scene and requires both:
 
-## 6. Mutation boundary
+`extractor_report_digest == computed_scene_digest == plan.source_report_digest`
+
+The canonical digest is exposed as the public `scene_report_digest(scene_model)` function in `planning/blender/parent_cycle.py`; `_scene_digest()` remains its implementation helper. For Mapping-shaped scene inputs the digest payload is the canonical deep-copied scene mapping. For object-model scene inputs the payload is explicitly composed from scene identity/state, ordered object fields, and mesh fields used by the Wave-12 boundary. An adapter returning `(scene_model, report_digest)` must therefore use this exact function/contract for the report digest it supplies to the executor.
+
+The executor independently recomputes the output digest after mutation and requires the extractor-reported output digest to equal it. A stale plan, target substitution, parent substitution, changed scene, or forged digest fails closed before mutation.
+
+## 6. Mutation boundary and trusted adapter qualification
 
 Exactly one canonical mutator operation is permitted:
 
@@ -102,7 +110,9 @@ expected_parent_id=<expected_parent_id>,
 new_parent_object_id=None
 ```
 
-The executor performs no cascade and no retry. The canonical executor preserves the target's local transform fields exactly; it does not invent a world-space pose for a malformed cyclic graph.
+The executor performs no cascade and no retry or rollback authority. The canonical executor preserves the target's local transform fields exactly; it does not invent a world-space pose for a malformed cyclic graph.
+
+The executor's own code performs only this single externally-reaching mutator call. Because rollback is deliberately outside the Wave-12 authority boundary, an injected/trusted adapter mutator that violates the one-edge contract cannot be undone by the executor; the fresh post-mutation extraction and invariant checks detect the violation and return a non-success outcome. A consumer must therefore treat any `POSTCONDITION_FAILED` outcome as a potentially partially mutated adapter state, never as proof that the scene remained unchanged.
 
 The Blender live boundary separately proves that the underlying detach primitive preserves world pose on an acyclic disposable parent relationship. Any Blender-specific parent-inverse adjustment needed to preserve world pose is part of that boundary implementation, not a second semantic parent mutation.
 
@@ -131,12 +141,14 @@ No live workflow or action-runner execution is part of Wave 12.
 
 ## 9. Validation gate
 
-Implementation currently includes the bounded canonical planner/executor, deterministic cycle tests, and the disposable Blender boundary probe/gate. Merge remains blocked until:
+Implementation currently includes the bounded canonical planner/executor, deterministic cycle tests, malformed-input boundary tests, the public digest contract, and the disposable Blender boundary probe/gate. Merge remains blocked until:
 
 - deterministic self-cycle, two-node, and multi-node cycle cases pass;
 - duplicate object-id and ambiguous-target fail-closed cases pass;
+- malformed scene/container/id inputs fail with declared outcomes;
 - stale-source, target-substitution, and expected-parent substitution rejection pass;
 - exact authorization and closed-parameter tests pass;
+- hostile Mapping plan/authorization inputs fail closed;
 - one-edge-only and non-target preservation tests pass without aliasing false positives;
 - canonical local-transform preservation is verified;
 - live Blender proof of world-pose preservation passes on the user's Blender 4.4.3 host;
@@ -144,8 +156,8 @@ Implementation currently includes the bounded canonical planner/executor, determ
 - supported-Python final-head CI is green;
 - independent red-team review is clear.
 
-A cycle repair that changes more than the explicitly selected parent edge, changes canonical local transform state, or causes world-pose drift in the live detach primitive blocks merge.
+A cycle repair that changes more than the explicitly selected parent edge, changes canonical local transform state, or causes world-pose drift in the live detach primitive blocks merge. A `POSTCONDITION_FAILED` result after an adapter-side mutation is not interpreted as an automatic rollback guarantee.
 
 ## 10. C++ seam
 
-The semantic contract is language-neutral: cycle detection operates on immutable object identifiers and parent identifiers, and correction mutates exactly one canonical parent-reference field while preserving the selected object's canonical local transform. A future C++ implementation must reproduce the same cycle detection, plan binding, and postcondition semantics without Blender-specific types.
+The semantic contract is language-neutral: cycle detection operates on immutable object identifiers and parent identifiers, and correction mutates exactly one canonical parent-reference field while preserving the selected object's canonical local transform. A future C++ implementation must reproduce the same cycle detection, plan binding, digest contract, and postcondition semantics without Blender-specific types.
