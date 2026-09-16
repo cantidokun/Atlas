@@ -76,7 +76,7 @@ def test_successfully_applied_plan_cannot_be_replayed():
     assert first.ok is True
     calls = []
     second = execute_repair_parent_cycle(plan, _auth(plan), extractor=lambda: (working, _digest(working)), mutator=lambda *args: calls.append(args))
-    assert second.failure_code == "EXPECTED_PARENT_MISMATCH"
+    assert second.failure_code == "SOURCE_DIGEST_MISMATCH"
     assert calls == []
 
 
