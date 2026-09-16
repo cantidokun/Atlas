@@ -297,3 +297,42 @@ def test_forged_plan_id_rejected_before_mutation():
     assert result.ok is False
     assert result.failure_code == "PLAN_ID_INVALID"
     assert calls == []
+
+
+def test_pre_mutation_structural_validation_exception_is_contained():
+    plan_source = scene(("a", "b"), ("b", "a"))
+    plan = plan_parent_cycle_correction(plan_source, "a" * 64, target_object_id="a", expected_parent_id="b")
+    auth = auth_for(plan)
+    malformed = {"objects": [{"object_id": "a", "parent_object_id": "b"}, {"object_id": "a", "parent_object_id": "a"}]}
+    calls = []
+    result = execute_repair_parent_cycle(plan, auth, extractor=lambda: (malformed, "a" * 64), mutator=lambda *args: calls.append(args))
+    assert result.ok is False
+    assert result.outcome == "PLAN_INVALID"
+    assert result.failure_code == "DUPLICATE_OBJECT_ID"
+    assert calls == []
+
+
+def test_post_mutation_structural_validation_exception_is_contained():
+    plan_source = scene(("a", "b"), ("b", "a"))
+    plan = plan_parent_cycle_correction(plan_source, "a" * 64, target_object_id="a", expected_parent_id="b")
+    auth = auth_for(plan)
+    working = copy.deepcopy(plan_source)
+    extract_count = 0
+    calls = []
+
+    def extract():
+        nonlocal extract_count
+        extract_count += 1
+        if extract_count == 1:
+            return working, "a" * 64
+        return {"objects": [{"object_id": "a", "parent_object_id": None}, {"object_id": "a", "parent_object_id": "a"}]}, "b" * 64
+
+    def mutate(object_id, expected_parent_id, new_parent_id):
+        calls.append((object_id, expected_parent_id, new_parent_id))
+        working["objects"][0]["parent_object_id"] = new_parent_id
+
+    result = execute_repair_parent_cycle(plan, auth, extractor=extract, mutator=mutate)
+    assert result.ok is False
+    assert result.outcome == "POSTCONDITION_FAILED"
+    assert result.failure_code == "OUTPUT_DIGEST_INVALID"
+    assert calls == [("a", "b", None)]
