@@ -7,6 +7,7 @@ import pytest
 from planning.blender.parent_cycle import (
     CYCLE_CORRECTION_TYPE,
     ParentCycleError,
+    _make_plan,
     _scene_digest,
     execute_repair_parent_cycle,
     plan_parent_cycle_correction,
@@ -319,12 +320,12 @@ def test_forged_plan_id_rejected_before_mutation():
 
 
 def test_pre_mutation_structural_validation_exception_is_contained():
-    source = scene(("a", "b"), ("b", "a"))
-    plan = plan_for(source)
-    auth = auth_for(plan)
     malformed = {"objects": [{"object_id": "a", "parent_object_id": "b"}, {"object_id": "a", "parent_object_id": "a"}]}
+    source_digest = digest(malformed)
+    plan = _make_plan(target_object_id="a", expected_parent_id="b", source_report_digest=source_digest)
+    auth = auth_for(plan)
     calls = []
-    result = execute_repair_parent_cycle(plan, auth, extractor=lambda: (malformed, digest(malformed)), mutator=lambda *args: calls.append(args))
+    result = execute_repair_parent_cycle(plan, auth, extractor=lambda: (malformed, source_digest), mutator=lambda *args: calls.append(args))
     assert result.failure_code == "DUPLICATE_OBJECT_ID"
     assert calls == []
 
