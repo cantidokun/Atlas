@@ -4,37 +4,29 @@
 **Repository:** `cantidokun/Atlas`
 **Branch:** `feat/blender-wave12-reference-integrity`
 **PR:** #102 — Wave 12 — bounded parent-cycle repair
+**Final reviewed head:** `244ad0590fe3332cb12f6081b58b360e57feed65`
+**Final CI run:** #1934 (`35163283216`) — PASS
 **Wave 11 main baseline:** `fda85a994ec0669d8ee9d1ff1ab6d52e9bfec0d3`
 **Code-remediation baseline:** `7b8947e152bb14566de7b1ebf5fa0c945ec373ed`
 
-## First independent red-team findings and remediation
+## Final independent red-team result
 
-The first DeepSeek review of the pre-remediation implementation identified two material findings: extractor-reported source digests were trusted without independent scene recomputation, and the global `_cycle_signatures()` implementation performed avoidable repeated indexing/walking.
+Hermes performed the final independent red-team review of exact head `244ad0590fe3332cb12f6081b58b360e57feed65` without modifying the repository.
 
-Those findings were remediated before the current code-remediation baseline. The executor independently recomputes the source digest from the extracted authoritative scene, requires:
+The review found:
 
-`extractor_report_digest == computed_scene_digest == plan.source_report_digest`
+- **CONFIRMED DEFECTS:** NONE;
+- **HIGH-RISK CONCERNS:** NONE;
+- **TEST COVERAGE GAPS:** non-blocking only;
+- **EVIDENCE / QUALIFICATION ISSUES:** non-blocking only.
 
-and independently recomputes and validates the post-mutation output digest. Global cycle inventory is now a single indexed functional-graph traversal with linear complexity.
+The C1 residual planner exception leak is closed. The review exercised approximately 40 stateful-accessor configurations across both public planner entry points and both supported object representations, including post-index and cycle-walk failures. No raw exception escaped, and intentional failure codes remained intact.
 
-## Second independent red-team result
+The review also re-verified that no caller can cause wrong-scene, wrong-target, wrong-parent, or unauthorized-edge mutation at the final head. The exact mutation remains one call:
 
-Hermes performed an independent adversarial review of exact HEAD `900754d01a89d7f4f40818d030099dbcdbb95430` and independently verified that the digest-provenance and cycle-complexity findings were genuinely closed.
+`mutator(target_object_id, expected_parent_id, None)`
 
-The review exercised digest attacks, authorization variants, replay/stale-plan vectors, malformed structures, hostile Mapping inputs, randomized functional graphs, target-position sweeps, postcondition corruption, mutation-boundary injections, and Python 3.9/3.11 compatibility.
-
-It found no path to wrong-scene, wrong-target, wrong-parent, or unauthorized-edge mutation.
-
-## D1 / D2 boundary remediation
-
-The second review identified two fail-closed boundary defects:
-
-- **D1:** public planner/traversal calls could leak raw exceptions for malformed Mapping/object field access.
-- **D2:** hostile custom `Mapping` objects could raise through plan/params/authorization accessors before mutation.
-
-D2 was closed in the executor boundary. D1 was substantially closed by hardening the indexing pass, but a final red-team probe found one residual stateful-accessor case where a parent field succeeded during indexing and raised on a later planner read.
-
-That residual defect was closed in the code-remediation baseline by containing the complete public planner path and the public cycle-query path. The implementation now converts unexpected planner/traversal exceptions into declared `ParentCycleError` / `SCENE_VALIDATION_FAILED` outcomes while preserving existing intentional failure codes.
+and all previously identified digest, authorization, replay, cycle-correctness, complexity, mutation-scope, postcondition, and Python compatibility findings remain closed.
 
 ## Current Wave 12 implementation
 
@@ -56,6 +48,8 @@ Wave 12 deliberately has no rollback authority. The executor guarantees that its
 
 The canonical digest contract is explicitly documented: adapters must provide the exact `scene_report_digest(scene_model)` value as the extractor report digest, and the executor independently recomputes the same digest before and after mutation.
 
+For Mapping-shaped scene payloads, object-list order and arbitrary extra top-level mapping keys participate in the canonical digest. Adapters must therefore supply a stable, deterministic canonical mapping representation. The Wave 12 scene digest is distinct from the earlier Waves 1–3 report-body digest; adapters must use the explicitly named `scene_report_digest(scene_model)` helper rather than the generic correction-report digest convention.
+
 ## Regression hardening
 
 Coverage includes:
@@ -71,27 +65,39 @@ Coverage includes:
 - hostile plan/authorization Mapping containment;
 - malformed object IDs, parent IDs, and scene containers;
 - stateful parent-accessor failure after initial indexing;
+- stateful parent-accessor failure during cycle walking;
 - linear cycle-inventory regression;
 - public canonical digest availability.
 
 ## Verified validation evidence
 
-The exact code-remediation baseline passed the focused Wave 12 regression added for the residual C1 case. The temporary patch runner verified the focused planner/cycle-query hardening and then removed itself from the branch.
+The final GitHub Actions run for exact head `244ad0590fe3332cb12f6081b58b360e57feed65` is green:
 
-The earlier exact-head GitHub Actions run on `36470610712f0dc8a31ea0452e44797e37562969` was green on Python 3.9 and 3.11, with Python 3.11 also passing the M13.7 repository benchmark. The final full-suite CI must be re-run on the post-C1-remediation head.
+- Python 3.9 offline suite: **PASS**;
+- Python 3.11 offline suite: **PASS**;
+- M13.7 repository benchmark on Python 3.11: **PASS**.
 
-The live Blender 4.4.3 boundary evidence remains qualified exactly as intended: it proves the real detach primitive and world-pose preservation on an acyclic disposable relationship, not repair of a genuinely cyclic Blender scene. Measured matrix delta remains `1.1920928955078125e-07` against a `1e-6` acceptance threshold.
+Independent local validation at the reviewed head reported:
 
-No temporary Wave 12 diagnostic or patch workflow remains on the branch after remediation.
+- Python 3.9.6: **3,635 passed / 28 skipped / 1 warning**;
+- Python 3.11: **3,631 passed / 32 skipped / 1 warning**;
+- Wave 12 subset: **58 passed**;
+- boundary-hardening tests: **9 passed** on both interpreters.
 
-## Final validation gate
+The live Blender 4.4.3 boundary gate was re-executed from the reviewed tree and reproduced the qualified claim exactly:
 
-Before PR #102 is considered ready for human merge review:
+- all seven checks true;
+- `ATLAS_WAVE12_PARENT_CYCLE_LIVE_PASS`;
+- `matrix_max_delta = 1.1920928955078125e-07` against the `1e-6` threshold.
 
-1. confirm Python 3.9 and 3.11 CI is green on the final documentation/code head;
-2. confirm M13.7 passes on Python 3.11;
-3. rerun the live Blender 4.4.3 boundary gate on the final head;
-4. perform one final independent red-team review of the exact final head;
-5. reconcile every finding before changing the PR out of draft.
+The live gate proves the real detach primitive and world-pose preservation on an acyclic disposable relationship, not repair of a genuinely cyclic Blender scene.
 
-Do not weaken the contract or tests to satisfy a reviewer. Workflow/action-runner tests remain excluded unless explicitly authorized.
+No temporary Wave 12 diagnostic or patch workflow remains on the branch.
+
+## Final disposition
+
+The final independent red-team conclusion is **CLEAR** from a Wave 12 contract/security standpoint.
+
+No remaining blocker was identified that should prevent PR #102 from being considered merge-ready. Remaining advisory items are limited to additional regression coverage for deep cycle-walk accessor failure and optional future hardening/clarification of the public digest helper and related documentation.
+
+The PR remains draft until the human owner changes its review state. Workflow/action-runner tests remain excluded unless explicitly authorized.
