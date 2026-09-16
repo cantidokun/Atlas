@@ -334,5 +334,6 @@ def test_post_mutation_structural_validation_exception_is_contained():
     result = execute_repair_parent_cycle(plan, auth, extractor=extract, mutator=mutate)
     assert result.ok is False
     assert result.outcome == "POSTCONDITION_FAILED"
-    assert result.failure_code == "OUTPUT_DIGEST_INVALID"
+    assert result.failure_code == "DUPLICATE_OBJECT_ID"
+    assert result.output_report_digest == "b" * 64
     assert calls == [("a", "b", None)]
