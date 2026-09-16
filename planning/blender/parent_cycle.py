@@ -82,18 +82,41 @@ def _parent_id(obj: Any) -> Optional[str]:
 
 
 def _index_objects(scene_model: Any):
+    """Build the authoritative object index, containing malformed input failures."""
     by_id = {}
-    for obj in _objects(scene_model):
-        ident = _object_id(obj)
-        if ident is None:
-            raise ParentCycleError(
-                "every object must have a non-empty object_id", "OBJECT_ID_INVALID"
-            )
-        if ident in by_id:
-            raise ParentCycleError(
-                f"duplicate object id {ident!r}", "DUPLICATE_OBJECT_ID"
-            )
-        by_id[ident] = obj
+    try:
+        objects = _objects(scene_model)
+        iterator = iter(objects)
+    except Exception as exc:
+        raise ParentCycleError(
+            "scene objects must be an iterable container", "SCENE_VALIDATION_FAILED"
+        ) from exc
+
+    try:
+        for obj in iterator:
+            ident = _object_id(obj)
+            if type(ident) is not str or not ident:
+                raise ParentCycleError(
+                    "every object must have a non-empty string object_id",
+                    "OBJECT_ID_INVALID",
+                )
+            parent = _parent_id(obj)
+            if parent is not None and (type(parent) is not str or not parent):
+                raise ParentCycleError(
+                    "parent_object_id must be null or a non-empty string",
+                    "PARENT_ID_INVALID",
+                )
+            if ident in by_id:
+                raise ParentCycleError(
+                    f"duplicate object id {ident!r}", "DUPLICATE_OBJECT_ID"
+                )
+            by_id[ident] = obj
+    except ParentCycleError:
+        raise
+    except Exception as exc:
+        raise ParentCycleError(
+            "scene object traversal or field access failed", "SCENE_VALIDATION_FAILED"
+        ) from exc
     return by_id
 
 
@@ -280,20 +303,25 @@ def verify_parent_cycle_authorization(
 ) -> CycleAuthorizationVerdict:
     if not isinstance(authorization, Mapping):
         return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "NOT_A_MAPPING")
-    if set(authorization) != _AUTH_KEYS:
-        return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "FIELDS_NOT_CLOSED")
-    if authorization.get("decision") != "APPROVED":
-        return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "DECISION_NOT_APPROVED")
-    for field, expected, code in (
-        ("correction_type", CYCLE_CORRECTION_TYPE, "CORRECTION_TYPE_MISMATCH"),
-        ("correction_id", presented.correction_id, "CORRECTION_ID_MISMATCH"),
-        ("plan_id", presented.plan_id, "PLAN_ID_MISMATCH"),
-        ("source_report_digest", presented.source_report_digest, "SOURCE_DIGEST_MISMATCH"),
-        ("target_object_id", presented.target_object_id, "TARGET_OBJECT_MISMATCH"),
-        ("expected_parent_id", presented.expected_parent_id, "EXPECTED_PARENT_MISMATCH"),
-    ):
-        if authorization.get(field) != expected:
-            return CycleAuthorizationVerdict(False, "AUTHORIZATION_SCOPE_MISMATCH", code)
+    try:
+        if set(authorization) != _AUTH_KEYS:
+            return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "FIELDS_NOT_CLOSED")
+        if authorization.get("decision") != "APPROVED":
+            return CycleAuthorizationVerdict(False, "AUTHORIZATION_INVALID", "DECISION_NOT_APPROVED")
+        for field, expected, code in (
+            ("correction_type", CYCLE_CORRECTION_TYPE, "CORRECTION_TYPE_MISMATCH"),
+            ("correction_id", presented.correction_id, "CORRECTION_ID_MISMATCH"),
+            ("plan_id", presented.plan_id, "PLAN_ID_MISMATCH"),
+            ("source_report_digest", presented.source_report_digest, "SOURCE_DIGEST_MISMATCH"),
+            ("target_object_id", presented.target_object_id, "TARGET_OBJECT_MISMATCH"),
+            ("expected_parent_id", presented.expected_parent_id, "EXPECTED_PARENT_MISMATCH"),
+        ):
+            if authorization.get(field) != expected:
+                return CycleAuthorizationVerdict(False, "AUTHORIZATION_SCOPE_MISMATCH", code)
+    except Exception:
+        return CycleAuthorizationVerdict(
+            False, "AUTHORIZATION_INVALID", "AUTHORIZATION_ACCESS_FAILED"
+        )
     return CycleAuthorizationVerdict(True, "AUTHORIZATION_VERIFIED")
 
 
@@ -392,6 +420,11 @@ def _scene_digest(scene_model: Any) -> str:
     return _digest(_scene_digest_payload(scene_model))
 
 
+def scene_report_digest(scene_model: Any) -> str:
+    """Return the canonical Wave-12 source/output digest for an extracted scene."""
+    return _scene_digest(scene_model)
+
+
 def _scene_non_object_projection(scene_model: Any) -> Any:
     if isinstance(scene_model, Mapping):
         return copy.deepcopy({key: value for key, value in scene_model.items() if key != "objects"})
@@ -426,45 +459,49 @@ def execute_repair_parent_cycle(
     extractor: Callable[[], Tuple[Any, str]],
     mutator: Callable[[str, str, None], None],
 ) -> _ExecutionOutcome:
-    if not isinstance(plan, Mapping):
-        return _ExecutionOutcome(False, "PLAN_INVALID", "NOT_A_MAPPING", "", None)
-    if plan.get("correction_type") != CYCLE_CORRECTION_TYPE:
-        return _ExecutionOutcome(
-            False,
-            "PLAN_INVALID",
-            "CORRECTION_TYPE_MISMATCH",
-            str(plan.get("source_report_digest")),
-            None,
-        )
-    params = plan.get("params")
-    if not isinstance(params, Mapping) or set(params) != _CYCLE_PARAMS:
-        return _ExecutionOutcome(
-            False, "PLAN_INVALID", "PARAMS_INVALID", str(plan.get("source_report_digest")), None
-        )
-    source_digest = plan.get("source_report_digest")
-    target_id = plan.get("target_object_id")
-    correction_id = plan.get("correction_id")
-    plan_id = plan.get("plan_id")
-    expected_parent_id = params.get("expected_parent_id")
-    if not all(
-        type(v) is str and v
-        for v in (source_digest, target_id, correction_id, plan_id, expected_parent_id)
-    ):
-        return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_FIELDS_INVALID", str(source_digest), None)
-    if len(source_digest) != 64 or any(c not in "0123456789abcdef" for c in source_digest):
-        return _ExecutionOutcome(False, "PLAN_INVALID", "SOURCE_DIGEST_INVALID", source_digest, None)
+    try:
+        if not isinstance(plan, Mapping):
+            return _ExecutionOutcome(False, "PLAN_INVALID", "NOT_A_MAPPING", "", None)
+        correction_type = plan.get("correction_type")
+        if correction_type != CYCLE_CORRECTION_TYPE:
+            return _ExecutionOutcome(
+                False,
+                "PLAN_INVALID",
+                "CORRECTION_TYPE_MISMATCH",
+                str(plan.get("source_report_digest")),
+                None,
+            )
+        params = plan.get("params")
+        if not isinstance(params, Mapping) or set(params) != _CYCLE_PARAMS:
+            return _ExecutionOutcome(
+                False, "PLAN_INVALID", "PARAMS_INVALID", str(plan.get("source_report_digest")), None
+            )
+        source_digest = plan.get("source_report_digest")
+        target_id = plan.get("target_object_id")
+        correction_id = plan.get("correction_id")
+        plan_id = plan.get("plan_id")
+        expected_parent_id = params.get("expected_parent_id")
+        if not all(
+            type(v) is str and v
+            for v in (source_digest, target_id, correction_id, plan_id, expected_parent_id)
+        ):
+            return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_FIELDS_INVALID", str(source_digest), None)
+        if len(source_digest) != 64 or any(c not in "0123456789abcdef" for c in source_digest):
+            return _ExecutionOutcome(False, "PLAN_INVALID", "SOURCE_DIGEST_INVALID", source_digest, None)
 
-    expected_correction_id = _proposal_id(target_id, expected_parent_id, source_digest)
-    if correction_id != expected_correction_id:
-        return _ExecutionOutcome(False, "PLAN_INVALID", "CORRECTION_ID_INVALID", source_digest, None)
-    expected_body = _plan_body(
-        target_object_id=target_id,
-        expected_parent_id=expected_parent_id,
-        source_report_digest=source_digest,
-        correction_id=expected_correction_id,
-    )
-    if plan_id != _digest(expected_body):
-        return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_ID_INVALID", source_digest, None)
+        expected_correction_id = _proposal_id(target_id, expected_parent_id, source_digest)
+        if correction_id != expected_correction_id:
+            return _ExecutionOutcome(False, "PLAN_INVALID", "CORRECTION_ID_INVALID", source_digest, None)
+        expected_body = _plan_body(
+            target_object_id=target_id,
+            expected_parent_id=expected_parent_id,
+            source_report_digest=source_digest,
+            correction_id=expected_correction_id,
+        )
+        if plan_id != _digest(expected_body):
+            return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_ID_INVALID", source_digest, None)
+    except Exception:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "PLAN_ACCESS_FAILED", "", None)
 
     verdict = verify_parent_cycle_authorization(
         CyclePresentedWork(correction_id, plan_id, source_digest, target_id, expected_parent_id),
