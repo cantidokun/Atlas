@@ -1,101 +1,77 @@
 # Wave 12 — DeepSeek Review Current-Head Addendum
 
-**Date:** September 16, 2026 review-start preparation
+**Date:** September 16, 2026 remediation checkpoint
 **Repository:** `cantidokun/Atlas`
 **Branch:** `feat/blender-wave12-reference-integrity`
 **PR:** #102 — Wave 12 — bounded parent-cycle repair
-**Current PR HEAD:** `3c8593fc9f72fbfb1e9f3af9d8d91108498dca63`
-**Wave 12 implementation baseline before documentation-only handoff commits:** `a2bfdb19071594669f93cb6b81c448b36caf9600`
+**Current remediation HEAD:** `30c3b9b13b127c0a5158b3686485f76ac5a1f85c`
+**Red-team evidence HEAD:** `4d6fd0617b4a7b18b684a167403b479ec71ce6ab`
 **Wave 11 main baseline:** `fda85a994ec0669d8ee9d1ff1ab6d52e9bfec0d3`
 
-## Review instruction
+## Independent red-team result
 
-Review the **actual current branch HEAD** and complete PR #102 diff. The commits after `a2bfdb...` are documentation-only handoff/README updates; the Wave 12 production implementation and tests were already green before these documentation commits.
+DeepSeek independently reviewed the clean `4d6fd...` checkout and identified one concrete contract blocker plus one high-risk scalability finding.
 
-Do not assume an embedded historical baseline is the current checkout. First record the actual result of:
+### Confirmed blocker — source digest provenance
 
-```powershell
-git rev-parse HEAD
-git status --short
-```
+The pre-remediation executor trusted the digest returned by the extractor and only compared it to the plan digest. It did not independently recompute the digest from the extracted scene before reaching the mutator.
 
-The GitHub PR currently reports HEAD `3c8593fc9f72fbfb1e9f3af9d8d91108498dca63`. If the local checkout differs, report the observed SHA and review that actual state rather than silently substituting another revision.
+This violated the Wave 12 contract requiring fresh source provenance to be independently validated.
 
-## Current evidence
+### Confirmed high-risk finding — cycle inventory complexity
 
-Wave 12 validation is complete:
+The pre-remediation `_cycle_signatures()` repeatedly rebuilt the object index and walked parent chains for every object, producing avoidable quadratic behavior on large hierarchies. The implementation has now been replaced with a single indexed functional-graph traversal for global cycle inventory.
 
-- deterministic cycle/reference tests: PASS;
-- adversarial fail-closed tests: PASS;
-- combined topology + live Blender gate: PASS;
-- full Wave 1–Wave 12 regression: PASS;
-- real Blender 4.4.3 disposable boundary gate: PASS;
-- GitHub Actions run #1904: PASS on Python 3.9 and 3.11, including M13.7 on 3.11.
+## Remediation implemented at current HEAD
 
-PR #102 remains draft because the independent adversarial review is still outstanding.
+`planning/blender/parent_cycle.py` now:
 
-## Normative review targets
+- independently computes the source digest from the extracted scene;
+- requires the extractor-reported digest to equal the independently computed digest;
+- requires that computed digest to equal the plan-bound source digest;
+- rejects malformed/non-lowercase-hex digests before mutation;
+- independently computes and validates the post-mutation output digest;
+- preserves the exact one-edge mutation contract;
+- retains closed authorization and correction/plan identity recomputation;
+- retains fail-closed structural/postcondition validation;
+- uses an O(n) global cycle-signature traversal rather than repeated per-object rescans.
 
-Primary implementation:
+## Regression hardening added
 
-`planning/blender/parent_cycle.py`
+Wave 12 tests were updated to use independently computed scene digests rather than placeholder digest constants. Coverage now includes:
 
-Design contract:
+- echoed stale digest with changed scene;
+- real digest binding for successful execution;
+- closed authorization extra-field rejection;
+- authorization target/parent/type substitutions;
+- output digest validation;
+- existing topology/self/two-node/long-cycle behavior;
+- unrelated-cycle preservation;
+- second-cycle creation rejection;
+- ObjectModel and scene-level preservation under real computed digests.
 
-`planning/blender/BLENDER_WAVE12_PARENT_CYCLE_REPAIR_DESIGN.md`
+## Current validation state
 
-Tests:
+The current remediation HEAD is `30c3b9...`. GitHub Actions has started the Python 3.9 and 3.11 checks for this exact HEAD; the checks are not yet complete at the time this document was updated.
 
-- `tests/test_blender_wave12_parent_cycle.py`
-- `tests/test_blender_wave12_cycle_topology_adversarial.py`
-- `tests/test_blender_wave12_executor_fail_closed.py`
-- `tests/test_blender_wave12_objectmodel_preservation.py`
-- `tests/test_blender_wave12_scene_preservation.py`
+Do not claim final regression or CI success for `30c3b9...` until the corresponding workflow checks complete successfully.
 
-Live boundary:
+The previously completed live Blender 4.4.3 boundary evidence remains valid because the remediation did not alter the live gate or Blender primitive. The measured matrix delta remains `1.1920928955078125e-07` against a `1e-6` acceptance threshold.
 
-- `tests/parent_cycle_live_script.py`
-- `tests/test_live_blender_wave12_parent_cycle_gate.py`
+## Remaining review gate
 
-Also inspect the complete PR #102 diff and surrounding Wave 4 hierarchy implementation when needed to establish compatibility and non-regression.
+After the remediation checks are green:
 
-## Contract to challenge
+1. reconcile final CI against the exact remediation HEAD;
+2. run/confirm the targeted Wave 12 suite and full Wave 1–12 regression;
+3. confirm the live Blender boundary gate remains green;
+4. update this document with the final verified HEAD and evidence;
+5. perform a **second independent DeepSeek red-team review of the remediated HEAD**;
+6. reconcile every new finding before considering PR #102 ready for human merge review.
 
-Wave 12 is exactly `REPAIR_PARENT_CYCLE` and permits exactly one selected edge removal:
+Do not weaken the contract or tests to satisfy the reviewer. Workflow/action-runner tests remain excluded unless explicitly authorized.
 
-```python
-mutator(target_object_id, expected_parent_id, None)
-```
-
-The reviewer should determine whether any path can bypass or weaken:
-
-- exact target identity;
-- exact expected-parent identity;
-- source report digest binding;
-- correction-id and plan-id recomputation;
-- closed authorization fields;
-- fresh authoritative cycle verification;
-- one-edge-only mutation;
-- target local-transform preservation;
-- unrelated-object/scene preservation;
-- selected-cycle removal;
-- no-new-cycle postcondition;
-- fail-closed handling of extractor/mutator/postcondition failures;
-- prohibition on persistence, retry, rollback, recovery, receipt, workflow, or action-runner authority.
-
-Also challenge cycle semantics for self-cycles, multi-node cycles, and a non-cycle tail leading into a cycle.
-
-## Live-boundary qualification
-
-The canonical malformed cycle has no well-defined world-space pose under the existing parent-chain engine. Therefore canonical correctness is graph/reference based and preserves canonical local transform fields.
-
-The live Blender proof is deliberately separate and uses an acyclic disposable parent relationship. Blender 4.4.3 passed the actual detach operation with world-matrix preservation within measured float32 round-off. Measured maximum matrix delta: `1.1920928955078125e-07`; acceptance threshold: `1e-6`.
-
-The live gate also confirmed object identity, mesh identity, object-set preservation, no frozen asset opened, and no save attempt.
-
-## Required review output
-
-Use qualitative findings only. Do not assign a numerical score, rank, tier, or winner.
+## Required independent-review output
 
 ```text
 DEEPSEEK_WAVE12_REVIEW
@@ -129,15 +105,3 @@ CONTRACT_COVERAGE:
 RECOMMENDED_ACTION:
 - <specific action>
 ```
-
-## Independence requirement
-
-The prior GitHub review submissions on PR #102 were authored by the repository owner. Their findings were incorporated during development, but they are not independent approval.
-
-DeepSeek's review should therefore be a fresh adversarial evaluation of the current HEAD. The reviewer should work from source and tests rather than trusting the handoff's claims. If a blocker is identified, reproduce it deterministically where practical before any production change. Do not weaken tests or contracts to make the review pass.
-
-## Review discipline
-
-Do not treat a `CLEAR` result as an automatic merge decision. Reconcile every finding against the implementation, tests, and design contract. If the review is clear and existing gates remain green, the human merge decision remains separate.
-
-Workflow/action-runner tests remain excluded unless explicitly authorized.
