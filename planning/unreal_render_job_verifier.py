@@ -13,7 +13,19 @@ def verify_render_job_completion(
     evidence,
     *,
     require_artifacts=True,
+    expected_job_id=None,
 ):
+    """Verify one render-job observation against the authorized expectation.
+
+    ``expected_job_id`` is the authorization-bound job identity: the
+    ``verify_render_job`` operation's own ``job_id`` argument after the existing
+    ``$previous.submit_render.job_id`` resolution, or the plan's own authorized
+    ``job_id`` for a job-addressed ``inspect_render_job`` read. Comparison is an
+    exact string comparison after a defensive strip. When it is supplied the
+    observation must carry exactly that identity; the executor always supplies
+    it on the authorized execution path. ``None`` preserves the legacy call
+    shape (no identity binding) for direct verifier callers.
+    """
     state = evidence.observed_state
 
     if not isinstance(state, Mapping):
@@ -46,6 +58,21 @@ def verify_render_job_completion(
         raise ValueError(
             "render job evidence must contain a non-empty job_id"
         )
+
+    if expected_job_id is not None:
+        if not isinstance(expected_job_id, str) or not expected_job_id.strip():
+            raise ValueError(
+                "render job verification requires a non-empty expected job_id"
+            )
+
+        expected = expected_job_id.strip()
+
+        if job_id.strip() != expected:
+            raise ValueError(
+                "render job identity mismatch: "
+                f"expected job_id={expected!r}, "
+                f"observed job_id={job_id.strip()!r}"
+            )
 
     status = state.get("status")
 

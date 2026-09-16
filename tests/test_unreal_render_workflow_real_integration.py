@@ -80,6 +80,9 @@ def test_real_unreal_render_workflow_runs_to_verified_persisted_receipt(tmp_path
         if ENTITY_ID in job_state:
             job_state = job_state[ENTITY_ID]["render_job"]
 
+        # Render-job identity semantic verification: the fresh engine read must
+        # carry exactly the identity the authorized submission produced.
+        assert job_state["job_id"] == result.job_id
         assert job_state["finished"] is True
         assert job_state["success"] is True
         assert job_state["failed"] is False

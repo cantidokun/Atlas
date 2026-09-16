@@ -197,7 +197,7 @@ class UnrealPlanExecutor:
     _DISPATCH = {UnrealOperationKind.READ: "inspect", UnrealOperationKind.WRITE: "apply_authorized", UnrealOperationKind.VERIFY: "verify"}
     @staticmethod
     def _expected_verifier(write_operation):
-        return {"set_actor_location":"verify_actor_location","set_actor_rotation":"verify_actor_rotation","set_actor_scale":"verify_actor_scale","apply_material_variant":"verify_material_variant","apply_niagara_variant":"verify_niagara_variant","set_sequencer_playback_range":"verify_sequencer_playback_range","configure_render":"verify_render_state","compile_blueprint":"verify_blueprint_state"}.get(write_operation.name)
+        return {"set_actor_location":"verify_actor_location","set_actor_rotation":"verify_actor_rotation","set_actor_scale":"verify_actor_scale","apply_material_variant":"verify_material_variant","apply_niagara_variant":"verify_niagara_variant","set_sequencer_playback_range":"verify_sequencer_playback_range","configure_render":"verify_render_state","compile_blueprint":"verify_blueprint_state","submit_render":"verify_render_job"}.get(write_operation.name)
     @classmethod
     def _validate_execution_shape(cls, plan):
         for index, operation in enumerate(plan.operations):
@@ -283,8 +283,25 @@ class UnrealPlanExecutor:
                     "submit_render evidence did not contain a non-empty job_id"
                 )
             arguments["job_id"] = job_id
-
         return arguments
+
+    @staticmethod
+    def _authorized_job_id(operation):
+        """Return the authorization-bound expected render-job identity.
+
+        The expectation is the render-job operation's own authorized ``job_id``
+        argument: the resolved id for ``verify_render_job`` (already substituted from
+        the authorized ``submit_render`` evidence) and the plan's own id for a
+        job-addressed ``inspect_render_job`` read. A missing or blank expectation
+        fails closed before any dispatch, so render-job verification can never
+        compare against nothing.
+        """
+        job_id = operation.arguments.get("job_id")
+        if not isinstance(job_id, str) or not job_id.strip():
+            raise ValueError(
+                f"{operation.name} requires an authorized non-empty job_id"
+            )
+        return job_id.strip()
 
     @staticmethod
     def _verification_expectation(write_operation):
@@ -311,6 +328,7 @@ class UnrealPlanExecutor:
     def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range","verify_render_job","inspect_render_job","verify_blueprint_state","verify_render_state"}
     def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None,expected_start_frame=None,expected_end_frame=None,expected_metadata=None):
         arguments=dict(operation.arguments); arguments["entity_ids"]=tuple(operation.entity_ids); arguments["authorization_id"]=authorization_id; validate_unreal_tool_call(operation.name,arguments)
+        expected_job_id=self._authorized_job_id(operation) if operation.name in {"verify_render_job","inspect_render_job"} else None
         method_name=self._DISPATCH[operation.kind]; evidence=getattr(self._adapter,method_name)(operation,authorization_id); validate_evidence_for_operation(evidence,operation.name,tuple(operation.entity_ids))
         if operation.kind is UnrealOperationKind.VERIFY:
             if expected_location is not None: evidence=verify_actor_location(evidence,expected_location)
@@ -320,11 +338,11 @@ class UnrealPlanExecutor:
             if expected_niagara_variant is not None: evidence=verify_niagara_variant(evidence,expected_niagara_variant)
             if operation.name == "verify_sequencer_playback_range" and expected_start_frame is not None and expected_end_frame is not None: evidence=verify_sequencer_playback_range(evidence,expected_start_frame,expected_end_frame)
             if operation.name == "verify_render_state": evidence=verify_render_config(evidence, {key: operation.arguments[key] for key in ("width","height","start_frame","end_frame","output_directory","output_format")})
-            if operation.name == "verify_render_job": evidence=verify_render_job_completion(evidence)
+            if operation.name == "verify_render_job": evidence=verify_render_job_completion(evidence,expected_job_id=expected_job_id)
             if operation.name == "verify_blueprint_state": evidence=verify_blueprint_state(evidence,operation.arguments.get("expected_compile_status"),operation.arguments.get("asset_path"),expected_metadata)
 
         if operation.name == "inspect_render_job":
-            evidence=verify_render_job_completion(evidence)
+            evidence=verify_render_job_completion(evidence,expected_job_id=expected_job_id)
 
         if operation.name == "inspect_render_job" or (
             operation.kind is UnrealOperationKind.VERIFY
