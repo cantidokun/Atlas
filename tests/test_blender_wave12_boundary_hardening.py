@@ -167,6 +167,55 @@ def test_executor_contains_hostile_authorization_mapping():
     assert calls == []
 
 
+
+class StatefulParentMapping(dict):
+    def __init__(self, values, fail_on_read):
+        super().__init__(values)
+        self._parent_reads = 0
+        self._fail_on_read = fail_on_read
+
+    def get(self, key, default=None):
+        if key == "parent_object_id":
+            self._parent_reads += 1
+            if self._parent_reads == self._fail_on_read:
+                raise RuntimeError("stateful parent read boom")
+        return super().get(key, default)
+
+
+def test_planner_contains_stateful_parent_accessor_failure_after_index():
+    scene = {
+        "objects": [
+            StatefulParentMapping(
+                {"object_id": "a", "parent_object_id": "b"}, fail_on_read=2
+            ),
+            {"object_id": "b", "parent_object_id": "a"},
+        ]
+    }
+    with pytest.raises(ParentCycleError) as exc:
+        plan_parent_cycle_correction(
+            scene,
+            scene_report_digest(scene),
+            target_object_id="a",
+            expected_parent_id="b",
+        )
+    assert exc.value.failure_code == "SCENE_VALIDATION_FAILED"
+
+
+def test_cycle_query_contains_stateful_parent_accessor_failure():
+    from planning.blender.parent_cycle import target_is_in_parent_cycle
+
+    scene = {
+        "objects": [
+            StatefulParentMapping(
+                {"object_id": "a", "parent_object_id": "b"}, fail_on_read=2
+            ),
+            {"object_id": "b", "parent_object_id": "a"},
+        ]
+    }
+    with pytest.raises(ParentCycleError) as exc:
+        target_is_in_parent_cycle(scene, "a")
+    assert exc.value.failure_code == "SCENE_VALIDATION_FAILED"
+
 def test_canonical_wave12_scene_digest_is_publicly_available():
     scene = valid_cycle_scene()
     assert scene_report_digest(scene)

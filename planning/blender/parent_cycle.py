@@ -187,7 +187,14 @@ def _cycle_signatures(scene_model: Any) -> frozenset[Tuple[Tuple[str, str], ...]
 
 
 def target_is_in_parent_cycle(scene_model: Any, target_object_id: str) -> bool:
-    return bool(_cycle_from_target(scene_model, target_object_id))
+    try:
+        return bool(_cycle_from_target(scene_model, target_object_id))
+    except ParentCycleError:
+        raise
+    except Exception as exc:
+        raise ParentCycleError(
+            "scene traversal or parent access failed", "SCENE_VALIDATION_FAILED"
+        ) from exc
 
 
 def _proposal_id(
@@ -258,44 +265,51 @@ def plan_parent_cycle_correction(
     target_object_id: str,
     expected_parent_id: str,
 ) -> Mapping[str, Any]:
-    _validate_digest(source_report_digest, "source report digest")
-    if type(target_object_id) is not str or not target_object_id:
-        raise ParentCycleError("target object id is required", "TARGET_OBJECT_INVALID")
-    if type(expected_parent_id) is not str or not expected_parent_id:
-        raise ParentCycleError(
-            "expected parent id is required", "EXPECTED_PARENT_INVALID"
+    try:
+        _validate_digest(source_report_digest, "source report digest")
+        if type(target_object_id) is not str or not target_object_id:
+            raise ParentCycleError("target object id is required", "TARGET_OBJECT_INVALID")
+        if type(expected_parent_id) is not str or not expected_parent_id:
+            raise ParentCycleError(
+                "expected parent id is required", "EXPECTED_PARENT_INVALID"
+            )
+        by_id = _index_objects(scene_model)
+        target = by_id.get(target_object_id)
+        if target is None:
+            raise ParentCycleError(
+                "target object must resolve exactly once", "TARGET_OBJECT_NOT_FOUND"
+            )
+        actual_parent = _parent_id(target)
+        if actual_parent != expected_parent_id:
+            raise ParentCycleError(
+                "target does not present the expected parent edge",
+                "EXPECTED_PARENT_MISMATCH",
+            )
+        if expected_parent_id not in by_id:
+            raise ParentCycleError(
+                "expected parent identifier is dangling; use Wave 4", "PARENT_IS_DANGLING"
+            )
+        cycle = _cycle_from_index(by_id, target_object_id)
+        if not cycle:
+            raise ParentCycleError(
+                "target is not a member of a parent cycle", "CYCLE_NOT_FOUND"
+            )
+        if expected_parent_id not in cycle:
+            raise ParentCycleError(
+                "target parent is not the cycle edge selected by the plan",
+                "PARENT_NOT_IN_CYCLE",
+            )
+        return _make_plan(
+            target_object_id=target_object_id,
+            expected_parent_id=expected_parent_id,
+            source_report_digest=source_report_digest,
         )
-    by_id = _index_objects(scene_model)
-    target = by_id.get(target_object_id)
-    if target is None:
+    except ParentCycleError:
+        raise
+    except Exception as exc:
         raise ParentCycleError(
-            "target object must resolve exactly once", "TARGET_OBJECT_NOT_FOUND"
-        )
-    actual_parent = _parent_id(target)
-    if actual_parent != expected_parent_id:
-        raise ParentCycleError(
-            "target does not present the expected parent edge",
-            "EXPECTED_PARENT_MISMATCH",
-        )
-    if expected_parent_id not in by_id:
-        raise ParentCycleError(
-            "expected parent identifier is dangling; use Wave 4", "PARENT_IS_DANGLING"
-        )
-    cycle = _cycle_from_index(by_id, target_object_id)
-    if not cycle:
-        raise ParentCycleError(
-            "target is not a member of a parent cycle", "CYCLE_NOT_FOUND"
-        )
-    if expected_parent_id not in cycle:
-        raise ParentCycleError(
-            "target parent is not the cycle edge selected by the plan",
-            "PARENT_NOT_IN_CYCLE",
-        )
-    return _make_plan(
-        target_object_id=target_object_id,
-        expected_parent_id=expected_parent_id,
-        source_report_digest=source_report_digest,
-    )
+            "scene traversal or field access failed", "SCENE_VALIDATION_FAILED"
+        ) from exc
 
 
 def verify_parent_cycle_authorization(
