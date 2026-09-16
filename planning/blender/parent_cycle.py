@@ -226,26 +226,31 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
         return _ExecutionOutcome(False, "MUTATION_FAILED", "EXTRACTION_FAILED", source_digest, None)
     if fresh_digest != source_digest:
         return _ExecutionOutcome(False, "PLAN_INVALID", "SOURCE_DIGEST_MISMATCH", fresh_digest, None)
-    by_id = _index_objects(scene_before)
-    target = by_id.get(target_id)
-    if target is None:
-        return _ExecutionOutcome(False, "PLAN_INVALID", "TARGET_OBJECT_NOT_FOUND", fresh_digest, None)
-    if _parent_id(target) != expected_parent_id:
-        return _ExecutionOutcome(False, "PLAN_INVALID", "EXPECTED_PARENT_MISMATCH", fresh_digest, None)
-    if expected_parent_id not in by_id:
-        return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_IS_DANGLING", fresh_digest, None)
-    before_cycles = _cycle_signatures(scene_before)
-    selected_cycle = _cycle_from_target(scene_before, target_id)
-    selected_cycle_signature = _cycle_edges_from_target(scene_before, target_id)
-    if not selected_cycle_signature:
-        return _ExecutionOutcome(False, "PLAN_INVALID", "CYCLE_NOT_FOUND", fresh_digest, None)
-    if expected_parent_id not in selected_cycle:
-        return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_NOT_IN_CYCLE", fresh_digest, None)
-    before_identity = tuple(sorted(by_id))
-    before_target_non_parent = _non_parent_object_projection(target)
-    before_target_local_transform = _target_local_transform(target)
-    before_unrelated = _scene_projection(scene_before, exclude_object_id=target_id)
-    before_scene_non_object = _scene_non_object_projection(scene_before)
+    try:
+        by_id = _index_objects(scene_before)
+        target = by_id.get(target_id)
+        if target is None:
+            return _ExecutionOutcome(False, "PLAN_INVALID", "TARGET_OBJECT_NOT_FOUND", fresh_digest, None)
+        if _parent_id(target) != expected_parent_id:
+            return _ExecutionOutcome(False, "PLAN_INVALID", "EXPECTED_PARENT_MISMATCH", fresh_digest, None)
+        if expected_parent_id not in by_id:
+            return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_IS_DANGLING", fresh_digest, None)
+        before_cycles = _cycle_signatures(scene_before)
+        selected_cycle = _cycle_from_target(scene_before, target_id)
+        selected_cycle_signature = _cycle_edges_from_target(scene_before, target_id)
+        if not selected_cycle_signature:
+            return _ExecutionOutcome(False, "PLAN_INVALID", "CYCLE_NOT_FOUND", fresh_digest, None)
+        if expected_parent_id not in selected_cycle:
+            return _ExecutionOutcome(False, "PLAN_INVALID", "PARENT_NOT_IN_CYCLE", fresh_digest, None)
+        before_identity = tuple(sorted(by_id))
+        before_target_non_parent = _non_parent_object_projection(target)
+        before_target_local_transform = _target_local_transform(target)
+        before_unrelated = _scene_projection(scene_before, exclude_object_id=target_id)
+        before_scene_non_object = _scene_non_object_projection(scene_before)
+    except ParentCycleError as exc:
+        return _ExecutionOutcome(False, "PLAN_INVALID", exc.failure_code, fresh_digest, None)
+    except Exception:
+        return _ExecutionOutcome(False, "PLAN_INVALID", "SCENE_VALIDATION_FAILED", fresh_digest, None)
     try:
         mutator(target_id, expected_parent_id, None)
     except Exception:
@@ -256,25 +261,30 @@ def execute_repair_parent_cycle(plan: Mapping[str, Any], authorization: Mapping[
         return _ExecutionOutcome(False, "MUTATION_FAILED", "POST_EXTRACTION_FAILED", fresh_digest, None)
     if type(output_digest) is not str or len(output_digest) != 64:
         return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OUTPUT_DIGEST_INVALID", fresh_digest, None)
-    after_by_id = _index_objects(scene_after)
-    target_after = after_by_id.get(target_id)
-    if target_after is None:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_OBJECT_MISSING", fresh_digest, output_digest)
-    if _parent_id(target_after) is not None:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "PARENT_NOT_DETACHED", fresh_digest, output_digest)
-    if _non_parent_object_projection(target_after) != before_target_non_parent:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_NON_PARENT_CHANGED", fresh_digest, output_digest)
-    if _target_local_transform(target_after) != before_target_local_transform:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_LOCAL_TRANSFORM_CHANGED", fresh_digest, output_digest)
-    if tuple(sorted(after_by_id)) != before_identity:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_IDENTITY_CHANGED", fresh_digest, output_digest)
-    after_cycles = _cycle_signatures(scene_after)
-    if selected_cycle_signature in after_cycles:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "CYCLE_REMAINS", fresh_digest, output_digest)
-    if not after_cycles.issubset(before_cycles - {selected_cycle_signature}):
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "NEW_CYCLE_CREATED", fresh_digest, output_digest)
-    if _scene_projection(scene_after, exclude_object_id=target_id) != before_unrelated:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
-    if _scene_non_object_projection(scene_after) != before_scene_non_object:
-        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "SCENE_STATE_CHANGED", fresh_digest, output_digest)
+    try:
+        after_by_id = _index_objects(scene_after)
+        target_after = after_by_id.get(target_id)
+        if target_after is None:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_OBJECT_MISSING", fresh_digest, output_digest)
+        if _parent_id(target_after) is not None:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "PARENT_NOT_DETACHED", fresh_digest, output_digest)
+        if _non_parent_object_projection(target_after) != before_target_non_parent:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_NON_PARENT_CHANGED", fresh_digest, output_digest)
+        if _target_local_transform(target_after) != before_target_local_transform:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "TARGET_LOCAL_TRANSFORM_CHANGED", fresh_digest, output_digest)
+        if tuple(sorted(after_by_id)) != before_identity:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "OBJECT_IDENTITY_CHANGED", fresh_digest, output_digest)
+        after_cycles = _cycle_signatures(scene_after)
+        if selected_cycle_signature in after_cycles:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "CYCLE_REMAINS", fresh_digest, output_digest)
+        if not after_cycles.issubset(before_cycles - {selected_cycle_signature}):
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "NEW_CYCLE_CREATED", fresh_digest, output_digest)
+        if _scene_projection(scene_after, exclude_object_id=target_id) != before_unrelated:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "UNRELATED_OBJECT_CHANGED", fresh_digest, output_digest)
+        if _scene_non_object_projection(scene_after) != before_scene_non_object:
+            return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "SCENE_STATE_CHANGED", fresh_digest, output_digest)
+    except ParentCycleError as exc:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", exc.failure_code, fresh_digest, output_digest)
+    except Exception:
+        return _ExecutionOutcome(False, "POSTCONDITION_FAILED", "POSTCONDITION_VALIDATION_FAILED", fresh_digest, output_digest)
     return _ExecutionOutcome(True, "CORRECTION_APPLIED", None, fresh_digest, output_digest)
