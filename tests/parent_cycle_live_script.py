@@ -12,8 +12,8 @@ import json
 import bpy
 
 
-def mat_close(a, b, tol=1e-7):
-    return all(abs(float(a[r][c]) - float(b[r][c])) <= tol for r in range(4) for c in range(4))
+def matrix_delta(a, b):
+    return max(abs(float(a[r][c]) - float(b[r][c])) for r in range(4) for c in range(4))
 
 
 def main():
@@ -37,10 +37,6 @@ def main():
     child.rotation_euler = (0.3, 0.1, -0.2)
     child.scale = (0.8, 1.1, 0.9)
 
-    # Establish an ordinary Blender parent relationship. Do not manually set
-    # matrix_parent_inverse: the gate must measure the actual world transform
-    # Blender produces for the live parent relationship, then prove that the
-    # real CLEAR_KEEP_TRANSFORM primitive preserves that transform on detach.
     child.parent = parent
     bpy.context.view_layer.update()
 
@@ -49,15 +45,16 @@ def main():
     object_names_before = tuple(sorted(o.name for o in scene.collection.objects))
     no_file_before = bpy.data.filepath == ''
 
-    # Real Blender primitive: clear the parent while preserving world transform.
     bpy.context.view_layer.objects.active = child
     child.select_set(True)
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
     bpy.context.view_layer.update()
 
+    after_world = child.matrix_world.copy()
+    delta = matrix_delta(after_world, before_world)
     checks = {
         'parent_cleared': child.parent is None,
-        'world_matrix_preserved': mat_close(child.matrix_world, before_world),
+        'world_matrix_preserved': delta <= 1e-7,
         'object_identity_preserved': child.name == 'wave12_child',
         'mesh_identity_preserved': child.data.name == before_mesh_name,
         'objects_preserved': tuple(sorted(o.name for o in scene.collection.objects)) == object_names_before,
@@ -70,6 +67,9 @@ def main():
         'marker': 'ATLAS_WAVE12_PARENT_CYCLE_LIVE',
         'blender_version': list(bpy.app.version),
         'failed': failed,
+        'matrix_max_delta': delta,
+        'before_world': [[float(before_world[r][c]) for c in range(4)] for r in range(4)],
+        'after_world': [[float(after_world[r][c]) for c in range(4)] for r in range(4)],
         'save_attempted': False,
         'opened_frozen_asset': False,
         'checks': checks,
