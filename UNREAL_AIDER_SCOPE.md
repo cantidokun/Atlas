@@ -8,7 +8,7 @@ This workspace is for continued development of the Atlas Unreal Agent only. It s
 
 The real Unreal Engine 5.6 smoke test has passed, the first real Unreal production/render-receipt paths have been proven, and the agent-to-controller trust boundary has now been reconciled with origin and validated against real Unreal execution.
 
-The reconciled branch is deterministic green, and the explicitly authorized live controller gate passed. The live Blueprint production boundary has since been gated green with Atlas semantic verification (September 15, 2026); the next engine-dependent surface to investigate is render configuration/state semantic-verification parity.
+The reconciled branch is deterministic green, and the explicitly authorized live controller gate passed. The live Blueprint production boundary has since been gated green with Atlas semantic verification (September 15, 2026), and render configuration/state semantic verification (`verify_render_state`) was promoted to the executor's semantic-verification registry and live-gated green the same day (the executor is now the sole producer of that flag). The next engine-dependent surface to investigate is the render job/result layer (Movie Render Queue submission and job-state verification), which remains separate from the completed render-state milestone.
 
 Current branch and HEAD:
 

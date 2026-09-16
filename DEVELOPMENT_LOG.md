@@ -607,7 +607,7 @@ No planner, tool schema, capability registry, adapter, authorization, evidence-c
 
 ### Deferred issues (explicitly carried, not part of this milestone)
 
-1. **`verify_render_state` flag asymmetry** — render-state verification is compared but is not registered for semantic verification, so its evidence never carries `verified=True`.
+1. **`verify_render_state` flag asymmetry** — render-state verification is compared but is not registered for semantic verification, so its evidence never carries `verified=True`. **SUPERSEDED (2026-09-15, later the same day — see the "Render-state semantic verification milestone (September 15, 2026)" entry at the end of this log):** the consequence claim recorded here is inaccurate. The design audit proved that the old verifier itself independently set `verified=True`, so render-state evidence *did* carry the flag; what was genuinely missing was the executor's semantic-verification registry membership. That second producer has since been removed and the asymmetry resolved.
 2. **Blueprint metadata recovery** — `set_blueprint_metadata` has no production recovery coverage (`unreal_production_recovery.py` write definitions do not model it).
 3. **Verifier exception-type cleanup** — Blueprint verification raises plain `ValueError` rather than the shared `UnrealStateVerificationError` (a `ValueError` subclass); unification is a compatibility-safe future cleanup.
 4. **Production-spec Blueprint metadata expressiveness** — `UnrealProductionSpec` carries only `blueprint_asset_path`, so a metadata mutation is expressible only through the task planner.
@@ -621,4 +621,124 @@ Documentation only: the seven current-state documents were updated to replace th
 
 ### Next development surface (investigation only)
 
-The next engine-dependent surface to investigate is the render **configuration/state** semantic-verification parity surface (`verify_render_state`), which is the only remaining capability whose verification runs fail-closed but is not registered — see deferred issue 1. It requires its own design gate before implementation.
+The next engine-dependent surface to investigate is the render **configuration/state** semantic-verification parity surface (`verify_render_state`), which is the only remaining capability whose verification runs fail-closed but is not registered — see deferred issue 1. It requires its own design gate before implementation. **SUPERSEDED (2026-09-15, later the same day):** that design gate ran and returned CLEAR WITH MINOR FINDINGS, the promotion was implemented and live-gated — see the "Render-state semantic verification milestone (September 15, 2026)" entry at the end of this log. The next engine-dependent surface after render state is the render **job**/result layer (Movie Render Queue submission and job-state verification), which remains separate.
+## Render-state semantic verification milestone (September 15, 2026)
+
+### Status
+
+Render-state verification (`verify_render_state`) is now a first-class Atlas semantic verification:
+**deterministic green and live-proven**. It was the last capability whose verification ran fail-closed
+without being declared in the executor's semantic-verification registry.
+
+### What was implemented
+
+1. `verify_render_state` is registered in the executor's semantic-verification registry
+   (`planning/unreal_plan_executor.py::_is_semantically_verified`).
+2. The executor is now the **sole producer** of `evidence.verified` for render-state verification.
+3. `verify_render_config` (`planning/unreal_render_contract.py`) no longer sets `verified=True`: it
+   compares, raises on mismatch and returns the evidence unchanged, exactly like every other verifier.
+4. Expected render state comes **only** from the authorized `verify_render_state` operation's own
+   arguments (the six configuration fields) — never from the preceding `configure_render` write, never
+   from returned evidence, and never from the engine or the model.
+5. The verifier compares all six render configuration fields (width, height, start_frame, end_frame,
+   output_directory, output_format) using the existing `normalize_render_config` behavior.
+6. Normalization is unchanged: strict key-set and type validation on both sides (integers not booleans,
+   non-empty strings, positive resolution, `end_frame >= start_frame`) plus output-directory
+   canonicalization (whitespace stripped, relative paths resolved against the harness project root,
+   backslashes normalized, trailing slashes removed). No new case folding and no new heuristics.
+7. Identity remains `entity_ids` only; the engine-reported `render.asset_path` is explicitly **not**
+   bound and remains deferred, because Atlas has no authorized argument for it.
+8. No pairing helper, no index arithmetic, no asset-path binding and no render-specific
+   execution-shape rule were introduced: the generic write-to-verify pairing already covers
+   `configure_render` to `verify_render_state`.
+9. `verified_render`, the production result contract and the render receipt are unchanged. Render-state
+   evidence is a local evidence flag and cannot feed the result contract, because a receipt can only be
+   issued from verified `inspect_render_job` evidence.
+
+### Historical correction
+
+The earlier record claimed that the flag asymmetry meant render-state evidence "never carries
+`verified=True`". The design audit proved otherwise: the old `verify_render_config` set the flag itself
+(`return replace(evidence, verified=True)`), so render-state evidence already carried it while the
+executor's registry did not declare the operation. The actual historical asymmetry was therefore:
+`verify_render_state` absent from the executor semantic-verification registry, with the verifier
+independently setting `verified=True` as a second producer. This milestone removes that second producer
+and makes the executor the sole authority. The historical statements are preserved in place above and
+marked superseded.
+
+### Deterministic results
+
+```text
+render semantic matrix (T-R1..T-R8)      : 24 passed
+render/executor/contract focused set     : 94 passed
+canonical focused suite                  : 160 passed, 2 deselected
+Python 3.9 render/executor parity        : 94 passed
+Python 3.9 canonical focused suite       : 160 passed, 2 deselected
+deterministic sweep                      : 1072 passed, 5 skipped, 22 deselected
+```
+
+The deterministic sweep figure is the engine-free scope (integration-marked gates excluded, together
+with the unmarked engine-dependent live files that require a running editor).
+
+### Live gate (real engine)
+
+```text
+.venv/Scripts/python.exe -m pytest tests/test_unreal_render_real_integration.py -m integration -q -s
+Unreal Engine 5.6.1-44394996+++UE5+Release-5.6 over the existing Atlas Named Pipe transport
+1 collected, 1 passed
+result.evidence_ledger[2].verified is True
+```
+
+The engine log for the gate shows four sequential client connections — `inspect_render_state`,
+`configure_render` (followed by `LogSavePackage: Moving output files for package:
+/Game/AtlasTest/AtlasRenderConfig`, proving the authorized write really mutated and persisted engine
+state), `verify_render_state` on its **own** new connection after that save, and the fresh post-plan
+`inspect_render_state` — so the verification stage used fresh engine evidence rather than the write's
+return value.
+
+All four tracked harness assets (`AtlasRenderConfig.uasset`, `BP_AtlasTest.uasset`,
+`AtlasSequencerFixtureSequence.uasset`, `AtlasRenderFixture.umap`) were byte-identical before and after
+the gate; the engine re-serialized the render config to the same bytes because the fixture already
+carried the configured values (the live fixture value-idempotency limitation recorded above).
+
+What the live gate proves, and what it does not: it proves the promoted flag is **reached on real engine
+evidence**. It cannot distinguish the old flag producer from the new one, because both yield
+`verified=True` live. The deterministic single-authority test (T-R8) proves the **source** of the flag is
+now the executor: `verify_render_config` returns unflagged evidence, still raises on mismatch, and the
+executor registry sets the flag.
+
+### Scope held
+
+No planner, tool schema, capability registry, authorization, evidence-contract, adapter, recovery,
+result-contract, receipt, C++ or transport change was required. Two production lines changed: the
+registry membership, and the removed verifier-internal flag.
+
+### Deferred issues (explicitly carried, not part of this milestone)
+
+1. **Render-state asset-path identity binding** — the engine reports `render.asset_path`, but Atlas has no authorized RENDER VERIFY argument for it; binding it would need schema, planner and registry work.
+2. **`output_format` case normalization** — comparison is exact, so a case-variant authorized value fails closed (false-negative direction only, never a false pass).
+3. **png-only Atlas-side enforcement** — only the engine enforces the png-only output format, at write time; a plan declaring another format passes Atlas preflight and then fails closed at verification.
+4. **`verify_render_config` isinstance guard** — the render verifier lacks the explicit `UnrealEvidence` type check that `verify_blueprint_state` has (currently an `AttributeError`, unreachable on the real path because the adapter builds the evidence and the operation-name/entity check runs first).
+5. **Replay/freshness proof beyond the execution-path guarantee** — freshness is structural (one dispatch per operation, no caching); no verifier can prove that a replayed evidence object is stale.
+6. **Unused `evidence` parameter** in the semantic-verification registry helper, continued from the Blueprint milestone.
+7. **Older non-runtime render patch scripts** — `tools/apply_unreal_render_*.py` still reference an older `expected_render_config` shape; they are one-shot patch tooling, not runtime code.
+8. **Broader render-result semantics remain separate** — Movie Render Queue execution, render job/result verification and `verified_render` semantics are untouched by this milestone.
+
+### Git state at closeout
+
+The milestone changes sit in the working tree, unstaged and uncommitted, at HEAD
+`a964ab681bce1289afc57896d27028554abc5488`: `planning/unreal_plan_executor.py` (1 line),
+`planning/unreal_render_contract.py` (1 line), `tests/test_unreal_render_state_verification.py` (new),
+`tests/test_unreal_render_real_integration.py` (1 assertion). The commit chain is `fe2322f` (checkpoint)
+then `e1a1285` (documentation checkpoint), `fe4bba2` (controller live-gate tests), `72a6578` (Blueprint
+semantic verification) and `a964ab6` (Blueprint documentation closeout). The "current HEAD" header
+fields in the other status documents still show the earlier checkpoint value
+`fe2322f7e76caf3115e3e5be6dafce05d62251ca`; the current restart point is
+`a964ab681bce1289afc57896d27028554abc5488`.
+
+### Next development surface (investigation only)
+
+The next engine-dependent surface is the render **job**/result layer: Movie Render Queue submission,
+render job state verification, and the already-established receipt/`verified_render` pairing (which
+remains unchanged). It requires its own design gate before implementation and is not part of the
+render-state milestone.

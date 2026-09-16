@@ -3,7 +3,7 @@
 **Updated:** September 15, 2026
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10`
 **HEAD:** `fe2322f7e76caf3115e3e5be6dafce05d62251ca`
-**Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green (Blueprint semantic verification live-proven)
+**Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green (Blueprint semantic verification live-proven) + live render-state semantic verification green (render-state verification promoted to the executor registry and live-proven)
 
 ## Current checkpoint
 
@@ -437,6 +437,84 @@ recovery coverage; verifier exception-type cleanup; production-spec Blueprint me
 live fixture value-idempotency limitation (the authorized value pre-existed, so the live pass proves the
 post-condition rather than a first-time write).
 
+**SUPERSEDED (2026-09-15, later the same day):** the `verify_render_state` flag asymmetry has since been
+resolved — render-state verification is registered in the executor's semantic-verification registry and the
+verifier-internal flag producer was removed. See "Live render-state semantic verification gate" below. The
+other items in this deferred list remain deferred.
+
+## Live render-state semantic verification gate — PASSED (September 15, 2026)
+
+`verify_render_state` is now a first-class Atlas semantic verification: deterministic green and
+live-proven.
+
+```text
+.venv/Scripts/python.exe -m pytest tests/test_unreal_render_real_integration.py -m integration -q -s
+Unreal Engine 5.6.1-44394996+++UE5+Release-5.6 over the existing Atlas Named Pipe transport
+1 collected, 1 passed
+result.evidence_ledger[2].verified is True
+```
+
+The contract now in force:
+
+- `verify_render_state` is registered in the executor's semantic-verification registry
+  (`_is_semantically_verified`).
+- The executor is the sole producer of `evidence.verified` for render-state verification;
+  `verify_render_config` itself no longer sets the flag — it compares, raises on mismatch and returns the
+  evidence unchanged, matching every other verifier.
+- Expected state comes only from the authorized `verify_render_state` operation arguments; the preceding
+  `configure_render` write is not an expectation source.
+- The verifier compares all six render configuration fields with the unchanged
+  `normalize_render_config` behavior (strict key/type validation plus output-directory canonicalization;
+  no new case folding and no new heuristics).
+- Identity remains `entity_ids` only; the engine-reported `render.asset_path` is explicitly not bound and
+  stays deferred.
+- No pairing helper, index arithmetic or render-specific execution-shape rule was added: the generic
+  write-to-verify pairing already covers `configure_render` to `verify_render_state`.
+- `verified_render`, the production result contract and the receipt are unchanged — render-state evidence
+  is a local evidence flag and cannot feed the result contract.
+
+Historical correction recorded with this milestone: the earlier handoff wording implied that the flag
+asymmetry meant render-state evidence never carried `verified=True`. The design audit proved the old
+verifier set the flag itself, so the real asymmetry was the missing executor registry membership plus a
+second, independent flag producer. The historical statements are preserved above and marked superseded.
+
+Engine-side evidence for the live pass: four sequential client connections — `inspect_render_state`,
+`configure_render` (followed by `LogSavePackage: Moving output files for package:
+/Game/AtlasTest/AtlasRenderConfig`), `verify_render_state` on its own new connection after that save, and
+the fresh post-plan `inspect_render_state` — so verification used fresh engine evidence rather than the
+write's return value.
+
+Deterministic results:
+
+```text
+render semantic matrix (T-R1..T-R8)     : 24 passed
+render/executor/contract focused set    : 94 passed
+canonical focused suite                 : 160 passed, 2 deselected
+Python 3.9 render/executor parity       : 94 passed
+Python 3.9 canonical focused suite      : 160 passed, 2 deselected
+deterministic sweep                     : 1072 passed, 5 skipped, 22 deselected
+```
+
+Fixture safety: all four tracked harness assets (`AtlasRenderConfig.uasset`, `BP_AtlasTest.uasset`,
+`AtlasSequencerFixtureSequence.uasset`, `AtlasRenderFixture.umap`) were byte-identical before and after the
+gate; the engine re-serialized the render config to the same bytes because the fixture already carried the
+configured values (the same value-idempotency limitation recorded for Blueprint).
+
+What the live gate proves, and what it does not: it proves the promoted flag is reached on real engine
+evidence. It cannot distinguish the old flag producer from the new one, because both yield `verified=True`
+live; the deterministic single-authority test (T-R8) proves the flag's source is now the executor registry.
+
+Scope held: no planner, tool schema, capability registry, authorization, evidence-contract, adapter,
+recovery, result-contract, receipt, C++ or transport change — two production lines (registry membership;
+removed verifier-internal flag) plus tests.
+
+Explicitly deferred for this surface: render-state asset-path identity binding; `output_format` case
+normalization; png-only Atlas-side enforcement; the `verify_render_config` isinstance guard;
+replay/freshness proof beyond the execution-path guarantee; the unused `evidence` parameter in the
+semantic-verification registry helper; the older non-runtime `tools/apply_unreal_render_*.py` patch
+scripts; and broader render-result semantics (Movie Render Queue execution, render job/result verification
+and `verified_render`), which remain separate.
+
 ## Next development gate
 
 Current status:
@@ -445,6 +523,7 @@ Current status:
 RECONCILED + DETERMINISTIC GREEN
 + LIVE CONTROLLER-TO-UNREAL PRODUCTION GREEN
 + LIVE BLUEPRINT PRODUCTION BOUNDARY GREEN (semantic verification live-proven)
++ LIVE RENDER-STATE SEMANTIC VERIFICATION GREEN (registry promotion live-proven)
 ```
 
 The `AgentControllerHost` → real Unreal production boundary is validated, and the narrow Blueprint production boundary has since been gated green with Atlas semantic verification.
@@ -469,7 +548,21 @@ specifically:
 - verify — done;
 - ensure persisted metadata appears under `metadata` in post-mutation evidence — done and live-proven.
 
-**SUPERSEDED (2026-09-15):** "Blueprint production is **not** green." It is green — see the live gate section above. The next engine-dependent surface to investigate is render configuration/state semantic-verification parity (`verify_render_state`), which requires its own design gate.
+Then:
+
+```text
+RENDER-STATE SEMANTIC VERIFICATION — COMPLETED AND GATED GREEN (2026-09-15)
+```
+
+specifically:
+
+- `verify_render_state` registered in the executor's semantic-verification registry — done;
+- executor as the sole producer of the render-state `verified` flag — done;
+- verifier-internal flag producer removed (`verify_render_config`) — done;
+- expectation limited to the authorized VERIFY arguments, with unchanged normalization — done;
+- live gate on UE 5.6.1 over the existing Named Pipe — done (1 passed, `evidence_ledger[2].verified is True`).
+
+**SUPERSEDED (2026-09-15):** "Blueprint production is **not** green." It is green — see the live gate section above. **SUPERSEDED (2026-09-15, later the same day):** the render configuration/state semantic-verification parity surface (`verify_render_state`) has since had its design gate (CLEAR WITH MINOR FINDINGS), was promoted to the executor's semantic-verification registry and was live-gated green — see "Live render-state semantic verification gate" below. The next engine-dependent surface to investigate is the render **job**/result layer (Movie Render Queue submission and job-state verification), which remains separate and needs its own design gate.
 
 ## Resume checklist for the next session
 
@@ -488,7 +581,8 @@ HEAD   : fe2322f7e76caf3115e3e5be6dafce05d62251ca
 4. Run the deterministic focused suite first (see the numbers above) before any live run.
 5. For live runs, launch the editor with the fixture map and confirm the harness reports its fixtures ready before running the gate.
 6. Apply item A of the follow-up (test-only, one line), then rerun both live controller production tests.
-7. The live Blueprint production boundary was gated green on September 15, 2026 (see the live gate section above); the next engine-dependent surface is render configuration/state semantic-verification parity, pending its own design gate.
+7. The live Blueprint production boundary was gated green on September 15, 2026 (see the live gate section above).
+8. Render-state semantic verification was then promoted to the executor's registry, implemented and live-gated the same day (1 passed on UE 5.6.1; `evidence_ledger[2].verified is True`; see "Live render-state semantic verification gate" above). The next engine-dependent surface is the render **job**/result layer (Movie Render Queue submission and job-state verification), which needs its own design gate.
 
 Do not push, do not open a PR, and do not begin Blueprint work as part of the controller milestone.
 

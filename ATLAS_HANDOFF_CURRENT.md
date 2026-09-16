@@ -221,7 +221,7 @@ The real Blueprint integration suite has since been gated green (September 15, 2
 `tests/test_unreal_heterogeneous_recovery_real_integration.py`,
 `tests/test_unreal_production_workflow_real_integration.py`,
 `tests/test_unreal_material_variant_real_integration.py`.
-4. The live Blueprint production boundary was completed and gated green on September 15, 2026 (metadata mutation, compile, verify, and verified metadata evidence) — Blueprint production is green; the next engine-dependent surface is render configuration/state semantic-verification parity, pending its own design gate.
+4. The live Blueprint production boundary was completed and gated green on September 15, 2026 (metadata mutation, compile, verify, and verified metadata evidence) — Blueprint production is green. Render configuration/state semantic verification (`verify_render_state`) was subsequently promoted to the executor's semantic-verification registry and live-gated green the same day (1 passed on Unreal Engine 5.6.1 over the existing Named Pipe; `result.evidence_ledger[2].verified is True`), with the executor now the sole producer of the render-state `verified` flag and the verifier no longer setting it. The next engine-dependent surface is the render job/result layer (Movie Render Queue submission and job-state verification), pending its own design gate.
 5. Only run live Unreal/action-runner gates when explicitly authorized.
 
 ## Architectural invariants

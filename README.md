@@ -236,7 +236,7 @@ Residual follow-up (same defect class, NOT fixed — out of scope for the contro
 
 After that, the next engine-dependent milestone was the live Blueprint production boundary — completed and gated green on September 15, 2026.
 
-**SUPERSEDED (2026-09-15):** "Blueprint evidence validation remains a separate live gate, and Blueprint production is not green." Blueprint production is green and its evidence is now Atlas-verified; the next engine-dependent surface is render configuration/state semantic-verification parity, pending its own design gate.
+**SUPERSEDED (2026-09-15):** "Blueprint evidence validation remains a separate live gate, and Blueprint production is not green." Blueprint production is green and its evidence is now Atlas-verified. **CURRENT STATE (2026-09-15, later the same day):** render configuration/state semantic verification (`verify_render_state`) has also been promoted to the executor's semantic-verification registry and live-gated green (1 passed on Unreal Engine 5.6.1 over the existing Named Pipe transport; `result.evidence_ledger[2].verified is True`), with the executor now the sole producer of the render-state `verified` flag and the verifier itself no longer setting it. The next engine-dependent surface is the render **job**/result layer (Movie Render Queue submission and job-state verification), pending its own design gate.
 
 ---
 

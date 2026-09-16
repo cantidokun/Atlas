@@ -201,7 +201,7 @@ Residual follow-up (same defect class, NOT fixed): `tests/test_unreal_composite_
 
 ## Next after Blueprint
 
-With the Blueprint production boundary complete, the next engine-dependent surface is Render — configuration first, then execution. Note the deferred `verify_render_state` flag asymmetry (render-state verification is compared but not registered for semantic verification):
+With the Blueprint production boundary complete, Render configuration was next — and it is now done and live-gated: `verify_render_state` is registered in the executor's semantic-verification registry, the executor is the sole producer of its `verified` flag, the verifier no longer sets the flag itself, expected state comes only from the authorized VERIFY arguments, and normalization is unchanged. The earlier deferred "`verify_render_state` flag asymmetry" is resolved; note that the historical claim that this evidence never carried `verified=True` was inaccurate, because the old verifier set the flag itself — the real asymmetry was the missing registry membership plus that second flag producer:
 
 ```text
 READ   inspect_render_state
@@ -209,7 +209,7 @@ WRITE  configure_render
 VERIFY verify_render_state
 ```
 
-Movie Render Queue execution should follow only after deterministic render configuration verification is established.
+Deterministic render configuration verification is now established (24 semantic matrix cases, deterministic green, and live-proven on UE 5.6.1). Movie Render Queue execution and render job/result verification are the next engine-dependent surface; they remain separate from this milestone and need their own design gate.
 
 ## Invariants
 
