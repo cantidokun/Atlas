@@ -100,4 +100,4 @@ def verify_render_config(evidence, expected):
                 f"expected={expected_config!r}, observed={actual!r}"
             )
 
-    return replace(evidence, verified=True)
+    return evidence

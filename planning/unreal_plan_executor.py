@@ -308,7 +308,7 @@ class UnrealPlanExecutor:
             raise UnrealPlanExecutionError(f"Blueprint metadata operation at index {index-2} is missing authorized metadata arguments")
         return {"metadata":{"metadata_key":metadata_key,"metadata_value":metadata_value}}
     @staticmethod
-    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range","verify_render_job","inspect_render_job","verify_blueprint_state"}
+    def _is_semantically_verified(operation,evidence): return operation.name in {"verify_actor_location","verify_actor_rotation","verify_actor_scale","verify_material_variant","verify_niagara_variant","verify_sequencer_playback_range","verify_render_job","inspect_render_job","verify_blueprint_state","verify_render_state"}
     def _execute_one(self,operation,authorization_id,*,expected_location=None,expected_rotation=None,expected_scale=None,expected_material_variant=None,expected_niagara_variant=None,expected_start_frame=None,expected_end_frame=None,expected_metadata=None):
         arguments=dict(operation.arguments); arguments["entity_ids"]=tuple(operation.entity_ids); arguments["authorization_id"]=authorization_id; validate_unreal_tool_call(operation.name,arguments)
         method_name=self._DISPATCH[operation.kind]; evidence=getattr(self._adapter,method_name)(operation,authorization_id); validate_evidence_for_operation(evidence,operation.name,tuple(operation.entity_ids))

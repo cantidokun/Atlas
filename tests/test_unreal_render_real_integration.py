@@ -58,6 +58,7 @@ def test_real_unreal_render_configuration_persists_and_verifies():
         assert _render_state(result.evidence_ledger[1])["end_frame"] == CONFIG["end_frame"]
         assert _render_state(result.evidence_ledger[1])["output_format"] == "png"
         assert _render_state(result.evidence_ledger[2]) == _render_state(result.evidence_ledger[1])
+        assert result.evidence_ledger[2].verified is True
         fresh_plan = UnrealTaskPlan(
             "real-render-fresh-inspection",
             (plan.operations[0],),
