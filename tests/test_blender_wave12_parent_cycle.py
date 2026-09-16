@@ -132,6 +132,19 @@ def test_wrong_authorization_target_refused_without_mutation():
     assert calls == []
 
 
+def test_wrong_authorization_expected_parent_refused_without_mutation():
+    s = scene(("a", "b"), ("b", "a"))
+    plan = plan_parent_cycle_correction(s, "a" * 64, target_object_id="a", expected_parent_id="b")
+    auth = auth_for(plan)
+    auth["expected_parent_id"] = "c"
+    calls = []
+    result = execute_repair_parent_cycle(plan, auth, extractor=lambda: (s, "a" * 64), mutator=lambda *args: calls.append(args))
+    assert result.ok is False
+    assert result.outcome == "AUTHORIZATION_REFUSED"
+    assert result.failure_code == "EXPECTED_PARENT_MISMATCH"
+    assert calls == []
+
+
 def test_stale_source_digest_refused_without_mutation():
     s = scene(("a", "b"), ("b", "a"))
     plan = plan_parent_cycle_correction(s, "a" * 64, target_object_id="a", expected_parent_id="b")
