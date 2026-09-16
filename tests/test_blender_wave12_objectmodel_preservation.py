@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from planning.blender.parent_cycle import CYCLE_CORRECTION_TYPE, execute_repair_parent_cycle, plan_parent_cycle_correction
+from planning.blender.parent_cycle import CYCLE_CORRECTION_TYPE, _scene_digest, execute_repair_parent_cycle, plan_parent_cycle_correction
 from planning.blender.scene_model import MeshModel, ObjectModel, SceneModel
 
 
@@ -30,7 +30,7 @@ def _auth(plan):
         "correction_type": CYCLE_CORRECTION_TYPE,
         "correction_id": plan["correction_id"],
         "plan_id": plan["plan_id"],
-        "source_report_digest": "a" * 64,
+        "source_report_digest": plan["source_report_digest"],
         "target_object_id": "a",
         "expected_parent_id": "b",
     }
@@ -39,11 +39,12 @@ def _auth(plan):
 @pytest.mark.parametrize("field", ["collection", "visible", "mesh"])
 def test_objectmodel_target_fields_are_protected(field):
     before = _scene()
-    plan = plan_parent_cycle_correction(before, "a" * 64, target_object_id="a", expected_parent_id="b")
+    digest = _scene_digest(before)
+    plan = plan_parent_cycle_correction(before, digest, target_object_id="a", expected_parent_id="b")
     working = before
 
     def extract():
-        return working, "a" * 64
+        return working, _scene_digest(working)
 
     def mutate(object_id, expected_parent_id, new_parent_id):
         nonlocal working
