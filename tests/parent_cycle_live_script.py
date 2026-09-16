@@ -27,7 +27,10 @@ def main():
     scene.collection.objects.link(parent)
     parent.location = (2.0, 3.0, 4.0)
     parent.rotation_euler = (0.2, -0.3, 0.1)
-    parent.scale = (1.25, 0.75, 1.5)
+    # Keep the parent scale uniform. Blender documents that clearing a parent
+    # with non-uniform scale + rotation can create shear that cannot be
+    # represented by location/rotation/scale and is therefore lost on detach.
+    parent.scale = (1.25, 1.25, 1.25)
 
     child_data = bpy.data.meshes.new('wave12_child_mesh')
     child_data.from_pydata([(0, 0, 0), (0.5, 0, 0), (0, 0.5, 0)], [], [(0, 1, 2)])
