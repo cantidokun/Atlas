@@ -52,7 +52,14 @@ def test_wave12_live_blender_boundary_gate() -> None:
     result = _run_blender()
     combined = f"{result.stdout}\n{result.stderr}"
     assert result.returncode == 0, combined
-    payload_lines = [line for line in result.stdout.splitlines() if line.startswith('{"blender_version"')]
+
+    # Blender may emit its own startup line before the JSON payload, and the
+    # payload's first key is not part of the protocol. Select the authoritative
+    # payload by its stable marker instead of relying on JSON key ordering.
+    payload_lines = []
+    for line in result.stdout.splitlines():
+        if '"marker": "ATLAS_WAVE12_PARENT_CYCLE_LIVE"' in line:
+            payload_lines.append(line)
     assert payload_lines, combined
     payload = json.loads(payload_lines[-1])
 
