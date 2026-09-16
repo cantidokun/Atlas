@@ -1,0 +1,30 @@
+name: Wave12 Diagnostic
+
+on:
+  push:
+    branches: [feat/blender-wave12-reference-integrity]
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip pytest requests
+      - name: Run tests and capture output
+        run: |
+          set +e
+          python -m pytest -q -m "not integration" > /tmp/wave12-pytest.log 2>&1
+          status=$?
+          cat /tmp/wave12-pytest.log
+          echo "$status" > /tmp/wave12-status.txt
+          exit 0
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave12-pytest-diagnostic
+          path: |
+            /tmp/wave12-pytest.log
+            /tmp/wave12-status.txt
