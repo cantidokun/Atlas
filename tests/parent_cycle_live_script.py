@@ -27,9 +27,6 @@ def main():
     scene.collection.objects.link(parent)
     parent.location = (2.0, 3.0, 4.0)
     parent.rotation_euler = (0.2, -0.3, 0.1)
-    # Keep the parent scale uniform. Blender documents that clearing a parent
-    # with non-uniform scale + rotation can create shear that cannot be
-    # represented by location/rotation/scale and is therefore lost on detach.
     parent.scale = (1.25, 1.25, 1.25)
 
     child_data = bpy.data.meshes.new('wave12_child_mesh')
@@ -40,12 +37,13 @@ def main():
     child.rotation_euler = (0.3, 0.1, -0.2)
     child.scale = (0.8, 1.1, 0.9)
 
+    # Establish an ordinary Blender parent relationship. Do not manually set
+    # matrix_parent_inverse: the gate must measure the actual world transform
+    # Blender produces for the live parent relationship, then prove that the
+    # real CLEAR_KEEP_TRANSFORM primitive preserves that transform on detach.
     child.parent = parent
-    child.matrix_parent_inverse = parent.matrix_world.inverted()
-
-    # Force dependency-graph evaluation before taking the authoritative
-    # pre-detach world matrix snapshot.
     bpy.context.view_layer.update()
+
     before_world = child.matrix_world.copy()
     before_mesh_name = child.data.name
     object_names_before = tuple(sorted(o.name for o in scene.collection.objects))
@@ -55,8 +53,6 @@ def main():
     bpy.context.view_layer.objects.active = child
     child.select_set(True)
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-    # Force evaluation after the parent relationship changes before comparing
-    # the resulting world matrix.
     bpy.context.view_layer.update()
 
     checks = {
