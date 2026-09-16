@@ -52,9 +52,12 @@ def main():
 
     after_world = child.matrix_world.copy()
     delta = matrix_delta(after_world, before_world)
+    # Blender stores object transforms as 32-bit floats. The observed detach
+    # delta is ~1.2e-7 on Blender 4.4.3, so the live boundary gate must allow
+    # normal float32 round-off while still rejecting material transform drift.
     checks = {
         'parent_cleared': child.parent is None,
-        'world_matrix_preserved': delta <= 1e-7,
+        'world_matrix_preserved': delta <= 1e-6,
         'object_identity_preserved': child.name == 'wave12_child',
         'mesh_identity_preserved': child.data.name == before_mesh_name,
         'objects_preserved': tuple(sorted(o.name for o in scene.collection.objects)) == object_names_before,
