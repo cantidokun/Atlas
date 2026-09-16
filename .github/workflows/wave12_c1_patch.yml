@@ -2,14 +2,14 @@ name: Wave 12 C1 Patch Runner
 
 on:
   push:
-    branches: [feat/blender-wave12-reference-integrity]
+    branches:
+      - feat/blender-wave12-reference-integrity
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'fix: contain Wave 12 planner field access'
     runs-on: ubuntu-latest
     steps:
       - name: Check out branch
@@ -35,7 +35,6 @@ jobs:
 
           start = s.index('def plan_parent_cycle_correction(')
           end = s.index('\n\ndef verify_parent_cycle_authorization(', start)
-          old_block = s[start:end]
           new_block = '''def plan_parent_cycle_correction(\n    scene_model: Any,\n    source_report_digest: str,\n    *,\n    target_object_id: str,\n    expected_parent_id: str,\n) -> Mapping[str, Any]:\n    try:\n        _validate_digest(source_report_digest, "source report digest")\n        if type(target_object_id) is not str or not target_object_id:\n            raise ParentCycleError("target object id is required", "TARGET_OBJECT_INVALID")\n        if type(expected_parent_id) is not str or not expected_parent_id:\n            raise ParentCycleError(\n                "expected parent id is required", "EXPECTED_PARENT_INVALID"\n            )\n        by_id = _index_objects(scene_model)\n        target = by_id.get(target_object_id)\n        if target is None:\n            raise ParentCycleError(\n                "target object must resolve exactly once", "TARGET_OBJECT_NOT_FOUND"\n            )\n        actual_parent = _parent_id(target)\n        if actual_parent != expected_parent_id:\n            raise ParentCycleError(\n                "target does not present the expected parent edge",\n                "EXPECTED_PARENT_MISMATCH",\n            )\n        if expected_parent_id not in by_id:\n            raise ParentCycleError(\n                "expected parent identifier is dangling; use Wave 4", "PARENT_IS_DANGLING"\n            )\n        cycle = _cycle_from_index(by_id, target_object_id)\n        if not cycle:\n            raise ParentCycleError(\n                "target is not a member of a parent cycle", "CYCLE_NOT_FOUND"\n            )\n        if expected_parent_id not in cycle:\n            raise ParentCycleError(\n                "target parent is not the cycle edge selected by the plan",\n                "PARENT_NOT_IN_CYCLE",\n            )\n        return _make_plan(\n            target_object_id=target_object_id,\n            expected_parent_id=expected_parent_id,\n            source_report_digest=source_report_digest,\n        )\n    except ParentCycleError:\n        raise\n    except Exception as exc:\n        raise ParentCycleError(\n            "scene traversal or field access failed", "SCENE_VALIDATION_FAILED"\n        ) from exc\n'''
           s = s[:start] + new_block + s[end:]
           p.write_text(s, encoding='utf-8')
