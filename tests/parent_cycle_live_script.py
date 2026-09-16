@@ -43,6 +43,9 @@ def main():
     child.parent = parent
     child.matrix_parent_inverse = parent.matrix_world.inverted()
 
+    # Force dependency-graph evaluation before taking the authoritative
+    # pre-detach world matrix snapshot.
+    bpy.context.view_layer.update()
     before_world = child.matrix_world.copy()
     before_mesh_name = child.data.name
     object_names_before = tuple(sorted(o.name for o in scene.collection.objects))
@@ -52,6 +55,9 @@ def main():
     bpy.context.view_layer.objects.active = child
     child.select_set(True)
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+    # Force evaluation after the parent relationship changes before comparing
+    # the resulting world matrix.
+    bpy.context.view_layer.update()
 
     checks = {
         'parent_cleared': child.parent is None,
