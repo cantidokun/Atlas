@@ -11,6 +11,7 @@ from planning.blender.parent_cycle import (
     execute_repair_parent_cycle,
     plan_parent_cycle_correction,
     scene_report_digest,
+    target_is_in_parent_cycle,
 )
 
 
@@ -167,7 +168,6 @@ def test_executor_contains_hostile_authorization_mapping():
     assert calls == []
 
 
-
 class StatefulParentMapping(dict):
     def __init__(self, values, fail_on_read):
         super().__init__(values)
@@ -182,39 +182,43 @@ class StatefulParentMapping(dict):
         return super().get(key, default)
 
 
-def test_planner_contains_stateful_parent_accessor_failure_after_index():
-    scene = {
+def stateful_cycle_scene(fail_on_read):
+    return {
         "objects": [
             StatefulParentMapping(
-                {"object_id": "a", "parent_object_id": "b"}, fail_on_read=2
+                {"object_id": "a", "parent_object_id": "b"},
+                fail_on_read=fail_on_read,
             ),
             {"object_id": "b", "parent_object_id": "a"},
         ]
     }
+
+
+def test_planner_contains_stateful_parent_accessor_failure_after_index():
+    scene = stateful_cycle_scene(fail_on_read=2)
     with pytest.raises(ParentCycleError) as exc:
         plan_parent_cycle_correction(
             scene,
-            scene_report_digest(scene),
+            scene_report_digest({"objects": [{"object_id": "a", "parent_object_id": "b"}, {"object_id": "b", "parent_object_id": "a"}]}),
             target_object_id="a",
             expected_parent_id="b",
         )
     assert exc.value.failure_code == "SCENE_VALIDATION_FAILED"
 
 
-def test_cycle_query_contains_stateful_parent_accessor_failure():
-    from planning.blender.parent_cycle import target_is_in_parent_cycle
-
-    scene = {
-        "objects": [
-            StatefulParentMapping(
-                {"object_id": "a", "parent_object_id": "b"}, fail_on_read=2
-            ),
-            {"object_id": "b", "parent_object_id": "a"},
-        ]
-    }
+def test_cycle_query_contains_stateful_parent_accessor_failure_after_index():
+    scene = stateful_cycle_scene(fail_on_read=2)
     with pytest.raises(ParentCycleError) as exc:
         target_is_in_parent_cycle(scene, "a")
     assert exc.value.failure_code == "SCENE_VALIDATION_FAILED"
+
+
+def test_cycle_query_contains_stateful_parent_accessor_failure_during_walk():
+    scene = stateful_cycle_scene(fail_on_read=3)
+    with pytest.raises(ParentCycleError) as exc:
+        target_is_in_parent_cycle(scene, "a")
+    assert exc.value.failure_code == "SCENE_VALIDATION_FAILED"
+
 
 def test_canonical_wave12_scene_digest_is_publicly_available():
     scene = valid_cycle_scene()
