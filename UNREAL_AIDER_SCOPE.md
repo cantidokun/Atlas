@@ -8,13 +8,13 @@ This workspace is for continued development of the Atlas Unreal Agent only. It s
 
 The real Unreal Engine 5.6 smoke test has passed, the first real Unreal production/render-receipt paths have been proven, and the agent-to-controller trust boundary has now been reconciled with origin and validated against real Unreal execution.
 
-The reconciled branch is deterministic green, and the explicitly authorized live controller gate passed. The live Blueprint production boundary has since been gated green with Atlas semantic verification (September 15, 2026), and render configuration/state semantic verification (`verify_render_state`) was promoted to the executor's semantic-verification registry and live-gated green the same day (the executor is now the sole producer of that flag). The next engine-dependent surface to investigate is the render job/result layer (Movie Render Queue submission and job-state verification), which remains separate from the completed render-state milestone.
+The reconciled branch is deterministic green, and the explicitly authorized live controller gate passed. The live Blueprint production boundary has since been gated green with Atlas semantic verification (September 15, 2026), and render configuration/state semantic verification (`verify_render_state`) was promoted to the executor's semantic-verification registry and live-gated green the same day (the executor is now the sole producer of that flag). The render **job**/result layer (Movie Render Queue submission and job-state verification) had its design gate the same night and returned **CLEAR WITH MINOR FINDINGS**. The next active development gate is therefore **render-job identity semantic verification** — binding the engine-observed `job_id` to the authorization-bound expected job id in `verify_render_job` and in the job-addressed `inspect_render_job` read. Its design is complete and implementation has **NOT** started. See `UNREAL_AGENT_HANDOFF_CURRENT.md`, "Next active development gate".
 
 Current branch and HEAD:
 
 ```text
 reconcile/unreal-autonomy-origin-20c6d10
-fe2322f7e76caf3115e3e5be6dafce05d62251ca
+9625dd712c05126ae2b12c85d4cf034a396cb58a
 ```
 
 ## Current milestone — September 15, 2026

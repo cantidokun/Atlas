@@ -2,7 +2,7 @@
 
 **Updated:** September 15, 2026
 **Current branch:** `reconcile/unreal-autonomy-origin-20c6d10`
-**HEAD:** `fe2322f7e76caf3115e3e5be6dafce05d62251ca`
+**HEAD:** `9625dd712c05126ae2b12c85d4cf034a396cb58a` (supersedes the earlier checkpoint `fe2322f7e76caf3115e3e5be6dafce05d62251ca`; the milestone commits are `e1a1285` documentation checkpoint, `fe4bba2` controller live-gate tests, `72a6578` Blueprint semantic verification, `a964ab6` Blueprint documentation closeout, `87b7e82` render-state semantic verification, `9625dd7` render-state documentation closeout)
 **Latest controller-boundary commit:** `fe2322f` — `test: align synthetic Unreal result fixtures with strict contract`
 **Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green
 
@@ -221,7 +221,7 @@ The real Blueprint integration suite has since been gated green (September 15, 2
 `tests/test_unreal_heterogeneous_recovery_real_integration.py`,
 `tests/test_unreal_production_workflow_real_integration.py`,
 `tests/test_unreal_material_variant_real_integration.py`.
-4. The live Blueprint production boundary was completed and gated green on September 15, 2026 (metadata mutation, compile, verify, and verified metadata evidence) — Blueprint production is green. Render configuration/state semantic verification (`verify_render_state`) was subsequently promoted to the executor's semantic-verification registry and live-gated green the same day (1 passed on Unreal Engine 5.6.1 over the existing Named Pipe; `result.evidence_ledger[2].verified is True`), with the executor now the sole producer of the render-state `verified` flag and the verifier no longer setting it. The next engine-dependent surface is the render job/result layer (Movie Render Queue submission and job-state verification), pending its own design gate.
+4. The live Blueprint production boundary was completed and gated green on September 15, 2026 (metadata mutation, compile, verify, and verified metadata evidence) ? Blueprint production is green. Render configuration/state semantic verification (`verify_render_state`) was subsequently promoted to the executor's semantic-verification registry and live-gated green the same day (1 passed on Unreal Engine 5.6.1 over the existing Named Pipe; `result.evidence_ledger[2].verified is True`), with the executor now the sole producer of the render-state `verified` flag and the verifier no longer setting it. The render-job identity semantic-verification milestone was then implemented, deterministically validated, and live-gated green against the real Movie Render Queue path: 47 R-J1?R-J8 cases passed on both Python 3.11 and 3.9, and the real render-workflow gate passed 1/1 on Unreal Engine 5.6.1 over the existing Named Pipe with `job_state["job_id"] == result.job_id`. The receipt and persisted receipt carried the same job identity. The tracked `AtlasRenderConfig.uasset` was restored byte-for-byte to HEAD after the live save side effect. The render-job identity milestone is complete; its remaining deferred issues are documented in `UNREAL_AGENT_HANDOFF_CURRENT.md`. The next active development surface now requires a fresh architectural assessment.
 5. Only run live Unreal/action-runner gates when explicitly authorized.
 
 ## Architectural invariants

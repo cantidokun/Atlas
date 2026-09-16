@@ -621,7 +621,7 @@ Documentation only: the seven current-state documents were updated to replace th
 
 ### Next development surface (investigation only)
 
-The next engine-dependent surface to investigate is the render **configuration/state** semantic-verification parity surface (`verify_render_state`), which is the only remaining capability whose verification runs fail-closed but is not registered — see deferred issue 1. It requires its own design gate before implementation. **SUPERSEDED (2026-09-15, later the same day):** that design gate ran and returned CLEAR WITH MINOR FINDINGS, the promotion was implemented and live-gated — see the "Render-state semantic verification milestone (September 15, 2026)" entry at the end of this log. The next engine-dependent surface after render state is the render **job**/result layer (Movie Render Queue submission and job-state verification), which remains separate.
+The next engine-dependent surface to investigate is the render **configuration/state** semantic-verification parity surface (`verify_render_state`), which is the only remaining capability whose verification runs fail-closed but is not registered — see deferred issue 1. It requires its own design gate before implementation. **SUPERSEDED (2026-09-15, later the same day):** that design gate ran and returned CLEAR WITH MINOR FINDINGS, the promotion was implemented and live-gated — see the "Render-state semantic verification milestone (September 15, 2026)" entry at the end of this log. The next engine-dependent surface after render state is the render **job**/result layer (Movie Render Queue submission and job-state verification), which remains separate. **SUPERSEDED (2026-09-15, same night):** the render-job identity design gate ran and returned CLEAR WITH MINOR FINDINGS — see the "Render-job identity semantic verification design gate (September 15, 2026)" entry at the end of this log. Implementation has NOT started.
 ## Render-state semantic verification milestone (September 15, 2026)
 
 ### Status
@@ -741,4 +741,169 @@ fields in the other status documents still show the earlier checkpoint value
 The next engine-dependent surface is the render **job**/result layer: Movie Render Queue submission,
 render job state verification, and the already-established receipt/`verified_render` pairing (which
 remains unchanged). It requires its own design gate before implementation and is not part of the
-render-state milestone.
+render-state milestone. **SUPERSEDED (2026-09-15, same night):** that design gate ran — see the
+"Render-job identity semantic verification design gate (September 15, 2026)" entry below. The next active
+development gate is therefore render-job identity semantic verification, and its implementation has NOT
+started.
+## Render-job identity semantic verification design gate (September 15, 2026)
+
+### Status
+
+**CLEAR WITH MINOR FINDINGS. Design complete; implementation NOT started.** The next milestone is
+"Bind render-job identity in render-job verification".
+
+### What was measured (read-only, deterministic probes; no engine, no live test)
+
+- The submission path is real production MRQ: `submit_render` resolves the authorized level sequence
+  against the real `UMoviePipelineQueueSubsystem`, allocates a real executor job, applies the Atlas render
+  config asset, creates a real `UMoviePipelinePIEExecutor`, wires the per-job callbacks that populate
+  status/progress/success/failed/finished and `output_files`, registers the job in the engine's in-memory
+  registry under a freshly generated FGuid, and returns the entity envelope with `job_id`, `status`,
+  `progress`, `status_message` and `sequence_asset_path`.
+- `inspect_render_job` looks the job up by the requested id — an unknown id is an engine error ("Render job
+  not found"), i.e. already fail-closed — and returns a flat job object with `job_id`, `status`,
+  `status_message`, `progress`, `success`, `finished`, `failed`, `sequence_asset_path`,
+  `output_directory`, `output_format` and `output_files`.
+- `verify_render_job` does not exist on the wire: the adapter maps it to `inspect_render_job`, so the
+  verification is a genuine fresh engine read of the resolved job id.
+- The verifier `verify_render_job_completion` fails closed on status/completion/artifact problems
+  (measured: `failed=True` rejected; an odd inactive status rejected; missing `job_id` rejected; a finished
+  job without artifacts rejected; a declared absolute output file that is missing or empty rejected; an
+  active `submitted`/`rendering` job accepted by design as the asynchronous submission arm).
+- `verify_render_job` already produces `verified=True` evidence through the executor's registry gate, with
+  the executor as the sole flag producer; that flag is ledger-local and nothing consumes it (the receipt and
+  the result stack consume the `inspect_render_job` evidence instead).
+- **The measured hole:** the verifier never compares the returned `job_id` with the authorized/resolved
+  expected id. Probes showed that a verification stage answering with a completely different job id still
+  produced a successful plan with `verified=True`, that an authorized `inspect_render_job` read answered
+  with another job's state likewise succeeded, and that a fully self-consistent forged completed job state
+  (with a real artifact file present) was accepted — the same exposure applies to the evidence that feeds
+  the receipt.
+- Minor shape finding: `_expected_verifier` had no entry for `submit_render`, so a hand-built plan pairing
+  `submit_render` with an unrelated VERIFY passed execution-shape validation (not reachable through the
+  planner, and still authorization-bound). Folded into the milestone as a one-line symmetry fix.
+- The receipt/result stack was re-measured and is sound: `UnrealRenderReceipt.issue` requires verified
+  `inspect_render_job` evidence in a completed state (`status ∈ {completed, finished}`, `success is True`,
+  `failed is False`) with canonical `job_id`/`sequence_asset_path`, and `matches` detects genuine drift in
+  artifacts, sequence or job id; `verified_render` requires the same pairing plus job-id equality, and the
+  result contract rejects a `job_id` that disagrees with the observed evidence.
+- Recovery: `submit_render` is absent from `_WRITE_DEFINITIONS`, so render-job recovery is unsupported by
+  construction (fail-closed by absence) and stays deferred.
+
+### Frozen contract
+
+- Semantic definition: `verify_render_job`, and the job-addressed `inspect_render_job` read, are verified
+  only when the engine-observed job identity equals the authorization-bound expected job id AND the
+  existing status/completion/artifact checks hold.
+- Expected-state source: the `verify_render_job` operation's own authorized `job_id` after the existing
+  `$previous.submit_render.job_id` resolution (the id produced by the authorized submission); the plan's
+  own authorized `job_id` for the read path. No new schema key, no new authority, no cross-plan registry.
+- Identity rule: exact-string comparison after a defensive strip; no new identity type;
+  `sequence_asset_path` continuity and `output_directory`/`output_format` binding stay deferred.
+- Status/completion/artifact rule, freshness rule, receipt/result relationship, verified-flag rule and
+  recovery interaction: unchanged (the executor remains the sole flag producer; receipt and
+  `verified_render` semantics are untouched).
+- Execution shape: no pairing helper and no index arithmetic; add the missing `_expected_verifier`
+  declaration for `submit_render`.
+
+### Test design frozen for the implementation
+
+Deterministic matrix R-J1…R-J8 (positive path; wrong returned job id; authorized read answered with another
+job id; anti-forgery/anti-self-comparison; expectation provenance; blank/missing expected id; preserved
+status/completion/artifact behaviour; registry/shape/receipt/result regression guards), plus the existing
+render-job, executor, receipt, result and workflow regressions and Python 3.9 parity.
+
+Live gate: `tests/test_unreal_render_workflow_real_integration.py::test_real_unreal_render_workflow_runs_to_verified_persisted_receipt`
+strengthened with `assert job_state["job_id"] == result.job_id` (and optionally an unknown-job negative arm
+using the engine's existing "Render job not found" fail-closed behaviour). Neither change was applied
+tonight, and no live execution was performed in this gate.
+
+### Implementation files (frozen)
+
+```text
+planning/unreal_render_job_verifier.py
+planning/unreal_plan_executor.py
+tests/test_unreal_render_job_semantic_verification.py       (new)
+tests/test_unreal_render_workflow_real_integration.py       (live assertion only)
+```
+
+Explicitly not to change: the planner, tool schema, capability registry, authorization, evidence contract,
+adapter, production recovery, production result contract, render receipt, production workflow, C++ and
+transport, controller, the completed Blueprint and render-state implementations, and all fixtures.
+
+### Required order for the next session
+
+1. Implement the frozen render-job identity contract deterministically.
+2. Run the R-J1–R-J8 matrix.
+3. Run the affected render-job/executor/receipt/result/workflow deterministic regressions.
+4. Run Python 3.9 parity.
+5. Only after deterministic green, run the explicitly authorized live render-workflow re-gate on UE 5.6.1
+   over the existing Named Pipe.
+6. Author the render-job documentation closeout.
+7. Commit the implementation/tests and the documentation as separate coherent commits.
+
+### Deferred render-job issues
+
+Relative `output_files` paths bypass the existence/size checks; frame/range and frame-count verification is
+unavailable from job evidence without a new engine field; render-job recovery remains unsupported;
+`sequence_asset_path` continuity; `output_directory`/`output_format` binding (cross-plan); artifact
+completeness versus frame range; multi-job orchestration; distributed rendering; editor-session persistence
+of job identity; broader MRQ feature expansion; receipt/HMAC redesign; result-contract changes; the unused
+`evidence` parameter in the semantic-verification registry helper.
+
+### Overnight state (September 15, 2026)
+
+HEAD `9625dd712c05126ae2b12c85d4cf034a396cb58a`; tracked worktree clean; nothing staged; all Unreal fixtures
+at their committed baseline; only the five pre-existing Aider/junk artifacts untracked; no Unreal process
+running.
+
+
+## Render-job identity semantic verification milestone (September 16, 2026)
+
+### Status
+
+**COMPLETED AND LIVE-GATED GREEN.** The render-job identity semantic-verification design gate returned **CLEAR WITH MINOR FINDINGS** on September 15, 2026. The implementation was completed and deterministically validated on September 16, followed by the authorized live render-workflow re-gate on real Unreal Engine 5.6.1 over the existing Named Pipe.
+
+### What was implemented
+
+- `verify_render_job` now binds the engine-observed `job_id` to the authorization-bound expected `job_id`.
+- Job-addressed `inspect_render_job` evidence is also identity-bound.
+- The existing `$previous.submit_render.job_id` dynamic resolution remains the source of the authorized expected id for the verification path.
+- `_expected_verifier` now explicitly declares `submit_render -> verify_render_job`.
+- No new schema key, authority, identity type, pairing helper, index arithmetic, cross-plan lookup, receipt change, result-contract change, recovery change, C++, transport, controller, Blueprint, or render-state change was introduced.
+- Existing active-status, completion, success, failure, and artifact rules remain unchanged.
+- The executor remains the sole producer of `evidence.verified`.
+
+### Deterministic validation
+
+- R-J1-R-J8: **47 passed** on Python 3.11.16.
+- R-J1-R-J8: **47 passed** on Python 3.9.6.
+- Affected render-job/workflow/receipt/result set: **100 passed** on both interpreters.
+- Render/job/verifier regression set: **155 passed**.
+- Canonical focused suite: **160 passed, 2 deselected** on Python 3.11 and 3.9.
+- Blast-radius sweep: **837 passed, 5 skipped**.
+- Full collection: **1151 tests collected, 0 collection errors**.
+
+### Live render-workflow gate
+
+`tests/test_unreal_render_workflow_real_integration.py::test_real_unreal_render_workflow_runs_to_verified_persisted_receipt`
+
+- Real UE **5.6.1**.
+- Existing Atlas Unreal harness and Named Pipe transport.
+- Real Movie Render Queue execution.
+- Live assertion: `job_state["job_id"] == result.job_id` passed.
+- Fresh `inspect_render_job` reads were observed during the workflow.
+- The persisted receipt and in-memory receipt carried the same engine-generated job identity.
+- Deterministic R-J2/R-J4 cases provide the negative wrong-job and forged-completion proof; the live gate establishes the identity binding on the real MRQ path.
+
+### Fixture cleanup
+
+The live configure/render path reserialized `AtlasRenderConfig.uasset`. The serialized bytes were restored byte-for-byte to the committed HEAD baseline after the gate. All tracked Unreal fixtures are at their committed baseline.
+
+### Deferred render-job issues
+
+Relative `output_files` validation; frame/range/frame-count verification; render-job recovery; `sequence_asset_path` continuity; cross-plan output-directory/output-format binding; artifact completeness versus frame range; multi-job orchestration; distributed rendering; editor-session persistence of job identity; broader MRQ expansion; receipt/HMAC redesign; result-contract changes; unused evidence parameter in the semantic-verification registry helper.
+
+### Next development surface
+
+The render-job identity milestone is complete. The next Unreal architecture surface should be selected by a fresh repository/code review rather than assumed from the prior render-job design gate. The completed Controller, Blueprint, render-state, and render-job milestones should not be reopened.

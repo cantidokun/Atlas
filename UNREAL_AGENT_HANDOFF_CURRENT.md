@@ -2,8 +2,8 @@
 
 **Updated:** September 15, 2026
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10`
-**HEAD:** `fe2322f7e76caf3115e3e5be6dafce05d62251ca`
-**Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green (Blueprint semantic verification live-proven) + live render-state semantic verification green (render-state verification promoted to the executor registry and live-proven)
+**HEAD:** `9625dd712c05126ae2b12c85d4cf034a396cb58a` (supersedes the earlier checkpoint `fe2322f7e76caf3115e3e5be6dafce05d62251ca`; milestone commits: `e1a1285` documentation checkpoint, `fe4bba2` controller live-gate tests, `72a6578` Blueprint semantic verification, `a964ab6` Blueprint documentation closeout, `87b7e82` render-state semantic verification, `9625dd7` render-state documentation closeout)
+**Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green (Blueprint semantic verification live-proven) + live render-state semantic verification green (render-state verification promoted to the executor registry and live-proven) + render-job identity design gate complete (CLEAR WITH MINOR FINDINGS; implementation NOT started)
 
 ## Current checkpoint
 
@@ -515,6 +515,104 @@ semantic-verification registry helper; the older non-runtime `tools/apply_unreal
 scripts; and broader render-result semantics (Movie Render Queue execution, render job/result verification
 and `verified_render`), which remain separate.
 
+## Next active development gate — render-job identity semantic verification
+
+**Design gate status: COMPLETE — CLEAR WITH MINOR FINDINGS. Implementation: NOT STARTED.**
+
+The render job/result layer (Movie Render Queue submission and render job-state verification) had its
+read-only design gate on the night of September 15, 2026. The frozen conclusion is the next milestone:
+
+```text
+Bind render-job identity in render-job verification
+```
+
+Frozen meaning:
+
+- `verify_render_job` and the job-addressed `inspect_render_job` path must verify the engine-observed
+  `job_id` against the authorization-bound expected job id.
+- The expected id for `verify_render_job` is its existing authorized VERIFY argument after the existing
+  `$previous.submit_render.job_id` dynamic resolution (the id produced by the authorized `submit_render`
+  that Atlas already dispatched).
+- The expected id for `inspect_render_job` is the plan's own authorized `job_id`.
+- Exact-string comparison after a defensive strip. No new schema key, no new authority, no cross-plan
+  expectation registry, no new identity type, no pairing helper, no index arithmetic.
+- Existing status/completion/artifact checks are unchanged: `submitted`, `queued` and `rendering` remain
+  accepted as active; a finished job requires `success=True` and, with `require_artifacts=True`, existing
+  non-empty absolute output files.
+- Receipt semantics and `verified_render` are unchanged; the executor remains the sole producer of
+  `evidence.verified`.
+- Add the missing execution-shape declaration `_expected_verifier("submit_render") == "verify_render_job"`.
+
+Why it matters (measured in the design gate, not assumed): the current render-job verifier already fails
+closed on status, completion and artifact problems, but it accepts a returned job whose `job_id` differs
+from the authorized/resolved expected id — a forged or mismatched identity still yields a successful plan
+with `verified=True`. The flow being hardened:
+
+```text
+authorized submit_render
+ -> engine creates the real MRQ job + engine job_id
+ -> dynamic resolution into verify_render_job
+ -> fresh inspect_render_job
+ -> render-job verifier
+ -> executor verified flag
+ -> receipt/result stack
+```
+
+Implementation files (only these):
+
+```text
+planning/unreal_render_job_verifier.py
+planning/unreal_plan_executor.py
+tests/test_unreal_render_job_semantic_verification.py       (new)
+tests/test_unreal_render_workflow_real_integration.py       (live assertion only)
+```
+
+Explicitly NOT to change: `planning/unreal_task_planner.py`, `planning/unreal_tool_schema.py`,
+`planning/unreal_capability_registry.py`, `planning/unreal_plan_authorization.py`,
+`planning/unreal_evidence_contract.py`, `planning/unreal_adapter_production.py`,
+`planning/unreal_production_recovery.py`, `planning/unreal_production_result_contract.py`,
+`planning/unreal_render_receipt.py`, `planning/unreal_production_workflow.py`,
+`unreal/AtlasUnrealHarness/Source/**` (including `AtlasTransportServer.cpp`), the transport, the
+controller, the completed Blueprint implementation, the completed render-state implementation, and all
+fixtures (`.uasset` / `.umap`).
+
+Deterministic test design (minimum matrix, new file):
+
+```text
+R-J1  positive successful submission/verification
+R-J2  wrong returned job id fails closed
+R-J3  authorized inspect_render_job answered with another job id fails closed
+R-J4  anti-forgery / anti-self-comparison
+R-J5  expectation provenance
+R-J6  blank/missing expected id fails closed
+R-J7  status/completion/artifact behaviour preserved
+R-J8  registry/shape/receipt/result regression guards
+```
+
+Live gate to reuse (not run, not changed tonight):
+`tests/test_unreal_render_workflow_real_integration.py::test_real_unreal_render_workflow_runs_to_verified_persisted_receipt`
+— strengthen with `assert job_state["job_id"] == result.job_id`, and optionally an unknown-job negative arm
+relying on the existing engine "Render job not found" fail-closed behaviour.
+
+Required order for tomorrow:
+
+1. Implement the frozen render-job identity contract deterministically (the two production files).
+2. Run the R-J1–R-J8 deterministic matrix.
+3. Run the affected render-job / executor / receipt / result / workflow deterministic regressions.
+4. Run Python 3.9 parity.
+5. Only after deterministic green, run the explicitly authorized live render-workflow re-gate (real UE
+   5.6.1 over the existing Named Pipe, fixture map `/Game/AtlasTest/Generated/AtlasRenderFixture`).
+6. Then author the render-job documentation closeout.
+7. Then commit the render-job implementation/tests and the documentation as separate coherent commits.
+
+Deferred render-job issues: relative `output_files` paths bypass the existence/size checks; frame/range and
+frame-count verification is unavailable from job evidence without a new engine field; render-job recovery
+remains unsupported (`submit_render` is absent from `_WRITE_DEFINITIONS`); `sequence_asset_path` continuity;
+`output_directory` / `output_format` binding (cross-plan); artifact completeness versus frame range;
+multi-job orchestration; distributed rendering; editor-session persistence of job identity; broader MRQ
+feature expansion; receipt/HMAC redesign; result-contract changes; the unused `evidence` parameter in the
+semantic-verification registry helper.
+
 ## Next development gate
 
 Current status:
@@ -524,6 +622,7 @@ RECONCILED + DETERMINISTIC GREEN
 + LIVE CONTROLLER-TO-UNREAL PRODUCTION GREEN
 + LIVE BLUEPRINT PRODUCTION BOUNDARY GREEN (semantic verification live-proven)
 + LIVE RENDER-STATE SEMANTIC VERIFICATION GREEN (registry promotion live-proven)
++ RENDER-JOB IDENTITY DESIGN GATE COMPLETE (CLEAR WITH MINOR FINDINGS; implementation NOT started)
 ```
 
 The `AgentControllerHost` → real Unreal production boundary is validated, and the narrow Blueprint production boundary has since been gated green with Atlas semantic verification.
@@ -562,7 +661,7 @@ specifically:
 - expectation limited to the authorized VERIFY arguments, with unchanged normalization — done;
 - live gate on UE 5.6.1 over the existing Named Pipe — done (1 passed, `evidence_ledger[2].verified is True`).
 
-**SUPERSEDED (2026-09-15):** "Blueprint production is **not** green." It is green — see the live gate section above. **SUPERSEDED (2026-09-15, later the same day):** the render configuration/state semantic-verification parity surface (`verify_render_state`) has since had its design gate (CLEAR WITH MINOR FINDINGS), was promoted to the executor's semantic-verification registry and was live-gated green — see "Live render-state semantic verification gate" below. The next engine-dependent surface to investigate is the render **job**/result layer (Movie Render Queue submission and job-state verification), which remains separate and needs its own design gate.
+**SUPERSEDED (2026-09-15):** "Blueprint production is **not** green." It is green — see the live gate section above. **SUPERSEDED (2026-09-15, later the same day):** the render configuration/state semantic-verification parity surface (`verify_render_state`) has since had its design gate (CLEAR WITH MINOR FINDINGS), was promoted to the executor's semantic-verification registry and was live-gated green — see "Live render-state semantic verification gate" below. The next engine-dependent surface to investigate is the render **job**/result layer (Movie Render Queue submission and job-state verification), which remains separate and needs its own design gate. **SUPERSEDED (2026-09-15, same night):** that design gate ran and returned CLEAR WITH MINOR FINDINGS — see "Next active development gate" below. Implementation has NOT started.
 
 ## Resume checklist for the next session
 
@@ -570,19 +669,22 @@ specifically:
 
 ```text
 branch : reconcile/unreal-autonomy-origin-20c6d10
-HEAD   : fe2322f7e76caf3115e3e5be6dafce05d62251ca
+HEAD   : 9625dd712c05126ae2b12c85d4cf034a396cb58a
 ```
 
-2. Confirm the working tree state. At the September 15 checkpoint it holds 7 tracked documentation
+2. (HISTORICAL — the September 15 checkpoint state; the current overnight state is item 9 below.)
+   Confirm the working tree state. At the September 15 checkpoint it holds 7 tracked documentation
    modifications (this handoff set) plus the applied two-line test-only repair in
    `tests/test_agent_controller_production_real_integration.py`; the untracked live gate harness and the
    pre-existing Aider artifacts are still untracked. Nothing has been committed.
 3. Do not pull, merge, rebase, reset or stash: the branch is already reconciled with origin, and `09015d9` is published elsewhere.
 4. Run the deterministic focused suite first (see the numbers above) before any live run.
 5. For live runs, launch the editor with the fixture map and confirm the harness reports its fixtures ready before running the gate.
-6. Apply item A of the follow-up (test-only, one line), then rerun both live controller production tests.
+6. (COMPLETED — SUPERSEDED.) Apply item A of the follow-up (test-only, one line), then rerun both live controller production tests; both steps were done and recorded green in the follow-up block above.
 7. The live Blueprint production boundary was gated green on September 15, 2026 (see the live gate section above).
-8. Render-state semantic verification was then promoted to the executor's registry, implemented and live-gated the same day (1 passed on UE 5.6.1; `evidence_ledger[2].verified is True`; see "Live render-state semantic verification gate" above). The next engine-dependent surface is the render **job**/result layer (Movie Render Queue submission and job-state verification), which needs its own design gate.
+8. Render-state semantic verification was then promoted to the executor's registry, implemented and live-gated the same day (1 passed on UE 5.6.1; `evidence_ledger[2].verified is True`; see "Live render-state semantic verification gate" above).
+9. Current overnight state (September 15, 2026): HEAD is `9625dd712c05126ae2b12c85d4cf034a396cb58a`, the tracked worktree is **clean**, nothing is staged, all Unreal fixtures are at the committed baseline, and only the five pre-existing Aider/junk artifacts remain untracked. No Unreal process is running.
+10. Tomorrow's first task: the **render-job identity semantic verification** implementation (design gate complete — CLEAR WITH MINOR FINDINGS; implementation NOT started). Follow the required order in "Next active development gate" above. Do not re-run the completed controller, Blueprint or render-state gates first, and do not begin with Blueprint or render-state work.
 
 Do not push, do not open a PR, and do not begin Blueprint work as part of the controller milestone.
 

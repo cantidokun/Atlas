@@ -13,7 +13,7 @@ reconcile/unreal-autonomy-origin-20c6d10
 Current HEAD:
 
 ```text
-fe2322f7e76caf3115e3e5be6dafce05d62251ca
+9625dd712c05126ae2b12c85d4cf034a396cb58a
 ```
 
 The reconciled branch is deterministic green:
@@ -209,7 +209,7 @@ WRITE  configure_render
 VERIFY verify_render_state
 ```
 
-Deterministic render configuration verification is now established (24 semantic matrix cases, deterministic green, and live-proven on UE 5.6.1). Movie Render Queue execution and render job/result verification are the next engine-dependent surface; they remain separate from this milestone and need their own design gate.
+Deterministic render configuration verification is now established (24 semantic matrix cases, deterministic green, and live-proven on UE 5.6.1). The render **job**/result layer's design gate ran the same night and returned **CLEAR WITH MINOR FINDINGS**. The next active development gate is **render-job identity semantic verification**: `verify_render_job` and the job-addressed `inspect_render_job` path must verify the engine-observed `job_id` against the authorization-bound expected job id (the VERIFY operation's own argument after the existing `$previous.submit_render.job_id` resolution, and the plan's own authorized `job_id` for the read path). Status/completion/artifact checks, receipt semantics and `verified_render` stay unchanged, and no new schema key, authority, pairing helper or identity type is introduced. Implementation has **NOT** started; its live proof reuses `tests/test_unreal_render_workflow_real_integration.py`.
 
 ## Invariants
 
