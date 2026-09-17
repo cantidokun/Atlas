@@ -80,7 +80,7 @@ The current development branch is:
 reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-The shared branch now carries the September 17 overnight documentation closeout. The published feature branch still contains the parallel shot-continuity implementation; the fully reconciled local candidate has **not** yet been published to the shared branch.
+The shared branch now carries both the September 17 overnight documentation closeout and the reconciled shot-continuity implementation, published as merge `d582af3`. The publication merge resolved the documentation-topology divergence by merging the three documentation-only commits (`930cc60`) into the reconciled candidate (`97487d0`); no executable source changed in that merge.
 
 Latest documented milestones:
 
@@ -90,12 +90,12 @@ Blueprint semantic verification        COMPLETE + LIVE
 Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
-Shot-level production continuity       LIVE-PROVEN in local reconciled candidate
+Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
 ```
 
-The intended published shot-continuity contract is recorded in `docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md` and the local reconciliation record. It preserves inclusive Atlas frame semantics, translates the inclusive end frame to Unreal MRQ's half-open boundary exactly once, verifies fresh effective frame evidence, binds sequence identity through the authorized production plan, and verifies the exact PNG frame set.
+The published shot-continuity contract is recorded in `docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md` and `docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md`. It preserves inclusive Atlas frame semantics, translates the inclusive end frame to Unreal MRQ's half-open boundary exactly once, verifies fresh effective frame evidence, binds sequence identity through the authorized production plan, and verifies the exact PNG frame set.
 
-The current shared branch should **not** be treated as the final reconciled shot-continuity state yet. Before publication of the reconciled candidate, run the fresh live continuity gate, the affected deterministic regression, and fixture byte verification, then fast-forward only. No force-push.
+The reconciled candidate passed the fresh UE 5.6.1 live continuity gate (authorized 1–2 → 2 PNG artifacts, authorized 1–5 → 5 artifacts, exact sequence identity, inclusive range semantics, output directory/format, exact job identity, fresh final evidence, receipt issuance/persistence, fixture restoration with byte-identical tracked assets), the affected deterministic regression, and the fixture byte verification before publication. The publication push was a normal fast-forward; no force-push, rebase, or reset was performed.
 
 ---
 
@@ -176,9 +176,9 @@ receipt_digest
 
 The parallel receipt extension that duplicated observed continuity fields into the receipt digest was rejected during reconciliation because those fields are already covered by the evidence digest and do not provide an independent integrity property.
 
-### Overnight reconciliation state
+### Reconciliation and publication state
 
-At session close the shared branch and the local reconciled candidate were intentionally kept separate. The local candidate `97487d0` is the reviewed reconciliation target but has not been published. See:
+The reconciled candidate `97487d0` has been published on the shared branch as merge `d582af3`. The merge was documentation-only relative to the validated implementation: every blob under `planning/`, `tests/` and `unreal/AtlasUnrealHarness/Source/` is identical between `97487d0` and `d582af3`. See:
 
 ```text
 docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md
@@ -187,7 +187,7 @@ docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
 
 ### Open Unreal boundary item
 
-MRQ queue accumulation / artifact attribution remains a separate architectural risk. Fresh editor sessions are required for live continuity gates because prior queue jobs can otherwise create ambiguous callback artifact attribution. This issue is intentionally not folded into shot continuity tonight.
+MRQ queue accumulation / artifact attribution remains a separate architectural risk and is the **next architectural review**. It is **not yet implemented**: no queue-clearing, attribution, or transport change exists. Fresh editor sessions remain required for live continuity gates because prior queue jobs can otherwise create ambiguous callback artifact attribution; this issue is intentionally not folded into shot continuity, which is closed.
 
 ---
 

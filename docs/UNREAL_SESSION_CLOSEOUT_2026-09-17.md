@@ -4,6 +4,19 @@
 **Scope:** Unreal Agent only
 **Status:** Development paused for the night
 
+## CURRENT STATE (September 17, 2026 — publication gate, later the same session)
+
+This closeout is a HISTORICAL record of the overnight session. The state it describes has since advanced:
+
+```text
+shot-level production continuity   COMPLETE + LIVE-PROVEN + PUBLISHED
+reconciled candidate 97487d0       merged with 930cc60 -> d582af3
+shared branch tip                  d582af3 (normal fast-forward; no force push)
+next architectural review          MRQ queue hygiene / artifact attribution (NOT implemented)
+```
+
+The reconciled candidate re-passed the fresh UE 5.6.1 live gate in three fresh editor sessions (authorized 1–2 → 2 PNG artifacts, full-range 1–5 → 5 artifacts, exact identity/range/directory/format, exact job id, fresh final evidence, receipt issued + persisted, fixtures restored and byte-identical), the deterministic regression, and the fixture byte check. The merge that carried it to the shared branch was documentation-only, verified by blob equality under `planning/`, `tests/` and `unreal/AtlasUnrealHarness/Source/`.
+
 ## Milestones closed during this session
 
 The Unreal Agent progressed through the following proven boundaries:
@@ -59,7 +72,7 @@ reconciled candidate          : 97487d0 (LOCAL ONLY)
 
 The reconciled candidate was assembled by explicit semantic decisions rather than a blind merge. It retains the local continuity authority, authorization binding, inclusive/MRQ boundary translation, effective-range evidence, and live-proven behavior, while adopting the strongest part of the parallel implementation: exact PNG frame-set verification.
 
-The reconciled candidate has **not** been published to the shared branch in this session.
+**SUPERSEDED (September 17, 2026, publication gate, later the same session)** — the reconciled candidate HAS since been published: `97487d0` was merged with `930cc60` into `d582af3` and pushed to the shared branch by normal fast-forward. Kept for the record: the reconciled candidate has **not** been published to the shared branch in this session.
 
 ## Receipt decision
 

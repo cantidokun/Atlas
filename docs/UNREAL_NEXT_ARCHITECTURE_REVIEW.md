@@ -3,6 +3,12 @@
 **Date:** September 17, 2026  
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10`
 
+## CURRENT STATE (September 17, 2026 — later the same session)
+
+The review below selected shot-level production continuity as the next surface. That gate is now **closed**: designed, implemented, LIVE CLEAR against real UE 5.6.1, and PUBLISHED on the shared branch as `d582af3`.
+
+The next architectural review is therefore **MRQ queue hygiene / artifact attribution** — how a submission's artifacts are attributed when the MRQ queue retains prior jobs. It is **NOT yet implemented**: no queue-clearing, no attribution change, and no transport or protocol change has been made, and it must not start without its own design gate. Every frozen constraint in this document (no new transport primitive, no second authorization authority, no model-derived authority, no entity discovery/cache, fresh verification, exact render-job identity, fail-closed recovery, no distributed-render architecture) continues to apply to that review.
+
 ## Review conclusion
 
 The completed composite actor-production boundary should remain frozen. The next development surface should not be another convenience wrapper around primitive actor operations.
@@ -158,6 +164,7 @@ Blueprint semantic verification        COMPLETE + LIVE
 Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
+Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
         ↓
-NEXT: shot-level production continuity design gate
+NEXT: MRQ queue hygiene / artifact attribution architecture review (NOT implemented)
 ```
