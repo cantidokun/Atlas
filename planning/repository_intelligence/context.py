@@ -14,7 +14,7 @@ from planning.repository_intelligence.relevance import RelevanceQuery, Relevance
 DEFAULT_MAX_CONTEXT_CHARS = 32_000
 DEFAULT_MAX_FILE_CHARS = 12_000
 DEFAULT_MIN_SCORE = 1
-SECONDARY_MIN_SCORE = 35
+SECONDARY_MIN_SCORE = 15
 STRUCTURAL_MAX_FILES = 6
 SECONDARY_MAX_FILES = 8
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
