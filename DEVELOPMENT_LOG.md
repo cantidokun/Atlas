@@ -996,3 +996,77 @@ stopped after the gate.
   (as this gate did); queue hygiene is a separate boundary question and was not changed here.
 - The trusted controller context's declared sequence path is reconciled at the workflow boundary
   rather than at context construction.
+
+
+## MRQ artifact attribution milestone (September 17, 2026) - COMPLETE + LIVE-PROVEN
+
+- job identity guard is live-proven in a multi-submission single-editor session
+- foreign callback artifacts are discarded
+- PNG artifacts must be contained within the authorized output directory
+- exact frame-set verification remains active
+- Slice 3 queue consumption remains separate and unimplemented
+
+Scope: remove the operator precondition that live shot-continuity gates must start from a fresh editor session
+with an empty Movie Render Queue. Nothing else in the Unreal architecture changed.
+
+### Root cause (measured, not inferred)
+
+- `UMoviePipelineQueue::AllocateNewJob` adds each submitted job to the queue, the executor renders the whole
+  queue (`MoviePipelineLinearExecutorBase starting %d jobs.`), and nothing in the headless path marks a job
+  consumed, so every later submission re-rendered the earlier jobs: measured in one session as
+  `starting 1 jobs` -> `2 jobs` -> `3 jobs`.
+- The per-job callback payload does carry the owning job (`FMoviePipelineOutputData.Job`, from
+  `UMoviePipeline::GetCurrentJob()`), but `AtlasTransportServer.cpp`'s `OnIndividualJobWorkFinished` lambda
+  resolved its registry entry by Atlas job id only and appended every rendered job's file paths into it.
+
+### Slice 1 (engine-side provenance guard) - IMPLEMENTED + LIVE PROVEN
+
+`unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp`: the callback now
+returns early when the registry entry is unresolvable, compares `InOutputData.Job` against the exact
+`UMoviePipelineExecutorJob*` already stored in `FRenderJobState::Job`, discards the payload (logging
+`ATLAS MRQ ATTRIBUTION: discarded per-job output data ...`) unless they are identical, and only then updates
+status/artifacts. No new identity field, no request/argument/protocol change. The transport DLL was rebuilt
+(`AtlasUnrealHarnessEditor Win64 Development`, exit 0, 23.19 s).
+
+### Slice 2 (PNG containment at the evidence boundary) - IMPLEMENTED + LIVE PROVEN
+
+`planning/unreal_shot_continuity.py`: `canonicalize_artifact_path` and `is_inside_directory` (path-segment
+containment, no naive prefix) plus a containment pass in `verify_shot_continuity_completeness` that runs before
+the frame checks and rejects any PNG artifact outside the AUTHORIZED output directory. Exact frame-set
+verification is unchanged, PNG scoping is unchanged, and no filesystem enumeration or artifact discovery was
+introduced.
+
+### Verification
+
+- Deterministic: 14 new attribution contract tests; focused MRQ continuity/auth/receipt set (17 modules)
+  **207 passed, 1 skipped**; consolidated affected Unreal suite **291 passed, 2 skipped**; canonical
+  controller/host suite **160 passed, 2 deselected**; broad scoped sweep **1137 passed, 6 skipped**
+  (baseline 1123 + the 14 new tests). Baseline RED proof in a throwaway worktree: guard assertions fail, and
+  foreign-directory artifacts with the authorized frame set were ACCEPTED by the old verifier.
+- Live UE 5.6.1, ONE editor session, four submissions
+  (`tests/test_unreal_mrq_attribution_real_integration.py`): **2 passed in 26.18 s**. Jobs
+  `0D13E9FD...` (1-2), `DC03C579...` (1-5), `2F73D3CF...` (1-2, same-range case) and `F9FFD0CD...` (1-2,
+  same-range case) each reported exactly their own artifacts inside their own authorized directory, the earlier
+  jobs' states were unchanged after the later renders, exact job identity stayed bound, receipts stayed coherent,
+  and the engine log recorded `starting 1 -> 2 -> 3 -> 4 jobs` with 6 attribution discards (N-1 per submission).
+- Live regression in its own session (`tests/test_unreal_shot_continuity_real_integration.py`): **1 passed in
+  9.60 s** - also proving containment accepts real engine artifact paths.
+- Fixtures: all four tracked harness assets byte-identical to baseline; no save-on-exit; pipe released.
+
+### Fixture/test changes (classified)
+
+`tests/test_unreal_shot_continuity.py` - test-fixture update, intent unchanged: the PNG continuity fixtures now
+authorize and declare the directory that holds the artifacts (`str(tmp_path)`) instead of declaring one directory
+while writing another. New files: `tests/test_unreal_mrq_attribution_contract.py` (deterministic contract),
+`tests/test_unreal_mrq_attribution_real_integration.py` (same-session live gate).
+
+### Remaining risk / not done
+
+- Slice 3 (consume or delete only the queue job this transport allocated) was explicitly NOT implemented.
+- `OnIndividualJobStarted` is still identity-blind; it writes monitoring fields only (status/progress) and cannot
+  affect artifact ownership, the acceptance condition, or the receipt. Reported as a residual finding.
+- `ShotData[0]`-only artifact collection is unchanged (multi-shot sequences remain outside the frozen contract).
+- Under Movie Render Graph the payload job may be a duplicated job, so the guard would fail closed rather than
+  mis-attribute; not exercised by this harness.
+- The transport has no deterministic execution harness in this repository; the guard's executable evidence is the
+  live gate plus source inspection.

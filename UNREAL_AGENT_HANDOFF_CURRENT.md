@@ -2,7 +2,7 @@
 
 **Updated:** September 17, 2026 (publication update)
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10` — published at `d582af3`
-**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED**. The publication merge resolved the documentation-topology divergence between the reconciled candidate and the shared branch. Development is paused; the next architectural review is MRQ queue hygiene / artifact attribution, which is **NOT yet implemented**.
+**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice 3 (queue consumption/deletion) remains separate and unimplemented**, and is not the next step: the next gate is a design review of whether queue consumption should be addressed at all and whether Atlas keeps the current MRQ queue semantics or isolates its own queue instance.
 
 ## Current milestone chain
 
@@ -13,7 +13,24 @@ Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
 Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN (committed this milestone)
 ```
+
+## MRQ artifact attribution — COMPLETE + LIVE-PROVEN
+
+```text
+MRQ artifact attribution   COMPLETE + LIVE-PROVEN
+  - job identity guard is live-proven in a multi-submission single-editor session
+  - foreign callback artifacts are discarded
+  - PNG artifacts must be contained within the authorized output directory
+  - exact frame-set verification remains active
+  - Slice 3 queue consumption remains separate and unimplemented
+```
+
+Evidence: `tests/test_unreal_mrq_attribution_real_integration.py` (2 passed in 26.18 s, ONE editor session, four
+submissions; engine log `starting 1 -> 2 -> 3 -> 4 jobs` with 6 `ATLAS MRQ ATTRIBUTION: discarded ...` lines),
+plus `tests/test_unreal_mrq_attribution_contract.py` (14 deterministic tests) and the existing continuity live
+gate re-run (1 passed in 9.60 s). Details: `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`.
 
 ## Shot-level production continuity
 
@@ -108,9 +125,24 @@ Deterministic regression re-run on the merged tree: focused continuity/auth/rece
 
 Do not force-push, rebase destructively, or blindly merge the parallel implementation.
 
-## Next step — architecture review only (no implementation)
+## Next step — design gate only (no implementation)
 
-Shot continuity is closed and published. The next architectural review is **MRQ queue hygiene / artifact attribution**. That work is **NOT yet implemented**: no queue-clearing, no attribution change, no transport or protocol change has been made, and none may start without its own design gate.
+Shot continuity is closed and published, and MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE +
+LIVE-PROVEN. The next architectural review is **NOT an implementation**: it must first decide *whether queue
+consumption should be addressed at all*, and then whether Atlas should **retain the current MRQ queue semantics**
+or **isolate its own queue instance** (`RenderQueueInstanceWithExecutorInstance`). That question needs a fresh
+design gate and a CLEAR / CLEAR WITH MINOR FINDINGS / BLOCKED verdict before any code is written.
+
+Carried, unresolved, NOT to be implemented without that gate:
+
+```text
+Slice 3  : consume/delete only the queue job this transport allocated (Atlas-owned only) - unimplemented
+gap      : OnIndividualJobStarted is still identity-blind (monitoring fields only, no artifact impact)
+```
+
+The audit and candidate evaluation for that review are recorded in `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (90 source anchors across the transport C++ and the UE 5.6.1 MovieRenderPipeline plugin, plus the measured failure evidence). Its recommended architecture is an identity guard in the existing `OnIndividualJobWorkFinished` lambda (the payload's job must equal the job this transport allocated) plus a PNG artifact-containment rule against the authorized output directory. The design gate returned `CLEAR WITH MINOR CONDITIONS`; Slice 1 and Slice 2 are now implemented and LIVE
+CLEAR (see `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`), and Slice 3 was deliberately not
+implemented.
 
 Measured risk driving the review: `SubmitRender` renders every job already present in the MRQ queue, and the per-job callback registered on the new executor writes every queue job's file paths into the newly submitted job's state. A second submission in one editor session therefore reports another job's artifacts (measured: 24 artifacts observed for an authorized 1–2 job whose own output directory was empty). The current mitigation is procedural — one submission per fresh editor session — which the publication gate used again (queue empty at session start, `MoviePipelineLinearExecutorBase starting 1 jobs` on every submission).
 
@@ -145,6 +177,9 @@ docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md
 docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
 docs/UNREAL_SHOT_CONTINUITY_CLOSEOUT.md
 docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md
+docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md (design: CLEAR WITH MINOR CONDITIONS)
+docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md
+docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_CLOSEOUT.md
 ```
 
 This file is the first-read continuation context for the next Unreal session.

@@ -7,7 +7,19 @@
 
 The review below selected shot-level production continuity as the next surface. That gate is now **closed**: designed, implemented, LIVE CLEAR against real UE 5.6.1, and PUBLISHED on the shared branch as `d582af3`.
 
-The next architectural review is therefore **MRQ queue hygiene / artifact attribution** — how a submission's artifacts are attributed when the MRQ queue retains prior jobs. It is **NOT yet implemented**: no queue-clearing, no attribution change, and no transport or protocol change has been made, and it must not start without its own design gate. Every frozen constraint in this document (no new transport primitive, no second authorization authority, no model-derived authority, no entity discovery/cache, fresh verification, exact render-job identity, fail-closed recovery, no distributed-render architecture) continues to apply to that review.
+The next architectural review was **MRQ queue hygiene / artifact attribution** — how a submission's artifacts are attributed when the MRQ queue retains prior jobs. That surface's Slice 1 (engine-side provenance guard in the existing per-job callback) and Slice 2 (PNG artifact containment against the authorized output directory) are now **MRQ artifact attribution — COMPLETE + LIVE-PROVEN** (job identity guard live-proven in a multi-submission single-editor session; foreign callback artifacts discarded; PNG artifacts contained within the authorized output directory; exact frame-set verification still active; Slice 3 queue consumption separate and unimplemented). See `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`.
+
+The NEXT gate is a **design review, not an implementation**: first decide *whether queue consumption should be
+addressed at all*, and then whether Atlas should **retain the current MRQ queue semantics** or **isolate its own
+queue instance**. It needs a fresh design gate and an explicit verdict before any code. Nothing below is
+implemented:
+
+```text
+Slice 3 : consume/delete only the queue job this transport allocated (Atlas-owned only)
+gap     : OnIndividualJobStarted is still identity-blind (monitoring fields only, no artifact impact)
+```
+
+The design review for that surface is drafted at `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (audit of the MRQ job lifecycle, `SubmitRender` identity creation, queue state, callback/event ownership, `InspectRenderJob` construction, job-ID binding, artifact collection, receipt/evidence relations, continuity interaction, and recovery; candidates A–D evaluated; recommended architecture = engine-side provenance guard in the existing per-job callback plus PNG artifact containment against the authorized output directory). Its status is `AWAITING INDEPENDENT DESIGN GATE` and it is not self-cleared. Every frozen constraint in this document (no new transport primitive, no second authorization authority, no model-derived authority, no entity discovery/cache, fresh verification, exact render-job identity, fail-closed recovery, no distributed-render architecture) continues to apply to that review.
 
 ## Review conclusion
 
@@ -165,6 +177,9 @@ Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
 Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN
         ↓
-NEXT: MRQ queue hygiene / artifact attribution architecture review (NOT implemented)
+NEXT: design gate - address queue consumption at all? retain MRQ queue semantics vs Atlas-owned queue instance?
+        ↓
+(not implemented: Slice 3 consumption; OnIndividualJobStarted identity gap)
 ```

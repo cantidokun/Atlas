@@ -124,7 +124,12 @@ def _job_evidence(
     end_frame_exclusive=None,
     absolute_output_directory=False,
 ):
-    """Build fresh render-job evidence with real on-disk artifacts."""
+    """Build fresh render-job evidence with real on-disk artifacts.
+
+    The artifacts are written inside the declared output directory, which
+    the shot-continuity completeness rule now requires: the caller passes
+    ``output_directory=str(tmp_path)`` and authorizes the same directory.
+    """
     if frames is None:
         frames = list(range(start_frame, end_frame + 1))
 
@@ -571,14 +576,14 @@ def test_continuity_contract_rejects_invalid_values():
 
 
 def test_final_evidence_must_reproduce_the_authorized_continuity(tmp_path):
-    production, authorized = _authorized_production()
+    production, authorized = _authorized_production(output_directory=str(tmp_path))
     continuity = production.continuity
     intent = _intent()
 
-    evidence = _job_evidence(tmp_path)
+    evidence = _job_evidence(tmp_path, output_directory=str(tmp_path))
     assert verify_shot_continuity_completeness(evidence, continuity) is evidence
 
-    absolute = _job_evidence(tmp_path, absolute_output_directory=True)
+    absolute = _job_evidence(tmp_path, output_directory=str(tmp_path), absolute_output_directory=True)
     assert verify_shot_continuity_identity(absolute, continuity) is absolute
 
 
@@ -662,8 +667,8 @@ def test_render_workflow_rejects_continuity_violation_before_issuing_a_receipt(
 
 
 def test_continuity_bound_receipt_requires_continuity_verified_evidence(tmp_path):
-    production, _ = _authorized_production()
-    evidence = _job_evidence(tmp_path)
+    production, _ = _authorized_production(output_directory=str(tmp_path))
+    evidence = _job_evidence(tmp_path, output_directory=str(tmp_path))
     verified = verify_shot_continuity_completeness(evidence, production.continuity)
     receipt = UnrealRenderReceipt.issue(verified)
 
@@ -735,8 +740,8 @@ def production_executor_result(production):
 
 
 def test_png_complete_frame_count_passes(tmp_path):
-    production, _ = _authorized_production()
-    evidence = _job_evidence(tmp_path)
+    production, _ = _authorized_production(output_directory=str(tmp_path))
+    evidence = _job_evidence(tmp_path, output_directory=str(tmp_path))
 
     assert production.continuity.expected_frame_count == END_FRAME - START_FRAME + 1
     assert (
@@ -746,17 +751,18 @@ def test_png_complete_frame_count_passes(tmp_path):
 
 
 def test_png_incomplete_frame_count_fails(tmp_path):
-    production, _ = _authorized_production()
-    evidence = _job_evidence(tmp_path, frames=list(range(START_FRAME, END_FRAME)))
+    production, _ = _authorized_production(output_directory=str(tmp_path))
+    evidence = _job_evidence(tmp_path, output_directory=str(tmp_path), frames=list(range(START_FRAME, END_FRAME)))
 
     with pytest.raises(ValueError, match="PNG frame coverage mismatch"):
         verify_shot_continuity_completeness(evidence, production.continuity)
 
 
 def test_duplicate_frame_outputs_do_not_satisfy_uniqueness(tmp_path):
-    production, _ = _authorized_production()
+    production, _ = _authorized_production(output_directory=str(tmp_path))
     evidence = _job_evidence(
         tmp_path,
+        output_directory=str(tmp_path),
         frames=[START_FRAME] * (END_FRAME - START_FRAME + 1),
     )
 
@@ -767,11 +773,12 @@ def test_duplicate_frame_outputs_do_not_satisfy_uniqueness(tmp_path):
 
 
 def test_png_frame_set_must_equal_the_authorized_inclusive_frames(tmp_path):
-    production, _ = _authorized_production(start_frame=START_FRAME, end_frame=5)
+    production, _ = _authorized_production(output_directory=str(tmp_path), start_frame=START_FRAME, end_frame=5)
     # Five unique artifacts, so any count-only rule would accept them, but frame
     # 5 is missing and frame 6 is extra.
     evidence = _job_evidence(
         tmp_path,
+        output_directory=str(tmp_path),
         start_frame=START_FRAME,
         end_frame=5,
         frames=[1, 2, 3, 4, 6],
@@ -784,7 +791,7 @@ def test_png_frame_set_must_equal_the_authorized_inclusive_frames(tmp_path):
 
 
 def test_duplicate_frame_numbers_in_distinct_paths_fail(tmp_path):
-    production, _ = _authorized_production(start_frame=START_FRAME, end_frame=2)
+    production, _ = _authorized_production(output_directory=str(tmp_path), start_frame=START_FRAME, end_frame=2)
     paths = []
 
     for directory, frame in (("a", 1), ("b", 1), ("c", 2)):
@@ -802,7 +809,7 @@ def test_duplicate_frame_numbers_in_distinct_paths_fail(tmp_path):
             "start_frame": START_FRAME,
             "end_frame": 2,
             "end_frame_exclusive": 3,
-            "output_directory": OUTPUT_DIRECTORY,
+            "output_directory": str(tmp_path),
             "output_format": "png",
             "output_files": paths,
         },
@@ -815,7 +822,7 @@ def test_duplicate_frame_numbers_in_distinct_paths_fail(tmp_path):
 
 
 def test_png_artifact_without_a_frame_number_fails(tmp_path):
-    production, _ = _authorized_production(start_frame=START_FRAME, end_frame=2)
+    production, _ = _authorized_production(output_directory=str(tmp_path), start_frame=START_FRAME, end_frame=2)
     path = tmp_path / "atlas_render.png"
     path.write_bytes(b"png")
     evidence = UnrealEvidence(
@@ -827,7 +834,7 @@ def test_png_artifact_without_a_frame_number_fails(tmp_path):
             "start_frame": START_FRAME,
             "end_frame": 2,
             "end_frame_exclusive": 3,
-            "output_directory": OUTPUT_DIRECTORY,
+            "output_directory": str(tmp_path),
             "output_format": "png",
             "output_files": [str(path.resolve())],
         },
@@ -859,8 +866,8 @@ def test_frame_count_rule_is_not_generalized_to_other_formats(tmp_path):
 def test_png_complete_frame_count_matches_the_authorized_inclusive_range(
     tmp_path, start, end, expected_count
 ):
-    production, _ = _authorized_production(start_frame=start, end_frame=end)
-    evidence = _job_evidence(tmp_path, start_frame=start, end_frame=end)
+    production, _ = _authorized_production(output_directory=str(tmp_path), start_frame=start, end_frame=end)
+    evidence = _job_evidence(tmp_path, output_directory=str(tmp_path), start_frame=start, end_frame=end)
 
     assert production.continuity.expected_frame_count == expected_count
     assert len(set(evidence.observed_state["output_files"])) == expected_count
@@ -877,13 +884,13 @@ def test_png_complete_frame_count_matches_the_authorized_inclusive_range(
 def test_incomplete_png_coverage_fails_for_every_authorized_range(
     tmp_path, start, end, expected_count
 ):
-    production, _ = _authorized_production(start_frame=start, end_frame=end)
+    production, _ = _authorized_production(output_directory=str(tmp_path), start_frame=start, end_frame=end)
     frames = list(range(start, end))
 
     if not frames:
         pytest.skip("a single-frame range has no strictly smaller valid range")
 
-    evidence = _job_evidence(tmp_path, start_frame=start, end_frame=end, frames=frames)
+    evidence = _job_evidence(tmp_path, output_directory=str(tmp_path), start_frame=start, end_frame=end, frames=frames)
 
     assert len(set(evidence.observed_state["output_files"])) == expected_count - 1
 

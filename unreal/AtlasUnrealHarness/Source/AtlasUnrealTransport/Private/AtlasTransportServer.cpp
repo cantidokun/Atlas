@@ -1390,29 +1390,58 @@ bool FAtlasTransportServer::SubmitRender(
             TSharedPtr<FRenderJobState>* Found=
                 FAtlasTransportServer::RenderJobRegistry.Find(JobId);
 
-            if(Found && Found->IsValid())
+            if(!Found || !Found->IsValid())
             {
-                (*Found)->Status=TEXT("finished");
-                (*Found)->StatusMessage=TEXT("Render job finished");
-                (*Found)->Progress=1.0;
-                (*Found)->bFinished=true;
-                (*Found)->bSuccess=InOutputData.bSuccess;
-                (*Found)->bFailed=!InOutputData.bSuccess;
+                return;
+            }
 
-                if(InOutputData.bSuccess &&
-                   InOutputData.ShotData.Num()>0)
+            /*
+             * Atlas owns artifact provenance through job identity only.
+             *
+             * The Movie Render Pipeline executor renders every job already
+             * present in the queue and broadcasts this payload once per
+             * rendered job, so this lambda must accept the payload only when
+             * it belongs to the exact executor job this Atlas submission
+             * allocated. A payload for any other job is discarded before any
+             * state is written, so its artifacts can never be recorded,
+             * substituted, or promoted into this job's evidence.
+             *
+             * Ownership is never inferred from a path, file name, frame
+             * number, timing, queue position, or callback order.
+             */
+            UMoviePipelineExecutorJob* RegisteredJob=(*Found)->Job.Get();
+            UMoviePipelineExecutorJob* PayloadJob=InOutputData.Job.Get();
+
+            if(!RegisteredJob || PayloadJob!=RegisteredJob)
+            {
+                UE_LOG(
+                    LogAtlasTransport,
+                    Warning,
+                    TEXT("ATLAS MRQ ATTRIBUTION: discarded per-job output data for job %s: payload job is not the registered Atlas job"),
+                    *JobId);
+                return;
+            }
+
+            (*Found)->Status=TEXT("finished");
+            (*Found)->StatusMessage=TEXT("Render job finished");
+            (*Found)->Progress=1.0;
+            (*Found)->bFinished=true;
+            (*Found)->bSuccess=InOutputData.bSuccess;
+            (*Found)->bFailed=!InOutputData.bSuccess;
+
+            if(InOutputData.bSuccess &&
+               InOutputData.ShotData.Num()>0)
+            {
+                for(const TPair<
+                    FMoviePipelinePassIdentifier,
+                    FMoviePipelineRenderPassOutputData>& PassData
+                    : InOutputData.ShotData[0].RenderPassData)
                 {
-                    for(const TPair<
-                        FMoviePipelinePassIdentifier,
-                        FMoviePipelineRenderPassOutputData>& PassData
-                        : InOutputData.ShotData[0].RenderPassData)
+                    for(const FString& FilePath : PassData.Value.FilePaths)
                     {
-                        for(const FString& FilePath : PassData.Value.FilePaths)
+                        if(!FilePath.TrimStartAndEnd().IsEmpty())
                         {
-                            if(!FilePath.TrimStartAndEnd().IsEmpty())
-                            {
-                                (*Found)->OutputFiles.AddUnique(FilePath);
-                            }
+                            (*Found)->OutputFiles.AddUnique(FilePath);
                         }
                     }
                 }

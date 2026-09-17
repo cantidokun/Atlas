@@ -91,6 +91,7 @@ Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
 Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
+MRQ artifact attribution               COMPLETE + LIVE-PROVEN
 ```
 
 The published shot-continuity contract is recorded in `docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md` and `docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md`. It preserves inclusive Atlas frame semantics, translates the inclusive end frame to Unreal MRQ's half-open boundary exactly once, verifies fresh effective frame evidence, binds sequence identity through the authorized production plan, and verifies the exact PNG frame set.
@@ -187,7 +188,9 @@ docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
 
 ### Open Unreal boundary item
 
-MRQ queue accumulation / artifact attribution remains a separate architectural risk and is the **next architectural review**. It is **not yet implemented**: no queue-clearing, attribution, or transport change exists. Fresh editor sessions remain required for live continuity gates because prior queue jobs can otherwise create ambiguous callback artifact attribution; this issue is intentionally not folded into shot continuity, which is closed.
+**MRQ artifact attribution is COMPLETE + LIVE-PROVEN**: the job identity guard is live-proven in a multi-submission single-editor session, foreign callback artifacts are discarded, PNG artifacts must be contained within the authorized output directory, and exact frame-set verification remains active. Slice 3 queue consumption remains separate and unimplemented.
+
+What remains is only a **design question, with no implementation authorized**: whether queue consumption should be addressed at all, and whether Atlas should retain the current MRQ queue semantics or isolate its own queue instance. That review requires a fresh design gate; nothing has been changed. The former operator precondition (fresh editor session + empty queue) is no longer load-bearing for artifact attribution.
 
 ---
 

@@ -17,9 +17,13 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
-from planning.unreal_render_contract import canonicalize_output_directory
+from planning.unreal_render_contract import (
+    UNREAL_PROJECT_ROOT,
+    canonicalize_output_directory,
+)
 from planning.unreal_render_job_verifier import resolve_render_job_state
 
 PNG_OUTPUT_FORMAT = "png"
@@ -228,17 +232,43 @@ def verify_shot_continuity_identity(evidence, expected: UnrealShotContinuity):
     return evidence
 
 
+def canonicalize_artifact_path(value: str) -> str:
+    """Return the canonical absolute form of one reported render artifact path.
+
+    Mirrors ``canonicalize_output_directory``: a project-relative artifact and an
+    absolute artifact are reduced to the same canonical form so containment stays
+    a value comparison. No filesystem access happens here - existence is the
+    render-job verifier's rule, and artifact discovery is explicitly out of scope.
+    """
+    path = Path(str(value).strip())
+    if not path.is_absolute():
+        path = UNREAL_PROJECT_ROOT / path
+    return str(path.resolve()).replace("\\", "/")
+
+
+def is_inside_directory(path: str, directory: str) -> bool:
+    """Return True when a canonical path is strictly inside a canonical directory.
+
+    Path-SEGMENT containment, never a string prefix: a sibling directory whose
+    name merely begins with the authorized directory's name (for example
+    ``AtlasShotContinuityOutput2`` against ``AtlasShotContinuityOutput``) is not
+    contained.
+    """
+    return path.startswith(directory + "/")
+
+
 def verify_shot_continuity_completeness(evidence, expected: UnrealShotContinuity):
     """Verify shot identity plus authorized frame coverage of the artifacts.
 
     Coverage is defined only for the current PNG image-sequence boundary: the
     observed artifact set must cover exactly the authorized inclusive frame
     range - one unique file per authorized frame, with the frame number parsed
-    from the artifact name, no duplicate frames, and no extra frames. The count
-    check runs first, so a short or inflated artifact list fails before frame
-    identity is read. Other output formats keep the existing existence and
-    non-empty validation only, because they have no authorized per-frame
-    artifact contract.
+    from the artifact name, no duplicate frames, and no extra frames. Every
+    artifact must also live inside the AUTHORIZED output directory, so an
+    artifact list that carries the right frame numbers from the wrong job (for
+    example another job rendered in the same editor session) fails closed.
+    Other output formats keep the existing existence and non-empty validation
+    only, because they have no authorized per-frame artifact contract.
     """
     verify_shot_continuity_identity(evidence, expected)
 
@@ -250,6 +280,29 @@ def verify_shot_continuity_completeness(evidence, expected: UnrealShotContinuity
 
     if not isinstance(output_files, (list, tuple)):
         raise TypeError("render job output_files must be a list")
+
+    # Provenance is checked before frame semantics: an observed artifact may only
+    # be attributed to this job when it lives inside the AUTHORIZED output
+    # directory. Ownership is never inferred from a file name, frame number,
+    # timing, queue position, or callback order, and containment is path-segment
+    # safe rather than a naive string prefix.
+    authorized_directory = canonicalize_output_directory(expected.output_directory)
+
+    for value in output_files:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                "render job output_files must contain non-empty strings"
+            )
+
+        artifact = canonicalize_artifact_path(value)
+
+        if not is_inside_directory(artifact, authorized_directory):
+            raise ValueError(
+                "render job PNG artifact is outside the authorized output "
+                "directory: "
+                f"artifact={value!r} ({artifact!r}), "
+                f"authorized_directory={authorized_directory!r}"
+            )
 
     unique = set()
     observed_frames = set()
