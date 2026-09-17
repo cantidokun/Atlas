@@ -1,6 +1,6 @@
 # Atlas Blender — Extraction Fidelity v1 (Scoped Producer Completion) Design Gate
 
-**Status:** DESIGN REVISION 4 — REVIEW REQUIRED / NO IMPLEMENTATION
+**Status:** DESIGN REVISION 5 — REVIEW REQUIRED / NO IMPLEMENTATION
 **Track:** Blender canonical extraction
 **Baseline (authoritative):** `origin/main` = `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2` (Wave 12 merged)
 **Design branch:** `feat/blender-extraction-fidelity-design`
@@ -23,7 +23,8 @@ Nothing in this section is a contract; it exists so a reviewer can determine **w
 | `3257f2d` | Revise extraction fidelity design after independent red-team | round-1 remediation |
 | `66c1c77` | Tighten extraction fidelity v1 contract after red-team round 2 | round-2 remediation |
 | `af6a75f` | Close extraction fidelity v1 design blockers (round-2 re-red-team) | round-2 BL/AM closures — §21 |
-| *(this revision)* | Close round-3 findings (BL-1, BL-2, AM-A..AM-D, T-1..T-6, L-1..L-4) — design only | §21.1 closure map |
+| `99193a3` | Close round-3 findings (BL-1 Euler fixture discrimination, BL-2 OBJECT-linked slots, AM-A..AM-D, T-1..T-6, L-1..L-4) — design only | round-3 closures — §21.1 |
+| *(this revision)* | Close round-4 findings (quaternion layer semantics, single-valued material precedence, five clarifications) — design only | round-4 closures — §21.2 |
 
 The closing task named `3257f2d` as "the current design commit"; the branch head at that moment was
 `66c1c77`, a child of `3257f2d` that tightened the same single document (+361 / −290). This revision is
@@ -164,12 +165,12 @@ producible by the v1 extractor:
 | `collection` | string **or** JSON `null` | `Optional[str]` | `null` is a real value: "no representative child collection" (§5.4), **not** an omission placeholder |
 | `parent_object_id` | string or `null` | `Optional[str]` | existing semantics |
 | `location`, `scale` | 3-element float arrays | tuples | §7.1, §8.1 |
-| `rotation` | 4-element float array `(w,x,y,z)` | tuple, normalized on parse | §7.2 |
+| `rotation` | 4-element float array `(w,x,y,z)` | **raw tuple, stored exactly as emitted** — this is the value `scene_input_digest` consumes; no payload or canonical-model normalization exists, and normalization happens only in the derived `TransformModel` view (§7.2, §7.2.1) | §7.2 |
 | `visible` | JSON bool | bool | §7.3 |
 | `mesh_id` | string (source object name) | `str` | §6 |
 | `vertices` | array of 3-element float arrays | tuples | source order, §8.1 |
 | `faces` | array of integer arrays | tuples of ints | source order |
-| `materials` | **non-empty** array of non-empty strings, **or** `[]`, **or** key omitted | `tuple[str, ...]` | exactly three encodings, §4.3; the key is omitted whenever any slot is empty **or** OBJECT-linked (never a partial list) |
+| `materials` | **non-empty** array of non-empty strings, **or** `[]`, **or** key omitted | `tuple[str, ...]` | three encodings, single-valued precedence in §4.3: omission (any OBJECT-linked or unassigned slot) dominates, `[]` only when the mesh datablock has zero data slots **and** no OBJECT-linked slot exists, non-empty only when every represented slot is a data-linked slot with a non-empty name; a present-but-empty/malformed name fails closed |
 | `normals` | **key omitted** (always) | `()`/`None` per §4.5 | never emitted in v1 |
 | `uvs` | **key omitted** (always) | `()`/`None` per §4.5 | never emitted in v1 |
 | `local_frame_id` | **key omitted** (always) | `None` | never emitted in v1 |
@@ -209,7 +210,8 @@ vertices), while the canonical health kernel independently derives a comparison 
 **first three face corners** with a sign-agnostic 1° test (`planning/blender/mesh_health.py:353-372`).
 Emitting Blender polygon normals without a dedicated semantic agreement gate can manufacture
 `MESH_NORMAL_INCONSISTENT` on ordinary warped polygons: measured against the current kernel, a quad
-warped by 0.1 in Z diverges by 4.035° (1.0 → 30.0°) and already exceeds the 1° threshold.
+warped by 0.1 in Z diverges by 4.035° between the kernel's first-three-corner normal and the polygon's
+area-weighted normal, which already exceeds the kernel's 1° threshold.
 
 No parser or canonical-model tightening is authorized here. Existing `null`, `[]`, and omitted-input
 acceptance remains unchanged for existing closed capabilities and fixtures (§4.5, §12).
@@ -247,13 +249,28 @@ is an object-level view that can carry additional slots whose material is linked
 
 Rules:
 
-* **zero slots** → emit `materials: []` (a legitimate empty, §4.5);
-* **one or more slots, all of them data slots, every one assigned a non-empty name** → emit those
-  names in slot order;
-* **any slot empty/unassigned, OR any OBJECT-linked slot present** → **omit** the `materials` key for
-  that mesh entirely rather than invent a token **or emit a partial list**; the omission is
-  all-or-nothing for that mesh (a single unrepresentable slot discards every slot name for that mesh,
-  which is the deliberate price of never emitting a misleading list);
+**Rule precedence — the contract is single-valued.** Let `data_slots = obj.data.materials` (the mesh
+datablock's slots, in Blender slot order) and `object_slots = obj.material_slots` (the object-level
+view, which may additionally carry OBJECT-linked slots). Exactly one branch applies to any state, in
+this order:
+
+1. **Fail closed** if any slot's material name is *present but empty/malformed* (non-string or empty
+   string): a malformed name is not a representable value and must not be replaced by a token (§10,
+   below).
+2. **Else omit the `materials` key entirely** if **any** slot in `object_slots` is unrepresentable —
+   its `link` is `'OBJECT'`, or its material is unassigned. Omission is all-or-nothing for that mesh and
+   **dominates**: it applies even when `data_slots` is empty. Never emit a partial data-slot list, never
+   emit a placeholder.
+3. **Else, if `data_slots` is empty** (and, by branch 2, the object exposes no OBJECT-linked slot) →
+   emit `materials: []` (a legitimate empty, §4.5).
+4. **Else** every slot present is a data slot carrying a non-empty material name → emit those names in
+   **source slot order** (never lexically sorted).
+
+Equivalently: `materials: []` is permitted **only** when the mesh datablock has zero data slots **and**
+the object has no OBJECT-linked slot; a non-empty `materials` is permitted **only** when every
+represented slot is a data-linked slot with a non-empty material name; in every other case the key is
+omitted (branch 2) or extraction fails (branch 1).
+
 * per-face `material_index` assignments are explicitly **not represented** and must never be inferred
   from the slot-name tuple;
 * material names are not lexically sorted; source slot order is canonical;
@@ -442,7 +459,7 @@ conversion, not merely the channel.
 | `rotation_mode` | Source channel | Conversion | v1 |
 | --- | --- | --- | --- |
 | `XYZ` | `obj.rotation_euler` | `euler_xyz_degrees_to_quaternion` (`planning/blender/transforms.py:114-131`), documented as the active `R = Rz(ez)·Ry(ey)·Rx(ex)` composition; canonical `(w,x,y,z)` | **emit** |
-| `QUATERNION` | `obj.rotation_quaternion` | direct map; Blender component order `(w, x, y, z)` → canonical `(w, x, y, z)`; the canonical model normalizes on parse and rejects a zero quaternion (`planning/blender/transforms.py:147-151`) | **emit** |
+| `QUATERNION` | `obj.rotation_quaternion` | **verbatim copy**, Blender component order `(w, x, y, z)` → payload `(w, x, y, z)`; no producer-side normalization and no validation-by-transformation (see §7.2.1 for the three layers, the producer fail-closed rules and the comparison contract) | **emit** |
 | `XZY`, `YXZ`, `YZX`, `ZXY`, `ZYX` | — | **no conversion is defined in-tree** | **fail closed** |
 | `AXIS_ANGLE` | — | no conversion is defined in-tree | **fail closed** |
 | any other / unreadable `rotation_mode` | — | — | **fail closed** |
@@ -483,11 +500,67 @@ Two hard requirements follow, and both are test requirements (§14, §15):
    composition) must **FAIL** the same comparison. This control is required in both the deterministic
    suite and the live gate (§15 T-2, §14 L-3). A fixture that cannot fail is not evidence.
 2. **Quaternion-mode positive coverage.** A quaternion-mode object with a non-identity, non-unit and
-   unit quaternion must be covered deterministically and live, asserting component order and the
-   canonical normalization behaviour.
+   unit quaternion must be covered deterministically and live, asserting component order **and all
+   three layers of §7.2.1** — the raw payload value, the raw canonical `ObjectModel.rotation` the digest
+   consumes, and the normalized derived `TransformModel` — so that "normalized" is never asserted of a
+   layer that does not normalize (RAW PAYLOAD / RAW OBJECTMODEL / NORMALIZED DERIVED TRANSFORM).
 
 No rotation failure may be converted into an identity quaternion. Any failure to read or convert the
 selected channel is an extraction failure.
+
+### 7.2.1 Quaternion semantics: three distinct layers (normative)
+
+Quaternion handling spans three layers that must never be conflated. Nothing in the first two layers
+normalizes; normalization exists in the third layer only, and that third layer is **not** payload
+normalization.
+
+| Layer | What it holds | Normalized? | Consumers |
+| --- | --- | --- | --- |
+| 1. Blender source (`QUATERNION` mode) | `obj.rotation_quaternion` read as `(w, x, y, z)` and copied **verbatim** into the payload | **no** — never rescaled, reordered, sign-flipped or rounded | the extractor |
+| 2. Canonical `ObjectModel.rotation` | exactly the emitted tuple, stored unchanged (finiteness validated only) | **no** — `parse_scene_report_input` / `payload_to_scene_model` never call `_quat_normalize` (`planning/blender/scene_model.py:135-137, 189-196, 206`) | `scene_input_digest` (`planning/blender/kernel.py:93-121`), every payload/state comparison, all canonical consumers |
+| 3. Derived `TransformModel` | the pose view built on demand from layer 2 | **yes** — only here (`_quat_normalize`, `planning/blender/transforms.py:81-85`, reached via `ObjectModel.transform` → `TransformModel.__post_init__`, `planning/blender/transforms.py:147-151`) | world-pose / world-points derivation only |
+
+Measured basis (against the authoritative baseline): a payload `rotation` of `[1, 1, 1, 1]` parses to
+`ObjectModel.rotation == (1.0, 1.0, 1.0, 1.0)` — layer 2 keeps the raw source value and that is what the
+digest carries — while `ObjectModel.transform.rotation == (0.5, 0.5, 0.5, 0.5)`. Three different source
+quaternions therefore produce three different `scene_input_digest` values, i.e. the producer's
+quaternion choice is digest-visible and must be the source value.
+
+**Producer rules (fail closed).**
+
+1. **Copy verbatim.** No producer-side normalization, rescaling, hemisphere flipping, reordering or
+   rounding; §10's "never normalize" rule is normative here.
+2. **Reject non-finite components.** Any `nan`/`inf` component, or a non-numeric/missing component, is
+   an extraction failure.
+3. **Reject an all-zero quaternion.** A source quaternion whose components are all exactly zero must
+   fail extraction. Nothing downstream reliably catches it: `world_pose_for` *catches* `TransformError`
+   and returns `None` (`planning/blender/transforms.py:252-255`), which silently drops the object's
+   world pose and skips its envelope derivation (`planning/blender/kernel.py:48-60`) instead of raising.
+   `world_pose_for`/`world_points` must therefore **not** be relied on as validation of a producer
+   value — it is a derivation layer with a declared "no world pose" outcome, not a validator.
+4. **No identity substitution.** Any failure to read or convert the selected channel is an extraction
+   failure and may never become an identity quaternion.
+
+**Comparison contract for gates (normative).**
+
+* **Layer to assert.** Rotation claims about the producer assert **layer 2** — the emitted tuple as
+  stored on `ObjectModel` and consumed by the digest. Layer 3 is asserted only where the derived pose
+  is itself the subject. Asserting layer 3 and calling it the canonical value is a contract violation.
+* **Metric and tolerance.** Quaternion comparisons are **component-wise** after applying the hemisphere
+  convention below, with `|Δ| ≤ 1e-6` per component. An angular-equivalence check (`≤ 1e-4°`) may be
+  asserted in addition, but must not replace the component-wise assertion, because the canonical value
+  is a stored tuple the digest consumes verbatim.
+* **Hemisphere convention (test-side only).** The canonical pipeline does **not** fix a hemisphere:
+  `_quat_normalize` divides by the norm and does not sign-force, so `q` and `-q` are both storable and
+  describe the same rotation. Gates therefore apply an explicit convention: if the independently
+  derived expectation's first non-zero component in `(w, x, y, z)` order is negative, negate it before
+  comparing. The fixture's angles must be chosen so the in-tree helper's own output satisfies the same
+  convention; this is measured, not assumed — for `(30°, 40°, 50°)` the helper emits
+  `(0.860042174, 0.080804689, 0.402198494, 0.303371774)` (w > 0), and an independent
+  3×3-matrix-plus-trace derivation agrees component-wise to `max |Δ| = 5.6e-17`.
+* **Discrimination.** At `(30°, 40°, 50°)` the wrong-order control orders (`XZY`, `ZYX`) differ from the
+  correct `XYZ` rotation by 20.314° and 44.900° — far above the stated tolerance — so the falsification
+  control fails loudly rather than marginally.
 
 ### 7.3 Visibility
 
@@ -623,7 +696,8 @@ never                              -> fabricate, approximate, average, infer, no
 ```
 
 Required fail-closed conditions include: missing/malformed coordinates; missing/malformed transform
-channels; **unsupported or unreadable `rotation_mode`** (§7.2); unavailable/malformed
+channels; **unsupported or unreadable `rotation_mode`** (§7.2); a **non-finite or all-zero source
+quaternion** (§7.2.1 producer rules 2-3); unavailable/malformed
 `hide_viewport` (§7.3); non-finite emitted numbers; malformed material slot names; unreadable
 membership interfaces; an included object class missing a required source interface; duplicate payload
 schema keys or an unsupported schema version; partial-traversal exceptions.
@@ -657,7 +731,7 @@ fields; `SceneReport.digest()` includes it
 | object | `parent` (digest key) / `parent_object_id` (canonical field) | yes | no |
 | object | `location` | yes | no (values unchanged for well-formed input; failures now refuse) |
 | object | `scale` | yes | no (same as location) |
-| object | `rotation` | yes | **yes** for non-`XYZ`/quaternion-mode objects (§7.2); no for `XYZ` |
+| object | `rotation` | yes | **yes** for `QUATERNION`-mode objects only — today the extractor reads `rotation_euler` regardless of mode, so a quaternion-mode object's canonical rotation changes to its true quaternion (§7.2). `XYZ`-mode values do **not** change. A **refused** mode (`XZY`/`YXZ`/`YZX`/`ZXY`/`ZYX`, `AXIS_ANGLE`, unreadable) produces **no payload at all and therefore no digest**, so no digest consequence can be observed for it |
 | object | `visible` | yes | **yes** — constant `True` replaced by `hide_viewport` (§7.3) |
 | mesh | `mesh_id` | yes | no |
 | mesh | `vertices` | yes | no |
@@ -681,9 +755,11 @@ The `mesh` container appears only when `ObjectModel.mesh is not None`; a meshles
 
 * This milestone does **not** change the digest algorithm or the field set.
 * Where it corrects a producer value that participates in the digest — `collection`, `visible`, and
-  `rotation` for rotated-mode objects — the digest for the same source scene **legitimately changes**.
-  That is a producer correction, **not** an executor contract rewrite, and it must not be described as
-  a digest change.
+  `rotation` for `QUATERNION`-mode objects (whose canonical rotation changes from the converted
+  `rotation_euler` to the true quaternion) — the digest for the same source scene **legitimately
+  changes**. That is a producer correction, **not** an executor contract rewrite, and it must not be
+  described as a digest change. Refused modes have no digest consequence because extraction fails and no
+  payload exists.
 * Correction artifacts built against an older source digest become **stale** and must fail their
   existing stale-source checks; they must never be silently reused across a changed digest. The
   refusal mechanism is already in place and is not modified by this milestone: the authorization gate
@@ -711,6 +787,15 @@ The asset is a **regression anchor only**. It cannot exercise the positive v1 cl
 slots, no UV layer, single-axis Euler only, nothing hidden) — those come from the disposable fixtures
 (§14). Existing pinned expectations to preserve:
 `tests/test_live_blender_real_asset_gate.py:83-113` and `:228-265`.
+
+**If the proof contradicts the new producer contract, this returns to design revision.** The pinned
+expectations are an anchor, not a negotiable input. If the live gate shows that a corrected producer
+value (`collection`, `visible`, `rotation`) changes the asset's digest or any pinned expectation, then:
+implementation stops, the pin is **not** edited inside the milestone, and no producer rule is relaxed to
+preserve an old expectation. The disposition is a design revision that re-derives the anchor and its
+expectations explicitly, with its own review — the same fail-closed treatment as a contradicted
+requirement anywhere else in this document (§12 item 7 states the parallel ban on silently editing
+documentation; this paragraph extends it to gate expectations).
 
 ## 12. Cross-capability compatibility disclosures (mandatory, verbatim scope)
 
@@ -771,7 +856,12 @@ The live gate may open the frozen `.blend` asset **read-only**. It must:
   run), so that "no temp file" claims are mechanically checkable;
 * prove no unrelated repository asset changed (the existing read-only pattern: content hash before and
   after the run, `tests/test_live_blender_real_asset_gate.py:58-64`, `:199-225`, with the read-only
-  scene-state snapshot field at `:187`).
+  scene-state snapshot field at `:187`);
+* **before implementation, enumerate the frozen asset's rotation modes read-only** (one live inspection
+  pass that records every object's `rotation_mode`). If any object's mode is not `XYZ` or `QUATERNION`,
+  implementation does **not** reinterpret, exempt or special-case that object: §7.2's refusal rule and
+  the §11.3 regression anchor would conflict, so the result is a **design revision before
+  implementation**. Record the enumeration as gate evidence.
 
 The disposable fixtures (§14) remain the primary positive fidelity mechanism.
 
@@ -784,7 +874,10 @@ Must contain:
 * a mesh with multiple polygons in deterministic source order;
 * **two or more non-empty material slots in a known order**;
 * a **quaternion-mode** object with a non-identity quaternion, plus a second quaternion-mode object
-  with a non-unit (un-normalized) source quaternion;
+  whose source quaternion is deliberately **non-unit** (un-normalized). For both, the asserted expected
+  value is layer 2 of §7.2.1 — the **raw** source tuple, identical in the payload, on
+  `ObjectModel.rotation`, and in the digest input — while the normalized form is expected only from the
+  derived `TransformModel` (RAW PAYLOAD / RAW OBJECTMODEL / NORMALIZED DERIVED TRANSFORM);
 * an **`XYZ`-mode Euler object whose `rotation_euler` has all three components non-zero** (for example
   `(30°, 40°, 50°)`), whose expected canonical rotation is derived **independently of
   `euler_xyz_degrees_to_quaternion`** (from `obj.matrix_local`'s rotation part, or an independently
@@ -844,7 +937,7 @@ Expected behaviour: extraction **fails closed** with a named error for the affec
 is produced; no scene mutation occurs. These are refusal fixtures, deliberately **not** positive
 conversion cases (§7.2).
 
-### Live evidence register (mandatory, L-1 - L-4)
+### Live evidence register (mandatory, L-1 - L-5)
 
 These are live-gate **requirements**. None of them is implemented by this document, and none is a claim
 that implementation has occurred.
@@ -858,13 +951,28 @@ that implementation has occurred.
   slot names, OBJECT-linked-slot omission, hidden-object visibility, quaternion mode, and the
   three-component Euler validation — are proven by the **disposable fixtures**, not by the frozen asset,
   which cannot exercise any of them (§11.3).
-* **L-3 — three-component Euler validation and wrong-order falsification.** The live gate must run the
-  §7.2 fixture with all three components non-zero, assert that the extracted canonical rotation equals
-  the independently derived expectation, and assert that the deliberately wrong-order conversion
-  **FAILS** the same comparison (a fixture that cannot fail is not evidence).
-* **L-4 — zero-material-slot case.** A mesh with zero material slots must extract `materials: []` (a
-  legitimate empty, §4.3) on a disposable live fixture; if the runtime permits, combine it with a
-  zero-face mesh so the Wave-11 empty-topology boundary and the material rule are exercised together.
+* **L-3 — three-component Euler validation, wrong-order falsification, and the quaternion layers.**
+  The live gate must run the §7.2 fixture with all three components non-zero, assert that the
+  extracted canonical rotation equals the independently derived expectation under the §7.2.1
+  comparison contract, and assert that the deliberately wrong-order conversion **FAILS** the same
+  comparison (a fixture that cannot fail is not evidence). For the quaternion-mode objects it must
+  additionally show the three layers separately, live: the raw source tuple in the payload, the same
+  raw tuple on `ObjectModel.rotation` (the digest input), and the unit form only from
+  `ObjectModel.transform`. **L-5** covers the live fail-closed cases.
+* **L-4 — material-slot cases, live.** Live, on disposable fixtures: (a) a mesh with zero data slots and
+  no OBJECT-linked slot must extract `materials: []`; (b) a mesh with **zero data slots plus an
+  OBJECT-linked slot** must **omit** the key, because §4.3 branch 2 dominates; (c) a mesh with data slots
+  plus an OBJECT-linked slot must omit the key rather than emit a partial list. If the runtime permits,
+  combine (a) with a zero-face mesh so the Wave-11 empty-topology boundary and the material rule are
+  exercised together.
+* **L-5 — quaternion layers and producer fail-closed, live.** Live: (a) the deliberately **non-unit**
+  quaternion fixture must show the **raw** source tuple in the payload, the same raw tuple on
+  `ObjectModel.rotation` (the digest input), and the unit form only from `ObjectModel.transform`
+  (§7.2.1); (b) an all-zero source quaternion must cause extraction to **fail closed** — the failure may
+  not be delegated to world-pose derivation, whose declared outcome for an invalid transform is a silent
+  "no world pose" (`planning/blender/transforms.py:252-255`); (c) a non-finite source quaternion
+  component must fail closed; (d) the non-unit case must additionally show that no producer-side
+  normalization occurred, i.e. the emitted payload tuple is the source tuple.
 
 ## 15. Required deterministic tests
 
@@ -902,14 +1010,32 @@ Run the deterministic suite under **both Python 3.9 and Python 3.11**.
 
 ### Labelled deterministic test requirements (T-1 - T-6)
 
-These are **requirements**, not implemented tests. Each maps to a round-3 finding.
+These are **requirements**, not implemented tests. Each maps to a round-3 or round-4 finding.
 
-* **T-1 — OBJECT-linked material slot (BL-2).** An object with data slots plus an OBJECT-linked slot
-  (`material_slots[i].link == 'OBJECT'`) must yield an **omitted** `materials` key — never a partial
-  list, never a placeholder — while `MeshModel.materials` keeps its existing semantics (§4.3).
-* **T-2 — three-component Euler plus wrong-order falsification (BL-1).** Both the positive
-  three-component case (independently derived expectation) and the wrong-order failure case must be
-  asserted deterministically (§7.2).
+* **T-1 — material-slot representability precedence (BL-2; round-4 precedence blocker).** Four states
+  must be asserted, and the single-valued rule of §4.3 means each state has exactly one legal outcome:
+  (a) mesh data slots **plus** an OBJECT-linked slot (`material_slots[i].link == 'OBJECT'`) →
+  `materials` **omitted**, never a partial list, never a placeholder; (b) mesh with **zero** data slots
+  and no OBJECT-linked slot → `materials: []`; (c) mesh with **zero** data slots **and** an OBJECT-linked
+  slot → `materials` **omitted** (branch 2 dominates — this is the state that previously satisfied two
+  rules); (d) an unassigned (empty) data slot → `materials` omitted, while a present-but-**empty or
+  malformed** slot name → extraction **fails closed**. Every emitted value must satisfy: non-empty means
+  every represented slot was a data-linked slot with a non-empty name; `[]` means the mesh datablock has
+  zero data slots and the object has no OBJECT-linked slot; the key is absent otherwise.
+  `MeshModel.materials` semantics remain unchanged (§4.3).
+* **T-2 — three-component Euler with falsification, and the three quaternion layers (BL-1; round-4
+  quaternion blocker).** The positive three-component `XYZ` case is asserted against an independently
+  derived expectation using the §7.2.1 comparison contract (component-wise after the hemisphere
+  convention, `|Δ| ≤ 1e-6`), and the deliberately wrong-order conversion must **FAIL** the same
+  assertion. Separately, for the quaternion-mode fixtures the test must assert **all three layers**
+  explicitly and without conflating them: **RAW PAYLOAD** (the emitted `rotation` array equals the
+  source `obj.rotation_quaternion` tuple verbatim), **RAW OBJECTMODEL** (`ObjectModel.rotation` equals
+  the same tuple, and that tuple is what `scene_input_digest` consumes), **NORMALIZED DERIVED
+  TRANSFORM** (`ObjectModel.transform.rotation` is the unit form). A test that asserts only the
+  normalized value, or that calls the derived pose "the canonical rotation", does not satisfy T-2.
+  The producer fail-closed cases are also asserted here: an all-zero source quaternion and a
+  non-finite component must each **fail extraction** (§7.2.1), and neither may be delegated to
+  `world_pose_for` (§7.2.1 rule 3).
 * **T-3 — collection visibility does not affect `visible` (AM-A).** Assert that `Collection.hide_viewport`
   on the object's own collection and on an ancestor collection, plus view-layer exclusion, leave
   `ObjectModel.visible` unchanged (§7.3).
@@ -974,13 +1100,16 @@ Implementation may begin only after an independent review confirms all of the fo
 2. rotation source selection is closed by `rotation_mode`, with `XYZ` + `QUATERNION` emitted and every
    other mode refused, plus independent validation of the `XYZ` convention using an
    **all-three-components-non-zero** fixture **and a wrong-order falsification control that must fail**
-   (§7.2, T-2, L-3);
+   under the §7.2.1 comparison contract (explicit metric, tolerance and hemisphere convention)
+   (§7.2, §7.2.1, T-2, L-3);
 3. visibility source is exactly `obj.hide_viewport` with stated polarity, context independence and
    fail-closed behaviour, and with `Collection.hide_viewport`, `hide_render`, `hide_get`/`visible_get`
    and view-layer exclusion explicitly declared non-participating (§7.3, T-3);
-4. the material accessor is exactly `obj.data.materials`, the three encodings are closed **including
-   all-or-nothing omission when any slot is empty or OBJECT-linked**, and the canonical-collapse
-   disclosure is present (§4.3, T-1);
+4. the material accessor is exactly `obj.data.materials`, the encodings are closed by the
+   **single-valued precedence** of §4.3 (a malformed name fails closed; any OBJECT-linked or unassigned
+   slot forces omission and dominates, including when the mesh datablock has zero data slots; `[]` only
+   when there are zero data slots and no OBJECT-linked slot; otherwise source-ordered names), and the
+   canonical-collapse disclosure is present (§4.3, T-1, L-4);
 5. the membership domain, traversal deduplication, ordering, representative rule and master fallback
    are closed, and the domain is declared a source-side rule separate from encoding (§5);
 6. non-mesh and instanced geometry limitations are declared, not implied (§5.5);
@@ -994,12 +1123,16 @@ Implementation may begin only after an independent review confirms all of the fo
     sub-case with source-ordered domains preserved (§9);
 11. the frozen-asset read-only regression protocol is defined and its expectations named (§13, §14);
 12. deterministic, adversarial and refusal fixtures are specified for Python 3.9 and 3.11 (§14-§16),
-    including the labelled **T-1 - T-6** deterministic test requirements and the **L-1 - L-4** live
+    including the labelled **T-1 - T-6** deterministic test requirements and the **L-1 - L-5** live
     evidence register, neither of which may be treated as implemented by this document;
 13. the C++ claim is limited to semantic parity until a separate byte-serialization gate exists (§8.3,
     §17);
 14. no execution, persistence, workflow, recovery, or write-back authority exists in the milestone;
-15. an independent reviewer re-gates this revision and does not self-clear it.
+15. quaternion semantics are stated as three distinct layers — RAW PAYLOAD / RAW OBJECTMODEL /
+    NORMALIZED DERIVED TRANSFORM — with no claim of canonical normalization, plus the producer
+    fail-closed rules (non-finite and all-zero source quaternions rejected, `world_pose_for` not relied
+    on as validation) and the gate comparison contract (§7.2.1, §10, T-2, L-3, L-5);
+16. an independent reviewer re-gates this revision and does not self-clear it.
 
 The milestone is complete only after deterministic, adversarial, Python 3.9/3.11 and live Blender
 4.4.3 validation pass, and the extracted payload remains compatible with the existing canonical kernel
@@ -1012,7 +1145,9 @@ The reviewer must specifically attempt to break:
 * the rotation-mode closure — in particular whether refusing non-`XYZ` modes is preferable to
   converting them, whether the `XYZ` convention is validated independently of the helper, and whether
   the proposed fixture is **discriminating** (it must be able to fail);
-* quaternion component order and canonical normalization;
+* quaternion component order, the three-layer distinction of §7.2.1 (RAW PAYLOAD / RAW OBJECTMODEL /
+  NORMALIZED DERIVED TRANSFORM), the fact that no canonical normalization exists, and whether the
+  comparison contract (metric, tolerance, hemisphere convention) is discriminating enough;
 * visibility semantics, its context independence, and its digest participation;
 * material-slot accessor identity, the all-or-nothing empty-slot **and OBJECT-linked-slot** rule, and the
   canonical collapse of `[]` vs omitted;
@@ -1069,7 +1204,23 @@ score or ranking.
 | T-1 - T-6 | §15 (labelled register), §16, §14 Fixture B | deterministic test requirements, each mapped to its finding |
 | L-1 - L-4 | §14 (labelled register), §13 | live evidence requirements: visibility source proof, positive-claim provenance, three-component Euler validation with falsification, zero-material-slot case |
 
-**None of the T-1 - T-6 or L-1 - L-4 items above is implemented**, and nothing in this revision is a
+**None of the T-1 - T-6 or L-1 - L-5 items above is implemented**, and nothing in this revision is a
 claim that implementation has occurred. They are test/fixture requirements to be satisfied by a future,
 separately gated implementation slice. This revision changes no production file, no executor, no
 planner, no canonical model, no parser, no validator and no schema version.
+
+### 21.2 Round-4 closures (`99193a3` → this revision)
+
+| Round-4 item | Closed in | How |
+| --- | --- | --- |
+| BLOCKER 1 — quaternion semantics | §7.2 (`QUATERNION` row), §7.2.1 (new), §3 (`rotation` row), §10, §14 Fixture A + **L-5**, §15 **T-2**, §19 items 2/15 | three layers defined and separated — (1) Blender source copied **verbatim** `(w,x,y,z)`, no producer-side normalization; (2) canonical `ObjectModel.rotation` = the raw emitted tuple, which is what `scene_input_digest` consumes; (3) normalization only in the derived `TransformModel` view, explicitly not payload normalization. Every "normalized on parse" claim removed. Producer fail-closed rules: non-finite components rejected, **all-zero source quaternion rejected**, `world_pose_for` explicitly **not** accepted as validation (it converts the failure into a silent no-world-pose outcome). Gate contract: component-wise after an explicit hemisphere convention, abs(Δ) ≤ 1e-6; measured layer evidence recorded |
+| BLOCKER 2 — material precedence | §4.3 (ordered single-valued branches), §3 (`materials` row), §14 **L-4**, §15 **T-1** | four ordered branches make the contract single-valued: malformed/empty name → fail closed; **any** unrepresentable slot (OBJECT-linked *or* unassigned) → omit, and omission **dominates** (including a mesh datablock with zero data slots); only then zero data slots → `[]`; otherwise source-ordered names. The previously ambiguous state (zero data slots + OBJECT-linked slot) is now explicitly omission, and states (b)/(c)/(d) are asserted in T-1 and L-4. Per-face `material_index` remains out of scope |
+| Clarification 1 — comparison contract | §7.2.1 | metric (component-wise), tolerance (`1e-6`), optional angular check (`1e-4°`), and a test-side hemisphere convention (the canonical pipeline fixes none, since `_quat_normalize` does not sign-force), with the measured `(30°, 40°, 50°)` evidence and the 20.314°/44.900° wrong-order separation |
+| Clarification 2 — §11.1 rotation row | §11.1, §11.2 | the digest-changing case is specifically `QUATERNION` mode; refused modes produce no payload and therefore no digest; `XYZ` values do not change |
+| Clarification 3 — contradicted frozen-asset proof | §11.3 | implementation stops, the pinned expectation is not edited, no producer rule is relaxed; the disposition is a design revision |
+| Clarification 4 — §4.1 parenthetical | §4.1 | the unexplained "(1.0 → 30.0°)" is removed and the claim restated as a reproducible measurement (a 0.1 Z warp → 4.035° divergence between the first-three-corner normal and the area-weighted polygon normal, versus the kernel's 1° threshold) |
+| Clarification 5 — pre-implementation mode check | §13 | a read-only enumeration of the frozen asset's `rotation_mode` values is required **before** implementation; any refused mode yields a design revision before implementation, never an asset reinterpretation or exemption |
+
+**Nothing in §21.2 is implemented either**: T/L entries are requirements, and this revision is
+documentation-only (no production file, executor, planner, canonical model, parser, validator or schema
+change).
