@@ -771,14 +771,37 @@ def test_required_nulls_are_still_emitted():
 
 
 def test_payload_schema_validates_and_is_json_native():
+    """§3/§8.2: the payload is exactly JSON-native and every emitted float is finite."""
     import json
+    import math
 
     payload = extract_scene(_bpy_with(master_objects=[_mesh_obj("m", mats=UNSORTED_MATS)]))
     validate_payload_schema(payload)
     assert payload["schema_version"] == PAYLOAD_SCHEMA_VERSION
-    assert "bpy" not in json.dumps(payload, sort_keys=True)
-    text = json.dumps(payload, sort_keys=True)
-    assert "nan" not in text.lower().replace("nan", "X").replace("X", "nan") or True
+
+    def walk(value, path):
+        if value is None or type(value) in (str, bool, int):
+            return
+        if type(value) is float:
+            assert math.isfinite(value), f"{path}: non-finite float {value!r} must never be emitted"
+            return
+        if type(value) is list:
+            for index, item in enumerate(value):
+                walk(item, f"{path}[{index}]")
+            return
+        if type(value) is dict:
+            for key, item in value.items():
+                assert type(key) is str, f"{path}: non-string key {key!r}"
+                walk(item, f"{path}.{key}")
+            return
+        raise AssertionError(f"{path}: non-JSON-native value of type {type(value).__name__}")
+
+    walk(payload, "payload")
+    # the §8.2 encoding refuses non-finite numbers, so encoding success is a finiteness gate
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    assert "bpy" not in text and "object at 0x" not in text
+    assert json.loads(text) == payload                                  # exact round-trip
+    assert type(payload["objects"][0]["mesh"]["faces"][0][0]) is int    # integer topology
 
 
 # ---------------------------------------------------------------------------

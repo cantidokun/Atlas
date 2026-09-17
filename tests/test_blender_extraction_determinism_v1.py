@@ -1,14 +1,25 @@
 """Extraction Fidelity v1 — deterministic determinism / encoding / digest-boundary tests.
 
-Covers design §9 (three-run determinism protocol with the run-C reordering rules), §8.2 (canonical
-evidence encoding vectors), §11.1/§11.2 (digest participation and the T-6 partition), §4.5 T-4
-(``materials: null`` acceptance layers), and §10/§12.4 (duplicate canonical IDs stay kernel-findable).
+The §9 determinism protocol is executed MECHANICALLY: each of the three runs is a separate child
+process with an explicitly set ``PYTHONHASHSEED`` (A = 1, B = 2, C = 3) and each run returns a full
+evidence record carrying the four §9 obligations —
 
-Run C reorders ONLY things whose canonical order is derived by rule (object construction order,
-collection creation order, collection-link order). Vertex order, polygon order and material-slot
-append order are held identical — those are source-ordered domains (§6, §4.3).
+    * payload SHA-256                       (sha256 of the §8.2 canonical encoding)
+    * canonicalization identifier           (the §8.2 encoding string, asserted to be the one used)
+    * hash seed                             (read from inside the child, plus a seed probe proving the
+                                             seed actually took effect in that process)
+    * fixture construction-order identifier (the exact construction orders the run used)
+
+Run C is the prescribed semantic-equivalent construction with **object construction order,
+collection creation order and the two-collection link order reversed**, and with vertex order,
+polygon order and material-slot append order deliberately UNCHANGED (asserted element-for-element).
+
+Other sections cover §8.2 (canonical encoding vectors), §11.1/§11.2 (digest participation, T-6),
+§4.5 T-4 (``materials: null`` acceptance layers) and §10/§12.4 (duplicate canonical IDs stay
+kernel-findable).
 """
 import copy
+import functools
 import hashlib
 import json
 import os
@@ -43,7 +54,7 @@ from tests.test_blender_extraction_fidelity_v1 import (
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # §8.2 — the canonical evidence encoding, normative for every gate hash.
-CANONICALIZATION = 'json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)'
+CANONICALIZATION = 'json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False'
 
 
 def _canonical_text(payload) -> str:
@@ -55,15 +66,40 @@ def _payload_sha(payload) -> str:
 
 
 # ---------------------------------------------------------------------------
-# §9 — determinism fixture and the three runs
+# §9 — the determinism fixture (it records the construction order it used)
 # ---------------------------------------------------------------------------
 
-def _determinism_scene(reverse=False):
-    """Same semantic scene; ``reverse`` changes only rule-derived construction order (§9 run C)."""
-    zeta, alpha, nested = _Collection("Zeta"), _Collection("Alpha"), _Collection("Nested")
-    alpha.children.append(nested)
+CANONICAL_OBJECT_ORDER = ["q_obj", "e_obj", "m_alpha", "m_beta", "shared_obj"]
+CANONICAL_COLLECTION_ORDER = ["Zeta", "Alpha", "Nested"]
+CANONICAL_LINK_ORDER = ["Zeta", "Alpha"]          # the two-collection object's link order
+
+_RUN_SEEDS = {"A": "1", "B": "2", "C": "3"}
+
+
+def _build_determinism_scene(reverse=False):
+    """Build the §9 fixture and return ``(bpy, trace)``.
+
+    ``reverse=True`` (run C) reverses ONLY rule-derived construction order: object construction order,
+    the order objects are linked into the master collection, collection creation order, the order the
+    child collections are linked into the master, and the two-collection link order. The source-ordered
+    domains — vertex order, polygon order, material-slot append order — are byte-identical in both
+    constructions and are recorded in the trace so that invariance is asserted, not assumed.
+    """
     if reverse:
-        zeta, alpha = alpha, zeta
+        # collection creation order is itself part of the reversal: create the LAST-created
+        # collection first. Nested is created first so Alpha can adopt it.
+        nested = _Collection("Nested")
+        alpha = _Collection("Alpha")
+        zeta = _Collection("Zeta")
+        by_name = {"Zeta": zeta, "Alpha": alpha, "Nested": nested}
+        created = ["Nested", "Alpha", "Zeta"]
+    else:
+        zeta = _Collection("Zeta")
+        alpha = _Collection("Alpha")
+        nested = _Collection("Nested")
+        by_name = {"Zeta": zeta, "Alpha": alpha, "Nested": nested}
+        created = ["Zeta", "Alpha", "Nested"]
+    alpha.children.append(nested)
 
     material_slots = [_Slot(_Mat(n), "DATA") for n in UNSORTED_MATS]
 
@@ -75,85 +111,248 @@ def _determinism_scene(reverse=False):
         if name == "m_alpha":
             return _mesh_obj("m_alpha", verts=UNSORTED_VERTS, faces=UNSORTED_FACES, mats=UNSORTED_MATS)
         if name == "m_beta":
-            data = _mesh_obj("m_beta", verts=UNSORTED_VERTS, faces=UNSORTED_FACES)
-            data.material_slots = material_slots
-            return data
+            obj = _mesh_obj("m_beta", verts=UNSORTED_VERTS, faces=UNSORTED_FACES)
+            obj.material_slots = material_slots
+            return obj
         if name == "shared_obj":
             return _plain_obj("shared_obj")
         raise AssertionError(name)
 
-    order = ["q_obj", "e_obj", "m_alpha", "m_beta", "shared_obj"]
-    built = {n: build(n) for n in (list(reversed(order)) if reverse else order)}
+    object_order = list(reversed(CANONICAL_OBJECT_ORDER)) if reverse else list(CANONICAL_OBJECT_ORDER)
+    built = {name: build(name) for name in object_order}       # dict preserves insertion order
     solo = _plain_obj("solo_master_only")
     in_nested = _plain_obj("in_nested")
 
     scene = _Bpy().context.scene
-    for obj in (list(built.values()) if reverse else list(built.values())):
-        scene.collection.link(obj)
+    for name in object_order:                                  # master object-link order
+        scene.collection.link(built[name])
     scene.collection.link(solo)
-    if reverse:
-        scene.collection.children.extend([alpha, zeta])
-    else:
-        scene.collection.children.extend([zeta, alpha])
-    if reverse:
-        alpha.link(built["shared_obj"])
-        zeta.link(built["shared_obj"])
-    else:
-        zeta.link(built["shared_obj"])
-        alpha.link(built["shared_obj"])
+
+    children_order = list(reversed(CANONICAL_LINK_ORDER)) if reverse else list(CANONICAL_LINK_ORDER)
+    scene.collection.children.extend([by_name[name] for name in children_order])
+    link_order = list(reversed(CANONICAL_LINK_ORDER)) if reverse else list(CANONICAL_LINK_ORDER)
+    for name in link_order:                                    # two-collection link order
+        by_name[name].link(built["shared_obj"])
     nested.link(in_nested)
-    return _Bpy(scene)
+
+    source_mesh = built["m_alpha"]
+    trace = {
+        "object_construction_order": list(object_order),
+        "object_master_link_order": list(object_order),
+        "collection_creation_order": created,
+        "master_children_order": list(children_order),
+        "two_collection_link_order": list(link_order),
+        # SOURCE-ORDERED domains (§6, §4.3) — identical in both constructions by design.
+        "source_domains": {
+            "vertices": [[float(v.x), float(v.y), float(v.z)] for v in source_mesh.data.vertices],
+            "faces": [list(p.vertices) for p in source_mesh.data.polygons],
+            "materials": [m.name for m in source_mesh.data.materials],
+        },
+    }
+    return _Bpy(scene), trace
+
+
+def _determinism_scene(reverse=False):
+    """Backwards-compatible accessor: the fixture scene only."""
+    return _build_determinism_scene(reverse=reverse)[0]
+
+
+def _construction_id(trace) -> str:
+    """Deterministic fixture construction-order identifier (recorded by every §9 run)."""
+    return "objects[{}]|master_links[{}]|collections[{}]|children[{}]|links[{}]".format(
+        ">".join(trace["object_construction_order"]),
+        ">".join(trace["object_master_link_order"]),
+        ">".join(trace["collection_creation_order"]),
+        ">".join(trace["master_children_order"]),
+        ">".join(trace["two_collection_link_order"]),
+    )
+
+
+CANONICAL_CONSTRUCTION_ID = (
+    "objects[q_obj>e_obj>m_alpha>m_beta>shared_obj]"
+    "|master_links[q_obj>e_obj>m_alpha>m_beta>shared_obj]"
+    "|collections[Zeta>Alpha>Nested]|children[Zeta>Alpha]|links[Zeta>Alpha]"
+)
+RUN_C_CONSTRUCTION_ID = (
+    "objects[shared_obj>m_beta>m_alpha>e_obj>q_obj]"
+    "|master_links[shared_obj>m_beta>m_alpha>e_obj>q_obj]"
+    "|collections[Nested>Alpha>Zeta]|children[Alpha>Zeta]|links[Alpha>Zeta]"
+)
+
+SEED_PROBE_STRINGS = ("atlas-extraction-fidelity-v1", "determinism-run-probe")
+
+
+def build_run_evidence(label: str) -> dict:
+    """Execute ONE §9 run in THIS process and return its full evidence record.
+
+    Importable by the child processes that the tests spawn with an explicit ``PYTHONHASHSEED``.
+    """
+    if label not in _RUN_SEEDS:
+        raise AssertionError("unknown §9 run label: {!r}".format(label))
+    reverse = label == "C"
+    bpy, trace = _build_determinism_scene(reverse=reverse)
+    payload = extract_scene(bpy)
+    canonical = _canonical_text(payload)
+    return {
+        "run": label,
+        "pythonhashseed": os.environ.get("PYTHONHASHSEED"),
+        "hash_randomization_flag": int(sys.flags.hash_randomization),
+        "seed_probes": [hash(s) for s in SEED_PROBE_STRINGS],
+        "canonicalization": CANONICALIZATION,
+        "payload_sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "canonical_json": canonical,
+        "construction_id": _construction_id(trace),
+        "trace": trace,
+        "object_ids": [o["object_id"] for o in payload["objects"]],
+        "shared_obj_collection": _by_id(payload, "shared_obj")["collection"],
+        "emitted_source_domains": {
+            "vertices": _by_id(payload, "m_alpha")["mesh"]["vertices"],
+            "faces": _by_id(payload, "m_alpha")["mesh"]["faces"],
+            "materials": _by_id(payload, "m_alpha")["mesh"].get("materials"),
+        },
+    }
 
 
 def determinism_payload_sha() -> str:
-    """Payload SHA-256 of the canonical construction (§9 run A). Importable by a child process."""
-    return _payload_sha(extract_scene(_determinism_scene(reverse=False)))
+    """Payload SHA-256 of the canonical construction (§9 run A). Kept for child-process reuse."""
+    return build_run_evidence("A")["payload_sha256"]
 
 
-def test_run_a_and_run_c_produce_identical_payloads_and_hashes():
-    payload_a = extract_scene(_determinism_scene(reverse=False))
-    payload_c = extract_scene(_determinism_scene(reverse=True))
+# ---------------------------------------------------------------------------
+# §9 — the three runs, each in its own process with an explicit hash seed
+# ---------------------------------------------------------------------------
 
-    assert payload_a == payload_c
-    sha_a, sha_c = _payload_sha(payload_a), _payload_sha(payload_c)
-    assert sha_a == sha_c, (sha_a, sha_c)
+_CHILD_SCRIPT = r'''
+import json, os, sys
+sys.path.insert(0, {repo!r})
+from tests.test_blender_extraction_determinism_v1 import build_run_evidence
 
-    # source-ordered domains are unaffected by the construction-order change (§9)
-    alpha_a = _by_id(payload_a, "m_alpha")["mesh"]
-    alpha_c = _by_id(payload_c, "m_alpha")["mesh"]
-    assert alpha_a["vertices"] == alpha_c["vertices"] == [[round(c, 6) for c in v] for v in UNSORTED_VERTS]
-    assert alpha_a["faces"] == alpha_c["faces"] == [list(f) for f in UNSORTED_FACES]
-    assert alpha_a["materials"] == alpha_c["materials"] == UNSORTED_MATS
+expected_seed = {seed!r}
+observed_seed = os.environ.get("PYTHONHASHSEED")
+if observed_seed != expected_seed:
+    raise SystemExit("PYTHONHASHSEED not in effect: expected {{}} got {{}}".format(expected_seed, observed_seed))
 
-    # the reversed collection-link sub-case must not move the representative (§9, §5.4)
-    assert _by_id(payload_a, "shared_obj")["collection"] == _by_id(payload_c, "shared_obj")["collection"]
-    assert [o["object_id"] for o in payload_a["objects"]] == [o["object_id"] for o in payload_c["objects"]]
-
-
-def test_run_b_different_pythonhashseed_produces_the_same_hash():
-    expected = determinism_payload_sha()
-    script = (
-        "import sys; sys.path.insert(0, {repo!r});\n"
-        "from tests.test_blender_extraction_determinism_v1 import determinism_payload_sha\n"
-        "print('SHA=' + determinism_payload_sha())\n"
-    ).format(repo=REPO_ROOT)
-    results = {}
-    for seed in ("1", "2", "12345"):
-        env = dict(os.environ, PYTHONHASHSEED=seed)
-        proc = subprocess.run(
-            [sys.executable, "-c", script], capture_output=True, text=True, env=env, cwd=REPO_ROOT,
-        )
-        assert proc.returncode == 0, proc.stderr[-1500:]
-        results[seed] = proc.stdout.strip().split("SHA=")[-1].strip()
-    assert set(results.values()) == {expected}, results
+print("ATLAS_DET_START")
+print(json.dumps(build_run_evidence({label!r}), sort_keys=True))
+print("ATLAS_DET_END")
+'''
 
 
-def test_determinism_evidence_records_the_canonicalization_identifier():
-    # §9 requires each run to record hash, canonicalization id and construction order; the id is the
-    # §8.2 encoding, and it must be the one actually used by the payload hash above.
-    payload = extract_scene(_determinism_scene(reverse=False))
-    assert hashlib.sha256(_canonical_text(payload).encode("utf-8")).hexdigest() == _payload_sha(payload)
-    assert "sort_keys=True" in CANONICALIZATION and "allow_nan=False" in CANONICALIZATION
+@functools.lru_cache(maxsize=None)
+def _child_run(label: str) -> dict:
+    """Run one §9 run in an isolated process with the prescribed PYTHONHASHSEED."""
+    seed = _RUN_SEEDS[label]
+    script = _CHILD_SCRIPT.format(repo=REPO_ROOT, seed=seed, label=label)
+    env = dict(os.environ)
+    env["PYTHONHASHSEED"] = seed
+    proc = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, env=env, cwd=REPO_ROOT,
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    start = proc.stdout.find("ATLAS_DET_START")
+    end = proc.stdout.find("ATLAS_DET_END")
+    assert start != -1 and end != -1, "child run markers missing" + proc.stdout[-2000:]
+    return json.loads(proc.stdout[start + len("ATLAS_DET_START"):end].strip())
+
+
+def _assert_evidence_complete(record: dict, label: str, expected_seed: str) -> None:
+    """Every §9 run must record hash, canonicalization id, seed and construction order (§9)."""
+    assert record["run"] == label
+    assert record["pythonhashseed"] == expected_seed, record["pythonhashseed"]
+    assert len(record["payload_sha256"]) == 64
+    assert all(c in "0123456789abcdef" for c in record["payload_sha256"])
+    assert record["canonicalization"] == CANONICALIZATION
+    assert record["construction_id"]
+    assert record["trace"]["object_construction_order"]
+    assert record["trace"]["collection_creation_order"]
+    assert record["trace"]["two_collection_link_order"]
+    # the recorded hash must be the §8.2 encoding of the recorded payload
+    recomputed = hashlib.sha256(record["canonical_json"].encode("utf-8")).hexdigest()
+    assert recomputed == record["payload_sha256"]
+    # an isomorph of §8.2, applied to the recorded payload values
+    assert hashlib.sha256(
+        json.dumps(json.loads(record["canonical_json"]), sort_keys=True,
+                   separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
+    ).hexdigest() == record["payload_sha256"]
+
+
+def test_run_a_isolated_seed_1_records_full_evidence():
+    a = _child_run("A")
+    _assert_evidence_complete(a, "A", "1")
+    assert a["construction_id"] == CANONICAL_CONSTRUCTION_ID
+    assert a["trace"]["object_construction_order"] == CANONICAL_OBJECT_ORDER
+    assert a["trace"]["object_master_link_order"] == CANONICAL_OBJECT_ORDER
+    assert a["trace"]["collection_creation_order"] == CANONICAL_COLLECTION_ORDER
+    assert a["trace"]["master_children_order"] == CANONICAL_LINK_ORDER
+    assert a["trace"]["two_collection_link_order"] == CANONICAL_LINK_ORDER
+
+
+def test_run_b_isolated_seed_2_records_full_evidence():
+    b = _child_run("B")
+    _assert_evidence_complete(b, "B", "2")
+    assert b["construction_id"] == CANONICAL_CONSTRUCTION_ID
+
+
+def test_run_c_isolated_seed_3_records_the_prescribed_reversal():
+    c = _child_run("C")
+    _assert_evidence_complete(c, "C", "3")
+    assert c["construction_id"] == RUN_C_CONSTRUCTION_ID
+    # construction order really is reversed relative to A (this is what run C must demonstrate)
+    a = _child_run("A")
+    for key in ("object_construction_order", "object_master_link_order", "collection_creation_order",
+                "master_children_order", "two_collection_link_order"):
+        assert c["trace"][key] == list(reversed(a["trace"][key])), key
+    assert c["trace"]["two_collection_link_order"] == ["Alpha", "Zeta"]
+    assert a["trace"]["two_collection_link_order"] == ["Zeta", "Alpha"]
+
+
+def test_runs_a_b_c_produce_identical_payload_values_and_identical_hashes():
+    a, b, c = _child_run("A"), _child_run("B"), _child_run("C")
+
+    # identical VALUES: the canonical encoding is byte-identical, so the payloads are equal
+    assert a["canonical_json"] == b["canonical_json"] == c["canonical_json"]
+    assert json.loads(a["canonical_json"]) == json.loads(b["canonical_json"]) == json.loads(c["canonical_json"])
+    # identical HASHES (§9)
+    assert a["payload_sha256"] == b["payload_sha256"] == c["payload_sha256"]
+    # identical object order and representative under every construction order (§5.3, §5.4)
+    assert a["object_ids"] == b["object_ids"] == c["object_ids"]
+    assert a["shared_obj_collection"] == b["shared_obj_collection"] == c["shared_obj_collection"] == "Alpha"
+
+
+def test_run_c_keeps_vertex_polygon_and_material_slot_order_unchanged():
+    a, b, c = _child_run("A"), _child_run("B"), _child_run("C")
+    for run in (a, b, c):
+        assert run["trace"]["source_domains"]["vertices"] == [
+            [float(x) for x in v] for v in UNSORTED_VERTS
+        ]
+        assert run["trace"]["source_domains"]["faces"] == [list(f) for f in UNSORTED_FACES]
+        assert run["trace"]["source_domains"]["materials"] == UNSORTED_MATS
+        assert run["emitted_source_domains"]["materials"] == UNSORTED_MATS
+        assert run["emitted_source_domains"]["faces"] == [list(f) for f in UNSORTED_FACES]
+    assert a["trace"]["source_domains"] == b["trace"]["source_domains"] == c["trace"]["source_domains"]
+    assert (a["emitted_source_domains"] == b["emitted_source_domains"]
+            == c["emitted_source_domains"])
+
+
+def test_the_hash_seed_actually_took_effect_in_each_run():
+    """Mechanical proof that A and B ran under DIFFERENT seeds while producing the same payload."""
+    a, b, c = _child_run("A"), _child_run("B"), _child_run("C")
+    assert a["pythonhashseed"] == "1" and b["pythonhashseed"] == "2" and c["pythonhashseed"] == "3"
+    # a str-hash probe is seed-dependent; at least one probe must differ between any two seeds
+    for left, right, labels in ((a, b, "AB"), (a, c, "AC"), (b, c, "BC")):
+        assert any(x != y for x, y in zip(left["seed_probes"], right["seed_probes"])), labels
+    # ...while the payload hash does not depend on the seed
+    assert len({a["payload_sha256"], b["payload_sha256"], c["payload_sha256"]}) == 1
+
+
+def test_in_process_run_matches_the_child_runs():
+    """The in-process path (used by other tests) agrees with the isolated §9 runs."""
+    a = _child_run("A")
+    local = build_run_evidence("A")
+    assert local["payload_sha256"] == a["payload_sha256"]
+    assert local["canonical_json"] == a["canonical_json"]
+    assert local["construction_id"] == CANONICAL_CONSTRUCTION_ID
+    assert determinism_payload_sha() == a["payload_sha256"]
 
 
 # ---------------------------------------------------------------------------
