@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Mapping
 
+from planning.unreal_shot_continuity import UnrealShotContinuity
+
 
 _ACTIVE_STATUSES = {
     "submitted",
@@ -14,17 +16,14 @@ def verify_render_job_completion(
     *,
     require_artifacts=True,
     expected_job_id=None,
+    expected_continuity: UnrealShotContinuity = None,
 ):
-    """Verify one render-job observation against the authorized expectation.
+    """Verify one render-job observation against authorized expectations.
 
-    ``expected_job_id`` is the authorization-bound job identity: the
-    ``verify_render_job`` operation's own ``job_id`` argument after the existing
-    ``$previous.submit_render.job_id`` resolution, or the plan's own authorized
-    ``job_id`` for a job-addressed ``inspect_render_job`` read. Comparison is an
-    exact string comparison after a defensive strip. When it is supplied the
-    observation must carry exactly that identity; the executor always supplies
-    it on the authorized execution path. ``None`` preserves the legacy call
-    shape (no identity binding) for direct verifier callers.
+    ``expected_job_id`` binds the observed job identity to the authorized
+    submission. ``expected_continuity`` binds the final render evidence to the
+    frame range, sequence, output directory, and output format already present
+    in the caller's authorized production plan.
     """
     state = evidence.observed_state
 
@@ -33,9 +32,6 @@ def verify_render_job_completion(
             "render job evidence observed_state must be a mapping"
         )
 
-    # Production adapters may return the render-job object directly, while
-    # transport fixtures can preserve the standard entity envelope:
-    # {entity_id: {"render_job": {...}}}.
     if "job_id" not in state:
         render_job = None
 
@@ -81,8 +77,8 @@ def verify_render_job_completion(
             f"render job reports failed=True: status={status!r}"
         )
 
-    # Submission verification is intentionally asynchronous. A newly
-    # submitted job is valid evidence even though rendering is not finished.
+    # Submission verification remains asynchronous: active jobs are accepted
+    # before terminal artifact continuity can be checked.
     if not state.get("finished"):
         if status not in _ACTIVE_STATUSES:
             raise ValueError(
@@ -135,6 +131,17 @@ def verify_render_job_completion(
         raise ValueError(
             "render job declared output files that are empty: "
             + ", ".join(empty)
+        )
+
+    if expected_continuity is not None:
+        if not isinstance(expected_continuity, UnrealShotContinuity):
+            raise TypeError(
+                "expected_continuity must be an UnrealShotContinuity instance"
+            )
+        expected_continuity.verify_job_state(state)
+        expected_continuity.verify_artifacts(
+            output_files,
+            require_files=require_artifacts,
         )
 
     return evidence
