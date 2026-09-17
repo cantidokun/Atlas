@@ -89,6 +89,40 @@ class UnrealProductionWorkflow:
         self.production_executor = production_executor
         self.render_workflow = render_workflow
 
+    @staticmethod
+    def _render_continuity(production: UnrealProductionPlan, sequence_asset_path: str) -> dict:
+        """Extract the already-authorized render values from the exact production plan."""
+        render_operation = next(
+            (
+                operation
+                for operation in production.plan.operations
+                if operation.name == "configure_render"
+            ),
+            None,
+        )
+        if render_operation is None:
+            raise UnrealProductionWorkflowError(
+                "production plan does not contain an authorized configure_render operation"
+            )
+        arguments = dict(render_operation.arguments)
+        required = {
+            "start_frame",
+            "end_frame",
+            "output_directory",
+            "output_format",
+        }
+        if not required.issubset(arguments):
+            raise UnrealProductionWorkflowError(
+                "authorized configure_render operation is missing continuity fields"
+            )
+        return {
+            "expected_sequence_asset_path": sequence_asset_path,
+            "expected_start_frame": arguments["start_frame"],
+            "expected_end_frame": arguments["end_frame"],
+            "expected_output_directory": arguments["output_directory"],
+            "expected_output_format": arguments["output_format"],
+        }
+
     def run(
         self,
         production: UnrealProductionPlan,
@@ -144,6 +178,7 @@ class UnrealProductionWorkflow:
             intent,
             job_id,
             render_authorization_factory,
+            continuity=self._render_continuity(production, sequence_asset_path),
         )
         if not isinstance(final_render, UnrealRenderWorkflowResult):
             raise UnrealProductionWorkflowError(
