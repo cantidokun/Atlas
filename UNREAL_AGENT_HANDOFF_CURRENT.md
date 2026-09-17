@@ -2,7 +2,7 @@
 
 **Updated:** September 17, 2026 (publication update)
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10` — published at `d582af3`
-**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice 3 (queue consumption/deletion) remains separate and unimplemented**, and is not the next step: the next gate is a design review of whether queue consumption should be addressed at all and whether Atlas keeps the current MRQ queue semantics or isolates its own queue instance.
+**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice 3 (queue consumption/deletion) remains separate and unimplemented.** The queue-lifecycle design review has since completed (read-only): `docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md` — **CLEAR WITH MINOR FINDINGS** — concluding that accumulation is no longer a provenance correctness risk, recommending `OnIndividualJobStarted` identity-guarding as the next (separately gated) slice, retaining the current shared queue semantics as the default, and deferring an Atlas-owned private queue instance (engine-proven mechanism, own gate required).
 
 ## Current milestone chain
 
@@ -128,16 +128,20 @@ Do not force-push, rebase destructively, or blindly merge the parallel implement
 ## Next step — design gate only (no implementation)
 
 Shot continuity is closed and published, and MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE +
-LIVE-PROVEN. The next architectural review is **NOT an implementation**: it must first decide *whether queue
-consumption should be addressed at all*, and then whether Atlas should **retain the current MRQ queue semantics**
-or **isolate its own queue instance** (`RenderQueueInstanceWithExecutorInstance`). That question needs a fresh
-design gate and a CLEAR / CLEAR WITH MINOR FINDINGS / BLOCKED verdict before any code is written.
+LIVE-PROVEN. The queue-lifecycle design review has now been performed (read-only; no code, no tests, no live
+run): **`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md` — verdict CLEAR WITH MINOR FINDINGS.**
 
-Carried, unresolved, NOT to be implemented without that gate:
+Its conclusion: queue accumulation is no longer a provenance/evidence-correctness risk after Slice 1 + Slice 2;
+what remains is an efficiency cost, a monitoring-state fidelity gap, a fail-closed availability coupling, and a
+silent-drop hazard. Recommended sequencing — **nothing authorized**:
 
 ```text
-Slice 3  : consume/delete only the queue job this transport allocated (Atlas-owned only) - unimplemented
-gap      : OnIndividualJobStarted is still identity-blind (monitoring fields only, no artifact impact)
+D  identity-guard OnIndividualJobStarted      recommended next slice, needs its own design gate
+A  retain current shared MRQ queue semantics  accepted as the default
+C  Atlas-owned private MRQ queue instance     engine-proven mechanism (Epic Quick Render), deferred with
+                                              entry criteria; own design gate required
+B  consume/delete only Atlas-owned jobs       rejected for now (engine-queue mutation + index risk)
+carried: F2 silent non-start -> poll timeout; F3 executor-level failure coupling  (both fail-closed)
 ```
 
 The audit and candidate evaluation for that review are recorded in `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (90 source anchors across the transport C++ and the UE 5.6.1 MovieRenderPipeline plugin, plus the measured failure evidence). Its recommended architecture is an identity guard in the existing `OnIndividualJobWorkFinished` lambda (the payload's job must equal the job this transport allocated) plus a PNG artifact-containment rule against the authorized output directory. The design gate returned `CLEAR WITH MINOR CONDITIONS`; Slice 1 and Slice 2 are now implemented and LIVE
@@ -180,6 +184,7 @@ docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md
 docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md (design: CLEAR WITH MINOR CONDITIONS)
 docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md
 docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_CLOSEOUT.md
+docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDINGS)
 ```
 
 This file is the first-read continuation context for the next Unreal session.

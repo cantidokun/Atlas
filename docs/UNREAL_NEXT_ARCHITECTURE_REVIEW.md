@@ -9,14 +9,21 @@ The review below selected shot-level production continuity as the next surface. 
 
 The next architectural review was **MRQ queue hygiene / artifact attribution** — how a submission's artifacts are attributed when the MRQ queue retains prior jobs. That surface's Slice 1 (engine-side provenance guard in the existing per-job callback) and Slice 2 (PNG artifact containment against the authorized output directory) are now **MRQ artifact attribution — COMPLETE + LIVE-PROVEN** (job identity guard live-proven in a multi-submission single-editor session; foreign callback artifacts discarded; PNG artifacts contained within the authorized output directory; exact frame-set verification still active; Slice 3 queue consumption separate and unimplemented). See `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`.
 
-The NEXT gate is a **design review, not an implementation**: first decide *whether queue consumption should be
-addressed at all*, and then whether Atlas should **retain the current MRQ queue semantics** or **isolate its own
-queue instance**. It needs a fresh design gate and an explicit verdict before any code. Nothing below is
-implemented:
+The NEXT gate was a **design review, not an implementation** — and it has now been performed:
+`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md` (**verdict: CLEAR WITH MINOR FINDINGS**; read-only, no code,
+no tests, no live run). Its conclusion: after Slice 1 + Slice 2, queue accumulation is **not** a provenance or
+evidence-correctness risk — it is an efficiency cost, a monitoring-state fidelity gap (`OnIndividualJobStarted`),
+a fail-closed availability coupling (a queue job's fatal error reaches our executor-level callback) and a
+silent-drop hazard (a submission made while another render is in progress is refused by the subsystem's
+`ensure`, and the transport cannot see that). Recommended sequencing, nothing authorized yet:
 
 ```text
-Slice 3 : consume/delete only the queue job this transport allocated (Atlas-owned only)
-gap     : OnIndividualJobStarted is still identity-blind (monitoring fields only, no artifact impact)
+D  identity-guard OnIndividualJobStarted      recommended next slice (own design gate)
+A  retain current shared MRQ queue semantics  accepted as the default
+C  Atlas-owned private MRQ queue instance     engine-proven (Quick Render does exactly this) - deferred,
+                                              entry criteria recorded in the review; needs its own design gate
+B  consume/delete only Atlas-owned jobs       rejected for now (does not establish provenance, mutates
+                                              engine-owned queue state, executor index-invariant risk)
 ```
 
 The design review for that surface is drafted at `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (audit of the MRQ job lifecycle, `SubmitRender` identity creation, queue state, callback/event ownership, `InspectRenderJob` construction, job-ID binding, artifact collection, receipt/evidence relations, continuity interaction, and recovery; candidates A–D evaluated; recommended architecture = engine-side provenance guard in the existing per-job callback plus PNG artifact containment against the authorized output directory). Its status is `AWAITING INDEPENDENT DESIGN GATE` and it is not self-cleared. Every frozen constraint in this document (no new transport primitive, no second authorization authority, no model-derived authority, no entity discovery/cache, fresh verification, exact render-job identity, fail-closed recovery, no distributed-render architecture) continues to apply to that review.
@@ -179,7 +186,8 @@ Composite actor production             COMPLETE + LIVE
 Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
 MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN
         ↓
-NEXT: design gate - address queue consumption at all? retain MRQ queue semantics vs Atlas-owned queue instance?
+MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
         ↓
-(not implemented: Slice 3 consumption; OnIndividualJobStarted identity gap)
+NEXT (needs its own design gate): D identity-guard OnIndividualJobStarted   [recommended]
+        (deferred: C private queue instance; rejected for now: B consumption; default: A current semantics)
 ```
