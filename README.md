@@ -80,45 +80,24 @@ The current development branch is:
 reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-Current HEAD:
+The shared branch now carries the September 17 overnight documentation closeout. The published feature branch still contains the parallel shot-continuity implementation; the fully reconciled local candidate has **not** yet been published to the shared branch.
+
+Latest documented milestones:
 
 ```text
-9625dd712c05126ae2b12c85d4cf034a396cb58a
+Controller trust boundary              COMPLETE + LIVE
+Blueprint semantic verification        COMPLETE + LIVE
+Render-state semantic verification     COMPLETE + LIVE
+Render-job identity verification       COMPLETE + LIVE
+Composite actor production             COMPLETE + LIVE
+Shot-level production continuity       LIVE-PROVEN in local reconciled candidate
 ```
 
-The earlier checkpoint of this handoff set was `fe2322f7e76caf3115e3e5be6dafce05d62251ca`; the milestone commits are `e1a1285` documentation checkpoint, `fe4bba2` controller live-gate tests, `72a6578` Blueprint semantic verification, `a964ab6` Blueprint documentation closeout, `87b7e82` render-state semantic verification, `9625dd7` render-state documentation closeout.
+The intended published shot-continuity contract is recorded in `docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md` and the local reconciliation record. It preserves inclusive Atlas frame semantics, translates the inclusive end frame to Unreal MRQ's half-open boundary exactly once, verifies fresh effective frame evidence, binds sequence identity through the authorized production plan, and verifies the exact PNG frame set.
 
-The Unreal work has reached a provider-neutral **agent-to-controller trust boundary** above the existing production stack, and that boundary has now been validated against real Unreal execution.
+The current shared branch should **not** be treated as the final reconciled shot-continuity state yet. Before publication of the reconciled candidate, run the fresh live continuity gate, the affected deterministic regression, and fixture byte verification, then fast-forward only. No force-push.
 
-The current source-level controller path is:
-
-```text
-Agent model response
- ↓
-explicit ATLAS_CONTROLLER_REQUEST
- ↓
-AgentControllerIntent
- ↓
-AgentTaskRequest
- ↓
-AgentControllerHost / AgentControllerLoopAdapter
- ↓
-AgentEntrypointRuntime
- ↓
-AgentProcessRuntime classification
- ↓
-Capability admission
- ↓
-Capability execution
- ↓
-Provider-specific integration
- ↓
-Authorization / execution / evidence / verification / recovery
-```
-
-Ordinary Blender/Qwen tool execution remains separate and unchanged by this controller seam.
-
-The agent-facing runtime composes its controller boundary from `AgentControllerHost` (host-owned runtime plus loop) rather than constructing the entrypoint runtime and loop adapter directly, and the complete controller path has been validated live against real Unreal execution. See `UNREAL_AGENT_HANDOFF_CURRENT.md` for the live gate record.
+---
 
 ## Controller trust boundary
 
@@ -142,47 +121,7 @@ UnrealAuthorizedProductionPlan
 
 The production plan and authoritative task intent must share the same intent ID before the trusted context can be installed.
 
-## Latest controller checkpoint
-
-The reconciled branch is deterministic green:
-
-```text
-canonical focused suite (13 modules, exact command below) : 160 passed, 2 deselected
-broader deterministic Unreal/controller/agent/
-  capability/evidence/receipt sweep                 : 742 passed, 5 skipped
-Python 3.9 focused parity (same 13 modules)         : 160 passed, 2 deselected
-four directly affected contract surfaces
-  (unreal_production_result_contract, unreal_production_workflow,
-   unreal_evidence_contract, unreal_render_receipt) : 37 passed
-
-CORRECTED 2026-09-15: the previously recorded focused figure
-("268 passed, 1 skipped, 1 deselected") is not reproducible on fe2322f from any
-recorded selection and is superseded by the figures above. Exact focused command:
-
-.venv/Scripts/python.exe -m pytest tests/test_agent_controller_*.py tests/test_agent_entrypoint_*.py \
-  tests/test_agent_execution_context.py tests/test_agent_trusted_context.py tests/test_agent_task_request.py \
-  tests/test_agent_process_runtime.py tests/test_agent_process_runtime_identity.py \
-  tests/test_capability_admission.py tests/test_capability_execution.py \
-  tests/test_unreal_production_result_contract.py tests/test_unreal_evidence_contract.py \
-  tests/test_unreal_render_receipt.py tests/test_unreal_render_receipt_store.py -m "not integration" -q
-```
-
-This confirms the current source-level intent parsing, trusted-context handling, host lifecycle, controller loop boundary, Unreal trusted-context binding, and synthetic end-to-end controller path.
-
-The explicitly authorized live controller gate has also passed:
-
-```text
-tests/test_agent_controller_host_production_real_integration.py
-1 passed in 10.77s
-```
-
-That gate drove an already-authorized `FIELD_SURFACE` composite production through the real controller host, the existing Named Pipe transport, and a real Unreal Engine 5.6.1 editor, and returned fresh verified evidence, a matching render receipt, and a typed controller result contract.
-
-No other live Unreal/action-runner test was run for this checkpoint.
-
----
-
-# Unreal Engine status
+## Unreal Engine status
 
 The existing Unreal architecture remains:
 
@@ -204,41 +143,51 @@ Fresh evidence
 Independent verification
 ```
 
-Previously established live proofs include real Unreal production execution and render receipt verification. Those proofs do not automatically validate the newer model-to-controller host path.
+The latest shot-continuity work proved a complete production-to-render continuity path against real UE 5.6.1 in a fresh editor session. The live proof included exact sequence identity, inclusive frame-range continuity, MRQ boundary translation, output directory/format continuity, exact job identity, PNG frame-set completeness, receipt issuance/persistence, and fixture restoration.
 
-## Blueprint production boundary
+The implementation deliberately did **not** add a new Named Pipe operation, second authorization authority, generic workflow engine, entity cache, or distributed-rendering layer.
 
-**CURRENT STATE (2026-09-15): the narrow Blueprint production boundary is GREEN and live-gated against real Unreal Engine 5.6.1 over the existing Named Pipe transport, with Atlas semantic verification implemented, registered and live-proven (3 passed; `evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path).** The narrow sequence that was completed is:
+### Shot-level production continuity
+
+The authoritative Atlas semantics are inclusive:
 
 ```text
-READ   inspect_blueprint_state
-WRITE  set_blueprint_metadata
-WRITE  compile_blueprint
-VERIFY verify_blueprint_state
+start_frame ... end_frame
+expected PNG frame set = every authorized frame in that inclusive range
 ```
 
-**SUPERSEDED (2026-09-15) — HISTORICAL:** the previously identified remaining live issue is evidence shape: persisted Blueprint metadata must appear under `metadata` in the independently observed state after mutation and compilation. **Resolved live:** it does, and verification now binds asset identity, compile status and the authorized metadata key/value while tolerating unrelated metadata keys.
+The Unreal/MRQ boundary translates this once:
 
-The Blueprint milestone is **declared green (2026-09-15)**; arbitrary Blueprint graph authoring remains out of scope and would require its own design gate.
+```text
+CustomStartFrame = Atlas start_frame
+CustomEndFrame   = Atlas end_frame + 1
+```
 
-## Next Unreal gate
+Fresh render-job evidence exposes the semantic inclusive range plus the explicit `end_frame_exclusive` engine-boundary diagnostic. Final continuity verification compares fresh evidence to the authorized production values and requires exact PNG frame coverage, including rejection of missing, duplicate, unexpected, or frame-number-less artifacts.
 
-The live controller-to-Unreal production test has passed using a real pre-authorized `TrustedUnrealContext`, so the controller host boundary is no longer source-level only.
+The receipt remains the existing evidence-bound structure:
 
-The test-only repair is **APPLIED (September 15, 2026)** in the working tree (two lines:
-`from collections.abc import Mapping` and `if not isinstance(value, Mapping):`), and both live controller
-production tests were rerun green against a real UE 5.6.1 editor (1 passed in 9.53s and 1 passed in 6.10s)
-with the fixture restored to 0/0/0, identity rotation, 1/1/1.
+```text
+job_id
+sequence_asset_path
+evidence_digest
+receipt_digest
+```
 
-Residual follow-up (same defect class, NOT fixed — out of scope for the controller gate):
-`tests/test_unreal_composite_real_integration.py`,
-`tests/test_unreal_heterogeneous_recovery_real_integration.py`,
-`tests/test_unreal_production_workflow_real_integration.py`,
-`tests/test_unreal_material_variant_real_integration.py`.
+The parallel receipt extension that duplicated observed continuity fields into the receipt digest was rejected during reconciliation because those fields are already covered by the evidence digest and do not provide an independent integrity property.
 
-After that, the next engine-dependent milestone was the live Blueprint production boundary — completed and gated green on September 15, 2026.
+### Overnight reconciliation state
 
-**SUPERSEDED (2026-09-15):** "Blueprint evidence validation remains a separate live gate, and Blueprint production is not green." Blueprint production is green and its evidence is now Atlas-verified. **CURRENT STATE (2026-09-15, later the same day):** render configuration/state semantic verification (`verify_render_state`) has also been promoted to the executor's semantic-verification registry and live-gated green (1 passed on Unreal Engine 5.6.1 over the existing Named Pipe transport; `result.evidence_ledger[2].verified is True`), with the executor now the sole producer of the render-state `verified` flag and the verifier itself no longer setting it. The render **job**/result layer (Movie Render Queue submission and job-state verification) had its design gate the same night and returned **CLEAR WITH MINOR FINDINGS**. The next active development gate is therefore **render-job identity semantic verification** — binding the engine-observed `job_id` to the authorization-bound expected job id in `verify_render_job` and in the job-addressed `inspect_render_job` read. Its design is complete and implementation has **NOT** started. See `UNREAL_AGENT_HANDOFF_CURRENT.md`, "Next active development gate".
+At session close the shared branch and the local reconciled candidate were intentionally kept separate. The local candidate `97487d0` is the reviewed reconciliation target but has not been published. See:
+
+```text
+docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md
+docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
+```
+
+### Open Unreal boundary item
+
+MRQ queue accumulation / artifact attribution remains a separate architectural risk. Fresh editor sessions are required for live continuity gates because prior queue jobs can otherwise create ambiguous callback artifact attribution. This issue is intentionally not folded into shot continuity tonight.
 
 ---
 
@@ -377,22 +326,20 @@ unreal/AtlasUnrealHarness
 
 # Resume the current Unreal development phase
 
-```powershell
-cd "C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider"
-git status
-```
+Development is intentionally paused at the end of the September 17 session.
 
-Resume on the reconciled branch:
+Resume from:
 
 ```text
-reconcile/unreal-autonomy-origin-20c6d10
-9625dd712c05126ae2b12c85d4cf034a396cb58a
+C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider
 ```
 
-Do not pull, merge, rebase, reset or stash: the branch is already reconciled with `origin/integrate-origin-main-with-render-receipt`, and the local autonomy commit it builds on is published on a separate remote branch.
+First read:
 
-The live controller-to-Unreal production gate has passed. The next steps are recorded in `UNREAL_AGENT_HANDOFF_CURRENT.md`:
+```text
+UNREAL_AGENT_HANDOFF_CURRENT.md
+docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
+docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md
+```
 
-1. the test-only `_variant` Mapping compatibility repair — APPLIED (September 15, 2026);
-2. both live controller production tests rerun green against real Unreal (1 passed each);
-3. the live Blueprint production boundary was then revalidated and gated green on September 15, 2026 (3 passed; semantic verification binds asset identity, compile status and the authorized metadata key/value).
+Then inspect the shared branch versus the local reconciled candidate. The next authorized action is a fresh live gate on the reconciled candidate followed by deterministic regression and fixture byte verification. Only after those are green should the shared branch be advanced by fast-forward. No force-push.
