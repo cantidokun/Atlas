@@ -137,6 +137,7 @@ class _MeshData:
     def __init__(self):
         self.vertices = [_Vec(0, 0, 0), _Vec(1, 0, 0), _Vec(0, 1, 0), _Vec(1, 1, 0)]
         self.polygons = [_Poly(0, 1, 2), _Poly(1, 3, 2)]
+        self.materials = []
 
 
 class _MeshObj:
@@ -148,6 +149,10 @@ class _MeshObj:
         self.scale = _Vec(1, 1, 1)
         self.parent = None
         self.users_collection = []
+        self.rotation_mode = "XYZ"
+        self.rotation_euler = _Vec(0, 0, 0)
+        self.hide_viewport = False
+        self.material_slots = []
 
 
 class _Object:
@@ -158,13 +163,18 @@ class _Object:
         self.scale = _Vec(1, 1, 1)
         self.parent = None
         self.users_collection = []
+        self.rotation_mode = "XYZ"
+        self.rotation_euler = _Vec(0, 0, 0)
+        self.hide_viewport = False
 
 
 class _SceneCol:
     """Models Blender's scene.active-collection object membership (scene.collection.objects)."""
 
     def __init__(self, objs=None):
+        self.name = "Scene Collection"
         self.objects = list(objs) if objs else []
+        self.children = []
 
 
 class _Scene:

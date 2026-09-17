@@ -20,6 +20,7 @@ NOT executed in the preparation/remediation round. M12.5 / M5 untouched. No comm
 """
 
 import hashlib
+import math
 import os
 import subprocess
 import sys
@@ -112,6 +113,21 @@ EXPECTED_PROBE_WORLD = {
 
 EXPECTED_PITCH_TOPOLOGY = [3, 4, 5]  # triangle + quad + n-gon per-face cardinalities
 
+# --- Extraction Fidelity v1: the RE-DERIVED frozen-asset anchor (design §11.3 / §21.4). ---
+# `collection` is a digested field, so correcting the representative moves the digests: the
+# asset's Field/Goals/Structure are ORPHAN collection datablocks (unreachable from
+# scene.collection by child links), so no object has an included child collection and the §5.4
+# representative is null for all 11 objects.
+#
+# NAMING NOTE: in the design §11.3 table the two rows' labels are transposed relative to the
+# code — `scene_input_digest` IS `report.input_digest` (= `kernel.scene_input_digest`), and the
+# other value is `SceneReport.digest()` (which additionally covers metrics and findings). The
+# literals are asserted here under their CORRECT names; no design rule depends on the labels.
+PRE_V1_SCENE_INPUT_DIGEST = "13bbf29c69449a9c9f825e9fe4212acc3c4c62f519c1aa989d0f2aed1fecf92b"
+PRE_V1_REPORT_DIGEST = "8d009d0d8cb7b3ed9604dfca753c998faceb839f1bcf17f7336e3676e54eb331"
+EXPECTED_V1_SCENE_INPUT_DIGEST = "d90895bae02e30502cb9077b219b67cc4fbe104f3cbab664850c9346dc60ddfb"
+EXPECTED_V1_REPORT_DIGEST = "ee430d6fdc69928b9c91284deda96c14cf3e25d745aa14cfab6c51dabf3a3203"
+
 
 def _blender_command_ver() -> str:
     return os.environ.get("ATLAS_BLENDER_VERSION_PIN", "<unset: confirm target build before run>")
@@ -183,6 +199,13 @@ out = {
     "mesh_object_count": sum(1 for o in payload["objects"] if o.get("mesh") is not None),
     "unit_system": payload["unit_system"],
     "object_ids": sorted(o["object_id"] for o in payload["objects"]),
+    "collections": {o["object_id"]: o["collection"] for o in payload["objects"]},
+    "visibles": {o["object_id"]: o["visible"] for o in payload["objects"]},
+    "rotations": {o["object_id"]: list(o["rotation"]) for o in payload["objects"]},
+    "mesh_key_sets": {o["object_id"]: sorted(o["mesh"].keys()) for o in payload["objects"]
+                      if o.get("mesh") is not None},
+    "materials": {o["object_id"]: o["mesh"].get("materials", "<absent>")
+                  for o in payload["objects"] if o.get("mesh") is not None},
     "payload": payload,
     "read_only_digest_equal": snap_before == snap_after,
 }
@@ -259,6 +282,35 @@ def test_live_real_blend_validation():
         assert world == pytest.approx(spec["world"]), (
             f"{oid} world mismatch: local {local} -> {world}, expected {spec['world']}"
         )
+
+    # --- Extraction Fidelity v1: the re-derived frozen-asset anchor (design §11.3 / §21.4). ---
+    assert set(result["collections"].values()) == {None}, (
+        "every frozen-asset object has no included child collection -> collection: null (§5.4)"
+    )
+    assert result["input_digest"] == EXPECTED_V1_SCENE_INPUT_DIGEST, (
+        "scene_input_digest (= report.input_digest) must be the re-derived v1 value"
+    )
+    assert result["digest"] == EXPECTED_V1_REPORT_DIGEST, (
+        "report.digest() must be the re-derived v1 value"
+    )
+    # falsification control: neither pre-v1 value may survive the producer correction
+    assert result["input_digest"] != PRE_V1_SCENE_INPUT_DIGEST
+    assert result["digest"] != PRE_V1_REPORT_DIGEST
+    # deferred keys omitted (§4.1/§4.2/§4.4) and materials truthful (§4.3: zero slots -> [])
+    assert set(result["mesh_key_sets"]) == {o["object_id"] for o in pl["objects"]
+                                            if o.get("mesh") is not None}
+    for oid, keys in result["mesh_key_sets"].items():
+        assert keys == ["faces", "materials", "mesh_id", "vertices"], (oid, keys)
+        assert result["materials"][oid] == [], oid
+    # visibility is sourced from obj.hide_viewport (false on every object of this asset)
+    assert set(result["visibles"].values()) == {True}
+    # the XYZ path is unchanged for this asset: identity everywhere except the two Z-axis probes
+    assert result["rotations"]["pitch"] == [1.0, 0.0, 0.0, 0.0]
+    # tolerance per the §7.2.1 comparison contract: the asset stores the Euler in float32, so the
+    # converted quaternion sits ~1.6e-8 from the exact half-angle value (measured).
+    assert result["rotations"]["probe_rot"] == pytest.approx(
+        [math.cos(math.pi / 4), 0.0, 0.0, math.sin(math.pi / 4)], abs=1e-6
+    )
 
     # --- Finding set + ValidationState must be EXACT (distinguishes all failure classes). ---
     assert set(result["finding_codes"]) == EXPECTED_FINDING_CODES
