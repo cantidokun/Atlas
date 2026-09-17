@@ -1,6 +1,6 @@
 # Atlas Blender — Extraction Fidelity v1 (Scoped Producer Completion) Design Gate
 
-**Status:** DESIGN REVISION 5 — REVIEW REQUIRED / NO IMPLEMENTATION
+**Status:** DESIGN REVISION 6 — REVIEW REQUIRED / NO IMPLEMENTATION
 **Track:** Blender canonical extraction
 **Baseline (authoritative):** `origin/main` = `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2` (Wave 12 merged)
 **Design branch:** `feat/blender-extraction-fidelity-design`
@@ -24,7 +24,8 @@ Nothing in this section is a contract; it exists so a reviewer can determine **w
 | `66c1c77` | Tighten extraction fidelity v1 contract after red-team round 2 | round-2 remediation |
 | `af6a75f` | Close extraction fidelity v1 design blockers (round-2 re-red-team) | round-2 BL/AM closures — §21 |
 | `99193a3` | Close round-3 findings (BL-1 Euler fixture discrimination, BL-2 OBJECT-linked slots, AM-A..AM-D, T-1..T-6, L-1..L-4) — design only | round-3 closures — §21.1 |
-| *(this revision)* | Close round-4 findings (quaternion layer semantics, single-valued material precedence, five clarifications) — design only | round-4 closures — §21.2 |
+| `2873ac6` | Close round-4 findings (quaternion layer semantics, single-valued material precedence, five clarifications) — design only | round-4 closures — §21.2 |
+| *(this revision)* | Close round-5 findings (§15 null/normalization contradiction, falsifiable order-preservation tests) — design only | round-5 closures — §21.3 |
 
 The closing task named `3257f2d` as "the current design commit"; the branch head at that moment was
 `66c1c77`, a child of `3257f2d` that tightened the same single document (+361 / −290). This revision is
@@ -871,8 +872,13 @@ The disposable fixtures (§14) remain the primary positive fidelity mechanism.
 
 Must contain:
 
-* a mesh with multiple polygons in deterministic source order;
-* **two or more non-empty material slots in a known order**;
+* a mesh with multiple polygons whose **source order is deliberately not a sorted order**: the vertex
+  list must not be in sorted-coordinate order and the polygon list must not be in
+  lexicographic/numeric face order, so that §6's no-sorting rule is genuinely exercised (T-7);
+* **three or more non-empty material slots whose source order is deliberately non-lexical** — the
+  slot-name sequence must differ from its code-point sort (for example `["Zebra", "concrete",
+  "AstroTurf"]`, whose source order is not its sorted order), so that a producer which sorts names is
+  detectable (T-1b);
 * a **quaternion-mode** object with a non-identity quaternion, plus a second quaternion-mode object
   whose source quaternion is deliberately **non-unit** (un-normalized). For both, the asserted expected
   value is layer 2 of §7.2.1 — the **raw** source tuple, identical in the payload, on
@@ -892,9 +898,12 @@ Must contain:
 * an object with `hide_viewport = True` and one with `hide_viewport = False`;
 * **no** UV or normal fidelity expectation.
 
-Expected v1 payload facts: exact material slot-name order; quaternion and Euler transform values
-matching independently derived expectations; deterministic representative collection; master-only
-`null`; visibility mapping; omitted `normals`/`uvs`/`local_frame_id` keys.
+Expected v1 payload facts: material slot names in **exactly the source slot order**, therefore
+**different from the code-point sorted order**; vertex and face tables in **exactly the source index
+order**, therefore different from any sorted order; quaternion and Euler transform values matching
+independently derived expectations (all three layers, §7.2.1); deterministic representative collection;
+master-only `collection: null`; parentless objects carrying `parent_object_id: null`; visibility mapping;
+omitted `normals`/`uvs`/`local_frame_id` keys.
 
 ### Fixture B — explicitly unsupported domains (disposable scene)
 
@@ -979,19 +988,43 @@ that implementation has occurred.
 At minimum, the deterministic suite must cover:
 
 * exact producer **key-set assertion** per mesh: `{mesh_id, vertices, faces}` plus `materials` only when
-  §4.3 permits — in particular no `normals`, `uvs`, or `local_frame_id` key, and no `null` anywhere in
-  the emitted payload;
+  §4.3 permits — in particular no `normals`, `uvs` or `local_frame_id` key in any mesh record, and the
+  producer never emits `null` for those three deferred fields. **Scoped null assertion (do not
+  over-generalise this):** the suite must **not** assert "no `null` anywhere in the payload", because two
+  other fields legitimately carry `null` as a *required value* — `collection: null` is the correct
+  encoding when the object has no included child collection (§3, §5.4, and §14 Fixture A's master-only
+  object), and `parent_object_id: null` is the correct encoding for a parentless object (§3). Those two
+  nulls are required content, not violations: an assertion that rejects them is a defective test and must
+  not be written;
 * rotation matrix: `XYZ` with **all three components non-zero** and an independently derived expected
   value (single- and two-component objects may be added as extra coverage but can never substitute for
   it — §7.2), plus the **wrong-order falsification control** (a deliberately mis-ordered conversion must
-  FAIL the same assertion), `QUATERNION` (component order, unit and non-unit source, canonical
-  normalization), non-`XYZ` Euler **refusal**, `AXIS_ANGLE` **refusal**, unreadable `rotation_mode`
+  FAIL the same assertion), `QUATERNION` asserted as the **three §7.2.1 layers separately** — (1) RAW
+  PAYLOAD quaternion equal to the source `obj.rotation_quaternion` `(w, x, y, z)` **verbatim**, (2) RAW
+  `ObjectModel.rotation` tuple equal to that same tuple and consumed as-is by `scene_input_digest`,
+  (3) NORMALIZED `TransformModel.rotation` obtained from `ObjectModel.transform` — with the explicit
+  prohibition that **no test may assert that the canonical `ObjectModel.rotation` is normalized**, plus
+  non-`XYZ` Euler **refusal**, `AXIS_ANGLE` **refusal**, unreadable `rotation_mode`
   **refusal**;
 * missing/malformed transform attributes fail closed; no per-axis `0.0`/`1.0` defaults;
 * `hide_viewport` mapping for `True`/`False`; absent/non-bool → fail closed;
 * material-slot order from `obj.data.materials`; zero slots → `[]`; empty slot → key omitted;
   OBJECT-linked slot → key omitted (never a partial list); per-face `material_index` variation never
   appears in the payload;
+* **material order-preservation assertion — two-sided, with falsification control (round-5).** The
+  fixture's slot names must be chosen so that **source order ≠ code-point sorted order** (T-1b, §14
+  Fixture A). The test asserts **both** that the emitted `materials` list equals the source slot order
+  **and** that it differs from the code-point sort of that same list; the second assertion is what makes a
+  sorting producer detectable. The suite must additionally prove the assertion can fail: a producer that
+  lexically sorts the slot names must **FAIL** the same comparison;
+* **geometry order-preservation assertions — with falsification controls (round-5).** *Vertices:* the
+  fixture's vertex list must be deliberately **not** in sorted-coordinate order, and the test asserts the
+  emitted `vertices` equal the source `obj.data.vertices` index order element-for-element, together with
+  the control that a sorted or reindexed emission **FAILS**. *Faces:* the fixture's polygon list must be
+  deliberately **not** in lexicographic/numeric face order, and the test asserts the emitted `faces` equal
+  the source `obj.data.polygons` index order element-for-element, together with the control that a sorted
+  or reordered emission **FAILS** (T-7). §6's rule is unchanged: source order is canonical, nothing is
+  sorted, and the producer never reorders a source domain to make a test pass;
 * recursive collection traversal; representative lexical rule (including a case where the lexical
   minimum is the master collection name and must be skipped); master-only fallback;
   reversed multi-collection link order; source-object-identity deduplication; distinct same-named
@@ -1008,9 +1041,9 @@ At minimum, the deterministic suite must cover:
 
 Run the deterministic suite under **both Python 3.9 and Python 3.11**.
 
-### Labelled deterministic test requirements (T-1 - T-6)
+### Labelled deterministic test requirements (T-1 - T-7)
 
-These are **requirements**, not implemented tests. Each maps to a round-3 or round-4 finding.
+These are **requirements**, not implemented tests. Each maps to a round-3, round-4 or round-5 finding.
 
 * **T-1 — material-slot representability precedence (BL-2; round-4 precedence blocker).** Four states
   must be asserted, and the single-valued rule of §4.3 means each state has exactly one legal outcome:
@@ -1023,6 +1056,13 @@ These are **requirements**, not implemented tests. Each maps to a round-3 or rou
   every represented slot was a data-linked slot with a non-empty name; `[]` means the mesh datablock has
   zero data slots and the object has no OBJECT-linked slot; the key is absent otherwise.
   `MeshModel.materials` semantics remain unchanged (§4.3).
+* **T-1b — material order must be falsifiable (round-5).** The fixture's slot names must satisfy
+  **source order ≠ code-point sorted order** (§14 Fixture A). The test asserts **both** that the emitted
+  `materials` list equals the source slot order **and** that it differs from the code-point sort of that
+  same list; the second assertion is what makes a sorting producer detectable. Falsification control: a
+  producer that lexically sorts the slot names must **FAIL** the same comparison. A fixture whose slot
+  names are already in sorted order does not satisfy T-1b, because both a correct and a sorting
+  implementation would pass it.
 * **T-2 — three-component Euler with falsification, and the three quaternion layers (BL-1; round-4
   quaternion blocker).** The positive three-component `XYZ` case is asserted against an independently
   derived expectation using the §7.2.1 comparison contract (component-wise after the hemisphere
@@ -1048,6 +1088,14 @@ These are **requirements**, not implemented tests. Each maps to a round-3 or rou
 * **T-6 — digest partition (§11.1).** Assert that changing `normals`, `uvs`, `materials` or
   `local_frame_id` does **not** change `scene_input_digest`, while changing `collection`, `visible` or
   `rotation` **does**.
+* **T-7 — geometry source order must be falsifiable (round-5).** The fixture's vertex list must be
+  deliberately **not** in sorted-coordinate order and its polygon list must be deliberately **not** in
+  lexicographic/numeric face order (§14 Fixture A). The test asserts that the emitted `vertices` equal the
+  source `obj.data.vertices` index order and the emitted `faces` equal the source `obj.data.polygons`
+  index order, **element-for-element**, and therefore that both differ from any sorted order. Falsification
+  controls: a producer that sorts/reindexes vertices, or that sorts/reorders faces, must **FAIL** the same
+  assertions. §6's rule is unchanged — source order is canonical, and the producer must never sort a
+  source domain to satisfy a test. Shared-datablock and distinct-object behaviour is unaffected (T-5).
 
 ## 16. Required adversarial tests
 
@@ -1123,7 +1171,7 @@ Implementation may begin only after an independent review confirms all of the fo
     sub-case with source-ordered domains preserved (§9);
 11. the frozen-asset read-only regression protocol is defined and its expectations named (§13, §14);
 12. deterministic, adversarial and refusal fixtures are specified for Python 3.9 and 3.11 (§14-§16),
-    including the labelled **T-1 - T-6** deterministic test requirements and the **L-1 - L-5** live
+    including the labelled **T-1 - T-7** deterministic test requirements and the **L-1 - L-5** live
     evidence register, neither of which may be treated as implemented by this document;
 13. the C++ claim is limited to semantic parity until a separate byte-serialization gate exists (§8.3,
     §17);
@@ -1149,8 +1197,9 @@ The reviewer must specifically attempt to break:
   NORMALIZED DERIVED TRANSFORM), the fact that no canonical normalization exists, and whether the
   comparison contract (metric, tolerance, hemisphere convention) is discriminating enough;
 * visibility semantics, its context independence, and its digest participation;
-* material-slot accessor identity, the all-or-nothing empty-slot **and OBJECT-linked-slot** rule, and the
-  canonical collapse of `[]` vs omitted;
+* material-slot accessor identity, the all-or-nothing empty-slot **and OBJECT-linked-slot** rule, the
+  canonical collapse of `[]` vs omitted, and whether the order-preservation fixtures are genuinely
+  falsifiable (T-1b, T-7) rather than merely satisfied by both correct and sorting implementations;
 * master-excluded representative semantics and the code-point lexical rule;
 * linked/multi-collection/source-object deduplication and the preservation of kernel duplicate-ID
   findings;
@@ -1204,7 +1253,7 @@ score or ranking.
 | T-1 - T-6 | §15 (labelled register), §16, §14 Fixture B | deterministic test requirements, each mapped to its finding |
 | L-1 - L-4 | §14 (labelled register), §13 | live evidence requirements: visibility source proof, positive-claim provenance, three-component Euler validation with falsification, zero-material-slot case |
 
-**None of the T-1 - T-6 or L-1 - L-5 items above is implemented**, and nothing in this revision is a
+**None of the T-1 - T-7 or L-1 - L-5 items referenced by this revision is implemented**, and nothing in this revision is a
 claim that implementation has occurred. They are test/fixture requirements to be satisfied by a future,
 separately gated implementation slice. This revision changes no production file, no executor, no
 planner, no canonical model, no parser, no validator and no schema version.
@@ -1224,3 +1273,18 @@ planner, no canonical model, no parser, no validator and no schema version.
 **Nothing in §21.2 is implemented either**: T/L entries are requirements, and this revision is
 documentation-only (no production file, executor, planner, canonical model, parser, validator or schema
 change).
+
+### 21.3 Round-5 closures (`2873ac6` → this revision)
+
+| Round-5 item | Closed in | How |
+| --- | --- | --- |
+| BLOCKER 1A — §15's contradictory blanket null assertion | §15 (key-set bullet) | the blanket "no `null` anywhere in the emitted payload" is replaced by a **scoped** assertion: `normals`/`uvs`/`local_frame_id` are never emitted as `null` and never appear as keys in a mesh record; the register now states explicitly that `collection: null` (no included child collection — §3, §5.4, Fixture A's master-only object) and `parent_object_id: null` (parentless object — §3) are **required values**, and that an assertion rejecting them is a defective test |
+| BLOCKER 1B — §15 claimed canonical normalization | §15 (rotation bullet), §19 item 15, §20 | "canonical normalization" is replaced by the three §7.2.1 layers asserted **separately**: (1) RAW PAYLOAD quaternion equal to the source `(w,x,y,z)` verbatim, (2) RAW `ObjectModel.rotation` tuple (the value `scene_input_digest` consumes), (3) NORMALIZED derived `TransformModel.rotation` — with the explicit prohibition that no test may assert the canonical tuple is normalized |
+| BLOCKER 2A — material order not falsifiable | §14 Fixture A, §15 (materials ordering bullet), **T-1b** | the fixture must use slot names whose **source order ≠ code-point sorted order**; the test asserts emitted == source order **and** emitted != sorted order; a producer that lexically sorts the names must **FAIL** the same comparison |
+| BLOCKER 2B — vertex order not falsifiable | §14 Fixture A, §15 (geometry ordering bullet), **T-7** | the fixture's vertex list must be deliberately not in sorted-coordinate order; the test asserts the emitted `vertices` equal the source `obj.data.vertices` index order element-for-element; a sorting/reindexing producer must **FAIL** |
+| BLOCKER 2C — face order not falsifiable | §14 Fixture A, §15 (geometry ordering bullet), **T-7** | the fixture's polygon list must be deliberately not in lexicographic/numeric face order; the test asserts the emitted `faces` equal the source `obj.data.polygons` index order element-for-element; a sorting/reordering producer must **FAIL** |
+
+**No semantic rule changed.** Source order remains canonical (§4.3, §6, §8.2), nothing authorises sorting or
+reindexing any source domain, and no fixture requirement relaxes a producer rule. **Nothing in §21.3 is
+implemented** — this revision is documentation-only: no production file, executor, planner, canonical model,
+parser, validator or schema change.
