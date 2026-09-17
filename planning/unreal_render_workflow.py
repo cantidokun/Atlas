@@ -9,6 +9,7 @@ from typing import Callable, Mapping, Optional
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionResult, UnrealPlanExecutor
+from planning.unreal_render_continuity import verify_render_job_continuity
 from planning.unreal_render_job_verifier import verify_render_job_completion
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
@@ -160,6 +161,8 @@ class UnrealRenderWorkflow:
         intent: UnrealTaskIntent,
         job_id: str,
         authorization_factory: Callable[[UnrealTaskPlan], UnrealPlanAuthorization],
+        *,
+        continuity: Optional[Mapping[str, object]] = None,
     ) -> UnrealRenderWorkflowResult:
         """Poll fresh job evidence until verified terminal completion."""
         start = self.clock()
@@ -187,6 +190,10 @@ class UnrealRenderWorkflow:
             if state.get("finished") is True:
                 try:
                     verified = verify_render_job_completion(evidence, require_artifacts=True)
+                    if continuity is not None:
+                        if not isinstance(continuity, Mapping):
+                            raise TypeError("continuity must be a mapping when supplied")
+                        verified = verify_render_job_continuity(verified, **dict(continuity))
                 except (TypeError, ValueError) as exc:
                     raise UnrealRenderWorkflowError(str(exc)) from exc
 
