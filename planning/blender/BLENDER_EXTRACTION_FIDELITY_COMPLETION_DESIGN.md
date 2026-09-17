@@ -1,10 +1,10 @@
 # Atlas Blender — Extraction Fidelity v1 (Scoped Producer Completion) Design Gate
 
-**Status:** DESIGN REVISION 6 — REVIEW REQUIRED / NO IMPLEMENTATION
+**Status:** DESIGN REVISION 7 — REVIEW REQUIRED / NO IMPLEMENTATION
 **Track:** Blender canonical extraction
 **Baseline (authoritative):** `origin/main` = `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2` (Wave 12 merged)
 **Design branch:** `feat/blender-extraction-fidelity-design`
-**Revision chain:** `fd26da0` → `d973c9a` → `3257f2d` → `66c1c77` → this revision (§0.1)
+**Revision chain:** `fd26da0` → `d973c9a` → `3257f2d` → `66c1c77` → `af6a75f` → `99193a3` → `2873ac6` → `e24753b8` → `9138481` → this revision (§0.1)
 **Scope statement (read this before the title):** this milestone completes producer fidelity **only** for the explicitly supported v1 fields below. **Normals, UVs, and local-frame fidelity are intentionally NOT delivered**, and a cross-language byte-identical serializer is **NOT** delivered. Those are separate gates.
 
 > The file name retains `COMPLETION` for continuity with the revisions a reviewer cites by path.
@@ -25,12 +25,21 @@ Nothing in this section is a contract; it exists so a reviewer can determine **w
 | `af6a75f` | Close extraction fidelity v1 design blockers (round-2 re-red-team) | round-2 BL/AM closures — §21 |
 | `99193a3` | Close round-3 findings (BL-1 Euler fixture discrimination, BL-2 OBJECT-linked slots, AM-A..AM-D, T-1..T-6, L-1..L-4) — design only | round-3 closures — §21.1 |
 | `2873ac6` | Close round-4 findings (quaternion layer semantics, single-valued material precedence, five clarifications) — design only | round-4 closures — §21.2 |
-| *(this revision)* | Close round-5 findings (§15 null/normalization contradiction, falsifiable order-preservation tests) — design only | round-5 closures — §21.3 |
+| `e24753b8` | Close round-5 findings (§15 null/normalization contradiction, falsifiable order-preservation tests) — design only | round-5 closures — §21.3 |
+| `9138481` | End-of-night documentation freeze — Blender Extraction Fidelity v1 DESIGN CLEAR (no implementation) | deletes five root handoff files; **does not modify this document** (blob `7d4edbc3…`, identical to `e24753b8`) |
+| *(this revision)* | Preflight anchor revision — re-derive the §11.3 frozen-asset anchor from measured live evidence (orphan child collections); §5.1/§5.4 unchanged — design only | preflight anchor revision — §21.4 |
 
 The closing task named `3257f2d` as "the current design commit"; the branch head at that moment was
 `66c1c77`, a child of `3257f2d` that tightened the same single document (+361 / −290). This revision is
 built **on top of `66c1c77`** so that no earlier remediation is discarded; nothing in `66c1c77` is
 reverted. `3257f2d` is therefore historical, and this revision is the design as it stands.
+
+**Branch-tip note added by this revision.** The cleared design document is byte-identical at `e24753b8`
+(the round-5 revision) and at `9138481` (the branch tip, an end-of-night freeze commit that only deletes
+five root handoff files): both carry blob `7d4edbc30da8e4a255db27fd8c752d7a40c4a2e7`. This revision is
+committed on `feat/blender-extraction-fidelity-design` on top of `9138481`, so no earlier revision is
+discarded, and the implementation branch `feat/blender-extraction-fidelity-v1` (also at `e24753b8`) is
+untouched by it.
 
 The branch diff against `main` is **documentation-only**: one file
 (`planning/blender/BLENDER_EXTRACTION_FIDELITY_COMPLETION_DESIGN.md`), zero production files. No
@@ -85,9 +94,12 @@ deletions — i.e. the drift is a real content delta of eight `slots=True` remov
 
 ### 0.4 What this revision may touch
 
-This revision touches **only this document**. No production Python, no correction executor or planner,
-no canonical model (`SceneModel`/`MeshModel`/parser/validator), no schema v2, no write-back, and no
-Unreal / optimization / workflow / persistence / recovery / autonomous-runtime surface.
+This revision touches **this document** and adds one new documentation file
+(`planning/blender/BLENDER_EXTRACTION_FIDELITY_V1_PREFLIGHT_FINDING.md`, the §21.4 evidence record; facts
+and digests only, no scripts). It touches no other documentation. No production Python, no correction
+executor or planner, no canonical model (`SceneModel`/`MeshModel`/parser/validator), no schema v2, no
+write-back, and no Unreal / optimization / workflow / persistence / recovery / autonomous-runtime
+surface. No test, fixture or asset is modified, and the §5.1/§5.4 producer rules are unchanged.
 
 ## 1. Purpose and bounded claim
 
@@ -771,32 +783,80 @@ The `mesh` container appears only when `ObjectModel.mesh is not None`; a meshles
 * `normals`, `uvs`, `materials` and `local_frame_id` do not participate, so the material-slot
   completion has **no** digest effect.
 
-### 11.3 Frozen asset: must be proven, not assumed
+### 11.3 Frozen asset: proven by measurement, not inference
 
 The frozen asset (`tests/assets/blender/atlas_transform_validation.blend`, sha256
-`cf618bdc1123734bf49bf6f22677ded3f2e6c3fa2803b97f7a6cf7c7c66f11aa`) must be shown to keep its digest
-and its pinned report expectations under the v1 rules — **proof, not inference**. The structural
-description below is *context from an untracked working file*
-(`tests/assets/blender/generate_asset.py:41-47, 115-120`, *untracked working file*): the branch tree
-carries the asset but **not** its generator, so no claim in this section may rest on that file. The
-live gate is the authority. Context: the asset's 11 objects are each linked to the master collection
-**and** one child collection, so the §5.4 rule is expected to yield the same representative names as the
-current implementation, and no object is described as hidden, so §7.3 is expected to yield the same
-`visible` values. The gate must assert this rather than rely on it.
+`cf618bdc1123734bf49bf6f22677ded3f2e6c3fa2803b97f7a6cf7c7c66f11aa`) must be shown — **by proof, not
+inference** — to produce the v1 anchor expectations recorded in §21.4. Earlier revisions of this section
+described the asset as "11 objects each linked to the master collection **and** one child collection",
+so that "the §5.4 rule is expected to yield the same representative names as the current
+implementation". That premise came from an *untracked working file*
+(`tests/assets/blender/generate_asset.py`, *untracked working file*) and is **measured false**. The live
+gate is the authority; the measurement below replaces the premise and is recorded in
+`planning/blender/BLENDER_EXTRACTION_FIDELITY_V1_PREFLIGHT_FINDING.md`.
+
+**Measured source graph** (Blender 4.4.3, build `802179c51ccc`, read-only inspection; asset SHA-256
+identical before and after):
+
+| Fact | Measured value |
+| --- | --- |
+| collections reachable from `scene.collection` by recursive child links | `["Scene Collection"]` — the master collection only |
+| `scene.collection.children` | `[]` |
+| view-layer layer-collection root children | `[]` |
+| `Field` / `Goals` / `Structure` | present in `bpy.data.collections`, holding 1 / 2 / 8 objects |
+| linkage of those three collections into the scene collection tree | **none** — orphan collection datablocks |
+
+Consequence, under the **unchanged** §5.4 rule: each object's only non-master membership is a collection
+that is not in the §5.1 reachable domain, so §5.4 steps 3-4 apply and the representative is `null` for
+all 11 objects. `collection: null` is a real canonical value (§3), not an omission placeholder and not a
+defect; the asset is **not** reinterpreted, no object is exempted, and no producer rule is relaxed.
+
+**Re-derived v1 anchor** (measured). `collection` is a digested field (§11.1), so the representative
+correction legitimately moves the asset's digest — exactly the §11.2-disclosed producer correction for
+`collection`, not a digest-algorithm or field-set change:
+
+| Value | Previous producer (`users_collection[0]`) | v1 producer (§5.4) |
+| --- | --- | --- |
+| `collection` | `Goals` (goal_left, goal_right), `Field` (pitch), `Structure` (8 objects) | `null` for all 11 objects |
+| objects whose `collection` moves | — | **11 / 11** |
+| `scene_input_digest` | `8d009d0d8cb7b3ed9604dfca753c998faceb839f1bcf17f7336e3676e54eb331` | `ee430d6fdc69928b9c91284deda96c14cf3e25d745aa14cfab6c51dabf3a3203` |
+| `input_digest` | `13bbf29c69449a9c9f825e9fe4212acc3c4c62f519c1aa989d0f2aed1fecf92b` | `d90895bae02e30502cb9077b219b67cc4fbe104f3cbab664850c9346dc60ddfb` |
+
+**Anchor scope.** The frozen asset remains a valid **regression anchor** for every unchanged fact below,
+and is **not** a positive anchor for representative child-collection semantics — it has no reachable
+child collection at all, so that positive coverage stays with the disposable fixtures (§14).
+
+| UNCHANGED expectations (pinned; must not move) | CHANGED by the cleared producer contract (re-derived; must be reviewed) |
+| --- | --- |
+| `scene_id` = `atlas_validation` | `collection` — `Goals`/`Field`/`Structure` → `null` (11/11 objects) |
+| object count 11; mesh object count 9 | `scene_input_digest` — `8d009d0d…` → `ee430d6f…` |
+| unit system `METERS` | `input_digest` — `13bbf29c…` → `d90895ba…` |
+| object IDs and their order | |
+| finding set (empty) and validation state `production_ready` | |
+| mesh topology (`pitch` face cardinalities `[3, 4, 5]`) and world points | |
+| visibility (`hide_viewport = false` → `visible: true`, unchanged) | |
+| rotation (all objects `XYZ`, single-axis Z → unchanged) | |
+| materials (`[]` — zero data slots, no OBJECT-linked slot) | |
+| deferred mesh key set (`normals`/`uvs`/`local_frame_id` absent; `materials` exactly as §4.3 permits) | |
 
 The asset is a **regression anchor only**. It cannot exercise the positive v1 claims (no material
 slots, no UV layer, single-axis Euler only, nothing hidden) — those come from the disposable fixtures
 (§14). Existing pinned expectations to preserve:
 `tests/test_live_blender_real_asset_gate.py:83-113` and `:228-265`.
 
-**If the proof contradicts the new producer contract, this returns to design revision.** The pinned
-expectations are an anchor, not a negotiable input. If the live gate shows that a corrected producer
-value (`collection`, `visible`, `rotation`) changes the asset's digest or any pinned expectation, then:
-implementation stops, the pin is **not** edited inside the milestone, and no producer rule is relaxed to
-preserve an old expectation. The disposition is a design revision that re-derives the anchor and its
-expectations explicitly, with its own review — the same fail-closed treatment as a contradicted
-requirement anywhere else in this document (§12 item 7 states the parallel ban on silently editing
-documentation; this paragraph extends it to gate expectations).
+**Disposition (this revision).** The anchor requirement is no longer "the asset must keep its digest".
+Instead:
+
+* the asset's **unchanged** facts in the table above remain pinned and must not move;
+* any producer-corrected, digest-moving field (`collection`, `visible`, `rotation`) must be
+  **explicitly re-derived from measurement** and recorded (§21.4), never assumed from a structural
+  premise;
+* a re-derived expectation must be **independently reviewed** rather than accepted because it agrees
+  with a stale premise, and an old pin is never edited merely to make a test pass;
+* if a **later** measurement contradicts an anchor row recorded in §21.4, implementation stops and the
+  disposition is a further design revision that re-derives it explicitly — the same fail-closed
+  treatment as a contradicted requirement anywhere else in this document (§12 item 7 states the
+  parallel ban on silently editing documentation; this paragraph extends it to gate expectations).
 
 ## 12. Cross-capability compatibility disclosures (mandatory, verbatim scope)
 
@@ -862,7 +922,11 @@ The live gate may open the frozen `.blend` asset **read-only**. It must:
   pass that records every object's `rotation_mode`). If any object's mode is not `XYZ` or `QUATERNION`,
   implementation does **not** reinterpret, exempt or special-case that object: §7.2's refusal rule and
   the §11.3 regression anchor would conflict, so the result is a **design revision before
-  implementation**. Record the enumeration as gate evidence.
+  implementation**. Record the enumeration as gate evidence. *(This revision: the enumeration was
+  **performed** read-only on Blender 4.4.3 / `802179c51ccc` — `rotation_mode` distribution `{XYZ: 11}`
+  over the asset's 11 objects, so §7.2 refuses nothing on this asset. The same live
+  inspection contradicted the §11.3 anchor premise, which is re-derived in §11.3 and §21.4 and
+  recorded in `BLENDER_EXTRACTION_FIDELITY_V1_PREFLIGHT_FINDING.md`.)*
 
 The disposable fixtures (§14) remain the primary positive fidelity mechanism.
 
@@ -935,7 +999,9 @@ Expected behaviour follows §5.2-§5.5, without expanding instanced or non-polyg
 Open the frozen asset read-only and preserve **all** existing pinned expectations: scene id; object
 count and sorted ids; `pitch` topology; probe world transforms; finding-code set; validation state;
 asset SHA-256. Additionally assert the v1 producer semantics: `normals`/`uvs`/`local_frame_id` keys
-absent, current material state, and the digest/pinned-expectation proof of §11.3.
+absent, current material state, and the §11.3/§21.4 anchor proof: the **unchanged** facts are
+asserted against their pins, while the producer-corrected `collection` (`null`, 11/11) and its
+re-derived `scene_input_digest`/`input_digest` are asserted **as re-derived** — never the pre-v1 digest.
 
 ### Fixture E — rotation-mode refusal (disposable scene)
 
@@ -1226,7 +1292,7 @@ score or ranking.
 | BL-3 visibility | §7.3 | `obj.hide_viewport`, polarity, context independence, fail-closed, declared exclusions, value-change disclosure |
 | BL-4 byte parity / serialization | §8.1-§8.3 (+§17) | rounding rule pinned; §8.2 encoding + number/typing behaviour pinned and measured; cross-language byte identity **explicitly downgraded** (permitted alternative), semantic parity normatively defined |
 | BL-5 material accessor | §4.3 | `obj.data.materials`; slot order; slot names only; empty-slot omission; OBJECT-linked slots out of scope; per-face excluded; canonical-collapse disclosure |
-| BL-6 digest participation | §11.1-§11.3 | explicit field table with a "changed by this milestone" column; consequences; frozen-asset proof requirement |
+| BL-6 digest participation | §11.1-§11.3, §21.4 | explicit field table with a "changed by this milestone" column; consequences; frozen-asset proof requirement — re-derived by §21.4 (unchanged facts pinned; the `collection`/digest movement recorded as the §11.2-disclosed producer correction) |
 | AM-1 omission encoding | §3, §4.5 | one encoding per field/state; key omission for deferred fields; producer never emits `null`; `[]` only where legally empty; `collection: null` distinguished from omission |
 | AM-2 no parser tightening | §4.5, §12.3 | explicit prohibition; closed-suite evidence cited |
 | AM-3 present-empty semantics | §3, §4.3, §4.5, §15 | when `[]` is legal (zero slots); deferred fields never emitted; contradictory state documented as unreachable-and-unrejected, with the producer key-set assertion as the mechanical guarantee |
@@ -1239,6 +1305,7 @@ score or ranking.
 | AM-10 domain vs encoding | §5.1, §17 | membership domain declared a source-side graph rule; parity is an encoding rule; C++ producer receives an equivalent graph |
 | Disclosure 1-7 | §12 items 1-7 | each recorded with file:line evidence; item 5 (MQ-5 material-slot detection) disclosed; item 7 lists documentation-staleness follow-ups |
 | Baseline / D4 | §0.1-§0.3 | authoritative revision chain; local-`main` hazard; D4 drift recorded with hashes, location and non-action list |
+| Preflight anchor (round-6) | §11.3, §21.4 | the "linked to the master collection **and** one child collection" premise is measured false — `Field`/`Goals`/`Structure` are orphan collection datablocks outside the §5.1 domain; the anchor is re-derived (representative `null`, 11/11) with §5.4 unchanged |
 
 ### 21.1 Round-3 closures (`af6a75f` → this revision)
 
@@ -1288,3 +1355,32 @@ change).
 reindexing any source domain, and no fixture requirement relaxes a producer rule. **Nothing in §21.3 is
 implemented** — this revision is documentation-only: no production file, executor, planner, canonical model,
 parser, validator or schema change.
+
+*(Clarification added by §21.4: "this revision" in the sentence above denotes the round-5 revision
+`e24753b8`, not the preflight anchor revision recorded in §21.4; the wording above is preserved
+verbatim.)*
+
+### 21.4 Preflight anchor revision (this revision; `9138481` → this commit)
+
+Design-only revision. It changes **no** rule — §5.1, §5.2, §5.3 and §5.4 are untouched and no producer
+rule is relaxed. It corrects a measured-false **anchor premise** in §11.3 and records the re-derived
+anchor, because the mandatory pre-implementation frozen-asset preflight (§13) contradicted that premise.
+
+| Item | Closed in | How |
+| --- | --- | --- |
+| Stale §11.3 anchor premise | §11.3 (measured source graph) | "each linked to the master collection **and** one child collection" is measured false: `Field`/`Goals`/`Structure` are orphan collection datablocks, unreachable from `scene.collection` by child links; recorded with the exact reachability evidence |
+| Frozen-asset v1 expectation | §11.3 (re-derived anchor) | representative `collection` = `null` for all 11 objects under the **existing** §5.4 rule; `collection` moves 11/11; both digest transitions are recorded exactly and declared legitimate under §11.1/§11.2 |
+| "The asset must keep its digest" | §11.3 (disposition) | replaced by: unchanged facts stay pinned; any producer-corrected digest-moving field must be explicitly re-derived from measurement, recorded and independently reviewed; no old pin may be edited merely to make a test pass |
+| Anchor scope | §11.3 (scope table), §14 Fixture D | the frozen asset is a regression anchor for membership/order/topology/visibility/rotation/materials/omission key set; it is **not** a positive anchor for representative child-collection semantics — that coverage stays with the disposable fixtures |
+| Pre-implementation rotation-mode enumeration | §13, §11.3, and `BLENDER_EXTRACTION_FIDELITY_V1_PREFLIGHT_FINDING.md` | the enumeration required by §13 **was performed** read-only (Blender 4.4.3, build `802179c51ccc`): `rotation_mode` distribution `{XYZ: 11}` over 11 objects, so §7.2 refuses nothing on this asset; asset SHA-256 identical before and after the inspection |
+| Evidence record | `planning/blender/BLENDER_EXTRACTION_FIDELITY_V1_PREFLIGHT_FINDING.md` (new) | measured facts, source graph, previous/v1 values and the exact digest transitions; **facts and digests only, no scripts** in the repository |
+
+**No semantic rule changed.** §5.4's representative rule and the source-side membership domain (§5.1)
+are unchanged; the digest movement is the §11.2-disclosed consequence of correcting a producer value,
+not a digest-algorithm or field-set change. **Nothing in §21.4 is implemented and this revision
+authorises no implementation** — it is documentation-only (this document plus the new preflight finding
+record): no production file, executor, planner, canonical model, parser, validator, schema, test,
+fixture or asset change.
+
+**Next gate.** An independent design review of the re-derived anchor (§11.3, §21.4). Implementation
+remains unauthorized until that review clears it.
