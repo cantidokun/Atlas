@@ -1,3 +1,118 @@
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 16, 2026 END-OF-NIGHT CHECKPOINT (CURRENT)
+
+Status:
+DESIGN CLEAR — IMPLEMENTATION NOT STARTED (Blender Extraction Fidelity v1)
+
+Authoritative repository main:
+2ec5a84c0b4d82898a0fb8169844ddd5d93668d2
+
+Cleared Blender design branch:
+feat/blender-extraction-fidelity-design
+
+Cleared Blender design commit:
+e24753b8d41bf7b7e8ee46eb46795ae6a4c4a485
+
+Cleared design document:
+planning/blender/BLENDER_EXTRACTION_FIDELITY_COMPLETION_DESIGN.md (design revision 6)
+
+Documentation freeze:
+this commit (tip of the design branch; verify with git log, do not trust an embedded hash)
+
+------------------------------------------------------------
+0. CURRENT BLENDER CHECKPOINT
+------------------------------------------------------------
+
+Blender correction capabilities through Wave 12 are implemented and merged on main (face removal,
+winding repair, merge vertex, parent reference, topology intelligence, isolated vertices, duplicate
+vertices, unit metadata, object name normalization, collection normalization, empty-mesh handling,
+parent-cycle repair). Wave 12 merged as 2ec5a84c via PR #102. No Wave 13 exists; no new correction
+capability is authorized.
+
+The cleared milestone is a READ-ONLY PRODUCER-FIDELITY milestone. It covers:
+- Blender read-only producer extraction;
+- scene/object membership;
+- deterministic representative collection;
+- visibility sourced from obj.hide_viewport;
+- transform extraction including QUATERNION mode;
+- vertex and face extraction;
+- preservation of source vertex/face order;
+- material-slot-name extraction and ordering;
+- explicit omission semantics for normals, UVs and local_frame_id;
+- deterministic payload encoding;
+- deterministic cross-process evidence;
+- preservation of the existing digest boundary.
+
+It does NOT deliver: normals fidelity; UV fidelity; local-frame fidelity; per-face material assignments;
+complete multi-collection membership; evaluated/modifier geometry; non-mesh geometry; instance-collection
+expansion; cross-language byte-identical serialization; schema v2; correction/write-back; persistence
+authority; workflow/recovery changes; Unreal changes; optimization changes.
+
+Implementation-critical contract details:
+- Quaternion: three layers — RAW PAYLOAD, RAW ObjectModel.rotation (the digest input), NORMALIZED derived
+  TransformModel. Copy source values verbatim as (w,x,y,z); never normalize, rescale, reorder,
+  hemisphere-flip or round; reject non-finite and all-zero quaternions; no identity fallback; do not
+  delegate rejection to world-pose derivation.
+- Materials: any OBJECT-linked or otherwise unrepresentable slot state causes whole-field omission; zero
+  data slots produce materials: [] only when no OBJECT-linked slot exists; non-empty lists preserve source
+  slot order and are never lexically sorted; no partial list; per-face material_index is out of contract.
+- Ordering: canonical object ordering; vertices in source index order; faces in source polygon order;
+  materials in source slot order; deterministic tests deliberately use non-sorted source order with
+  falsification controls.
+- Representation: normals/uvs/local_frame_id keys omitted; no null placeholders for those fields;
+  collection:null and parent_object_id:null remain valid payload values.
+- Visibility: visible = not obj.hide_viewport; collection/view-layer/render visibility do not participate;
+  absent or malformed hide_viewport fails closed.
+
+Mandatory preflight before implementation:
+enumerate the frozen Blender asset's rotation_mode values read-only. If any object uses a refused mode
+(XZY/YXZ/YZX/ZXY/ZYX, AXIS_ANGLE, unreadable): STOP implementation and return to design review. Do not
+reinterpret the asset, do not exempt it, do not weaken the producer rule.
+
+Final design evidence:
+- final design commit e24753b8d41bf7b7e8ee46eb46795ae6a4c4a485;
+- Round-5 documentary audit: 57 checks, 0 failures;
+- branch-vs-baseline diff at that commit contains only the design document;
+- production implementation files changed by the design revision: 0;
+- implementation has not started; no implementation branch exists; no milestone test run yet.
+
+Review provenance:
+the last in-repository review verdict was BLOCKED at 2873ac6 (contradictory section 15 null/normalization
+requirement; non-falsifiable order-preservation tests). Design revision 6 (e24753b) closes both and passed
+the 57-check documentary audit, but no author-independent review of e24753b is recorded in the
+repository. Clearance to implement is the human decision-maker's authorization.
+
+D4 working-tree drift (primary tree only, Desktop/Atlas, HEAD 2ec5a84):
+8 slots=True removals plus one docstring line across
+planning/blender/correction_authorization.py, planning/blender/correction_contract.py and
+planning/blender/correction_planner.py. NOT repaired, NOT reverted, NOT staged, NOT committed,
+NOT re-pinned; do not touch it incidentally.
+
+Unreal separation:
+the next Blender session must not drift into PR #103, Unreal autonomy, Unreal optimization, render-job
+recovery, or Unreal branch reconciliation.
+
+Next-session resume procedure (exact order):
+a. verify repository/branch state;
+b. verify authoritative main = 2ec5a84c0b4d82898a0fb8169844ddd5d93668d2;
+c. verify cleared design = e24753b8d41bf7b7e8ee46eb46795ae6a4c4a485;
+d. verify the frozen asset's rotation modes read-only;
+e. if the preflight passes, implement only the cleared Extraction Fidelity v1 contract;
+f. add/run the deterministic tests the design requires;
+g. run the required live Blender gate;
+h. capture evidence;
+i. independently review the implementation;
+j. only then consider merge/mainline integration.
+
+Documentation discipline:
+use the explicit terminology DESIGN CLEAR / IMPLEMENTATION NOT STARTED. Do not claim any implementation
+feature as complete because the design is cleared.
+
+Full record: ATLAS_HANDOFF_2026-09-16_END_OF_NIGHT.md (FINAL CHECKPOINT section).
+
+============================================================
+PRESERVED HISTORICAL CHECKPOINT — SEPTEMBER 6, 2026 (VERBATIM, SUPERSEDED)
+============================================================
+
 ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 6, 2026 CHECKPOINT
 
 Active repository branch:

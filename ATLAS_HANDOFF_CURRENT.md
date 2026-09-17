@@ -1,5 +1,29 @@
 # Atlas Current Development Handoff
 
+## Blender current state — September 16, 2026, end of night (authoritative for the Blender track)
+
+- **Extraction Fidelity v1 — DESIGN CLEAR. IMPLEMENTATION NOT STARTED.**
+  Cleared design: `planning/blender/BLENDER_EXTRACTION_FIDELITY_COMPLETION_DESIGN.md` (design revision 6),
+  commit `e24753b8d41bf7b7e8ee46eb46795ae6a4c4a485` on branch `feat/blender-extraction-fidelity-design`.
+- **Authoritative main:** `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2` (Wave 12 merged via PR #102).
+- **Blender correction capabilities through Wave 12 are implemented and merged on main**: face removal,
+  winding repair, merge vertex, parent reference, topology intelligence, isolated vertices, duplicate
+  vertices, unit metadata, object name normalization, collection normalization, empty-mesh handling and
+  parent-cycle repair. The cleared milestone adds **no correction capability** — it is a read-only
+  producer-fidelity milestone.
+- **Next Blender action:** the mandatory read-only frozen-asset `rotation_mode` preflight, then
+  implementation of the cleared contract **only**. Do not reopen or redesign the contract unless
+  implementation evidence exposes a real contradiction.
+- **D4 working-tree drift is present in the primary tree and explicitly untouched**: not repaired, not
+  reverted, not staged, not committed, not re-pinned. Do not touch it incidentally.
+- **Unreal is out of scope for the next Blender session**: PR #103, Unreal autonomy, Unreal optimization,
+  render-job recovery and Unreal branch reconciliation are all separate workstreams.
+- **Milestone scope, non-goals, implementation-critical contract details and the resume procedure** are
+  recorded in `ATLAS_HANDOFF_2026-09-16_END_OF_NIGHT.md` → section
+  "FINAL CHECKPOINT — September 16, 2026".
+- **Documentation discipline:** `DESIGN CLEAR` / `IMPLEMENTATION NOT STARTED`. No implementation feature
+  may be described as complete because the design is cleared.
+
 > **Authoritative current-state reconciliation (supersedes the legacy milestone line below).**
 
 ## Current status (authoritative reconciliation — supersedes stale milestone headers)

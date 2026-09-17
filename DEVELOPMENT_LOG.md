@@ -1,3 +1,40 @@
+## 2026-09-16 - Blender Extraction Fidelity v1 design gate cleared (design only — no implementation)
+- Design gate for Blender Extraction Fidelity v1 (read-only producer completion) closed across five review
+  rounds. Final design revision 6 = commit `e24753b8d41bf7b7e8ee46eb46795ae6a4c4a485` on branch
+  `feat/blender-extraction-fidelity-design`; document
+  `planning/blender/BLENDER_EXTRACTION_FIDELITY_COMPLETION_DESIGN.md`.
+- Authoritative baseline for the design work: `origin/main` = `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2`
+  (Wave 12 merged via PR #102).
+- Cleared milestone scope: read-only producer extraction; scene/object membership; deterministic
+  representative collection; visibility from `obj.hide_viewport`; transform extraction including
+  `QUATERNION` mode; vertex/face extraction; source vertex/face order preservation; material-slot-name
+  extraction and ordering; explicit omission semantics for normals, UVs and `local_frame_id`;
+  deterministic payload encoding and cross-process evidence; unchanged digest boundary.
+- Explicit non-goals: normals / UV / local-frame fidelity; per-face material assignment; complete
+  multi-collection membership; evaluated/modifier geometry; non-mesh geometry; instance-collection
+  expansion; cross-language byte-identical serialization; schema v2; correction/write-back; persistence
+  authority; workflow/recovery changes; Unreal changes; optimization changes.
+- Implementation-critical contract pinned by the design: quaternion three-layer semantics (RAW PAYLOAD /
+  RAW `ObjectModel.rotation` / NORMALIZED derived `TransformModel`) with verbatim `(w,x,y,z)` copy, no
+  producer-side normalization/rescale/reorder/hemisphere-flip/rounding, non-finite and all-zero rejection,
+  no identity fallback; material all-or-nothing omission for any OBJECT-linked or unrepresentable slot with
+  `materials: []` only when no OBJECT-linked slot exists and no partial list; source order preserved for
+  vertices, faces and material slots with deliberately non-sorted fixtures plus falsification controls;
+  `collection: null` and `parent_object_id: null` remain valid payload values.
+- Round-5 documentary audit of the design revision: **57 checks, 0 failures**. Branch-vs-authoritative-baseline
+  diff at the design commit contains only the design document; production implementation files changed: **0**.
+- Review provenance: the last in-repository review verdict on this design was BLOCKED at `2873ac6`;
+  revision 6 (`e24753b`) closes both blockers but no author-independent review of `e24753b` is recorded in
+  the repository — clearance to implement is the human decision-maker's authorization.
+- Mandatory preflight before implementation: read-only enumeration of the frozen asset's `rotation_mode`
+  values; a refused mode means STOP implementation and return to design review (no reinterpretation, no
+  exemption, no weakening of the producer rule).
+- STATUS: **DESIGN CLEAR — IMPLEMENTATION NOT STARTED.** No producer code, no new tests, no live gate, no
+  correction/planner/executor/canonical-model/parser/validator/schema change, no Unreal change, no workflow
+  or GitHub Actions change, no optimization work.
+- D4 `slots=True` working-tree drift in the primary tree: **not repaired, not reverted, not staged, not
+  committed, not re-pinned** (unchanged by this work).
+
 ## 2026-09-07 - M12.4 Unreal semantic -> runtime adapter
 - Added planning/m12/runtime_adapter.py (UnrealRuntimeStepMapping, UnrealRuntimeMapping,
   map_unreal_execution_plan).

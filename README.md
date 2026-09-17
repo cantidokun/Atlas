@@ -1,6 +1,8 @@
 # Atlas
 
 > **Current-state reconciliation (supersedes legacy milestone lines below):** M10 live Unreal Scenarios S1–S8 are **COMPLETE — all PASSED live** against the real UE 5.6 boundary (per-scenario PASS reports in `live_run_state/`). M11 (development model-router, PRs #82–#85) is **FROZEN/paused**. The next Unreal milestone is **M12 — Unreal Semantic Soccer Production Layer** (design only: `docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md`). Legacy milestone lines in the body that state "M7 ... Not run" or "S2–S8 NOT executed" are historical snapshots, preserved verbatim and superseded by this block. No production-authority boundary changed.
+>
+> **Blender track — September 16, 2026 end of night:** authoritative `main` is `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2` (Wave 12 merged via PR #102). The Blender **Extraction Fidelity v1** design is cleared at commit `e24753b8d41bf7b7e8ee46eb46795ae6a4c4a485` on branch `feat/blender-extraction-fidelity-design` (`planning/blender/BLENDER_EXTRACTION_FIDELITY_COMPLETION_DESIGN.md`, design revision 6). Status is **DESIGN CLEAR — IMPLEMENTATION NOT STARTED**: no producer implementation, test or live gate for this milestone has been written or run. The next Blender action is the mandatory read-only frozen-asset `rotation_mode` preflight, followed by implementation of the cleared contract only. D4 working-tree drift in the primary tree remains **untouched** (not repaired, reverted, staged, committed or re-pinned), and Unreal work (PR #103, Unreal autonomy/optimization/recovery/branch reconciliation) is out of scope for the next Blender session. Full record: `ATLAS_HANDOFF_2026-09-16_END_OF_NIGHT.md` → "FINAL CHECKPOINT — September 16, 2026".
 
 ## What Atlas is
 
@@ -232,5 +234,24 @@ The model comparison should be judged on concrete development outcomes such as u
 3. Preserve the live UE 5.6 Stage 17 proof as historical evidence of the working production/provenance chain.
 4. Continue from the next unresolved Atlas milestone rather than reopening completed M4/M5 work unless a regression appears.
 5. For Hermes development-model experiments, compare Gemini vs DeepSeek V4 Flash while keeping Astra and Claude 5 available for red-team evaluation.
+
+## End-of-night resume point — September 16, 2026 (Blender extraction-fidelity design freeze)
+
+The September 6 resume point above is retained as historical context. The current Blender resume point is:
+
+1. Verify repository state: authoritative `main` = `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2`; cleared design =
+   `e24753b8d41bf7b7e8ee46eb46795ae6a4c4a485` on `feat/blender-extraction-fidelity-design`.
+2. **Extraction Fidelity v1 status: DESIGN CLEAR — IMPLEMENTATION NOT STARTED.** No producer implementation,
+   deterministic test or live gate for this milestone exists yet.
+3. Run the mandatory read-only preflight: enumerate the frozen Blender asset's `rotation_mode` values. If any
+   object uses a refused mode, stop implementation and return to design review — do not reinterpret the asset,
+   exempt it, or weaken the producer rule.
+4. If the preflight passes, implement only the cleared contract, then add/run the design's deterministic tests,
+   run the live Blender gate, capture evidence, obtain an independent implementation review, and only then
+   consider merge.
+5. Do not touch D4 working-tree drift in the primary tree, and do not drift into Unreal work (PR #103, Unreal
+   autonomy/optimization/recovery/branch reconciliation) during this milestone.
+6. Full scope, non-goals, implementation-critical contract details and the exact resume order:
+   `ATLAS_HANDOFF_2026-09-16_END_OF_NIGHT.md` → "FINAL CHECKPOINT — September 16, 2026".
 
 Historical handoff snapshots remain archival records and should not be rewritten to reflect this checkpoint.
