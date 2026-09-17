@@ -1,10 +1,12 @@
 # Unreal Agent — MRQ Artifact Attribution Closeout
 
 **Date:** September 17, 2026
-**Milestone:** MRQ queue hygiene / artifact attribution — Slice 1 + Slice 2
-**Design gate:** `CLEAR WITH MINOR CONDITIONS` (relayed by the operator)
+**Milestone:** MRQ queue hygiene / artifact attribution — Slice 1 + Slice 2, then Slice D (start-callback identity)
+**Design gate:** `CLEAR WITH MINOR CONDITIONS` (relayed by the operator); queue-lifecycle review `CLEAR WITH MINOR FINDINGS`
 **Status:** `MRQ artifact attribution — COMPLETE + LIVE-PROVEN` — deterministic green + both live UE 5.6.1 gates
-green, architecture gate CLEAR, committed in the milestone commit on top of `6e63d15`.
+green, architecture gate CLEAR, committed in the milestone commit on top of `6e63d15` (Slice 1 + Slice 2, published
+as `8ecf7db`); **Slice D added on top of that** — deterministic green + a one-session live gate with a
+pre-populated multi-job queue.
 
 ```text
   - job identity guard is live-proven in a multi-submission single-editor session
@@ -12,6 +14,8 @@ green, architecture gate CLEAR, committed in the milestone commit on top of `6e6
   - PNG artifacts must be contained within the authorized output directory
   - exact frame-set verification remains active
   - Slice 3 queue consumption remains separate and unimplemented
+  - Slice D: monitoring state is job-scoped - a foreign queued job cannot overwrite the new Atlas job's
+    Status / StatusMessage / Progress (added after the queue-lifecycle review)
 ```
 
 ## What the milestone closed
@@ -49,6 +53,15 @@ new deterministic attribution contract                      14 passed
 consolidated affected Unreal suite (36 modules)            291 passed, 2 skipped   (unchanged from baseline)
 canonical controller/host suite (13 modules)               160 passed, 2 deselected (unchanged from baseline)
 broad scoped sweep (180 files)                            1137 passed, 6 skipped  (baseline 1123 + 14 new)
+Slice D deterministic contract                             7 passed; red proof at e64c3e3: 5 of 7 FAIL
+Slice D affected sweep, identical selection               1198 passed, 7 skipped vs baseline 1191 passed,
+                                                           7 skipped (= +7 new tests; 2 pre-existing live-only
+                                                           modules error identically at baseline when no editor
+                                                           is running - not a Slice D regression)
+Slice D live gate, ONE session, pre-populated queue       2 passed in 35.22 s (12/12 and 8/8 mid-render state
+                                                           reads "submitted"; own transition to "rendering";
+                                                           exact 10/5/2/2 artifacts; receipts coherent;
+                                                           same-range case isolated; fixtures byte-identical)
 baseline RED proof (worktree at 6e63d15)                   all guard assertions FAIL; foreign-directory
                                                            artifacts with the authorized frame set ACCEPTED
 
@@ -79,10 +92,11 @@ rendering; no generic workflow engine; Blender untouched.
 
 ## Residual findings to carry (reported, not fixed)
 
-1. **`OnIndividualJobStarted` is still identity-blind** — a foreign job's start writes `Status="rendering"` and
-   `Progress` into the newest job's state. Monitoring fields only: not artifact ownership, not part of the
-   acceptance condition, not in the receipt. Out of the authorization's named scope; candidate for a later slice
-   with its own gate.
+1. ~~**`OnIndividualJobStarted` is still identity-blind**~~ — **FIXED by Slice D.** A foreign job's start used to
+   write `Status="rendering"` and `Progress` into the newest job's state. Slice D gates every monitoring-state
+   write on `InJob == FRenderJobState::Job` and fails closed on an unresolved/expired registry entry; the
+   one-session live gate proved the property while a foreign queued job was rendering. See §7 of the
+   implementation record.
 2. **`ShotData[0]`-only collection** remains (multi-shot sequences stay outside the frozen contract).
 3. **MRG payload-identity caveat** (design §4): under Movie Render Graph the payload job may be a duplicate, so
    the guard fails closed rather than mis-attributing. Not exercised by this harness.
@@ -92,5 +106,9 @@ rendering; no generic workflow engine; Blender untouched.
 
 ## Next
 
-`docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md` carries the next review; the immediate candidate is Slice 3
-(Atlas-owned job consumption) or the `OnIndividualJobStarted` identity gap, both requiring their own design gate.
+`docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md` carries the next review. The immediate candidate is **concurrent
+submission rejection / error propagation** (finding F2 of the queue-lifecycle review): a submission made while
+another render is active is refused by the subsystem's `ensureMsgf(!IsRendering())`, the transport cannot surface
+that refusal, and the caller observes a poll timeout. It is deliberate that this was **not** fixed inside the
+Slice D work and that no timeout change or synthetic success was used to hide it. Still unimplemented and
+unauthorized: Slice 3 queue consumption, and the Atlas-owned private queue instance.

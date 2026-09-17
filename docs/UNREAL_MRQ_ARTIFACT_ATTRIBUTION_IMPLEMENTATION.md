@@ -221,16 +221,174 @@ output directories are disposable; the two same-range directories were removed b
 
 1. **The C++ guard has no deterministic execution cover** in this repository; its executable evidence is the
    same-session live gate plus source inspection. The source-level assertions pin shape, not behavior.
-2. **`OnIndividualJobStarted` remains identity-blind** (`AtlasTransportServer.cpp:1369-1383`): a foreign job
-   starting still writes `Status="rendering"`/`Progress` into the new job's state. Those are monitoring fields -
-   they are not part of artifact ownership, the acceptance condition, or the receipt - and the authorization for
-   this milestone named only `OnIndividualJobWorkFinished`, so it was left untouched and is reported here as a
-   residual finding (candidate for the same guard in a later slice, with its own gate).
+2. **`OnIndividualJobStarted` WAS identity-blind at this milestone** (`AtlasTransportServer.cpp:1369-1383`): a
+   foreign job starting wrote `Status="rendering"`/`Progress` into the new job's state. Those are monitoring
+   fields - not part of artifact ownership, the acceptance condition, or the receipt - and the authorization for
+   Slice 1 + Slice 2 named only `OnIndividualJobWorkFinished`, so it was left untouched here and reported as a
+   residual finding. **Resolved by Slice D (§7) under its own authorization.**
 3. **`ShotData[0]`-only artifact collection is unchanged.** Multi-shot sequences are outside the frozen
    single-range contract; the design deliberately did not generalise them, and this implementation did not either.
 4. **Movie Render Graph caveat carried from the design:** under MRG the payload `Job` is documented to point at a
    duplicated job, in which case the guard fails closed (no artifacts → no receipt). The harness uses the legacy
    primary-config pipeline, so this is a future-mode risk, not a current one.
-5. **No commit, no push, no branch update** was performed by this task; the published baseline is unchanged.
+5. **No commit, no push, no branch update** was performed by the implementation task described above; the
+   reviewed result was subsequently published as `8ecf7db` (see `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_CLOSEOUT.md`).
 6. **Rule order deviates from the design text** (containment before the frame checks), as authorized; recorded in
    §2.
+
+## 7. Slice D — start-callback identity guard (`OnIndividualJobStarted`)
+
+**Authorized slice:** identity-guard `OnIndividualJobStarted` so that monitoring state is written only when
+`InJob == FRenderJobState::Job`. Authorized after the queue-lifecycle design review
+(`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, `CLEAR WITH MINOR FINDINGS`) recommended it as the next slice.
+
+### 7.1 The change
+
+One file: `unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp`
+(`+23 / -4`, source blob `4e10ec7a8f616a589ddacf65cd17d7c0dba06579`). The lambda's pre-existing registry-by-job-id
+lookup was left as it was; only the guard and the early returns are new:
+
+```cpp
+             TSharedPtr<FRenderJobState>* Found=
+                 FAtlasTransportServer::RenderJobRegistry.Find(JobId);
+
+-            if(Found && Found->IsValid())
++            if(!Found || !Found->IsValid())
++            {
++                return;
++            }
++
++            /*
++             * Monitoring state is job-scoped for the same reason artifacts are:
++             * the executor renders every job already present in the queue and
++             * broadcasts this payload once per started job, so a start event for
++             * any other job must not overwrite this job's Status, StatusMessage
++             * or Progress. The comparison uses the exact executor job this Atlas
++             * submission allocated and already stores; no queue position, job-id
++             * string correlation, file name, output path, timing, callback order,
++             * or filesystem inspection is involved.
++             */
++            UMoviePipelineExecutorJob* RegisteredJob=(*Found)->Job.Get();
++
++            if(!RegisteredJob || InJob!=RegisteredJob)
+             {
+-                (*Found)->Status=TEXT("rendering");
+-                (*Found)->StatusMessage=TEXT("Render job started");
+-                (*Found)->Progress=0.0;
++                return;
+             }
++
++            (*Found)->Status=TEXT("rendering");
++            (*Found)->StatusMessage=TEXT("Render job started");
++            (*Found)->Progress=0.0;
+         });
+```
+
+Properties this shape was required to have, and does:
+
+- monitoring state (`Status`, `StatusMessage`, `Progress`) is written only for the exact registered
+  `UMoviePipelineExecutorJob*` stored in `FRenderJobState::Job`;
+- an unresolved or expired registry entry (`!Found || !Found->IsValid()`) fails closed **before** any write;
+- a null registered job pointer fails closed as well (`!RegisteredJob`);
+- **no second identity source**: the payload job is compared against the pointer the transport already stored;
+  nothing is inferred from queue position, job-id strings, artifact names, output paths, timing, callback order,
+  or filesystem inspection;
+- **no other write** in this lambda can be reached by a foreign job - the three monitoring fields are the only
+  writes in the callback, and no terminal flag (`bFinished`/`bSuccess`/`bFailed`) is set here;
+- Slice 1's artifact guard in `OnIndividualJobWorkFinished` is untouched (`git diff` shows no hunk in that
+  lambda), and neither is artifact collection, continuity, containment, frame-set verification, receipts,
+  authorization, the Named Pipe protocol, queue deletion/consumption, or the queue-instance architecture.
+
+### 7.2 Deterministic test matrix
+
+`tests/test_unreal_mrq_started_identity_contract.py` (NEW, 7 tests, no integration marker):
+
+```text
+1. matching start callback updates the registered job .................. guard precedes the three writes
+2. foreign start callback cannot update the registered job ............. all writes live after the identity check
+3. unresolved/expired registered job fails closed ...................... !Found || !Found->IsValid() early return
+                                                                         precedes every write
+4. no second identity source is introduced ............................ FRenderJobState member set still frozen
+                                                                         (17 fields), exactly one FGuid::NewGuid(),
+                                                                         no queue/position/path/time lookup in the
+                                                                         callback, exactly one empty-plugin-guard
+                                                                         comparison of the two pointers
+5. existing artifact-attribution tests remain unchanged ................ Slice 1 guard still compares
+                                                                         InOutputData.Job to the registered job and
+                                                                         still returns before OutputFiles.AddUnique
+                                                                         (the Slice 1/2 modules themselves are
+                                                                         byte-identical: `git diff` is empty)
+6. terminal flags are unreachable in the started callback .............. no bFinished/bSuccess/bFailed write
+7. the callback's write set is exactly the three monitoring fields ...... Status, StatusMessage, Progress
+```
+
+Baseline RED proof (throwaway worktree at `e64c3e3`, published tip before this slice): **5 of 7 tests FAIL**; the
+two that pass are the frozen-member-set and Slice-1-intact assertions, which are true at baseline by
+construction. The 7 tests therefore discriminate the Slice D change.
+
+### 7.3 Live UE 5.6.1 gate (ONE session, pre-populated queue)
+
+```text
+tests/test_unreal_mrq_started_identity_real_integration.py     2 passed in 35.22 s
+```
+
+ONE editor session. The queue was **deliberately not empty**: an aborted first attempt had already left two jobs
+in it, so every submission in this run rendered foreign jobs first (engine log
+`starting 3 -> 4 -> 5 -> 6 jobs`). Per submission, after `submit_render` returned and before
+`wait_for_completion` was entered, the new job's state was read repeatedly:
+
+```text
+first submission  (1-10, own dir+receipt)   -> 10 artifacts, exact frame set, receipt coherent
+second submission (1-5, own dir+receipt)    -> 5 artifacts, exact frame set, receipt coherent
+   early samples (foreign job rendering)    -> 12/12 "submitted"   (no foreign start write)
+   own start transition                     -> observed "rendering"
+   first job's state after this render      -> unchanged (10 artifacts, same paths)
+third submission  (1-2) / fourth (1-2)      -> same authorized range, different directories
+   early samples (foreign job rendering)    -> 8/8 "submitted"
+   third job's state after the fourth render-> unchanged (2 artifacts, same paths)
+```
+
+- **foreign queued jobs do NOT overwrite the new Atlas job's monitoring state** - measured directly in the window
+  where an earlier queued job is rendering and the new job has not started (the exact window in which the old
+  callback wrote `Status="rendering"`);
+- the Atlas job still receives **its own** start transition (`submitted` -> `rendering`);
+- Slice 1 artifact isolation still holds (15 `ATLAS MRQ ATTRIBUTION: discarded ...` lines in the session);
+- exact job-ID binding held on every read (`state["job_id"] == sentinelled job id`), including the same-range pair;
+- receipts stayed coherent (`receipt.matches(final_evidence)` true) and continuity completeness verified against
+  the authorized inclusive frame set;
+- no stale-MRQ false positive: every job's evidence was exactly its own authorized frame set inside its own
+  authorized directory, including the same-range case where frame-set-only verification used to be satisfiable
+  by another directory's artifacts.
+
+### 7.4 DLL provenance
+
+```text
+source mtime   2026-09-17 19:02:22   AtlasTransportServer.cpp   blob 4e10ec7a8f616a589ddacf65cd17d7c0dba06579
+build          [1/4] Compile [x64] AtlasTransportServer.cpp
+               [3/4] Link [x64] UnrealEditor-AtlasUnrealTransport.dll
+               build end 2026-09-17T19:03:05-04:00 (exit 0)
+DLL mtime      2026-09-17 19:03:04   361,984 bytes
+               sha256 dca88a6fe6f3f769e7bfc2eb9ba9647f9e93f82492e87afbdff47f111725bf14
+session opened 2026-09-17 19:05:32   `Loading module ... UnrealEditor-AtlasUnrealTransport.dll (0.345 MB)`
+```
+
+The build was incremental (from the Slice 1/2 binary) and the DLL size is unchanged from that binary, so size
+alone proves nothing. The discriminating evidence is behavioural: the sampled `submitted` window is impossible
+with the pre-Slice-D callback, which wrote `Status="rendering"` on a foreign job's start. The gate therefore
+executed the Slice D binary.
+
+### 7.5 Non-claims
+
+1. The C++ guard still has **no deterministic execution cover** in this repository - source-level shape
+   assertions plus the live gate; the same limitation recorded for Slice 1.
+2. **Concurrent submissions are NOT fixed by this slice.** A submission made while another render is active is
+   refused inside the subsystem (`ensureMsgf(!IsRendering())`); the transport cannot surface that refusal, and
+   the caller observes a poll timeout. Carried to the next architecture review; no timeout change and no
+   synthetic success was used to hide it.
+3. **Slice 3 (queue consumption) and the private-queue migration remain unimplemented.**
+4. One live-gate attempt failed before the recorded run, and the failure was in **this repository's test
+   harness**, not in the transport: the first version of the live module sampled the job state *after*
+   `wait_for_completion` had already returned, so it observed `finished` instead of the mid-render window. The
+   test was restructured (submit -> sample -> wait); no production code was changed in response. Recorded here
+   because a harness defect that is silently "fixed" would be indistinguishable from a product defect.
+5. `unreal_render_workflow._job_state` still duplicates `resolve_render_job_state` (pre-existing, untouched).

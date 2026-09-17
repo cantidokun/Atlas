@@ -91,7 +91,9 @@ Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
 Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
-MRQ artifact attribution               COMPLETE + LIVE-PROVEN
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED (8ecf7db)
+MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
+MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN
 ```
 
 The published shot-continuity contract is recorded in `docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md` and `docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md`. It preserves inclusive Atlas frame semantics, translates the inclusive end frame to Unreal MRQ's half-open boundary exactly once, verifies fresh effective frame evidence, binds sequence identity through the authorized production plan, and verifies the exact PNG frame set.
@@ -188,9 +190,11 @@ docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
 
 ### Open Unreal boundary item
 
-**MRQ artifact attribution is COMPLETE + LIVE-PROVEN**: the job identity guard is live-proven in a multi-submission single-editor session, foreign callback artifacts are discarded, PNG artifacts must be contained within the authorized output directory, and exact frame-set verification remains active. Slice 3 queue consumption remains separate and unimplemented.
+**MRQ artifact attribution is COMPLETE + LIVE-PROVEN** (published at `8ecf7db`): the job identity guard is live-proven in a multi-submission single-editor session, foreign callback artifacts are discarded, PNG artifacts must be contained within the authorized output directory, and exact frame-set verification remains active. **Slice D adds monitoring-state identity**: `OnIndividualJobStarted` writes `Status`/`StatusMessage`/`Progress` only for the exact registered executor job, proven in one editor session whose queue already held foreign jobs. Slice 3 queue consumption remains separate and unimplemented, and the private-queue migration is not authorized.
 
-What remains is only a **design question, with no implementation authorized**: whether queue consumption should be addressed at all, and whether Atlas should retain the current MRQ queue semantics or isolate its own queue instance. That review requires a fresh design gate; nothing has been changed. The former operator precondition (fresh editor session + empty queue) is no longer load-bearing for artifact attribution.
+The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, `CLEAR WITH MINOR FINDINGS`, read-only) concluded that accumulation is no longer a provenance correctness risk, retained the current shared MRQ queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance with recorded entry criteria. The former operator precondition (fresh editor session + empty queue) is no longer load-bearing for attribution.
+
+**Next architectural review (nothing authorized): concurrent-submission rejection / error propagation.** A submission made while another render is active is refused by the engine subsystem and the transport cannot surface that refusal, so the caller sees a poll timeout. It was deliberately carried rather than hidden inside the Slice D work.
 
 ---
 

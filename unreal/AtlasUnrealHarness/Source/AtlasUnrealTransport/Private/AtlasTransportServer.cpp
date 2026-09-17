@@ -1374,12 +1374,31 @@ bool FAtlasTransportServer::SubmitRender(
             TSharedPtr<FRenderJobState>* Found=
                 FAtlasTransportServer::RenderJobRegistry.Find(JobId);
 
-            if(Found && Found->IsValid())
+            if(!Found || !Found->IsValid())
             {
-                (*Found)->Status=TEXT("rendering");
-                (*Found)->StatusMessage=TEXT("Render job started");
-                (*Found)->Progress=0.0;
+                return;
             }
+
+            /*
+             * Monitoring state is job-scoped for the same reason artifacts are:
+             * the executor renders every job already present in the queue and
+             * broadcasts this payload once per started job, so a start event for
+             * any other job must not overwrite this job's Status, StatusMessage
+             * or Progress. The comparison uses the exact executor job this Atlas
+             * submission allocated and already stores; no queue position, job-id
+             * string correlation, file name, output path, timing, callback order,
+             * or filesystem inspection is involved.
+             */
+            UMoviePipelineExecutorJob* RegisteredJob=(*Found)->Job.Get();
+
+            if(!RegisteredJob || InJob!=RegisteredJob)
+            {
+                return;
+            }
+
+            (*Found)->Status=TEXT("rendering");
+            (*Found)->StatusMessage=TEXT("Render job started");
+            (*Found)->Progress=0.0;
         });
 
     Executor->OnIndividualJobWorkFinished().AddLambda(

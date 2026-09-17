@@ -2,7 +2,7 @@
 
 **Updated:** September 17, 2026 (publication update)
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10` — published at `d582af3`
-**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice 3 (queue consumption/deletion) remains separate and unimplemented.** The queue-lifecycle design review has since completed (read-only): `docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md` — **CLEAR WITH MINOR FINDINGS** — concluding that accumulation is no longer a provenance correctness risk, recommending `OnIndividualJobStarted` identity-guarding as the next (separately gated) slice, retaining the current shared queue semantics as the default, and deferring an Atlas-owned private queue instance (engine-proven mechanism, own gate required).
+**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice D (start-callback identity guard) is now COMPLETE + LIVE-PROVEN** on top of that: monitoring state (`Status`/`StatusMessage`/`Progress`) is written only for the exact registered executor job, so a foreign queued job can no longer overwrite the new Atlas job's monitoring state. The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, **CLEAR WITH MINOR FINDINGS**, read-only) concluded that accumulation is no longer a provenance correctness risk, accepted the current shared queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance. **Slice 3 queue consumption and the private-queue migration remain unimplemented and unauthorized.** Next architectural review: **concurrent-submission rejection / error propagation** (carried, not fixed).
 
 ## Current milestone chain
 
@@ -13,7 +13,11 @@ Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
 Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
-MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN (committed this milestone)
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED (8ecf7db)
+        ↓
+MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
+        ↓
+MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN
 ```
 
 ## MRQ artifact attribution — COMPLETE + LIVE-PROVEN
@@ -31,6 +35,22 @@ Evidence: `tests/test_unreal_mrq_attribution_real_integration.py` (2 passed in 2
 submissions; engine log `starting 1 -> 2 -> 3 -> 4 jobs` with 6 `ATLAS MRQ ATTRIBUTION: discarded ...` lines),
 plus `tests/test_unreal_mrq_attribution_contract.py` (14 deterministic tests) and the existing continuity live
 gate re-run (1 passed in 9.60 s). Details: `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`.
+
+### Slice D — start-callback identity (COMPLETE + LIVE-PROVEN)
+
+```text
+Slice D   COMPLETE + LIVE-PROVEN
+  - monitoring state is written only for the exact registered executor job
+  - foreign queued jobs can no longer overwrite Status / StatusMessage / Progress
+  - the Atlas job still receives its own start transition
+  - Slice 1 artifact isolation unchanged; exact PNG frame-set verification unchanged
+  - Slice 3 queue consumption and the private-queue migration remain unimplemented
+```
+
+Evidence: `tests/test_unreal_mrq_started_identity_real_integration.py` (2 passed in 35.22 s in ONE editor session
+whose queue already held two jobs from an aborted harness attempt: after each submission 12/12 and 8/8 state reads
+reported `submitted` while a foreign queued job was still rendering, and the Atlas job's own transition to
+`rendering` was observed), plus `tests/test_unreal_mrq_started_identity_contract.py` (7 deterministic tests).
 
 ## Shot-level production continuity
 
@@ -127,28 +147,34 @@ Do not force-push, rebase destructively, or blindly merge the parallel implement
 
 ## Next step — design gate only (no implementation)
 
-Shot continuity is closed and published, and MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE +
-LIVE-PROVEN. The queue-lifecycle design review has now been performed (read-only; no code, no tests, no live
-run): **`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md` — verdict CLEAR WITH MINOR FINDINGS.**
+Shot continuity is closed and published, MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN
+and published (`8ecf7db`), and the queue-lifecycle design review completed as **CLEAR WITH MINOR FINDINGS**
+(`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, read-only; no code, no tests, no live run).
 
-Its conclusion: queue accumulation is no longer a provenance/evidence-correctness risk after Slice 1 + Slice 2;
-what remains is an efficiency cost, a monitoring-state fidelity gap, a fail-closed availability coupling, and a
-silent-drop hazard. Recommended sequencing — **nothing authorized**:
+Its recommended slice — **D, identity-guarding `OnIndividualJobStarted`** — has since been implemented and
+live-proven: `InJob == FRenderJobState::Job` gates every monitoring-state write, so a foreign queued job cannot
+overwrite the new Atlas job's `Status`/`StatusMessage`/`Progress`. The remaining candidates are unchanged:
 
 ```text
-D  identity-guard OnIndividualJobStarted      recommended next slice, needs its own design gate
+D  identity-guard OnIndividualJobStarted      DONE - implemented + live-proven
 A  retain current shared MRQ queue semantics  accepted as the default
 C  Atlas-owned private MRQ queue instance     engine-proven mechanism (Epic Quick Render), deferred with
                                               entry criteria; own design gate required
 B  consume/delete only Atlas-owned jobs       rejected for now (engine-queue mutation + index risk)
-carried: F2 silent non-start -> poll timeout; F3 executor-level failure coupling  (both fail-closed)
 ```
+
+**Next architectural review (not authorized, not started): concurrent-submission rejection / error
+propagation.** When a submission is made while another render is already active, UE refuses it inside the
+subsystem (`ensureMsgf(!IsRendering())`), the transport cannot surface that refusal as a failure, and the caller
+observes a poll timeout instead. This was discovered during the Slice D work and was deliberately **not fixed**
+in this slice: no timeout change and no synthetic success may be used to hide it. Slice 3 queue consumption and
+the private-queue migration stay unimplemented.
 
 The audit and candidate evaluation for that review are recorded in `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (90 source anchors across the transport C++ and the UE 5.6.1 MovieRenderPipeline plugin, plus the measured failure evidence). Its recommended architecture is an identity guard in the existing `OnIndividualJobWorkFinished` lambda (the payload's job must equal the job this transport allocated) plus a PNG artifact-containment rule against the authorized output directory. The design gate returned `CLEAR WITH MINOR CONDITIONS`; Slice 1 and Slice 2 are now implemented and LIVE
 CLEAR (see `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`), and Slice 3 was deliberately not
 implemented.
 
-Measured risk driving the review: `SubmitRender` renders every job already present in the MRQ queue, and the per-job callback registered on the new executor writes every queue job's file paths into the newly submitted job's state. A second submission in one editor session therefore reports another job's artifacts (measured: 24 artifacts observed for an authorized 1–2 job whose own output directory was empty). The current mitigation is procedural — one submission per fresh editor session — which the publication gate used again (queue empty at session start, `MoviePipelineLinearExecutorBase starting 1 jobs` on every submission).
+Measured risk driving the review: `SubmitRender` renders every job already present in the MRQ queue, and the per-job callback registered on the new executor writes every queue job's file paths into the newly submitted job's state. A second submission in one editor session therefore reports another job's artifacts (measured: 24 artifacts observed for an authorized 1–2 job whose own output directory was empty). That defect is **closed** by Slice 1 (artifact provenance) and Slice D (monitoring state): a non-empty queue is no longer an attribution risk, and the former procedural mitigation — one submission per fresh editor session — is no longer load-bearing for correctness. The Slice D live gate deliberately ran with a queue that already held two jobs and proved the property in that state.
 
 Do not fold that issue into shot continuity: shot continuity is closed.
 

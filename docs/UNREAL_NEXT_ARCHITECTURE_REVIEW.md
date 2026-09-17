@@ -9,24 +9,29 @@ The review below selected shot-level production continuity as the next surface. 
 
 The next architectural review was **MRQ queue hygiene / artifact attribution** — how a submission's artifacts are attributed when the MRQ queue retains prior jobs. That surface's Slice 1 (engine-side provenance guard in the existing per-job callback) and Slice 2 (PNG artifact containment against the authorized output directory) are now **MRQ artifact attribution — COMPLETE + LIVE-PROVEN** (job identity guard live-proven in a multi-submission single-editor session; foreign callback artifacts discarded; PNG artifacts contained within the authorized output directory; exact frame-set verification still active; Slice 3 queue consumption separate and unimplemented). See `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`.
 
-The NEXT gate was a **design review, not an implementation** — and it has now been performed:
+The NEXT gate was a **design review, not an implementation** — and it has now been performed AND acted on:
 `docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md` (**verdict: CLEAR WITH MINOR FINDINGS**; read-only, no code,
 no tests, no live run). Its conclusion: after Slice 1 + Slice 2, queue accumulation is **not** a provenance or
 evidence-correctness risk — it is an efficiency cost, a monitoring-state fidelity gap (`OnIndividualJobStarted`),
 a fail-closed availability coupling (a queue job's fatal error reaches our executor-level callback) and a
 silent-drop hazard (a submission made while another render is in progress is refused by the subsystem's
-`ensure`, and the transport cannot see that). Recommended sequencing, nothing authorized yet:
+`ensure`, and the transport cannot see that).
+
+Its recommended slice was implemented under its own gate and is now proven:
 
 ```text
-D  identity-guard OnIndividualJobStarted      recommended next slice (own design gate)
-A  retain current shared MRQ queue semantics  accepted as the default
+D  identity-guard OnIndividualJobStarted      DONE - COMPLETE + LIVE-PROVEN (monitoring state is job-scoped)
+A  retain current shared MRQ queue semantics  accepted as the default (unchanged)
 C  Atlas-owned private MRQ queue instance     engine-proven (Quick Render does exactly this) - deferred,
                                               entry criteria recorded in the review; needs its own design gate
 B  consume/delete only Atlas-owned jobs       rejected for now (does not establish provenance, mutates
                                               engine-owned queue state, executor index-invariant risk)
 ```
 
-The design review for that surface is drafted at `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (audit of the MRQ job lifecycle, `SubmitRender` identity creation, queue state, callback/event ownership, `InspectRenderJob` construction, job-ID binding, artifact collection, receipt/evidence relations, continuity interaction, and recovery; candidates A–D evaluated; recommended architecture = engine-side provenance guard in the existing per-job callback plus PNG artifact containment against the authorized output directory). Its status is `AWAITING INDEPENDENT DESIGN GATE` and it is not self-cleared. Every frozen constraint in this document (no new transport primitive, no second authorization authority, no model-derived authority, no entity discovery/cache, fresh verification, exact render-job identity, fail-closed recovery, no distributed-render architecture) continues to apply to that review.
+What remains from that review is the silent-drop hazard above (finding F2), carried forward — see the next
+surface at the end of this document. It was deliberately not fixed with the Slice D work.
+
+The design review for that surface is drafted at `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (audit of the MRQ job lifecycle, `SubmitRender` identity creation, queue state, callback/event ownership, `InspectRenderJob` construction, job-ID binding, artifact collection, receipt/evidence relations, continuity interaction, and recovery; candidates A–D evaluated; recommended architecture = engine-side provenance guard in the existing per-job callback plus PNG artifact containment against the authorized output directory). Its status is `CLEAR WITH MINOR CONDITIONS` (the operator relayed the independent gate result); Slice 1 and Slice 2 from it were implemented, live-proven and published at `8ecf7db`. Every frozen constraint in this document (no new transport primitive, no second authorization authority, no model-derived authority, no entity discovery/cache, fresh verification, exact render-job identity, fail-closed recovery, no distributed-render architecture) continues to apply to that review.
 
 ## Review conclusion
 
@@ -184,10 +189,43 @@ Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
 Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
-MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED (8ecf7db)
         ↓
 MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
         ↓
-NEXT (needs its own design gate): D identity-guard OnIndividualJobStarted   [recommended]
-        (deferred: C private queue instance; rejected for now: B consumption; default: A current semantics)
+MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN
+        ↓
+NEXT (needs its own design gate): concurrent-submission rejection / error propagation   [carried finding F2]
+        (still unimplemented: Slice 3 queue consumption; C private queue instance
+         unchanged default: A current shared queue semantics)
 ```
+
+## NEXT SURFACE — concurrent-submission rejection and error propagation (carried finding F2)
+
+Selected by the queue-lifecycle review as the item to evaluate **before** queue consumption or a private-queue
+migration. It is a design question first; nothing is authorized and nothing has been changed.
+
+```text
+condition   a render submission is made while another render is already active in the editor
+engine      UMoviePipelineQueueSubsystem::RenderQueueInstanceWithExecutorInstance refuses the call
+            (ensureMsgf(!IsRendering())), i.e. the submission never starts
+transport   AtlasTransportServer::SubmitRender returns as soon as the executor is scheduled; it cannot
+            observe the refusal, so no failure reaches the caller
+caller      the render workflow polls for a job that will never start and eventually reports a timeout,
+            which is indistinguishable from a slow render
+severity    fail-closed (no false success, no artifacts, no receipt) but the diagnosis is wrong, and the
+            operator cannot tell "refused" from "slow"
+```
+
+Questions the gate must answer before any implementation:
+
+1. Can the refusal be observed without inventing a second authority, a new transport primitive, or a protocol
+   change (e.g. is there an existing engine-visible condition the submission path can read)?
+2. If it cannot be observed, what is the correct fail-closed contract: a bounded, explicitly *distinguishable*
+   refusal/timeout outcome, or a documented operator precondition?
+3. Does the answer hold for both the local (PIE) executor and any future executor plug-in?
+4. What must NOT happen: no timeout inflation, no synthetic success, no automatic retry, no queue mutation, no
+   change to exact job identity or to receipt/evidence semantics.
+
+Until that review is complete and cleared, Slice 3 queue consumption and the private-queue instance migration
+stay unimplemented, and the shared MRQ queue semantics remain the accepted default.

@@ -1063,10 +1063,61 @@ while writing another. New files: `tests/test_unreal_mrq_attribution_contract.py
 ### Remaining risk / not done
 
 - Slice 3 (consume or delete only the queue job this transport allocated) was explicitly NOT implemented.
-- `OnIndividualJobStarted` is still identity-blind; it writes monitoring fields only (status/progress) and cannot
-  affect artifact ownership, the acceptance condition, or the receipt. Reported as a residual finding.
+- `OnIndividualJobStarted` was identity-blind at this milestone; it writes monitoring fields only (status/progress)
+  and cannot affect artifact ownership, the acceptance condition, or the receipt. Reported as a residual finding,
+  then fixed by Slice D (see the next section).
 - `ShotData[0]`-only artifact collection is unchanged (multi-shot sequences remain outside the frozen contract).
 - Under Movie Render Graph the payload job may be a duplicated job, so the guard would fail closed rather than
   mis-attribute; not exercised by this harness.
 - The transport has no deterministic execution harness in this repository; the guard's executable evidence is the
   live gate plus source inspection.
+
+## September 17, 2026 — MRQ start-callback identity, Slice D (COMPLETE + LIVE-PROVEN)
+
+The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, verdict
+`CLEAR WITH MINOR FINDINGS`) recommended identity-guarding `OnIndividualJobStarted` as the next slice, with its
+own gate. That slice was authorized as **Slice D**, implemented, and live-proven.
+
+### Change
+
+`unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp` (+23/-4, blob
+`4e10ec7a8f616a589ddacf65cd17d7c0dba06579`): the start callback now returns early unless the payload job is the
+exact `UMoviePipelineExecutorJob*` already stored in `FRenderJobState::Job`, so `Status`, `StatusMessage` and
+`Progress` are written only for the job this Atlas submission allocated. An unresolved/expired registry entry
+fails closed before any write. No new identity source, no queue-position/job-id-string/path/timing heuristic;
+Slice 1's artifact guard is untouched (`git diff` has no hunk in that lambda).
+
+### Verification
+
+```text
+deterministic        tests/test_unreal_mrq_started_identity_contract.py        7 passed
+red proof            throwaway worktree at e64c3e3                            5 of 7 FAIL
+affected sweep       identical selection, no editor running                    1198 passed, 7 skipped
+                     (baseline e64c3e3 same selection                            1191 passed, 7 skipped = +7)
+live, ONE session    tests/test_unreal_mrq_started_identity_real_integration.py 2 passed in 35.22 s
+                     queue deliberately non-empty (2 jobs already present):
+                     engine log `starting 3 -> 4 -> 5 -> 6 jobs`, 15 Slice 1 discards
+                     mid-render reads of the new job: 12/12 and 8/8 "submitted"
+                     (a foreign job's start no longer writes into it), own
+                     transition to "rendering" observed; artifacts exact per job
+                     (10 / 5 / 2 / 2), same-range pair isolated, receipts coherent,
+                     predecessor states unchanged
+DLL provenance       source 19:02:22 -> build 19:03:05 (Compile + Link, exit 0) -> DLL
+                     19:03:04 sha256 dca88a6f... -> session 19:05:32 loaded that DLL;
+                     the sampled "submitted" window is behaviourally impossible with
+                     the pre-Slice-D binary
+fixtures             all four tracked assets byte-identical to baseline; editors killed;
+                     pipe released
+```
+
+### Remaining risk / not done
+
+- **Concurrent submissions are not fixed**: a submission made while another render is active is refused by the
+  subsystem's `ensureMsgf(!IsRendering())`, the transport cannot surface that refusal, and the caller observes a
+  poll timeout. Carried to the next architecture review; not hidden with timeout changes or synthetic success.
+- Slice 3 queue consumption and the private-queue migration remain unimplemented; shared queue semantics remain
+  the default.
+- The C++ guard has no deterministic execution harness in this repository (source-shape assertions plus the live
+  gate), the same limitation recorded for Slice 1.
+- One earlier live attempt failed in this repository's **test harness** (it sampled the job state after completion
+  instead of mid-render); the test was restructured and no production code was changed in response.

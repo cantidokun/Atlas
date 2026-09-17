@@ -299,3 +299,25 @@ automatic mutation retry. This review authorizes **no code**: candidate D would 
 and planning sources at `8ecf7db`; (c) engine logs recorded by the previously completed live gates
 (`Saved/Logs/AtlasUnrealHarness-backup-2026.09.17-22.33.20.log`). No new engine run was performed for this
 review, and nothing was measured that the review does not cite.*
+
+---
+
+## Addendum (September 17, 2026, later the same session) — implementation status of this review's candidates
+
+This review recommended candidate D (`OnIndividualJobStarted` identity guard) as the next slice and authorized no
+code. That slice was subsequently authorized, implemented, live-proven and recorded separately:
+
+```text
+D  identity-guard OnIndividualJobStarted      DONE - COMPLETE + LIVE-PROVEN (docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md §7)
+   F1 monitoring-state fidelity gap           CLOSED by D
+A  retain current shared MRQ queue semantics  unchanged default
+C  Atlas-owned private MRQ queue instance     still deferred (entry criteria above unchanged)
+B  consume/delete only Atlas-owned jobs       still rejected for now
+   F2 silent non-start -> poll timeout        CARRIED, not fixed: next architecture review
+   F3 executor-level failure coupling         CARRIED, not fixed
+```
+
+The review's central finding is unchanged: after the artifact-provenance guard and the monitoring-state guard,
+queue accumulation is not a correctness risk, and the remaining items are efficiency, operator-visibility and
+fail-closed availability concerns. F2 is deliberately excluded from Slice D's scope; it must not be masked by
+timeout changes or synthetic success.
