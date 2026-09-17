@@ -87,6 +87,21 @@ The existing canonical type is a tuple of strings, so a richer per-face material
 
 Material-slot order must be deterministic. Blender runtime pointer identity must never be used as canonical ordering.
 
+### 4.4 Representation-state contract — mandatory decision before implementation
+
+The current canonical parser defaults omitted `normals` and `uvs` to empty tuples, while the current live extractor emits `null` for those fields and `[]` for materials. Those states must not be conflated during a fidelity milestone.
+
+Before implementation, the design must explicitly define the meaning of each of these states for every mesh-domain field:
+
+- **present and non-empty** — source data was observed and represented;
+- **present and empty** — source data was observed and is legitimately empty under the field's contract;
+- **omitted/unavailable** — source data was not available or not in scope;
+- **unrepresentable** — source data existed but could not be represented losslessly.
+
+The implementation must not use `[]` or `None` merely as a convenient placeholder for unavailable information.
+
+If the existing schema/model cannot distinguish the states required for truthful extraction, the milestone must introduce a versioned schema/model change rather than silently overloading an existing value. Reusing schema version `1` is permitted only if the chosen semantics are mechanically unambiguous without changing the meaning of existing fields.
+
 ## 5. Scene membership contract
 
 The extractor must define the complete set of objects considered part of the extracted scene.
@@ -190,6 +205,10 @@ A disposable mesh deliberately containing a source condition that cannot be repr
 
 An object linked to multiple collections and a nested collection tree. The gate must prove exact-once object extraction and deterministic representative collection semantics.
 
+### Fixture D — representation-state distinction
+
+The gate must include one fixture where a mesh-domain field is legitimately empty and another where the source data is unavailable or outside the supported representation. The extracted payload must preserve the distinction defined by the final contract rather than collapsing both to the same placeholder value.
+
 ## 11. Required validation layers
 
 ### Deterministic unit tests
@@ -203,6 +222,7 @@ Test payload construction and canonical conversion without Blender-specific obje
 - duplicate object identity handling;
 - malformed/non-finite data;
 - source omission vs failure semantics;
+- present-empty vs unavailable/unrepresentable semantics;
 - canonical JSON determinism.
 
 ### Adversarial tests
@@ -220,7 +240,9 @@ At minimum:
 - hostile Blender-like adapters that raise after partial iteration;
 - mutable/aliased source sequences;
 - fabricated pointer-derived ordering;
-- exception after some objects were extracted.
+- exception after some objects were extracted;
+- unavailable-vs-empty state confusion;
+- schema-version mismatch when representation-state semantics require a newer contract.
 
 Every hostile case must either produce an explicitly partial/invalid result token or fail without returning a successful full payload. No partially trusted payload may reach the kernel as valid.
 
@@ -235,13 +257,20 @@ The live gate must independently verify:
 - exact expected normals/UV/material content for Fixture A;
 - explicit behavior for Fixture B;
 - exact-once nested collection membership for Fixture C;
+- explicit representation-state behavior for Fixture D;
 - zero Blender mutation during extraction.
 
 ## 12. Canonical payload/schema rule
 
-The preferred implementation reuses extraction payload schema version `1` if the existing fields can express the completed fidelity contract without changing their meaning.
+The preferred implementation reuses extraction payload schema version `1` only if the completed fidelity contract fits the current field meanings without ambiguity.
 
-A schema-version bump is required if the milestone needs a new canonical field, changes the meaning/cardinality of an existing field, or introduces a new representational domain.
+A schema-version bump is required if the milestone needs:
+
+- a new canonical field;
+- a new availability/representation-state marker;
+- a changed field meaning or cardinality;
+- a richer per-face/per-loop material or UV domain;
+- any other incompatible representational change.
 
 The extractor must never stuff richer data into an existing field merely to avoid a schema change.
 
@@ -282,10 +311,11 @@ Implementation may begin only after an independent review establishes:
 1. the normals contract is exact and source-faithful;
 2. the UV representation is either proven lossless for the supported source domain or explicitly bounded by omission/failure;
 3. material semantics are closed and consistent with the existing canonical type;
-4. scene membership is complete within a documented scope and deterministic;
-5. no payload field silently understates or overstates source fidelity;
-6. no mutation/persistence authority has entered the design;
-7. the proposed live fixtures can prove the claims independently.
+4. representation-state semantics cannot confuse unavailable data with legitimate emptiness;
+5. scene membership is complete within a documented scope and deterministic;
+6. no payload field silently understates or overstates source fidelity;
+7. no mutation/persistence authority has entered the design;
+8. the proposed live fixtures can prove the claims independently.
 
 The milestone is complete only after deterministic, adversarial, and live Blender 4.4.3 validation pass and the extracted payload remains compatible with the canonical kernel contract.
 
@@ -298,6 +328,7 @@ An independent reviewer must specifically attempt to break:
 - recursive scene membership and multi-collection deduplication;
 - deterministic ordering across processes;
 - omission vs successful extraction semantics;
+- present-empty vs unavailable/unrepresentable state semantics;
 - partial extraction after a hostile adapter exception;
 - compatibility with the existing schema version;
 - the boundary between extraction fidelity and a future production write-back adapter.
