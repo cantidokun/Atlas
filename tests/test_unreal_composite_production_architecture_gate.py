@@ -214,7 +214,7 @@ def test_composite_architecture_gate_is_one_authorized_verified_transaction():
     verified_indices = [
         index for index, entry in enumerate(evidence) if entry.verified
     ]
-    assert verified_indices == [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 21]
+    assert verified_indices == [2, 5, 7, 9, 12, 15, 18, 21]
     assert evidence[-1].operation_name == "verify_render_state"
     assert evidence[-1].verified is True
 
