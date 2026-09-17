@@ -1,16 +1,37 @@
 # Atlas Blender — Extraction Fidelity Completion Design Gate
 
-**Status:** DESIGN ONLY — NO IMPLEMENTATION  
+**Status:** DESIGN REVISION 2 — REVIEW REQUIRED / NO IMPLEMENTATION  
 **Track:** Blender canonical extraction  
-**Baseline:** Wave 12 merged to `main` at `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2`
+**Baseline:** Wave 12 merged to `main` at `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2`  
+**Design branch:** `feat/blender-extraction-fidelity-design`
 
-## 1. Purpose
+## 1. Purpose and scope
 
-This gate addresses a producer-side truthfulness gap in the Blender boundary: the canonical model and health kernel already accept mesh-domain data such as per-face normals, UVs, and materials, but the current real-Blender extractor does not populate those fields, and scene membership is intentionally limited to `scene.collection.objects`.
+This gate addresses a producer-side truthfulness gap in the Blender boundary. The canonical model and health kernel contain fields and checks for mesh-domain information, but the current real-Blender extractor does not faithfully populate all of those fields. Scene discovery is also narrower than a complete scene-graph traversal.
 
-The objective is **read-only extraction fidelity**, not a new correction capability and not a write-back path.
+This revision closes the design decisions raised by independent red-team review. It intentionally **narrows the implementation scope where the existing canonical representation cannot make a truthful claim** rather than forcing new semantics into old fields.
 
-The milestone is complete only when a real Blender scene can be converted into the existing canonical payload without silently replacing available source data with empty placeholders or silently omitting in-scope scene members.
+The milestone is therefore a bounded **Extraction Fidelity v1** milestone:
+
+### In scope
+
+- truthful vertex/face extraction already representable by the canonical schema;
+- deterministic object discovery within the defined scene-membership domain;
+- material-slot name extraction only, under the exact existing `tuple[str, ...]` meaning defined below;
+- explicit extraction-state semantics for supported fields;
+- fail-closed handling of existing fabricated-default paths;
+- deterministic payload canonicalization and cross-process validation;
+- read-only real-Blender evidence.
+
+### Explicitly deferred
+
+- UV fidelity beyond the current schema's representational capacity;
+- per-face or per-loop material assignment;
+- a new multi-collection canonical field;
+- changing the canonical normal-consistency algorithm;
+- any production write-back adapter.
+
+These deferred items are not hidden failures. They are explicit architectural boundaries recorded by this gate so that future work cannot accidentally reinterpret them as completed fidelity.
 
 ## 2. Authority boundary
 
@@ -26,270 +47,346 @@ canonical SceneModel
 deterministic health kernel
 ```
 
-The extractor must not mutate Blender, save a file, invoke a correction executor, create persistence authority, alter workflow/action-runner behavior, or infer repairs.
+The extractor must not mutate Blender, save a file, invoke correction executors, create persistence authority, alter workflow/action-runner behavior, or infer repairs.
 
-This milestone does **not** create a production write-back adapter. A future engine-binding milestone requires its own design gate and explicit authority decision.
+This milestone does **not** create a production write-back adapter. Any future engine-binding/write-back milestone requires its own design gate and explicit authority decision.
 
-## 3. Current known producer gap
+## 3. Truthfulness rule
 
-The current extractor emits:
+Extraction is a truth-preserving boundary, not a cleanup or inference layer.
 
-- `normals = None`;
-- `uvs = None`;
-- `materials = []`;
-
-for real mesh extraction. The canonical `MeshModel` already supports these domains, and the extraction payload schema already reserves the fields. The intended change is therefore completion of an existing contract, not creation of a new correction model.
-
-The current scene discovery also enumerates only `scene.collection.objects`. The fidelity milestone must either:
-
-1. extend discovery to the complete intended scene-membership domain; or
-2. explicitly freeze a narrower membership boundary in the canonical contract and prove that the omitted domains are out of scope.
-
-The design must choose one. Silent partial discovery is not acceptable.
-
-## 4. Normative mesh-domain contract
-
-### 4.1 Normals
-
-If source polygon normals are available from Blender, emit **one canonical 3-vector per polygon, in canonical face order**.
-
-Requirements:
-
-- source order must map deterministically to extracted face order;
-- finite numeric values only;
-- no relabelling of per-vertex normals as per-face normals;
-- no synthesized normals when the source does not provide a trustworthy polygon-normal value;
-- unavailable or structurally unsupported normals must be represented as an explicit omission state, not fabricated data;
-- output length must equal face count whenever normals are present;
-- parser/kernel validation remains authoritative for canonical shape and finiteness.
-
-### 4.2 UVs
-
-The design must define exactly what one `MeshModel.uvs` entry means before implementation.
-
-The current canonical model represents UVs as one `(u, v)` pair per face. Blender UV data may be loop/corner-domain rather than face-domain, so the extractor must **not silently collapse multiple loop UVs into one face value**.
-
-Therefore implementation must first establish one of these closed outcomes:
-
-- a deterministic, lossless mapping from the Blender source representation to the existing one-value-per-face contract, with a proof that no face carries multiple materially distinct UV values; or
-- an explicit fidelity limitation/omission rule that leaves `uvs` absent whenever the source cannot be represented without loss.
-
-A lossy averaging, first-corner selection, or arbitrary representative UV is prohibited.
-
-### 4.3 Materials
-
-The design must define whether `MeshModel.materials` represents:
-
-- the ordered material-slot names attached to the mesh object; or
-- per-face material assignments.
-
-The existing canonical type is a tuple of strings, so a richer per-face material-domain representation cannot be invented inside this milestone. The implementation must therefore preserve the existing meaning exactly and reject/omit data that cannot be represented without semantic loss.
-
-Material-slot order must be deterministic. Blender runtime pointer identity must never be used as canonical ordering.
-
-### 4.4 Representation-state contract — mandatory decision before implementation
-
-The current canonical parser defaults omitted `normals` and `uvs` to empty tuples, while the current live extractor emits `null` for those fields and `[]` for materials. Those states must not be conflated during a fidelity milestone.
-
-Before implementation, the design must explicitly define the meaning of each of these states for every mesh-domain field:
-
-- **present and non-empty** — source data was observed and represented;
-- **present and empty** — source data was observed and is legitimately empty under the field's contract;
-- **omitted/unavailable** — source data was not available or not in scope;
-- **unrepresentable** — source data existed but could not be represented losslessly.
-
-The implementation must not use `[]` or `None` merely as a convenient placeholder for unavailable information.
-
-If the existing schema/model cannot distinguish the states required for truthful extraction, the milestone must introduce a versioned schema/model change rather than silently overloading an existing value. Reusing schema version `1` is permitted only if the chosen semantics are mechanically unambiguous without changing the meaning of existing fields.
-
-## 5. Scene membership contract
-
-The extractor must define the complete set of objects considered part of the extracted scene.
-
-Preferred design:
-
-- discover objects through the scene's collection hierarchy recursively;
-- preserve each actual scene object exactly once, even when linked into multiple collections;
-- use stable object identity (`object_id`) for deduplication;
-- emit objects in deterministic order independent of Blender collection/pointer traversal order;
-- retain the existing canonical `collection` field using a documented deterministic representative when an object belongs to multiple collections.
-
-The representative-collection rule must be explicit. The extractor must not depend on runtime collection pointer order.
-
-If recursive discovery exposes linked/library/hidden or otherwise unsupported Blender object classes, the contract must state whether they are included, excluded, or cause fail-closed extraction. No silent omission is allowed for a class declared in scope.
-
-## 6. Fidelity principle
-
-The extractor is a truth-preserving boundary, not a cleanup layer.
-
-For every field:
+For every supported field:
 
 ```text
-available + representable → emit exact canonical value
-available + not representable → explicit omission/failure
-unavailable → explicit omission
-never → fabricate, approximate, average, infer, normalize, or repair
+source observed + canonically representable
+    -> emit the exact canonical value
+
+source unavailable / out of declared scope
+    -> emit the declared omission state
+
+source observed but not representable without loss
+    -> emit the declared omission state AND record the limitation in the extraction contract
+
+malformed source / ambiguous mapping where the contract requires fidelity
+    -> fail closed
+
+never
+    -> fabricate, approximate, average, infer, normalize, repair, or select a convenient representative
 ```
 
-A successful extraction must never imply stronger fidelity than the source actually supports.
+A successful extraction must never claim more fidelity than the declared canonical contract supports.
 
-## 7. Determinism requirements
+## 4. Canonical representation-state policy
 
-For identical Blender source state, repeated extraction must produce byte-equivalent canonical payload content after JSON canonicalization.
+The previous revision treated `None`, `[]`, and absent keys as abstractly distinct. The actual parser and digest layer do not preserve all such distinctions. This revision therefore defines a narrower state policy for schema version `1`.
 
-At minimum:
+### 4.1 Normals and UVs
 
-- object ordering is deterministic;
-- face ordering follows source mesh polygon order;
-- vertex ordering follows source mesh vertex order;
-- normals follow canonical face ordering;
-- material ordering follows the chosen closed contract;
-- collection/object deduplication is deterministic;
-- no memory addresses, pointers, hash-randomized ordering, or process-local identifiers enter the payload.
+For schema version `1`:
 
-A two-process determinism gate is required because same-process repetition alone does not prove pointer/order independence.
+- **present/non-empty** means the field is explicitly populated and satisfies the field's exact cardinality rules;
+- **present/empty** is valid only when `faces == ()` and the field is intentionally empty under the canonical mesh contract;
+- **omitted/unavailable/unrepresentable** uses the canonical empty/omitted representation already accepted by the v1 payload parser; it is not presented as evidence that the source contained empty data;
+- the extractor must not emit `null` for these fields in a successful v1 payload;
+- a future schema may add an explicit provenance/availability marker if the distinction must participate in canonical identity.
 
-## 8. Fail-closed rules
+The digest contract remains unchanged in this milestone. The design explicitly accepts that v1 extraction-state provenance is **not** part of `scene_input_digest` unless and until a versioned digest/schema change is separately approved.
+
+### 4.2 Materials
+
+`materials == ()` means no material-slot names are represented in the canonical v1 output. It does not claim that Blender had zero material slots unless that is established by the declared material contract.
+
+## 5. Normals — closed v1 rule
+
+### 5.1 Canonical source
+
+The v1 extractor may read `bpy.types.MeshPolygon.normal`, but this value is a Blender-derived polygon normal, not immutable stored source data.
+
+Therefore v1 makes the following explicit claim:
+
+> `MeshModel.normals` is a **Blender-derived polygon-normal observation**, not a preserved source-normal channel.
+
+The extractor must not label it as custom split/corner normal data and must not synthesize it from per-vertex or loop-domain normal data.
+
+### 5.2 Kernel-agreement boundary
+
+The existing kernel compares declared normals against its own first-three-corners reference using a sign-agnostic one-degree tolerance. That means emitting Blender polygon normals without reconciliation can manufacture `MESH_NORMAL_INCONSISTENT` findings on ordinary warped polygons.
+
+**Therefore v1 does not authorize real-Blender normal emission yet.**
+
+Until a separate normal-semantics gate establishes a compatible kernel/producer contract, the live extractor must continue to omit normals rather than create a false-positive fidelity signal.
+
+The normal field remains fully supported by the canonical model, but its live producer completion is explicitly deferred. The future normal-semantics gate must establish:
+
+- authoritative source semantics;
+- derived-vs-stored status;
+- unit/normalization semantics;
+- orientation semantics;
+- agreement algorithm and tolerance;
+- behavior for warped polygons and undefined first-three-corner references;
+- compatibility impact on existing findings/digests/tests.
+
+### 5.3 Required evidence for the future normal gate
+
+The future gate must include a warped quad/polygon matrix spanning values below, at, and above the existing one-degree kernel threshold, plus inverted and non-unit vectors, and must record the exact intended semantics rather than inferring them from current behavior.
+
+## 6. UVs — closed v1 rule
+
+The current canonical type stores exactly one `(u, v)` pair per face. Blender UVs are loop/corner-domain and a face may legitimately carry distinct UVs at different corners.
+
+**V1 therefore declares UV data outside the lossless canonical representation domain.**
+
+The v1 extractor must:
+
+- not emit averaged, first-corner, representative, or otherwise collapsed UV values;
+- not claim that `MeshModel.uvs` contains the Blender UV layout;
+- omit UVs from successful v1 real-Blender extraction;
+- fail closed only when the caller explicitly requests a UV-fidelity contract rather than ordinary v1 extraction.
+
+A future UV capability requires a versioned canonical representation capable of preserving per-corner data, for example an explicit per-face ordered corner-UV structure. That future design must bump the payload schema and update the canonical model, parser, extraction digest semantics, Wave-11 empty-mesh rules, and any closed correction postcondition that snapshots `uvs`.
+
+## 7. Materials — closed v1 rule
+
+The existing canonical `MeshModel.materials` is a tuple of strings. V1 defines it precisely as:
+
+> the deterministic ordered names of the target mesh object's material slots.
+
+Rules:
+
+- source order is Blender material-slot order;
+- the extractor must not sort material slots by pointer, object identity, or arbitrary name order;
+- an empty material slot cannot be represented by a string name in the existing contract, so **any empty material slot causes v1 material extraction to omit the field rather than invent a token**;
+- per-face `material_index` assignments are explicitly **not represented** by v1 and must not be inferred from the slot-name tuple;
+- no material reassignment, normalization, deduplication, or repair occurs.
+
+A future per-face material-domain capability requires a versioned schema/model extension and a separate design gate.
+
+## 8. Scene-membership contract — closed v1 rule
+
+V1 defines extracted scene membership as:
+
+> objects reachable from `scene.collection` through its collection-child hierarchy, recursively, excluding the scene's master collection object itself as a semantic collection record.
+
+Rules:
+
+- traverse collection children recursively;
+- include each reachable Blender object exactly once;
+- deduplicate by Blender object identity during traversal, not by display name;
+- emit canonical objects sorted by canonical `object_id` (`obj.name` in v1);
+- do not rely on collection pointer order;
+- an object linked to multiple included collections is emitted once;
+- the canonical `collection` field is the deterministic representative **lexicographically smallest included child-collection name attached to the object**;
+- the scene master collection is excluded from representative selection;
+- if an object is attached only to the master collection, `collection` is `None`;
+- the single `collection` field is explicitly a **lossy representative**, not a claim of complete multi-collection membership;
+- multi-collection completeness remains deferred to a future versioned collection-domain field.
+
+### 8.1 Object classes
+
+V1 includes all ordinary scene objects reachable through the declared collection hierarchy, including non-mesh objects, represented with `mesh=None`.
+
+V1 does not expand an `instance_collection` Empty into the contents of the referenced collection. The Empty itself may be emitted; the instanced geometry is out of scope for v1 and this limitation must be recorded in the live evidence.
+
+Library-linked objects are included if reachable through the declared hierarchy and expose the required read-only Blender interfaces. Name collisions are governed by Blender's canonical object-name rules; duplicate canonical `object_id` detection remains a fail-closed guard for hostile or malformed adapter inputs.
+
+View-layer hiding, render hiding, and collection exclusion are **not scene-membership predicates** in v1. Visibility is handled separately by the object-state rule below.
+
+## 9. Existing fabricated-default paths — brought into scope
+
+The prior design did not address several fields that currently fabricate values when Blender interfaces are absent or raise exceptions. That is incompatible with a truth-preserving extraction boundary.
+
+V1 therefore requires:
+
+### 9.1 Visibility
+
+The extractor must use one named, documented Blender visibility source. If the declared source cannot be read, extraction fails closed for the affected object rather than defaulting to `True`.
+
+### 9.2 Location and scale
+
+If `obj.location` or `obj.scale` is unavailable or malformed, extraction fails closed for the object. The extractor may not substitute `(0,0,0)` or `(1,1,1)` as a successful result.
+
+### 9.3 Rotation
+
+Rotation extraction may not swallow arbitrary exceptions and silently substitute an identity quaternion. A malformed/unreadable rotation source must fail closed.
+
+The exact named Blender source and conversion convention must be pinned by implementation tests before the producer is changed.
+
+## 10. Geometry-domain contract
+
+The existing v1 geometry contract remains unchanged unless a separate design gate explicitly changes it:
+
+- mesh vertex order follows Blender mesh vertex order;
+- face order follows Blender polygon order;
+- vertex coordinates are emitted using the existing six-decimal canonical rounding rule;
+- no geometry evaluation, modifier application, triangulation, smoothing, welding, or topology repair occurs;
+- original `obj.data` geometry is the v1 source domain.
+
+Evaluated/depsgraph geometry is explicitly out of scope for v1 because it changes topology and identity attribution and would require a separate determinism/representation gate.
+
+## 11. Determinism contract
+
+Identical source state must produce byte-equivalent canonical payloads under a named canonical JSON encoding.
+
+V1 uses the following deterministic procedure for evidence:
+
+1. object order is canonical `object_id` order;
+2. collection representative selection is lexical over included child collection names;
+3. material slot order is source slot order;
+4. face and vertex order remain source order;
+5. payload JSON is serialized with UTF-8, sorted keys, compact separators, and `ensure_ascii=True`;
+6. numeric encoding is the canonical Python JSON representation of the already-canonicalized numeric values;
+7. C++ parity is defined as byte-equivalent output under this same encoding and number normalization rules.
+
+The live gate must run:
+
+- process A with `PYTHONHASHSEED=1`;
+- process B with `PYTHONHASHSEED=2`;
+- process C using the same scene values but a different object/collection construction order.
+
+All three canonical payload hashes must match.
+
+## 12. Fail-closed rules
 
 Extraction must fail closed for:
 
-- missing required Blender data interfaces;
-- malformed coordinate values;
-- non-finite normals or UVs where the source claims them to be present;
-- ambiguous source-to-canonical mappings that would require data loss;
-- duplicate canonical object identities that cannot be disambiguated;
-- unsupported collection/object classes that are declared in scope;
+- missing required Blender interfaces;
+- malformed or non-finite coordinates;
+- malformed/non-finite supported source values;
+- ambiguous source-to-canonical mappings requiring loss;
+- duplicate canonical object IDs at the canonical payload boundary;
+- unsupported in-scope object/collection classes;
+- rotation/location/scale/visibility fallback paths;
 - payload schema mismatch;
-- any extractor exception that would otherwise produce a partial payload.
+- exceptions after partial extraction that would otherwise return a successful payload.
 
-A partially populated payload must not be returned as a successful full-fidelity extraction.
+No partial payload may be treated as a successful `SceneModel`.
 
-## 9. Preservation requirements
+The deterministic payload validator remains the final schema-shape gate before kernel parsing.
 
-On a disposable real Blender scene, the gate must demonstrate preservation of source facts across extraction:
+## 13. Read-only validation fixtures
 
-- vertex coordinates;
-- face topology and polygon order;
-- polygon normals when represented;
-- UV data when representable under the closed contract;
-- material information under the closed contract;
-- object identity/name;
-- parent relationship;
-- local transform values;
-- collection membership represented by the contract;
-- unrelated objects.
+### Fixture A — supported fidelity
 
-The gate is read-only: no source mesh/object/collection may change as a side effect.
+A disposable Blender 4.4.3 scene containing:
 
-## 10. Required live fixtures
+- multiple mesh faces with deterministic polygon ordering;
+- nested collections;
+- an object linked to multiple child collections;
+- two or more material slots, all non-empty, whose slot names are known;
+- a non-trivial transform;
+- unrelated mesh and non-mesh objects;
+- visibility states exercising the declared visibility source;
+- no UV fidelity claim beyond the v1 omission rule.
 
-The real Blender 4.4.3 boundary must include at least:
-
-### Fixture A — fidelity-positive mesh
+### Fixture B — intentionally unrepresentable domains
 
 A disposable mesh containing:
 
-- multiple faces with deterministic polygon order;
-- non-trivial polygon normals;
-- UV data whose representability under the selected contract is unambiguous;
-- multiple material slots and known face/material relationship;
-- a non-trivial object transform;
-- at least one unrelated object;
-- membership through nested collections.
+- a genuine UV layer with distinct loop/corner values on at least one face;
+- at least one material-slot configuration that would require an empty-slot token if fidelity were claimed.
 
-### Fixture B — non-representable/ambiguous source
+V1 must omit these unsupported domains without manufacturing representatives.
 
-A disposable mesh deliberately containing a source condition that cannot be represented losslessly by the current canonical UV/material contract. The extractor must either produce an explicitly documented omission or fail closed according to the chosen rule. It must never silently select or average a value.
+### Fixture C — membership and deduplication
 
-### Fixture C — membership/deduplication
+- nested collection hierarchy;
+- one object attached to two included child collections;
+- one object attached only to the master collection;
+- one instance-collection Empty;
+- one library-linked or simulated hostile object when the runtime permits it.
 
-An object linked to multiple collections and a nested collection tree. The gate must prove exact-once object extraction and deterministic representative collection semantics.
+### Fixture D — source-integrity/failure paths
 
-### Fixture D — representation-state distinction
+Hostile Blender-like adapters must exercise unavailable visibility, location, scale, rotation, partial iteration, and post-partial-extraction exceptions. Each must fail closed rather than synthesize defaults.
 
-The gate must include one fixture where a mesh-domain field is legitimately empty and another where the source data is unavailable or outside the supported representation. The extracted payload must preserve the distinction defined by the final contract rather than collapsing both to the same placeholder value.
+### Frozen asset
 
-## 11. Required validation layers
+The existing frozen `.blend` asset may be opened **read-only** for regression validation. The gate must hash the asset before and after, require byte-identical hashes, and prohibit saving or creation/modification of any `.blend`, `.blend1`, or temporary Blender asset.
+
+The frozen asset is a regression anchor only; it does not prove positive UV/material fidelity because its known contents do not exercise those domains. New disposable fixtures provide the positive evidence for the closed v1 claims.
+
+## 14. Validation layers
 
 ### Deterministic unit tests
 
-Test payload construction and canonical conversion without Blender-specific objects, including:
+Required coverage:
 
-- exact normals cardinality/order;
-- UV representability and refusal rules;
-- material-slot semantics;
-- deterministic collection representative selection;
-- duplicate object identity handling;
-- malformed/non-finite data;
-- source omission vs failure semantics;
-- present-empty vs unavailable/unrepresentable semantics;
-- canonical JSON determinism.
+- payload normals/UV/material omission semantics;
+- material-slot-name semantics including empty-slot refusal/omission;
+- deterministic representative collection selection;
+- duplicate identity handling;
+- visibility/location/scale/rotation failure behavior;
+- canonical JSON serialization and hashing;
+- schema validation and schema mismatch;
+- source-order preservation.
 
 ### Adversarial tests
 
 At minimum:
 
-- normals length mismatch;
-- non-finite normals;
+- UV seam within a single face;
 - malformed UV loop data;
-- multiple distinct UV values on one face;
-- ambiguous material mapping;
-- duplicate object IDs;
-- object linked to multiple nested collections;
-- collection traversal reordered between runs;
-- hostile Blender-like adapters that raise after partial iteration;
-- mutable/aliased source sequences;
-- fabricated pointer-derived ordering;
-- exception after some objects were extracted;
-- unavailable-vs-empty state confusion;
-- schema-version mismatch when representation-state semantics require a newer contract.
-
-Every hostile case must either produce an explicitly partial/invalid result token or fail without returning a successful full payload. No partially trusted payload may reach the kernel as valid.
+- empty material slot;
+- per-face material-index variation;
+- collection traversal reordering;
+- master-only object;
+- multi-collection object;
+- hostile duplicate object IDs;
+- exceptions after partial traversal;
+- non-finite source values;
+- fabricated pointer ordering;
+- missing visibility/location/scale/rotation interfaces;
+- modifier-bearing object proving original `obj.data` scope;
+- instance-collection Empty;
+- linked-object adapter behavior.
 
 ### Live Blender 4.4.3 gate
 
-The live gate must independently verify:
+The gate must independently prove:
 
-- Blender version and executable identity;
-- no `.blend` opened;
-- no `.blend` or `.blend1` created/modified;
-- two-process deterministic payload equality;
-- exact expected normals/UV/material content for Fixture A;
-- explicit behavior for Fixture B;
-- exact-once nested collection membership for Fixture C;
-- explicit representation-state behavior for Fixture D;
-- zero Blender mutation during extraction.
+- Blender 4.4.3 executable/build identity;
+- frozen asset SHA unchanged before/after read-only open;
+- no save and no `.blend/.blend1` file creation/modification;
+- exact supported-domain payload content;
+- explicit UV/material omission behavior;
+- deterministic nested membership and representative collection semantics;
+- visibility/location/scale/rotation source reads;
+- three-process determinism with two distinct `PYTHONHASHSEED` values plus reordered construction;
+- zero source mutation.
 
-## 12. Canonical payload/schema rule
+The live gate must print/record the payload canonicalization method, process hash seed, fixture construction order, and resulting payload SHA-256 for every process.
 
-The preferred implementation reuses extraction payload schema version `1` only if the completed fidelity contract fits the current field meanings without ambiguity.
+## 15. Schema/version and digest boundary
 
-A schema-version bump is required if the milestone needs:
+V1 retains `PAYLOAD_SCHEMA_VERSION = "1"` because it deliberately does **not** change the meaning/cardinality of the existing `uvs` or collection fields and does not add a provenance marker.
 
-- a new canonical field;
-- a new availability/representation-state marker;
-- a changed field meaning or cardinality;
-- a richer per-face/per-loop material or UV domain;
-- any other incompatible representational change.
+The following are explicit future version triggers:
 
-The extractor must never stuff richer data into an existing field merely to avoid a schema change.
+- per-corner UV representation;
+- complete multi-collection membership representation;
+- explicit availability/representation-state field;
+- per-face material assignment;
+- changed normal semantics;
+- any new canonical field.
 
-## 13. C++ seam
+No implementation may use an existing field to smuggle one of these richer representations into schema v1.
 
-The fidelity contract must be expressible independently of `bpy` types:
+Because the existing scene input digest does not include normals/UV/materials/local-frame state, this milestone does not claim that representation-state changes alter `SceneReport.digest`. That behavior is documented rather than silently modified. Any future digest participation change requires its own compatibility analysis for correction plans, authorizations, and receipts.
 
-- source-to-canonical field definitions;
-- ordering rules;
-- omission/failure semantics;
-- exact JSON-native output;
-- deterministic canonical serialization.
+## 16. C++ seam
 
-A future C++ producer must be able to emit the same extraction payload without depending on Blender Python runtime types.
+A future C++ producer must be able to emit the same v1 extraction payload without Blender Python types.
 
-## 14. Explicit non-goals
+The parity requirement is limited to the closed v1 fields and exact canonical serialization defined above. Richer UV/material/membership domains remain versioned future contracts and therefore do not constrain the current seam.
+
+## 17. Explicit non-goals
 
 This milestone does not authorize:
 
+- normal-semantic kernel redesign;
+- UV schema expansion;
+- per-face material assignments;
+- multi-collection schema expansion;
 - mesh repair;
 - correction planning changes;
 - vertex merging;
@@ -302,35 +399,42 @@ This milestone does not authorize:
 - saving/persistence;
 - receipts/workflow/action-runner authority;
 - retry/rollback/recovery;
-- correction dispatcher/orchestrator creation.
+- correction dispatcher/orchestrator creation;
+- evaluated/depsgraph geometry extraction.
 
-## 15. Exit criteria
+## 18. Exit criteria for implementation
 
-Implementation may begin only after an independent review establishes:
+Production implementation may begin only after an independent re-gate confirms all of the following:
 
-1. the normals contract is exact and source-faithful;
-2. the UV representation is either proven lossless for the supported source domain or explicitly bounded by omission/failure;
-3. material semantics are closed and consistent with the existing canonical type;
-4. representation-state semantics cannot confuse unavailable data with legitimate emptiness;
-5. scene membership is complete within a documented scope and deterministic;
-6. no payload field silently understates or overstates source fidelity;
-7. no mutation/persistence authority has entered the design;
-8. the proposed live fixtures can prove the claims independently.
+1. v1 normals remain explicitly deferred rather than falsely emitted;
+2. v1 UV behavior is closed to omission, with no lossy representative;
+3. v1 material semantics are closed to ordered non-empty slot names;
+4. v1 collection semantics are closed to recursive membership plus a documented single representative;
+5. fabricated visibility/location/scale/rotation defaults are either eliminated or explicitly excluded from the completion claim;
+6. digest/provenance implications are explicitly recorded and no existing digest-bound contract is silently changed;
+7. the frozen-asset read-only regression protocol is defined;
+8. the three-run determinism protocol is defined and falsifiable;
+9. all adversarial and live fixtures are mechanically capable of proving the claims;
+10. the C++ serialization seam is byte-defined;
+11. no mutation/persistence/workflow authority has entered the design;
+12. an independent reviewer, not the implementer, clears the revised design.
 
-The milestone is complete only after deterministic, adversarial, and live Blender 4.4.3 validation pass and the extracted payload remains compatible with the canonical kernel contract.
+The implementation milestone is complete only after deterministic, adversarial, Python 3.9/3.11 CI, and real Blender 4.4.3 boundary validation pass.
 
-## 16. Red-team questions
+## 19. Independent re-red-team questions
 
-An independent reviewer must specifically attempt to break:
+The next reviewer must specifically attack:
 
-- the claim that one UV value per face can represent the source without loss;
-- the material-slot vs per-face-material interpretation;
-- recursive scene membership and multi-collection deduplication;
-- deterministic ordering across processes;
-- omission vs successful extraction semantics;
-- present-empty vs unavailable/unrepresentable state semantics;
-- partial extraction after a hostile adapter exception;
-- compatibility with the existing schema version;
-- the boundary between extraction fidelity and a future production write-back adapter.
+- whether deferring normals while calling this "extraction fidelity completion" overstates the milestone;
+- whether the UV omission policy is sufficiently explicit to prevent accidental face-domain fabrication;
+- whether material-slot-name semantics are mechanically stable across Blender files;
+- whether the representative collection is an acceptable declared loss rather than a hidden fidelity claim;
+- whether master-only and instance-collection objects are correctly bounded;
+- whether removal of fabricated defaults is complete;
+- whether the frozen-asset read-only protocol is safe and reproducible;
+- whether the three-process determinism protocol actually distinguishes ordering dependencies;
+- whether keeping schema v1 is genuinely compatible with all existing consumers;
+- whether the design has accidentally changed any existing digest-bound capability contract;
+- whether the milestone is now narrow enough to implement without becoming a disguised production engine-binding project.
 
-The desired review output is concrete blockers, ambiguities, and contract corrections — not a score or ranking.
+The desired review output remains concrete blockers, ambiguities, test gaps, and contract corrections — not a score or ranking.
