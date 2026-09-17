@@ -54,7 +54,7 @@ from tests.test_blender_extraction_fidelity_v1 import (
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # §8.2 — the canonical evidence encoding, normative for every gate hash.
-CANONICALIZATION = 'json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False'
+CANONICALIZATION = 'json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)'
 
 
 def _canonical_text(payload) -> str:
