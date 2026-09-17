@@ -1,0 +1,46 @@
+name: Live Unreal Composite Production Gate
+
+on:
+  push:
+    branches:
+      - reconcile/unreal-autonomy-origin-20c6d10
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-live-unreal-composite-production
+  cancel-in-progress: true
+
+jobs:
+  live-composite-production:
+    name: live UE5.6 composite production architecture gate
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+
+    steps:
+      - name: Check out exact pushed revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Show runner and revision
+        shell: powershell
+        run: |
+          Write-Host "Runner: $env:RUNNER_NAME"
+          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
+          git rev-parse HEAD
+
+      - name: Require live Unreal Named Pipe
+        shell: powershell
+        run: |
+          if (-not (Test-Path "\\.\pipe\AtlasUnrealTransport")) {
+            throw "AtlasUnrealTransport is not available. Launch UE 5.6.1 with /Game/AtlasTest/Generated/AtlasRenderFixture loaded before running the live gate."
+          }
+          Write-Host "AtlasUnrealTransport is available."
+
+      - name: Run composite production architecture gate
+        shell: powershell
+        run: |
+          python -m pytest tests/test_unreal_composite_production_architecture_real_integration.py -m integration -q -s
