@@ -60,6 +60,7 @@ def _spec():
             output_directory="Saved/AtlasProductionOutput",
             output_format="png",
         ),
+        sequence_asset_path=SEQUENCE,
         blueprint_asset_path=None,
     )
 

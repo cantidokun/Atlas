@@ -1079,8 +1079,14 @@ bool FAtlasTransportServer::InspectRenderState(const FTransportRequest& R,TShare
     TSharedPtr<FJsonObject> Render=MakeShareable(new FJsonObject);
     Render->SetNumberField(TEXT("width"),Setting->OutputResolution.X);
     Render->SetNumberField(TEXT("height"),Setting->OutputResolution.Y);
+    /*
+     * Atlas frame ranges are inclusive. The Movie Render Pipeline effective
+     * range is half-open [start, end_exclusive), so the semantic end frame is
+     * converted back here and the raw boundary value stays observable.
+     */
     Render->SetNumberField(TEXT("start_frame"),Setting->bUseCustomPlaybackRange?Setting->CustomStartFrame:0);
-    Render->SetNumberField(TEXT("end_frame"),Setting->bUseCustomPlaybackRange?Setting->CustomEndFrame:0);
+    Render->SetNumberField(TEXT("end_frame"),Setting->bUseCustomPlaybackRange?Setting->CustomEndFrame-1:0);
+    Render->SetNumberField(TEXT("end_frame_exclusive"),Setting->bUseCustomPlaybackRange?Setting->CustomEndFrame:0);
     Render->SetStringField(TEXT("output_directory"),Setting->OutputDirectory.Path);
     Render->SetStringField(TEXT("output_format"),Format);
     Render->SetStringField(TEXT("asset_path"),AtlasRenderConfigAssetPath);
@@ -1104,7 +1110,14 @@ bool FAtlasTransportServer::ConfigureRender(const FTransportRequest& R,TSharedPt
     Setting->OutputResolution=FIntPoint(FMath::RoundToInt(Width),FMath::RoundToInt(Height));
     Setting->bUseCustomPlaybackRange=true;
     Setting->CustomStartFrame=FMath::RoundToInt(StartFrame);
-    Setting->CustomEndFrame=FMath::RoundToInt(EndFrame);
+    /*
+     * Atlas authorizes an inclusive frame range. The Movie Render Pipeline
+     * stores its effective range half-open, so the authorized end frame is
+     * translated once, at this boundary, and the inclusive range remains the
+     * Atlas contract. The translation is not MRQ-specific: any half-open
+     * engine range maps the same way.
+     */
+    Setting->CustomEndFrame=FMath::RoundToInt(EndFrame)+1;
     FString NormalizedOutputDirectory=OutputDirectory.TrimStartAndEnd();
     if(FPaths::IsRelative(NormalizedOutputDirectory))
     {
@@ -1247,29 +1260,73 @@ bool FAtlasTransportServer::SubmitRender(
 
     Job->SetConfiguration(AtlasConfig);
 
-    if(const UMoviePipelinePrimaryConfig* EffectiveConfig = Job->GetConfiguration())
+    /*
+     * The effective frame range is taken from the Movie Render Pipeline
+     * configuration the job actually carries, never from the caller's request
+     * arguments. Atlas requires an explicit custom playback range so a
+     * submitted job can never silently render a range other than the one the
+     * authorization bound.
+     */
+    int32 EffectiveStartFrame=0;
+    int32 EffectiveEndFrame=0;
+    int32 EffectiveEndFrameExclusive=0;
+
     {
-        if(const UMoviePipelineOutputSetting* EffectiveSetting =
+        const UMoviePipelinePrimaryConfig* EffectiveConfig =
+            Job->GetConfiguration();
+
+        if(!EffectiveConfig)
+        {
+            Queue->DeleteJob(Job);
+            E=TEXT("Render job has no effective Movie Render Pipeline configuration");
+            return false;
+        }
+
+        const UMoviePipelineOutputSetting* EffectiveSetting =
             Cast<UMoviePipelineOutputSetting>(
                 EffectiveConfig->FindSettingByClass(
                     UMoviePipelineOutputSetting::StaticClass(),
                     false,
-                    true)))
+                    true));
+
+        if(!EffectiveSetting)
         {
-            UE_LOG(
-                LogAtlasTransport,
-                Warning,
-                TEXT("ATLAS MRQ EFFECTIVE CONFIG: %dx%d frames=%d-%d output=%s"),
-                EffectiveSetting->OutputResolution.X,
-                EffectiveSetting->OutputResolution.Y,
-                EffectiveSetting->bUseCustomPlaybackRange
-                    ? EffectiveSetting->CustomStartFrame
-                    : 0,
-                EffectiveSetting->bUseCustomPlaybackRange
-                    ? EffectiveSetting->CustomEndFrame
-                    : 0,
-                *EffectiveSetting->OutputDirectory.Path);
+            Queue->DeleteJob(Job);
+            E=TEXT("Render config is missing MoviePipelineOutputSetting");
+            return false;
         }
+
+        if(!EffectiveSetting->bUseCustomPlaybackRange)
+        {
+            Queue->DeleteJob(Job);
+            E=TEXT("Render job requires an explicit custom playback range in the effective Movie Render Pipeline configuration");
+            return false;
+        }
+
+        EffectiveStartFrame=EffectiveSetting->CustomStartFrame;
+        EffectiveEndFrameExclusive=EffectiveSetting->CustomEndFrame;
+
+        if(EffectiveEndFrameExclusive<=EffectiveStartFrame)
+        {
+            Queue->DeleteJob(Job);
+            E=TEXT("Render job effective custom playback range must contain at least one frame");
+            return false;
+        }
+
+        /* Atlas semantic inclusive range derived from the engine boundary. */
+        EffectiveEndFrame=EffectiveEndFrameExclusive-1;
+
+        UE_LOG(
+            LogAtlasTransport,
+            Warning,
+            TEXT("ATLAS MRQ EFFECTIVE CONFIG: %dx%d atlas_frames=%d-%d mrq_range=[%d,%d) output=%s"),
+            EffectiveSetting->OutputResolution.X,
+            EffectiveSetting->OutputResolution.Y,
+            EffectiveStartFrame,
+            EffectiveEndFrame,
+            EffectiveStartFrame,
+            EffectiveEndFrameExclusive,
+            *EffectiveSetting->OutputDirectory.Path);
     }
 
     const FString JobId=
@@ -1287,6 +1344,9 @@ bool FAtlasTransportServer::SubmitRender(
     JobState->bFinished=false;
     JobState->bFailed=false;
     JobState->SequenceAssetPath=SequenceAssetPath;
+    JobState->StartFrame=EffectiveStartFrame;
+    JobState->EndFrame=EffectiveEndFrame;
+    JobState->EndFrameExclusive=EffectiveEndFrameExclusive;
 
     if (UMoviePipelineOutputSetting* OutputSetting =
             GetAtlasRenderOutputSetting(AtlasConfig, E))
@@ -1407,6 +1467,9 @@ bool FAtlasTransportServer::SubmitRender(
     RenderJob->SetNumberField(TEXT("progress"),JobState->Progress);
     RenderJob->SetStringField(TEXT("status_message"),JobState->StatusMessage);
     RenderJob->SetStringField(TEXT("sequence_asset_path"),SequenceAssetPath);
+    RenderJob->SetNumberField(TEXT("start_frame"),JobState->StartFrame);
+    RenderJob->SetNumberField(TEXT("end_frame"),JobState->EndFrame);
+    RenderJob->SetNumberField(TEXT("end_frame_exclusive"),JobState->EndFrameExclusive);
 
     TSharedPtr<FJsonObject> Entry=
         MakeShareable(new FJsonObject);
@@ -1479,6 +1542,9 @@ bool FAtlasTransportServer::InspectRenderJob(
     RenderJob->SetStringField(TEXT("sequence_asset_path"),JobState->SequenceAssetPath);
     RenderJob->SetStringField(TEXT("output_directory"),JobState->OutputDirectory);
     RenderJob->SetStringField(TEXT("output_format"),JobState->OutputFormat);
+    RenderJob->SetNumberField(TEXT("start_frame"),JobState->StartFrame);
+    RenderJob->SetNumberField(TEXT("end_frame"),JobState->EndFrame);
+    RenderJob->SetNumberField(TEXT("end_frame_exclusive"),JobState->EndFrameExclusive);
 
     TArray<TSharedPtr<FJsonValue>> OutputFiles;
     for(const FString& FilePath : JobState->OutputFiles)

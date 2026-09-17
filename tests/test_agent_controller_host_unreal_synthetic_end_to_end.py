@@ -20,7 +20,7 @@ from planning.unreal_production_executor import UnrealProductionExecutionResult
 from planning.unreal_production_operation import build_unreal_production_plan
 from planning.unreal_task_planner import UnrealTaskIntent
 from controller.trusted_unreal_context import TrustedUnrealContext
-from tests.test_unreal_heterogeneous_production import _spec
+from tests.test_unreal_heterogeneous_production import SEQUENCE_ASSET_PATH, _spec
 
 
 def _trusted_unreal_context():
@@ -64,7 +64,11 @@ def _verified_render_pair(job_id="job-contract-1"):
         entity_ids=("FIELD_SURFACE",),
         observed_state={
             "job_id": job_id,
-            "sequence_asset_path": "/Game/Trusted/SyntheticSequence",
+            "sequence_asset_path": SEQUENCE_ASSET_PATH,
+            "start_frame": 1,
+            "end_frame": 24,
+            "output_directory": "Saved/AtlasProductionOutput",
+            "output_format": "png",
             "status": "finished",
             "finished": True,
             "success": True,

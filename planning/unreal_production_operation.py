@@ -11,6 +11,7 @@ from typing import Optional
 
 from planning.unreal_composite_operation import CompositeActorProductionOperation
 from planning.unreal_render_contract import UnrealRenderConfig, normalize_render_config
+from planning.unreal_shot_continuity import UnrealShotContinuity
 from planning.unreal_task_planner import UnrealTaskIntent, UnrealTaskPlan, UnrealTaskPlanner
 
 
@@ -22,6 +23,7 @@ class UnrealProductionSpec:
     start_frame: int
     end_frame: int
     render_config: UnrealRenderConfig
+    sequence_asset_path: str
     blueprint_asset_path: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -37,6 +39,15 @@ class UnrealProductionSpec:
             raise TypeError("render_config must be an UnrealRenderConfig instance")
         if self.render_config.start_frame != self.start_frame or self.render_config.end_frame != self.end_frame:
             raise ValueError("render_config frame range must match production frame range")
+        if (
+            not isinstance(self.sequence_asset_path, str)
+            or not self.sequence_asset_path
+            or self.sequence_asset_path.strip() != self.sequence_asset_path
+            or not self.sequence_asset_path.startswith("/")
+        ):
+            raise ValueError(
+                "sequence_asset_path must be a non-empty canonical Unreal package path"
+            )
         if self.blueprint_asset_path is not None:
             if not isinstance(self.blueprint_asset_path, str) or not self.blueprint_asset_path.strip():
                 raise ValueError("blueprint_asset_path must be a non-empty Unreal package path")
@@ -50,6 +61,7 @@ class UnrealProductionPlan:
 
     plan: UnrealTaskPlan
     phases: tuple
+    continuity: UnrealShotContinuity
 
     def __post_init__(self) -> None:
         if not isinstance(self.plan, UnrealTaskPlan):
@@ -63,6 +75,64 @@ class UnrealProductionPlan:
                 raise ValueError("phase boundaries must be valid operation indexes")
             if end > len(self.plan.operations):
                 raise ValueError("phase boundary exceeds production plan")
+        if not isinstance(self.continuity, UnrealShotContinuity):
+            raise TypeError("continuity must be an UnrealShotContinuity instance")
+        _validate_plan_continuity(self.plan, self.continuity)
+
+
+def _validate_plan_continuity(
+    plan: UnrealTaskPlan,
+    continuity: UnrealShotContinuity,
+) -> None:
+    """Require the declared continuity to match this exact plan's own operations.
+
+    The continuity record is declared once and the plan is composed from the
+    same declarative inputs, so the two can only disagree through construction
+    error or tampering. Both directions fail closed here rather than at the
+    render boundary, and no later stage may treat the record as an echo of the
+    engine's answer.
+    """
+    render_operations = tuple(
+        operation for operation in plan.operations if operation.name == "configure_render"
+    )
+    sequencer_operations = tuple(
+        operation for operation in plan.operations
+        if operation.name == "set_sequencer_playback_range"
+    )
+
+    if len(render_operations) > 1 or len(sequencer_operations) > 1:
+        raise ValueError("production plan must not configure render or sequencer state twice")
+
+    for operation in render_operations:
+        arguments = operation.arguments
+        observed = {
+            "start_frame": arguments.get("start_frame"),
+            "end_frame": arguments.get("end_frame"),
+            "output_directory": arguments.get("output_directory"),
+            "output_format": arguments.get("output_format"),
+        }
+        expected = {
+            "start_frame": continuity.start_frame,
+            "end_frame": continuity.end_frame,
+            "output_directory": continuity.output_directory,
+            "output_format": continuity.output_format,
+        }
+        if observed != expected:
+            raise ValueError(
+                "production plan render configuration does not match the "
+                "declared shot continuity"
+            )
+
+    for operation in sequencer_operations:
+        arguments = operation.arguments
+        if (
+            arguments.get("start_frame") != continuity.start_frame
+            or arguments.get("end_frame") != continuity.end_frame
+        ):
+            raise ValueError(
+                "production plan sequencer range does not match the declared "
+                "shot continuity"
+            )
 
 
 def build_unreal_production_plan(
@@ -118,4 +188,11 @@ def build_unreal_production_plan(
     return UnrealProductionPlan(
         plan=UnrealTaskPlan(intent.intent_id, tuple(operations)),
         phases=tuple(phases),
+        continuity=UnrealShotContinuity(
+            sequence_asset_path=spec.sequence_asset_path,
+            start_frame=spec.start_frame,
+            end_frame=spec.end_frame,
+            output_directory=spec.render_config.output_directory,
+            output_format=spec.render_config.output_format,
+        ),
     )

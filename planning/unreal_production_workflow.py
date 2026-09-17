@@ -18,6 +18,7 @@ from planning.unreal_render_workflow import (
     UnrealRenderWorkflowError,
     UnrealRenderWorkflowResult,
 )
+from planning.unreal_shot_continuity import verify_shot_continuity_identity
 from planning.unreal_task_planner import UnrealTaskIntent
 
 
@@ -57,6 +58,13 @@ class UnrealProductionWorkflowResult:
         observed_job_id = self.render.final_evidence.observed_state.get("job_id")
         if observed_job_id != self.render.job_id:
             return False
+        try:
+            verify_shot_continuity_identity(
+                self.render.final_evidence,
+                self.production.production.continuity,
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
         if not isinstance(self.render.receipt, UnrealRenderReceipt):
             return False
         if self.render.receipt.job_id != self.render.job_id:
@@ -89,40 +97,6 @@ class UnrealProductionWorkflow:
         self.production_executor = production_executor
         self.render_workflow = render_workflow
 
-    @staticmethod
-    def _render_continuity(production: UnrealProductionPlan, sequence_asset_path: str) -> dict:
-        """Extract the already-authorized render values from the exact production plan."""
-        render_operation = next(
-            (
-                operation
-                for operation in production.plan.operations
-                if operation.name == "configure_render"
-            ),
-            None,
-        )
-        if render_operation is None:
-            raise UnrealProductionWorkflowError(
-                "production plan does not contain an authorized configure_render operation"
-            )
-        arguments = dict(render_operation.arguments)
-        required = {
-            "start_frame",
-            "end_frame",
-            "output_directory",
-            "output_format",
-        }
-        if not required.issubset(arguments):
-            raise UnrealProductionWorkflowError(
-                "authorized configure_render operation is missing continuity fields"
-            )
-        return {
-            "expected_sequence_asset_path": sequence_asset_path,
-            "expected_start_frame": arguments["start_frame"],
-            "expected_end_frame": arguments["end_frame"],
-            "expected_output_directory": arguments["output_directory"],
-            "expected_output_format": arguments["output_format"],
-        }
-
     def run(
         self,
         production: UnrealProductionPlan,
@@ -133,25 +107,42 @@ class UnrealProductionWorkflow:
             [object], UnrealPlanAuthorization
         ],
     ) -> UnrealProductionWorkflowResult:
-        """Execute the authorized production, then submit and verify its final render."""
+        """Execute the authorized production, then submit and verify its final render.
+
+        The authorized sequence asset path, frame range, output directory, and
+        output format are read from the production plan's continuity contract,
+        which the production authorization binds. ``sequence_asset_path`` is a
+        caller assertion on that authorized value: it must match exactly, and it
+        is never the value the submission is built from.
+        """
         if not isinstance(production, UnrealProductionPlan):
             raise TypeError("production must be a UnrealProductionPlan instance")
         if not isinstance(production_authorization, UnrealPlanAuthorization):
             raise TypeError(
-                "production_authorization must be a UnrealPlanAuthorization instance"
+                "production_authorization must be an UnrealPlanAuthorization instance"
             )
-        if not production_authorization.matches(production.plan):
+        continuity = production.continuity
+        if not production_authorization.matches(
+            production.plan,
+            continuity_digest=continuity.continuity_digest,
+        ):
             raise UnrealProductionWorkflowError(
-                "production authorization does not match the exact production plan"
+                "production authorization does not match the exact production plan "
+                "and its authorization-bound shot continuity"
             )
         if not isinstance(intent, UnrealTaskIntent):
-            raise TypeError("intent must be a UnrealTaskIntent instance")
+            raise TypeError("intent must be an UnrealTaskIntent instance")
         if production.plan.intent_id != intent.intent_id:
             raise UnrealProductionWorkflowError(
                 "production plan intent_id must match render intent_id"
             )
         if not isinstance(sequence_asset_path, str) or not sequence_asset_path.strip():
             raise ValueError("sequence_asset_path must be a non-empty string")
+        if sequence_asset_path != continuity.sequence_asset_path:
+            raise UnrealProductionWorkflowError(
+                "submission sequence_asset_path does not match the "
+                "authorization-bound production sequence_asset_path"
+            )
 
         production_result = self.production_executor.execute(
             production,
@@ -165,7 +156,7 @@ class UnrealProductionWorkflow:
 
         submission = self.render_workflow.submit(
             intent,
-            sequence_asset_path,
+            continuity.sequence_asset_path,
             render_authorization_factory,
         )
 
@@ -178,7 +169,7 @@ class UnrealProductionWorkflow:
             intent,
             job_id,
             render_authorization_factory,
-            continuity=self._render_continuity(production, sequence_asset_path),
+            expected_continuity=continuity,
         )
         if not isinstance(final_render, UnrealRenderWorkflowResult):
             raise UnrealProductionWorkflowError(
@@ -188,6 +179,10 @@ class UnrealProductionWorkflow:
             raise UnrealProductionWorkflowError(
                 "render result intent_id does not match the production intent_id"
             )
+        try:
+            verify_shot_continuity_identity(final_render.final_evidence, continuity)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise UnrealProductionWorkflowError(str(exc)) from exc
 
         return UnrealProductionWorkflowResult(
             production=production_result,

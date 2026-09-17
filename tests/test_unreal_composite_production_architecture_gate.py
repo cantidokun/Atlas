@@ -52,13 +52,22 @@ class RecordingRenderWorkflow(UnrealRenderWorkflow):
         self.final_job_id = final_job_id
         self.submit_calls = []
         self.wait_calls = []
+        self.continuity_calls = []
 
     def submit(self, intent, sequence_asset_path, authorization_factory):
         self.submit_calls.append((intent, sequence_asset_path, authorization_factory))
         return _submission_result(intent, self.final_job_id)
 
-    def wait_for_completion(self, intent, job_id, authorization_factory):
+    def wait_for_completion(
+        self,
+        intent,
+        job_id,
+        authorization_factory,
+        *,
+        expected_continuity=None,
+    ):
         self.wait_calls.append((intent, job_id, authorization_factory))
+        self.continuity_calls.append(expected_continuity)
         return _completed_result(intent, job_id)
 
 
@@ -83,6 +92,7 @@ def _spec():
             output_directory="Saved/AtlasProductionOutput",
             output_format="png",
         ),
+        sequence_asset_path=SEQUENCE_ASSET_PATH,
         blueprint_asset_path="/Game/AtlasTest/BP_AtlasTest",
     )
 
@@ -98,6 +108,10 @@ def _job_evidence(job_id):
         observed_state={
             "job_id": job_id,
             "sequence_asset_path": SEQUENCE_ASSET_PATH,
+            "start_frame": 1,
+            "end_frame": 24,
+            "output_directory": "Saved/AtlasProductionOutput",
+            "output_format": "png",
             "status": "finished",
             "finished": True,
             "success": True,
@@ -163,6 +177,7 @@ def test_composite_architecture_gate_is_one_authorized_verified_transaction():
     production_authorization = UnrealPlanAuthorization.issue(
         production.plan,
         "composite-architecture-production-auth",
+        continuity_digest=production.continuity.continuity_digest,
     )
 
     result = workflow.run(
@@ -255,6 +270,7 @@ def test_composite_architecture_gate_blocks_render_when_production_fails():
     authorization = UnrealPlanAuthorization.issue(
         production.plan,
         "composite-architecture-failure-auth",
+        continuity_digest=production.continuity.continuity_digest,
     )
 
     with pytest.raises(

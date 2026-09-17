@@ -47,6 +47,7 @@ def test_authorization_is_for_the_concrete_plan_not_a_reconstructed_variant():
             output_directory=changed_spec.render_config.output_directory,
             output_format=changed_spec.render_config.output_format,
         ),
+        sequence_asset_path=changed_spec.sequence_asset_path,
         blueprint_asset_path=changed_spec.blueprint_asset_path,
     )
     changed = build_unreal_production_plan(_intent(), changed_spec)

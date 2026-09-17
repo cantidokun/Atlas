@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Mapping
 
-from planning.unreal_shot_continuity import UnrealShotContinuity
-
 
 _ACTIVE_STATUSES = {
     "submitted",
@@ -11,19 +9,13 @@ _ACTIVE_STATUSES = {
 }
 
 
-def verify_render_job_completion(
-    evidence,
-    *,
-    require_artifacts=True,
-    expected_job_id=None,
-    expected_continuity: UnrealShotContinuity = None,
-):
-    """Verify one render-job observation against authorized expectations.
+def resolve_render_job_state(evidence):
+    """Resolve the render-job object carried by one render-job observation.
 
-    ``expected_job_id`` binds the observed job identity to the authorized
-    submission. ``expected_continuity`` binds the final render evidence to the
-    frame range, sequence, output directory, and output format already present
-    in the caller's authorized production plan.
+    Production adapters may return the render-job object directly, while
+    transport fixtures can preserve the standard entity envelope:
+    ``{entity_id: {"render_job": {...}}}``. Every consumer resolves the job
+    object through this single rule.
     """
     state = evidence.observed_state
 
@@ -32,22 +24,44 @@ def verify_render_job_completion(
             "render job evidence observed_state must be a mapping"
         )
 
-    if "job_id" not in state:
-        render_job = None
+    if "job_id" in state:
+        return state
 
-        if len(state) == 1:
-            entity_state = next(iter(state.values()))
-            if isinstance(entity_state, Mapping):
-                candidate = entity_state.get("render_job")
-                if isinstance(candidate, Mapping):
-                    render_job = candidate
+    render_job = None
 
-        if render_job is None:
-            raise ValueError(
-                "render job evidence must contain a render_job object"
-            )
+    if len(state) == 1:
+        entity_state = next(iter(state.values()))
+        if isinstance(entity_state, Mapping):
+            candidate = entity_state.get("render_job")
+            if isinstance(candidate, Mapping):
+                render_job = candidate
 
-        state = render_job
+    if render_job is None:
+        raise ValueError(
+            "render job evidence must contain a render_job object"
+        )
+
+    return render_job
+
+
+def verify_render_job_completion(
+    evidence,
+    *,
+    require_artifacts=True,
+    expected_job_id=None,
+):
+    """Verify one render-job observation against the authorized expectation.
+
+    ``expected_job_id`` is the authorization-bound job identity: the
+    ``verify_render_job`` operation's own ``job_id`` argument after the existing
+    ``$previous.submit_render.job_id`` resolution, or the plan's own authorized
+    ``job_id`` for a job-addressed ``inspect_render_job`` read. Comparison is an
+    exact string comparison after a defensive strip. When it is supplied the
+    observation must carry exactly that identity; the executor always supplies
+    it on the authorized execution path. ``None`` preserves the legacy call
+    shape (no identity binding) for direct verifier callers.
+    """
+    state = resolve_render_job_state(evidence)
 
     job_id = state.get("job_id")
     if not isinstance(job_id, str) or not job_id.strip():
@@ -77,8 +91,8 @@ def verify_render_job_completion(
             f"render job reports failed=True: status={status!r}"
         )
 
-    # Submission verification remains asynchronous: active jobs are accepted
-    # before terminal artifact continuity can be checked.
+    # Submission verification is intentionally asynchronous. A newly
+    # submitted job is valid evidence even though rendering is not finished.
     if not state.get("finished"):
         if status not in _ACTIVE_STATUSES:
             raise ValueError(
@@ -131,17 +145,6 @@ def verify_render_job_completion(
         raise ValueError(
             "render job declared output files that are empty: "
             + ", ".join(empty)
-        )
-
-    if expected_continuity is not None:
-        if not isinstance(expected_continuity, UnrealShotContinuity):
-            raise TypeError(
-                "expected_continuity must be an UnrealShotContinuity instance"
-            )
-        expected_continuity.verify_job_state(state)
-        expected_continuity.verify_artifacts(
-            output_files,
-            require_files=require_artifacts,
         )
 
     return evidence

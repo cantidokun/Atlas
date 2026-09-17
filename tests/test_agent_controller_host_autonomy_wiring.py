@@ -76,9 +76,18 @@ def _make_trusted_context(intent_id="host-autonomous-test"):
         description="test production",
     )
     plan = UnrealTaskPlanner().plan_inspection(intent)
+    from planning.unreal_shot_continuity import UnrealShotContinuity
+
     production = UnrealProductionPlan(
         plan=plan,
         phases=(("inspection", 0, len(plan.operations)),),
+        continuity=UnrealShotContinuity(
+            sequence_asset_path="/Game/Trusted/TestSequence",
+            start_frame=1,
+            end_frame=24,
+            output_directory="Saved/AtlasProductionOutput",
+            output_format="png",
+        ),
     )
     auth = UnrealPlanAuthorization.issue(
         plan,

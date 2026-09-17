@@ -9,10 +9,13 @@ from typing import Callable, Mapping, Optional
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
 from planning.unreal_plan_executor import UnrealPlanExecutionResult, UnrealPlanExecutor
-from planning.unreal_render_continuity import verify_render_job_continuity
 from planning.unreal_render_job_verifier import verify_render_job_completion
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
+from planning.unreal_shot_continuity import (
+    UnrealShotContinuity,
+    verify_shot_continuity_completeness,
+)
 from planning.unreal_task_planner import UnrealTaskIntent, UnrealTaskPlan, UnrealTaskPlanner
 
 
@@ -162,9 +165,23 @@ class UnrealRenderWorkflow:
         job_id: str,
         authorization_factory: Callable[[UnrealTaskPlan], UnrealPlanAuthorization],
         *,
-        continuity: Optional[Mapping[str, object]] = None,
+        expected_continuity: Optional[UnrealShotContinuity] = None,
     ) -> UnrealRenderWorkflowResult:
-        """Poll fresh job evidence until verified terminal completion."""
+        """Poll fresh job evidence until verified terminal completion.
+
+        When ``expected_continuity`` is supplied, the freshly observed job
+        evidence must also reproduce the authorization-bound shot continuity
+        (sequence asset path, effective frame range, output directory, output
+        format, and PNG frame coverage) before a receipt may be issued.
+        """
+        if expected_continuity is not None and not isinstance(
+            expected_continuity,
+            UnrealShotContinuity,
+        ):
+            raise TypeError(
+                "expected_continuity must be an UnrealShotContinuity instance"
+            )
+
         start = self.clock()
 
         while True:
@@ -190,12 +207,17 @@ class UnrealRenderWorkflow:
             if state.get("finished") is True:
                 try:
                     verified = verify_render_job_completion(evidence, require_artifacts=True)
-                    if continuity is not None:
-                        if not isinstance(continuity, Mapping):
-                            raise TypeError("continuity must be a mapping when supplied")
-                        verified = verify_render_job_continuity(verified, **dict(continuity))
                 except (TypeError, ValueError) as exc:
                     raise UnrealRenderWorkflowError(str(exc)) from exc
+
+                if expected_continuity is not None:
+                    try:
+                        verified = verify_shot_continuity_completeness(
+                            verified,
+                            expected_continuity,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        raise UnrealRenderWorkflowError(str(exc)) from exc
 
                 receipt = UnrealRenderReceipt.issue(verified)
                 persisted = self.receipt_store.save(receipt)

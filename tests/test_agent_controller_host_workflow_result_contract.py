@@ -18,7 +18,11 @@ from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
 from planning.unreal_render_workflow import UnrealRenderWorkflow, UnrealRenderWorkflowResult
 from planning.unreal_plan_executor import UnrealPlanExecutionResult
 from planning.unreal_task_planner import UnrealTaskIntent
-from tests.test_unreal_heterogeneous_production import ProductionTransport, _spec
+from tests.test_unreal_heterogeneous_production import (
+    ProductionTransport,
+    SEQUENCE_ASSET_PATH,
+    _spec,
+)
 
 
 class FakeProductionExecutor(UnrealProductionExecutor):
@@ -61,7 +65,11 @@ def _verified_render(intent_id: str = "host-workflow-result-contract") -> Unreal
         entity_ids=("FIELD_SURFACE",),
         observed_state={
             "job_id": "host-workflow-job-1",
-            "sequence_asset_path": "/Game/Trusted/Sequence",
+            "sequence_asset_path": SEQUENCE_ASSET_PATH,
+            "start_frame": 1,
+            "end_frame": 24,
+            "output_directory": "Saved/AtlasProductionOutput",
+            "output_format": "png",
             "status": "finished",
             "finished": True,
             "success": True,
@@ -93,7 +101,7 @@ def _host(tmp_path):
     trusted = TrustedUnrealContext(
         authorized_production=authorized,
         intent=intent,
-        sequence_asset_path="/Game/Trusted/Sequence",
+        sequence_asset_path=SEQUENCE_ASSET_PATH,
     )
 
     raw_executor = UnrealPlanExecutor(
@@ -122,7 +130,9 @@ def _host(tmp_path):
             success=True,
         )
     )
-    render_workflow.wait_for_completion = lambda intent, job_id, authorization_factory: final_render
+    render_workflow.wait_for_completion = (
+        lambda intent, job_id, authorization_factory, *, expected_continuity=None: final_render
+    )
 
     workflow = UnrealProductionWorkflow(production_executor, render_workflow)
     integration = UnrealProductionControllerIntegration(

@@ -29,6 +29,7 @@ from planning.unreal_task_planner import UnrealTaskIntent, UnrealTaskPlan, Unrea
 pytestmark = pytest.mark.integration
 
 ENTITY_ID = "FIELD_SURFACE"
+SEQUENCE_ASSET_PATH = "/Game/AtlasTest/AtlasSequencerFixtureSequence"
 
 
 def _intent(intent_id: str) -> UnrealTaskIntent:
@@ -61,6 +62,7 @@ def _spec() -> UnrealProductionSpec:
             output_directory="Saved/AtlasProductionOutput",
             output_format="png",
         ),
+        sequence_asset_path=SEQUENCE_ASSET_PATH,
     )
 
 
@@ -223,7 +225,7 @@ def test_real_agent_originated_unreal_request_reaches_live_production_boundary(t
                 "production": True,
                 "authorized_production": authorized,
                 "intent": production_intent,
-                "sequence_asset_path": "/Game/AtlasTest/AtlasSequencerFixtureSequence",
+                "sequence_asset_path": SEQUENCE_ASSET_PATH,
             },
         )
 

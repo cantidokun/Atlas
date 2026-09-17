@@ -26,7 +26,17 @@ def authorize_production_plan(
     """Validate the production object and authorize that exact concrete plan."""
     if not isinstance(production, UnrealProductionPlan):
         raise TypeError("production must be an UnrealProductionPlan instance")
-    authorization = UnrealPlanAuthorization.issue(production.plan, authorization_id)
-    if not authorization.matches(production.plan):
-        raise ValueError("production authorization does not match the exact production plan")
+    authorization = UnrealPlanAuthorization.issue(
+        production.plan,
+        authorization_id,
+        continuity_digest=production.continuity.continuity_digest,
+    )
+    if not authorization.matches(
+        production.plan,
+        continuity_digest=production.continuity.continuity_digest,
+    ):
+        raise ValueError(
+            "production authorization does not bind the exact production plan "
+            "and shot continuity"
+        )
     return UnrealAuthorizedProductionPlan(production=production, authorization=authorization)

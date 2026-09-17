@@ -170,6 +170,7 @@ def test_real_authorized_production_context_preserves_exact_authorization():
         start_frame=1,
         end_frame=1,
         render_config=render_config,
+        sequence_asset_path="/Game/TestSequence",
     )
 
     production = build_unreal_production_plan(intent, spec)
@@ -244,6 +245,7 @@ def test_real_authorization_cannot_be_replaced_by_model_context():
         start_frame=1,
         end_frame=1,
         render_config=render_config,
+        sequence_asset_path="/Game/TestSequence",
     )
 
     production = build_unreal_production_plan(intent, spec)

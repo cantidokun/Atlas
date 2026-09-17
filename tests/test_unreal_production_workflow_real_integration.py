@@ -1,5 +1,7 @@
 """Real UE5.6 integration coverage for the top-level Unreal production workflow."""
 
+from collections.abc import Mapping
+
 import pytest
 
 from planning.unreal_adapter_production import create_production_adapter
@@ -11,6 +13,7 @@ from planning.unreal_production_operation import (
     UnrealProductionSpec,
     build_unreal_production_plan,
 )
+from planning.unreal_production_planning_boundary import authorize_production_plan
 from planning.unreal_production_workflow import (
     UnrealProductionWorkflow,
 )
@@ -42,8 +45,13 @@ def _state(evidence):
 
 
 def _variant(evidence, key):
+    """Read a fixture variant from frozen Unreal evidence.
+
+    The Unreal evidence contract freezes ``observed_state`` into a Mapping tree,
+    so readers must accept Mapping instead of requiring a plain dict.
+    """
     value = _state(evidence).get(key, {}).get("variant")
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise AssertionError(f"{key}.variant missing from Unreal evidence")
     return dict(value)
 
@@ -216,13 +224,14 @@ def test_real_unreal_production_workflow_executes_render_and_persists_receipt(tm
                 output_directory="Saved/AtlasProductionWorkflowOutput",
                 output_format="png",
             ),
+            sequence_asset_path=SEQUENCE_ASSET_PATH,
             blueprint_asset_path=None,
         )
         production = build_unreal_production_plan(intent, spec)
-        production_authorization = UnrealPlanAuthorization.issue(
-            production.plan,
+        production_authorization = authorize_production_plan(
+            production,
             "production-workflow-live-auth",
-        )
+        ).authorization
 
         result = workflow.run(
             production,

@@ -907,3 +907,92 @@ Relative `output_files` validation; frame/range/frame-count verification; render
 ### Next development surface
 
 The render-job identity milestone is complete. The next Unreal architecture surface should be selected by a fresh repository/code review rather than assumed from the prior render-job design gate. The completed Controller, Blueprint, render-state, and render-job milestones should not be reopened.
+## Shot-level production continuity milestone (September 16, 2026)
+
+Scope: implement the frozen continuity invariants of `docs/UNREAL_SHOT_CONTINUITY_DESIGN_REVIEW.md`
+on the existing production/render boundary. No new transport operation, no second authorization
+authority, no Atlas-side entity cache, no generic workflow engine.
+
+### Implemented
+
+- `planning/unreal_shot_continuity.py`: frozen `UnrealShotContinuity` (sequence asset path,
+  inclusive frame range, output directory, output format), a canonical payload with a
+  deterministic `continuity_digest`, the explicit `end_frame_exclusive` boundary translation, and
+  fail-closed verification of fresh render-job evidence (identity plus PNG unique-artifact frame
+  coverage).
+- `UnrealProductionSpec` declares `sequence_asset_path`; `UnrealProductionPlan` carries the
+  continuity record and refuses to construct when it disagrees with the plan's own
+  `configure_render` / `set_sequencer_playback_range` operations.
+- `UnrealPlanAuthorization` may bind one exact continuity (`continuity_digest`). Plan-only receipts
+  keep their existing digest, snapshot, and semantics; `matches(plan, continuity_digest=...)` is
+  strictly stronger and fails closed when the receipt carries no binding. Issued by
+  `authorize_production_plan`; required by `UnrealProductionWorkflow.run()`.
+- `UnrealProductionWorkflow.run()` submits the authorization-bound sequence path, rejects a
+  declared path that differs before any mutation, and re-verifies the returned final evidence
+  against the authorized continuity. `UnrealRenderWorkflow.wait_for_completion()` accepts an
+  optional expected continuity and verifies it against freshly observed evidence before a receipt
+  is issued.
+- Unreal transport: `configure_render` translates the Atlas inclusive end frame into the MRQ
+  half-open boundary (`CustomEndFrame = Atlas end + 1`); `inspect_render_state` and
+  `inspect_render_job` report the Atlas semantic inclusive range plus the raw
+  `end_frame_exclusive`; submission requires an explicit custom playback range.
+
+### Boundary translation defect found and fixed
+
+The first live gate failed closed with
+
+```
+render job PNG frame coverage mismatch: expected unique_output_files=2 for frames 1-2,
+observed unique_output_files=1
+```
+
+Direct probes against real UE 5.6.1 MRQ measured the engine topology: `Atlas 1-2 -> 1 artifact`,
+`Atlas 1-5 -> 4 artifacts` (files `AtlasRender_0001..0004`), i.e. the MRQ effective range was
+half-open `[start, end)` while the Atlas contract is inclusive. Architecture decision: keep Atlas
+inclusive, fix the Unreal boundary mapping. After the translation:
+
+```
+Atlas 1-2 -> MRQ [1,3) -> 2 artifacts
+Atlas 1-5 -> MRQ [1,6) -> 5 artifacts
+```
+
+The sequencer playback-range read/write pair was left unchanged: it is self-consistent and the
+live runs showed the MRQ custom range governs the rendered frame set.
+
+### Deterministic verification
+
+- `tests/test_unreal_shot_continuity.py`: **43 passed, 1 skipped** (sequence path present/mismatch,
+  frame range present/mismatch, final identity/range/directory/format/boundary mismatch, PNG count
+  matrix 1-1/1-2/1-5/5-5, incomplete coverage per range, duplicate artifact uniqueness, production
+  failure blocking submission, explicit recovery authorization, receipt continuity).
+- `tests/test_unreal_shot_continuity_design_gate.py`: **8 passed**.
+- Continuity-area selection (25 modules): **242 passed, 1 skipped**.
+- Canonical controller/host suite: **160 passed, 2 deselected**.
+- Blast-radius sweep (180 files, `-m "not integration"`): **1067 passed, 6 skipped**.
+
+### Live UE 5.6.1 gate
+
+- `tests/test_unreal_shot_continuity_real_integration.py`: **1 passed in 9.51 s** - real production
+  transaction, real MRQ submission, authorized `1-2`, fresh `inspect_render_job` evidence reported
+  `effective frames 1 2`, `unique png files 2`, exact job identity, receipt issued and persisted.
+- Diagnostic full-range run (authorized `1-5`): evidence reported `start/end 1 5`, identity
+  continuity PASS, `observed unique files 5 == authorized inclusive count 5` (files
+  `AtlasRender_0001..0005`), receipt matches evidence and is persisted.
+
+### Fixture state
+
+All four tracked Unreal fixtures are byte-identical to their committed baseline after the live
+gates (`AtlasRenderConfig.uasset` `34be88da...`, `AtlasSequencerFixtureSequence.uasset`
+`48d14bd9...`, `BP_AtlasTest.uasset` `db15ec03...`, `AtlasRenderFixture.umap` `e25394d2...`).
+The Atlas transport DLL was rebuilt from the new source. The editor session and its named pipe were
+stopped after the gate.
+
+### Remaining risk
+
+- Frame-count completeness is defined for PNG only, by design.
+- MRQ queue accumulation: each submission renders the jobs already present in the Movie Render
+  Pipeline queue, and a new executor's per-job callback can attribute another queue job's output
+  files to the newly submitted job. A live gate should therefore start from a fresh editor session
+  (as this gate did); queue hygiene is a separate boundary question and was not changed here.
+- The trusted controller context's declared sequence path is reconciled at the workflow boundary
+  rather than at context construction.

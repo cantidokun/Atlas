@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 from planning.unreal_render_receipt import UnrealRenderReceipt
 
@@ -19,13 +19,15 @@ class UnrealRenderReceiptStore:
     def __init__(self, path: str | os.PathLike[str]):
         self.path = Path(path)
 
-    def save(self, receipt: UnrealRenderReceipt) -> Dict[str, object]:
+    def save(self, receipt: UnrealRenderReceipt) -> Dict[str, str]:
         if not isinstance(receipt, UnrealRenderReceipt):
             raise TypeError("receipt must be a UnrealRenderReceipt instance")
 
         envelope = {
             "version": self.VERSION,
-            **receipt.snapshot(),
+            "job_id": receipt.job_id,
+            "sequence_asset_path": receipt.sequence_asset_path,
+            "evidence_digest": receipt.evidence_digest,
             "receipt_digest": receipt.receipt_digest,
         }
 
@@ -74,26 +76,23 @@ class UnrealRenderReceiptStore:
                 "Unsupported or invalid Unreal render receipt version"
             )
 
-        receipt_fields = set(envelope) - {"version", "receipt_digest"}
-        if receipt_fields not in (
-            {"job_id", "sequence_asset_path", "evidence_digest"},
-            {
-                "job_id",
-                "sequence_asset_path",
-                "evidence_digest",
-                "start_frame",
-                "end_frame",
-                "output_directory",
-                "output_format",
-            },
-        ):
+        required = {
+            "job_id",
+            "sequence_asset_path",
+            "evidence_digest",
+            "receipt_digest",
+        }
+
+        if set(envelope) != {"version", *required}:
             raise RuntimeError(
                 "Unreal render receipt has invalid fields"
             )
 
         try:
-            receipt = UnrealRenderReceipt.from_snapshot(
-                {key: envelope[key] for key in receipt_fields}
+            receipt = UnrealRenderReceipt(
+                job_id=envelope["job_id"],
+                sequence_asset_path=envelope["sequence_asset_path"],
+                evidence_digest=envelope["evidence_digest"],
             )
         except (TypeError, ValueError) as exc:
             raise RuntimeError(

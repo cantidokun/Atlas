@@ -40,6 +40,9 @@ private:
         double Progress;
         FString OutputDirectory;
         FString OutputFormat;
+        int32 StartFrame;
+        int32 EndFrame;
+        int32 EndFrameExclusive;
         TArray<FString> OutputFiles;
         bool bSuccess;
         bool bFinished;
@@ -49,6 +52,9 @@ private:
 
         FRenderJobState()
             : Progress(0.0)
+            , StartFrame(0)
+            , EndFrame(0)
+            , EndFrameExclusive(0)
             , bSuccess(false)
             , bFinished(false)
             , bFailed(false)

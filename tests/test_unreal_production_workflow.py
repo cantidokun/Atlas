@@ -13,6 +13,7 @@ from planning.unreal_production_workflow import (
     UnrealProductionWorkflowResult,
 )
 from planning.unreal_render_receipt import UnrealRenderReceipt
+from planning.unreal_shot_continuity import UnrealShotContinuity
 from planning.unreal_render_workflow import (
     UnrealRenderWorkflow,
     UnrealRenderWorkflowResult,
@@ -62,9 +63,11 @@ class FakeRenderWorkflow(UnrealRenderWorkflow):
         intent,
         job_id,
         authorization_factory,
+        *,
+        expected_continuity=None,
     ):
         self.wait_calls.append(
-            (intent, job_id, authorization_factory)
+            (intent, job_id, authorization_factory, expected_continuity)
         )
         if self.final_result is not None:
             return self.final_result
@@ -77,6 +80,13 @@ def _production(intent_id="production-workflow"):
     return UnrealProductionPlan(
         plan=plan,
         phases=(("inspection", 0, len(plan.operations)),),
+        continuity=UnrealShotContinuity(
+            sequence_asset_path="/Game/AtlasTest/AtlasSequencerFixtureSequence",
+            start_frame=1,
+            end_frame=24,
+            output_directory="Saved/AtlasProductionOutput",
+            output_format="png",
+        ),
     )
 
 
@@ -92,6 +102,7 @@ def _authorization(production):
     return UnrealPlanAuthorization.issue(
         production.plan,
         "production-auth",
+        continuity_digest=production.continuity.continuity_digest,
     )
 
 
@@ -128,6 +139,10 @@ def _completed_render(intent):
         observed_state={
             "job_id": "job-123",
             "sequence_asset_path": "/Game/AtlasTest/AtlasSequencerFixtureSequence",
+            "start_frame": 1,
+            "end_frame": 24,
+            "output_directory": "Saved/AtlasProductionOutput",
+            "output_format": "png",
             "status": "finished",
             "finished": True,
             "success": True,

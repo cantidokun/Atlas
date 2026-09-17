@@ -49,6 +49,7 @@ def _spec(with_blueprint=True):
             output_directory="Saved/AtlasProductionOutput",
             output_format="png",
         ),
+        sequence_asset_path="/Game/AtlasTest/AtlasSequencerFixtureSequence",
         blueprint_asset_path="/Game/AtlasTest/BP_AtlasTest",
     ) if with_blueprint else UnrealProductionSpec(
         composite=_composite(),
@@ -62,6 +63,7 @@ def _spec(with_blueprint=True):
             output_directory="Saved/AtlasProductionOutput",
             output_format="png",
         ),
+        sequence_asset_path="/Game/AtlasTest/AtlasSequencerFixtureSequence",
     )
 
 
@@ -160,4 +162,5 @@ def test_render_frame_range_must_match_production_range():
                 output_directory="Saved/AtlasProductionOutput",
                 output_format="png",
             ),
+            sequence_asset_path="/Game/AtlasTest/AtlasSequencerFixtureSequence",
         )
