@@ -1,11 +1,18 @@
 # Atlas Unreal Agent — Current Handoff
 
-> **Unreal-track status remains unchanged.** M10 live Unreal Scenarios S1–S8 are COMPLETE — all PASSED live against the real UE 5.6 boundary. M11 is FROZEN/paused. M12.1–M12.4 are implemented and M12.5 independent semantic-evidence verification remains the next Unreal milestone.
+> **Unreal-track checkpoint — September 18, 2026.** M10 live Unreal Scenarios S1–S8 are COMPLETE — all PASSED live against the real UE 5.6 boundary. M11 is FROZEN/paused. M12.1–M12.4 are implemented. **M12.5 is intentionally deferred and is not the current development target.**
 >
-> **Global Atlas architecture checkpoint — September 18, 2026:** Blender Extraction Fidelity v1 is CLEAR. Temporal Observation + State Delta v1 is at **Design Revision 7 — HOLD** after independent architectural review. No temporal implementation is authorized; the next global architecture step is a narrow Revision 8 design-only correction followed by independent review. This does not alter the Unreal authority/recovery boundaries or authorize M12.5 execution tonight.
+> **Global Atlas architecture checkpoint — September 18, 2026:** Blender Extraction Fidelity v1 is CLEAR. Temporal Observation + State Delta v1 is at **Design Revision 7 — HOLD** after independent architectural review. No temporal implementation is authorized; the next global architecture step is a narrow Revision 8 design-only correction followed by independent review. The current major development target is **Unreal State Extraction Fidelity v1**: a bounded, deterministic, read-only C++→Python extraction contract for factual Unreal world/actor/material/Sequencer state. M12.5 remains untouched.
 >
 > Historical dated Unreal status text below is retained for provenance.
 
+
+## Current development focus
+
+- **Primary:** Unreal State Extraction Fidelity v1 — design branch `feat/unreal-state-extraction-fidelity-v1-design`; implementation not yet authorized.
+- **Immediate repair:** draft PR #105 fixes a concrete authority-boundary defect where `verify_actor_location`, `verify_actor_rotation`, and `verify_actor_scale` were classified as WRITE instead of VERIFY. CI/local execution has not yet been established in this environment; do not merge until the focused regression and normal suite gates are observed.
+- **Deferred:** M12.5 semantic evidence verification. Do not modify or advance it unless explicitly re-opened.
+- **Unreal authority invariants:** unchanged.
 
 ## Architectural position
 
