@@ -80,9 +80,13 @@ The current development branch is:
 reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-The shared branch now carries both the September 17 overnight documentation closeout and the reconciled shot-continuity implementation, published as merge `d582af3`. The publication merge resolved the documentation-topology divergence by merging the three documentation-only commits (`930cc60`) into the reconciled candidate (`97487d0`); no executable source changed in that merge.
+**Development is paused at the end of the September 18, 2026 Unreal session.** The published shared branch is at:
 
-Latest documented milestones:
+```text
+71728480a425f80c700c913aa00f376c254114bb
+```
+
+Current authoritative Unreal position:
 
 ```text
 Controller trust boundary              COMPLETE + LIVE
@@ -90,18 +94,37 @@ Blueprint semantic verification        COMPLETE + LIVE
 Render-state semantic verification     COMPLETE + LIVE
 Render-job identity verification       COMPLETE + LIVE
 Composite actor production             COMPLETE + LIVE
-Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582af3)
-MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED (8ecf7db)
-MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
-MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN
-MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN
+Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ queue isolation design review      COMPLETE - CLEAR WITH MINOR FINDINGS
+MRQ pass-failure attribution review    COMPLETE - CLEAR WITH MINOR FINDINGS
 ```
 
-The published shot-continuity contract is recorded in `docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md` and `docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md`. It preserves inclusive Atlas frame semantics, translates the inclusive end frame to Unreal MRQ's half-open boundary exactly once, verifies fresh effective frame evidence, binds sequence identity through the authorized production plan, and verifies the exact PNG frame set.
+The September 17–18 Unreal work established identity-bound artifact attribution, identity-bound start monitoring, truthful submission acceptance/rejection, and a design conclusion that the shared MRQ queue remains the default. Queue consumption/deletion and private queue migration remain unimplemented and unauthorized.
 
-The reconciled candidate passed the fresh UE 5.6.1 live continuity gate (authorized 1–2 → 2 PNG artifacts, authorized 1–5 → 5 artifacts, exact sequence identity, inclusive range semantics, output directory/format, exact job identity, fresh final evidence, receipt issuance/persistence, fixture restoration with byte-identical tracked assets), the affected deterministic regression, and the fixture byte verification before publication. The publication push was a normal fast-forward; no force-push, rebase, or reset was performed.
+The pass-failure review is closed on measured evidence. Two genuine retained-job failure mechanisms were exercised on the unmodified baseline; both aborted the MRQ pass before a later queue job executed. Therefore a healthy Atlas render being clobbered by a later pass-level failure was **not demonstrated**, and no receipt-correctness claim is made. A small state-fidelity correction remains a separate design question; its receipt impact is explicitly unproven. F9 — failed jobs not being readable through the authorized inspection path — remains a separate follow-up.
 
----
+## Current Unreal development intent
+
+No production implementation is authorized while the session is paused.
+
+The next work item is a **read-only design decision** on whether the small MRQ pass-failure **state-fidelity** correction is worth implementing at all. This must not be presented as a receipt-correctness fix unless new evidence establishes that connection.
+
+Standing decisions:
+
+```text
+Shared MRQ queue semantics          DEFAULT
+Queue consumption/deletion           DEFERRED / NOT AUTHORIZED
+Private queue isolation              DEFERRED / trigger-based (T1-T4)
+Automatic mutation retry             PROHIBITED
+Exact render-job identity            PRESERVED
+Receipt from fresh verified evidence ONLY
+```
+
+The authoritative current handoff is `UNREAL_AGENT_HANDOFF_CURRENT.md`; the current architecture pointer is `docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md`; the September 18 pause record is `docs/UNREAL_SESSION_CLOSEOUT_2026-09-18.md`.
+
 
 ## Controller trust boundary
 
@@ -336,20 +359,32 @@ unreal/AtlasUnrealHarness
 
 # Resume the current Unreal development phase
 
-Development is intentionally paused at the end of the September 17 session.
+Development is intentionally paused.
 
 Resume from:
 
-```text
-C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider
+```powershell
+cd "C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider"
+git status
 ```
 
 First read:
 
 ```text
 UNREAL_AGENT_HANDOFF_CURRENT.md
-docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
-docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md
+docs/UNREAL_SESSION_CLOSEOUT_2026-09-18.md
+docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md
 ```
 
-Then inspect the shared branch versus the local reconciled candidate. The next authorized action is a fresh live gate on the reconciled candidate followed by deterministic regression and fixture byte verification. Only after those are green should the shared branch be advanced by fast-forward. No force-push.
+The next authorized action is a read-only design gate deciding whether the
+MRQ pass-failure state-fidelity correction is worth implementing. Receipt
+impact remains explicitly unproven.
+
+Do not begin queue consumption, private-queue migration, registry pruning,
+or any new Unreal feature until that gate is cleared.
+
+Never touch the Blender checkout:
+
+```text
+C:\Users\Gavin's PC\Desktop\Atlas
+```
