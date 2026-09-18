@@ -1,92 +1,71 @@
 # Atlas Current Development Handoff
 
-> **Authoritative current-state reconciliation (supersedes the legacy milestone line below).**
+> **Authoritative current-state reconciliation — September 18, 2026 end-of-night checkpoint.**
+>
+> Historical dated handoffs remain archival and are not rewritten. This document is the authoritative current development handoff.
 
-## Current status (authoritative reconciliation — supersedes stale milestone headers)
+## Current position — September 18, 2026
 
-- **M10 — COMPLETE. All eight live Unreal scenarios (S1–S8) were executed and PASSED against the real Unreal 5.6 boundary.** Each is backed by a per-scenario live PASS report in `live_run_state/{s1_final4,s2,s3,s4r,s5,s6,s7,s8}/M10_S*_PASS_REPORT.md`. This is live validation, not merely deterministic preparation.
-  - S1 — normal live render, 24/24 frames, Case B → FINALIZED, one verified receipt.
-  - S2 — Unreal process/session restart; durable Atlas state remained authoritative; FINALIZED/RESOLVED; one verified receipt.
-  - S3 — Atlas restart; durable authority preserved; no resubmission; FINALIZED/RESOLVED.
-  - S4 — dual-restart torn witness; Case J → RECOVERY_PENDING (after remediation PR #79); no receipt, no retry.
-  - S5 — Unreal finished while Atlas was down; Atlas recovered and finalized correctly; one verified receipt.
-  - S6 — artifact present without trustworthy evidence → ORPHANED_ARTIFACTS_PRESENT; no synthetic success, no receipt.
-  - S7 — terminal engine evidence with missing artifact → Case G/FAILED fail-closed; no receipt/retry.
-  - S8 — duplicate/stale execution identities → real engine CONFLICT → Case H/RECOVERY_FAILED; no adoption/retry/synthetic success.
-- **M11 (development model-router) is FROZEN / paused.** M11.1–M11.4 are merged (PRs #82/#83/#84/#85) as development-tooling infrastructure that coexists with the Unreal roadmap but is not required for it. No further M11 benchmarking/calibration/provider work is ongoing.
-- **M12 (Unreal Semantic Soccer Production Layer) is the next Unreal development milestone.** Design (PR #86) merged; **M12.1** (semantic task contract + normalize/compile), **M12.2** (catalog + fragments + composition), **M12.3** (semantic execution-plan boundary), **M12.4** (semantic → runtime adapter) implemented — `planning/m12/`; docs `UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md` / `UNREAL_M12_2_CATALOG_FRAGMENTS_COMPOSITION.md` / `UNREAL_M12_3_EXECUTION_PLAN.md` / `UNREAL_M12_4_RUNTIME_ADAPTER.md`. M12.4 is an adapter, not a new authority: it maps non-render semantic plans onto the existing `AtlasTaskDefinition` runtime and fails closed for render-bearing intent. Render-bearing execution remains deferred; M12.5 (independent verification) next.
+### Canonical world-state / Blender track
 
-> The "Current milestone" line under this block is an older snapshot that predates the final M10 live validation. It is preserved verbatim as historical context; it does NOT reflect current state.
+- **Blender Extraction Fidelity v1 — CLEAR.** The bounded read-only extraction producer contract and its deterministic evidence gates are closed. Architectural parent: `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`.
+- Extraction Fidelity v1 implementation remains unchanged at `planning/blender/bpy_extraction.py`; no further implementation changes are authorized from that milestone unless a concrete defect is found.
+- Extraction Fidelity v1 verification included deterministic Python 3.9/3.11 parity, the full deterministic selection, explicit construction-order/PYTHONHASHSEED evidence, and four live Blender gates. The frozen asset anchor remains unchanged.
+- **Temporal Observation + State Delta v1 — DESIGN HOLD.** Current design revision is `44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4` on `feat/temporal-observation-state-delta-design`. No Temporal implementation exists and none is authorized.
+- Revision 7 successfully closes the Revision 6 purity gap by making `FromIdentity` an explicit immutable projection in all four evaluation-input variants. Independent review nevertheless found residual contract inconsistencies that must be corrected before implementation:
+  1. stale `StateDelta(A,B)` purity wording remains in §8.2;
+  2. §8.1's conceptual pair-domain wording does not fully reconcile with the four-variant evaluation-input domain;
+  3. T-25 and red-team attack #39 incorrectly say identity mismatch causes “no admission-state change” even when the mismatch occurs on the `NEW_EPOCH` boundary path, where `B` is still admitted and the epoch transition is established;
+  4. older requirements/exit criteria still enumerate only two `NEW_EPOCH` record forms and omit `PAIR_INPUT_IDENTITY_MISMATCH`;
+  5. multiple simultaneous boundary-cause fields need one explicit deterministic rule.
+- **Next resume action:** produce **Temporal Design Revision 8**, design-only and narrowly scoped to the above consistency repairs, then perform another independent architectural review. No temporal implementation, schema release, live gate, or version bump before a clear review.
+- The current temporal design intentionally defers semantic events, streaming infrastructure, retention/storage, and runtime authority. Event Abstraction remains the next conceptual layer only after temporal state is cleared.
+- The current local D4 `slots=True` drift in three correction files remains untouched, unstaged, and out of scope.
 
-**Active branch:** (see HEAD — M10/M11 merged into `main`; M12 design branch follows)
+### Optimization / model-routing track
 
-<sup>Note: the original snapshot below the divider is retained verbatim for provenance. The authoritative current state is the block above.</sup>
+- **Token-optimization / M13.8 work is paused.** Do not resume it as part of the temporal architecture progression.
+- Hermes remains an implementation actor; ChatGPT remains an independent architectural/review layer. Neither changes Atlas authority boundaries.
 
-### Legacy dated snapshot (preserved verbatim — historical context, not current state)
+### Unreal track
 
-```
-**Updated:** September 6, 2026 — M4/M5 merged (PR #68); M6 deterministic fault-injection/concurrency suite merged (PR #70); **M7 hardening/pre-flight implemented** (framed-catalog integrity, C++ append-only witness history, execution-deadline enforcement — production + deterministic tests, docs/UNREAL_M7_HARDENING.md). Per-item §31/§32 status: docs/UNREAL_M6_TEST_STATUS.md.
-**Active branch:** `main`
-**Current milestone:** M5/M6 + M7 hardening complete. **M7 live UE 5.6 restart/recovery Scenarios 1–8 is the next authoritative gate and requires explicit human authorization** (Contract V1 §35). Not run.
-```
+- **Unreal M12.5 independent semantic-evidence verification remains the next Unreal milestone** after M12.4. It is a separate track from the current Blender/temporal architecture work and was not changed by this checkpoint.
+- M10 live S1–S8 remain complete; M11 remains frozen/paused; M12.1–M12.4 remain implemented.
+- Do not conflate the Unreal M12.5 gate with the temporal design gate.
 
-> The three lines above are the ORIGINAL dated snapshot header, preserved verbatim. They predate the final M10 live validation and state "Not run", which has since been superseded — M10 S1–S8 were completed and PASSED live (see the authoritative block above). They are retained only as dated provenance.
+## Current pause / resume intent
 
-**Latest M5 merge commit:** `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
+Tonight's development session is intentionally **paused**.
 
-## Current repository state
+Do not:
+- implement Temporal Observation or StateDelta;
+- modify the canonical SceneModel/parser/kernel;
+- modify the cleared Extraction Fidelity producer;
+- reopen duplicate/merge correction work;
+- resume token-optimization work;
+- move into Event Abstraction;
+- treat Revision 7's documentary audit as architectural clearance.
 
-The clean Unreal autonomy bridge from PR #59 is merged to `main`. Milestone 4 established durable cross-process Unreal render-job recovery. Milestone 5 established the authoritative independent evidence-verification boundary. PR #68 merged the M5 implementation after deterministic and CI validation.
+On resume:
+1. re-read `ATLAS_HANDOFF_CURRENT.md` and this checkpoint;
+2. verify `origin/main` and the temporal design branch still point to the recorded commits or identify any intervening documentation changes;
+3. execute the Revision 8 design-only correction task;
+4. independently review Revision 8 before authorizing any implementation.
 
-Current Unreal execution path:
+## Authority invariants
 
-```text
-Qwen / development model proposal
-        ↓
-Atlas planning / validation / authorization
-        ↓
-AgentControllerHost / TrustedUnrealContext
-        ↓
-AutonomousTaskRuntime / AutonomousFutureRuntime
-        ↓
-UnrealAutonomousExecutor
-        ↓
-UnrealExecutionBoundary
-        ↓
-UnrealAdapterProduction
-        ↓
-Windows Named Pipe transport
-        ↓
-Unreal Engine 5.6
-        ↓
-observed engine state / witness data
-        ↓
-Atlas recovery + authoritative independent verification
-        ↓
-verified UnrealEvidence
-        ↓
-UnrealRenderReceipt
-        ↓
-ProductionArtifactManifest
-```
+Models and agent wrappers propose and reason; Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender and Unreal remain controlled execution environments. Independent verification establishes what actually happened. No model or agent wrapper becomes an execution or authorization authority.
 
-## Authority model
+## Non-regression rules
 
-```text
-Qwen / AI / Gemini / DeepSeek / other models
-    -> reason and propose structured production intent
-
-Python / Atlas
-    -> validate, resolve, authorize, execute, track, verify, recover
-
-Blender / Unreal
-    -> controlled production execution
-
-Independent verification
-    -> establish what actually happened
-```
-
-External models and agent wrappers are never execution or authorization authorities.
+- Never infer continuity from scene similarity, digest equality, or sequence regression.
+- Never reconstruct a temporal predecessor from a digest or handle.
+- Never weaken fail-closed validation to make model-produced work pass.
+- Keep evaluation pure and explicit about its input domain.
+- Keep engine-specific behavior behind adapters.
+- Keep temporal observation factual and separate from semantic event interpretation.
+- Keep historical dated handoffs archival.
+- Do not run workflow/action-runner tests unless explicitly authorized.
 
 ## Stage 13–16 baseline
 
