@@ -2,7 +2,7 @@
 
 **Updated:** September 18, 2026 (session pause)
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10`
-**Published HEAD:** `71728480a425f80c700c913aa00f376c254114bb`
+**Published implementation baseline:** `71728480a425f80c700c913aa00f376c254114bb`
 **Status:** Development paused. All currently authorized implementation slices are complete and published. The remaining Unreal MRQ questions are explicitly separated into deferred designs: shared queue remains the default; queue consumption/deletion remains rejected/deferred; private queue isolation remains trigger-based and unauthorized; MRQ pass-failure attribution is closed on measured B1+B2 evidence; the remaining state-fidelity correction is a design question only, with receipt impact explicitly unproven; failed-job inspection (F9) remains a separate follow-up.
 
 ## Current milestone chain
