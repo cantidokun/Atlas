@@ -207,9 +207,11 @@ MRQ submission-error design review     DONE - CLEAR WITH MINOR FINDINGS (read-on
         ↓
 MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN
         ↓
-NEXT (read-only design gate): is queue isolation / a private queue instance worth it?
-        (still unimplemented: Slice 3 queue consumption; private queue instance
-         unchanged default: current shared queue semantics)
+MRQ queue isolation design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
+        ↓
+NEXT: none scheduled. Standing decision: shared queue semantics stay the default;
+      isolation only against triggers T1-T4; queue consumption stays unimplemented
+      (a new gate is required before either changes)
 ```
 
 ## CLOSED SURFACE — concurrent-submission rejection / error propagation (finding F2)
@@ -239,32 +241,43 @@ consumption and the private queue instance.
 
 ---
 
-## NEXT SURFACE — is queue isolation / a private queue instance worth its lifecycle surface?
+## ANSWERED SURFACE — is queue isolation / a private queue instance worth its lifecycle surface?
 
-Selected by the operator after the submission-outcome slice. It is a **read-only design question first**: does
-isolating Atlas to its own MRQ queue instance (the mechanism Epic's own Quick Render uses, proven safe to
-instantiate in UE 5.6.1) buy enough operational value to justify the larger lifecycle surface it adds — or is
-the current shared-queue semantics plus the identity guards (Slice 1, Slice D, submission outcome) sufficient?
+**Status: read-only design review performed — `docs/UNREAL_MRQ_QUEUE_ISOLATION_DESIGN_REVIEW.md`, verdict
+`CLEAR WITH MINOR FINDINGS`. Recommendation: keep the shared queue semantics as the permanent default; defer
+isolation against written triggers; reject consumption/deletion. Nothing is authorized.**
 
 ```text
-known from the earlier reviews
-  - the shared queue accumulates: every submission renders every retained job (measured 1 -> 3 -> 4 jobs in one
-    session, and 6 Slice 1 discards per run)
-  - a rejected submission leaves its allocated job in the queue by design (queue mutation is frozen); a later
-    accepted submission renders it and Slice 1 discards its artifacts
-  - acceptance/exclusion is now truthful for the submission Atlas makes, but the engine's own mutual exclusion
-    is best-effort (PIE startup window) and unfixable within the frozen constraints
-  - the private-queue mechanism is engine-proven (MovieGraphQuickRender builds a transient queue, instantiates
-    the same UMoviePipelinePIEExecutor and calls RenderQueueInstanceWithExecutorInstance) but changes what the
-    operator sees, how long jobs live, and which queue the callbacks belong to
-questions the gate must answer
-  1. what operational problem remains that the identity guards do not already solve (efficiency, operator
-     visibility, accumulation, or something measurable)?
-  2. what does the operator lose by not seeing Atlas's jobs in the MRQ queue UI, and is that acceptable?
-  3. what is the queue's lifetime and owner under Atlas, and how is it released?
-  4. what happens to a private queue's retained jobs across submissions (accumulation inside Atlas's own queue)?
-  5. does any of this change the evidence chain, job identity, receipts, or the submission outcome contract?
-must not happen
-  no implementation before a cleared design gate; no queue consumption smuggled in; no new transport
-  operation; no second authority; no change to job identity, receipts or continuity semantics
+correctness   none remaining. After Slice 1 + Slice D + the submission-outcome slice, no queue layout can
+              produce a false receipt, a mis-attributed artifact, a false success or an untruthful outcome.
+availability  pass-scoped failure coupling: a fatal error in ANY queue-mate (foreign job or the orphan left by a
+              rejected submission) fails the whole pass and reports the ATLAS job as failed
+              ("Render executor finished with failure"), even when Atlas's own job rendered fine. Fail-closed,
+              but a valid render can be lost and the diagnosis names the wrong job.
+efficiency    measured amplification: 2.5x-2.7x job-renders per accepted submission in 3-4 job sessions
+              ("starting 1,2,3,4" = 10 renders for 4 submissions; "starting 1,3,4" = 8 for 3), growing with
+              retained depth and frame counts; plus the orphan job's frames in every later pass.
+visibility    the shared queue is the ONLY place an operator can see, inspect and clear Atlas's jobs (the MRQ
+              queue panel, the queue editor and the active-render settings tab all read GetQueue()).
+hygiene       unbounded in-memory accumulation across a long editor session.
 ```
+
+```text
+A  shared queue (current)         KEEP as the permanent default
+B  private queue (engine-proven,  DEFER with entry criteria; adopt only if a trigger fires
+   Quick Render precedent)        removes amplification, orphan re-render and the failure coupling, but adds an
+                                  Atlas-owned UObject on a NON-UObject holder (root/release obligations), removes
+                                  operator visibility and diverges the MRQ UI from the rendered queue
+C  consume/delete Atlas jobs      REJECT: deletion is unsafe at every executor state (check() + live Num());
+                                  consumption is honoured by the local executor (correcting the earlier
+                                  queue-lifecycle review) but fires no callback when it skips, and it mutates
+                                  operator-visible engine state without removing the foreign-job coupling
+D  hybrids                         only "A now, B later if a trigger fires"; B+C is redundant (a per-submission
+                                  private queue is bounded by construction); A+C is the worst trade
+triggers T1..T4                   amplifier materiality (retained depth >= 5 or re-render work exceeding the new
+                                  job's own work), operator need for per-render isolation, repeated queue-mate
+                                  failures of healthy submissions, or the misdiagnosis appearing in reports
+```
+
+Anything that would answer this differently, or that wants to implement B or C, needs a new gate. The blocked
+alternative is closed: this surface is answered, not open.
