@@ -190,3 +190,10 @@ def test_the_extractor_assumes_no_envelope_allowance() -> None:
     assert "EnvelopeHeadroomBytes" not in extractor
     assert "4096" not in extractor
     assert "ByteCount >= TransportMessageSizeLimit" in extractor
+
+
+def test_fixture_status_precondition_requires_exactly_one_valid_ok_version() -> None:
+    """The live gate must reject missing, duplicate, or malformed fixture status lines."""
+    source = _read(LIVE_GATE_SOURCE)
+    assert "len(fixture_statuses) == 1" in source
+    assert 're.fullmatch(r"OK version=\\d+", fixture_statuses[0])' in source
