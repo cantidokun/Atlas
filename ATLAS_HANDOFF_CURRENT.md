@@ -1,12 +1,23 @@
 # Atlas Current Development Handoff
 
-**Updated:** September 4, 2026
-**Current branch:** `integrate-origin-main-with-render-receipt`
-**Latest controller-boundary commit:** `f2e8ccf4` — `test: harden Unreal controller result evidence contract`
+**Updated:** September 15, 2026
+**Current branch:** `reconcile/unreal-autonomy-origin-20c6d10`
+**HEAD:** `9625dd712c05126ae2b12c85d4cf034a396cb58a` (supersedes the earlier checkpoint `fe2322f7e76caf3115e3e5be6dafce05d62251ca`; the milestone commits are `e1a1285` documentation checkpoint, `fe4bba2` controller live-gate tests, `72a6578` Blueprint semantic verification, `a964ab6` Blueprint documentation closeout, `87b7e82` render-state semantic verification, `9625dd7` render-state documentation closeout)
+**Latest controller-boundary commit:** `fe2322f` — `test: align synthetic Unreal result fixtures with strict contract`
+**Status:** reconciled + deterministic green + live controller-to-Unreal production green + live Blueprint production green
 
 ## Current milestone
 
 Atlas now has a provider-neutral **agent-to-controller execution boundary** layered above the existing Unreal production architecture while preserving the established Blender/Qwen compatibility path.
+
+As of September 15, 2026 the boundary has been reconciled with the origin branch and **validated against real Unreal execution**: an already-authorized Unreal production operation travels the complete host-owned controller path and returns fresh independently produced evidence, a matching render receipt, and a typed controller result contract.
+
+```text
+reconciled baseline
+ └── 09015d9 → c0321bd → bac08e8 → fe2322f
+```
+
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the live controller path is green; the live Blueprint production boundary is separate and is still not green. **CURRENT STATE:** both are green — the narrow Blueprint production boundary was live-gated on September 15, 2026 with Atlas semantic verification (see `UNREAL_AGENT_HANDOFF_CURRENT.md`, "Live Blueprint semantic verification gate").
 
 The current controller architecture is:
 
@@ -140,25 +151,51 @@ The contract does not create, infer, or extend authorization.
 
 ## Latest validated controller test state
 
-The focused host/controller regression checkpoint completed successfully:
+The focused host/controller regression checkpoint is green on the reconciled branch:
 
 ```text
-89 passed in 1.07s
+canonical focused suite (13 modules, exact command below) : 160 passed, 2 deselected
+broader deterministic Unreal/controller/agent/
+  capability/evidence/receipt sweep                 : 742 passed, 5 skipped
+Python 3.9 focused parity (same 13 modules)         : 160 passed, 2 deselected
+four directly affected contract surfaces
+  (unreal_production_result_contract, unreal_production_workflow,
+   unreal_evidence_contract, unreal_render_receipt) : 37 passed
+
+CORRECTED 2026-09-15: the previously recorded focused figure
+("268 passed, 1 skipped, 1 deselected") is not reproducible on fe2322f from any
+recorded selection and is superseded by the figures above. Exact focused command:
+
+.venv/Scripts/python.exe -m pytest tests/test_agent_controller_*.py tests/test_agent_entrypoint_*.py \
+  tests/test_agent_execution_context.py tests/test_agent_trusted_context.py tests/test_agent_task_request.py \
+  tests/test_agent_process_runtime.py tests/test_agent_process_runtime_identity.py \
+  tests/test_capability_admission.py tests/test_capability_execution.py \
+  tests/test_unreal_production_result_contract.py tests/test_unreal_evidence_contract.py \
+  tests/test_unreal_render_receipt.py tests/test_unreal_render_receipt_store.py -m "not integration" -q
 ```
 
-The current working tree also contains the next deterministic result/evidence hardening layer, which has not yet been run by the user as part of the focused checkpoint.
+The result/evidence hardening layer that was previously unvalidated has now been merged from origin, resolved to origin's strict exact-type `verified_render` implementation, and validated on both Python 3.11.16 and Python 3.9.6.
 
-No live Unreal/action-runner test was run as part of this development layer.
+The explicitly authorized live controller gate has also passed:
+
+```text
+tests/test_agent_controller_host_production_real_integration.py
+1 passed in 10.77s
+```
+
+No other live Unreal/action-runner test was run as part of this development layer.
 
 ## Existing live Unreal proof
 
 The existing live Unreal production/render receipt proof remains valid as previously established, including the real Named Pipe transport, production execution path, independent evidence, and render receipt verification.
 
-The live Blueprint production boundary remains a separate milestone and must not be considered green merely because the controller-layer tests pass.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the live Blueprint production boundary remains a separate milestone and must not be considered green merely because the controller-layer tests pass. It was subsequently gated green on its own live evidence, not on the controller-layer tests.
 
 ## Unreal Blueprint status
 
-The narrow Blueprint production boundary still follows:
+**CURRENT STATE (2026-09-15): the narrow Blueprint production boundary is GREEN, live-gated against real UE 5.6.1 over the existing Named Pipe transport, and Blueprint semantic verification is implemented, registered and live-proven (3 passed; `evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path). Full record: `UNREAL_AGENT_HANDOFF_CURRENT.md`.**
+
+The narrow Blueprint production boundary follows:
 
 ```text
 READ   inspect_blueprint_state
@@ -167,17 +204,25 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The previously identified remaining live issue is evidence shape: Blueprint state evidence must expose persisted metadata under `metadata` after the mutation/compile sequence.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the previously identified remaining live issue is evidence shape: Blueprint state evidence must expose persisted metadata under `metadata` after the mutation/compile sequence. **Resolved live:** the persisted metadata appears under `metadata` at the mutation, compile, verify and fresh-inspection stages, and verification now binds asset identity, compile status and the authorized metadata key/value.
 
-The next Unreal-dependent gate remains the real Blueprint integration suite. Do not broaden into arbitrary Blueprint graph authoring until that boundary is green.
+The real Blueprint integration suite has since been gated green (September 15, 2026). Arbitrary Blueprint graph authoring remains out of scope and would need its own design gate.
 
 ## Next development step
 
-1. Pull the latest branch and run the focused host/controller suite including the new result/evidence tests.
-2. Fix any deterministic contract regression without touching the live action runner.
-3. Extend the result contract only where it clarifies verified evidence/receipt identity or lifecycle state without creating a second authority.
-4. Keep the live Blueprint metadata/evidence correction separate from controller-host work.
-5. Only run the live Unreal/action-runner gate when explicitly authorized.
+1. Confirm the reconciled branch and HEAD. The September 15 checkpoint working tree carries 7 tracked
+   documentation modifications plus the applied two-line test-only mapping repair; nothing is committed.
+2. The test-only `_variant` mapping repair is **APPLIED (September 15, 2026)** in the working tree
+   (two lines: `from collections.abc import Mapping` and `if not isinstance(value, Mapping):`), and both
+   live controller production tests were rerun green against a real UE 5.6.1 editor (1 passed in 9.53s and
+   1 passed in 6.10s) with the fixture restored to 0/0/0, identity rotation, 1/1/1.
+3. Residual follow-up (same defect class, NOT fixed — out of scope for the controller gate):
+`tests/test_unreal_composite_real_integration.py`,
+`tests/test_unreal_heterogeneous_recovery_real_integration.py`,
+`tests/test_unreal_production_workflow_real_integration.py`,
+`tests/test_unreal_material_variant_real_integration.py`.
+4. The live Blueprint production boundary was completed and gated green on September 15, 2026 (metadata mutation, compile, verify, and verified metadata evidence) ? Blueprint production is green. Render configuration/state semantic verification (`verify_render_state`) was subsequently promoted to the executor's semantic-verification registry and live-gated green the same day (1 passed on Unreal Engine 5.6.1 over the existing Named Pipe; `result.evidence_ledger[2].verified is True`), with the executor now the sole producer of the render-state `verified` flag and the verifier no longer setting it. The render-job identity semantic-verification milestone was then implemented, deterministically validated, and live-gated green against the real Movie Render Queue path: 47 R-J1?R-J8 cases passed on both Python 3.11 and 3.9, and the real render-workflow gate passed 1/1 on Unreal Engine 5.6.1 over the existing Named Pipe with `job_state["job_id"] == result.job_id`. The receipt and persisted receipt carried the same job identity. The tracked `AtlasRenderConfig.uasset` was restored byte-for-byte to HEAD after the live save side effect. The render-job identity milestone is complete; its remaining deferred issues are documented in `UNREAL_AGENT_HANDOFF_CURRENT.md`. The next active development surface now requires a fresh architectural assessment.
+5. Only run live Unreal/action-runner gates when explicitly authorized.
 
 ## Architectural invariants
 

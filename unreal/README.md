@@ -64,6 +64,28 @@ independent evidence / verification
 
 The recovery test additionally establishes that fresh live reassessment does **not** silently retry the previous mutation.
 
+### Live controller-to-production proof (September 15, 2026)
+
+The provider-neutral controller host path has now been exercised against this harness in real Unreal Engine 5.6.1:
+
+```text
+tests/test_agent_controller_host_production_real_integration.py
+```
+
+An already-authorized `FIELD_SURFACE` composite production travelled:
+
+```text
+model response → ATLAS_CONTROLLER_REQUEST → AgentControllerIntent → AgentTaskRequest
+→ AgentControllerHost → AgentControllerLoopAdapter → AgentEntrypointRuntime
+→ AgentProcessRuntime → capability admission → TrustedUnrealContext
+→ Unreal production capability → \\.\pipe\AtlasUnrealTransport → real Unreal
+→ fresh evidence → render receipt → UnrealProductionResultContract
+```
+
+The model supplied forged authorization and context; the host-installed `TrustedUnrealContext` overrode it and the execution used the host-authorized production plan, the trusted intent, and the trusted sequence asset path.
+
+The live render completed (24 frames, 1280x720 PNG, Movie Render Queue), fresh `inspect_render_job` evidence was produced with `verified = True`, the receipt matched the final evidence, and the fixture was restored afterwards to location 0/0/0, identity rotation, scale 1/1/1.
+
 This is a first production-boundary proof, not a claim that all future Unreal capabilities are implemented.
 
 ## Current real fixture identity
@@ -139,6 +161,35 @@ Atlas authorization
 → independent verification
 ```
 
+## Expected live running state
+
+The transport server starts automatically from `AtlasUnrealTransport` module startup (implemented in `AtlasTransportServer.cpp`) and listens on:
+
+```text
+\\.\pipe\AtlasUnrealTransport
+```
+
+The harness seeds its deterministic fixtures into the **active editor world** through a startup ticker. The expected live running state therefore requires the persistent fixture map to be loaded:
+
+```text
+/Game/AtlasTest/Generated/AtlasRenderFixture
+```
+
+The harness reports readiness in its log:
+
+```text
+Atlas transport server started successfully
+Atlas Unreal fixtures ready in world 'AtlasRenderFixture'
+```
+
+Launching the editor without that fixture map can leave the first world context pointing at a cleaned-up world, because the server-side entity lookup resolves `GEngine->GetWorldContexts()[0]` while fixture provisioning uses the editor world. Every entity-scoped operation then fails with:
+
+```text
+Actor not found for entity_id: FIELD_SURFACE
+```
+
+This is a pre-existing harness/setup characteristic. Do not compensate for it with Atlas-side entity discovery or an entity cache. A durable C++ fallback to the active editor world (rather than indexing `GetWorldContexts()[0]`) is a possible future harness improvement, separate from the controller milestone.
+
 ## Regression rules
 
 - Do not weaken a failing test to make it pass.
@@ -152,9 +203,13 @@ Atlas authorization
 
 ## Next milestone
 
-The next development target is **multi-operation production execution with failure containment**.
+The multi-operation production execution boundary with failure containment has since been implemented, and the provider-neutral controller host path has now been validated live against this harness (see `UNREAL_AGENT_HANDOFF_CURRENT.md`).
 
-The Python-side implementation should first prove, with offline regression coverage:
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the current next engine-dependent target is the **live Blueprint production boundary**: narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence. It is **not** green and must not be conflated with the controller-layer success.
+
+**CURRENT STATE (2026-09-15): that boundary is GREEN and live-gated against this harness** — `tests/test_unreal_blueprint_real_integration.py` passed 3 tests against Unreal Engine 5.6.1 over `\\.\pipe\AtlasUnrealTransport`, with Atlas semantic verification now binding asset identity, compile status and the authorized metadata key/value (`evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path), while unrelated fixture metadata (`AtlasTestMarker`) is tolerated. **RENDER-STATE UPDATE (2026-09-15, later the same day):** render configuration/state semantic verification is now GREEN against this harness too — `tests/test_unreal_render_real_integration.py -m integration` passed 1/1 on Unreal Engine 5.6.1 over the existing Atlas Named Pipe transport, with `verify_render_state` registered in the executor's semantic-verification registry (`result.evidence_ledger[2].verified is True`), the executor as the sole producer of that flag, the verifier no longer setting it itself, and the expectation drawn only from the authorized VERIFY arguments. The engine log shows `verify_render_state` on its own connection after `configure_render` persisted `/Game/AtlasTest/AtlasRenderConfig`, and all four tracked fixture assets stayed byte-identical. **RENDER-JOB DESIGN GATE (2026-09-15, same night):** the render job/result layer's design gate ran and returned **CLEAR WITH MINOR FINDINGS**. The next active development gate is **render-job identity semantic verification** — `verify_render_job` and the job-addressed `inspect_render_job` path must verify the engine-observed `job_id` against the authorization-bound expected job id (the VERIFY argument after the existing `$previous.submit_render.job_id` dynamic resolution; the plan's own authorized `job_id` for the read path). Job identity is exact-string after a defensive strip; the active statuses (`submitted`, `queued`, `rendering`) and the finished/`success`/artifact rules are unchanged; receipt semantics, `verified_render`, the executor's sole-producer rule and the real MRQ path are unchanged; no new schema key, authority, pairing helper or index arithmetic. Implementation has **NOT** started, and the live proof reuses `tests/test_unreal_render_workflow_real_integration.py::test_real_unreal_render_workflow_runs_to_verified_persisted_receipt`, strengthened with `job_state["job_id"] == result.job_id` (not applied yet).
+
+The original Python-side proof set for this milestone was:
 
 1. ordered evidence before mutation;
 2. exact authorization of the ordered operation set;
@@ -168,6 +223,8 @@ The Python-side implementation should first prove, with offline regression cover
 10. independent verification before completion.
 
 After that boundary is green, run the expanded multi-operation scenario against the real Unreal Editor.
+
+The narrow Blueprint metadata boundary is now green; Blueprint graph authoring remains out of scope and must not be expanded without its own design gate.
 
 ## Detailed continuation state
 

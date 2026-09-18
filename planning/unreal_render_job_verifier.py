@@ -9,11 +9,14 @@ _ACTIVE_STATUSES = {
 }
 
 
-def verify_render_job_completion(
-    evidence,
-    *,
-    require_artifacts=True,
-):
+def resolve_render_job_state(evidence):
+    """Resolve the render-job object carried by one render-job observation.
+
+    Production adapters may return the render-job object directly, while
+    transport fixtures can preserve the standard entity envelope:
+    ``{entity_id: {"render_job": {...}}}``. Every consumer resolves the job
+    object through this single rule.
+    """
     state = evidence.observed_state
 
     if not isinstance(state, Mapping):
@@ -21,31 +24,65 @@ def verify_render_job_completion(
             "render job evidence observed_state must be a mapping"
         )
 
-    # Production adapters may return the render-job object directly, while
-    # transport fixtures can preserve the standard entity envelope:
-    # {entity_id: {"render_job": {...}}}.
-    if "job_id" not in state:
-        render_job = None
+    if "job_id" in state:
+        return state
 
-        if len(state) == 1:
-            entity_state = next(iter(state.values()))
-            if isinstance(entity_state, Mapping):
-                candidate = entity_state.get("render_job")
-                if isinstance(candidate, Mapping):
-                    render_job = candidate
+    render_job = None
 
-        if render_job is None:
-            raise ValueError(
-                "render job evidence must contain a render_job object"
-            )
+    if len(state) == 1:
+        entity_state = next(iter(state.values()))
+        if isinstance(entity_state, Mapping):
+            candidate = entity_state.get("render_job")
+            if isinstance(candidate, Mapping):
+                render_job = candidate
 
-        state = render_job
+    if render_job is None:
+        raise ValueError(
+            "render job evidence must contain a render_job object"
+        )
+
+    return render_job
+
+
+def verify_render_job_completion(
+    evidence,
+    *,
+    require_artifacts=True,
+    expected_job_id=None,
+):
+    """Verify one render-job observation against the authorized expectation.
+
+    ``expected_job_id`` is the authorization-bound job identity: the
+    ``verify_render_job`` operation's own ``job_id`` argument after the existing
+    ``$previous.submit_render.job_id`` resolution, or the plan's own authorized
+    ``job_id`` for a job-addressed ``inspect_render_job`` read. Comparison is an
+    exact string comparison after a defensive strip. When it is supplied the
+    observation must carry exactly that identity; the executor always supplies
+    it on the authorized execution path. ``None`` preserves the legacy call
+    shape (no identity binding) for direct verifier callers.
+    """
+    state = resolve_render_job_state(evidence)
 
     job_id = state.get("job_id")
     if not isinstance(job_id, str) or not job_id.strip():
         raise ValueError(
             "render job evidence must contain a non-empty job_id"
         )
+
+    if expected_job_id is not None:
+        if not isinstance(expected_job_id, str) or not expected_job_id.strip():
+            raise ValueError(
+                "render job verification requires a non-empty expected job_id"
+            )
+
+        expected = expected_job_id.strip()
+
+        if job_id.strip() != expected:
+            raise ValueError(
+                "render job identity mismatch: "
+                f"expected job_id={expected!r}, "
+                f"observed job_id={job_id.strip()!r}"
+            )
 
     status = state.get("status")
 
@@ -71,7 +108,7 @@ def verify_render_job_completion(
 
     output_files = state.get("output_files", [])
 
-    if not isinstance(output_files, list):
+    if not isinstance(output_files, (list, tuple)):
         raise TypeError(
             "render job output_files must be a list"
         )

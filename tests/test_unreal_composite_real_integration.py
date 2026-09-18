@@ -1,5 +1,7 @@
 """Real-Unreal gate for the complete composite production path."""
 
+from collections.abc import Mapping
+
 import pytest
 
 from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapterProduction
@@ -22,7 +24,7 @@ def _state(evidence):
 
 def _variant(state, key):
     value = state.get(key, {}).get("variant")
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise AssertionError(f"Unreal FIELD_SURFACE evidence missing {key}.variant")
     return dict(value)
 

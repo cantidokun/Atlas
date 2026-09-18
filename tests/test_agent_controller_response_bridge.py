@@ -288,6 +288,7 @@ def test_real_unreal_authorization_survives_synthetic_model_response(
                 output_directory="Saved/SyntheticTestOutput",
                 output_format="png",
             ),
+            sequence_asset_path="/Game/Trusted/Sequence",
         ),
     )
 

@@ -13,6 +13,7 @@ from planning.unreal_task_planner import UnrealTaskIntent
 from planning.unreal_transport_contract import UnrealTransportRequest, UnrealTransportResponse
 
 TARGET = "FIELD_SURFACE"
+SEQUENCE_ASSET_PATH = "/Game/AtlasTest/AtlasSequencerFixtureSequence"
 
 
 class ProductionTransport:
@@ -106,6 +107,7 @@ def _spec():
             width=1280, height=720, start_frame=1, end_frame=24,
             output_directory="Saved/AtlasProductionOutput", output_format="png",
         ),
+        sequence_asset_path=SEQUENCE_ASSET_PATH,
         blueprint_asset_path="/Game/AtlasTest/BP_AtlasTest",
     )
 

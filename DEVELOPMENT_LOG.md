@@ -1,5 +1,60 @@
 # Atlas Development Log
 
+## September 18, 2026 — Unreal MRQ architecture pause
+
+The Unreal development session closed with the published branch at:
+
+```text
+reconcile/unreal-autonomy-origin-20c6d10
+71728480a425f80c700c913aa00f376c254114bb
+```
+
+### Completed and published/live-proven
+
+```text
+Shot-level production continuity
+MRQ artifact attribution (Slice 1 + Slice 2)
+MRQ start-callback identity (Slice D)
+MRQ submission outcome propagation
+```
+
+### Design gates completed
+
+```text
+MRQ queue lifecycle                 CLEAR WITH MINOR FINDINGS
+MRQ queue isolation                CLEAR WITH MINOR FINDINGS
+MRQ pass-failure attribution       CLEAR WITH MINOR FINDINGS
+```
+
+The queue-isolation review concluded that the shared MRQ queue remains the default.
+Queue consumption/deletion is rejected/deferred, and private queue isolation is
+deferred behind triggers T1-T4.
+
+The pass-failure investigation was corrected from an initial source interpretation
+by direct UE 5.6.1 measurement. Both selected genuine failure mechanisms (above-max
+resolution and export-time write failure) abort the MRQ pass before the subsequent
+queued job starts. The hypothesized healthy-job-then-pass-failure clobber was
+therefore not reached, and receipt impact remains explicitly unproven.
+
+The remaining architectural question is whether a small terminal-state
+**state-fidelity** correction is worthwhile at all. No production code for that
+correction was implemented or authorized.
+
+F9 remains separate: failed render jobs are currently unreadable through the
+authorized inspection path because the product inspection path rejects failed
+terminal state.
+
+### Session intent at pause
+
+```text
+No queue consumption.
+No private queue migration.
+No registry pruning.
+No new Unreal feature.
+No pass-failure implementation yet.
+Next step = read-only design gate for state-fidelity value.
+```
+
 ## August 16, 2026 — Live Controller Passed / General Planning Integration
 
 ### Live controller result
@@ -341,3 +396,843 @@ The following current-state documents were updated after the real production-bou
 - `unreal/README.md`
 
 These documents now identify the first real production proof as passed and point to the multi-operation/failure-containment milestone as the next gate.
+
+## September 15, 2026 — Controller Host Reconciliation + Live Controller-to-Production Gate
+
+### Reconciliation of the local autonomy branch with origin
+
+The local autonomy commit had diverged from `origin/integrate-origin-main-with-render-receipt` (ahead 1, behind 12). The divergence was analyzed before any write operation and reconciled in three controlled commits:
+
+```text
+09015d9  feat: integrate Unreal autonomy into controller runtime
+   ↓
+c0321bd  fix: compose agent controller boundary from AgentControllerHost
+   ↓
+bac08e8  Merge origin/integrate-origin-main-with-render-receipt
+   ↓
+fe2322f  test: align synthetic Unreal result fixtures with strict contract
+```
+
+- `c0321bd` committed the audited Host-seam change by itself: `agent.py` composes its controller boundary from `AgentControllerHost` (host-owned runtime and loop) instead of constructing `AtlasEntrypointRuntime` and `AgentControllerLoopAdapter` directly.
+- `bac08e8` recorded exactly one merge conflict, `planning/unreal_production_workflow.py`, resolved to origin's strict exact-type `verified_render` implementation. A typed `UnrealProductionExecutionResult` is now required for production/render intent binding, and the duck-typed fallback that produced a self-comparison is gone. The merge preserved the local `normalize_unreal_production_event` failure semantics, the local recovery-action capability admission, and all 14 local-only implementation paths.
+- `fe2322f` repaired two synthetic fixtures in `tests/test_agent_controller_host_unreal_synthetic_end_to_end.py` that had passed only because of the removed duck-typed fallback; they now build a real `UnrealProductionExecutionResult` whose plan intent matches the render intent.
+
+Nine of the twelve origin commits were already content-identical in the local commit, two were net no-ops, and the real delta was the single `verified_render` guard.
+
+### Deterministic validation on the reconciled branch
+
+```text
+focused controller/agent/host/result/evidence suite : 268 passed, 1 skipped, 1 deselected
+broader deterministic Unreal/controller/agent/
+  capability/evidence/receipt sweep                 : 742 passed, 5 skipped
+Python 3.9 focused parity                           : 268 passed, 1 skipped, 1 deselected
+four directly affected surfaces                     : 37 passed
+```
+
+> **CORRECTED 2026-09-15 (checkpoint continuation):** the focused figure above was not
+> reproducible on fe2322f from any recorded selection. See the September 15, 2026
+> checkpoint-continuation entry at the end of this log for the measured figures and the
+> exact canonical focused-suite command.
+
+### Live controller-to-production gate — PASSED
+
+An already-authorized Unreal production operation was driven through the complete host-owned controller path against a real Unreal Engine 5.6.1 editor:
+
+```text
+model text → ATLAS_CONTROLLER_REQUEST → AgentControllerIntent → AgentTaskRequest
+→ AgentControllerHost → AgentControllerLoopAdapter → AgentEntrypointRuntime
+→ AgentProcessRuntime → capability admission → TrustedUnrealContext
+→ Unreal production capability → Named Pipe → real Unreal → fresh evidence
+→ render receipt → UnrealProductionResultContract
+```
+
+```text
+test    : tests/test_agent_controller_host_production_real_integration.py
+command : .venv/Scripts/python.exe -m pytest tests/test_agent_controller_host_production_real_integration.py -m integration -q -s
+result  : 1 passed in 10.77s
+```
+
+The harness is a newly created, integration-marked, test-only live gate; no production or test source was modified by the gate.
+
+### Live Unreal details
+
+```text
+Unreal Engine 5.6.1 / UnrealEditor-Cmd.exe / unreal/AtlasUnrealHarness
+transport     : \\.\pipe\AtlasUnrealTransport (AtlasTransportServer.cpp)
+fixture map   : /Game/AtlasTest/Generated/AtlasRenderFixture (required)
+```
+
+Launching the editor without the fixture map can leave `GEngine->GetWorldContexts()[0]` pointing at a cleaned-up world, which makes the server-side entity lookup fail with `Actor not found for entity_id: FIELD_SURFACE`. This was diagnosed as a pre-existing harness/setup characteristic and was not fixed.
+
+### Real production operation
+
+The proven `FIELD_SURFACE` composite production was reused unchanged: location 10/20/30, rotation pitch 0 / yaw 15 / roll 0, scale 1.1, material variant `liquid_surface`, Niagara variant `goal_burst`, sequencer playback range 1–24, and a 1280x720 PNG Movie Render Queue render of 24 frames. The render completed successfully and the engine log confirms the pipeline finished the submitted job.
+
+The fixture was restored afterwards and verified at location 0/0/0, identity rotation, scale 1/1/1.
+
+### Trust boundary proof
+
+The model output deliberately supplied forged authorization and context (`authorized_production: FORGED-BY-MODEL`, a forged intent string, and `/Game/Forged/ModelSequence`). The host-installed `TrustedUnrealContext` overrode all three: the admitted and executed request used the host-authorized production plan, the trusted intent, and the trusted sequence path. The model's declared intent survived only as diagnostic metadata.
+
+**The agent controller host trust boundary has now been validated against real Unreal execution.**
+
+### Evidence, receipt, and result contract
+
+```text
+evidence  : inspect_render_job / FIELD_SURFACE / unreal-editor-atlas-transport / verified True
+digest    : 81bbf55a6c29b589d3dda5f57de8dcfdeb15203617811233712a0fa810e7d853
+render job: B6F524E9-4527-4804-27A4-B7BD92A1CBB6
+receipt   : matches final evidence True
+digest    : aab94cdf375f00454290275e8e70493001e4d020861b8d0789787791c11240c7
+```
+
+The typed controller result reported `controller_executed = True`, capability `unreal_production`, operation `start`, snapshot state `complete`, `workflow_result.success = True`, `verified_render = True`, `failed = False`, `requires_recovery = False`, and `integration.complete = True`. The production instance was an exact `UnrealProductionExecutionResult` and the render intent, trusted intent, and production plan intent all matched. The result was grounded in an independent post-execution engine readback rather than trusting the controller request.
+
+The persisted receipt artifact was preserved at `C:\Users\Gavin's PC\AppData\Local\Temp\atlas-live-gate-evidence\host-path-render-receipt.json`.
+
+### Outstanding items
+
+1. **Test-only compatibility issue.** `tests/test_agent_controller_production_real_integration.py` is currently RED under the hardened evidence contract: `UnrealEvidence.observed_state` is frozen into a `MappingProxyType` tree while its helper `_variant` requires `isinstance(value, dict)`. Smallest repair: use `collections.abc.Mapping` in the test helper. Not implemented on the night of
+September 15; **APPLIED 2026-09-15 (checkpoint continuation)** in the working tree, with both live
+controller production tests rerun green — see the continuation entry at the end of this log.
+2. **Harness setup dependence.** The live harness requires launching with `/Game/AtlasTest/Generated/AtlasRenderFixture` because the server-side entity lookup uses `GEngine->GetWorldContexts()[0]` while fixture provisioning uses the editor world. A durable C++ active-editor-world fallback is a future harness improvement, separate from the controller milestone.
+
+### Current state
+
+```text
+RECONCILED + DETERMINISTIC GREEN + LIVE CONTROLLER-TO-UNREAL PRODUCTION GREEN
+```
+
+**SUPERSEDED (2026-09-15 — later the same day; see the Blueprint semantic verification milestone entry at the end of this log).** The next genuine architectural/engine milestone remains the **live Blueprint production boundary** (narrow metadata mutation, compile, verify, and persisted metadata under `metadata` in post-mutation evidence). Blueprint production is not green and was not started.
+
+Existing invariants are unchanged: Atlas is the canonical authority, models and providers reason and propose only, `AgentControllerHost` owns the trusted execution context, `TrustedUnrealContext` is host-installed, capability admission is fail-closed, Unreal supplies fresh evidence, render receipts must match verified evidence, recovery requires fresh evidence and replacement authorization, the Named Pipe transport is unchanged, and Blender/Qwen remain isolated from this milestone.
+
+## September 15, 2026 — Checkpoint Continuation: Canonical Test Counts, Mapping Repair Applied, Blueprint Gate Preparation
+
+### Canonical focused-suite correction
+
+The previously recorded focused figure (`268 passed, 1 skipped, 1 deselected`) is not reproducible on
+`fe2322f7e76caf3115e3e5be6dafce05d62251ca` from any recorded selection. Measured at this checkpoint:
+
+```text
+canonical focused suite (13 modules)     : 160 passed, 2 deselected   [Python 3.11.16]
+Python 3.9.6 parity (same 13 modules)    : 160 passed, 2 deselected
+broader deterministic sweep              : 742 passed, 5 skipped      (747 collected, exact match)
+four directly affected contract surfaces : 37 passed
+```
+
+Exact focused command:
+
+```text
+.venv/Scripts/python.exe -m pytest tests/test_agent_controller_*.py tests/test_agent_entrypoint_*.py \
+  tests/test_agent_execution_context.py tests/test_agent_trusted_context.py tests/test_agent_task_request.py \
+  tests/test_agent_process_runtime.py tests/test_agent_process_runtime_identity.py \
+  tests/test_capability_admission.py tests/test_capability_execution.py \
+  tests/test_unreal_production_result_contract.py tests/test_unreal_evidence_contract.py \
+  tests/test_unreal_render_receipt.py tests/test_unreal_render_receipt_store.py -m "not integration" -q
+```
+
+The broader deterministic sweep reproduces the documented `742 passed, 5 skipped` exactly, so that baseline
+is preserved unchanged. No test behavior was altered to reach any figure.
+
+### Test-only mapping repair applied (working tree, uncommitted)
+
+`tests/test_agent_controller_production_real_integration.py`:
+
+```python
+from collections.abc import Mapping
+...
+if not isinstance(value, Mapping):      # was dict
+```
+
+The hardened evidence contract freezes `UnrealEvidence.observed_state` into a `MappingProxyType` tree, so
+the helper's `isinstance(value, dict)` check rejected present, readable data. Test-only: no production,
+transport, authorization, trusted-context, result-contract, C++, Blueprint, Blender or Qwen code touched.
+
+Both live controller production tests were rerun against real Unreal Engine 5.6.1 (Named Pipe
+`\\.\pipe\AtlasUnrealTransport`, fixture map `/Game/AtlasTest/Generated/AtlasRenderFixture`):
+
+```text
+tests/test_agent_controller_production_real_integration.py      : 1 passed in 9.53s
+tests/test_agent_controller_host_production_real_integration.py : 1 passed in 6.10s
+```
+
+Host-path identities from the rerun:
+
+```text
+render job id      : 1F901C1E-4AA7-6477-D7FB-81B91ED0FD94
+evidence           : inspect_render_job / FIELD_SURFACE / verified True
+evidence digest    : 5481a35eb952e80179ba2d48e9e92d80b1657581bfcfad9482c3efc195e77c11
+receipt digest     : e92769129aab7795126e66420ef4b48acff42e4813610e02166f794d4b3aec2e
+contract           : success=True verified_render=True failed=False requires_recovery=False
+live readback      : location 10/20/30 after execution
+restore            : 0/0/0, identity rotation, 1/1/1 (verified by an independent read-only probe)
+```
+
+Engine-side corroboration: `LogMovieRenderPipeline` reports a 1-job render (`+00:00:02.326`) and a 2-job
+render (`+00:00:02.845`) completing during the two runs, and the tracked harness assets under
+`Content/AtlasTest/` are byte-identical (sha256) before and after.
+
+### Residual mapping compatibility sites (known follow-up, not fixed)
+
+```text
+tests/test_unreal_composite_real_integration.py
+tests/test_unreal_heterogeneous_recovery_real_integration.py
+tests/test_unreal_production_workflow_real_integration.py
+tests/test_unreal_material_variant_real_integration.py
+```
+
+Same defect class as the repaired helper: each requires `dict` where the frozen `observed_state` supplies a
+`MappingProxyType`, so they fail the same way on a live run until the same one-line repair is authorized.
+Not modified in this task.
+
+### Working-tree state at this checkpoint
+
+Seven tracked documentation files are modified (this handoff/status set) together with the applied two-line
+test-only repair. Nothing is committed, nothing is staged, and HEAD remains
+`fe2322f7e76caf3115e3e5be6dafce05d62251ca`. The live controller gate harness
+(`tests/test_agent_controller_host_production_real_integration.py`) and the pre-existing Aider artifacts
+remain untracked.
+
+### Next gate
+
+**SUPERSEDED (2026-09-15 — closed out the same day; see the Blueprint semantic verification milestone
+entry at the end of this log).** *Historical record:* the live Blueprint production boundary remains
+**not green**: `inspect_blueprint_state` -> `set_blueprint_metadata` -> `compile_blueprint` ->
+`verify_blueprint_state`, with the open acceptance condition that persisted Blueprint metadata must appear
+under `metadata` in post-mutation evidence. The boundary has not been re-gated live since the recorded
+`KeyError: 'metadata'` failure, so it must be revalidated against the real editor before any
+Blueprint-complete claim.
+## September 15, 2026 — Blueprint Semantic Verification Milestone (live-gated green)
+
+### Current state
+
+```text
+BLUEPRINT PRODUCTION BOUNDARY: GREEN (live-gated)
+BLUEPRINT SEMANTIC VERIFICATION: IMPLEMENTED, REGISTERED, LIVE-PROVEN
+```
+
+The narrow Blueprint production boundary is complete and no longer on the deferred list: READ `inspect_blueprint_state` -> WRITE `set_blueprint_metadata` -> WRITE `compile_blueprint` -> VERIFY `verify_blueprint_state`, followed by the test's fresh post-plan inspection.
+
+### What was implemented
+
+`verify_blueprint_state` is now a genuine Atlas semantic verification boundary, not a test assertion:
+
+- **expected state is authorization-bound plan state** — the authorized asset path and compile status come from the VERIFY operation's own authorized arguments, and the expected metadata pair comes from the paired authorized `set_blueprint_metadata` WRITE operation in the same authorization-bound plan. Expected state is never derived from returned evidence, the model, or the engine.
+- **fresh Unreal evidence** — the VERIFY arm issues its own engine read; verification consumes that fresh observation.
+- **asset identity is verified** — observed `asset_path` must equal the authorized asset path.
+- **compile status is verified** — observed `compile_status` must match the authorized `expected_compile_status`.
+- **authorized metadata key/value is verified when the metadata mutation plan is present** — the observed metadata mapping must contain the authorized key, the observed value must be a string, and it must exactly equal the normalized authorized value.
+- **unrelated metadata keys are tolerated** — the fixture's independent `AtlasTestMarker` entry is observed live and does not affect verification (matching the field-level comparison style used by the material/Niagara/transform/render verifiers).
+- **fail-closed behavior is preserved** — missing blueprint state, missing metadata mapping, missing authorized key, non-string value, value mismatch, asset-identity mismatch and compile-status mismatch all raise through the existing `UnrealPlanExecutionError` / failure-record mechanism; plan-shape violations (metadata write for a different asset or different entities) are rejected before any operation is dispatched.
+- **`verify_blueprint_state` sets `verified=True` only after the semantic comparison succeeds** — the operation is registered in the executors semantic-verification registry and its verifier call site is unconditional for that operation name, so a registered name can never produce a vacuous pass.
+
+Executor plumbing: Blueprint `asset_path` continuity is enforced in execution-shape validation for `set_blueprint_metadata` -> `compile_blueprint` and `compile_blueprint` -> `verify_blueprint_state`; the metadata expectation is resolved positionally from the authorized metadata WRITE immediately preceding the compile (index-2 pairing); the verifier call site reads its expected values from the operation's own authorized arguments.
+
+### Deterministic results
+
+```text
+Blueprint suites (semantic contract + verifier + planning) : 37 passed
+Executor core                                             : 16 passed
+Four affected contract surfaces                            : 37 passed
+Canonical focused suite (13 modules)                       : 160 passed, 2 deselected
+Broader deterministic sweep                                : 766 passed, 5 skipped
+Python 3.9 Blueprint parity                                : 37 passed
+Python 3.9 executor/contract parity                        : 53 passed
+```
+
+The broader sweep figure is the previously recorded baseline (742 passed, 5 skipped) plus the 24 new Blueprint cases, with the 5 deprecated-file skips unchanged. No test was weakened or edited to make the milestone pass.
+
+### Live Blueprint gate — PASSED (UE 5.6.1, existing Named Pipe transport)
+
+```text
+tests/test_unreal_blueprint_real_integration.py -m integration : 3 passed
+metadata mutation path (4-operation plan)  : evidence_ledger[3].verified is True
+compile-only path (3-operation plan)       : evidence_ledger[2].verified is True
+missing-asset negative path                : failed closed
+engine                                     : Unreal Engine 5.6.1, \\.\pipe\AtlasUnrealTransport
+fixture                                    : /Game/AtlasTest/BP_AtlasTest.BP_AtlasTest
+```
+
+The live run executed the real plan through the real adapter and the existing Named Pipe transport against a real editor: engine log shows `LogSavePackage` moving the package into the tracked asset, and the asset was then restored to the committed HEAD bytes (`db15ec03c624fe1ad4f38b17e3b86f0064393111a384346f375bac30a63cdb7a`), so the repository fixture baseline is unchanged.
+
+### Scope held
+
+No planner, tool schema, capability registry, adapter, authorization, evidence-contract, transport, C++ or recovery change was required: the expected metadata already existed in authorization-bound plan state, so the milestone added only verification. No new authoritative input, no new schema/registry key, no second authority, and no wire change.
+
+### Deferred issues (explicitly carried, not part of this milestone)
+
+1. **`verify_render_state` flag asymmetry** — render-state verification is compared but is not registered for semantic verification, so its evidence never carries `verified=True`. **SUPERSEDED (2026-09-15, later the same day — see the "Render-state semantic verification milestone (September 15, 2026)" entry at the end of this log):** the consequence claim recorded here is inaccurate. The design audit proved that the old verifier itself independently set `verified=True`, so render-state evidence *did* carry the flag; what was genuinely missing was the executor's semantic-verification registry membership. That second producer has since been removed and the asymmetry resolved.
+2. **Blueprint metadata recovery** — `set_blueprint_metadata` has no production recovery coverage (`unreal_production_recovery.py` write definitions do not model it).
+3. **Verifier exception-type cleanup** — Blueprint verification raises plain `ValueError` rather than the shared `UnrealStateVerificationError` (a `ValueError` subclass); unification is a compatibility-safe future cleanup.
+4. **Production-spec Blueprint metadata expressiveness** — `UnrealProductionSpec` carries only `blueprint_asset_path`, so a metadata mutation is expressible only through the task planner.
+5. **`is_up_to_date` binding** — verification does not bind observed `is_up_to_date` to an authorized expectation, because Atlas has no authorized expectation for that engine-side claim.
+6. **Unused `evidence` parameter** in the semantic-verification registry helper (`_is_semantically_verified(operation, evidence)`); the gate is name-based. Harmless, worth removing when next touched.
+7. **Live fixture value-idempotency limitation** — the fixture already stored `AtlasMutation = production-boundary-1` before the gate, so the live pass proves the post-condition (observed state matches the authorized expectation) rather than a first-time write; the write itself is proven by the engine-side `LogSavePackage` evidence.
+
+### Git state at closeout
+
+Documentation only: the seven current-state documents were updated to replace the stale "Blueprint production is not green" claims with the live-proven GREEN state, preserving the superseded statements in place. The Blueprint implementation and its tests are in the working tree, unstaged and uncommitted; HEAD remains `fe2322f7e76caf3115e3e5be6dafca05d62251ca`.
+
+### Next development surface (investigation only)
+
+The next engine-dependent surface to investigate is the render **configuration/state** semantic-verification parity surface (`verify_render_state`), which is the only remaining capability whose verification runs fail-closed but is not registered — see deferred issue 1. It requires its own design gate before implementation. **SUPERSEDED (2026-09-15, later the same day):** that design gate ran and returned CLEAR WITH MINOR FINDINGS, the promotion was implemented and live-gated — see the "Render-state semantic verification milestone (September 15, 2026)" entry at the end of this log. The next engine-dependent surface after render state is the render **job**/result layer (Movie Render Queue submission and job-state verification), which remains separate. **SUPERSEDED (2026-09-15, same night):** the render-job identity design gate ran and returned CLEAR WITH MINOR FINDINGS — see the "Render-job identity semantic verification design gate (September 15, 2026)" entry at the end of this log. Implementation has NOT started.
+## Render-state semantic verification milestone (September 15, 2026)
+
+### Status
+
+Render-state verification (`verify_render_state`) is now a first-class Atlas semantic verification:
+**deterministic green and live-proven**. It was the last capability whose verification ran fail-closed
+without being declared in the executor's semantic-verification registry.
+
+### What was implemented
+
+1. `verify_render_state` is registered in the executor's semantic-verification registry
+   (`planning/unreal_plan_executor.py::_is_semantically_verified`).
+2. The executor is now the **sole producer** of `evidence.verified` for render-state verification.
+3. `verify_render_config` (`planning/unreal_render_contract.py`) no longer sets `verified=True`: it
+   compares, raises on mismatch and returns the evidence unchanged, exactly like every other verifier.
+4. Expected render state comes **only** from the authorized `verify_render_state` operation's own
+   arguments (the six configuration fields) — never from the preceding `configure_render` write, never
+   from returned evidence, and never from the engine or the model.
+5. The verifier compares all six render configuration fields (width, height, start_frame, end_frame,
+   output_directory, output_format) using the existing `normalize_render_config` behavior.
+6. Normalization is unchanged: strict key-set and type validation on both sides (integers not booleans,
+   non-empty strings, positive resolution, `end_frame >= start_frame`) plus output-directory
+   canonicalization (whitespace stripped, relative paths resolved against the harness project root,
+   backslashes normalized, trailing slashes removed). No new case folding and no new heuristics.
+7. Identity remains `entity_ids` only; the engine-reported `render.asset_path` is explicitly **not**
+   bound and remains deferred, because Atlas has no authorized argument for it.
+8. No pairing helper, no index arithmetic, no asset-path binding and no render-specific
+   execution-shape rule were introduced: the generic write-to-verify pairing already covers
+   `configure_render` to `verify_render_state`.
+9. `verified_render`, the production result contract and the render receipt are unchanged. Render-state
+   evidence is a local evidence flag and cannot feed the result contract, because a receipt can only be
+   issued from verified `inspect_render_job` evidence.
+
+### Historical correction
+
+The earlier record claimed that the flag asymmetry meant render-state evidence "never carries
+`verified=True`". The design audit proved otherwise: the old `verify_render_config` set the flag itself
+(`return replace(evidence, verified=True)`), so render-state evidence already carried it while the
+executor's registry did not declare the operation. The actual historical asymmetry was therefore:
+`verify_render_state` absent from the executor semantic-verification registry, with the verifier
+independently setting `verified=True` as a second producer. This milestone removes that second producer
+and makes the executor the sole authority. The historical statements are preserved in place above and
+marked superseded.
+
+### Deterministic results
+
+```text
+render semantic matrix (T-R1..T-R8)      : 24 passed
+render/executor/contract focused set     : 94 passed
+canonical focused suite                  : 160 passed, 2 deselected
+Python 3.9 render/executor parity        : 94 passed
+Python 3.9 canonical focused suite       : 160 passed, 2 deselected
+deterministic sweep                      : 1072 passed, 5 skipped, 22 deselected
+```
+
+The deterministic sweep figure is the engine-free scope (integration-marked gates excluded, together
+with the unmarked engine-dependent live files that require a running editor).
+
+### Live gate (real engine)
+
+```text
+.venv/Scripts/python.exe -m pytest tests/test_unreal_render_real_integration.py -m integration -q -s
+Unreal Engine 5.6.1-44394996+++UE5+Release-5.6 over the existing Atlas Named Pipe transport
+1 collected, 1 passed
+result.evidence_ledger[2].verified is True
+```
+
+The engine log for the gate shows four sequential client connections — `inspect_render_state`,
+`configure_render` (followed by `LogSavePackage: Moving output files for package:
+/Game/AtlasTest/AtlasRenderConfig`, proving the authorized write really mutated and persisted engine
+state), `verify_render_state` on its **own** new connection after that save, and the fresh post-plan
+`inspect_render_state` — so the verification stage used fresh engine evidence rather than the write's
+return value.
+
+All four tracked harness assets (`AtlasRenderConfig.uasset`, `BP_AtlasTest.uasset`,
+`AtlasSequencerFixtureSequence.uasset`, `AtlasRenderFixture.umap`) were byte-identical before and after
+the gate; the engine re-serialized the render config to the same bytes because the fixture already
+carried the configured values (the live fixture value-idempotency limitation recorded above).
+
+What the live gate proves, and what it does not: it proves the promoted flag is **reached on real engine
+evidence**. It cannot distinguish the old flag producer from the new one, because both yield
+`verified=True` live. The deterministic single-authority test (T-R8) proves the **source** of the flag is
+now the executor: `verify_render_config` returns unflagged evidence, still raises on mismatch, and the
+executor registry sets the flag.
+
+### Scope held
+
+No planner, tool schema, capability registry, authorization, evidence-contract, adapter, recovery,
+result-contract, receipt, C++ or transport change was required. Two production lines changed: the
+registry membership, and the removed verifier-internal flag.
+
+### Deferred issues (explicitly carried, not part of this milestone)
+
+1. **Render-state asset-path identity binding** — the engine reports `render.asset_path`, but Atlas has no authorized RENDER VERIFY argument for it; binding it would need schema, planner and registry work.
+2. **`output_format` case normalization** — comparison is exact, so a case-variant authorized value fails closed (false-negative direction only, never a false pass).
+3. **png-only Atlas-side enforcement** — only the engine enforces the png-only output format, at write time; a plan declaring another format passes Atlas preflight and then fails closed at verification.
+4. **`verify_render_config` isinstance guard** — the render verifier lacks the explicit `UnrealEvidence` type check that `verify_blueprint_state` has (currently an `AttributeError`, unreachable on the real path because the adapter builds the evidence and the operation-name/entity check runs first).
+5. **Replay/freshness proof beyond the execution-path guarantee** — freshness is structural (one dispatch per operation, no caching); no verifier can prove that a replayed evidence object is stale.
+6. **Unused `evidence` parameter** in the semantic-verification registry helper, continued from the Blueprint milestone.
+7. **Older non-runtime render patch scripts** — `tools/apply_unreal_render_*.py` still reference an older `expected_render_config` shape; they are one-shot patch tooling, not runtime code.
+8. **Broader render-result semantics remain separate** — Movie Render Queue execution, render job/result verification and `verified_render` semantics are untouched by this milestone.
+
+### Git state at closeout
+
+The milestone changes sit in the working tree, unstaged and uncommitted, at HEAD
+`a964ab681bce1289afc57896d27028554abc5488`: `planning/unreal_plan_executor.py` (1 line),
+`planning/unreal_render_contract.py` (1 line), `tests/test_unreal_render_state_verification.py` (new),
+`tests/test_unreal_render_real_integration.py` (1 assertion). The commit chain is `fe2322f` (checkpoint)
+then `e1a1285` (documentation checkpoint), `fe4bba2` (controller live-gate tests), `72a6578` (Blueprint
+semantic verification) and `a964ab6` (Blueprint documentation closeout). The "current HEAD" header
+fields in the other status documents still show the earlier checkpoint value
+`fe2322f7e76caf3115e3e5be6dafce05d62251ca`; the current restart point is
+`a964ab681bce1289afc57896d27028554abc5488`.
+
+### Next development surface (investigation only)
+
+The next engine-dependent surface is the render **job**/result layer: Movie Render Queue submission,
+render job state verification, and the already-established receipt/`verified_render` pairing (which
+remains unchanged). It requires its own design gate before implementation and is not part of the
+render-state milestone. **SUPERSEDED (2026-09-15, same night):** that design gate ran — see the
+"Render-job identity semantic verification design gate (September 15, 2026)" entry below. The next active
+development gate is therefore render-job identity semantic verification, and its implementation has NOT
+started.
+## Render-job identity semantic verification design gate (September 15, 2026)
+
+### Status
+
+**CLEAR WITH MINOR FINDINGS. Design complete; implementation NOT started.** The next milestone is
+"Bind render-job identity in render-job verification".
+
+### What was measured (read-only, deterministic probes; no engine, no live test)
+
+- The submission path is real production MRQ: `submit_render` resolves the authorized level sequence
+  against the real `UMoviePipelineQueueSubsystem`, allocates a real executor job, applies the Atlas render
+  config asset, creates a real `UMoviePipelinePIEExecutor`, wires the per-job callbacks that populate
+  status/progress/success/failed/finished and `output_files`, registers the job in the engine's in-memory
+  registry under a freshly generated FGuid, and returns the entity envelope with `job_id`, `status`,
+  `progress`, `status_message` and `sequence_asset_path`.
+- `inspect_render_job` looks the job up by the requested id — an unknown id is an engine error ("Render job
+  not found"), i.e. already fail-closed — and returns a flat job object with `job_id`, `status`,
+  `status_message`, `progress`, `success`, `finished`, `failed`, `sequence_asset_path`,
+  `output_directory`, `output_format` and `output_files`.
+- `verify_render_job` does not exist on the wire: the adapter maps it to `inspect_render_job`, so the
+  verification is a genuine fresh engine read of the resolved job id.
+- The verifier `verify_render_job_completion` fails closed on status/completion/artifact problems
+  (measured: `failed=True` rejected; an odd inactive status rejected; missing `job_id` rejected; a finished
+  job without artifacts rejected; a declared absolute output file that is missing or empty rejected; an
+  active `submitted`/`rendering` job accepted by design as the asynchronous submission arm).
+- `verify_render_job` already produces `verified=True` evidence through the executor's registry gate, with
+  the executor as the sole flag producer; that flag is ledger-local and nothing consumes it (the receipt and
+  the result stack consume the `inspect_render_job` evidence instead).
+- **The measured hole:** the verifier never compares the returned `job_id` with the authorized/resolved
+  expected id. Probes showed that a verification stage answering with a completely different job id still
+  produced a successful plan with `verified=True`, that an authorized `inspect_render_job` read answered
+  with another job's state likewise succeeded, and that a fully self-consistent forged completed job state
+  (with a real artifact file present) was accepted — the same exposure applies to the evidence that feeds
+  the receipt.
+- Minor shape finding: `_expected_verifier` had no entry for `submit_render`, so a hand-built plan pairing
+  `submit_render` with an unrelated VERIFY passed execution-shape validation (not reachable through the
+  planner, and still authorization-bound). Folded into the milestone as a one-line symmetry fix.
+- The receipt/result stack was re-measured and is sound: `UnrealRenderReceipt.issue` requires verified
+  `inspect_render_job` evidence in a completed state (`status ∈ {completed, finished}`, `success is True`,
+  `failed is False`) with canonical `job_id`/`sequence_asset_path`, and `matches` detects genuine drift in
+  artifacts, sequence or job id; `verified_render` requires the same pairing plus job-id equality, and the
+  result contract rejects a `job_id` that disagrees with the observed evidence.
+- Recovery: `submit_render` is absent from `_WRITE_DEFINITIONS`, so render-job recovery is unsupported by
+  construction (fail-closed by absence) and stays deferred.
+
+### Frozen contract
+
+- Semantic definition: `verify_render_job`, and the job-addressed `inspect_render_job` read, are verified
+  only when the engine-observed job identity equals the authorization-bound expected job id AND the
+  existing status/completion/artifact checks hold.
+- Expected-state source: the `verify_render_job` operation's own authorized `job_id` after the existing
+  `$previous.submit_render.job_id` resolution (the id produced by the authorized submission); the plan's
+  own authorized `job_id` for the read path. No new schema key, no new authority, no cross-plan registry.
+- Identity rule: exact-string comparison after a defensive strip; no new identity type;
+  `sequence_asset_path` continuity and `output_directory`/`output_format` binding stay deferred.
+- Status/completion/artifact rule, freshness rule, receipt/result relationship, verified-flag rule and
+  recovery interaction: unchanged (the executor remains the sole flag producer; receipt and
+  `verified_render` semantics are untouched).
+- Execution shape: no pairing helper and no index arithmetic; add the missing `_expected_verifier`
+  declaration for `submit_render`.
+
+### Test design frozen for the implementation
+
+Deterministic matrix R-J1…R-J8 (positive path; wrong returned job id; authorized read answered with another
+job id; anti-forgery/anti-self-comparison; expectation provenance; blank/missing expected id; preserved
+status/completion/artifact behaviour; registry/shape/receipt/result regression guards), plus the existing
+render-job, executor, receipt, result and workflow regressions and Python 3.9 parity.
+
+Live gate: `tests/test_unreal_render_workflow_real_integration.py::test_real_unreal_render_workflow_runs_to_verified_persisted_receipt`
+strengthened with `assert job_state["job_id"] == result.job_id` (and optionally an unknown-job negative arm
+using the engine's existing "Render job not found" fail-closed behaviour). Neither change was applied
+tonight, and no live execution was performed in this gate.
+
+### Implementation files (frozen)
+
+```text
+planning/unreal_render_job_verifier.py
+planning/unreal_plan_executor.py
+tests/test_unreal_render_job_semantic_verification.py       (new)
+tests/test_unreal_render_workflow_real_integration.py       (live assertion only)
+```
+
+Explicitly not to change: the planner, tool schema, capability registry, authorization, evidence contract,
+adapter, production recovery, production result contract, render receipt, production workflow, C++ and
+transport, controller, the completed Blueprint and render-state implementations, and all fixtures.
+
+### Required order for the next session
+
+1. Implement the frozen render-job identity contract deterministically.
+2. Run the R-J1–R-J8 matrix.
+3. Run the affected render-job/executor/receipt/result/workflow deterministic regressions.
+4. Run Python 3.9 parity.
+5. Only after deterministic green, run the explicitly authorized live render-workflow re-gate on UE 5.6.1
+   over the existing Named Pipe.
+6. Author the render-job documentation closeout.
+7. Commit the implementation/tests and the documentation as separate coherent commits.
+
+### Deferred render-job issues
+
+Relative `output_files` paths bypass the existence/size checks; frame/range and frame-count verification is
+unavailable from job evidence without a new engine field; render-job recovery remains unsupported;
+`sequence_asset_path` continuity; `output_directory`/`output_format` binding (cross-plan); artifact
+completeness versus frame range; multi-job orchestration; distributed rendering; editor-session persistence
+of job identity; broader MRQ feature expansion; receipt/HMAC redesign; result-contract changes; the unused
+`evidence` parameter in the semantic-verification registry helper.
+
+### Overnight state (September 15, 2026)
+
+HEAD `9625dd712c05126ae2b12c85d4cf034a396cb58a`; tracked worktree clean; nothing staged; all Unreal fixtures
+at their committed baseline; only the five pre-existing Aider/junk artifacts untracked; no Unreal process
+running.
+
+
+## Render-job identity semantic verification milestone (September 16, 2026)
+
+### Status
+
+**COMPLETED AND LIVE-GATED GREEN.** The render-job identity semantic-verification design gate returned **CLEAR WITH MINOR FINDINGS** on September 15, 2026. The implementation was completed and deterministically validated on September 16, followed by the authorized live render-workflow re-gate on real Unreal Engine 5.6.1 over the existing Named Pipe.
+
+### What was implemented
+
+- `verify_render_job` now binds the engine-observed `job_id` to the authorization-bound expected `job_id`.
+- Job-addressed `inspect_render_job` evidence is also identity-bound.
+- The existing `$previous.submit_render.job_id` dynamic resolution remains the source of the authorized expected id for the verification path.
+- `_expected_verifier` now explicitly declares `submit_render -> verify_render_job`.
+- No new schema key, authority, identity type, pairing helper, index arithmetic, cross-plan lookup, receipt change, result-contract change, recovery change, C++, transport, controller, Blueprint, or render-state change was introduced.
+- Existing active-status, completion, success, failure, and artifact rules remain unchanged.
+- The executor remains the sole producer of `evidence.verified`.
+
+### Deterministic validation
+
+- R-J1-R-J8: **47 passed** on Python 3.11.16.
+- R-J1-R-J8: **47 passed** on Python 3.9.6.
+- Affected render-job/workflow/receipt/result set: **100 passed** on both interpreters.
+- Render/job/verifier regression set: **155 passed**.
+- Canonical focused suite: **160 passed, 2 deselected** on Python 3.11 and 3.9.
+- Blast-radius sweep: **837 passed, 5 skipped**.
+- Full collection: **1151 tests collected, 0 collection errors**.
+
+### Live render-workflow gate
+
+`tests/test_unreal_render_workflow_real_integration.py::test_real_unreal_render_workflow_runs_to_verified_persisted_receipt`
+
+- Real UE **5.6.1**.
+- Existing Atlas Unreal harness and Named Pipe transport.
+- Real Movie Render Queue execution.
+- Live assertion: `job_state["job_id"] == result.job_id` passed.
+- Fresh `inspect_render_job` reads were observed during the workflow.
+- The persisted receipt and in-memory receipt carried the same engine-generated job identity.
+- Deterministic R-J2/R-J4 cases provide the negative wrong-job and forged-completion proof; the live gate establishes the identity binding on the real MRQ path.
+
+### Fixture cleanup
+
+The live configure/render path reserialized `AtlasRenderConfig.uasset`. The serialized bytes were restored byte-for-byte to the committed HEAD baseline after the gate. All tracked Unreal fixtures are at their committed baseline.
+
+### Deferred render-job issues
+
+Relative `output_files` validation; frame/range/frame-count verification; render-job recovery; `sequence_asset_path` continuity; cross-plan output-directory/output-format binding; artifact completeness versus frame range; multi-job orchestration; distributed rendering; editor-session persistence of job identity; broader MRQ expansion; receipt/HMAC redesign; result-contract changes; unused evidence parameter in the semantic-verification registry helper.
+
+### Next development surface
+
+The render-job identity milestone is complete. The next Unreal architecture surface should be selected by a fresh repository/code review rather than assumed from the prior render-job design gate. The completed Controller, Blueprint, render-state, and render-job milestones should not be reopened.
+## Shot-level production continuity milestone (September 16, 2026)
+
+Scope: implement the frozen continuity invariants of `docs/UNREAL_SHOT_CONTINUITY_DESIGN_REVIEW.md`
+on the existing production/render boundary. No new transport operation, no second authorization
+authority, no Atlas-side entity cache, no generic workflow engine.
+
+### Implemented
+
+- `planning/unreal_shot_continuity.py`: frozen `UnrealShotContinuity` (sequence asset path,
+  inclusive frame range, output directory, output format), a canonical payload with a
+  deterministic `continuity_digest`, the explicit `end_frame_exclusive` boundary translation, and
+  fail-closed verification of fresh render-job evidence (identity plus PNG unique-artifact frame
+  coverage).
+- `UnrealProductionSpec` declares `sequence_asset_path`; `UnrealProductionPlan` carries the
+  continuity record and refuses to construct when it disagrees with the plan's own
+  `configure_render` / `set_sequencer_playback_range` operations.
+- `UnrealPlanAuthorization` may bind one exact continuity (`continuity_digest`). Plan-only receipts
+  keep their existing digest, snapshot, and semantics; `matches(plan, continuity_digest=...)` is
+  strictly stronger and fails closed when the receipt carries no binding. Issued by
+  `authorize_production_plan`; required by `UnrealProductionWorkflow.run()`.
+- `UnrealProductionWorkflow.run()` submits the authorization-bound sequence path, rejects a
+  declared path that differs before any mutation, and re-verifies the returned final evidence
+  against the authorized continuity. `UnrealRenderWorkflow.wait_for_completion()` accepts an
+  optional expected continuity and verifies it against freshly observed evidence before a receipt
+  is issued.
+- Unreal transport: `configure_render` translates the Atlas inclusive end frame into the MRQ
+  half-open boundary (`CustomEndFrame = Atlas end + 1`); `inspect_render_state` and
+  `inspect_render_job` report the Atlas semantic inclusive range plus the raw
+  `end_frame_exclusive`; submission requires an explicit custom playback range.
+
+### Boundary translation defect found and fixed
+
+The first live gate failed closed with
+
+```
+render job PNG frame coverage mismatch: expected unique_output_files=2 for frames 1-2,
+observed unique_output_files=1
+```
+
+Direct probes against real UE 5.6.1 MRQ measured the engine topology: `Atlas 1-2 -> 1 artifact`,
+`Atlas 1-5 -> 4 artifacts` (files `AtlasRender_0001..0004`), i.e. the MRQ effective range was
+half-open `[start, end)` while the Atlas contract is inclusive. Architecture decision: keep Atlas
+inclusive, fix the Unreal boundary mapping. After the translation:
+
+```
+Atlas 1-2 -> MRQ [1,3) -> 2 artifacts
+Atlas 1-5 -> MRQ [1,6) -> 5 artifacts
+```
+
+The sequencer playback-range read/write pair was left unchanged: it is self-consistent and the
+live runs showed the MRQ custom range governs the rendered frame set.
+
+### Deterministic verification
+
+- `tests/test_unreal_shot_continuity.py`: **43 passed, 1 skipped** (sequence path present/mismatch,
+  frame range present/mismatch, final identity/range/directory/format/boundary mismatch, PNG count
+  matrix 1-1/1-2/1-5/5-5, incomplete coverage per range, duplicate artifact uniqueness, production
+  failure blocking submission, explicit recovery authorization, receipt continuity).
+- `tests/test_unreal_shot_continuity_design_gate.py`: **8 passed**.
+- Continuity-area selection (25 modules): **242 passed, 1 skipped**.
+- Canonical controller/host suite: **160 passed, 2 deselected**.
+- Blast-radius sweep (180 files, `-m "not integration"`): **1067 passed, 6 skipped**.
+
+### Live UE 5.6.1 gate
+
+- `tests/test_unreal_shot_continuity_real_integration.py`: **1 passed in 9.51 s** - real production
+  transaction, real MRQ submission, authorized `1-2`, fresh `inspect_render_job` evidence reported
+  `effective frames 1 2`, `unique png files 2`, exact job identity, receipt issued and persisted.
+- Diagnostic full-range run (authorized `1-5`): evidence reported `start/end 1 5`, identity
+  continuity PASS, `observed unique files 5 == authorized inclusive count 5` (files
+  `AtlasRender_0001..0005`), receipt matches evidence and is persisted.
+
+### Fixture state
+
+All four tracked Unreal fixtures are byte-identical to their committed baseline after the live
+gates (`AtlasRenderConfig.uasset` `34be88da...`, `AtlasSequencerFixtureSequence.uasset`
+`48d14bd9...`, `BP_AtlasTest.uasset` `db15ec03...`, `AtlasRenderFixture.umap` `e25394d2...`).
+The Atlas transport DLL was rebuilt from the new source. The editor session and its named pipe were
+stopped after the gate.
+
+### Remaining risk
+
+- Frame-count completeness is defined for PNG only, by design.
+- MRQ queue accumulation: each submission renders the jobs already present in the Movie Render
+  Pipeline queue, and a new executor's per-job callback can attribute another queue job's output
+  files to the newly submitted job. A live gate should therefore start from a fresh editor session
+  (as this gate did); queue hygiene is a separate boundary question and was not changed here.
+- The trusted controller context's declared sequence path is reconciled at the workflow boundary
+  rather than at context construction.
+
+
+## MRQ artifact attribution milestone (September 17, 2026) - COMPLETE + LIVE-PROVEN
+
+- job identity guard is live-proven in a multi-submission single-editor session
+- foreign callback artifacts are discarded
+- PNG artifacts must be contained within the authorized output directory
+- exact frame-set verification remains active
+- Slice 3 queue consumption remains separate and unimplemented
+
+Scope: remove the operator precondition that live shot-continuity gates must start from a fresh editor session
+with an empty Movie Render Queue. Nothing else in the Unreal architecture changed.
+
+### Root cause (measured, not inferred)
+
+- `UMoviePipelineQueue::AllocateNewJob` adds each submitted job to the queue, the executor renders the whole
+  queue (`MoviePipelineLinearExecutorBase starting %d jobs.`), and nothing in the headless path marks a job
+  consumed, so every later submission re-rendered the earlier jobs: measured in one session as
+  `starting 1 jobs` -> `2 jobs` -> `3 jobs`.
+- The per-job callback payload does carry the owning job (`FMoviePipelineOutputData.Job`, from
+  `UMoviePipeline::GetCurrentJob()`), but `AtlasTransportServer.cpp`'s `OnIndividualJobWorkFinished` lambda
+  resolved its registry entry by Atlas job id only and appended every rendered job's file paths into it.
+
+### Slice 1 (engine-side provenance guard) - IMPLEMENTED + LIVE PROVEN
+
+`unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp`: the callback now
+returns early when the registry entry is unresolvable, compares `InOutputData.Job` against the exact
+`UMoviePipelineExecutorJob*` already stored in `FRenderJobState::Job`, discards the payload (logging
+`ATLAS MRQ ATTRIBUTION: discarded per-job output data ...`) unless they are identical, and only then updates
+status/artifacts. No new identity field, no request/argument/protocol change. The transport DLL was rebuilt
+(`AtlasUnrealHarnessEditor Win64 Development`, exit 0, 23.19 s).
+
+### Slice 2 (PNG containment at the evidence boundary) - IMPLEMENTED + LIVE PROVEN
+
+`planning/unreal_shot_continuity.py`: `canonicalize_artifact_path` and `is_inside_directory` (path-segment
+containment, no naive prefix) plus a containment pass in `verify_shot_continuity_completeness` that runs before
+the frame checks and rejects any PNG artifact outside the AUTHORIZED output directory. Exact frame-set
+verification is unchanged, PNG scoping is unchanged, and no filesystem enumeration or artifact discovery was
+introduced.
+
+### Verification
+
+- Deterministic: 14 new attribution contract tests; focused MRQ continuity/auth/receipt set (17 modules)
+  **207 passed, 1 skipped**; consolidated affected Unreal suite **291 passed, 2 skipped**; canonical
+  controller/host suite **160 passed, 2 deselected**; broad scoped sweep **1137 passed, 6 skipped**
+  (baseline 1123 + the 14 new tests). Baseline RED proof in a throwaway worktree: guard assertions fail, and
+  foreign-directory artifacts with the authorized frame set were ACCEPTED by the old verifier.
+- Live UE 5.6.1, ONE editor session, four submissions
+  (`tests/test_unreal_mrq_attribution_real_integration.py`): **2 passed in 26.18 s**. Jobs
+  `0D13E9FD...` (1-2), `DC03C579...` (1-5), `2F73D3CF...` (1-2, same-range case) and `F9FFD0CD...` (1-2,
+  same-range case) each reported exactly their own artifacts inside their own authorized directory, the earlier
+  jobs' states were unchanged after the later renders, exact job identity stayed bound, receipts stayed coherent,
+  and the engine log recorded `starting 1 -> 2 -> 3 -> 4 jobs` with 6 attribution discards (N-1 per submission).
+- Live regression in its own session (`tests/test_unreal_shot_continuity_real_integration.py`): **1 passed in
+  9.60 s** - also proving containment accepts real engine artifact paths.
+- Fixtures: all four tracked harness assets byte-identical to baseline; no save-on-exit; pipe released.
+
+### Fixture/test changes (classified)
+
+`tests/test_unreal_shot_continuity.py` - test-fixture update, intent unchanged: the PNG continuity fixtures now
+authorize and declare the directory that holds the artifacts (`str(tmp_path)`) instead of declaring one directory
+while writing another. New files: `tests/test_unreal_mrq_attribution_contract.py` (deterministic contract),
+`tests/test_unreal_mrq_attribution_real_integration.py` (same-session live gate).
+
+### Remaining risk / not done
+
+- Slice 3 (consume or delete only the queue job this transport allocated) was explicitly NOT implemented.
+- `OnIndividualJobStarted` was identity-blind at this milestone; it writes monitoring fields only (status/progress)
+  and cannot affect artifact ownership, the acceptance condition, or the receipt. Reported as a residual finding,
+  then fixed by Slice D (see the next section).
+- `ShotData[0]`-only artifact collection is unchanged (multi-shot sequences remain outside the frozen contract).
+- Under Movie Render Graph the payload job may be a duplicated job, so the guard would fail closed rather than
+  mis-attribute; not exercised by this harness.
+- The transport has no deterministic execution harness in this repository; the guard's executable evidence is the
+  live gate plus source inspection.
+
+## September 17, 2026 — MRQ start-callback identity, Slice D (COMPLETE + LIVE-PROVEN)
+
+The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, verdict
+`CLEAR WITH MINOR FINDINGS`) recommended identity-guarding `OnIndividualJobStarted` as the next slice, with its
+own gate. That slice was authorized as **Slice D**, implemented, and live-proven.
+
+### Change
+
+`unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp` (+23/-4, blob
+`4e10ec7a8f616a589ddacf65cd17d7c0dba06579`): the start callback now returns early unless the payload job is the
+exact `UMoviePipelineExecutorJob*` already stored in `FRenderJobState::Job`, so `Status`, `StatusMessage` and
+`Progress` are written only for the job this Atlas submission allocated. An unresolved/expired registry entry
+fails closed before any write. No new identity source, no queue-position/job-id-string/path/timing heuristic;
+Slice 1's artifact guard is untouched (`git diff` has no hunk in that lambda).
+
+### Verification
+
+```text
+deterministic        tests/test_unreal_mrq_started_identity_contract.py        7 passed
+red proof            throwaway worktree at e64c3e3                            5 of 7 FAIL
+affected sweep       identical selection, no editor running                    1198 passed, 7 skipped
+                     (baseline e64c3e3 same selection                            1191 passed, 7 skipped = +7)
+live, ONE session    tests/test_unreal_mrq_started_identity_real_integration.py 2 passed in 35.22 s
+                     queue deliberately non-empty (2 jobs already present):
+                     engine log `starting 3 -> 4 -> 5 -> 6 jobs`, 15 Slice 1 discards
+                     mid-render reads of the new job: 12/12 and 8/8 "submitted"
+                     (a foreign job's start no longer writes into it), own
+                     transition to "rendering" observed; artifacts exact per job
+                     (10 / 5 / 2 / 2), same-range pair isolated, receipts coherent,
+                     predecessor states unchanged
+DLL provenance       source 19:02:22 -> build 19:03:05 (Compile + Link, exit 0) -> DLL
+                     19:03:04 sha256 dca88a6f... -> session 19:05:32 loaded that DLL;
+                     the sampled "submitted" window is behaviourally impossible with
+                     the pre-Slice-D binary
+fixtures             all four tracked assets byte-identical to baseline; editors killed;
+                     pipe released
+```
+
+### Remaining risk / not done
+
+- **Concurrent submissions are not fixed**: a submission made while another render is active is refused by the
+  subsystem's `ensureMsgf(!IsRendering())`, the transport cannot surface that refusal, and the caller observes a
+  poll timeout. Carried to the next architecture review; not hidden with timeout changes or synthetic success.
+- Slice 3 queue consumption and the private-queue migration remain unimplemented; shared queue semantics remain
+  the default.
+- The C++ guard has no deterministic execution harness in this repository (source-shape assertions plus the live
+  gate), the same limitation recorded for Slice 1.
+- One earlier live attempt failed in this repository's **test harness** (it sampled the job state after completion
+  instead of mid-render); the test was restructured and no production code was changed in response.
+
+## September 17, 2026 — `MRQ submission outcome propagation — COMPLETE + LIVE-PROVEN`
+
+```text
+preserved
+  queue consumption unimplemented
+  private queue migration unimplemented
+  automatic retry prohibited
+  exact job identity unchanged
+  receipts only from fresh verified terminal evidence
+```
+
+A render submission attempted while another render was active was refused by the engine
+(`UMoviePipelineQueueSubsystem::RenderQueueInstanceWithExecutorInstance`), but the transport had already
+deferred the start into a discarded `AsyncTask`, registered the job as `"submitted"` and returned success — so
+Atlas polled a job that would never start until its 300 s timeout.
+
+### Change
+
+`unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp` (+67/-9, blob
+`1d7d33fd5fc8fe598d3d6ff5e834c5a169025adb`): the submission call and the `GetActiveExecutor()` identity
+observation now happen in the same game-thread task, and the response is built only on proven acceptance.
+Rejected and ambiguous outcomes fail the operation through the existing `success`/`error` response fields (no
+protocol change), and the rejected submission's registry entry is removed instead of being left readable as
+`"submitted"`. `IsRendering()` is never used as the acceptance proof (it is false during the PIE startup window
+even for a registered executor).
+
+### Verification
+
+```text
+deterministic        tests/test_unreal_mrq_submission_outcome_contract.py            18 passed
+red proof            throwaway worktree at 9e2c893                                  8 of 18 FAIL
+broad sweep          identical selection, no editor                                 1216 passed, 7 skipped
+                     (baseline 9e2c893 same selection                                1198 passed, 7 skipped = +18)
+live, ONE session    tests/test_unreal_mrq_submission_outcome_real_integration.py    2 passed in 22.80 s
+   A accepted while idle    job CE3199F4-... (1-24) -> 24 exact artifacts, receipt, continuity
+   B attempted while rendering -> REJECTED in 1.50 s, typed non-timeout error
+   C no receipt for B       rejected submission's receipt never created
+   D multi-job queue        accepted job 2B55DA72-... -> exactly 2 PNGs in its own directory
+   E same range twice       accepted job 6DA54FB0-... -> exactly 2 PNGs, disjoint from D's
+   engine log               1x "Render already in progress.", 1x Atlas rejection line,
+                            3x "starting N jobs" (1,3,4) for FOUR attempts, 3 finishes, 6 Slice 1 discards
+DLL provenance       source 20:05:12 -> build 20:05:35 -> DLL 20:05:34, 364,544 B,
+                     sha256 4b7dc0a8...; session loaded 0.348 MB (previous slice: 0.345 MB) and the
+                     observed immediate rejection is impossible with the previous binary
+fixtures             all four tracked assets byte-identical; editor killed; pipe released
+```
+
+### Remaining risk / not done
+
+- A rejected submission leaves its allocated MRQ job in the queue (queue mutation is frozen), so a later
+  accepted submission renders it; measured `starting 3 jobs` and two orphan PNGs in that job's configured
+  directory. Slice 1 discards the payload and no receipt exists for it, so they are not evidence.
+- Engine mutual exclusion remains best-effort (the PIE startup window); this slice makes the outcome truthful
+  for the submission Atlas makes, not the engine's exclusion sound.
+- The C++ still has no deterministic execution cover (source-shape assertions plus the live gate).
+- Registry entries for accepted jobs are still never pruned; queue consumption and the private queue instance
+  remain unimplemented.
+- One live-gate attempt failed during development because the previous executor had not finished releasing; the
+  fix was a harness-side wait on the engine's executor-finished log line (test only, no production change).

@@ -174,6 +174,14 @@ def normalize_unreal_production_event(
         )
 
     render_result = workflow_result.render
+    if not render_result.receipt.matches(render_result.final_evidence):
+        raise ValueError("receipt does not match final_evidence")
+    if not workflow_result.success:
+        return UnrealProductionResultContract(
+            operation=event.operation,
+            snapshot=event.snapshot,
+            success=False,
+        )
     result = UnrealProductionResultContract(
         operation=event.operation,
         snapshot=event.snapshot,

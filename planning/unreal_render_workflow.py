@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
 from planning.unreal_evidence_contract import UnrealEvidence
 from planning.unreal_plan_authorization import UnrealPlanAuthorization
@@ -12,6 +12,10 @@ from planning.unreal_plan_executor import UnrealPlanExecutionResult, UnrealPlanE
 from planning.unreal_render_job_verifier import verify_render_job_completion
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
+from planning.unreal_shot_continuity import (
+    UnrealShotContinuity,
+    verify_shot_continuity_completeness,
+)
 from planning.unreal_task_planner import UnrealTaskIntent, UnrealTaskPlan, UnrealTaskPlanner
 
 
@@ -134,9 +138,9 @@ class UnrealRenderWorkflow:
         return job_id.strip()
 
     @staticmethod
-    def _job_state(evidence: UnrealEvidence) -> dict:
+    def _job_state(evidence: UnrealEvidence) -> Mapping:
         state = evidence.observed_state
-        if not isinstance(state, dict):
+        if not isinstance(state, Mapping):
             raise UnrealRenderWorkflowError(
                 "render-job evidence observed_state must be a mapping"
             )
@@ -145,11 +149,11 @@ class UnrealRenderWorkflow:
             job_state = state
         elif len(state) == 1:
             candidate = next(iter(state.values()))
-            job_state = candidate.get("render_job") if isinstance(candidate, dict) else None
+            job_state = candidate.get("render_job") if isinstance(candidate, Mapping) else None
         else:
             job_state = None
 
-        if not isinstance(job_state, dict):
+        if not isinstance(job_state, Mapping):
             raise UnrealRenderWorkflowError(
                 "render-job evidence does not contain a render_job object"
             )
@@ -160,8 +164,24 @@ class UnrealRenderWorkflow:
         intent: UnrealTaskIntent,
         job_id: str,
         authorization_factory: Callable[[UnrealTaskPlan], UnrealPlanAuthorization],
+        *,
+        expected_continuity: Optional[UnrealShotContinuity] = None,
     ) -> UnrealRenderWorkflowResult:
-        """Poll fresh job evidence until verified terminal completion."""
+        """Poll fresh job evidence until verified terminal completion.
+
+        When ``expected_continuity`` is supplied, the freshly observed job
+        evidence must also reproduce the authorization-bound shot continuity
+        (sequence asset path, effective frame range, output directory, output
+        format, and PNG frame coverage) before a receipt may be issued.
+        """
+        if expected_continuity is not None and not isinstance(
+            expected_continuity,
+            UnrealShotContinuity,
+        ):
+            raise TypeError(
+                "expected_continuity must be an UnrealShotContinuity instance"
+            )
+
         start = self.clock()
 
         while True:
@@ -189,6 +209,15 @@ class UnrealRenderWorkflow:
                     verified = verify_render_job_completion(evidence, require_artifacts=True)
                 except (TypeError, ValueError) as exc:
                     raise UnrealRenderWorkflowError(str(exc)) from exc
+
+                if expected_continuity is not None:
+                    try:
+                        verified = verify_shot_continuity_completeness(
+                            verified,
+                            expected_continuity,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        raise UnrealRenderWorkflowError(str(exc)) from exc
 
                 receipt = UnrealRenderReceipt.issue(verified)
                 persisted = self.receipt_store.save(receipt)

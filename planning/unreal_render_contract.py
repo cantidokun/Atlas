@@ -47,6 +47,19 @@ def normalize_render_config(value: Mapping[str, Any]) -> UnrealRenderConfig:
     return UnrealRenderConfig(**dict(value))
 
 
+def canonicalize_output_directory(value: str) -> str:
+    """Return the canonical absolute form of an Unreal output directory.
+
+    Atlas may declare a project-relative output directory while Unreal reports
+    the absolute path it actually used. Both sides are reduced to one canonical
+    form so the comparison stays a value comparison, never a guess.
+    """
+    path = Path(value.strip())
+    if not path.is_absolute():
+        path = UNREAL_PROJECT_ROOT / path
+    return str(path.resolve()).replace("\\", "/").rstrip("/")
+
+
 def verify_render_config(evidence, expected):
     """Independently verify fresh Unreal render-state evidence.
 
@@ -77,12 +90,6 @@ def verify_render_config(evidence, expected):
         })
         expected_config = normalize_render_config(expected)
 
-        def canonicalize_output_directory(value: str) -> str:
-            path = Path(value.strip())
-            if not path.is_absolute():
-                path = UNREAL_PROJECT_ROOT / path
-            return str(path.resolve()).replace("\\", "/").rstrip("/")
-
         actual = replace(
             actual,
             output_directory=canonicalize_output_directory(actual.output_directory),
@@ -100,4 +107,4 @@ def verify_render_config(evidence, expected):
                 f"expected={expected_config!r}, observed={actual!r}"
             )
 
-    return replace(evidence, verified=True)
+    return evidence

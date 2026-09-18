@@ -6,47 +6,40 @@ This workspace is for continued development of the Atlas Unreal Agent only. It s
 
 ## Current gate
 
-The real Unreal Engine 5.6 smoke test has passed, and the first real Unreal production/render-receipt paths have been proven. Development has now progressed into the agent-to-controller trust boundary.
+**Current session state — September 18, 2026: development is paused.**
 
-The current controller-layer focused suite is green. The next engine-dependent gate is intentionally not being run until the source-level host integration is complete.
-
-## Current milestone — September 2, 2026
-
-The explicit model-to-controller path now has a host-owned execution context:
+The Unreal Agent has now proven and published the major production-boundary
+milestones through MRQ submission outcome propagation:
 
 ```text
-model response
- ↓
-ATLAS_CONTROLLER_REQUEST
- ↓
-AgentControllerIntent
- ↓
-AgentTaskRequest
- ↓
-AgentControllerHost
- ↓
-AgentControllerLoopAdapter
- ↓
-AgentEntrypointRuntime
- ↓
-AgentProcessRuntime
- ↓
-capability admission
- ↓
-capability execution
- ↓
-provider integration
+Controller trust boundary              COMPLETE + LIVE
+Blueprint semantic verification        COMPLETE + LIVE
+Render-state semantic verification     COMPLETE + LIVE
+Render-job identity verification       COMPLETE + LIVE
+Composite actor production             COMPLETE + LIVE
+Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN + PUBLISHED
 ```
 
-The host owns trusted provider context for one agent execution. Trusted Unreal context is installed from an already-authorized production artifact and authoritative Unreal task intent.
+The current published branch is `reconcile/unreal-autonomy-origin-20c6d10`.
+The implementation baseline for the current paused state is `7172848`;
+the branch may advance only with documentation-only pause updates.
 
-The focused controller/agent suite currently reports:
+The MRQ queue lifecycle and queue-isolation reviews both returned **CLEAR WITH
+MINOR FINDINGS**. Shared queue semantics remain the default. Queue
+consumption/deletion and private-queue migration are not implemented and are
+not authorized; private isolation remains a trigger-based future option (T1-T4).
 
-```text
-62 passed
-```
+The MRQ pass-failure attribution review also returned **CLEAR WITH MINOR
+FINDINGS**, but measured B1 and B2 both abort the pass before the subsequent
+queued job executes. Therefore the hypothesized healthy-job-then-pass-failure
+clobber was not demonstrated and receipt impact remains **UNPROVEN**.
 
-No workflow/action-runner tests were run.
+The next authorized action is a **read-only design gate** deciding whether a
+small terminal-state state-fidelity correction is worthwhile. No production
+implementation is authorized while paused.
 
 ## Architectural invariants
 
@@ -61,6 +54,9 @@ No workflow/action-runner tests were run.
 - The Unreal adapter remains stateless.
 - Mutation failures and uncertain state require fresh authoritative evidence before recovery.
 - Automatic mutation retry is prohibited.
+- Composite production remains a convenience grouping over existing primitives, not a new authority layer.
+- Preserve the existing Named Pipe wire protocol.
+- Keep Unreal isolated from Blender and the action/workflow runner.
 
 ## Aider operating rules
 
@@ -83,76 +79,123 @@ No workflow/action-runner tests were run.
 
 ## Existing Unreal work
 
-The current architecture includes the Unreal Agent planning boundary, capability registry, strict operation contract, deterministic task planning, engine-neutral evidence contract, production adapter boundary, Windows Named Pipe transport, plan executor, recovery policy, reassessment decision/planner, recovery orchestrator/coordinator, disposable Unreal Engine 5.6 validation harness, heterogeneous production boundary, render receipt verification, and provider-neutral controller capability runtime.
+The current architecture includes the Unreal Agent planning boundary, capability registry, strict operation contract, deterministic task planning, engine-neutral evidence contract, production adapter boundary, Windows Named Pipe transport, plan executor, recovery policy, reassessment decision/planner, recovery orchestrator/coordinator, disposable Unreal Engine 5.6 validation harness, heterogeneous production boundary, render receipt verification, provider-neutral controller capability runtime, render-state semantic verification, render-job identity semantic verification, Blueprint semantic verification, and composite actor production.
 
-## Controller trust-boundary milestone — PASSED
+## Composite production milestone — COMPLETE AND LIVE-PROVEN
 
-The current source-level controller boundary proves:
-
-1. model output is recognized only through the explicit `ATLAS_CONTROLLER_REQUEST` marker;
-2. the request is parsed into a typed `AgentControllerIntent`;
-3. the intent becomes the canonical `AgentTaskRequest`;
-4. the host provides the controller runtime and execution context;
-5. trusted provider state is resolved from the model request's provider only;
-6. model-supplied context cannot override trusted context values;
-7. trusted Unreal context requires an already-authorized production plan and matching authoritative task intent;
-8. provider context cannot be replaced inside the same execution context;
-9. legacy Blender/Qwen paths remain separate from controller execution.
-
-## Current Unreal production boundary
-
-The existing Unreal production architecture remains:
+The composite boundary groups five already-authorized primitive mutation types:
 
 ```text
-Atlas plan
-    ↓
-authorization
-    ↓
-production adapter
-    ↓
-Windows Named Pipe
-    ↓
-real Unreal Editor
-    ↓
-execution
-    ↓
-fresh evidence
-    ↓
-independent verification
+set_actor_location
+set_actor_rotation
+set_actor_scale
+apply_material_variant
+apply_niagara_variant
 ```
 
-The successful render receipt proof remains part of the established live boundary. The newer host/controller path is not yet a live Unreal proof.
+The grouping is deterministic and stable: transforms first, material second, Niagara third. The planner expands every primitive into the existing READ/WRITE/VERIFY execution shape, so every mutation remains independently auditable and semantically verified.
+
+Deterministic validation:
+
+```text
+28 passed — tests/test_unreal_composite_operation.py
+              tests/test_unreal_composite_verification_evidence.py
+              tests/test_unreal_production_roundtrip.py
+20 passed — tests/test_unreal_tool_schema.py
+              tests/test_unreal_plan_executor.py
+```
+
+Live validation:
+
+```text
+test: tests/test_unreal_composite_real_integration.py::test_real_unreal_composite_production_applies_verifies_and_restores
+engine: UE 5.6.1
+transport: \\.\pipe\AtlasUnrealTransport
+result: 1 passed in 4.79s
+```
+
+Post-repair regression:
+
+```text
+48 passed in 0.35s
+```
+
+The live test reached real Unreal before the test-only mapping issue, and after the repair it completed the full mutation/verification/restoration path. The test restoration executes from `finally`; it does not constitute a separate post-restore observation, so documentation must not overstate it as an independently read-back restoration proof.
+
+## Test-only immutable-evidence compatibility repair
+
+`tests/test_unreal_composite_real_integration.py` originally assumed nested evidence values were concrete `dict` instances. The real evidence contract freezes nested mappings, so valid `MappingProxyType` values were rejected by the helper even though the evidence was present and readable.
+
+The published repair is:
+
+```python
+from collections.abc import Mapping
+
+if not isinstance(value, Mapping):
+    raise AssertionError(...)
+```
+
+This helper is intentionally test-only. Its purpose is to let integration tests consume the immutable evidence contract without weakening production immutability or changing the execution/evidence architecture.
+
+Residual same-class helper audits remain possible in other live tests; they are not part of the closed composite milestone unless one of those tests is explicitly exercised.
+
+## Controller trust-boundary milestone — PASSED, AND VALIDATED AGAINST REAL UNREAL EXECUTION
+
+The agent controller host trust boundary has now been validated live: a model response carrying forged authorization and context could not substitute host-installed trusted state, the authorized production executed against a real Unreal editor, and the result returned fresh verified evidence, a matching render receipt, and a typed controller result contract.
 
 ## Blueprint status
 
-Blueprint remains a separate engine-dependent milestone. Its intended narrow production sequence is:
+**GREEN and live-gated against real UE 5.6.1.** Blueprint semantic verification is implemented, registered and live-proven. Arbitrary Blueprint graph authoring remains out of scope and requires its own design gate.
+
+## Render-state status
+
+**GREEN and live-gated against real UE 5.6.1.** `verify_render_state` is registered in the executor semantic-verification map and the executor is the sole producer of the verified flag.
+
+## Render-job identity status
+
+**COMPLETE AND LIVE-PROVEN.** `verify_render_job` and job-addressed `inspect_render_job` bind the engine-observed job identity to the authorization-bound expectation. The real Movie Render Queue workflow gate passed against UE 5.6.1, and receipt/persisted receipt carried the same job identity.
+
+Deferred render-job issues remain intentionally separate:
+
+- relative output-file normalization;
+- stronger frame/range/frame-count verification;
+- render-job recovery;
+- sequence-asset continuity;
+- cross-plan output-directory/output-format binding;
+- artifact completeness versus frame range;
+- multi-job/distributed rendering;
+- editor-session persistence;
+- broader MRQ expansion;
+- future receipt/HMAC redesign and result-contract evolution where required.
+
+## Fresh architecture review — next active surface
+
+The next active surface is **MRQ pass-failure state fidelity**.
+
+This is a design question only:
+
+> Is the small guard that prevents a stronger job-scoped terminal verdict from
+> being overwritten by a later pass-scoped aggregate worth implementing?
+
+Measured evidence must remain explicit:
+
+- B1 and B2 were genuine UE 5.6.1 failures;
+- both aborted the pass before the subsequent queue job executed;
+- the healthy-job-then-pass-failure clobber was not reached;
+- receipt impact is therefore unproven.
+
+The next gate must not silently turn this into a receipt-correctness claim.
+
+F9 (failed jobs unreadable through the authorized inspection path) remains
+separate.
 
 ```text
-READ   inspect_blueprint_state
-WRITE  set_blueprint_metadata
-WRITE  compile_blueprint
-VERIFY verify_blueprint_state
+Do not implement state-fidelity yet.
+Do not start queue consumption.
+Do not start private-queue migration.
+Do not start registry pruning.
+Do not touch Blender.
 ```
-
-The previously identified live issue is persistence of Blueprint metadata in the returned evidence shape. Do not expand into arbitrary Blueprint graph authoring until the narrow metadata/compile boundary is independently green.
-
-## Next development phase
-
-When development resumes, continue with the smallest safe source-level integration that connects the actual Atlas agent-facing runtime to `AgentControllerHost` without changing the existing Blender/Qwen tool behavior.
-
-Then develop the synthetic proof that a real already-authorized Unreal production artifact can cross:
-
-```text
-host
- ↓
-agent request
- ↓
-controller admission
- ↓
-Unreal production integration
-```
-
-Only after that source-level boundary is stable should a live Unreal controller-to-production test be considered.
 
 ## Git/workspace separation
 
@@ -163,10 +206,10 @@ The Unreal Aider workspace remains isolated from the Blender development workspa
 Before local implementation work:
 
 - confirm the dedicated Unreal checkout state;
-- use the intended Unreal development branch;
+- pull the latest published branch checkpoint;
 - keep Aider separate from the Atlas Python runtime where appropriate;
 - never commit secrets;
-- use `UNREAL_AGENT_HANDOFF_CURRENT.md` and this scope document as continuation context;
+- use `UNREAL_AGENT_HANDOFF_CURRENT.md` plus the composite closeout and next-architecture-review documents as continuation context;
 - use local edit/test/commit loops only when the relevant tests are authorized;
 - keep GitHub Actions as the remote regression authority;
 - do not run the action/workflow runner unless the user explicitly authorizes it.

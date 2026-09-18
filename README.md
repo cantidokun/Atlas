@@ -77,38 +77,50 @@ A successful write is never treated as proof that the desired state exists.
 The current development branch is:
 
 ```text
-integrate-origin-main-with-render-receipt
+reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-The Unreal work has now reached a provider-neutral **agent-to-controller trust boundary** above the existing production stack.
+**Development is paused at the end of the September 18, 2026 Unreal session.** The published implementation baseline is `71728480a425f80c700c913aa00f376c254114bb`; the current branch tip may advance with documentation-only pause updates.
 
-The current source-level controller path is:
+Current authoritative Unreal position:
 
 ```text
-Agent model response
- ↓
-explicit ATLAS_CONTROLLER_REQUEST
- ↓
-AgentControllerIntent
- ↓
-AgentTaskRequest
- ↓
-AgentControllerHost / AgentControllerLoopAdapter
- ↓
-AgentEntrypointRuntime
- ↓
-AgentProcessRuntime classification
- ↓
-Capability admission
- ↓
-Capability execution
- ↓
-Provider-specific integration
- ↓
-Authorization / execution / evidence / verification / recovery
+Controller trust boundary              COMPLETE + LIVE
+Blueprint semantic verification        COMPLETE + LIVE
+Render-state semantic verification     COMPLETE + LIVE
+Render-job identity verification       COMPLETE + LIVE
+Composite actor production             COMPLETE + LIVE
+Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ queue isolation design review      COMPLETE - CLEAR WITH MINOR FINDINGS
+MRQ pass-failure attribution review    COMPLETE - CLEAR WITH MINOR FINDINGS
 ```
 
-Ordinary Blender/Qwen tool execution remains separate and unchanged by this controller seam.
+The September 17–18 Unreal work established identity-bound artifact attribution, identity-bound start monitoring, truthful submission acceptance/rejection, and a design conclusion that the shared MRQ queue remains the default. Queue consumption/deletion and private queue migration remain unimplemented and unauthorized.
+
+The pass-failure review is closed on measured evidence. Two genuine retained-job failure mechanisms were exercised on the unmodified baseline; both aborted the MRQ pass before a later queue job executed. Therefore a healthy Atlas render being clobbered by a later pass-level failure was **not demonstrated**, and no receipt-correctness claim is made. A small state-fidelity correction remains a separate design question; its receipt impact is explicitly unproven. F9 — failed jobs not being readable through the authorized inspection path — remains a separate follow-up.
+
+## Current Unreal development intent
+
+No production implementation is authorized while the session is paused.
+
+The next work item is a **read-only design decision** on whether the small MRQ pass-failure **state-fidelity** correction is worth implementing at all. This must not be presented as a receipt-correctness fix unless new evidence establishes that connection.
+
+Standing decisions:
+
+```text
+Shared MRQ queue semantics          DEFAULT
+Queue consumption/deletion           DEFERRED / NOT AUTHORIZED
+Private queue isolation              DEFERRED / trigger-based (T1-T4)
+Automatic mutation retry             PROHIBITED
+Exact render-job identity            PRESERVED
+Receipt from fresh verified evidence ONLY
+```
+
+The authoritative current handoff is `UNREAL_AGENT_HANDOFF_CURRENT.md`; the current architecture pointer is `docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md`; the September 18 pause record is `docs/UNREAL_SESSION_CLOSEOUT_2026-09-18.md`.
+
 
 ## Controller trust boundary
 
@@ -132,21 +144,7 @@ UnrealAuthorizedProductionPlan
 
 The production plan and authoritative task intent must share the same intent ID before the trusted context can be installed.
 
-## Latest controller checkpoint
-
-The focused host/controller test suite is green:
-
-```text
-62 passed
-```
-
-This confirms the current source-level intent parsing, trusted-context handling, host lifecycle, controller loop boundary, Unreal trusted-context binding, and synthetic end-to-end controller path.
-
-No live Unreal/action-runner test was run for this checkpoint.
-
----
-
-# Unreal Engine status
+## Unreal Engine status
 
 The existing Unreal architecture remains:
 
@@ -168,28 +166,57 @@ Fresh evidence
 Independent verification
 ```
 
-Previously established live proofs include real Unreal production execution and render receipt verification. Those proofs do not automatically validate the newer model-to-controller host path.
+The latest shot-continuity work proved a complete production-to-render continuity path against real UE 5.6.1 in a fresh editor session. The live proof included exact sequence identity, inclusive frame-range continuity, MRQ boundary translation, output directory/format continuity, exact job identity, PNG frame-set completeness, receipt issuance/persistence, and fixture restoration.
 
-## Blueprint production boundary
+The implementation deliberately did **not** add a new Named Pipe operation, second authorization authority, generic workflow engine, entity cache, or distributed-rendering layer.
 
-Blueprint remains a separate engine-dependent milestone. The current narrow sequence is:
+### Shot-level production continuity
+
+The authoritative Atlas semantics are inclusive:
 
 ```text
-READ   inspect_blueprint_state
-WRITE  set_blueprint_metadata
-WRITE  compile_blueprint
-VERIFY verify_blueprint_state
+start_frame ... end_frame
+expected PNG frame set = every authorized frame in that inclusive range
 ```
 
-The previously identified remaining live issue is evidence shape: persisted Blueprint metadata must appear under `metadata` in the independently observed state after mutation and compilation.
+The Unreal/MRQ boundary translates this once:
 
-The Blueprint milestone is **not yet declared green**, and graph authoring must not be expanded until this narrow boundary is complete.
+```text
+CustomStartFrame = Atlas start_frame
+CustomEndFrame   = Atlas end_frame + 1
+```
 
-## Next Unreal gate
+Fresh render-job evidence exposes the semantic inclusive range plus the explicit `end_frame_exclusive` engine-boundary diagnostic. Final continuity verification compares fresh evidence to the authorized production values and requires exact PNG frame coverage, including rejection of missing, duplicate, unexpected, or frame-number-less artifacts.
 
-After the source-level host integration is complete, the next engine-dependent step is a live controller-to-Unreal production test using a real pre-authorized `TrustedUnrealContext`.
+The receipt remains the existing evidence-bound structure:
 
-Blueprint evidence validation remains a separate live gate.
+```text
+job_id
+sequence_asset_path
+evidence_digest
+receipt_digest
+```
+
+The parallel receipt extension that duplicated observed continuity fields into the receipt digest was rejected during reconciliation because those fields are already covered by the evidence digest and do not provide an independent integrity property.
+
+### Reconciliation and publication state
+
+The reconciled candidate `97487d0` has been published on the shared branch as merge `d582af3`. The merge was documentation-only relative to the validated implementation: every blob under `planning/`, `tests/` and `unreal/AtlasUnrealHarness/Source/` is identical between `97487d0` and `d582af3`. See:
+
+```text
+docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md
+docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
+```
+
+### Open Unreal boundary item
+
+**MRQ artifact attribution is COMPLETE + LIVE-PROVEN** (published at `8ecf7db`): the job identity guard is live-proven in a multi-submission single-editor session, foreign callback artifacts are discarded, PNG artifacts must be contained within the authorized output directory, and exact frame-set verification remains active. **Slice D adds monitoring-state identity**: `OnIndividualJobStarted` writes `Status`/`StatusMessage`/`Progress` only for the exact registered executor job, proven in one editor session whose queue already held foreign jobs. Slice 3 queue consumption remains separate and unimplemented, and the private-queue migration is not authorized.
+
+The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, `CLEAR WITH MINOR FINDINGS`, read-only) concluded that accumulation is no longer a provenance correctness risk, retained the current shared MRQ queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance with recorded entry criteria. The former operator precondition (fresh editor session + empty queue) is no longer load-bearing for attribution.
+
+**MRQ submission outcome propagation is COMPLETE + LIVE-PROVEN**: the submission call and its observation of the engine's active executor happen in one game-thread task, so a refused submission is an immediate typed failure (measured 1.50 s in a clean live session) instead of a 300 s poll timeout, an unprovable outcome fails closed as ambiguous, and a rejected submission exposes no job identity and produces no receipt. No protocol, job-identity, receipt, queue or timeout contract changed.
+
+**Next architectural review (nothing authorized): is queue isolation / a private queue instance worth its lifecycle surface?** The shared queue still accumulates jobs, and a rejected submission still leaves its allocated job behind by design; the question is whether isolating Atlas's own queue is worth the larger lifecycle it introduces. That is a read-only design gate and has not been started. Queue consumption and the private-queue migration remain unimplemented.
 
 ---
 
@@ -328,15 +355,32 @@ unreal/AtlasUnrealHarness
 
 # Resume the current Unreal development phase
 
-Bring the branch up to date:
+Development is intentionally paused.
+
+Resume from:
 
 ```powershell
 cd "C:\Users\Gavin's PC\Desktop\Atlas-Unreal-Aider"
-git pull --ff-only origin integrate-origin-main-with-render-receipt
+git status
 ```
 
-The next source-level task is to connect the actual Atlas agent-facing runtime to `AgentControllerHost` without changing the existing Blender/Qwen path.
+First read:
 
-After that boundary is stable, the next explicitly authorized engine-dependent gate is a live controller-to-Unreal production test using a real authorized Unreal context.
+```text
+UNREAL_AGENT_HANDOFF_CURRENT.md
+docs/UNREAL_SESSION_CLOSEOUT_2026-09-18.md
+docs/UNREAL_NEXT_ARCHITECTURE_REVIEW.md
+```
 
-Separately, revalidate the live Blueprint metadata evidence boundary before declaring Blueprint production-complete.
+The next authorized action is a read-only design gate deciding whether the
+MRQ pass-failure state-fidelity correction is worth implementing. Receipt
+impact remains explicitly unproven.
+
+Do not begin queue consumption, private-queue migration, registry pruning,
+or any new Unreal feature until that gate is cleared.
+
+Never touch the Blender checkout:
+
+```text
+C:\Users\Gavin's PC\Desktop\Atlas
+```

@@ -16,6 +16,8 @@ from controller.agent_execution_context import AgentExecutionContext
 from controller.agent_process_runtime import AtlasAgentProcessRuntime
 from controller.agent_task_request import AgentTaskRequest
 from controller.trusted_unreal_context import TrustedUnrealContext
+from planning.unreal_autonomous_executor import UnrealAutonomousExecutor
+from planning.unreal_execution_boundary import UnrealExecutionBoundary
 from planning.unreal_production_controller_integration import (
     UnrealProductionControllerIntegration,
 )
@@ -110,10 +112,50 @@ class AgentControllerHost:
         execution_context = AgentExecutionContext()
         execution_context.install_unreal(trusted_context)
 
-        return cls(
+        host = cls(
             process=process,
             execution_context=execution_context,
         )
+        host._unreal_integration = integration
+        host._trusted_unreal_context = trusted_context
+        return host
+
+    def build_unreal_autonomous_executor(
+        self,
+        *,
+        default_authorization_id: Optional[str] = None,
+    ) -> UnrealAutonomousExecutor:
+        """Construct an UnrealAutonomousExecutor wired through this host's trusted integration.
+
+        Uses the adapter from the host's registered UnrealProductionControllerIntegration
+        and binds the host's authoritative authorization ID if not explicitly overridden.
+        """
+        integration = getattr(self, "_unreal_integration", None)
+        if integration is None:
+            raise RuntimeError(
+                "Unreal autonomous executor requires a host initialized with for_unreal_production"
+            )
+
+        runtime_adapter = getattr(integration, "_runtime", None)
+        executor = getattr(runtime_adapter, "_executor", None)
+        adapter = getattr(executor, "_adapter", None)
+        if adapter is None:
+            bridge = getattr(runtime_adapter, "_bridge", None)
+            if bridge is not None:
+                adapter = getattr(bridge._executor, "_adapter", None)
+
+        if adapter is None:
+            raise RuntimeError(
+                "Could not extract UnrealAdapterProduction from host's integration"
+            )
+
+        auth_id = default_authorization_id
+        if auth_id is None and hasattr(self, "_trusted_unreal_context"):
+            auth = getattr(self._trusted_unreal_context.authorized_production, "authorization", None)
+            auth_id = getattr(auth, "authorization_id", None)
+
+        boundary = UnrealExecutionBoundary(adapter)
+        return UnrealAutonomousExecutor(boundary, default_authorization_id=auth_id)
 
     @property
     def runtime(self) -> AtlasAgentEntrypointRuntime:

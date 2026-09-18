@@ -7,16 +7,46 @@ The Unreal Agent has a tested production/recovery architecture for controlled Un
 Current branch:
 
 ```text
-integrate-origin-main-with-render-receipt
+reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-The current focused controller/agent boundary checkpoint is:
+Current HEAD:
 
 ```text
-62 passed
+9625dd712c05126ae2b12c85d4cf034a396cb58a
 ```
 
-No live Unreal/action-runner test was run for that checkpoint.
+The reconciled branch is deterministic green:
+
+```text
+canonical focused suite (13 modules, exact command below) : 160 passed, 2 deselected
+broader deterministic Unreal/controller/agent/
+  capability/evidence/receipt sweep                 : 742 passed, 5 skipped
+Python 3.9 focused parity (same 13 modules)         : 160 passed, 2 deselected
+four directly affected contract surfaces
+  (unreal_production_result_contract, unreal_production_workflow,
+   unreal_evidence_contract, unreal_render_receipt) : 37 passed
+
+CORRECTED 2026-09-15: the previously recorded focused figure
+("268 passed, 1 skipped, 1 deselected") is not reproducible on fe2322f from any
+recorded selection and is superseded by the figures above. Exact focused command:
+
+.venv/Scripts/python.exe -m pytest tests/test_agent_controller_*.py tests/test_agent_entrypoint_*.py \
+  tests/test_agent_execution_context.py tests/test_agent_trusted_context.py tests/test_agent_task_request.py \
+  tests/test_agent_process_runtime.py tests/test_agent_process_runtime_identity.py \
+  tests/test_capability_admission.py tests/test_capability_execution.py \
+  tests/test_unreal_production_result_contract.py tests/test_unreal_evidence_contract.py \
+  tests/test_unreal_render_receipt.py tests/test_unreal_render_receipt_store.py -m "not integration" -q
+```
+
+The explicitly authorized live controller gate has passed:
+
+```text
+tests/test_agent_controller_host_production_real_integration.py
+1 passed in 10.77s
+```
+
+No other live Unreal/action-runner test was run for that checkpoint.
 
 ## Operating model
 
@@ -80,6 +110,8 @@ AgentControllerHost
 
 Trusted provider context is selected only by the parsed request provider. Model-supplied capability, intent metadata, and context values cannot create or replace trusted execution state.
 
+This boundary has been validated against real Unreal execution: a model response carrying forged authorization and context could not substitute the host-installed trusted state, and the authorized production executed against a real Unreal editor.
+
 ## Trusted Unreal context
 
 `TrustedUnrealContext` binds:
@@ -124,11 +156,11 @@ Independent verification
 
 `already_applied` operations are not replayed. `replacement_required` operations require new exact authorization. `manual_review` never becomes an automatic mutation.
 
-## Blueprint — current development target
+## Blueprint production boundary — GREEN (September 15, 2026)
 
-Blueprint remains the next engine-dependent production capability.
+Blueprint is no longer a development target: the narrow production boundary is live-gated against real Unreal Engine 5.6.1 over the existing Named Pipe transport, and its semantic verification is implemented, registered and live-proven (3 passed; `evidence_ledger[3].verified is True` on the metadata mutation path, `evidence_ledger[2].verified is True` on the compile-only path).
 
-The narrow first production slice is:
+The narrow first production slice that was completed is:
 
 ```text
 READ   inspect_blueprint_state
@@ -137,7 +169,7 @@ WRITE  compile_blueprint
 VERIFY verify_blueprint_state
 ```
 
-The live mutation/compile path had been proven to execute, but the remaining known issue is evidence shape: persisted Blueprint metadata must appear in the verified Blueprint state under `metadata`.
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the live mutation/compile path had been proven to execute, but the remaining known issue is evidence shape: persisted Blueprint metadata must appear in the verified Blueprint state under `metadata`. **Resolved live:** it does, at the mutation, compile, verify and fresh-inspection stages; Atlas verification additionally binds asset identity, compile status and the authorized metadata key/value, and tolerates unrelated metadata keys (the fixture's `AtlasTestMarker`).
 
 The intended state evidence is:
 
@@ -154,23 +186,22 @@ The intended state evidence is:
 }
 ```
 
-Do not expand into arbitrary Blueprint graph authoring until this narrow production boundary is green.
+The narrow production boundary is now green; arbitrary Blueprint graph authoring remains out of scope and would need its own design gate.
 
 ## Validation status
 
-The Python/controller boundary currently has a green focused checkpoint of:
+The reconciled Python/controller boundary is deterministic green (canonical focused suite 160 passed / 2 deselected — the earlier "268 focused" figure was not reproducible and is superseded; broader deterministic sweep 742 passed / 5 skipped as originally recorded, rising to 766 passed / 5 skipped with the Blueprint milestone cases; Python 3.9 parity confirmed), and the live Unreal controller gate has passed: a real Unreal Engine 5.6.1 editor executed an already-authorized `FIELD_SURFACE` composite production through the host-owned controller path and the existing Named Pipe transport, returning fresh verified evidence, a matching render receipt, and a typed controller result contract.
 
-```text
-62 passed
-```
+**SUPERSEDED (2026-09-15) — HISTORICAL:** the Blueprint evidence boundary remains a separate live gate and must be revalidated before declaring Blueprint production-complete. **Resolved:** the Blueprint production boundary was gated green the same day, with the metadata mutation and compile-only paths both returning Atlas-verified evidence. The test-only mapping compatibility repair in the older live controller test is **APPLIED (September 15, 2026)** and both live controller production tests were rerun green.
 
-This does not replace the live Unreal integration gate.
-
-When the source-level host integration is complete and explicitly authorized, run the relevant live Unreal gate. Separately revalidate the Blueprint evidence boundary before declaring Blueprint production-complete.
+Residual follow-up (same defect class, NOT fixed): `tests/test_unreal_composite_real_integration.py`,
+`tests/test_unreal_heterogeneous_recovery_real_integration.py`,
+`tests/test_unreal_production_workflow_real_integration.py`,
+`tests/test_unreal_material_variant_real_integration.py`.
 
 ## Next after Blueprint
 
-After Blueprint reaches a complete production boundary, build Render:
+With the Blueprint production boundary complete, Render configuration was next — and it is now done and live-gated: `verify_render_state` is registered in the executor's semantic-verification registry, the executor is the sole producer of its `verified` flag, the verifier no longer sets the flag itself, expected state comes only from the authorized VERIFY arguments, and normalization is unchanged. The earlier deferred "`verify_render_state` flag asymmetry" is resolved; note that the historical claim that this evidence never carried `verified=True` was inaccurate, because the old verifier set the flag itself — the real asymmetry was the missing registry membership plus that second flag producer:
 
 ```text
 READ   inspect_render_state
@@ -178,7 +209,7 @@ WRITE  configure_render
 VERIFY verify_render_state
 ```
 
-Movie Render Queue execution should follow only after deterministic render configuration verification is established.
+Deterministic render configuration verification is now established (24 semantic matrix cases, deterministic green, and live-proven on UE 5.6.1). The render **job**/result layer's design gate ran the same night and returned **CLEAR WITH MINOR FINDINGS**. The next active development gate is **render-job identity semantic verification**: `verify_render_job` and the job-addressed `inspect_render_job` path must verify the engine-observed `job_id` against the authorization-bound expected job id (the VERIFY operation's own argument after the existing `$previous.submit_render.job_id` resolution, and the plan's own authorized `job_id` for the read path). Status/completion/artifact checks, receipt semantics and `verified_render` stay unchanged, and no new schema key, authority, pairing helper or identity type is introduced. Implementation has **NOT** started; its live proof reuses `tests/test_unreal_render_workflow_real_integration.py`.
 
 ## Invariants
 
