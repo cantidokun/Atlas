@@ -55,7 +55,7 @@ Qwen, Gemini, DeepSeek, Claude, Astra, Hermes, OpenHands, and other model/agent 
 - **Temporal Observation + State Delta v1 — HOLD at Revision 7** (`44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`). Revision 7 correctly makes `FromIdentity` an explicit immutable input to all four evaluation variants, but the independent architectural review found residual consistency issues: stale §8.2 purity wording, an incomplete conceptual record-domain statement, incorrect “no admission-state change” wording on boundary identity mismatch, stale two-form `NEW_EPOCH` enumerations, and an unstated rule for multiple boundary-cause fields.
 - **No temporal implementation is authorized.** The design must clear Revision 8 first; no schema/version bump or live evidence gate is authorized before that.
 - **Token optimization / M13.8 is paused** and remains outside the current architecture progression.
-- **Unreal remains a separate track**: M10 S1–S8 complete, M11 frozen/paused, M12.1–M12.4 implemented, M12.5 independent semantic-evidence verification next.
+- **Unreal remains a separate track**: M10 S1–S8 complete, M11 frozen/paused, M12.1–M12.4 implemented; M12.5 is intentionally deferred. The active Unreal target is **State Extraction Fidelity v1**.
 
 **Tonight's intent:** development is paused after the independent Revision 7 review. The next resume point is Temporal Design Revision 8, design-only, followed by independent architectural review.
 
