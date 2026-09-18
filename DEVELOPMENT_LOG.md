@@ -1,5 +1,60 @@
 # Atlas Development Log
 
+## September 18, 2026 — Unreal MRQ architecture pause
+
+The Unreal development session closed with the published branch at:
+
+```text
+reconcile/unreal-autonomy-origin-20c6d10
+71728480a425f80c700c913aa00f376c254114bb
+```
+
+### Completed and published/live-proven
+
+```text
+Shot-level production continuity
+MRQ artifact attribution (Slice 1 + Slice 2)
+MRQ start-callback identity (Slice D)
+MRQ submission outcome propagation
+```
+
+### Design gates completed
+
+```text
+MRQ queue lifecycle                 CLEAR WITH MINOR FINDINGS
+MRQ queue isolation                CLEAR WITH MINOR FINDINGS
+MRQ pass-failure attribution       CLEAR WITH MINOR FINDINGS
+```
+
+The queue-isolation review concluded that the shared MRQ queue remains the default.
+Queue consumption/deletion is rejected/deferred, and private queue isolation is
+deferred behind triggers T1-T4.
+
+The pass-failure investigation was corrected from an initial source interpretation
+by direct UE 5.6.1 measurement. Both selected genuine failure mechanisms (above-max
+resolution and export-time write failure) abort the MRQ pass before the subsequent
+queued job starts. The hypothesized healthy-job-then-pass-failure clobber was
+therefore not reached, and receipt impact remains explicitly unproven.
+
+The remaining architectural question is whether a small terminal-state
+**state-fidelity** correction is worthwhile at all. No production code for that
+correction was implemented or authorized.
+
+F9 remains separate: failed render jobs are currently unreadable through the
+authorized inspection path because the product inspection path rejects failed
+terminal state.
+
+### Session intent at pause
+
+```text
+No queue consumption.
+No private queue migration.
+No registry pruning.
+No new Unreal feature.
+No pass-failure implementation yet.
+Next step = read-only design gate for state-fidelity value.
+```
+
 ## August 16, 2026 — Live Controller Passed / General Planning Integration
 
 ### Live controller result
