@@ -1,6 +1,7 @@
 # Atlas
 
-> **Current-state reconciliation (supersedes legacy milestone lines below):** M10 live Unreal Scenarios S1–S8 are **COMPLETE — all PASSED live** against the real UE 5.6 boundary (per-scenario PASS reports in `live_run_state/`). M11 (development model-router, PRs #82–#85) is **FROZEN/paused**. The next Unreal milestone is **M12 — Unreal Semantic Soccer Production Layer** (design only: `docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md`). Legacy milestone lines in the body that state "M7 ... Not run" or "S2–S8 NOT executed" are historical snapshots, preserved verbatim and superseded by this block. No production-authority boundary changed.
+> **Current-state reconciliation — September 18, 2026 end-of-night checkpoint.** Blender Extraction Fidelity v1 is **CLEAR**. The current Temporal Observation + State Delta v1 design is at **Revision 7 — HOLD pending independent architectural review**; no temporal implementation is authorized. The next architecture step is a narrow **Revision 8 design-only consistency repair**, followed by another independent review. Token-optimization/M13.8 work is paused. The Unreal track remains separate: M10 S1–S8 complete, M11 frozen/paused, M12.1–M12.4 implemented, M12.5 independent semantic-evidence verification remains the next Unreal milestone. Historical dated handoffs remain archival and are not rewritten.
+
 
 ## What Atlas is
 
@@ -46,15 +47,18 @@ Qwen, Gemini, DeepSeek, Claude, Astra, Hermes, OpenHands, and other model/agent 
 
 ---
 
-# Current position — September 6, 2026 checkpoint
+# Current position — September 18, 2026 pause checkpoint
 
-**Active branch:** `main`  
-**Current milestone:** **M5 complete; M6 — deterministic fault-injection/concurrency suite IMPLEMENTED; M7 live restart/recovery validation PENDING**  
-**Latest merged PR:** **#68**, merge commit `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
+**Authoritative architecture position**
 
-Stage 13 multi-step partial-progress recovery is live-verified against Blender 4.4. Stage 14 dependency-aware serial execution and cross-process recovery are implemented and live-verified. Stage 15 semantic soccer-production workflows and versioned catalog compilation are established. Stage 16 Qwen integration is live-verified through proposal, Atlas authorization, real Blender mutation, cross-process recovery, and advisory-only Qwen recovery reasoning.
+- **Blender Extraction Fidelity v1 — CLEAR.** The bounded read-only producer contract is closed and independently verified. Architectural parent: `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`.
+- **Temporal Observation + State Delta v1 — HOLD at Revision 7** (`44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`). Revision 7 correctly makes `FromIdentity` an explicit immutable input to all four evaluation variants, but the independent architectural review found residual consistency issues: stale §8.2 purity wording, an incomplete conceptual record-domain statement, incorrect “no admission-state change” wording on boundary identity mismatch, stale two-form `NEW_EPOCH` enumerations, and an unstated rule for multiple boundary-cause fields.
+- **No temporal implementation is authorized.** The design must clear Revision 8 first; no schema/version bump or live evidence gate is authorized before that.
+- **Token optimization / M13.8 is paused** and remains outside the current architecture progression.
+- **Unreal remains a separate track**: M10 S1–S8 complete, M11 frozen/paused, M12.1–M12.4 implemented, M12.5 independent semantic-evidence verification next.
 
-Stage 17 production-artifact lineage is live-verified for Blender. The real Unreal Engine 5.6 render/provenance path was also live-proven after the C++ render-state consistency defect was identified and fixed.
+**Tonight's intent:** development is paused after the independent Revision 7 review. The next resume point is Temporal Design Revision 8, design-only, followed by independent architectural review.
+
 
 ## Unreal autonomy architecture — MERGED TO MAIN
 
