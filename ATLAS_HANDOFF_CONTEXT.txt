@@ -1,12 +1,34 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 6, 2026 CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 18, 2026 END-OF-NIGHT CHECKPOINT
 
-Active repository branch:
-main
+Active repository baseline:
+main at Wave 12 reference-integrity baseline (`2ec5a84c0b4d82898a0fb8169844ddd5d93668d2`)
 
-Current milestone:
-M5 — independent Unreal render-evidence verification — COMPLETE
-Latest M5 merge commit:
-a9b6eb00e62f252cc3aa5b7ef81998797cb12f83
+Current architecture milestone:
+Blender Extraction Fidelity v1 — CLEAR
+Temporal Observation + State Delta v1 — DESIGN REVISION 7 HOLD
+No Temporal implementation is authorized.
+
+Current temporal design:
+branch `feat/temporal-observation-state-delta-design`
+Revision 7 commit `44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`
+
+Next temporal action:
+Revision 8 — narrow design-only correction of the remaining independent-review findings,
+then a fresh independent architectural review before any implementation.
+
+Paused tracks:
+- token optimization / M13.8
+- Event Abstraction
+- temporal implementation
+- any reopening of cleared extraction/correction milestones without a concrete defect
+
+Unreal track remains separate:
+- M10 live S1–S8 COMPLETE
+- M11 FROZEN / paused
+- M12.1–M12.4 implemented
+- M12.5 independent semantic-evidence verification remains next
+
+Tonight's development session is intentionally paused. Historical dated handoffs remain archival.
 
 ============================================================
 1. PROJECT DIRECTION
