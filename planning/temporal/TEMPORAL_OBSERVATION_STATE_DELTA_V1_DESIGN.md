@@ -1,6 +1,6 @@
 # Atlas — Temporal Observation + State Delta v1 (Design Gate)
 
-**Status:** DESIGN REVISION 2 — REVIEW REQUIRED / NO IMPLEMENTATION
+**Status:** DESIGN REVISION 3 — REVIEW REQUIRED / NO IMPLEMENTATION
 **Track:** Atlas temporal layer (engine-neutral, downstream of canonical world state)
 **Architectural parent (authoritative):** `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`
 (Blender Extraction Fidelity v1 implementation + verification commits, itself on the cleared design
@@ -29,7 +29,8 @@ the claim boundary.
 | `a0f0071` | Make the section-9 determinism evidence gate mechanically explicit | verification-only |
 | `b95d5ab` | Close the section-8.2 canonicalization identifier in the section-9 gate | verification-only — **architectural parent of this document** |
 | `75744da` | Temporal Observation + State Delta v1 design gate | the document at **revision 1** (held pending review) |
-| *(this revision)* | Temporal Observation + State Delta v1 — **design revision 2**: eight contract corrections + full re-audit | this document only — §22.1 |
+| `f26746d` | Correct eight contract defects in the temporal observation design | the document at **revision 2** (held pending review) |
+| *(this revision)* | Temporal Observation + State Delta v1 — **design revision 3**: five contract resolutions + re-audit of §§6, 8, 11, 12, 13, 14, 20, 21, 22.1 | this document only — §22.2 |
 
 **What design revision 2 changes.** Revision 1 was held pending a design revision. This revision
 corrects eight contract defects found in it — sequence-gap semantics, duplicate-observation admission,
@@ -38,7 +39,16 @@ state-digest fields, the comparison field universe, the undefined digest-invalid
 snapshot representation — and re-derives every dependent rule across §§4-14, the red-team register
 (`R2-1..R2-8` in §22.1), the `T-1..T-14` requirements, the six required conclusions (§20) and the
 closure map (§22). It changes **no** non-goal (§16) and **no** Event Abstraction boundary rule (§17).
-It remains documentation-only for the reason below.
+**What design revision 3 changes.** Revision 2 was held pending a further design revision. This revision
+resolves five contradictions left in it: (i) where the compared pair's earlier observation comes from,
+given that the temporal layer keeps no snapshot store (§6.4, new §6.7); (ii) what a
+`TEMPORAL_DISCONTINUITY` record *is*, given that its endpoints are non-comparable (§8.1, §8.2);
+(iii) how an admission-level rejection differs from a pair-level refusal, so that stream processing is
+single-valued end to end (new §6.8, §8.2, §10.5, §20, §21); (iv) whether the temporal state digest is
+genuinely producer-order independent when `object_id`s are duplicated (§11.2 — it now is, by a
+content-derived tie-break); and (v) the dependent re-audit and adversarial requirements (§19.1 #27-#31,
+§19.2 `T-15..T-18`, §22.2 R3-1..R3-5). It changes no non-goal (§16), no Event Abstraction rule (§17),
+and it remains documentation-only for the reason below.
 
 This document was authored on branch `feat/temporal-observation-state-delta-design` created from
 `b95d5ab`. Nothing is implemented: no `TemporalState`, no `StateDelta`, no event detection, no
@@ -186,7 +196,8 @@ Vocabulary (all names are v1 contract names; none is implemented in this milesto
 | `state_digest` | **raw content identity** of the canonical state (temporal-level, §11.2): no semantic equivalence is applied to it | §11 |
 | `envelope_digest` | identity of the observation record as received, including metadata | §11.3 |
 | `observation_id` | derived, stable handle for one observation inside its stream | §4.3 |
-| `AdmissionOutcome` | stream admission result: `ACCEPTED` / `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` / `NEW_EPOCH` / `INVALID` | §6.6 |
+| `pair input` | the previously accepted observation `A`, **supplied** to a comparison by the caller and never stored or reconstructed by the layer | §6.7 |
+| `AdmissionOutcome` | stream admission result: `ACCEPTED` / `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` / `NEW_EPOCH` / `REJECTED_INVALID` — the last is admission-level only and is never the pair-level `OBSERVATION_INVALID` | §6.6, §6.8 |
 | `DeltaOutcome` | delta-level outcome: `COMPUTED` / `TEMPORAL_DISCONTINUITY` / `OBSERVATION_INVALID` | §8.2 |
 | `EntityDeltaKind` | entity-level fact: `OBJECT_ADDED` / `OBJECT_REMOVED` / `OBJECT_CHANGED` / `NO_CHANGE` / `IDENTITY_AMBIGUOUS` | §8.3 |
 | `FieldObservationState` | per-field coverage: observed-changed / observed-unchanged / unavailable / unsupported / invalid | §10.2 |
@@ -217,7 +228,8 @@ TemporalObservation := {
 `state_digest` is **always required** and is **always recomputed by Atlas** from `snapshot` under
 §11.2. There is no producer-declared "invalid" variant of it (revision 1 left one undefined), and no
 producer declaration is ever trusted as an authority: a declared value that disagrees with the
-recomputation makes the observation `OBSERVATION_INVALID` / `STATE_DIGEST_MISMATCH` (§4.6, §10.5).
+recomputation makes the **arrival** `REJECTED_INVALID` (`STATE_DIGEST_MISMATCH`) at stage 1 — the arrival
+is not admitted as an observation and no record is emitted (§6.8, §10.5).
 
 ### 4.2 Identity fields that are NOT interchangeable
 
@@ -324,14 +336,14 @@ Requirements:
    one still carrying `schema_version`) is **not** admissible, and neither is "the canonical model's
    own dictionary form" as a second option.
 2. `snapshot` MUST parse under `parse_scene_report_input` with no modification. A snapshot that fails
-   canonical parsing makes the observation `OBSERVATION_INVALID`, with the parser's own error reported
-   verbatim.
+   canonical parsing makes the arrival `REJECTED_INVALID` at stage 1 (§6.8), with the parser's own error
+   reported verbatim.
 3. The temporal layer MUST NOT add, remove, default, reorder or repair any field, and MUST NOT inject
    omitted canonical fields (`normals`, `uvs`, `local_frame_id`) to "complete" the snapshot. Object
    order is preserved as received (comparison and the §11.2 digest do not depend on it).
 4. `state_digest` is always required, is computed from `snapshot` under §11.2, and is **recomputed**
-   before use; a mismatch makes the observation `OBSERVATION_INVALID` (`STATE_DIGEST_MISMATCH`).
-   A producer-supplied digest is metadata, never authority.
+   before use; a mismatch makes the arrival `REJECTED_INVALID` (`STATE_DIGEST_MISMATCH`) at stage 1, so
+   no record is emitted (§6.8). A producer-supplied digest is metadata, never authority.
 5. The snapshot is **not** re-serialized into `scene_input_digest`'s input space: `scene_input_digest`
    remains a kernel-computed property of the canonical scene (§11.1) and is never recomputed,
    redefined or extended here.
@@ -416,8 +428,9 @@ from ascending `sequence` inside one epoch; **no chain ever crosses an epoch bou
 
 ### 5.5 Required behaviours (single-valued outcomes)
 
-Every arriving observation has exactly one `AdmissionOutcome` (§6.6), and only an `ACCEPTED` outcome
-can ever take part in a `StateDelta`.
+Every arriving observation has exactly one `AdmissionOutcome` (§6.6), and only an `ACCEPTED` arrival
+proceeds to pair evaluation (§6.8): `DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` and `REJECTED_INVALID`
+produce **no record at all**.
 
 | Situation | Required `AdmissionOutcome` | Delta consequence |
 | --- | --- | --- |
@@ -426,13 +439,13 @@ can ever take part in a `StateDelta`.
 | identical `source_time` on consecutive observations, **different state** | `ACCEPTED`, with `source_time_hold = true` on the delta | `COMPUTED` with real field changes; the delta must **not** claim time advanced |
 | sequence gap (same epoch, `sequence` > last accepted + 1) | `ACCEPTED`, with `observations_skipped = max(0, gap - 1)` | direct pair comparison only; **no intermediate state may be synthesized** |
 | identical duplicate (same `sequence` **and** same `state_digest`) | `DUPLICATE_ACKNOWLEDGED` — idempotent acknowledgement of an observation already admitted | **no `StateDelta` is created** (§8.1); admission state unchanged |
-| same `sequence` with a **different** `state_digest` (contradictory duplicate) | `INVALID` (`CONTRADICTORY_SEQUENCE`) | no delta; admission state unchanged |
+| same `sequence` with a **different** `state_digest` (contradictory duplicate) | `REJECTED_INVALID` (`CONTRADICTORY_SEQUENCE`) | no record; admission state unchanged |
 | stale observation (`sequence` < last accepted, **all declared continuity metadata unchanged**) | `REJECTED_STALE` (`STALE_SEQUENCE_REJECTED`) | no delta; admission state unchanged; **no epoch change** (§6.3) |
 | source timeline seek/scrub (`ordering_epoch` changes) | `NEW_EPOCH` | `TEMPORAL_DISCONTINUITY`; empty entity list |
 | engine restart (`producer_session_id` changes) | `NEW_EPOCH` | `TEMPORAL_DISCONTINUITY`; empty entity list |
-| Atlas restart | Atlas-owned admission state restored or re-established; comparable **iff** the next observation declares the same `continuity_id`, `producer_session_id` and `ordering_epoch` | `ACCEPTED` when continuity is restorable (compared against the restored last-accepted observation); `NEW_EPOCH` ⇒ `TEMPORAL_DISCONTINUITY` when a declared boundary field differs; `INVALID` when the durable admission state cannot be restored at all — comparability is `UNKNOWN` and the pair is refused rather than assumed |
+| Atlas restart | Atlas-owned admission state restored or re-established; comparable **iff** the next observation declares the same `continuity_id`, `producer_session_id` and `ordering_epoch` | `ACCEPTED` when continuity is restorable (compared against the restored last-accepted observation); `NEW_EPOCH` ⇒ `TEMPORAL_DISCONTINUITY` when a declared boundary field differs; `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) when the admission state cannot be established at all — nothing is guessed; and, when the state *is* restorable but the caller cannot supply the pair input, `ACCEPTED` followed by a record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` (§6.7) |
 | discontinuity/reset **declared** by the producer (`continuity_id` and/or `producer_session_id` and/or `ordering_epoch` changes) | `NEW_EPOCH` | `TEMPORAL_DISCONTINUITY`; empty entity list |
-| missing/invalid time or identity metadata | `INVALID` (`MISSING_SOURCE_TIME` / `MALFORMED_TIME` / `MALFORMED_IDENTITY`) | no delta; never default to zero |
+| missing/invalid time or identity metadata | `REJECTED_INVALID` (`MISSING_SOURCE_TIME` / `MALFORMED_TIME` / `MALFORMED_IDENTITY`) | no record; never default to zero |
 
 Three rules make this table single-valued, and all are normative:
 
@@ -477,7 +490,7 @@ itself (§6.3).
 | --- | --- | --- |
 | `SAME_EPOCH` | `stream_id` equal, `continuity_id` equal, `producer_session_id` equal, `ordering_epoch` equal, and `sequence` **strictly greater** than the last accepted sequence (adjacent or gapped, §5.4) | yes |
 | `NEW_EPOCH` | `stream_id` equal and **at least one declared boundary field differs**: `continuity_id`, `producer_session_id` or `source_time.ordering_epoch`. **Nothing else creates an epoch** (§6.3) | no — emit `TEMPORAL_DISCONTINUITY` |
-| `UNKNOWN` | metadata missing/malformed, or `domain`/`rate` mismatch between the pair, or capability mismatch | no — emit `OBSERVATION_INVALID` with the reason |
+| `UNKNOWN` | metadata missing/malformed, or `domain`/`rate` mismatch between the pair, or capability mismatch | no — emit a record with outcome `OBSERVATION_INVALID` and the reason (§8.1). Two already-admitted observations are refused as a **pair**; this is never the admission-level `REJECTED_INVALID` (§6.8) |
 | `DIFFERENT_STREAM` | `stream_id` differs | no comparison at all; not an error, but never a delta |
 
 ### 6.3 Validation duties (Atlas-side, fail closed)
@@ -510,10 +523,17 @@ content, no field history, no cache and no derived temporal model — a delibera
 
 **Mutation rule (single-valued).** Only an `ACCEPTED` observation updates
 `last_accepted_sequence`/`last_accepted_state_digest`/`last_accepted_observation_id`. A
-`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` or `INVALID` outcome leaves every three of those fields
+`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` or `REJECTED_INVALID` outcome leaves every one of those fields
 **unchanged** (only its own counter increments), so a rejected or repeated delivery can never move the
 stream's comparability window. `NEW_EPOCH` replaces the boundary fields and resets the counters for the
 new epoch.
+
+**This state holds no observation, and cannot produce one.** `last_accepted_state_digest` is a hash, not
+content: it exists only so that an identical duplicate is recognisable (§5.5) and so that a restart can
+tell whether it is still inside the same epoch. It is not invertible, and the layer must never attempt to
+recover a snapshot from it (§6.7, R-R2/R-R6). Producing a `StateDelta` therefore requires the previously
+accepted observation to be **supplied** — the layer neither retains it nor reconstructs it, and the
+absence of a snapshot store is a deliberate non-goal, not a gap (§13.4, §16).
 
 
 ### 6.5 Scope rule
@@ -524,17 +544,83 @@ subject is a different stream, not a delta.
 
 ### 6.6 `AdmissionOutcome` (closed vocabulary, exactly one per arriving observation)
 
-| `AdmissionOutcome` | Condition | Admission-state effect | Delta? |
+| `AdmissionOutcome` | Condition | Admission-state effect | Record emitted? |
 | --- | --- | --- | --- |
-| `ACCEPTED` | `SAME_EPOCH` and `sequence` strictly greater than the last accepted sequence | updates the accepted triple | yes (against the previously accepted observation) |
+| `ACCEPTED` | `SAME_EPOCH` and `sequence` strictly greater than the last accepted sequence | updates the accepted triple | yes — stage 3 evaluates the pair (§6.7, §6.8) |
 | `DUPLICATE_ACKNOWLEDGED` | same `sequence` **and** same `state_digest` as the last accepted observation | counter only | **no** — an idempotent acknowledgement, not a new fact about the world |
 | `REJECTED_STALE` | `sequence` < last accepted sequence, with **all** declared continuity metadata unchanged (§6.3, R-T3) | counter only | no |
-| `NEW_EPOCH` | a declared boundary field differs (§6.2) | boundary replaced, counters reset | boundary marker only: `TEMPORAL_DISCONTINUITY`, empty entity list |
-| `INVALID` | malformed metadata, contradictory duplicate (`CONTRADICTORY_SEQUENCE`), capability/§10.1 violation, digest mismatch, unparseable snapshot, scope or unit violation | counter only | no |
+| `NEW_EPOCH` | a declared boundary field differs (§6.2) | boundary replaced, counters reset | yes — a boundary record: `TEMPORAL_DISCONTINUITY`, empty entity list |
+| `REJECTED_INVALID` | the arrival is not a valid observation (malformed metadata, `CONTRADICTORY_SEQUENCE`, capability-declaration/§10.1 violation, `STATE_DIGEST_MISMATCH`, unparseable snapshot) **or** the admission state needed to classify it cannot be established (`ADMISSION_STATE_UNAVAILABLE`) | counter only | **no** |
 
-`DUPLICATE_ACKNOWLEDGED` and `REJECTED_STALE` are **not** errors: they are the admission layer's
-refusal to invent a fact. Neither produces a `StateDelta`, which is exactly what keeps
-`StateDelta(A, B)` a pure function of a strictly ordered pair of *accepted* observations (§12.1).
+`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` and `REJECTED_INVALID` are **not** errors in the sense of a
+retryable fault: they are the admission layer's refusal to invent a fact, and none of them produces a
+record. `REJECTED_INVALID` says *this stream did not admit this arrival*; its reason code says why
+(`STATE_DIGEST_MISMATCH` — the arrival is malformed — versus `ADMISSION_STATE_UNAVAILABLE` — the stream
+could not be classified at all). It is **never** the same fact as the pair-level `OBSERVATION_INVALID` of
+§8.2, which appears on a record for a pair of observations that were *both* admitted. Keeping the two
+apart is what keeps the stream-processing path of §6.8 single-valued.
+
+### 6.7 Pair input — where the previously accepted observation comes from
+
+A `StateDelta` is a statement about **two** observations, so a comparison needs the canonical snapshot of
+both endpoints. The temporal layer stores neither of them (§6.4, R-R4): its durable state is identity,
+counters and one content digest. The pair's earlier endpoint is therefore an **input**, not something the
+layer retrieves:
+
+```text
+PairInput := (A, B, COMPARISON_CONTRACT_VERSION)
+  A : the previously accepted observation, SUPPLIED by the caller — held by it for the duration of one
+      admission step, or supplied by a consumer that retained it itself
+  B : the observation just admitted
+```
+
+All five rules are normative:
+
+* **P1 — supply, never reconstruct.** The layer must never attempt to rebuild `A` from
+  `last_accepted_state_digest`, from a durable record, from the payload/report store, or from any cache.
+  A hash is not an observation, and re-deriving one would be "recovery as re-observation" (R-R2, R-R6).
+* **P2 — the layer keeps no snapshot.** Nothing in this contract permits the temporal layer to retain,
+  cache, serialize or allocate storage for a snapshot, a field history or a prior delta (§13.4, §16).
+  `StreamAdmissionState` (§6.4) holds no content.
+* **P3 — a missing pair input is a pair-level failure, not an admission failure.** If the caller cannot
+  supply `A`, the arrival is still admitted on its own facts (stage 2), and the step emits a record whose
+  outcome is `OBSERVATION_INVALID` with reason `PAIR_INPUT_UNAVAILABLE` and an empty entity list. It must
+  **never** emit `NO_CHANGE`, an empty `COMPUTED` delta, or a delta against a freshly captured "current"
+  state.
+* **P4 — who retains `A` is out of scope.** Retention, buffering and windowing of observations belong to
+  the caller or to a future store layer and need their own design gate (§13.4, §16). This subsection
+  states only that the temporal layer is not that store.
+* **P5 — what may persist is exactly the §6.4 triple plus counters.** Duplicate recognition (§5.5) needs
+  only `last_accepted_state_digest`; every compared field needs the snapshots — which is precisely why
+  they must be supplied rather than stored.
+
+### 6.8 The stream-processing path (single-valued, four stages)
+
+For every arriving observation exactly one path is taken, in this order:
+
+| Stage | Input | Question | Result |
+| --- | --- | --- | --- |
+| 1 arrival validation | the envelope alone | is this a valid observation of this stream? | pass, or `REJECTED_INVALID` (§10.5 items 1-5) |
+| 2 admission | the arrival + `StreamAdmissionState` | does it enter the stream, and how? | exactly one `AdmissionOutcome` (§6.6) |
+| 3 pair evaluation | `PairInput` (§6.7) | what is the factual difference? | one record (§8.1) — only if stage 2 was `ACCEPTED` or `NEW_EPOCH` |
+| 4 state update | the outcome | what does the admission state become? | the §6.4 mutation rule |
+
+* Stages 1 and 2 share **one** outcome name, `REJECTED_INVALID`, distinguished by reason code
+  (arrival-level: `STATE_DIGEST_MISMATCH`, `UNKNOWN_SCHEMA_VERSION`, `MALFORMED_TIME`; admission-level:
+  `CONTRADICTORY_SEQUENCE`, `ADMISSION_STATE_UNAVAILABLE`). Neither emits a record.
+* Stage 3 runs only for an `ACCEPTED` (or `NEW_EPOCH`) outcome. Its failure mode is
+  `OBSERVATION_INVALID` — a different fact about a different object: the arrival *was* admitted, and its
+  *pair* could not be compared. Stage 3 always emits a record, with an empty entity list on refusal.
+* Stage-3 checks are evaluated in a fixed order and the **first** failure wins:
+  1. pair input available (§6.7) → `PAIR_INPUT_UNAVAILABLE`;
+  2. capability equality (§10.4) → `CAPABILITY_MISMATCH`;
+  3. `source_time` `domain`/`rate` agreement and monotonicity (§5.6) → `SOURCE_TIME_NON_MONOTONIC`;
+  4. scene scope (§8.5) → `SCENE_SCOPE_CHANGED`;
+  5. unit system (§8.5) → `UNIT_SYSTEM_CHANGED`.
+* A stage-3 refusal **never retracts** a stage-2 acceptance: `B` remains the latest accepted observation
+  and the next arrival pairs with it. Admission and comparison are independent facts.
+* The two names are not interchangeable anywhere in this document, and no outcome may be reported for a
+  stage that did not run.
 
 ## 7. Temporal identity model
 
@@ -620,15 +706,56 @@ identity, the temporal layer:
 
 ## 8. State Delta model
 
-### 8.1 Definition
+### 8.1 Definition, record domain, and the boundary record
 
 ```text
-StateDelta(A, B) := the factual difference between two observations of the SAME stream
-                    that are comparable under §6
+StateDeltaRecord := the single record emitted for one stream step. Its domain is the union of:
+
+  (1) comparison pairs  (A, B) where A and B are accepted observations of the same stream, B was
+                        admitted after A, and ContinuityState(A, B) == SAME_EPOCH
+                        => outcome COMPUTED, or OBSERVATION_INVALID if a stage-3 check fails
+
+  (2) boundary pairs    (A, B) where A is the last accepted observation of continuity epoch n and B
+                        is the first accepted observation of the immediately following DECLARED
+                        epoch n+1 of the same stream
+                        => outcome TEMPORAL_DISCONTINUITY
 ```
 
-`StateDelta` is a **pure function** of `(A, B, COMPARISON_CONTRACT_VERSION)`. It is not a function of
-capture wall-clock, host state, iteration order, or any mutable cache (§12.1).
+No other pair produces a record: a stream's first observation has no predecessor (no record), a
+`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` or `REJECTED_INVALID` arrival produces none (§6.6, §6.8), and
+two observations of different streams are never paired (§6.2 `DIFFERENT_STREAM`).
+
+`StateDelta` is a **pure function of its `PairInput`** (§6.7) — `(A, B, COMPARISON_CONTRACT_VERSION)` —
+and of nothing else. It is not a function of capture wall-clock, host state, iteration order, any mutable
+cache, or any state the layer retained: the layer retains no observation at all (§12.1).
+
+**A `TEMPORAL_DISCONTINUITY` record is a `StateDelta`-shaped boundary record, and it is not a comparison.**
+A boundary pair is non-comparable *by construction* — the declared boundary is exactly the statement that
+the two endpoints belong to different temporal histories (§6.2). Emitting the record is legitimate (it is
+the only way to report that continuity broke without inventing a transition), but everything that depends
+on comparability is refused:
+
+* §9 field comparison is **never applied** across a boundary: no field is compared, so no field change and
+  no `NO_CHANGE` may be reported for any field;
+* `entity_deltas` is empty **by rule** (R-T2): the record asserts *no* state transition, and it must never
+  be rendered, summarized or re-exported as a burst of adds/removes/changes;
+* `from_state_digest`/`to_state_digest`/`state_digest_changed` are still the raw content identities of the
+  two endpoints (§11.2): `true` across a boundary is not evidence of a transition, and `false` does **not**
+  merge the epochs (R-T1);
+* `observations_skipped` is **not defined** across a boundary — `sequence` counters restart per epoch, so a
+  cross-boundary difference of two sequence values is meaningless. The field is `0` on the record, and the
+  boundary is named by its reason code (`RESTART_PRODUCER_SESSION`, `SEEK_OR_ORDERING_EPOCH_CHANGE`, …);
+* `coverage` records the *reason* the comparison could not be made (§10.2), not per-field states.
+
+The record's `continuity` field and its `outcome` are in a fixed correspondence, so a record can never
+claim a comparison that was not performed:
+
+| `ContinuityState` (§6.2) | Record | `outcome` |
+| --- | --- | --- |
+| `SAME_EPOCH` | comparison pair | `COMPUTED`, or `OBSERVATION_INVALID` on a stage-3 failure (§6.8) |
+| `NEW_EPOCH` | boundary pair | `TEMPORAL_DISCONTINUITY` |
+| `UNKNOWN` | comparison refused | `OBSERVATION_INVALID` |
+| `DIFFERENT_STREAM` | none | — |
 
 ```text
 StateDelta := {
@@ -641,8 +768,10 @@ StateDelta := {
   to_state_digest        : 64-lowercase-hex           # raw content identity of B (§11.2)
   state_digest_changed   : bool                        # from_state_digest != to_state_digest
   continuity             : "SAME_EPOCH" | "NEW_EPOCH" | "UNKNOWN" | "DIFFERENT_STREAM"
-  observations_skipped   : integer >= 0               # max(0, sequence gap - 1) (§5.4)
-  source_time_hold       : bool                        # identical source_time, different state
+  observations_skipped   : integer >= 0               # max(0, sequence gap - 1) on a COMPUTED record;
+                                                       # 0 on a refusal or boundary record (§5.4, §8.1)
+  source_time_hold       : bool                        # true iff identical source_time and different
+                                                       # state; always false on a boundary record
   identity_ambiguous_ids : sorted list of strings
   entity_deltas          : ordered list of EntityDelta # §8.3, ordering in §8.4
   coverage               : per-field FieldObservationState map   # §10.2 — never optional
@@ -661,16 +790,15 @@ change, and the semantic comparison must never alter a digest value (§11.5).
 
 | `DeltaOutcome` | When | `entity_deltas` |
 | --- | --- | --- |
-| `COMPUTED` | both observations valid, `SAME_EPOCH`, capabilities identical | populated |
-| `TEMPORAL_DISCONTINUITY` | `NEW_EPOCH` — a **declared** continuity boundary (producer restart, seek, declared reset), §6.2 | **empty by rule (R-T2)** |
-| `OBSERVATION_INVALID` | either observation invalid, or `UNKNOWN` comparability (capability mismatch, domain/rate mismatch, missing metadata, declared/recomputed digest disagreement) | **empty** |
+| `COMPUTED` | two accepted observations, `SAME_EPOCH`, pair input supplied, capabilities identical, every stage-3 check passed (§6.8) | populated |
+| `TEMPORAL_DISCONTINUITY` | `NEW_EPOCH` — a **declared** continuity boundary (producer restart, seek, declared reset), §6.2. A boundary record, not a comparison (§8.1) | **empty by rule (R-T2)** |
+| `OBSERVATION_INVALID` | a **pair-level** refusal of two accepted observations: missing pair input (`PAIR_INPUT_UNAVAILABLE`), capability mismatch (§10.4), `domain`/`rate` mismatch, scene-scope change (§8.5), unit-system change (§8.5). **Never** for an arrival that failed validation — that is `REJECTED_INVALID` at admission and emits no record (§6.6, §6.8) | **empty** |
 
-The three outcomes are exhaustive for a pair. A fourth situation — `DIFFERENT_STREAM` — is not a delta
-at all: the comparison is refused and reported as such (no `StateDelta` is produced).
-
-A duplicate re-delivery and a stale observation **never reach this table**: they are resolved at
-admission (§6.6) and produce no `StateDelta` at all — which is exactly what keeps `StateDelta(A, B)` a
-pure function of a strictly ordered pair of *accepted* observations (§12.1).
+The three outcomes are exhaustive for a **record**. Four situations produce no record at all:
+`DIFFERENT_STREAM` (never paired) and the three admission-level non-acceptances
+(`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE`, `REJECTED_INVALID`, §6.6). Admission-level facts therefore
+never appear in this table, which is what keeps `StateDelta(A, B)` a pure function of a *supplied* pair of
+accepted observations (§6.7, §12.1) and keeps the stream-processing path single-valued (§6.8).
 
 ### 8.3 `EntityDeltaKind` (entity-level facts)
 
@@ -821,8 +949,9 @@ Two rotations are **semantically equal** iff, componentwise and exactly:
 
 * A field that is `UNAVAILABLE` or `UNSUPPORTED_BY_PRODUCER` in **either** observation appears in
   `coverage` with that state and appears in **no** `field_changes` entry.
-* A field that is `INVALID_OBSERVATION` in either observation makes the whole observation invalid
-  (§10.5) — it never yields a partial delta.
+* A field that is `INVALID_OBSERVATION` marks the record as a **pair-level refusal**: the record's
+  outcome is `OBSERVATION_INVALID` with an empty entity list (§8.1), never a partial delta. (An arrival
+  that fails validation never reaches a record at all — it is `REJECTED_INVALID` at admission, §6.8.)
 * `None` in a canonical `Optional` field (`collection`, `parent_object_id`) is a **value**, not
   "missing": `None` ↔ string is a change.
 
@@ -878,7 +1007,7 @@ capability declaration that lists a set-C field is invalid (§10.5).
 | `OBSERVED_CHANGED` | observed in both; semantically different | **yes** |
 | `UNAVAILABLE` | the producer contract covers the field, but this observation did not carry it | no |
 | `UNSUPPORTED_BY_PRODUCER` | the field is in the DECLARED-UNOBSERVABLE SET (§10.1 set B): the producer contract does not deliver it at all (v1: `normals`, `uvs`, `local_frame_id`, `coordinate_frame`) | no |
-| `INVALID_OBSERVATION` | the field (or the observation containing it) failed validation | no — observation invalid |
+| `INVALID_OBSERVATION` | the field could not be compared because the record is a pair-level refusal (§8.1) | no — the record's outcome is `OBSERVATION_INVALID` |
 
 The `coverage` map is defined over the union of set A and set B of §10.1 — and nothing else. Fields of
 set C (derived) have no entry: they are outside the contract, not unobserved.
@@ -891,10 +1020,12 @@ unsupported by the producer contract   ≠  observed and unchanged
 unavailable in this observation        ≠  observed and unchanged
 ```
 
-`coverage` is therefore **mandatory** on every `StateDelta`, even for `TEMPORAL_DISCONTINUITY` and
+`coverage` is therefore **mandatory** on every emitted record, even for `TEMPORAL_DISCONTINUITY` and
 `OBSERVATION_INVALID` outcomes (where it records the *reason* the comparison could not be made). A
 consumer that reads only `entity_deltas` is reading an incomplete fact; the contract makes the omission
-visible rather than silent.
+visible rather than silent. A coverage map exists **only** on a record: an arrival that is
+`REJECTED_INVALID`, `REJECTED_STALE` or `DUPLICATE_ACKNOWLEDGED` has no record and therefore no coverage
+at all (§6.6, §6.8) — there is no partial or placeholder coverage to misread.
 
 ### 10.3 v1 coverage table (what is actually observable today)
 
@@ -929,14 +1060,22 @@ For one observation, validation is evaluated in this order and the **first** fai
    (`MALFORMED_IDENTITY` / `MISSING_SOURCE_TIME` / `MALFORMED_TIME`);
 3. capability declaration inconsistent — overlap, unknown field, a set-C/derived field listed, or a
    universe other than §10.1 set A ∪ set B ⇒ invalid (`CAPABILITY_UNIVERSE_INCOMPLETE`);
-4. the digest **recomputed** from `snapshot` under §11.2 ≠ the declared `state_digest` ⇒ invalid
-   (`STATE_DIGEST_MISMATCH`). There is no "declared invalid" variant to skip this check, and the
-   declared value is never trusted as an authority (§4.6);
-5. `snapshot` fails canonical parsing (or is not in the single §4.6 representation) ⇒ invalid
-   (parser error reported verbatim);
-6. scene-scope / unit-system violations vs the compared observation ⇒ invalid (§8.5);
-7. admission conflicts — a contradictory duplicate or an undeclared sequence regression ⇒ invalid /
-   rejected at admission (§6.6); never a partial delta, never a partial state mutation.
+4. the digest **recomputed** from `snapshot` under §11.2 ≠ the declared `state_digest` ⇒
+   `REJECTED_INVALID` (`STATE_DIGEST_MISMATCH`). There is no "declared invalid" variant to skip this
+   check, and the declared value is never trusted as an authority (§4.6);
+5. `snapshot` fails canonical parsing (or is not in the single §4.6 representation) ⇒
+   `REJECTED_INVALID` (parser error reported verbatim);
+6. admission conflicts — a contradictory duplicate, an undeclared sequence regression, or an admission
+   state that cannot be established for this stream ⇒ `REJECTED_INVALID` / `REJECTED_STALE` (§6.6);
+   never a partial record, never a partial state mutation;
+7. **pair-level** refusals are not arrival validation and are evaluated at stage 3 (§6.8): a missing pair
+   input (§6.7), capability mismatch between the endpoints (§10.4), `domain`/`rate` mismatch, scene-scope
+   violation and unit-system violation (§8.5) each produce a record whose outcome is
+   `OBSERVATION_INVALID`, with an empty entity list and **no** admission-state change.
+
+Items 1-6 describe stages 1-2 and always end in `REJECTED_INVALID` with no record; item 7 describes
+stage 3 and always ends in a record with `OBSERVATION_INVALID`. The first failure wins within each stage,
+so no arrival and no pair can produce two outcomes.
 
 ## 11. Digest and provenance boundaries
 
@@ -964,7 +1103,7 @@ temporal_state_digest := sha256_hex( json.dumps(projection, sort_keys=True,
 
 projection := {
   "scene_id": ..., "unit_system": ...,
-  "objects": [ per object, sorted by (object_id, occurrence_index):
+  "objects": [ per object, sorted by (object_id, entity_content_digest):
       {"object_id", "name", "collection", "parent_object_id",
        "location", "scale", "rotation", "visible",
        "mesh": {"mesh_id", "vertices", "faces", "materials"} | null } ]
@@ -973,10 +1112,28 @@ projection := {
 
 Decisions, each with its reason:
 
-* **Objects are sorted** by `(object_id, occurrence_index)`. Unlike the frozen kernel digest (which
-  consumes producer order), the temporal digest is a *content* identity that must not depend on the
-  order a producer happened to emit; `occurrence_index` is the 0-based position among equal ids, so the
-  digest stays defined even when ids are duplicated.
+* **Objects are sorted by `(object_id, entity_content_digest)`.** Unlike the frozen kernel digest (which
+  consumes producer order), the temporal digest is a *content* identity and must not depend on the order a
+  producer happened to emit. `entity_content_digest` is the digest of that one object's own canonical
+  projection — the same field set, no ordering information, computed on demand and never stored (the
+  single primitive of §13.2).
+
+  Revision 2 used `occurrence_index` (the 0-based position among equal ids) as the tie-break, and that was
+  **producer-order dependent whenever an `object_id` is duplicated**: the position of two same-id objects
+  tracks the producer's emission order, so swapping them could move `temporal_state_digest` while the
+  multiset of canonical content was unchanged. Revision 3 replaces it, and the claim is now a mechanism
+  rather than an assertion:
+
+  * two objects with the same `object_id` and **different** content are ordered by their content digests,
+    so swapping their emission order cannot move `temporal_state_digest`;
+  * two objects with the same `object_id` **and** the same content are interchangeable by construction, so
+    their relative order cannot move it either;
+  * therefore the digest is independent of producer emission order in **all** cases, duplicated ids
+    included — the property revision 1 claimed and revision 2 half-delivered.
+
+  The tie-break orders the *digest projection only*. It never reorders the entity comparison (§8.4), the
+  canonical object order inside a snapshot (extraction design §5.3), or any payload/report output; and a
+  digest difference still never implies a field change (§11.5).
 * **`materials` participates** (the kernel digest excludes it), because materials *are* part of the
   observable v1 state and a temporal identity that ignored them would call a material change
   "identical".
@@ -1073,9 +1230,14 @@ answer equality.
 ### 12.1 Purity
 
 `delta = f(A, B, COMPARISON_CONTRACT_VERSION)`. No wall clock, no host identity, no hash seed, no
-dictionary iteration order, no pointer identity. The same pair must produce the same delta — same
-`entity_deltas`, same ordering, same `reason_codes`, same `delta_digest` — in any process, in any
-language, on any day.
+dictionary iteration order, no pointer identity, and no retained state the layer might have kept. The same
+pair must produce the same delta — same `entity_deltas`, same ordering, same `reason_codes`, same
+`delta_digest` — in any process, in any language, on any day.
+
+The evaluator is therefore **stateless**: `A` and `B` are inputs (§6.7), and the layer holds nothing
+between steps beyond the content-free admission triple (§6.4). When `A` cannot be supplied the pair is
+refused with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` — never approximated, never replaced by an
+empty or `NO_CHANGE` delta.
 
 ### 12.2 Ordering rules (restated as a checklist)
 
@@ -1111,12 +1273,17 @@ language, on any day.
 `CAPABILITY_MISMATCH`, `CAPABILITY_UNIVERSE_INCOMPLETE`, `STATE_DIGEST_MISMATCH`, `SCENE_SCOPE_CHANGED`,
 `UNIT_SYSTEM_CHANGED`, `IDENTITY_AMBIGUOUS_IDS`, `ROTATION_SIGN_EQUIVALENT_ONLY`,
 `UNOBSERVABLE_FIELDS_PRESENT`, `MISSING_SOURCE_TIME`, `MALFORMED_TIME`, `MALFORMED_IDENTITY`,
-`UNKNOWN_SCHEMA_VERSION`.
+`PAIR_INPUT_UNAVAILABLE`, `ADMISSION_STATE_UNAVAILABLE`, `UNKNOWN_SCHEMA_VERSION`.
 
 `SEQUENCE_REGRESSION` and `DUPLICATE_OBSERVATION` were removed in revision 2: a bare regression no
 longer names an epoch change (it is `STALE_SEQUENCE_REJECTED` / `UNDECLARED_SEQUENCE_RESET`), and an
 identical duplicate no longer produces a delta to carry a reason code (`DUPLICATE_IDEMPOTENT_ACK` is an
 admission acknowledgement, §6.6).
+
+Revision 3 adds `PAIR_INPUT_UNAVAILABLE` (stage 3 could not obtain the pair's earlier endpoint, §6.7) and
+`ADMISSION_STATE_UNAVAILABLE` (stage 2 could not classify the arrival at all), and renames the admission
+outcome `INVALID` to `REJECTED_INVALID` — a rename of an admission-level fact, not a new fact, required so
+that it can never be read as the pair-level `OBSERVATION_INVALID` of §8.2 (§6.6, §6.8).
 
 Adding a code is a schema revision (§15.3), never an ad-hoc string.
 
@@ -1140,11 +1307,16 @@ deterministic StateDelta                     cost: O(changed fields) to build, O
 
 ### 13.2 The one primitive that makes the ladder real
 
-Per-entity `entity_state_digest` (same field set as §11.2 restricted to one object) is the mechanism that
-turns "compare two snapshots" into "compare two lists of hashes, then deep-compare only the mismatches".
-It is a *contract-level* primitive (may be computed on demand, need not be stored), and it changes no
-semantics: an entity whose digest matches is reported `NO_CHANGE` without field-by-field work; a
-mismatch is deep-compared under §9 and the result is identical to the naive path.
+Per-entity `entity_content_digest` — the content identity of a single object (the §11.2 field set
+restricted to that object, carrying no ordering information) — is the mechanism that turns "compare two
+snapshots" into "compare two lists of hashes, then deep-compare only the mismatches". It has exactly two
+contract uses: this short-circuit, and the §11.2 tie-break that makes the temporal state digest
+independent of producer emission order even when `object_id`s are duplicated.
+
+It is a *contract-level* primitive, computed on demand and **never stored**: caching entity digests is
+precisely the kind of mutable temporal store this milestone defers (§13.4). It changes no semantics: an
+entity whose digest matches is reported `NO_CHANGE` without field-by-field work; a mismatch is
+deep-compared under §9 and the result is identical to the naive path.
 
 Ordering of work must **not** change the answer: the short-circuit is an optimization of the same pure
 function; any implementation that produces a different delta by short-circuiting is non-conforming.
@@ -1161,7 +1333,9 @@ Streaming ingestion, back-pressure, ring buffers, caches, mutable temporal datab
 workers, interval indexes, retention/window policy, delta compression, and any "keep the last N
 observations" store. The task's instruction is explicit and this document obeys it: **design the
 contract first**. Every one of the above needs its own design gate because each introduces state,
-authority over state lifetime, and therefore new failure modes.
+authority over state lifetime, and therefore new failure modes. This deferral is also why the pair's
+earlier endpoint is a **supplied input** (§6.7) rather than a stored observation: until a retention gate
+exists, the layer's only state is the content-free §6.4 triple plus counters.
 
 ## 14. Restart and recovery semantics
 
@@ -1172,15 +1346,16 @@ as proof about anything else* (`docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRAC
 
 | Event | Detection | Temporal behaviour |
 | --- | --- | --- |
-| **Atlas restarts** | Atlas process incarnation changes | `stream_id` and `continuity_id` are Atlas-durable/declared, so comparability is preserved **iff** the next accepted observation declares the same `continuity_id` and the producer's session/epoch are unchanged. The prior `last_accepted_sequence` is restored from durable state or the epoch is re-established; if it cannot be, the next pair is `UNKNOWN` ⇒ `OBSERVATION_INVALID` (**not** a silent `NO_CHANGE`) |
+| **Atlas restarts** | Atlas process incarnation changes | `stream_id` and `continuity_id` are Atlas-durable/declared, so comparability is preserved **iff** the next accepted observation declares the same `continuity_id` and the producer's session/epoch are unchanged. The prior `last_accepted_sequence` is restored from durable state or the epoch is re-established. If the admission state cannot be established at all, the arrival is `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) — the stream is re-established from a declared boundary rather than guessed. If the state *is* restorable but the caller cannot supply the pair input, stage 3 emits a record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` (**not** a silent `NO_CHANGE`, and never a reconstructed `A`) |
 | **Blender restarts** | `producer_session_id` changes (and normally `continuity_id`) | `NEW_EPOCH` ⇒ `TEMPORAL_DISCONTINUITY`, empty entity list; `producer_instance_ordinal` increments |
 | **Unreal restarts** | `producer_session_id` changes | identical rule; on the Unreal side this mirrors the recovery contract's `editor_session_id`-per-process-incarnation discipline, and PID alone is never identity |
-| **producer stream resumes** | new session/epoch declared | new epoch; first observation of the epoch has no predecessor and produces no delta |
+| **producer stream resumes** | new session/epoch declared | `NEW_EPOCH`. If the stream already had an accepted observation, the first observation of the new epoch forms a **boundary pair** with the last accepted observation of the previous epoch and produces a `TEMPORAL_DISCONTINUITY` record (§8.1); if it is the stream's first observation ever, there is no predecessor and no record is produced |
 | **duplicate re-delivery** | same `sequence` **and** same `state_digest` as the last accepted observation | `DUPLICATE_ACKNOWLEDGED`: idempotent acknowledgement; **no** `StateDelta`, no admission-state change (§6.6) |
 | **sequence counter resets** | `sequence` regresses with **unchanged declared** continuity metadata | **`REJECTED_STALE`** (§6.3, §6.6): a bare regression is indistinguishable from a stale re-delivery, so it is neither an epoch change nor a delta. A producer that genuinely resets MUST declare the boundary through `continuity_id`, `producer_session_id` or `ordering_epoch` — then the "different continuity/session observed" row applies |
 | **source time resumes** (timeline continues after a stall) | same epoch, `source_time` non-decreasing | comparable; a large forward step is a legal gap (`observations_skipped`), not a discontinuity |
 | **stale observation arrives** (older `sequence` inside the same epoch) | `sequence` < `last_accepted_sequence` with unchanged declared continuity metadata | **`REJECTED_STALE`**; zero mutation of admission state (§6.4); no delta, and **no epoch change** — v1 refuses to guess whether it is looking at staleness or at an undeclared reset (§6.3) |
 | **different continuity/session observed** | `continuity_id`/`producer_session_id`/`ordering_epoch` differ | `NEW_EPOCH` ⇒ discontinuity, empty entity list |
+| **the pair's earlier endpoint is not supplied** | no `A` in the `PairInput` (§6.7) | the arrival is `ACCEPTED` on its own facts, then stage 3 emits a record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE`; the layer must not reconstruct `A` from `last_accepted_state_digest` or any store (R-R2, R-R6) |
 
 Additional normative rules:
 
@@ -1198,6 +1373,10 @@ Additional normative rules:
   changing a declared boundary field produces rejected-stale observations, not a new epoch (§6.3, R-T3).
   Atlas must never manufacture a fresh continuity window from an undeclared reset, because a new window
   would silently re-authorize comparisons the producer never asked for.
+* **R-R6 — an observation is never reconstructed.** No path may rebuild a previously accepted observation
+  from a digest, a durable record or a store, and no path may substitute a fresh capture for one: a
+  comparison whose earlier endpoint cannot be supplied is refused (§6.7 P1/P3). Recovery restores
+  *bookkeeping*, never content (R-R4).
 
 ## 15. Cross-engine / future C++ parity boundary
 
@@ -1299,7 +1478,7 @@ its own red-team and its own live evidence (§18 Q6).
 | 12 | unavailable and derived fields | five-state coverage for declared fields; never reported as unchanged; **derived** fields (`world_bounds`) are outside the contract entirely and have no coverage entry | §10.1, §10.2, §10.3 |
 | 13 | identical snapshots at different times | content-identical, therefore also semantically equivalent (§11.5); **not** evidence of continuity | §5.5 R-T1, §11.5 |
 | 14 | stale / out-of-order observations | `REJECTED_STALE`; zero admission-state mutation; **never** an epoch change | §5.5, §6.3, §6.6 |
-| 15 | duplicate observations | identical ⇒ `DUPLICATE_ACKNOWLEDGED`: idempotent, admission state unchanged, **no `StateDelta`**; same `sequence` with a different digest ⇒ `INVALID` (`CONTRADICTORY_SEQUENCE`), state unchanged | §5.5, §6.6, §8.1 |
+| 15 | duplicate observations | identical ⇒ `DUPLICATE_ACKNOWLEDGED`: idempotent, admission state unchanged, **no `StateDelta`**; same `sequence` with a different digest ⇒ `REJECTED_INVALID` (`CONTRADICTORY_SEQUENCE`) with **no record**, state unchanged | §5.5, §6.6, §8.1 |
 | 16 | sequence gaps vs source-time jumps | a gap is `observations_skipped = max(0, gap - 1)` with no synthesized intermediates, and is never reported as, derived from, or conflated with a source-time jump | §5.4, §5.5, §14 R-R1 |
 | 17 | timeline seek | `ordering_epoch` change ⇒ new epoch ⇒ discontinuity | §5.1, §5.5 |
 | 18 | engine restart | `producer_session_id` change ⇒ new epoch ⇒ discontinuity | §5.5, §14 |
@@ -1309,8 +1488,13 @@ its own red-team and its own live evidence (§18 Q6).
 | 22 | producer capability changes | `CAPABILITY_MISMATCH` ⇒ not comparable (no intersection narrowing) | §10.4 |
 | 23 | cross-engine snapshot equivalence | non-claim: `coordinate_frame` is in the declared-unobservable set (§10.1 set B); unit agreement only | §10.1, §15 |
 | 24 | stale observations | rejected before any comparison; no state mutation, no epoch change | §5.5, §6.3, §14 |
-| 25 | a producer declares `state_digest` invalid, or lies about it | `state_digest` is always required and always **recomputed**; there is no producer-declared invalid variant to admit, and a mismatch is `OBSERVATION_INVALID` / `STATE_DIGEST_MISMATCH` | §4.1, §4.6, §10.5 |
+| 25 | a producer declares `state_digest` invalid, or lies about it | `state_digest` is always required and always **recomputed**; there is no producer-declared invalid variant to admit, and a mismatch is `REJECTED_INVALID` (`STATE_DIGEST_MISMATCH`) at stage 1, with **no record** | §4.1, §4.6, §6.8, §10.5 |
 | 26 | a consumer reads `state_digest_changed = true` as "something observable changed" | the delta carries the two facts separately; `state_digest_changed` is raw content identity and may never add, remove or reclassify a field change | §8.1, §9.4, §11.5 |
+| 27 | a layer that cannot supply the pair's earlier endpoint tries to rebuild it from `last_accepted_state_digest`, from a durable record, or by capturing a fresh "current" state | refused: a digest is not an observation (R-R2, R-R6). The arrival is still admitted on its own facts, and stage 3 emits `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` with an empty entity list — never `NO_CHANGE`, never an empty `COMPUTED` delta, never a synthetic `A` | §6.4, §6.7 P1/P3, §12.1, §14 R-R6 |
+| 28 | a consumer treats a `TEMPORAL_DISCONTINUITY` record as a state transition | the record is a boundary record, not a comparison: §9 is never applied across a boundary, `entity_deltas` is empty by rule (R-T2), and the two endpoint digests being different is not a transition | §8.1, §8.2, R-T2 |
+| 29 | an implementation reports `observations_skipped` across an epoch boundary from the two endpoints' `sequence` values | not defined across a boundary: `sequence` restarts per epoch, the field is `0` on a boundary record, and the boundary is named by its reason code | §8.1, §5.4 |
+| 30 | conflation of admission-level `REJECTED_INVALID` with pair-level `OBSERVATION_INVALID` (or the reverse: reporting a pair refusal as an admission rejection) | one name per stage (§6.8): stages 1-2 emit no record, stage 3 always emits one; a stage-3 refusal never retracts a stage-2 acceptance, and no outcome may be reported for a stage that did not run | §6.6, §6.8, §8.2, §20, §21 |
+| 31 | a producer emits the same object multiset with duplicated `object_id`s in a different order and claims the temporal digest is unchanged | the tie-break is content-derived (`object_id`, `entity_content_digest`), so emission order cannot move the digest; true content duplicates are interchangeable by construction; the `occurrence_index` rule of revision 2 (which was order-dependent for duplicated ids) is retracted | §11.2, §13.2 |
 
 ### 19.2 Deterministic test requirements (`T-n`, not implemented by this document)
 
@@ -1318,7 +1502,7 @@ its own red-team and its own live evidence (§18 Q6).
 | --- | --- |
 | T-1 | A/B/C determinism of observation admission: same envelopes+snapshots in different construction orders and different `PYTHONHASHSEED` values produce identical admission records and identical `delta_digest` |
 | T-2 | `SAME_EPOCH`/`NEW_EPOCH`/`UNKNOWN`/`DIFFERENT_STREAM` classification table, case by case, including each restart flavor **and** the stale-versus-declared-reset discrimination: a bare regression must classify `REJECTED_STALE`, and the same regression plus a changed declared boundary field must classify `NEW_EPOCH` |
-| T-3 | `TEMPORAL_DISCONTINUITY` and `OBSERVATION_INVALID` produce **empty** `entity_deltas` (asserting no synthesized transitions), and `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` produce **no `StateDelta` at all** (admission-level outcomes, asserted by the absence of any delta for that arrival) |
+| T-3 | `TEMPORAL_DISCONTINUITY` and `OBSERVATION_INVALID` produce **empty** `entity_deltas` (asserting no synthesized transitions) and satisfy the §8.1 boundary-record rules (`observations_skipped = 0`, `source_time_hold = false`, coverage carrying the refusal reason, §9 never applied); `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` / `REJECTED_INVALID` produce **no record at all** (admission-level outcomes, asserted by the absence of any record for that arrival) |
 | T-4 | Duplicate-id handling: pair-ambiguous ids never appear in `field_changes`, and `identity_ambiguous_ids` is sorted and complete |
 | T-5 | Field-comparison matrix: one fixture per canonical field, changed and unchanged, with exact `before`/`after` values |
 | T-6 | Quaternion sign equivalence (`q` vs `-q`) and non-unit raw comparison, including the reason code **and the distinct raw digests**: the run must assert an empty `rotation` change list, `ROTATION_SIGN_EQUIVALENT_ONLY`, and simultaneously `state_digest_changed = true` with different `from_state_digest`/`to_state_digest` (no normalization anywhere) |
@@ -1330,6 +1514,10 @@ its own red-team and its own live evidence (§18 Q6).
 | T-12 | Python 3.9 and 3.11 parity for the deterministic suite |
 | T-13 | Sequence-gap semantics: an accepted gap yields `observations_skipped = max(0, gap - 1)`; a fixture carrying **both** a sequence gap and an unchanged `source_time` (and one carrying a source-time step with adjacent sequences) must show the two facts reported independently, never derived from one another |
 | T-14 | Admission-outcome matrix: identical duplicate, contradictory duplicate, stale regression and declared reset each yield exactly one named `AdmissionOutcome`, and every non-`ACCEPTED` path leaves the admission state byte-identical (including the counters) |
+| T-15 | Pair sourcing (§6.7): a step whose `PairInput` omits `A` yields exactly one record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` and an empty entity list; the run must also assert that the admission state contains **no** snapshot content and that no path reconstructs `A` from `last_accepted_state_digest` (a fixture mutating the digest must not be able to fabricate a delta) |
+| T-16 | Boundary-record shape (§8.1): a declared boundary emits exactly one record with `TEMPORAL_DISCONTINUITY`, an empty `entity_deltas`, `observations_skipped = 0` even when the two endpoints' `sequence` values would suggest a gap, `source_time_hold = false`, and coverage recording the reason; and the run must assert that no field comparison was performed (no `field_changes`, no `NO_CHANGE` entries) |
+| T-17 | Stage separation (§6.8): in one fixture, an arrival that fails arrival validation yields `REJECTED_INVALID` with **no record**, while a pair-level failure between two accepted observations yields exactly one record with `OBSERVATION_INVALID`; and after the stage-3 refusal the admission state is asserted unchanged, with the next accepted observation pairing against `B` |
+| T-18 | Digest order independence with duplicated ids (§11.2): the same object multiset — including two objects sharing one `object_id` with different content, and two that are content-identical — emitted in two different construction orders must produce identical `temporal_state_digest`; changing the content of one of them must change it; and the run must assert the comparison/entity ordering is unaffected by the tie-break |
 
 ### 19.3 Live-evidence requirements (`L-n`, not implemented by this document)
 
@@ -1354,35 +1542,46 @@ consistent with the §10.1 universe. That digest is raw content identity: it is 
 producer-declared value is ever trusted over the recomputation.
 
 **What exactly is a State Delta?**
-The deterministic, factual difference between two **accepted** observations of the same stream that are
-comparable under §6 — the pair is strictly ordered by `sequence`, and neither side is a duplicate, stale
-or invalid delivery, because those are resolved at admission and produce no delta at all (§6.6). It
-carries: a `DeltaOutcome`; the raw content-identity facts (`from_state_digest`, `to_state_digest`,
-`state_digest_changed`); an ordered per-entity list of `OBJECT_ADDED` / `OBJECT_REMOVED` /
-`OBJECT_CHANGED` / `NO_CHANGE` / `IDENTITY_AMBIGUOUS` facts with field-level `before`/`after` values;
-the skipped-observation and source-time-hold facts; the ambiguity set; and a mandatory per-field
-coverage record. It contains no interpretation, and it never uses a digest to override the comparison
-relation — or the comparison relation to rewrite a digest.
+The single record emitted for one stream step. Its domain is the union of two pair kinds (§8.1): a
+**comparison pair** — two accepted observations of the same stream in the same epoch, `B` admitted after
+`A` — and a **boundary pair** — the last accepted observation of epoch *n* with the first accepted
+observation of the immediately following declared epoch *n+1*. The first yields a factual comparison
+(or a pair-level refusal); the second yields a **boundary record** (`TEMPORAL_DISCONTINUITY`) that asserts
+no transition and applies no field comparison. Every other arrival and pair produces no record at all:
+`DIFFERENT_STREAM`, and the admission-level `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` /
+`REJECTED_INVALID` (§6.6, §6.8). A record carries: a `DeltaOutcome`; the raw content-identity facts
+(`from_state_digest`, `to_state_digest`, `state_digest_changed`); an ordered per-entity list of
+`OBJECT_ADDED` / `OBJECT_REMOVED` / `OBJECT_CHANGED` / `NO_CHANGE` / `IDENTITY_AMBIGUOUS` facts with
+field-level `before`/`after` values; the skipped-observation and source-time-hold facts; the ambiguity
+set; and a mandatory per-field coverage record. It contains no interpretation, and it never uses a digest
+to override the comparison relation — or the comparison relation to rewrite a digest.
 
 **When is it legitimate to compare two observations?**
 Only when both are valid, share a `stream_id`, are in the **same** continuity epoch (`continuity_id`,
 `producer_session_id` and `source_time.ordering_epoch` equal; `sequence` strictly greater — adjacent or
-gapped), declare identical capabilities, agree on `scene_id` and `unit_system`, **and** the arriving
-observation was `ACCEPTED` (an identical duplicate, a stale regression or an invalid delivery is never
-compared, §6.6). Nothing else grants comparability — in particular, similar or identical snapshots
-never do (§5.5 R-T1), and neither does a `sequence` regression (§5.5 R-T3).
+gapped), declare identical capabilities, agree on `scene_id` and `unit_system`, the arriving observation
+was `ACCEPTED` (§6.6), **and** the pair's earlier endpoint is **supplied** as the pair input (§6.7) — the
+layer cannot compare an observation it does not hold, and it may not reconstruct one. An identical
+duplicate, a stale regression or a rejected arrival is never compared. Nothing else grants comparability —
+in particular, similar or identical snapshots never do (§5.5 R-T1), and neither does a `sequence`
+regression (§5.5 R-T3).
 
 **When must comparison fail closed or reset continuity?**
-Fail closed (`OBSERVATION_INVALID`, no delta, no admission-state mutation) on: missing/malformed time or
-identity metadata, a contradictory duplicate (`CONTRADICTORY_SEQUENCE`), non-monotonic source time
-inside an epoch, a declared digest that disagrees with the recomputed digest, an unparseable (or
-non-normative) snapshot, capability mismatch or change, scene-scope change, unit-system change, unknown
-schema version. Reset continuity (new epoch, `TEMPORAL_DISCONTINUITY`, empty entity list) **only** on a
-**declared** boundary: producer restart, timeline seek, an explicit producer reset, or Atlas restart
-when continuity cannot be re-established. Reject without mutation and **without** an epoch change
+There are two distinct failure levels, and they are never conflated (§6.8). **Admission-level
+(`REJECTED_INVALID`, no record, no admission-state mutation):** missing/malformed time or identity
+metadata, a contradictory duplicate (`CONTRADICTORY_SEQUENCE`), a declared digest that disagrees with the
+recomputed digest, an unparseable (or non-normative) snapshot, an inconsistent capability declaration,
+unknown schema version, or an admission state that cannot be established
+(`ADMISSION_STATE_UNAVAILABLE`). **Pair-level (`OBSERVATION_INVALID`, one record with an empty entity
+list and an unchanged admission state):** a pair input that was not supplied (`PAIR_INPUT_UNAVAILABLE`),
+capability mismatch between the endpoints, non-monotonic source time inside an epoch, `domain`/`rate`
+mismatch, scene-scope change, unit-system change — evaluated in the §6.8 order, first failure wins.
+Reset continuity (new epoch, `TEMPORAL_DISCONTINUITY` boundary record, empty entity list) **only** on a
+**declared** boundary: producer restart, timeline seek, an explicit producer reset, or Atlas restart when
+continuity cannot be re-established. Reject without mutation and **without** an epoch change
 (`REJECTED_STALE`) on a `sequence` regression whose declared continuity metadata is unchanged, because a
 bare regression is not evidence of a reset (R-T3). A sequence gap is not a discontinuity: it is
-`observations_skipped` (§5.4).
+`observations_skipped` (§5.4) — and across a boundary it is not a count at all.
 
 **What information is factual state change versus future semantic interpretation?**
 Factual: identity of entities, presence/absence, and per-field `before`/`after` values under the exact
@@ -1403,9 +1602,10 @@ counter regression (§6.3, R-T3); a strictly increasing admission `sequence` per
 gapped, with gaps reported as `observations_skipped` and never conflated with source-time jumps (§5.4);
 a typed, integer-exact `source_time` with its own ordering epoch; one normative canonical snapshot
 representation (§4.6); a content digest **recomputed** from that snapshot, raw and never normalized
-(§11.2); an explicit capability/availability declaration over a closed field universe (§10.1); and
-producer provenance that includes a per-process session identity. Capture wall-clock is *not* in that
-list, and never will be.
+(§11.2); an explicit capability/availability declaration over a closed field universe (§10.1); producer
+provenance that includes a per-process session identity; and a **caller that can supply the previously
+accepted observation** for the next comparison (§6.7), since the layer deliberately stores none. Capture
+wall-clock is *not* in that list, and never will be.
 
 ## 21. Exit criteria
 
@@ -1424,17 +1624,19 @@ Implementation may begin only after an independent review confirms all of the fo
 5. temporal identity is `object_id`-keyed with a checked uniqueness precondition and fail-closed
    ambiguity, and the decision **not** to introduce a new stable key is justified from the frozen
    architecture (§7);
-6. the delta model's outcomes and entity kinds are exhaustive and factual, the admission outcomes are
-   closed and single-valued so that duplicate/stale/invalid arrivals produce no delta at all, the
-   content-identity facts are present alongside (and subordinate to) the comparison result, and the
-   ordering is deterministic and total (§6.6, §8);
+6. the delta model's record domain is explicit (comparison pairs and boundary pairs), its outcomes and
+   entity kinds are exhaustive and factual, the admission outcomes are closed and single-valued, the
+   admission-level `REJECTED_INVALID` and the pair-level `OBSERVATION_INVALID` are separated by stage so
+   that the stream path is single-valued, the content-identity facts are present alongside (and
+   subordinate to) the comparison result, and the ordering is deterministic and total (§6.6, §6.8, §8);
 7. every currently representable canonical field has an exact comparison rule, and unobservable fields
    are excluded from comparison rather than treated as unchanged (§9, §10);
 8. observability is a five-state, mandatory coverage record, and capability mismatch fails closed
    instead of narrowing (§10);
 9. the four digest concepts are separated with explicit field participation, the temporal state digest
-   is raw content identity that is never normalized, content identity is never used as the comparison
-   relation (nor the reverse), and no temporal metadata can move `scene_input_digest` (§11);
+   is raw content identity that is never normalized **and is independent of producer emission order in
+   all cases, including duplicated `object_id`s**, content identity is never used as the comparison
+   relation (nor the reverse), and no temporal metadata can move `scene_input_digest` (§11, §13.2);
 10. determinism is stated as a pure function with closed ordering and equality rules, and no semantic
    tolerance is introduced (§12, §9.3);
 11. the cost model is presented without invented numbers, and streaming/caching/storage are explicitly
@@ -1451,7 +1653,16 @@ Implementation may begin only after an independent review confirms all of the fo
 17. the temporal field universe is closed and explicitly separates compared, declared-unobservable and
    derived fields, with derived fields excluded from the five-state coverage model rather than served
    by a sixth state (§10.1, §10.2);
-18. an independent reviewer re-gates this revision — as revision 2 — and does not self-clear it.
+18. an independent reviewer re-gates this revision — as revision 2 — and does not self-clear it;
+19. the source of the compared pair is explicit and consistent with the non-goal against a mutable
+   temporal store: the layer's only state is content-free, the earlier endpoint is a supplied input, and
+   no path may reconstruct an observation (§6.4, §6.7, §14 R-R6);
+20. a `TEMPORAL_DISCONTINUITY` record is explicitly defined as a boundary record over a boundary-pair
+   domain, with no field comparison, an empty entity list and no cross-boundary skip count (§8.1);
+21. the stream-processing path is single-valued end to end: one outcome name per stage, no record for an
+   admission-level rejection, exactly one record for a pair-level refusal, and no retraction of an
+   acceptance by a comparison failure (§6.6, §6.8, §8.2);
+22. an independent reviewer re-gates this revision — as revision 3 — and does not self-clear it.
 
 ## 22. Closure map
 
@@ -1462,24 +1673,25 @@ Implementation may begin only after an independent review confirms all of the fo
 | conceptual model and vocabulary | §3 | layer ladder + closed v1 name table |
 | temporal observation contract | §4 | field table, identity-field separation, `observation_id` derivation, provenance, capability, snapshot rules |
 | time-domain model | §5 | typed integer-exact `source_time`, diagnostic-only `capture_time`, ordering rule (`sequence` strictly increasing, gappable, `observations_skipped = max(0, gap - 1)`), twelve required behaviours, R-T1/R-T2/R-T3 |
-| continuity model | §6 | `continuity_id` construction, four continuity states, Atlas-side validation (a reset must be declared), minimal admission state with a single-valued mutation rule, scope rule, closed `AdmissionOutcome` vocabulary |
+| continuity model | §6 | `continuity_id` construction, four continuity states, Atlas-side validation (a reset must be declared), minimal content-free admission state with a single-valued mutation rule, pair input and its five rules (§6.7), the four-stage stream path (§6.8), scope rule, closed `AdmissionOutcome` vocabulary |
 | temporal identity model | §7 | uniqueness precondition, `IDENTITY_AMBIGUOUS`, four-argument rejection of a new key, declared limitations, mesh identity |
-| state-delta model | §8 | `DeltaOutcome`, `EntityDeltaKind`, structure including the raw content-identity facts (`from_state_digest`/`to_state_digest`/`state_digest_changed`), total ordering, scene-level refusals, admission-level exclusion of duplicates and stale arrivals |
+| state-delta model | §8 | explicit record domain (comparison pairs + boundary pairs), `DeltaOutcome`, the boundary-record rules, `EntityDeltaKind`, structure including the raw content-identity facts (`from_state_digest`/`to_state_digest`/`state_digest_changed`), total ordering, scene-level refusals, admission-level exclusion of duplicates, stale and rejected arrivals |
 | field comparison rules | §9 | per-field table, exact numeric equality with rationale, three-kind tolerance taxonomy, `q ≡ -q`, positional mesh comparison, material/collection caveats |
 | observability / capability semantics | §10 | three separated field sets (compared / declared-unobservable / derived), five states over their union only, the central "omitted ≠ unchanged" rule, v1 coverage table (incl. `coordinate_frame` and the derived-field exclusion), capability-mismatch refusal, failure precedence |
-| digest / provenance boundaries | §11 | `scene_input_digest` frozen; `temporal_state_digest` (field table + sorting rule + raw-content-identity rule); `envelope_digest`; `delta_digest`; content-identity vs semantic-equivalence separation; comparison-vs-digest table |
+| digest / provenance boundaries | §11 | `scene_input_digest` frozen; `temporal_state_digest` (field table + content-derived object tie-break + raw-content-identity rule); `envelope_digest`; `delta_digest`; content-identity vs semantic-equivalence separation; comparison-vs-digest table |
 | determinism rules | §12 | purity statement, ordering checklist, equality table (incl. digests as raw identity), closed reason-code vocabulary |
 | low-latency considerations | §13 | cost ladder, per-entity digest primitive, explicitly no invented numbers, deferred list |
-| restart / recovery semantics | §14 | nine events, the duplicate-acknowledgement row, the declared-reset rule, R-R1..R-R5, connection to the recovery contract's identity discipline |
+| restart / recovery semantics | §14 | ten events, the duplicate-acknowledgement and pair-input rows, the declared-reset rule, R-R1..R-R6, connection to the recovery contract's identity discipline |
 | cross-language / C++ parity boundary | §15 | semantic parity contract, byte-parity non-claim, three-version scheme |
 | explicit non-goals | §16 | enumerated |
 | Event Abstraction boundary | §17 | produced/forbidden table + downstream requirements |
 | open questions | §18 | eight questions with next steps |
-| adversarial / red-team requirements | §19 | 26 attacks with design answers (incl. the revision-2 attack surface: undeclared resets, digest-as-comparison), `T-1..T-14`, `L-1..L-5` |
-| required conclusions | §20 | six questions answered without ambiguity, re-derived after the revision-2 corrections |
-| exit criteria | §21 | eighteen items, including the revision-2 conditions |
-| revisions and baseline | §0 | revision chain (incl. `75744da` and this revision), frozen-boundary table, scope, citation provenance |
+| adversarial / red-team requirements | §19 | 31 attacks with design answers (incl. the revision-2 surface — undeclared resets, digest-as-comparison — and the revision-3 surface — pair sourcing, boundary records, stage conflation, digest order independence), `T-1..T-18`, `L-1..L-5` |
+| required conclusions | §20 | six questions answered without ambiguity, re-derived after the revision-2 corrections and again after the revision-3 resolutions |
+| exit criteria | §21 | twenty-two items, including the revision-2 and revision-3 conditions |
+| revisions and baseline | §0 | revision chain (incl. `75744da`, `f26746d` and this revision), frozen-boundary table, scope, citation provenance |
 | design revision 2 corrections | §22.1 | eight corrections mapped to the rules that now close them, each with its re-audit and red-team coverage |
+| design revision 3 resolutions | §22.2 | five resolutions mapped to the rules that now close them, each with its adversarial requirement and its re-audit |
 
 ### 22.1 Design revision 2 — required corrections and how they are closed
 
@@ -1489,7 +1701,7 @@ a *single-valued* rule, with the sections, red-team rows and `T-n` requirements 
 | # | Required correction | Closed in | How |
 | --- | --- | --- | --- |
 | R2-1 | sequence semantics contradicted itself (§5.4 "+1" vs §5.5 gaps) | §5.4, §5.5, §8.1, §19.1 #16, T-13 | one rule: `sequence` is strictly increasing for accepted observations but **MAY gap**; `observations_skipped = max(0, gap - 1)`; a sequence gap and a source-time jump are separate facts and are never derived from one another |
-| R2-2 | identical duplicates "accepted" while `SAME_EPOCH` required a strictly greater sequence | §5.5, §6.4, §6.6, §8.1, §8.2, §14, T-3, T-14 | identical duplicate ⇒ `DUPLICATE_ACKNOWLEDGED` (idempotent acknowledgement, **no `StateDelta`**, no admission mutation); same sequence with a different digest ⇒ `INVALID`; `StateDelta(A, B)` stays a pure function of a strictly ordered pair of accepted observations |
+| R2-2 | identical duplicates "accepted" while `SAME_EPOCH` required a strictly greater sequence | §5.5, §6.4, §6.6, §8.1, §8.2, §14, T-3, T-14 | identical duplicate ⇒ `DUPLICATE_ACKNOWLEDGED` (idempotent acknowledgement, **no `StateDelta`**, no admission mutation); same sequence with a different digest ⇒ a rejection, an outcome now named `REJECTED_INVALID` (§12.4); `StateDelta(A, B)` stays a pure function of a strictly ordered pair of accepted observations |
 | R2-3 | a bare sequence regression could imply `NEW_EPOCH` (indistinguishable from staleness) | §4.2, §5.5 R-T3, §6.2, §6.3, §6.6, §12.4, §14 (table + R-R5), §19.1 #14/#20/#21, §20 | a restart/reset/seek **MUST** declare a continuity boundary (`continuity_id`, `producer_session_id` or `ordering_epoch`); a regression without one is `REJECTED_STALE` — never an epoch, never a discontinuity, no state mutation |
 | R2-4 | `q ≡ -q` (semantic equality) vs raw rotation in the digest vs "semantic identity = digest equality" | §9.4, §11.2, §11.5, §11.6, §12.3, §19.1 #7, T-6, T-8 | two independent relations: `temporal_state_digest` is **raw canonical content identity** (never normalized), semantic equivalence is the **§9 comparison relation**; `q` and `-q` may differ in digest while being equivalent, and both facts are reported |
 | R2-5 | `state_digest_changed` referenced but absent from the schema | §8.1, §11.4, §12.3, §19.1 #26, §20, T-8 | `from_state_digest`, `to_state_digest` and `state_digest_changed` added to `StateDelta` (and covered by `delta_digest`); they are raw facts that never override semantic comparison |
@@ -1509,10 +1721,36 @@ reset rule, one snapshot representation, one digest semantics, one comparison re
 **Version-number interaction, stated explicitly.** Adding reason codes and changing equality/identity
 rules would, under §15.3, oblige a version bump — but that obligation binds a *released* contract,
 and no implementation of `TEMPORAL_OBSERVATION_SCHEMA_VERSION = "1"` or `DELTA_SCHEMA_VERSION = "1"`
-exists anywhere in the repository (this milestone is design-only, §0.3, §15.3). Revision 2 therefore
-defines v1's single rule set **before** any consumer can exist, and bumps nothing. From the first
+exists anywhere in the repository (this milestone is design-only, §0.3, §15.3). Revisions 2 **and 3**
+therefore define v1's single rule set **before** any consumer can exist, and bump nothing — revision 3
+adds `PAIR_INPUT_UNAVAILABLE` and `ADMISSION_STATE_UNAVAILABLE` and renames the admission outcome
+`INVALID` to `REJECTED_INVALID` under the same argument (§22.2 R3-3). From the first
 implementation onward §15.3 governs unchanged: any further change to a compared field, an equality
 rule, an outcome kind, the reason-code vocabulary or a digest field set requires a version bump.
+
+### 22.2 Design revision 3 — required resolutions and how they are closed
+
+Revision 2 was held pending a design revision with five required resolutions. Each is closed by a
+*single-valued* rule, with the dependent passages, registers and counts re-derived around it.
+
+| # | Required resolution | Closed in | How |
+| --- | --- | --- | --- |
+| R3-1 | where the previously accepted canonical snapshot comes from when producing a `StateDelta`, without introducing a mutable store/cache (§6.4 vs §8.1) | §6.4, §6.7 (P1-P5), §8.1, §12.1, §13.2, §13.4, §14 (pair-input row + R-R6), §19.1 #27, §21 item 19, T-15 | the admission state is content-free by construction; the pair's earlier endpoint is a **supplied input**; a missing input is a pair-level `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE`; the layer may never reconstruct an observation from a digest, and retention stays a separate (undesigned) concern |
+| R3-2 | whether `TEMPORAL_DISCONTINUITY` is a `StateDelta` record although its endpoints are non-comparable (§8.1 vs §6.2) | §8.1 (record-domain union, boundary-record rules, continuity/outcome table), §8.2, §19.1 #28/#29, §21 item 20, T-16 | yes — it is a **boundary record** defined on boundary pairs, not a comparison: §9 is never applied across it, `entity_deltas` is empty by R-T2, the endpoint digests are raw facts that neither assert nor merge continuity, and `observations_skipped` is not defined across a boundary (it is `0`) |
+| R3-3 | admission-level `INVALID` versus a pair-evaluator `OBSERVATION_INVALID`, with a single-valued stream path (§6.6 / §8.2 / §20 / §21) | §3, §4.1, §4.6, §5.5, §6.2, §6.6, §6.8 (four stages + fixed stage-3 order), §8.2, §9.7, §10.2, §10.5, §12.4, §20, §21, §19.1 #30, T-17 | one outcome name per stage: `REJECTED_INVALID` (stages 1-2, no record, distinguished by reason code) vs `OBSERVATION_INVALID` (stage 3, always a record, empty entity list); the admission outcome was renamed so the two can never be read as each other; a stage-3 refusal never retracts a stage-2 acceptance, and no outcome may be reported for a stage that did not run |
+| R3-4 | whether the temporal state digest is genuinely producer-order independent with duplicated ids (§11.2) | §11.2, §13.2, §19.1 #31, §21 item 9, T-18 | made genuinely independent: the tie-break is `(object_id, entity_content_digest)` — content-derived, with content-identical duplicates interchangeable by construction. The `occurrence_index` rule (order-dependent for duplicated ids) is recorded as retracted, the primitive is named once (`entity_content_digest`, computed on demand, never stored), and the claim's scope is limited to the digest projection — never comparison order |
+| R3-5 | the dependent re-audit and the adversarial requirements for these contradictions | §§6, 8, 11, 12, 13, 14, 20, 21 and 22.1 re-read; §19.1 #27-#31; §19.2 T-15..T-18; §21 items 19-22; §22 rows | each resolution carries its own hostile input and its own deterministic requirement, and the registers/counts were updated together (31 attacks, `T-1..T-18`, `L-1..L-5`, 22 exit criteria, ten restart events) |
+
+**Re-audit of the revision-3 surface.** §§6, 8, 11, 12, 13, 14, 20, 21 and all of §22.1 were re-read end
+to end after these resolutions, and every passage that named the admission outcome, the delta's domain,
+the coverage model, the digest primitive or the digest tie-break was re-derived rather than patched
+locally: §3 (vocabulary), §4.1/§4.6 (arrival-level rejection), §5.5 (outcome names), §6.2 (pair-level
+`UNKNOWN`), §6.4 (content-free state), §6.6 (record column), §6.7/§6.8 (new), §8.1/§8.2 (record domain),
+§9.7/§10.2 (refusal semantics), §10.5 (stage mapping), §11.2/§13.2 (tie-break primitive), §12.1
+(statelessness), §12.4 (vocabulary), §13.4 (deferral), §14 (events + R-R6), §19 (registers), §20
+(conclusions), §21 (criteria), §22 (closure map). The chain is single-valued at each point revision 2
+left ambiguous: one source for the pair, one domain for a record, one name per stage, one ordering rule
+per projection, and no outcome reportable for a stage that did not run.
 
 **Nothing in this closure map is an implementation claim.** This revision changes no production file,
 no test, no schema and no frozen boundary: it revises one document (§0.3).
