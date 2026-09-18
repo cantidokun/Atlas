@@ -2,11 +2,39 @@
 
 This directory contains the deterministic Blender health kernel, canonical scene/mesh contracts, bounded correction capabilities, and Blender boundary validation work.
 
-## Current completed baseline
+## Current authoritative position — September 18, 2026
 
-Waves 1–11 are the completed Blender correction/analysis baseline as of September 15, 2026. Wave 11 merged to `main` at `fda85a994ec0669d8ee9d1ff1ab6d52e9bfec0d3`.
+**Blender Extraction Fidelity v1 — CLEAR.** The bounded read-only extraction producer contract is complete and independently reviewed. The implementation in `planning/blender/bpy_extraction.py` is frozen from this milestone unless a concrete defect is discovered.
 
-The development pattern is deliberately staged:
+Key cleared references:
+
+- design revision: `32eb4f76f82447fc468eeb3c4c86bbe47625297`
+- implementation: `9a9e3e840371db46c79de43fe098c6c0846c7840`
+- determinism-evidence repair: `a0f0071ceb514dc9f556c4a7fabe40840b1f2bc7`
+- final canonicalization/verification closure: `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`
+
+The cleared Extraction Fidelity v1 scope covers deterministic object membership, visibility, transforms including quaternion-mode handling, mesh vertices/faces, material-slot names, explicit omission semantics for normals/UV/local-frame, deterministic payload evidence, and preservation of the existing digest boundary. It does not add correction/write-back, persistence, event recognition, or temporal state.
+
+## Current next architecture layer — Temporal Observation + State Delta v1
+
+The next layer is **design-only** at present. Current revision:
+
+- branch: `feat/temporal-observation-state-delta-design`
+- revision 7: `44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`
+- status: **HOLD — independent architectural review found residual consistency defects**
+- implementation status: **NO IMPLEMENTATION AUTHORIZED**
+
+Revision 7 correctly closes the previous purity gap by making `FromIdentity` an immutable explicit input of all four evaluation variants. The remaining corrections required for Revision 8 are:
+
+1. remove stale `StateDelta(A,B)` purity wording;
+2. reconcile the conceptual pair-domain wording with the complete four-variant evaluation-input domain;
+3. correct T-25 / attack #39 so boundary identity mismatch does not incorrectly prohibit the `NEW_EPOCH` admission mutation;
+4. update stale two-form `NEW_EPOCH` enumerations/exit criteria to include `PAIR_INPUT_IDENTITY_MISMATCH`;
+5. define deterministic handling of multiple simultaneous boundary-cause fields.
+
+Do not implement Temporal Observation/StateDelta, schema versions, Event Abstraction, or streaming/storage from this hold point.
+
+## Development pattern
 
 ```text
 bounded design
