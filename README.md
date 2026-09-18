@@ -80,11 +80,7 @@ The current development branch is:
 reconcile/unreal-autonomy-origin-20c6d10
 ```
 
-**Development is paused at the end of the September 18, 2026 Unreal session.** The published shared branch is at:
-
-```text
-71728480a425f80c700c913aa00f376c254114bb
-```
+**Development is paused at the end of the September 18, 2026 Unreal session.** The published implementation baseline is `71728480a425f80c700c913aa00f376c254114bb`; the current branch tip may advance with documentation-only pause updates.
 
 Current authoritative Unreal position:
 
