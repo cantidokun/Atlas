@@ -882,7 +882,9 @@ def run_gate(automation_log: Optional[str] = None) -> Dict[str, Any]:
         "case": "fixture_status_precondition",
         "status": (
             PASS
-            if automation_log and fixture_statuses and all(s.startswith("OK") for s in fixture_statuses)
+            if automation_log
+            and len(fixture_statuses) == 1
+            and re.fullmatch(r"OK version=\d+", fixture_statuses[0])
             else FAIL
             if automation_log
             else NOT_COVERED
