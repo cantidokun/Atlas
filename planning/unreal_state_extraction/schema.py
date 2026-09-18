@@ -341,17 +341,33 @@ def _validate_slot(value: Any, where: str, expected_index: int) -> Dict[str, Any
             ERR_EXTRACTION_NON_CANONICAL_ORDER,
             f"{where}.slot_index must be the positional ordinal {expected_index}, got {slot_index}",
         )
+    asset_slot = _require_nullable_string(
+        obj["asset_slot_material_asset_path"], f"{where}.asset_slot_material_asset_path"
+    )
+    override = _require_nullable_string(
+        obj["override_material_asset_path"], f"{where}.override_material_asset_path"
+    )
+    resolved = _require_nullable_string(
+        obj["resolved_material_asset_path"], f"{where}.resolved_material_asset_path"
+    )
+    # Revision 3.3 (design §3.8.2, §7.4 D17c): the resolved value is a deterministic
+    # projection of the slot's two source facts and of nothing else. A tree that violates it
+    # is refused here, so a producer which ever reintroduced a session- or
+    # configuration-dependent value (the engine's material accessor applies a session-gated
+    # Nanite step) fails closed at the boundary instead of digesting configuration state.
+    expected_resolved = override if override is not None else asset_slot
+    if resolved != expected_resolved:
+        raise UnrealStateExtractionError(
+            ERR_EXTRACTION_SCHEMA,
+            f"{where}.resolved_material_asset_path must be the deterministic source-side "
+            f"projection of the slot's two source facts (override when non-null, else asset "
+            f"slot): expected {expected_resolved!r}, got {resolved!r}",
+        )
     return {
         "slot_index": slot_index,
-        "asset_slot_material_asset_path": _require_nullable_string(
-            obj["asset_slot_material_asset_path"], f"{where}.asset_slot_material_asset_path"
-        ),
-        "override_material_asset_path": _require_nullable_string(
-            obj["override_material_asset_path"], f"{where}.override_material_asset_path"
-        ),
-        "resolved_material_asset_path": _require_nullable_string(
-            obj["resolved_material_asset_path"], f"{where}.resolved_material_asset_path"
-        ),
+        "asset_slot_material_asset_path": asset_slot,
+        "override_material_asset_path": override,
+        "resolved_material_asset_path": resolved,
     }
 
 

@@ -565,8 +565,15 @@ bool BuildMaterialState(
                 ? Component->OverrideMaterials[SlotIndex].Get()
                 : nullptr;
 
-            // The engine's own resolution, including its Nanite substitution (§3.8.2).
-            const UMaterialInterface* ResolvedMaterial = Component->GetMaterial(SlotIndex);
+            // §3.8.2 (Revision 3.3): resolved_material_asset_path is the deterministic
+            // source-side projection of the two saved source facts above — the override when
+            // it exists and is non-null, otherwise the mesh asset's own slot material. It is
+            // computed here from those facts and nothing else: the component's material
+            // accessor is deliberately NOT called, because its material-level Nanite step is
+            // session/configuration gated (shader platform, r.Nanite.MaterialOverrides, view
+            // state) and a digested field may not depend on the session.
+            const UMaterialInterface* ResolvedMaterial =
+                OverrideMaterial != nullptr ? OverrideMaterial : AssetSlotMaterial;
 
             FString AssetSlotPath;
             FString OverridePath;

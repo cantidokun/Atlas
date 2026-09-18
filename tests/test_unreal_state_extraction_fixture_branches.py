@@ -7,8 +7,10 @@ fixture content (Revision 3.1 §11.2):
 * request-order permutation invariance and canonical actor order;
 * `CAM` / `cam`, `CAM_1` / `cam_1` case folding, and `CAM_01` as a distinct identity;
 * signed-zero preservation and quaternion `q` versus `-q`;
-* the material assignment/resolution collision matrix, including a Nanite-style
-  resolution that differs from both the asset slot and the component override;
+* the material assignment/asset-slot/resolution boundary of Revision 3.3 — the two source
+  facts independently encoded, `resolved` required to be their deterministic projection (a
+  divergent value is refused), and no implementation-side claim that render-path or
+  session-dependent engine substitution is extracted;
 * the sequencer validity arms;
 * the error vocabulary the new refusal arms use;
 * coherence between the C++ fixture tags, the live gate's requested entities and the
@@ -223,11 +225,11 @@ def test_quaternion_q_and_negative_q_are_distinct_source_facts() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. Material assignment/resolution collision matrix
+# 5. Material assignment/resolution boundary (Revision 3.2 semantics)
 # ---------------------------------------------------------------------------
 
 ASSIGNED = "/Game/AtlasTest/Materials/Assigned.Assigned"
-NANITE_RESOLVED = "/Game/AtlasTest/Materials/NaniteOverrode.NaniteOverrode"
+OTHER_MATERIAL = "/Game/AtlasTest/Materials/Other.Other"
 ASSET_SLOT = "/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"
 
 
@@ -237,27 +239,225 @@ def _material_tree(slots: list) -> dict:
     )
 
 
-def test_override_differs_from_asset_slot_and_from_resolution() -> None:
-    """A Nanite-style resolution that differs from both assigned and asset slot."""
-    tree = _material_tree([slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=NANITE_RESOLVED)])
+def test_source_facts_are_independently_encoded() -> None:
+    """The two source facts distinguish states; `resolved` is their projection (Rev 3.3).
+
+    The boundary now refuses a tree in which `resolved` is not the projection, so a state
+    whose *resolution* differs from its assignment is no longer representable at all — which
+    is the point: such a state could only come from a session-dependent engine substitution.
+    """
+    tree = _material_tree([slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=ASSIGNED)])
     canonical = canonical_bytes_for_tree(tree)
     assert ASSET_SLOT.encode() in canonical
     assert ASSIGNED.encode() in canonical
-    assert NANITE_RESOLVED.encode() in canonical
+
+
+def test_resolved_must_be_the_deterministic_projection() -> None:
+    """A `resolved` that is not the projection of the two source facts is refused (D17c).
+
+    This is the mechanical guarantee that configuration state cannot enter the payload: the
+    engine's own material accessor is session gated, so a field read from it would not be a
+    deterministic source fact, and a divergent value is rejected here rather than digested.
+    """
+    divergent = _material_tree(
+        [slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=OTHER_MATERIAL)]
+    )
+    with pytest.raises(UnrealStateExtractionError) as error:
+        canonical_bytes_for_tree(divergent)
+    assert error.value.code == "ERR_EXTRACTION_SCHEMA"
+    assert "deterministic source-side projection" in str(error.value)
+
+    # The same rule holds when the asset slot is the winner (no override): a resolution that
+    # differs from the asset slot is refused too.
+    slot_only_divergent = _material_tree(
+        [slot(0, asset_slot=ASSET_SLOT, override=None, resolved=OTHER_MATERIAL)]
+    )
+    with pytest.raises(UnrealStateExtractionError) as error:
+        canonical_bytes_for_tree(slot_only_divergent)
+    assert error.value.code == "ERR_EXTRACTION_SCHEMA"
+
+    # And when both facts are null, the resolution must be null as well.
+    null_divergent = _material_tree([slot(0, asset_slot=None, override=None, resolved=OTHER_MATERIAL)])
+    with pytest.raises(UnrealStateExtractionError):
+        canonical_bytes_for_tree(null_divergent)
+
+
+def test_projection_holds_for_both_families_and_the_null_cases() -> None:
+    """The projection is total: every combination of the two facts has exactly one value."""
+    accepted = {
+        "asset_slot_only": slot(0, asset_slot=ASSET_SLOT, override=None, resolved=ASSET_SLOT),
+        "override_wins": slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=ASSIGNED),
+        "override_over_null_slot": slot(0, asset_slot=None, override=ASSIGNED, resolved=ASSIGNED),
+        "both_null": slot(0, asset_slot=None, override=None, resolved=None),
+    }
+    for name, slot_value in accepted.items():
+        canonical_bytes_for_tree(_material_tree([slot_value]))
+
+    def _single_component_tree(component: dict) -> dict:
+        return actor_state_tree(
+            [_actor("IMPL_NULL_SKINNED", materials=[component])]
+        )
+
+    # The skinned family is the same rule, expressed through the other component class.
+    canonical_bytes_for_tree(
+        _single_component_tree(
+            material_component(
+                component_class="SkinnedMeshComponent",
+                slot_count=1,
+                slots=[slot(0, asset_slot=None, override=ASSIGNED, resolved=ASSIGNED)],
+            )
+        )
+    )
+    with pytest.raises(UnrealStateExtractionError):
+        canonical_bytes_for_tree(
+            _single_component_tree(
+                material_component(
+                    component_class="SkinnedMeshComponent",
+                    slot_count=1,
+                    slots=[slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=OTHER_MATERIAL)],
+                )
+            )
+        )
 
 
 def test_collision_matrix_distinguishes_every_material_source_state() -> None:
-    """States that share two of the three material facts must still digest differently."""
+    """States that share one of the two source facts must still digest differently."""
     states = {
         "asset_slot_only": slot(0, asset_slot=ASSET_SLOT, override=None, resolved=ASSET_SLOT),
         "override_wins": slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=ASSIGNED),
-        "nanite_substituted": slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=NANITE_RESOLVED),
-        "different_asset_same_override": slot(0, asset_slot=NANITE_RESOLVED, override=ASSIGNED, resolved=NANITE_RESOLVED),
+        "different_asset_same_override": slot(
+            0, asset_slot=OTHER_MATERIAL, override=ASSIGNED, resolved=ASSIGNED
+        ),
     }
     digests = {
         name: digest_value_tree(_material_tree([value])) for name, value in states.items()
     }
     assert len(set(digests.values())) == len(states)
+
+
+def test_resolved_equals_the_assignment_in_conforming_payloads() -> None:
+    """The Revision 3.2 rule the fixture must satisfy: resolved is the accessor's value.
+
+    For a fixture whose assigned materials carry no Nanite override, the accessor returns
+    the override when present and otherwise the asset slot, so a conforming payload must
+    record exactly that. A payload where ``resolved`` differs from both is schema-legal —
+    the boundary has no way to know — which is why the *producer* side is covered by the
+    in-process accessor-equality test rather than by this one.
+    """
+    conforming = {
+        "asset_slot_only": (slot(0, asset_slot=ASSET_SLOT, override=None, resolved=ASSET_SLOT), ASSET_SLOT),
+        "override_wins": (slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=ASSIGNED), ASSIGNED),
+        "override_wins_over_null_slot": (slot(0, asset_slot=None, override=ASSIGNED, resolved=ASSIGNED), ASSIGNED),
+    }
+    for name, (slot_value, expected) in conforming.items():
+        tree = _material_tree([slot_value])
+        recorded = tree["actors"][0]["materials"][0]["slots"][0]["resolved_material_asset_path"]
+        assert recorded == expected, name
+        canonical_bytes_for_tree(tree)
+
+    # And the schema does not silently normalise a divergent value into the assignment.
+    divergent = _material_tree([slot(0, asset_slot=ASSET_SLOT, override=ASSIGNED, resolved=OTHER_MATERIAL)])
+    assert (
+        divergent["actors"][0]["materials"][0]["slots"][0]["resolved_material_asset_path"]
+        == OTHER_MATERIAL
+    )
+
+
+def test_no_impl_side_claim_of_render_path_state() -> None:
+    """No implementation-side file may claim that render-path substitution is extracted.
+
+    Revision 3.2 states the boundary in one sentence that every mention has to respect:
+    Nanite render-path substitution is outside v1 extraction because the extraction accessor
+    does not expose that rendered state. A future comment, test or document that claims
+    otherwise is a contract drift, and this test fails on it.
+    """
+    files = [
+        FIXTURE_SOURCE.parent / "AtlasStateExtraction.cpp",
+        FIXTURE_SOURCE.parent / "AtlasStateExtraction.h",
+        LIVE_GATE_SOURCE,
+        Path(__file__).resolve(),
+        REPO_ROOT / "docs" / "UNREAL_STATE_EXTRACTION_FIDELITY_V1_VALIDATION_MATRIX.md",
+    ]
+    negation_markers = ("not ", "no ", "never", "outside", "cannot", "does not", "without", "n't")
+    quote_pattern = re.compile(r"\"[^\"]*\"|'[^']*'")
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            # A quoted phrase is a citation of older wording, not a claim made by this file.
+            unquoted = quote_pattern.sub("", line).lower()
+            if "nanite" not in unquoted or "substitut" not in unquoted:
+                continue
+            assert any(marker in unquoted for marker in negation_markers), (
+                f"{path.name}:{line_number} claims Nanite substitution without stating the "
+                f"boundary: {line.strip()}"
+            )
+
+
+def test_extractor_uses_no_component_material_accessor() -> None:
+    """The extractor computes the resolution from source facts, never from the accessor.
+
+    Revision 3.3 moved the engine's own material accessor off the read boundary: its
+    material-level Nanite step is session/configuration gated, so reading the field from it
+    would let configuration state into a digested field. This test fails if that call ever
+    comes back, or if any render-state/Nanite-audit accessor or console variable appears.
+    """
+    extractor = (FIXTURE_SOURCE.parent / "AtlasStateExtraction.cpp").read_text(encoding="utf-8")
+
+    # The deterministic projection must be present, over objects the extractor already read.
+    assert "OverrideMaterial != nullptr ? OverrideMaterial : AssetSlotMaterial" in extractor
+
+    # No component material accessor call, in any of the spellings the file uses.
+    component_accessor_patterns = (
+        "Component->GetMaterial(",
+        "StaticComponent->GetMaterial(",
+        "SkinnedComponent->GetMaterial(",
+    )
+    for pattern in component_accessor_patterns:
+        assert pattern not in extractor, f"the extractor still calls {pattern}"
+
+    forbidden_symbols = (
+        "GetNaniteOverride",
+        "GetNaniteAuditMaterial",
+        "GetEditorMaterial",
+        "SceneProxy",
+        "RenderProxy",
+        "GetUsedMaterials",
+        "GEnableNaniteMaterialOverrides",
+        "ShouldCreateNaniteProxy",
+        "UseNaniteOverrideMaterials",
+        # A console-variable read would be the other way for configuration state to decide the
+        # value. Naming `r.Nanite.MaterialOverrides` in an explanatory comment is not a read,
+        # so the accessor forms are forbidden rather than the cvar name.
+        "IConsoleManager",
+        "GetConsoleVariable",
+        "FindConsoleVariable",
+        "GetValueOnGameThread",
+        "GetValueOnAnyThread",
+    )
+    for symbol in forbidden_symbols:
+        assert symbol not in extractor, f"the extractor references forbidden symbol {symbol}"
+
+    # Every mention of Nanite in the extraction translation unit is a comment: the code path
+    # itself names no Nanite concept.
+    for line_number, line in enumerate(extractor.splitlines(), start=1):
+        if "Nanite" in line:
+            assert line.lstrip().startswith("//"), (
+                f"AtlasStateExtraction.cpp:{line_number} mentions Nanite outside a comment: "
+                f"{line.strip()}"
+            )
+
+
+def test_matrix_document_states_the_revision_3_3_boundary() -> None:
+    """The evidence document must carry the narrowed, deterministic semantics."""
+    matrix = (
+        REPO_ROOT
+        / "docs"
+        / "UNREAL_STATE_EXTRACTION_FIDELITY_V1_VALIDATION_MATRIX.md"
+    ).read_text(encoding="utf-8")
+    assert "Revision 3.3" in matrix
+    assert "deterministic" in matrix
+    assert "projection" in matrix
+    assert "render-path substitution" in matrix
 
 
 def test_nullable_material_paths_are_preserved_not_dropped() -> None:

@@ -95,7 +95,7 @@ new fixture source never references them.
 | Case variants share one canonical identity (§3.3.4, D14) | LIVE TRANSPORT: `cam`/`CAM` → `ca89f589…7261`, `cam_1`/`CAM_1` → `130f2202…9404`, `cam_01`/`CAM_01` → `94992aee…7e32` | PASS | none |
 | Numbered identities are distinct classes | LIVE TRANSPORT: three distinct entity ids and three distinct digests for `CAM`, `CAM_1`, `CAM_01` | PASS | none |
 | Parent three-state model (§3.3.6, D7) | LIVE TRANSPORT: `none` (null path), `unbound` (path, null id), `bound` (id `IMPL_PERM_A` + path) | PASS | none |
-| Material assignment vs asset slot vs resolved value (§3.8) | LIVE TRANSPORT: cube slot `WorldGridMaterial` with override `DefaultMaterial` (resolved = override); second component with `BasicShapeMaterial`; sphere slot `DefaultMaterial` with override `WorldGridMaterial`; the two actors digest differently | PASS | live Nanite substitution not reachable, see 4.4 |
+| Material assignment vs asset slot vs `resolved` (§3.8, Revision 3.3) | LIVE TRANSPORT: cube slot `WorldGridMaterial` with override `DefaultMaterial` (`resolved` = override); second component with `BasicShapeMaterial`; sphere slot `DefaultMaterial` with override `WorldGridMaterial`; the two actors digest differently. LIVE IN-PROCESS (`MaterialResolutionBoundary`): for every slot the payload's `resolved` equals the **deterministic projection** of the two facts read directly from the engine's own objects (`OverrideMaterials[idx]`, mesh asset slot material), the session's component-accessor value and substitution-gate state are *recorded* as observations, and the recorded value is asserted unaffected by them. Boundary rule (D17c): a divergent `resolved` is refused, in both families | PASS | none for the recorded value; the engine-side substitution is out of scope by construction (see 4.4) |
 | Omitted-primitive inventory (§4.10) | LIVE TRANSPORT: `IMPL_OMITTED` reports `count = 2`, classes `["ArrowComponent","BillboardComponent"]` (the skinned actor's own helper primitives; the decal actor adds its own decal component) | PASS | see note (b) |
 | Skinned family with a null asset | LIVE TRANSPORT: `SkeletalMeshComponent`, `mesh_state = no_mesh_asset`, empty slots | PASS | no skinned asset is shipped in project content, so the *populated* skinned arm is not covered |
 | Signed zero as a source fact (§5.5.1) | LIVE TRANSPORT: `scale.x = 8000000000000000` preserved; LIVE IN-PROCESS: the payload equals the engine's own value bit for bit on location, rotation and scale | PASS | actor *location* normalises the sign, see 4.2 |
@@ -124,6 +124,7 @@ new fixture source never references them.
 | World Partition refusal in the fixture session | none in this session | NOT YET LIVE-COVERED | the fixture map is deliberately non-partitioned; the refusal is observed in the default-world session |
 | Payload size bound (`ERR_EXTRACTION_PAYLOAD_TOO_LARGE`, 1 MiB) | none | NOT YET LIVE-COVERED | needs a fixture whose payload approaches the bound; U8 was unmeasured in the design too |
 | Populated skinned-mesh material arm | none | NOT YET LIVE-COVERED | no skinned asset exists in project/engine content that is a saved top-level package |
+| The static accessor's conditional material-level Nanite step (§3.8.2, Rev 3.2 → 3.3) | none | **NOT A COVERAGE GAP — declared out of scope by Revision 3.3** | the step is session/configuration gated (`ShouldCreateNaniteProxy` + `r.Nanite.MaterialOverrides`) and is therefore *not extracted*: `resolved` is the deterministic projection of the two source facts, so the step cannot appear in the payload even in a session that would take it. The in-process test records the session's accessor value and gate state so a substituting session is visible in the evidence |
 
 ### 3.4 BLOCKED BY ENGINE/API LIMITATION
 
@@ -132,9 +133,60 @@ new fixture source never references them.
 | Open playback bound → `ERR_EXTRACTION_SEQUENCE_RANGE_OPEN` | `UMovieScene::SetPlaybackRange(const TRange<FFrameNumber>&)` documents "Must not have any open bounds (ie must be a finite range)" and asserts `NewRange.GetLowerBound().IsClosed() && NewRange.GetUpperBound().IsClosed()` (`MovieScene.cpp:689`). Setting the state aborted a live editor session (observed). The backing `FMovieSceneFrameRange PlaybackRange` is private (`MovieScene.h:1271/1311`) and `ULevelSequence::Initialize` leaves a *degenerate* closed range instead (measured: that asset reported `ERR_EXTRACTION_SEQUENCE_RANGE_INVALID`). | BLOCKED | no fixture can hold the state; the code stays in the closed vocabulary and is cross-checked by the contract-closure test |
 | `IsCompiling()` mesh → `ERR_EXTRACTION_MESH_COMPILING` | inducing a compiling `UStaticMesh` needs the static mesh compiling manager (`Runtime/Engine/Private/StaticMeshCompiler.h`), unreachable from a harness module; the only public path is a real async build whose completion timing is not deterministic, which would make the gate flaky. | BLOCKED | arm presence is SOURCE GATE + vocabulary closure only |
 | Quaternion `q` vs `-q` distinct through an actor transform | The engine stores an actor's rotation as an `FRotator` and derives the quaternion, so both fixtures hold the same signed quaternion (`z=3fe6a09e667f3bce`, `w=3fe6a09e667f3bcd`, and note the 1-ULP difference between the two components: the round-trip through rotator storage is itself lossy at the last bit). LIVE IN-PROCESS proves the payload equals the engine's own quaternion bit for bit on both fixtures. | BLOCKED | the ±q distinction is evidenced at the encoding level (PYTHON FORCED vectors for both signs) and by in-process fidelity, not by two live actors |
-| Live Nanite material substitution (resolved ≠ assignment ≠ asset slot) | the extractor resolves through `UMeshComponent::GetMaterial`, which returns the assignment; Nanite substitution happens in the render path. No shipped material with a Nanite override is available to the fixture. | BLOCKED | the collision matrix for this case is PYTHON FORCED only |
+| Live Nanite material substitution (resolved ≠ assignment ≠ asset slot) | Revision 3.3 resolves this as a **design** matter rather than a coverage matter: the engine's material accessor applies a session/configuration-gated substitution, so a digested field may not be defined through it. `resolved` is now the deterministic projection of the two source facts, a divergent tree is refused at the boundary (D17c), and the extractor no longer calls the accessor at all. | **RESOLVED by Revision 3.3 — out of scope by construction** | none for the recorded value; the engine substitution itself is deliberately not modelled |
 
 ## 4. Notes, and what a reviewer should not read into this document
+
+**(h) Revision 3.2 — material-resolution semantic correction.** The material/validation work in
+this rung measured one genuine contract/implementation mismatch and it was corrected in the
+**contract**, not in the extractor. *(Superseded on the determinism question by note (i): Revision 3.2
+defined the field as the engine accessor's value, which is session sensitive.)* Revision 3.1 described `resolved_material_asset_path` as the
+engine's resolution "including Nanite substitution" and applied that to *both* component families;
+the sources show the material-level Nanite-override step exists only in the **static** family's
+accessor (`StaticMeshComponentHelper.h:108-137`) and is **session-gated**
+(`UseNaniteOverrideMaterials` → `ShouldCreateNaniteProxy(Component, nullptr) && GEnableNaniteMaterialOverrides != 0`),
+while the skinned accessor has no such step (`SkinnedMeshComponentHelper.h:108-121`). Revision 3.2
+narrows the field to **the read-boundary value of `Component->GetMaterial(slot)`** after the
+component's own assignment resolution, states that it is not rendered-material state, and fixes the
+boundary in one sentence:
+
+> Nanite render-path substitution is outside v1 extraction because the extraction accessor does not
+> expose that rendered state.
+
+The extraction accessor is unchanged, no refusal was weakened, no error code or field name changed,
+and no render-state access was added. The live material cases were re-run under the narrowed
+contract and still pass. A gate case
+(`material_rendered_appearance_dimension`) records the rendered-appearance dimension as
+NOT YET LIVE-COVERED so the rung never claims it. Design-side record:
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_REV2_REVIEW.md` §8 and the Revision 3.2 change log.
+
+**(i) Revision 3.3 — deterministic material resolution (session/configuration independence).** The
+analysis that followed Revision 3.2's hold established that `Component->GetMaterial(slot)` is **not**
+a deterministic function of saved source state: its material-level Nanite step is gated by
+`UseNaniteOverrideMaterials` → `ShouldCreateNaniteProxy(Component, nullptr) && GEnableNaniteMaterialOverrides != 0`,
+whose inputs include the shader platform, `UseNanite(ShaderPlatform)`, the mesh's Nanite data,
+`Nanite::IsMaskingAllowed`, and the editor-only `IsDisplayNaniteFallbackMesh()` viewport toggle; the
+gate itself is the scalability CVar `r.Nanite.MaterialOverrides`. Two sessions of the *same* build can
+therefore return different materials for the same saved map. Revision 3.3 removes the dependence by
+construction: `resolved_material_asset_path` is the **deterministic projection** of the slot's two
+source facts (override when non-null, else asset slot), the component material accessor is off the
+extraction read boundary entirely (so the material helper's `ConditionalPostLoad` no longer occurs),
+and a divergent tree is refused at the boundary (D17c). Consequence for this document's evidence: the
+`resolved` values recorded in every case below are unchanged by the revision, because the sessions
+were run in configurations where the accessor already agreed with the projection — but that agreement
+is now a recorded *observation*, not a load-bearing assumption. Invariance evidence (measured, two
+sessions of the same build on the same saved map, differing only in session configuration): session A
+ran with `r.Nanite.MaterialOverrides=1` and session B with `r.Nanite.MaterialOverrides=0` (each
+recorded by the in-process test), both ran the six automation tests green and both transport gates
+returned OVERALL PASS with the **same ten PASS / four REFUSAL VERIFIED / three BLOCKED / four NOT YET
+LIVE-COVERED** classification, and the material cases produced **identical evidence and identical
+digests** (`IMPL_MATERIAL_OVERRIDE_A` `a5917d03…d7cb`, `IMPL_MATERIAL_OVERRIDE_B` `9736fa18…e437` in
+both sessions) — so identical saved source state plus identical engine build plus a different session
+configuration produced byte-identical extraction. The in-process test also records, per fixture slot,
+the session's component-accessor value, whether it agrees with the projection, and whether the
+substitution gate is enabled (it is disabled in these `-nullrhi` sessions, which is itself recorded
+rather than assumed). Design-side record:
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_REV2_REVIEW.md` §9 and the Revision 3.3 change log.
 
 **(a) Scope levels.** The transport gate's baseline ran after the in-process scope-change test
 had removed the runtime streaming level from that session (the test mutates the world on

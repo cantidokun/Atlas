@@ -29,6 +29,7 @@
 #include "EngineUtils.h"
 #include "FileHelpers.h"
 #include "GameFramework/Actor.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/PackageName.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -570,7 +571,143 @@ bool FAtlasExtractionTransformSignTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
-// 5. Negative control: an untagged actor is never returned
+// 5. Material resolution at the read boundary (Revision 3.3)
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasExtractionMaterialResolutionTest,
+    "Atlas.StateExtraction.MaterialResolutionBoundary",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAtlasExtractionMaterialResolutionTest::RunTest(const FString& Parameters)
+{
+    static const TCHAR* const FixtureEntities[] = {
+        TEXT("IMPL_MATERIAL_OVERRIDE_A"),
+        TEXT("IMPL_MATERIAL_OVERRIDE_B"),
+        TEXT("IMPL_PERM_A"),
+    };
+
+    // Session/config inputs that can make the engine's own accessor substitute a different
+    // material. Recorded, never asserted: the contract no longer depends on them, and the
+    // record exists so a substituting session is visible in the evidence rather than silent.
+    // `FindConsoleVariable(...)->GetInt()` is used rather than FindTConsoleVariableDataInt,
+    // which asserts (IConsoleManager.h:487) for CVars registered as FAutoConsoleVariableRef.
+    const TCHAR* const MaterialOverrideCVarName = TEXT("r.Nanite.MaterialOverrides");
+    const IConsoleVariable* MaterialOverrideCVar =
+        IConsoleManager::Get().FindConsoleVariable(MaterialOverrideCVarName);
+    AddInfo(FString::Printf(
+        TEXT("session substitution-gate inputs: %s=%d (present=%s)"),
+        MaterialOverrideCVarName,
+        MaterialOverrideCVar != nullptr ? MaterialOverrideCVar->GetInt() : -1,
+        MaterialOverrideCVar != nullptr ? TEXT("true") : TEXT("false")));
+
+    for (const TCHAR* EntityId : FixtureEntities)
+    {
+        TSharedPtr<FJsonObject> Record;
+        FString Error;
+        FString ErrorCode;
+        if (!ExtractActorRecord(EntityId, Record, Error, ErrorCode))
+        {
+            AddError(FString::Printf(TEXT("%s extraction failed: %s (%s)"), EntityId, *Error, *ErrorCode));
+            return false;
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* Components = nullptr;
+        if (!Record->TryGetArrayField(TEXT("materials"), Components) || Components == nullptr || Components->Num() == 0)
+        {
+            AddError(FString::Printf(TEXT("%s reported no material components"), EntityId));
+            return false;
+        }
+
+        for (const TSharedPtr<FJsonValue>& ComponentValue : *Components)
+        {
+            const TSharedPtr<FJsonObject> Component = ComponentValue->AsObject();
+            const FString ComponentPath = ReadString(Component, TEXT("component_object_path"));
+
+            // A find, never a load: the component is already in the world under extraction.
+            UStaticMeshComponent* EngineComponent =
+                FindObject<UStaticMeshComponent>(nullptr, *ComponentPath);
+            if (EngineComponent == nullptr)
+            {
+                AddError(FString::Printf(TEXT("component %s is not findable in the session"), *ComponentPath));
+                return false;
+            }
+
+            const TArray<TSharedPtr<FJsonValue>>* Slots = nullptr;
+            if (!Component->TryGetArrayField(TEXT("slots"), Slots) || Slots == nullptr)
+            {
+                AddError(FString::Printf(TEXT("component %s reported no slots array"), *ComponentPath));
+                return false;
+            }
+
+            for (int32 Index = 0; Index < Slots->Num(); ++Index)
+            {
+                const TSharedPtr<FJsonObject> Slot = (*Slots)[Index]->AsObject();
+
+                // 1. the two source facts, read directly from saved state.
+                const UMaterialInterface* EngineAssetSlot =
+                    EngineComponent->GetStaticMesh() != nullptr
+                        ? EngineComponent->GetStaticMesh()->GetMaterial(Index)
+                        : nullptr;
+                const UMaterialInterface* EngineOverride =
+                    EngineComponent->OverrideMaterials.IsValidIndex(Index)
+                        ? EngineComponent->OverrideMaterials[Index].Get()
+                        : nullptr;
+                const FString EngineAssetSlotPath =
+                    EngineAssetSlot != nullptr ? EngineAssetSlot->GetPathName() : FString();
+                const FString EngineOverridePath =
+                    EngineOverride != nullptr ? EngineOverride->GetPathName() : FString();
+
+                TestEqual(
+                    FString::Printf(TEXT("%s slot %d asset slot matches the mesh asset"), EntityId, Index),
+                    ReadString(Slot, TEXT("asset_slot_material_asset_path")),
+                    EngineAssetSlotPath);
+                TestEqual(
+                    FString::Printf(TEXT("%s slot %d override matches OverrideMaterials"), EntityId, Index),
+                    ReadString(Slot, TEXT("override_material_asset_path")),
+                    EngineOverridePath);
+
+                // 2. D17c: the recorded resolution is exactly the deterministic projection of
+                //    those two facts — a function of saved source state and nothing else.
+                const UMaterialInterface* Projected = EngineOverride != nullptr ? EngineOverride : EngineAssetSlot;
+                const FString ProjectedPath = Projected != nullptr ? Projected->GetPathName() : FString();
+                TestEqual(
+                    FString::Printf(
+                        TEXT("%s slot %d resolved is the deterministic projection"), EntityId, Index),
+                    ReadString(Slot, TEXT("resolved_material_asset_path")),
+                    ProjectedPath);
+
+                // 3. Observation (not an assertion): what the session's component accessor
+                //    would return, and whether this session's gates would let it substitute.
+                const UMaterialInterface* AccessorValue = EngineComponent->GetMaterial(Index);
+                const FString AccessorPath =
+                    AccessorValue != nullptr ? AccessorValue->GetPathName() : FString();
+                const bool bAccessorAgrees = AccessorPath == ProjectedPath;
+                AddInfo(FString::Printf(
+                    TEXT("%s slot %d accessor-observation: component-accessor=%s agrees-with-projection=%s "
+                         "substitution-gate=%s"),
+                    EntityId,
+                    Index,
+                    AccessorPath.IsEmpty() ? TEXT("<null>") : *AccessorPath,
+                    bAccessorAgrees ? TEXT("true") : TEXT("false"),
+                    EngineComponent->UseNaniteOverrideMaterials() ? TEXT("enabled") : TEXT("disabled")));
+
+                // 4. Whatever the accessor returned, the recorded value is the projection; a
+                //    disagreement is therefore an engine-side substitution this contract does
+                //    not digest, and it must not have reached the tree.
+                TestEqual(
+                    FString::Printf(
+                        TEXT("%s slot %d recorded value is unaffected by the session gate"), EntityId, Index),
+                    ReadString(Slot, TEXT("resolved_material_asset_path")),
+                    ProjectedPath);
+            }
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 6. Negative control: an untagged actor is never returned
 // ---------------------------------------------------------------------------
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

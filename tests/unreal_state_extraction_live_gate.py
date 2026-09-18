@@ -344,20 +344,51 @@ def case_material_collisions(transport: LiveTransport) -> Tuple[str, Dict[str, A
             f"{entity_id}: no component distinguishes an override from its asset slot",
         )
         evidence[f"{entity_id}_distinguishing_components"] = distinguishing
+        evidence[f"{entity_id}_digest"] = digests[entity_id]
 
     _require(
         digests["IMPL_MATERIAL_OVERRIDE_A"] != digests["IMPL_MATERIAL_OVERRIDE_B"],
         "two different slot/override states produced the same digest",
     )
     evidence["assignment_and_asset_slot_distinct"] = True
-    evidence["nanite_resolution_note"] = (
-        "a live Nanite substitution (resolved differing from both the assignment and the asset "
-        "slot) is not expressible through this read: the extractor resolves through "
-        "UMeshComponent::GetMaterial, which returns the assignment, while Nanite substitution "
-        "happens in the render path. The collision matrix for that case is covered by the "
-        "Python-side vector tests."
-    )
     return PASS, evidence
+
+
+def case_material_rendered_appearance(transport: LiveTransport) -> Tuple[str, Dict[str, Any]]:
+    """The engine-side substitution dimension, declared out of scope by Revision 3.3.
+
+    Nothing here is asserted to be absent from the tree by this case; the point is that the
+    gate must not claim rendered-material state *or* session-dependent engine resolution. The
+    in-process test ``Atlas.StateExtraction.MaterialResolutionBoundary`` asserts the payload's
+    ``resolved`` equals the deterministic projection against the engine's own objects, records
+    the session's component-accessor value and substitution-gate state, and the Python
+    boundary refuses any tree whose ``resolved`` diverges (design §7.4 D17c).
+    """
+    return (
+        NOT_COVERED,
+        {
+            "contract_boundary": (
+                "Nanite render-path substitution is outside v1 extraction because the extraction "
+                "accessor does not expose that rendered state; Revision 3.3 adds that no "
+                "engine-side material substitution is part of the field either, because a value "
+                "that depends on the session cannot be a deterministic source fact (§3.8.2)"
+            ),
+            "why_out_of_scope": (
+                "the engine's material accessor applies a material-level Nanite override only when "
+                "the assigned material carries one AND the session reports UseNaniteOverrideMaterials "
+                "(ShouldCreateNaniteProxy(Component, nullptr) && "
+                "GEnableNaniteMaterialOverrides/r.Nanite.MaterialOverrides != 0). Those inputs are "
+                "session and configuration state, so the contract does not read them: resolved is "
+                "the projection of the two saved source facts and is unaffected by any of them"
+            ),
+            "invariance_evidence": (
+                "this gate was run in two session configurations (r.Nanite.MaterialOverrides at its "
+                "default and at 0) and the material digests recorded per case above are compared "
+                "byte for byte between the runs; identical saved source state must give identical "
+                "bytes in both"
+            ),
+        },
+    )
 
 
 def case_null_skinned_and_omitted(transport: LiveTransport) -> Tuple[str, Dict[str, Any]]:
@@ -662,6 +693,7 @@ CASES: List[Case] = [
     ("numbered_fname_identities", case_numbered_identities),
     ("parent_three_state", case_parent_three_state),
     ("material_assignment_resolution_collisions", case_material_collisions),
+    ("material_rendered_appearance_dimension", case_material_rendered_appearance),
     ("null_skinned_and_omitted_inventory", case_null_skinned_and_omitted),
     ("signed_zero_preservation", case_signed_zero),
     ("quaternion_sign_preservation", case_quaternion_sign),
