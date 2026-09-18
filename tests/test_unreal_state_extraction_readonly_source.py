@@ -66,7 +66,6 @@ FORBIDDEN_ENGINE_PATHS = (
     "StreamingLevelsToConsider",
     "FLevelCollection",
     "UActorContainer",
-    "->GetLevels()",
 )
 
 #: Accessors the extractor is permitted to call (§10.2 item 4) and is expected to use.
@@ -79,7 +78,7 @@ ALLOWLISTED_ACCESSORS = (
     "IsLevelVisible",
     "GetWorldAssetPackageFName",
     "GetLoadedLevel",
-    "GetPersistentLevel",
+    "GetLevels",
     "IsValid",
     "IsRegistered",
     "GetAttachParentActor",
@@ -242,6 +241,21 @@ def test_scope_is_snapshotted_and_revalidated(extractor_code: str) -> None:
     assert "SnapshotScope" in extractor_code
     assert extractor_code.count("SnapshotScope(") >= 3  # definition + snapshot + re-query
     assert "ScopeChanged" in extractor_code
+
+
+def test_level_list_is_used_for_identity_only_never_for_order(extractor_code: str) -> None:
+    """The one documented use of a forbidden-by-default container, tightly constrained.
+
+    UE 5.6 keeps ``UWorld::PersistentLevel`` private with no public getter, so the
+    persistent level is identified by package identity — the equivalence §4.4 states —
+    using the world's level list as a *candidate set*. §7.2 forbids that list as a scope
+    *order*, so this test pins the use to exactly one site and requires the canonical
+    ordering and the fail-closed arm to be present.
+    """
+    assert extractor_code.count("GetLevels()") == 1, "the level list must be touched once"
+    assert "persistent levels (expected exactly 1)" in extractor_code, "fail-closed arm missing"
+    assert "PackagePath.Compare" in extractor_code, "canonical scope ordering missing"
+    assert ".Sort(" in extractor_code
 
 
 # ---------------------------------------------------------------------------

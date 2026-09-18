@@ -30,6 +30,8 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Containers/StringConv.h"
+#include "CoreGlobals.h"
 #include "Editor.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
@@ -38,14 +40,15 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "HAL/UnrealMemory.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
-#include "MovieScene.h"
 #include "Misc/App.h"
-#include "Misc/CoreGlobals.h"
 #include "Misc/EngineVersion.h"
+#include "Misc/FrameRate.h"
+#include "MovieScene.h"
 #include "UObject/Package.h"
 
 namespace AtlasStateExtraction
@@ -307,14 +310,34 @@ bool SnapshotScope(
 {
     OutScope.Reset();
 
-    const ULevel* PersistentLevel = World->GetPersistentLevel();
-    if (PersistentLevel == nullptr)
+    // §3.2.1.4 requires the persistent level in scope. UE 5.6 keeps UWorld's
+    // ``PersistentLevel`` member private and offers no public getter for it, so the level
+    // is identified by *identity*, not by position: for a non-partitioned world -- the
+    // only worlds v1 extracts -- the persistent level is the level whose package is the
+    // world's own package, which is exactly the equivalence §4.4 states. Arrival order is
+    // never used, so §7.2's prohibition on using the level list as a scope *order* is
+    // respected: the list is only the candidate set for this identity test.
+    const FString WorldPackage = World->GetOutermost()->GetName();
+    const ULevel* PersistentLevel = nullptr;
+    int32 PersistentMatches = 0;
+    for (const ULevel* Candidate : World->GetLevels())
+    {
+        if (Candidate != nullptr && Candidate->GetOutermost()->GetName() == WorldPackage)
+        {
+            PersistentLevel = Candidate;
+            ++PersistentMatches;
+        }
+    }
+    if (PersistentLevel == nullptr || PersistentMatches != 1)
     {
         return Fail(
             OutError,
             OutErrorCode,
             ErrorCodes::LevelScopeInvalid,
-            TEXT("the editor world has no persistent level"));
+            FString::Printf(
+                TEXT("the world package %s identifies %d persistent levels (expected exactly 1)"),
+                *WorldPackage,
+                PersistentMatches));
     }
 
     FScopeLevel Persistent;
