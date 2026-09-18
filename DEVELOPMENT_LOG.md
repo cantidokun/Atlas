@@ -1,3 +1,13 @@
+## 2026-09-18 - Temporal Revision 7 architectural hold + end-of-night checkpoint
+
+- Closed the night's development session at **Temporal Observation + State Delta v1 design Revision 7** (`44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`), with implementation explicitly unauthorized.
+- Independent review confirmed Revision 7 fixes the Revision 6 purity gap by making immutable `FromIdentity` an explicit component of all four evaluation-input variants.
+- Revision 7 remains **HOLD** because residual contract inconsistencies remain: stale `StateDelta(A,B)` wording, incomplete conceptual-domain reconciliation, incorrect admission-state wording for boundary identity mismatch, stale two-form `NEW_EPOCH` requirements, and unspecified multi-cause boundary determinism.
+- Next architecture step is **Temporal Design Revision 8**, design-only, followed by another independent architectural review. No schema/version bump, live Temporal gate, or implementation is authorized before clearance.
+- Blender Extraction Fidelity v1 remains **CLEAR** and frozen absent a concrete defect.
+- Token optimization / M13.8 remains paused. Unreal remains a separate track: M10 S1–S8 complete, M11 frozen, M12.1–M12.4 implemented, M12.5 independent semantic-evidence verification next.
+- Updated the canonical current handoff, root README, handoff context, Blender README, Unreal current handoff, and added `ATLAS_HANDOFF_2026-09-18_END_OF_NIGHT.md`. Historical dated handoffs remain archival.
+
 ## 2026-09-07 - M12.4 Unreal semantic -> runtime adapter
 - Added planning/m12/runtime_adapter.py (UnrealRuntimeStepMapping, UnrealRuntimeMapping,
   map_unreal_execution_plan).
