@@ -1,7 +1,8 @@
 # Unreal State Extraction Fidelity v1 — Design Gate
 
 **Status:** DESIGN — IMPLEMENTATION NOT AUTHORIZED
-**Design revision:** Revision 2 — remediation of the second independent red-team (Claude Opus 5) and second-pass self-review
+**Design status:** HOLD — an independent architectural review must decide CLEAR; this document's author cannot self-clear it
+**Design revision:** Revision 3 — remediation of the architectural review findings, with a third hostile self-review
 **Revision 1:** red-team hardening 1 (five material ambiguities closed)
 **Branch:** `feat/unreal-state-extraction-fidelity-v1-design`
 **Parent:** Atlas `main` at the September 18, 2026 checkpoint
@@ -160,7 +161,7 @@ way, validated against an explicitly named enum value.
 
 This is a contract decision, not "reuse or refine". `inspect_world`, `inspect_target_actors`,
 `inspect_material_state`, `inspect_sequencer_state` and the other M4–M10 probes remain
-**frozen and unmodified**; the extraction operation is new (§3.10) and does not call them.
+**frozen and unmodified**; the extraction operation is new (§10.1) and does not call them.
 
 #### 3.1.2 Engine identity is sourced, never hardcoded
 
@@ -213,13 +214,48 @@ that a World-scanning lookup can see. v1 MUST NOT inherit that.
    reporting a load-state-dependent entity set.
 3. **No force-loading.** The extractor never loads, unloads, or makes a level visible. A world
    that is not in the required state is not "prepared" by the extractor; it is refused.
-4. **Explicit level set.** Entity binding scans exactly the union of `ULevel::Actors` over the
-   scope levels: the persistent level, plus every streaming level that is loaded and visible.
+4. **Explicit level set, snapshotted once, revalidated after the scan.** Entity binding scans
+   exactly the union of `ULevel::Actors` (`Engine/Classes/Engine/Level.h:426-432`, the public
+   array documented as the one used by the actor iterators) over the scope levels: the persistent
+   level, plus every streaming level that is loaded and visible. The extractor MUST:
+
+   a. **snapshot** the scope once — the ordered list of `ULevel*` for the persistent level and for
+      every streaming level that passes the predicate of item 1 — and perform the actor scan over
+      that snapshot, never over a re-query;
+   b. **revalidate** the snapshot after the scan, re-evaluating the item-1 predicate and requiring
+      the same level set (same levels, same loaded and visible values) before any payload is built.
+      Any difference fails closed with `ERR_EXTRACTION_SCOPE_CHANGED`;
+   c. **never** produce a payload whose recorded scope was not the scope actually scanned. The
+      forbidden shape is exactly: *scope checked = A, actor scan performed under scope B, payload
+      claims scope A*.
+
+   The revalidation exists because the read path is not assumed to be side-effect-free: the
+   material helpers may trigger an engine-side `ConditionalPostLoad` (§3.8.3.6), and the design
+   must not depend on "nothing else touches the world while a game-thread task runs". It costs one
+   predicate evaluation and removes an unstated assumption.
+
    The extractor MUST NOT use `TActorIterator` for binding, because its result then depends on
-   engine filter semantics rather than on this contract.
-5. **Scope is recorded.** The payload records the scope levels (canonical order, §7.3). Two
+   engine filter semantics rather than on this contract. It MUST also NOT use the engine's
+   *narrowed* containers as the scope source: `UWorld::StreamingLevelsToConsider`
+   (`World.h:988-993`, a private, actively-considered **subset**) and `UActorContainer::Actors`
+   (`Level.h:78-80`, an `FName`-keyed **`TMap`**, hash-ordered, used for PIE cell duplication)
+   are both wrong sources, the latter because its iteration order is not canonical.
+
+5. **Actor-slot predicate.** Within a scope level, the scan iterates `ULevel::Actors` and skips
+   every entry that is not `IsValid()`, which covers both a null slot and a pending-kill actor —
+   the same policy as the engine's own `EActorIteratorFlags::SkipPendingKill`
+   (`Engine/Public/EngineUtils.h:440-445`). Null slots are a legal transient state of the array
+   (they are created by actor removal and later compacted, `Engine/Private/Level.cpp:833,1223`),
+   so a null slot is **not** an error and is deliberately not represented. A null *streaming
+   level* entry is an engine-invariant break and fails closed with
+   `ERR_EXTRACTION_LEVEL_SCOPE_INVALID` rather than being skipped.
+
+6. **Scope is recorded.** The payload records the scope levels (canonical order, §7.3). Two
    extractions of the same world identity with different level sets therefore cannot produce
-   the same digest.
+   the same digest. Scope entries are keyed by (`level_package_path`, `level_kind`) and duplicates
+   are **permitted**: two streaming instances that resolve to the same package are two levels, and
+   the record carries one entry each. Rejecting such a world would be a false refusal, so the
+   validator asserts sorted order and the item-1 predicate, not uniqueness of scope entries.
 
 The direct consequence, stated plainly: **v1 cannot extract from a world that has an
 unloaded or hidden streaming level.** This is a bounded restriction, not a defect, and it is
@@ -231,7 +267,8 @@ the reason the entity-not-found error is free of scope ambiguity (§3.3.3).
 
 The source binding tag is exactly `atlas_entity:<entity_id>` (unchanged from the existing
 convention; the harness fixture already carries `atlas_entity:FIELD_SURFACE`,
-`AtlasUnrealTransport.cpp:24`).
+`AtlasUnrealTransport.cpp:24`). The binding is established on the **canonical** name
+`FName("atlas_entity:" + canonical_entity_id)` (§3.3.4), never on the raw request string.
 
 #### 3.3.2 Canonical entity-ID grammar
 
@@ -251,9 +288,100 @@ The grammar is not cosmetic. It removes three hazards mechanically:
   C++ `FString` order and Python `str` order coincide, so the canonical sort key is
   unambiguous across languages (§7.3);
 - **Unicode normalization ambiguity** — nothing to normalize;
-- **FName comparison surprises** — the comparison class is explicit and finite.
+- **FName comparison surprises are bounded and modelled** — the engine's identity is not the raw
+  string (§3.3.3), so the contract states the exact model instead of assuming it.
 
-#### 3.3.3 Case semantics (FName is case-insensitive; the contract is explicit)
+#### 3.3.3 FName identity semantics (normative engine model)
+
+A tag is stored as an `FName`, and `FName` identity is **not** the case-folded string. The
+engine's actual model, verified in the installed 5.6 source:
+
+1. **Case is folded.** "Names are case-insensitive, but case-preserving"
+   (`Core/Public/UObject/NameTypes.h:573`), and the pool's own equality helper compares with
+   `Strnicmp` (`Core/Private/UObject/UnrealNames.cpp:3164`).
+2. **A trailing `_<digits>` suffix is parsed into a separate number at construction time.**
+   `FName(const TCHAR*)` delegates to `FNameHelper::MakeDetectNumber`
+   (`UnrealNames.cpp:3411-3417`), which calls `ParseNumber` (`:3169-3199`). The split happens
+   only when the digit run is non-empty, shorter than 10 digits, immediately preceded by `_`,
+   and either its length is 1 or its first digit is not `0`; the value must also be below
+   `MAX_int32`. The stripped base becomes the comparison name.
+3. **The number is part of the name.** It is stored as
+   `NAME_EXTERNAL_TO_INTERNAL(n) = n + 1` (`NameTypes.h:153`) so that internal `0` keeps meaning
+   "no number" (`NAME_NO_NUMBER_INTERNAL`, `:149-156`), and `FName::operator==` compares
+   `ToUnstableInt()` (`:762-765`), which in the default configuration
+   (`UE_FNAME_OUTLINE_NUMBER 0`, `:38`) is the full (ComparisonIndex, Number) pair.
+4. **Rendering round-trips.** A numbered name renders as `base + "_" + number`
+   (`UnrealNames.cpp:3605-3607,3617-3621`), i.e. exactly the spelling it was built from.
+
+Consequences, verified rather than assumed:
+
+- **The identity is the pair (case-folded base, number)**, and for tags built by the string
+  constructor that pair is a bijection of the original spelling — so two distinct admitted IDs
+  can never collide onto one binding.
+- **`foo_1`, `foo_01` and `foo` are three distinct names.** `foo_1` is (base `foo`, number 1);
+  `foo_01` is the *unnumbered* name `foo_01` because the leading-zero rule above blocks the
+  split; `foo` is (index `foo`, no number). None of the three compares equal to another.
+- **A case variant is the same name** (`CAM01` ≡ `cam01`): this is the intended
+  case-insensitive binding.
+- **A spelled `_N` suffix is not string identity.** `atlas_entity:cam_1` denotes (base
+  `atlas_entity:cam`, number 1) while `atlas_entity:cam` denotes (index `atlas_entity:cam`, no
+  number): different bindings. A request for `cam_1` must not resolve a tag for `cam`, and a
+  request for `cam` must not resolve a tag for `cam_1`.
+
+Implementations that silently change identity, and are therefore forbidden:
+
+- `FName::IsEqual(Other, ENameCase::CaseSensitive, /*bCompareNumber=*/false)` — a **number-blind**
+  comparison (`NameTypes.h:759-762`) that equates `foo_1` with `foo`;
+- comparing or keying on `GetComparisonIndex()` or `GetTypeHash(FName)` alone — the hash is
+  index-only under the outline-number configuration (`NameTypes.h:1310-1312`) and is never the
+  identity;
+- any **string round-trip** of a tag (`FName(Tag.ToString())`, `id.split("_")`, an `FString`
+  assembled from a rendered tag): the (base, number) pair must come from the engine, never from
+  re-parsing a rendered string;
+- **string comparison of rendered tags** (`Tag.ToString() == Expected`): case-folded string
+  equality happens to agree with `FName` equality for every reachable construction path, but it
+  is not the engine's comparison, and it silently diverges the moment any spelling-level
+  normalisation is introduced.
+
+The extractor MUST compare with `FName` equality (`operator==` / `TArray<FName>::Contains`),
+because that is the engine's own comparison class.
+
+#### 3.3.4 Canonical identity representation (request-independence)
+
+The payload MUST NOT carry the caller's spelling. The canonical entity identity is
+
+```text
+canonical_entity_id = ASCII-uppercase(requested_id)
+```
+
+and it is derived from the **source binding**: the extractor binds on
+`FName("atlas_entity:" + canonical_entity_id)` and requires the candidate tag to be `FName`-equal
+to that name. Both sides therefore go through the same constructor and the same `ParseNumber`,
+so the engine's own parse decides — not any string logic written by the extractor.
+
+Consequently:
+
+1. `entity_id` in the payload is the canonical ID, never the request string;
+2. a request for `cam01` and a request for `CAM01` produce byte-identical payloads, identical
+   canonical bytes and identical digests for the same source actor;
+3. the same rule governs `parent.entity_id` and the Sequencer record's `entity_id`;
+4. the normative property this exists to guarantee:
+
+   > The same underlying canonical entity source binding cannot produce different extraction
+   > identities solely because the caller changed ID casing or FName spelling.
+
+Uppercase is the chosen representative of the comparison class because the repository's existing
+binding convention is uppercase — `atlas_entity:FIELD_SURFACE`
+(`unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasUnrealTransport.cpp:24`,
+`unreal/AtlasUnrealHarness/Source/AtlasUnrealHarness/AtlasUnrealHarness.cpp:233,239`) — so the
+canonical form coincides with the source spelling for every existing Atlas fixture. Because
+`FName` comparison is case-insensitive, the representative cannot change *which* actors match; it
+changes only the identity the payload reports.
+
+This is a canonicalisation of the **identity**, not a normalisation of source strings: no other
+normalisation is performed (§5.7), and the tag's own stored casing is never read (§3.3.5 item 6).
+
+#### 3.3.5 Binding rule set (case-insensitive, canonical identity)
 
 Unreal `FName` comparison is case-insensitive: "Names are case-insensitive, but
 case-preserving" (`Core/Public/UObject/NameTypes.h:573`), and `FName::operator==` compares
@@ -263,9 +391,9 @@ case variants of the same tag.
 
 v1's rule set, chosen to be case-insensitive-unique rather than falsely case-sensitive:
 
-1. **Binding lookup is case-insensitive.** For each requested entity ID, the extractor
-   collects every actor in the scope set carrying a tag that equals `atlas_entity:<id>` under
-   case-insensitive comparison.
+1. **Binding lookup is case-insensitive and performed on the canonical ID.** For each requested
+   entity ID, the extractor forms `FName("atlas_entity:" + ASCII-uppercase(id))` and collects
+   every actor in the scope set carrying a tag `FName`-equal to it (§3.3.3, §3.3.4).
 2. **Case-insensitive uniqueness within a request.** A request whose entity-ID set contains
    two IDs that are equal when case-folded (e.g. `cam01` and `CAM01`) fails closed
    (`ERR_EXTRACTION_REQUEST_INVALID`) before extraction. One actor cannot be the extraction
@@ -273,9 +401,11 @@ v1's rule set, chosen to be case-insensitive-unique rather than falsely case-sen
 3. **Zero / one / many.** Zero matches → `ERR_EXTRACTION_ENTITY_NOT_FOUND`; exactly one actor
    → accepted; two or more actors → `ERR_EXTRACTION_ENTITY_AMBIGUOUS`. Case-variant duplicate
    tags on different actors land in the ambiguity arm, not in first-match.
-4. **Tag conflict on one actor.** If the matched actor carries two or more distinct
-   `atlas_entity:*` tags (case-insensitively distinct), the binding is non-injective and fails
-   closed with `ERR_EXTRACTION_ENTITY_TAG_CONFLICT`.
+4. **Tag conflict on one actor.** If the matched actor carries two or more `atlas_entity:*` tags
+   whose IDs are **distinct canonical identities** — i.e. not case variants of one ID, which are
+   the same `FName` and collapse to a single binding — the binding is non-injective and fails
+   closed with `ERR_EXTRACTION_ENTITY_TAG_CONFLICT`. Duplicate identical tag entries on one actor
+   are a set-level duplicate, not a conflict.
 5. **Addressability limitation (declared, not silently tolerated).** An entity is addressable in
    v1 if and only if some actor in the scope carries a tag whose ID matches the canonical
    grammar of §3.3.2. A source tag whose ID does not match the grammar (for example
@@ -285,23 +415,31 @@ v1's rule set, chosen to be case-insensitive-unique rather than falsely case-sen
    grammar; v1 neither repairs a non-conforming tag nor invents a normalized match. There is no
    failure arm for this case, because a non-canonical ID can never be case-insensitively equal
    to a canonical one, and a dead failure arm would be untestable normative text.
-6. **Reported identity.** `entity_id` in the payload is the requested (canonical) ID verbatim.
-   The matched tag's stored casing is deliberately **not** reported: the comparison class is
-   case-insensitive (§3.3.3.1) so casing carries no canonical identity, and the casing an
-   engine would report is a property of the process name table rather than of the extracted
-   actor state (separate comparison/display entries,
-   `Core/Private/UObject/UnrealNames.cpp:1860-1883`), so it cannot be shown reproducible across
-   processes. A field whose determinism cannot be established MUST NOT participate in a digest.
-7. **No inference.** Actor names, actor labels and sequence display names never resolve
+6. **Reported identity is the canonical ID** (§3.3.4), never the request string. The matched
+   tag's stored casing is deliberately **not** reported: the comparison class is
+   case-insensitive (§3.3.3) so casing carries no canonical identity, and the casing an engine
+   would report is a property of the process name table rather than of the extracted actor state
+   (separate comparison/display entries, `Core/Private/UObject/UnrealNames.cpp:1860-1883`), so it
+   cannot be shown reproducible across processes. A field whose determinism cannot be established
+   MUST NOT participate in a digest. For the same reason the extractor MUST NOT look up the
+   *request* string and echo it, and MUST NOT derive identity from a rendered tag.
+7. **Numbered-name awareness.** The extractor MUST NOT assume that the tag's text equals the
+   entity-ID string. A binding is established only by `FName` equality on the canonical name, so
+   that the engine's `ParseNumber` decides how a `_<digits>` suffix participates (§3.3.3). An
+   entity ID whose spelling ends in `_<digits>` is therefore a first-class identity and must be
+   reported as itself: `cam_1` and `cam_01` are different entities, and neither is `cam`.
+8. **No inference.** Actor names, actor labels and sequence display names never resolve
    identity.
 
-#### 3.3.4 String comparison discipline
+#### 3.3.6 String comparison discipline
 
 All extraction string comparisons are **ordinal and case-sensitive**, implemented with
 explicit case-sensitive APIs in C++ (`FString::Compare(..., ESearchCase::CaseSensitive)` /
 `FCString::Strcmp`) — never with `FString::operator==` or `FName::operator==`, both of which
 are case-insensitive (`Containers/UnrealString.h.inl:1053-1056,1067-1070`; `NameTypes.h:762`).
-The single deliberate exception is the entity-tag binding lookup in §3.3.3.1.
+The single deliberate exception is entity-tag binding, which uses `FName` equality (the engine's
+own case-insensitive comparison, §3.3.3) — never a case-folded string comparison written by the
+extractor.
 
 ### 3.4 Actor record and source provenance
 
@@ -309,7 +447,7 @@ The single deliberate exception is the entity-tag binding lookup in §3.3.3.1.
 
 | Notion | Value | Mutating it | Digest |
 |---|---|---|---|
-| Canonical entity identity | `entity_id` (tag-bound, case-insensitive class) | changing the tag changes canonical identity | changes |
+| Canonical entity identity | `entity_id` (canonical form of the matched tag binding, §3.3.4) | changing the tag changes canonical identity | changes |
 | Source-object provenance | `actor_object_path`, `actor_class`, `level_package_path` | renaming the object changes provenance | **changes (expected)** |
 | Mutable source locator | the object path *as a locator* | rename / recreate / level move all change it | not a separate field |
 
@@ -340,8 +478,11 @@ parent
 editor_visibility
 transform
 materials
+omitted_material_components
 ```
 
+- `entity_id` = the **canonical** identity of the matched binding (§3.3.4), never the request
+  string.
 - `actor_name` = `AActor::GetName()` (the object name). The actor **label**
   (`GetActorLabel()`) is not extracted in v1; `actor_name` shown in a UI is not the label.
 - `actor_object_path` = the actor's full object path (source locator; includes the level outer
@@ -350,6 +491,8 @@ materials
 - `level_package_path` = `Actor->GetLevel()->GetOutermost()->GetName()` — the package that
   contains the level, i.e. the level's own package identity (for the persistent level, the map
   package).
+- `omitted_material_components` = the declared out-of-scope inventory of §3.8.1a
+  (`count` + sorted, deduplicated `classes`).
 - There is **no** nested `source_identity` object. Revision 1 carried both a top-level
   `actor_object_path` and a nested `source_identity.actor_object_path`; that duplication was a
   second place for the same fact to be written and is removed (§15). The actor's
@@ -376,7 +519,7 @@ parent:
 |---|---|---|---|
 | no attach-parent actor (or no root component) | `none` | `null` | `null` |
 | attach-parent actor with no `atlas_entity:` tag | `unbound` | `null` | parent's object path |
-| attach-parent actor with exactly one `atlas_entity:` binding | `bound` | parent entity ID | parent's object path |
+| attach-parent actor with exactly one `atlas_entity:` binding | `bound` | parent entity ID (canonical, §3.3.4) | parent's object path |
 | attach-parent actor with two or more distinct `atlas_entity:` tags | fail closed (`ERR_EXTRACTION_PARENT_TAG_CONFLICT`) | — | — |
 
 Revision 1 collapsed the first two rows into `unbound/null`, which allowed two materially
@@ -473,24 +616,80 @@ occurs anywhere in the producer (§5.4).
 
 ### 3.8 Material-source state machine
 
-#### 3.8.1 Component set
+#### 3.8.1 Component set — explicitly supported component classes only
 
-For the selected actor, the material-bearing component set is exactly
-`Actor->GetComponents<UMeshComponent>(Components, /*bIncludeFromChildActors=*/false)`
-(`Engine/Classes/GameFramework/Actor.h:3979-3980`). Components outside that set are **not**
-extracted; a non-`UMeshComponent` primitive's material state is explicitly out of v1 scope and
-is not claimed.
+v1 defines material extraction for **two component families only**, by class:
+
+| Supported family | Root class | Material model |
+|---|---|---|
+| static mesh | `UStaticMeshComponent` (and descendants) | mesh-asset slot list + component override array, resolved by `FStaticMeshComponentHelper` |
+| skinned mesh | `USkinnedMeshComponent` (and descendants) | skinned-asset material list + component override array, resolved by `FSkinnedMeshComponentHelper` |
+
+The candidate set is `Actor->GetComponents<UMeshComponent>(Components,
+/*bIncludeFromChildActors=*/false)` (`Engine/Classes/GameFramework/Actor.h:3979-3980`), and each
+candidate is then:
+
+1. kept only if `IsA<UStaticMeshComponent>()` or `IsA<USkinnedMeshComponent>()`;
+2. required to satisfy `IsRegistered()` (`Engine/Classes/Components/ActorComponent.h:1243`) — an
+   unregistered component does not participate in the world, and recording its necessarily
+   unresolved material view would add source facts no world state depends on;
+3. otherwise a hard failure of the whole extraction with
+   `ERR_EXTRACTION_UNSUPPORTED_COMPONENT_TYPE`.
+
+Rule 3 is not optional, and the reason is measured rather than assumed. `UMeshComponent` has
+dozens of subclasses in shipped 5.6 whose material model is *not* the slot model defined here:
+`UWidgetComponent` (`Runtime/UMG/Public/Components/WidgetComponent.h:94`, overrides both
+`GetNumMaterials` and `GetMaterial` and draws a widget render target),
+`UProceduralMeshComponent`
+(`Plugins/Runtime/ProceduralMeshComponent/.../ProceduralMeshComponent.h:149`, overrides
+`GetNumMaterials`), `UBaseDynamicMeshComponent`
+(`Runtime/GeometryFramework/Public/Components/BaseDynamicMeshComponent.h:125`, overrides both),
+`UGeometryCollectionComponent` (`Runtime/Experimental/GeometryCollectionEngine/...:577`),
+`UHeterogeneousVolumeComponent` (`Runtime/Engine/Classes/Components/HeterogeneousVolumeComponent.h:20`),
+`UGroomComponent`, `UGroomSolverComponent`, `UWaterMeshComponent`, `UCableComponent`,
+`UCustomMeshComponent`, `UGeometryCacheComponent`, `UPaperSpriteComponent`,
+`UPaperFlipbookComponent`, `UPaperTileMapComponent`, `UPaperGroupedSpriteComponent`,
+`ULidarPointCloudComponent`, and the editor drawing components (`UTriangleSetComponent`,
+`UPointSetComponent`, `UMeshWireframeComponent`, `ULineSetComponent`,
+`UBasicTriangleSetComponentBase`, `UBasicPointSetComponentBase`, `UBasicLineSetComponentBase`).
+
+None of those has `GetStaticMesh()` or `GetSkinnedAsset()`, so a generic `UMeshComponent` state
+machine is **not implementable**: it would require per-class branching that this design does not
+specify, and any claim of generic support would be false. Option A of the review is therefore
+adopted: unsupported mesh components fail closed rather than being half-modelled.
+
+Within the two supported families, descendants are accepted *because they inherit the material
+model rather than replacing it*: `UInstancedStaticMeshComponent`
+(`Components/InstancedStaticMeshComponent.h:157`), `USplineMeshComponent` (`:118`),
+`UCameraProxyMeshComponent`, `ULandscapeNaniteComponent`, `UControlPointMeshComponent`,
+`ULandscapeMeshProxyComponent`, `UInteractiveFoliageComponent`,
+`UViewAdjustedStaticMeshGizmoComponent` declare no `GetNumMaterials`/`GetMaterial` override, and
+`USkeletalMeshComponent`, `UPoseableMeshComponent` and `UInstancedSkinnedMeshComponent` inherit
+`USkinnedMeshComponent`'s. A future class added to either subtree inherits the contract; a future
+class added directly under `UMeshComponent` fails closed by rule 3 until this design is revised.
+
+#### 3.8.1a Components deliberately outside the material contract (declared, not silent)
+
+Material state of components that are **not** in the supported mesh families is out of v1 scope —
+but the omission is recorded in-band rather than left invisible. For every registered
+`UPrimitiveComponent` of the actor outside the supported families, the actor record carries:
+
+```text
+omitted_material_components:
+  count: int                  # number of such registered components
+  classes: [string, ...]      # their class names, sorted, deduplicated, canonical collation
+```
+
+This is classified as *intentionally omitted state made visible* (§4.6): v1 makes no material
+claim about those components, and two actors that differ only in such a component still produce
+different digests because the inventory differs. It does not enumerate them individually, so two
+decals of the same class are indistinguishable from each other — a declared limit, not an
+accidental loss.
 
 Component identity is the component's object path. The contract does not derive a stable
 component identity, so a component created at runtime with an engine-generated name
 (`NAME_None`) is a mutable source locator, exactly like an actor name (§3.4.1). The live gate
 MUST use explicitly named components.
-
-The component set is further filtered to **registered** components
-(`UActorComponent::IsRegistered()`, `Engine/Classes/Components/ActorComponent.h:1243`): an
-unregistered component does not participate in the world and recording its (necessarily
-unresolved) material view would add source facts that no world state depends on. Registration
-state is therefore part of the component-selection predicate, not an implementation choice.
 
 Records are sorted by (`component_object_path`, `slot_index`) in canonical collation order
 (§7.3); the ordering of the engine's component array is irrelevant to the payload.
@@ -498,62 +697,69 @@ Records are sorted by (`component_object_path`, `slot_index`) in canonical colla
 #### 3.8.2 States (total function)
 
 The state machine is evaluated per component from the engine's own answers. It is total: every
-component in the set yields exactly one `mesh_state`, and every reported slot yields exactly
-one `slot_state`.
+component in the set yields exactly one `mesh_state`, and every slot yields exactly one record.
 
 Component level:
 
 ```text
 component_object_path: string
-component_class: string        # UMeshComponent-derived class name
-mesh_asset_path: string|null   # null iff mesh_state == "no_mesh_asset"
+component_class: string          # the supported root family is derivable from this name
+mesh_asset_path: string|null     # null iff mesh_state == "no_mesh_asset"
 mesh_state: "mesh_asset_present" | "no_mesh_asset"
-slot_count: int                 # == len(slots)
+slot_count: int                  # == len(slots)
 slots: [ slot, ... ]
 ```
 
-- `mesh_state = "no_mesh_asset"` — the component has no mesh asset (`GetStaticMesh()` /
-  `GetSkinnedAsset()` null). `slot_count` is 0 and `slots` is `[]`. `UStaticMeshComponent::GetNumMaterials()`
-  returns 0 in this case (`Engine/Private/Components/StaticMeshComponent.cpp:2765-2775`), and a
-  null-mesh component is still recorded, so it cannot be silently omitted.
-- `mesh_state = "mesh_asset_present"` — the mesh asset exists.
+- `mesh_state = "no_mesh_asset"` — the component's mesh asset accessor (`GetStaticMesh()` for the
+  static family, `GetSkinnedAsset()` for the skinned family) returns null. `mesh_asset_path` is
+  `null`, `slot_count` is 0, `slots` is `[]`. The component is still recorded, so a null-mesh
+  component cannot be silently omitted; `UStaticMeshComponent::GetNumMaterials()` returns 0 in
+  this state (`Engine/Private/Components/StaticMeshComponent.cpp:2765-2775`).
+- `mesh_state = "mesh_asset_present"` — the accessor returns non-null and `mesh_asset_path` is its
+  stable object path.
 
-Slot level:
+Slot level — the record carries the two **assignment source facts** *and* the engine's resolved
+value:
 
 ```text
 slot_index: int
-slot_state: "component_override" | "asset_slot" | "asset_slot_empty"
-assigned_material_asset_path: string|null
-resolved_material_asset_path: string|null
+asset_slot_material_asset_path: string|null   # the mesh asset's material for this slot
+override_material_asset_path: string|null     # the component's override for this slot
+resolved_material_asset_path: string|null     # what the engine's resolver returns
 ```
 
-- `"component_override"` — `Component->OverrideMaterials.IsValidIndex(idx)` and
-  `OverrideMaterials[idx] != nullptr`. `assigned_material_asset_path` is that override's
-  stable object path.
-- `"asset_slot"` — no component override, and the mesh asset supplies a non-null material for
-  `idx`. `assigned_material_asset_path` is the asset slot's stable object path.
-- `"asset_slot_empty"` — no component override and the mesh asset's slot value is `null`
-  (`UStaticMesh::GetMaterial` returns the raw `StaticMaterials[idx].MaterialInterface`,
-  `Engine/Private/StaticMesh.cpp:9520-9528`). `assigned_material_asset_path` is `null`.
-  This does **not** mean the slot renders with no material: the engine substitutes its default
-  material at render-proxy creation. That substitution is render state and is **not**
-  extracted.
+Derivation, exactly as the engine's own helpers do it
+(`Engine/Public/StaticMeshComponentHelper.h:108-137`;
+`Engine/Public/SkinnedMeshComponentHelper.h:108-123`):
 
-`resolved_material_asset_path` is exactly what the engine's own resolver returns:
-`Component->GetMaterial(idx)` (`StaticMeshComponent.cpp:2803-2811` →
-`FStaticMeshComponentHelper::GetMaterial`, `Engine/Public/StaticMeshComponentHelper.h:108-137`;
-`SkinnedMeshComponent.cpp:1753-1756` → `FSkinnedMeshComponentHelper::GetMaterial`,
-`Engine/Public/SkinnedMeshComponentHelper.h:108-123`). It is the post-resolution value and may
-differ from the assigned value because the engine applies a Nanite override substitution:
+1. static family: `resolved` = the valid non-null override if present, else the asset slot value
+   (`UStaticMesh::GetMaterial` returns the raw `StaticMaterials[idx].MaterialInterface`,
+   `Engine/Private/StaticMesh.cpp:9520-9528`, which may be null);
+2. skinned family: `resolved` = the valid non-null override if present, else the skinned asset's
+   material for that index when the asset is not compiling and the index is valid, else null;
+3. in both families the resolved value may then be replaced by a Nanite override material
+   (`OutMaterial->GetNaniteOverride()`) when the component uses Nanite override materials
+   (`StaticMeshComponentHelper.h:123-134`).
 
-```cpp
-if (...) { UMaterialInterface* NaniteOverride = OutMaterial->GetNaniteOverride();
-           OutMaterial = NaniteOverride != nullptr ? NaniteOverride : OutMaterial; }
-```
+`resolved_material_asset_path` is therefore exactly `Component->GetMaterial(idx)`
+(`StaticMeshComponent.cpp:2803-2811`, `SkinnedMeshComponent.cpp:1753-1756`), and the contract
+distinguishes **assigned source value** from **resolved engine value**; a difference between them
+is the engine's own resolution result, not an extraction transform.
 
-The contract therefore distinguishes **assigned source value** from **resolved engine value**;
-a difference between `assigned_material_asset_path` and `resolved_material_asset_path` is the
-engine's own resolution result, not an extraction transform.
+Recording the asset slot as its own field is required for collision-freedom, not for
+completeness: with only an assigned/resolved pair, the states (override `A`, asset slot `B`) and
+(override `A`, asset slot `C`) would produce identical records although the mesh asset's source
+state differs. That collapse is reviewed in §4.6 and in the review record (§P10).
+
+Intentionally equivalent representations, stated so no implementation treats them as distinct:
+
+- a null override **entry** (`OverrideMaterials.IsValidIndex(idx) && OverrideMaterials[idx] ==
+  nullptr`) is equivalent to having no entry at all — both read as
+  `override_material_asset_path: null` and both fall through to the asset slot;
+- override entries at indices `>= GetNumMaterials()` are not slots and are not extracted;
+- an `asset_slot_empty` slot (`asset_slot_material_asset_path: null` with no override) does
+  **not** mean the slot renders with no material: the engine substitutes its default material at
+  render-proxy creation. That substitution is render state and is **not** extracted.
 
 #### 3.8.3 Fail-closed material rules
 
@@ -574,10 +780,22 @@ engine's own resolution result, not an extraction transform.
    transient package (`/Engine/Transient`) or which carries `RF_Transient`, fails closed with
    `ERR_EXTRACTION_UNSUPPORTED_MATERIAL_SOURCE`. A transient instance is never represented by
    a variant tag, an object name, or a synthesized path.
-4. **Generic contract, no per-class special cases.** Components that override the slot model
-   with class-specific semantics (for example landscape material resolution) are recorded as
-   the generic `UMeshComponent` contract reports them. v1 makes no class-specific material
-   claim; this is a declared scope limit, not silent correctness.
+4. **Unsupported mesh component classes fail closed.** Any registered `UMeshComponent` of the
+   actor that is neither a `UStaticMeshComponent` nor a `USkinnedMeshComponent` (nor a
+   descendant of either) is a hard failure, `ERR_EXTRACTION_UNSUPPORTED_COMPONENT_TYPE`
+   (§3.8.1). v1 does not half-model such a component, and it does not silently drop it.
+5. **No per-class special-casing inside a supported family.** Within the two supported families
+   the slot model of §3.8.2 is the whole contract; the extractor invokes the engine's own
+   helpers and applies no class-specific branch of its own. A class that would require one is by
+   definition outside the supported set and fails closed under rule 4.
+6. **Declared read-path side effect.** The engine's material helpers call
+   `OutMaterial->ConditionalPostLoad()` inside the resolution chain
+   (`Engine/Public/StaticMeshComponentHelper.h:126-127`). That is an engine-internal lazy-init /
+   object-graph effect (it may load the material's package) and is **not** persistent editor-state
+   mutation: it does not dirty a package, modify a transaction, or change the level. It is
+   declared here because the read-only claim must be exact. Any engine call that *could* dirty
+   (`MarkPackageDirty`), modify (`Modify`), or change ownership remains forbidden, and the live
+   gate measures package dirty state across the extraction call (§11.3).
 
 #### 3.8.4 Relationship to `verify_material_variant` and the `atlas_material_variant:` tag
 
@@ -619,7 +837,7 @@ class in v1. Revision 1 listed it; that entry is removed (§15).
 
 ```text
 sequence:
-  entity_id: string
+  entity_id: string          # canonical ID, §3.3.4
   sequence_actor_object_path: string
   sequence_asset_object_path: string
   playback_range:
@@ -655,7 +873,9 @@ All of the following MUST hold, each with its own error:
    restriction (fail-closed, not lossy);
 6. `tick_resolution = MovieScene->GetTickResolution()` (`MovieScene.h:809-812`) and
    `display_rate = MovieScene->GetDisplayRate()` (`MovieScene.h:822-825`) are recorded as exact
-   int32 rational pairs. v1's own validity predicate is `numerator > 0 && denominator > 0`
+   int32 rational pairs, **verbatim and never reduced to lowest terms**: `{60,2}` and `{30,1}`
+   are numerically equal but are different stored source values, and the contract records what the
+   engine stores. v1's own validity predicate is `numerator > 0 && denominator > 0`
    (`ERR_EXTRACTION_SEQUENCE_RATE_INVALID`). This is deliberately **stronger** than
    `FFrameRate::IsValid()`, which tests only `Denominator > 0`
    (`Core/Public/Misc/FrameRate.h:48-51`) and therefore accepts a zero or negative numerator.
@@ -711,7 +931,7 @@ None of these are extraction facts except the extraction node itself. Specifical
 
 ### 4.2 The extraction boundary (normative)
 
-1. Extraction is a distinct operation (§3.10). Its response `observed_state` contains
+1. Extraction is a distinct operation (§10.1). Its response `observed_state` contains
    **exactly one key**: `unreal_state_extraction`. Any other key at that level is a hard
    failure (`ERR_EXTRACTION_SCHEMA`).
 2. The value tree is the object under `unreal_state_extraction`, with exactly these five keys:
@@ -816,8 +1036,43 @@ engine build.
 - `extraction_kind = "actor_state"`: `actors` holds the requested entities in canonical order
   (§7.3); `sequences` is `[]`.
 - `extraction_kind = "sequencer_state"`: `sequences` holds exactly one record; `actors` is `[]`.
-- The value tree's `extraction_kind` MUST equal the kind implied by the operation
-  (`extract_actor_state` / `extract_sequencer_state`, §3.10), else `ERR_EXTRACTION_SCHEMA`.
+- **`extraction_kind` is derived from the payload content, not copied from the request.** It MUST
+  equal `"actor_state"` iff `actors` is non-empty and `sequences` is empty, and
+  `"sequencer_state"` iff the converse; a tree in which both are non-empty or both are empty is a
+  schema failure (`ERR_EXTRACTION_SCHEMA`). The producer asserts the derivation and Python
+  re-derives it, so no request field survives into the payload through this leaf.
+- The operation still determines what the extraction *asks for* (§10.1); that is scope, not
+  identity, and the distinction is stated normatively in §4.6.
+
+### 4.6 Field provenance classification (no request-derived value in the payload)
+
+Every payload field is classified by provenance. The digest excludes request, authorization,
+transport, session and clock (as does `docs/ATLAS_ARCHITECTURE_CONTRACT.md:23,176-187`), so a
+field in categories 3–5 must be either eliminated or explicitly justified.
+
+| Category | Fields | Status |
+|---|---|---|
+| **1 — authoritative engine source fact** | `world_object_path`, `world_package_path`, `world_name`, `engine_version`, `engine_build_version`, `level_scope.levels[]` (`level_package_path`, `level_kind`, `loaded`, `visible`), `actor_name`, `actor_object_path`, `actor_class`, `level_package_path`, `parent.binding`, `parent.actor_object_path`, `editor_visibility.hidden_ed_at_startup`, `.temporarily_hidden_in_editor`, `.hidden_ed_layer`, `.hidden_ed_level`, `transform.location_cm`, `.rotation`, `.scale`, `materials[].component_object_path`, `.component_class`, `.mesh_asset_path`, `slots[].slot_index`, `.asset_slot_material_asset_path`, `.override_material_asset_path`, `.resolved_material_asset_path`, `omitted_material_components`, `sequences[].sequence_actor_object_path`, `.sequence_asset_object_path`, `playback_range.*`, `tick_resolution.*`, `display_rate.*` | digested |
+| **2 — deterministic derivation from source facts** | `entity_id` and `parent.entity_id` (canonical identity class of the matched binding, §3.3.4), `editor_visibility.hidden_in_editor` (from the engine's own `IsHiddenEd()`), `materials[].mesh_state` (from asset presence), `slot_count` (from the slot list), `extraction_kind` (§4.5), `world_type`/`is_partitioned_world` (marker assertions of §4.3) | digested |
+| **3 — request metadata** | *none.* The request's entity set determines the extraction **scope**, not the identity of anything in the tree (§4.6.1) | removed |
+| **4 — execution metadata** | `editor_visibility.derived_from_gis_editor` (`GIsEditor` at extraction time — an input that materially changes `hidden_in_editor`, so it is recorded deliberately) | digested, declared |
+| **5 — implementation metadata** | `extraction_schema_version`, `selection_provenance`, `transform.source_component_type`, `editor_visibility.unrecorded_hidden_inputs` | digested, declared |
+
+#### 4.6.1 Scope is not identity
+
+The request legitimately defines **which** entities are extracted: a different entity set is a
+different extraction and yields a different tree. That is scope. What the request MUST NOT do is
+change the *identity* of anything that is extracted. Concretely:
+
+- the same entity requested with different casing or FName spelling yields byte-identical
+  payloads (§3.3.4);
+- permuting the requested entity IDs yields byte-identical payloads (§7.4 D3);
+- no request field (`request_id`, `authorization_id`, `entity_ids` as a *list*, the raw spelling,
+  the requested `extraction_kind` string) appears anywhere in the tree;
+- therefore the digest is an identity of the extracted state **for that scope**, and two digests
+  are comparable only when both extractions requested the same entity set and the same extraction
+  kind. Cross-scope and cross-kind digest comparison is meaningless and MUST NOT be performed;
+  equality of two digests already implies their scopes matched, because the scope is in the tree.
 
 ---
 
@@ -855,9 +1110,21 @@ returned, written as exactly 16 lowercase hexadecimal digits:
 
 Rules:
 
-1. The encoding is a pure bit reinterpretation of the 8 bytes of the source `double`:
-   `std::memcpy` into `uint64` in C++; `struct.unpack("<Q", struct.pack("<d", v))` in Python.
-2. Lowercase hex, zero-padded to 16 digits, no prefix, no separators.
+1. **The canonical value is the integer value of the binary64 bit pattern, and the encoding is
+   endian-neutral by definition.** The double is reinterpreted as an unsigned 64-bit integer
+   (C++: `std::bit_cast<uint64_t>` or `memcpy` of the same host object; Python:
+   `struct.unpack("<Q", struct.pack("<d", v))[0]`) and that integer is rendered as 16 lowercase
+   hex digits. Endianness never enters the canonical string because the *integer* is a property
+   of the double, not of its byte order — measured: `1.0` yields `3ff0000000000000` under
+   little-endian, big-endian and native packing alike.
+   The one formulation that is **wrong** is a mismatched pair that reinterprets the byte order:
+   `struct.unpack(">Q", struct.pack("<d", v))` yields `000000000000f03f` for `1.0`. The contract
+   therefore fixes the *value* semantics ("the integer value of the bit pattern") rather than
+   naming a host byte order, and the C++ side must never hex-dump `reinterpret_cast`ed memory
+   bytes directly.
+2. Lowercase hex, zero-padded to 16 digits, no prefix, no separators. The C++ formatter is
+   `FString::Printf(TEXT("%016llx"), Bits)` (lowercase by construction) and the Python form is
+   `f"{bits:016x}"`.
 3. The lexical form is part of the schema: a transform scalar MUST match `^[0-9a-f]{16}$`. A
    decimal lexeme, a shorter hex string, an 8-digit binary32 pattern, or a JSON number in a
    transform scalar position is a hard failure (`ERR_EXTRACTION_SCHEMA`). This makes the
@@ -901,10 +1168,23 @@ Consequences, stated normatively:
 
 ### 5.5 Non-finite values
 
-Non-finite source values (NaN, +Inf, -Inf) MUST be detected **at the source representation**
-— `std::isnan` / `std::isinf` on the returned `double`, `math.isfinite` in any Python-side
-path — **before** any encoding, and MUST fail closed with `ERR_EXTRACTION_NON_FINITE`.
-No sentinel, no skip, no partial record, no substitution of a finite value.
+Non-finite source values MUST be detected **at the source representation** — `std::isnan` /
+`std::isinf` on the returned `double`, `math.isfinite` in any Python-side path — **before** any
+encoding, and MUST fail closed with `ERR_EXTRACTION_NON_FINITE`. No sentinel, no skip, no partial
+record, no substitution of a finite value.
+
+Every non-finite class is refused, and for a stated reason:
+
+- **quiet NaN and signaling NaN are both refused** by the same `isnan` test, so the
+  signaling/quiet distinction never reaches the canonical form;
+- **NaN payload bits are never encoded.** They are not portable anyway: NaN payload semantics
+  differ by platform and by architecture, so a canonical hex string of a NaN would be an
+  implementation artefact dressed as a source fact;
+- **±Inf are refused** by `isinf`, so a saturated or diverged value cannot be published as a
+  location.
+
+Because the check runs on the returned `double` and precedes the bit encoding, there is no
+ordering in which a non-finite value can reach `struct.pack("<d", v)` or the C++ bit cast.
 
 ### 5.6 Overflow and underflow cannot silently alter a fact
 
@@ -975,6 +1255,24 @@ They differ in ways that are reachable for this payload:
   payload: closed-schema objects with string keys, strings, integers, booleans, `null`, and
   arrays. It MUST fail closed on any value outside that domain (no floats, no bytes, no
   non-string keys) rather than falling back to `json.dumps`.
+- **The parser must not admit values the canonicalizer rejects.** A canonicalizer that validates
+  its input is not sufficient if the *parser* already changed the input. The C++-produced JSON
+  text is therefore decoded under a hardened policy, each item of which was measured on the
+  project interpreter (Python 3.11.16):
+
+  | Hazard | Measured default behaviour | Required policy |
+  |---|---|---|
+  | duplicate object keys | `json.loads('{"entity_id":"a","entity_id":"b"}')` → `{"entity_id": "b"}`: silently **last-wins** | `object_pairs_hook` that raises on any duplicate key (a payload whose key set depends on position is not a value tree) |
+  | `NaN` / `Infinity` tokens | accepted by default (`parse_constant`) | `parse_constant` raises (`ERR_EXTRACTION_SCHEMA`) |
+  | float lexemes | parsed into binary floats | `parse_float` raises — floats are outside the domain, and a rounded parse would destroy a decimal lexeme before any check |
+  | lone surrogates | `json.dumps(..., ensure_ascii=False)` yields `"\ud800"`, and UTF-8 encoding then raises `UnicodeEncodeError: surrogates not allowed` | reject any string containing a code point in `U+D800..U+DFFF` during validation, before canonicalization |
+  | surrogate **pairs** | `"\ud83d\ude00"` correctly parses to one astral character | accepted; not a special case |
+  | `bool` vs `int` | `isinstance(True, int)` is `True`; `type(True) is int` is `False` | integer fields validate with `type(x) is int` (`bool` is rejected where an integer is required, and vice versa) |
+  | integer range | Python integers are unbounded, and `100000000000000000000000` parses fine | every integer field MUST be bounded to its declared source range (int32 for frame numbers, slot indices, `slot_count`, `count`, and rate numerators/denominators) and rejected otherwise — a value C++ could never have produced is a hard failure |
+
+- **Domain closure is checked on the reconstructed structure, not on the parsed text.** Python
+  validates, then rebuilds the digest input field by field (§4.2.5), so any residual parser
+  artefact that is not a declared field cannot reach canonicalization at all.
 - **Test vectors.** RFC 8785's published test vectors MUST be committed with the module and
   asserted by a deterministic test (§7.4 D9). The obligation is split, because the restricted
   domain and full JCS are not the same thing:
@@ -1066,10 +1364,13 @@ Collation is **ordinal**, never locale-aware, never case-insensitive.
 `slots`, `sequences` and `levels` are all canonically ordered sets. No implementation may claim
 "source order" for them.
 
-**Duplicates.** Duplicates are rejected, never deduplicated: duplicate entity IDs in a request
-(case-insensitively, §3.3.3.2), two actors matching one entity ID
-(`ERR_EXTRACTION_ENTITY_AMBIGUOUS`), two distinct `atlas_entity:` tags on one actor
-(`ERR_EXTRACTION_ENTITY_TAG_CONFLICT`), and a duplicate level package path in the scope.
+**Duplicates.** Duplicates are rejected, never deduplicated, **where the identity must be
+unique**: duplicate entity IDs in a request (case-insensitively, §3.3.5.2), two actors matching
+one entity ID (`ERR_EXTRACTION_ENTITY_AMBIGUOUS`), two distinct `atlas_entity:` tags on one actor
+(`ERR_EXTRACTION_ENTITY_TAG_CONFLICT`), a duplicate JSON object key (§6.4). Scope entries are the
+deliberate exception: two streaming instances of one package are two levels, so repeated
+(`level_package_path`, `level_kind`) pairs are permitted and each occurrence is recorded
+(§3.2.1.6).
 
 **Mandatory deterministic tests** (design obligations; they are the evidence for the
 determinism claim):
@@ -1103,6 +1404,40 @@ determinism claim):
   pattern (the anti-flush-to-zero proof).
 - **D13** — a transform scalar of lexical shape other than 16 lowercase hex digits (a decimal
   string, an 8-digit hex string, a JSON number) is rejected.
+- **D14 (canonical identity, hostile).** Against one source actor carrying one `atlas_entity:`
+  tag, all of these must produce **byte-identical** payloads and digests: requests spelled
+  `cam01`, `CAM01`, `Cam01`; and the request order permuted. A tag stored as
+  `atlas_entity:CAM01` must resolve for a `cam01` request and vice versa, because the binding is
+  `FName` equality on the canonical name (§3.3.4).
+- **D15 (numbered names, hostile).** With tags `atlas_entity:CAM_1`, `atlas_entity:CAM_01` and
+  `atlas_entity:CAM` present in the world simultaneously: a request for `cam_1` resolves only
+  the `CAM_1` binding; a request for `cam_01` resolves only `CAM_01`; a request for `cam`
+  resolves only `CAM`; and the three payloads differ. A world in which two *different* actors
+  carry `atlas_entity:CAM_1` and `atlas_entity:cam_1` fails closed as ambiguous, not first-match.
+- **D16 (scope revalidation).** A stub that changes a scope level's loaded/visible state between
+  the snapshot and the revalidation makes the extraction fail closed with
+  `ERR_EXTRACTION_SCOPE_CHANGED`; a stub that returns a null streaming-level entry fails closed
+  with `ERR_EXTRACTION_LEVEL_SCOPE_INVALID`; and a scope containing two instances of one package
+  is accepted with two entries (no false refusal).
+- **D17 (material collision pairs).** The following pairs must produce **different** records:
+  (override `A`, asset slot `B`) vs (override `A`, asset slot `C`); a supported component with a
+  mesh asset and zero slots vs one with no mesh asset; a Nanite-substituted resolution vs an
+  unresolvable one. And these must produce the **same** record (intentionally equivalent): a null
+  override entry vs no override entry.
+- **D18 (unsupported component).** An actor carrying a registered `UWidgetComponent` (or any
+  non-supported `UMeshComponent`) fails closed with
+  `ERR_EXTRACTION_UNSUPPORTED_COMPONENT_TYPE`; an actor carrying a registered non-mesh primitive
+  (for example a decal) is extracted with `omitted_material_components.count >= 1` and a class
+  list containing that class.
+- **D19 (parser hardening).** A C++-produced payload containing a duplicate object key, a `NaN`
+  or `Infinity` token, a float lexeme, a lone surrogate, an out-of-int32 integer, or `true` where
+  an integer is required is **rejected**; and a payload containing a surrogate pair or an astral
+  (non-BMP) character in an object path is accepted and canonicalises reproducibly (§6.4).
+- **D20 (bit-encoding vectors).** The canonical scalar encoding is asserted against a fixed
+  vector table — at minimum `1.0`→`3ff0000000000000`, `-0.0`→`8000000000000000`,
+  `5e-324`→`0000000000000001`, `FLT_MAX`→`47efffffe0000000`, `1e300`→`7e37e43c8800759c` — by both
+  the C++ producer and the Python validator, so a byte-order or precision regression is caught at
+  the boundary rather than by inspection.
 
 ---
 
@@ -1121,9 +1456,12 @@ generic `ERR_OPERATION_FAILED` (`AtlasTransportServer.cpp:656-659`) or as an emp
 | `ERR_EXTRACTION_WORLD_NOT_EDITOR` | `WorldType != EWorldType::Editor` |
 | `ERR_EXTRACTION_WORLD_PARTITION_UNSUPPORTED` | partitioned world |
 | `ERR_EXTRACTION_LEVEL_SCOPE_INCOMPLETE` | a streaming level is not loaded or not visible |
+| `ERR_EXTRACTION_LEVEL_SCOPE_INVALID` | the streaming-level array contains a null entry (engine-invariant break) |
+| `ERR_EXTRACTION_SCOPE_CHANGED` | the scope revalidation after the actor scan disagrees with the snapshot (§3.2.1.4b) |
 | `ERR_EXTRACTION_ENTITY_NOT_FOUND` | zero matches for a canonical entity ID |
 | `ERR_EXTRACTION_ENTITY_AMBIGUOUS` | two or more actors match one entity ID |
 | `ERR_EXTRACTION_ENTITY_TAG_CONFLICT` | one actor carries two or more distinct `atlas_entity:` tags |
+| `ERR_EXTRACTION_UNSUPPORTED_COMPONENT_TYPE` | a registered `UMeshComponent` outside the two supported families (§3.8.1) |
 | `ERR_EXTRACTION_ENGINE_IDENTITY_UNAVAILABLE` | `FEngineVersion::Current()` / `FApp::GetBuildVersion()` yields an empty version or build string |
 | `ERR_EXTRACTION_PARENT_TAG_CONFLICT` | the attach parent's binding is ambiguous |
 | `ERR_EXTRACTION_NON_FINITE` | NaN/±Inf in a source transform scalar |
@@ -1142,7 +1480,7 @@ Python-side codes (the validator's own failures, distinct from producer codes):
 
 | Code | Condition |
 |---|---|
-| `ERR_EXTRACTION_SCHEMA` | closed-schema violation, wrong types, forbidden float, bad hex lexical form, `extraction_kind` mismatch |
+| `ERR_EXTRACTION_SCHEMA` | closed-schema violation, wrong types (including `bool` where an integer is required), forbidden float, `NaN`/`Infinity` token, duplicate JSON object key, lone surrogate, out-of-range integer, bad hex lexical form, derived-field inconsistency (`extraction_kind`, `slot_count`, markers) |
 | `ERR_EXTRACTION_NON_CANONICAL_ORDER` | an array is not in canonical order |
 | `ERR_EXTRACTION_ERROR_CODE_UNKNOWN` | `success == false` with an absent or unrecognised `error_code` |
 
@@ -1231,6 +1569,71 @@ Normative constraints on the seam:
 - the existing probes and their behaviour stay frozen; extraction neither calls nor modifies
   them.
 
+### 10.2 Minimum architectural separation (read-only by construction)
+
+"It does not call a write function" is not sufficient, because the existing transport already
+contains both halves in one class: `AtlasTransportServer.cpp` (3105 lines) implements reads
+(`inspect_world`, `inspect_target_actors`, `inspect_material_state`, `inspect_sequencer_state`, …)
+*and* writes in the same translation unit — `set_actor_location` / `set_actor_rotation` /
+`set_actor_scale` (`:665-679`), `apply_material_variant` / `apply_niagara_variant`
+(`:687-711`), `set_sequencer_playback_range` (`:763`), render submission, plus the mutation
+primitives `SetTaggedVariantName` (`:68-79`), `MarkPackageDirty` (`:78,1062,1234`),
+`Package->Modify()` (`:764,1219,1539`), `UPackage::SavePackage` (`:1073,1252`) and
+`NewObject<...>` (`:1582`). A read-only extractor placed inside that TU sits among them.
+
+The minimum separation, therefore:
+
+1. **A new translation unit** (and its header) in the same `AtlasUnrealTransport` module,
+   containing the extractor and nothing else. It MUST NOT be a member of `FAtlasTransportServer`
+   and MUST NOT receive a pointer or reference to the server.
+2. **A one-way dispatch seam.** The server's dispatcher adds one branch that calls the extractor
+   with the world and the request's arguments and receives either a value tree or an error code.
+   The extractor never calls back into the server.
+3. **A forbidden-token set, enforced by a source-level test.** The extractor TU MUST contain zero
+   occurrences (outside comments) of: `MarkPackageDirty`, `Modify(`, `SavePackage`,
+   `CreatePackage`, `NewObject<`, `SpawnActor`, `Destroy(`, `Rename(`, `SetActor`,
+   `SetIsTemporarilyHiddenInEditor`, `SetStaticMesh`, `SetMaterial`, `CreateDynamicMaterialInstance`,
+   `SetSequence`, `SetPlaybackRange`, `InitializePlayer`, `GetSequencePlayer`, `LoadObject`,
+   `StaticLoadObject`, `TryLoad`, `FSoftObjectPath` loading calls, and `Tags.Add`/`Tags.Remove`.
+   The repo already has precedent for source-level assertions of this kind
+   (`tests/m10/test_m10_defect_d2_sequence_range.py:74-102` asserts C++ source strings), so this is
+   a testable requirement rather than a review convention.
+4. **An engine-accessor allowlist.** The extractor may call only the accessors this design names:
+   world/level/actor identity and transform accessors, the visibility accessors of §3.6, the
+   registered-component enumeration and material helpers of §3.8, and the sequencer accessors of
+   §3.9. Anything else is a design change first.
+
+Why this is the minimum rather than a redesign: the transport wire protocol, the request/response
+contract, the authorization path and the existing operations are all untouched; only the
+*placement* of new read code is constrained, and the constraint is checkable mechanically.
+
+### 10.3 Sequencer read path is side-effect-free (verified)
+
+The Sequencer accessors used by §3.9 were checked for lazy behaviour in the installed source:
+
+- `ALevelSequenceActor::GetSequence()` is `return LevelSequenceAsset;`
+  (`Runtime/LevelSequence/Private/LevelSequenceActor.cpp:332-335`) — a pointer read;
+- `ALevelSequenceActor::GetSequencePlayer()` is likewise `return SequencePlayer;`
+  (`:145-150`) — it does **not** lazily construct a player, but v1 still forbids calling it,
+  because it is not needed and the read surface is kept minimal (§10.2.3);
+- `ULevelSequence::GetMovieScene()` is `return MovieScene;`
+  (`Runtime/LevelSequence/Private/LevelSequence.cpp:733-736`) — a pointer read;
+- `UMovieScene::GetPlaybackRange()`, `GetTickResolution()` and `GetDisplayRate()` return members
+  or member-derived values (`MovieScene/Public/MovieScene.h:801,809-812,822-825`) — no
+  evaluation, no playback, no sequencer UI involvement;
+- object-path resolution is `UObject::GetPathName()`, which reads the outer chain and loads
+  nothing.
+
+The mutating Sequencer APIs are correspondingly excluded by §10.2.3: `SetSequence`
+(`LevelSequenceActor.cpp:337-347`, which touches the player), `InitializePlayer` /
+`InitializePlayerWithSequence` (`LevelSequenceActor.h:304-307`), `SetPlaybackRange`
+(`MovieScene.h:998,1007`) and `MovieScene->Modify()`.
+
+The one engine-internal effect on the extraction read path is `ConditionalPostLoad()` inside the
+material resolution helper (§3.8.3.6): an object-graph/lazy-load effect, explicitly distinguished
+from persistent editor-state mutation. The live gate measures package dirty state across the call
+(§11.3) so the distinction is verified rather than asserted.
+
 ---
 
 ## 11. Live evidence and fixture policy
@@ -1290,16 +1693,27 @@ The live gate must prove, against the disposable `AtlasRenderFixture` world
   `unrecorded_hidden_inputs` is the frozen literal;
 - material records are identical across component construction order, and a null-mesh
   component is recorded rather than omitted;
-- `assigned` versus `resolved` material paths are distinguished, including a Nanite override
-  case where the engine substitutes;
+- `asset_slot` versus `override` versus `resolved` material paths are distinguished, including a
+  Nanite override case where the engine substitutes, and the collision pair of §7.4 D17 is
+  asserted live;
+- an unsupported mesh component class fails closed, and a non-mesh material-bearing primitive
+  appears in `omitted_material_components` (§7.4 D18);
 - a transient/dynamic material instance fails closed;
 - explicit `ALevelSequenceActor` entity binding succeeds; a non-sequence actor fails closed;
 - playback bounds, tick resolution and display rate are exact, and an open range fails closed;
+- **canonical identity is request-independent live**: the same fixture entity extracted through
+  two different request spellings (`cam01` / `CAM01`, and a `_1`-suffixed id against its
+  leading-zero neighbour) yields byte-identical payloads and digests (§7.4 D14, D15);
+- **scope revalidation is exercised live**: the recorded scope equals the scope scanned
+  (§3.2.1.4), and the gate reports the observed level set;
 - repeated extraction in one session yields identical bytes and digest;
 - repeated extraction across two fresh editor sessions yields identical bytes and digest;
-- the canonicalizer passes the RFC 8785 vectors in-process;
-- no package dirtying and no asset/world mutation is attributable to the extraction operation,
-  measured immediately before and after the extraction call. The harness's own provisioning
+- the canonicalizer passes the RFC 8785 vectors in-process and rejects the out-of-domain ones;
+- **the reported payload size is recorded** for each gate case, so the transport bound of §9 is
+  characterised by measurement rather than assumption;
+- **no persistent editor-state mutation** is attributable to the extraction operation: the level
+  package's and the actor's package dirty flags, plus the count of dirty packages in the editor,
+  are compared immediately before and after the extraction call. The harness's own provisioning
   calls `FixtureActor->MarkPackageDirty()` (`AtlasUnrealTransport.cpp:438`), so dirty-state
   assertions MUST be scoped to the extraction operation and MUST NOT be asserted across editor
   startup.
@@ -1338,7 +1752,14 @@ Additional prohibitions introduced by Revision 2:
   is out of scope. Source defects are reported, never corrected.
 - **Semantic interpretation** (quaternion sign, `±0` canonicalisation, rename tolerance,
   approximate comparison) is out of scope for the extractor (§5.4).
-- **Per-class material semantics** (landscape and similar overrides) are out of scope (§3.8.3.4).
+- **Per-class material semantics** (landscape, widget, procedural/dynamic mesh and similar
+  overrides) are out of scope: such classes fail closed rather than being half-modelled (§3.8.1).
+- **Generic `UMeshComponent` support** is out of scope. v1 supports the `UStaticMeshComponent` and
+  `USkinnedMeshComponent` families only; a claim of general mesh-component support would require
+  per-class material models this design does not define.
+- **Material extraction for non-mesh primitives** (decals, landscape components, particles, text
+  and billboard renderers, and similar) is out of scope and is declared in-band through
+  `omitted_material_components` (§3.8.1a), never silently.
 
 ---
 
@@ -1350,13 +1771,16 @@ Before implementation can merge:
 2. the C++ extraction producer is read-only by code inspection, including no package dirtying;
 3. Python contract tests prove the closed schema, the reserved-key rejection, and the full
    error vocabulary;
-4. determinism tests D1–D13 (§7.4) pass, including deliberately different `PYTHONHASHSEED`
-   values, deliberately reordered fixture construction, and the RFC 8785 vectors;
+4. determinism tests D1–D20 (§7.4) pass, including deliberately different `PYTHONHASHSEED`
+   values, deliberately reordered fixture construction, the hostile canonical-identity matrix
+   (D14, D15), the scope-revalidation and material-collision pairs (D16, D17), the parser
+   hardening cases (D19) and the RFC 8785 vectors;
 5. Python 3.9/3.11 parity passes where applicable;
 6. the Unreal 5.6 live gate passes against a disposable fixture (§11.3);
 7. repeated extraction yields byte-identical canonical bytes and digest within and across
    sessions;
-8. duplicate, case-variant-duplicate and ambiguous identity fixtures fail closed;
+8. duplicate, case-variant-duplicate and ambiguous identity fixtures fail closed, and a
+   `cam01`/`CAM01` pair of requests produces identical digests;
 9. no M4–M10 behaviour changes and no M12.5 changes;
 10. no workflow/action-runner tests are required unless separately authorized;
 11. `AtlasSequencerIntegrationFixture.cpp` is unmodified, or its modification is separately
@@ -1366,7 +1790,17 @@ Before implementation can merge:
     constant is caught (a stub that reports `world_type: "editor"` for a non-editor world must
     fail);
 13. the extraction boundary is proven un-augmented (§4.2.8): a response carrying
-    `_session_identity` at the extraction boundary fails closed, and no code path strips it.
+    `_session_identity` at the extraction boundary fails closed, and no code path strips it;
+14. the architectural separation of §10.2 holds: the extractor lives in its own translation
+    unit, the server's dispatch is one-way, and the source-level forbidden-token test passes
+    over that unit;
+15. the material scope of §3.8.1 is enforced: an unsupported registered `UMeshComponent` fails
+    closed, and no unsupported mesh component can disappear silently;
+16. the parser hardening of §6.4 is enforced by tests (duplicate keys, `NaN`/`Infinity`, float
+    lexemes, lone surrogates, out-of-int32 integers, `bool`-as-integer);
+17. the implementation-readiness checklist of §17 is answered in writing for every normative
+    requirement, with any residual ambiguity classified as architectural (design change) or
+    implementation detail (allowed).
 
 ---
 
@@ -1395,7 +1829,7 @@ contract, extraction does not call them, and their world-selection and first-mat
 
 ## 15. Revision history and finding resolution map
 
-Revision 2 remediates the second independent red-team (Claude Opus 5, verdict BLOCK). Each
+Revision 2 remediated the prior independent architectural red-team (verdict BLOCK). Each
 finding's classification, repository evidence and the resulting design change are recorded in
 `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_REV2_REVIEW.md`. Summary of the contract changes:
 
@@ -1436,6 +1870,29 @@ changes, all applied above and itemised in the review document (SP-1..SP-7):
 | SP-6 | an empty engine version/build string is a closed failure (`ERR_EXTRACTION_ENGINE_IDENTITY_UNAVAILABLE`) (§8.1) |
 | SP-7 | the RFC 8785 vector obligation is split: in-domain vectors must pass byte-exactly, out-of-domain (float/exponent) vectors must be rejected, not passed (§6.4, §7.4 D9) |
 
+### Revision 3 change log (architectural-review remediation + third hostile self-review)
+
+Revision 3 closes the findings raised against Revision 2 by the architectural review, plus the
+issues the third self-review found in Revision 2's own text. Every classification, citation and
+remaining item is recorded in `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_REV2_REVIEW.md`.
+
+| Item | Change |
+|---|---|
+| R3-1 | **canonical entity identity is request-independent**: `entity_id`, `parent.entity_id` and the Sequencer `entity_id` are the ASCII-uppercase canonical form of the matched binding, never the caller's spelling (§3.3.4, §4.6) |
+| R3-2 | **the engine's real `FName` identity model is stated**: case-folded (base, number) with `ParseNumber` splitting a trailing `_<digits>`, the `NAME_EXTERNAL_TO_INTERNAL` offset, rendering round-trip, and the forbidden number-blind / index-only / string-round-trip comparisons (§3.3.3) |
+| R3-3 | numbered-name awareness is a binding rule: a `_<digits>` suffix is identity, so `cam_1`, `cam_01` and `cam` are three different entities (§3.3.5.7, §7.4 D15) |
+| R3-4 | **material component scope is closed by class**: `UStaticMeshComponent` and `USkinnedMeshComponent` families only; any other registered `UMeshComponent` fails closed with `ERR_EXTRACTION_UNSUPPORTED_COMPONENT_TYPE`, with the subclass inventory that proves a generic contract is not implementable (§3.8.1) |
+| R3-5 | non-mesh material-bearing primitives are declared in-band via `omitted_material_components` (`count` + sorted class list) instead of disappearing (§3.8.1a, §3.4.2) |
+| R3-6 | **slot records carry the assignment source facts** (`asset_slot_material_asset_path`, `override_material_asset_path`) beside `resolved_material_asset_path`, closing the collision in which two different mesh-asset slots under one override produced identical records (§3.8.2, §7.4 D17) |
+| R3-7 | **scope snapshot + post-scan revalidation** with `ERR_EXTRACTION_SCOPE_CHANGED`, explicit null-slot and null-streaming-level rules, the forbidden narrowed containers (`StreamingLevelsToConsider`, `UActorContainer::Actors`), and duplicate scope entries permitted so a two-instance world is not falsely refused (§3.2.1.4–6, §7.4 D16) |
+| R3-8 | the bit encoding is stated as the **integer value** of the binary64 pattern (endian-neutral), with the mismatched-pair counter-example and a fixed vector table (§5.2, §7.4 D20) |
+| R3-9 | all non-finite classes are refused before encoding, including quiet/signaling NaN and payload bits (§5.5) |
+| R3-10 | the material helper's `ConditionalPostLoad()` is declared as an engine-internal read-path effect, and the Sequencer read path is verified side-effect-free from source (§3.8.3.6, §10.3) |
+| R3-11 | **minimum architectural separation**: own translation unit, one-way dispatch, source-level forbidden-token test, engine-accessor allowlist (§10.2) |
+| R3-12 | **parser hardening before canonicalization**: duplicate JSON keys, `NaN`/`Infinity` tokens, float lexemes, lone surrogates, `bool`-as-integer and out-of-int32 integers, each with the measured default behaviour (§6.4, §7.4 D19) |
+| R3-13 | **field provenance classification** of the whole payload, `extraction_kind` derived from content rather than copied from the request, and the scope-versus-identity rule (§4.5, §4.6) |
+| R3-14 | rate pairs are recorded verbatim and never reduced to lowest terms (§3.9.3.6), and the implementation-readiness decisions are frozen (§17) |
+
 Implementation remains unauthorized until an independent review confirms that these rules are
 internally consistent, implementable in UE 5.6, and compatible with the frozen M4–M10 and
 M12.5 boundaries.
@@ -1456,3 +1913,41 @@ assigned-beside-resolved materials, recorded scope beside a refused world.
 
 This work is deliberately independent of M12.5. It improves the substrate that a future
 verifier can consume without changing the existing verification authority.
+
+---
+
+## 17. Implementation-readiness decisions (frozen)
+
+The test this section answers is: *could two competent engineers implement a requirement
+differently while both honestly claiming compliance?* Where the answer was yes, the decision is
+frozen here rather than left to the implementer. Each row is a decision, not a discussion.
+
+| Question an implementer would reasonably ask | Frozen answer | Kind |
+|---|---|---|
+| How is `hidden_in_editor` produced? | By calling `AActor::IsHiddenEd()` itself. Recomputing it from the readable flags is **forbidden**: the engine's version folds in `bEditable`, which the extractor cannot read, so a recomputation would silently disagree (§3.6.3). | architectural |
+| How is the canonical ID uppercased? | `ASCII-uppercase` applied to an ID that has already passed the grammar of §3.3.2, i.e. ASCII-only input, so no Unicode case mapping is involved. `Locale`-sensitive or Unicode case folding MUST NOT be used. | implementation detail, frozen to avoid divergence |
+| Are frame rates reduced to lowest terms? | No. Verbatim int32 pairs (§3.9.3.6). | architectural |
+| Which component-enumeration call? | `Actor->GetComponents<UMeshComponent>(Out, /*bIncludeFromChildActors=*/false)`, then `IsRegistered()`, then the class test of §3.8.1. Child-actor components are excluded by the explicit `false`. | implementation detail |
+| What is `slot_count`? | `len(slots)` — the number of emitted slot records, not a re-read of `GetNumMaterials()` (they must agree; Python asserts it). | implementation detail |
+| When is `mesh_asset_path` null? | Exactly when `mesh_state == "no_mesh_asset"`; otherwise it is the non-null asset's stable object path. | architectural |
+| When is `parent.actor_object_path` null? | Exactly when `parent.binding == "none"`. | architectural |
+| How is `world_name` produced? | `World->GetName()` on the authoritative world. | implementation detail |
+| How is `world_type` produced? | The ASCII-lowercased engine rendering of `World->WorldType` (`LexToString`), which MUST equal `"editor"`. | implementation detail, frozen to avoid divergence |
+| Which actors are skipped in the scan? | Entries where `!IsValid(Actor)` — null slots and pending-kill actors (§3.2.1.5). Nothing else is skipped. | architectural |
+| Which levels make up the scope? | The persistent level plus every `GetStreamingLevels()` entry that is loaded and visible, snapshotted once and revalidated (§3.2.1.4). | architectural |
+| What happens if two scope levels share a package? | Two entries are recorded; no refusal (§3.2.1.6). | architectural |
+| How are object paths ordered? | UTF-16 code-unit order, implemented as `str.encode("utf-16-be")` byte comparison in Python and ordinal `TCHAR` comparison in C++ (§7.3). Python's default `sorted()` is forbidden for object paths. | architectural |
+| How are strings that are not entity IDs compared? | Case-sensitive ordinal comparison (§3.3.6). Only tag binding uses `FName` equality. | architectural |
+| How is a tag compared? | `FName` equality (`operator==` / `Contains`). `IsEqual(..., bCompareNumber=false)`, comparison-index-only tests, hashes and string round-trips are forbidden (§3.3.3). | architectural |
+| What is the exact hex format? | 16 lowercase hex digits of the unsigned 64-bit integer value of the double's bit pattern; C++ `%016llx`, Python `f"{bits:016x}"` (§5.2). | implementation detail, frozen to avoid divergence |
+| Where is the digest stored? | Nowhere inside the value tree; it is computed about the tree (§4.2.7, §6.5). | architectural |
+| Is `extraction_kind` taken from the request? | No — derived from the populated collection and re-derived by Python (§4.5). | architectural |
+| What is `omitted_material_components.classes` order and content? | Sorted, deduplicated class names in canonical collation; `count` is the number of such registered components, so multiplicity is visible even when classes repeat (§3.8.1a). | implementation detail |
+| May the extractor load anything? | No explicit load: no `LoadObject`, `StaticLoadObject`, `TryLoad`, or forced level load; the only lazy effect permitted on the read path is the engine-internal `ConditionalPostLoad()` inside the material helper (§3.8.3.6, §10.2.3). | architectural |
+| May two implementations differ in the number of transport round trips? | Yes. The operation surface is one request and one response per extraction (§10.1); polling, retry and chunking are forbidden (§9.4). | implementation detail |
+| What if the payload would be large? | Fail closed with `ERR_EXTRACTION_PAYLOAD_TOO_LARGE` before responding; never truncate (§9.3). | architectural |
+
+Anything not decided above is either already normative elsewhere in this document or is genuinely
+an implementation detail with no observable effect on the canonical bytes, the digest, or the
+failure vocabulary. An implementer who finds a requirement where two readings produce different
+bytes MUST raise it as a design change before writing code.
