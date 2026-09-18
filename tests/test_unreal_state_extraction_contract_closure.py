@@ -46,6 +46,7 @@ EXTRACTOR_CPP = (
 )
 EXTRACTOR_H = EXTRACTOR_CPP.with_suffix(".h")
 SERVER_CPP = EXTRACTOR_CPP.parent / "AtlasTransportServer.cpp"
+LIVE_GATE_SOURCE = REPO_ROOT / "tests" / "unreal_state_extraction_live_gate.py"
 
 ALL_SCHEMA_KEYS = sorted(
     set(WORLD_KEYS)
