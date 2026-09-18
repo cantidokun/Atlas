@@ -1,11 +1,13 @@
-# Unreal State Extraction Fidelity v1 — Revision 2/3/3.1 Review
+# Unreal State Extraction Fidelity v1 — Revision 2/3/3.1/3.2/3.3 Review
 
 **Status:** REVIEW RECORD — IMPLEMENTATION NOT AUTHORIZED
 **Reviews:** `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md` at Revision 2 (§1–§5), at
-Revision 3 (§6) and at Revision 3.1 (§7, the final focused design audit)
+Revision 3 (§6), at Revision 3.1 (§7, the final focused design audit), at Revision 3.2 (§8, the
+material-resolution semantic correction) and at Revision 3.3 (§9, the deterministic
+material-resolution narrowing)
 **Branch:** `feat/unreal-state-extraction-fidelity-v1-design` (PR #106, draft)
-**Author of this review:** the remediating agent (not an independent reviewer) — §7 is likewise
-self-authored and cannot clear the design
+**Author of this review:** the remediating agent (not an independent reviewer) — §7, §8 and §9 are
+likewise self-authored and cannot clear the design
 **Input to this review:** (a) the prior independent architectural red-team verdict **BLOCK**,
 delivered as findings F1–F15 plus canonicalization and determinism directives; and (b) a second
 architectural review pass delivered as eleven priority areas (P1–P11), classified in §6.1
@@ -108,7 +110,9 @@ rewritten where the findings land.
 - **F9** — a total component/slot state machine
   (`mesh_state` × `slot_state` ∈ {`mesh_asset_present`,`no_mesh_asset`} ×
   {`component_override`,`asset_slot`,`asset_slot_empty`}), with `assigned_*` and `resolved_*`
-  material paths distinguished, Nanite substitution documented as the engine's own resolution,
+  material paths distinguished, Nanite substitution documented as the engine's own resolution
+  (later narrowed by Revision 3.2 §8: the accessor's conditional *material-level* step only, with
+  render-path substitution explicitly outside extraction),
   async compilation failing closed, transient/dynamic instances rejected, null-mesh components
   recorded rather than omitted, registered-component filtering, and an explicit non-equivalence
   statement for `verify_material_variant` / `atlas_material_variant:` (§3.8).
@@ -360,7 +364,7 @@ that decided it. **C** = CONFIRMED, **P** = PARTIALLY CONFIRMED, **F** = FALSE P
 | **P3** source fact vs request-derived data | Some payload fields may be request-derived while the digest excludes the request | **C** | Two were: `entity_id`/`parent.entity_id`/sequence `entity_id` (P1) and `extraction_kind` (copied from the request). Both are now derived — identity from the matched binding, kind from the populated collection (§4.5). The full payload is classified field by field in §4.6, with the new rule that a request defines extraction **scope**, not identity (§4.6.1). Remaining non-source entries are declared: execution metadata (`derived_from_gis_editor`) and implementation metadata (`extraction_schema_version`, `selection_provenance`, `source_component_type`, `unrecorded_hidden_inputs`). |
 | **P4** world scope stability | The scope could change between the check and the actor scan, so the payload might claim a scope that was not the one scanned | **C** | Revision 2 checked the predicate and then re-queried the world for the scan, with no snapshot and no revalidation. Supporting facts: `ULevel::Actors` is a public `TArray` that can hold null slots between removal and compaction (`Level.h:426-432`; `Level.cpp:833,1223`); `UWorld::GetStreamingLevels()` is the full list (`World.h:1026`) while `StreamingLevelsToConsider` is a private subset (`World.h:988-993`) and `UActorContainer::Actors` is a hash-ordered `TMap` (`Level.h:78-80`); a material read can trigger `ConditionalPostLoad` (`StaticMeshComponentHelper.h:126-127`). **Fixed** by snapshot → scan → revalidate with `ERR_EXTRACTION_SCOPE_CHANGED`, explicit null-slot and null-streaming-level rules, and a ban on the narrowed containers (§3.2.1.4–5). |
 | **P5** double bit encoding | The canonical bit representation may be implicitly host-endian, and the non-finite handling may be incomplete | **P** | The Revision 2 formulation was already value-correct, but it did not *say* so. Measured on the project interpreter: `1.0` yields `3ff0000000000000` under `<`, `>` and `=` packing alike, so the *integer* is endian-neutral; the only wrong form is a mismatched pair, e.g. `struct.unpack(">Q", struct.pack("<d", 1.0))` → `000000000000f03f`. Revision 2 also named `struct.unpack("<Q", struct.pack("<d", v))` without stating why it is correct. **Fixed** by defining the canonical value as the integer value of the bit pattern, naming the counter-example, and adding a fixed vector table (§5.2, §7.4 D20). NaN handling: Revision 2 said non-finite fails closed; Revision 3 additionally refuses quiet *and* signaling NaN by the same `isnan` test and states that NaN payload bits are never encoded (§5.5). |
-| **P6** material source/resolution semantics | Two materially different engine states might produce the same canonical material record | **C** (one real collision) | With Revision 2's assigned/resolved pair, the states (override `A`, asset slot `B`) and (override `A`, asset slot `C`) produced **identical** records even though the mesh asset's source state differs, because `resolved` is `A` in both and the asset slot was not recorded. **Fixed** by recording `asset_slot_material_asset_path` and `override_material_asset_path` as source facts beside `resolved_material_asset_path` (§3.8.2, tested by §7.4 D17). The other pairs checked are either distinct (null mesh vs zero slots; Nanite-substituted vs unresolved) or intentionally equivalent and now declared: a null override entry behaves exactly like an absent one, and override entries beyond `GetNumMaterials()` are not slots. |
+| **P6** material source/resolution semantics | Two materially different engine states might produce the same canonical material record | **C** (one real collision) | With Revision 2's assigned/resolved pair, the states (override `A`, asset slot `B`) and (override `A`, asset slot `C`) produced **identical** records even though the mesh asset's source state differs, because `resolved` is `A` in both and the asset slot was not recorded. **Fixed** by recording `asset_slot_material_asset_path` and `override_material_asset_path` as source facts beside `resolved_material_asset_path` (§3.8.2, tested by §7.4 D17). The other pairs checked are either distinct (null mesh vs zero slots) or intentionally equivalent and now declared: a null override entry behaves exactly like an absent one, and override entries beyond `GetNumMaterials()` are not slots. *(The "Nanite-substituted vs unresolved" pair listed here as distinct was reclassified by Revision 3.2 §8.)* |
 | **P7** Sequencer read-only semantics | The Sequencer reads may have side effects (lazy loading, player creation, dirtying) | **C** | Verified from source: `ALevelSequenceActor::GetSequence()` is `return LevelSequenceAsset;` (`LevelSequenceActor.cpp:332-335`); `GetSequencePlayer()` is `return SequencePlayer;` (`:145-150`) and does **not** lazily create a player; `ULevelSequence::GetMovieScene()` is `return MovieScene;` (`LevelSequence.cpp:733-736`); `UMovieScene::GetPlaybackRange/GetTickResolution/GetDisplayRate` are member reads (`MovieScene.h:801,809-812,822-825`); path resolution loads nothing. The mutating counterparts (`SetSequence` `:337-347`, `InitializePlayer`/`InitializePlayerWithSequence` `LevelSequenceActor.h:304-307`, `SetPlaybackRange` `MovieScene.h:998,1007`, `MovieScene->Modify()`) are excluded. The only read-path effect in the whole extraction is the material helper's `ConditionalPostLoad()`, now declared as an engine object-graph/lazy-load effect and distinguished from persistent editor-state mutation (§3.8.3.6, §10.3). |
 | **P8** read-only architectural boundary | "Do not call write functions" is insufficient when one translation unit contains both halves | **C** | `AtlasTransportServer.cpp` (3105 lines) mixes reads with `set_actor_*` (`:665-679`), `apply_*_variant` (`:687-711`), `set_sequencer_playback_range` (`:763`), render submission, and mutation primitives `SetTaggedVariantName` (`:68-79`), `MarkPackageDirty` (`:78,1062,1234`), `Modify()` (`:764,1219,1539`), `UPackage::SavePackage` (`:1073,1252`), `NewObject<…>` (`:1582`). **Fixed** by §10.2: own translation unit, one-way dispatch, engine-accessor allowlist, and a source-level forbidden-token test (precedent: `tests/m10/test_m10_defect_d2_sequence_range.py:74-102` asserts C++ source text). |
 | **P9** canonicalization review | The parser may admit values the canonicalizer rejects, and Python-specific traps (bool/int, duplicates, surrogates) may be unhandled | **C** | Measured on Python 3.11.16: duplicate keys silently last-win (`{"a":1,"a":2}` → `{"a":2}`); `NaN` and `Infinity` tokens are accepted by default; a lone surrogate survives `json.dumps(..., ensure_ascii=False)` and then fails UTF-8 encoding with `UnicodeEncodeError: surrogates not allowed`; `isinstance(True, int)` is `True` while `type(True) is int` is `False`; integers are unbounded (`100000000000000000000000` parses) while the C++ side is int32. **Fixed** by the hardening table in §6.4 (parser hooks plus validation rules) and §7.4 D19. Surrogate pairs were checked and need no special case. |
@@ -630,7 +634,10 @@ The exhaustive matrix is §3.8.5. Results relevant to the audit's questions:
   Revision-2 collision, closed in Revision 3 and re-verified here);
 - null mesh vs a legitimate asset with zero slots produce different trees (`mesh_state`,
   `mesh_asset_path`);
-- Nanite substitution is visible in `resolved` and therefore distinguished;
+- Nanite substitution is visible in `resolved` and therefore distinguished **(superseded by
+  Revision 3.2, §8: the static accessor's conditional material-level step is part of `resolved`,
+  while render-path substitution is not observable at all — the two states in this bullet are
+  *intentionally equivalent* under the narrowed contract)**;
 - unsupported mesh components, compiling assets, and transient/dynamic materials are
   **deterministic rejections**, not representable states.
 
@@ -813,7 +820,7 @@ with the rule named.
 | 7 | unsupported components, same class, different instances | deterministic rejection (mesh components); for non-mesh primitives, same inventory intentionally (§3.8.1a) |
 | 8 | override `A` + asset slot `B` vs override `A` + asset slot `C` | different trees (asset-slot field) — the Revision-2 collision |
 | 9 | null mesh vs a legitimate asset with zero slots | different trees (`mesh_state`, `mesh_asset_path`) |
-| 10 | Nanite-substituted resolution vs direct assignment | different trees (`resolved_material_asset_path`) |
+| 10 | Nanite-substituted resolution vs direct assignment | **superseded by Revision 3.2 (§8): intentionally equivalent** — rendered appearance is not an extracted fact; the assignment-versus-asset-slot rows (8, 9) carry the collision obligation |
 | 11 | actor in an unloaded level vs a nonexistent actor | deterministic rejection (scope incomplete) vs deterministic not-found — never the same outcome |
 | 12 | duplicated scope level instances (same package twice) | different trees vs a single instance (two scope entries); duplicates are permitted, not refused |
 | 13 | scope mutated during extraction | deterministic rejection (`ERR_EXTRACTION_SCOPE_CHANGED`) |
@@ -931,6 +938,259 @@ not and cannot declare CLEAR — that is the architectural reviewer's decision �
 acceptance items in §7.17 are the reviewer's, not the author's. Implementation remains
 unauthorized; no production file, test, fixture, transport file, M4–M10 artefact or M12.5 artefact
 was modified, and PR #106 was not merged.
+
+---
+
+## 8. Revision 3.2 — material-resolution boundary: measured contradiction and disposition
+
+This section was added after the fixture/validation rung of the implementation branch produced a
+live UE 5.6.1 measurement of the material read path. It records one genuine contract/implementation
+mismatch, where the *contract text* was broader than what the extraction read boundary can observe.
+It is recorded as a **design** defect, not an implementation failure: the implementation reads the
+accessor named by the contract and is consistent with the corrected, narrower semantics.
+
+### 8.1 What was measured
+
+1. **The implementation's read.** `AtlasStateExtraction.cpp` resolves each slot with
+   `Component->GetMaterial(SlotIndex)` and records that object's stable path in
+   `resolved_material_asset_path`; the asset slot is read from the mesh asset
+   (`GetStaticMesh()->GetMaterial(idx)`) and the override from `OverrideMaterials[idx]`.
+2. **The engine's accessor.** `UStaticMeshComponent::GetMaterial(int32)`
+   (`StaticMeshComponent.cpp:2803-2811`) forwards to
+   `FStaticMeshComponentHelper::GetMaterial(*this, idx, /*bDoingNaniteMaterialAudit=*/false)` with
+   `bIgnoreNaniteOverrideMaterials` left at its `false` default
+   (`StaticMeshComponentHelper.h:40`). The helper (`:108-137`) performs the component's own
+   assignment resolution and then, **conditionally**, substitutes a *material-level* Nanite override
+   (`OutMaterial->GetNaniteOverride()`), gated by
+   `Component.UseNaniteOverrideMaterials(bDoingNaniteMaterialAudit)`
+   (`StaticMeshComponent.cpp:2372-2380`) →
+   `Nanite::FNaniteResourcesHelper::UseNaniteOverrideMaterials` =
+   `(bDoingMaterialAudit || ShouldCreateNaniteProxy(Component, nullptr)) && GEnableNaniteMaterialOverrides != 0`
+   (`Runtime/Engine/Public/Rendering/NaniteResourcesHelper.h`): i.e. **session/build dependent**.
+   `USkinnedMeshComponent::GetMaterial(int32)` (`SkinnedMeshComponent.cpp:1753-1756`) →
+   `FSkinnedMeshComponentHelper::GetMaterial` (`SkinnedMeshComponentHelper.h:108-121`) performs the
+   assignment resolution and **nothing else**.
+3. **The live fixture rung.** With fixture content whose assigned materials carry no Nanite
+   override, every extracted slot satisfied `resolved == (override if present else asset slot)`, and
+   two actors with different asset slots under different overrides produced different digests. No
+   material in project or engine content was found that carries a Nanite override, so the accessor's
+   conditional step was never exercised live. The classification recorded by that rung is
+   `NOT YET LIVE-COVERED`, not `PASS`, for the rendered-appearance dimension.
+
+### 8.2 The contradiction, stated precisely
+
+Revision 3.1 §3.8.2 said three things that the sources and the measurement do not support as
+written:
+
+1. *"in both families the resolved value may then be replaced by a Nanite override material"* — the
+   skinned helper has no such step at all. The sentence conflated two accessors that differ.
+2. *"including Nanite substitution"* as the description of the field — ambiguous between the
+   accessor's own conditional material-level step and the renderer's material selection. The field
+   is the former and never the latter; the design must not describe an extracted value in
+   render-path terms.
+3. The §3.8.5 collision matrix asserted that a "Nanite-substituted" state and its
+   assignment-only counterpart were *different trees*. Under the corrected semantics those two
+   states share every extracted fact, and their difference lives entirely in rendered appearance,
+   which extraction does not observe — so the row claimed a distinction the contract cannot make,
+   and, worse, the D17 obligation asked implementers to *produce* a state that no fixture can
+   produce.
+
+None of the three changed what the implementation does; all three changed what the contract is
+allowed to claim about it.
+
+### 8.3 Disposition
+
+Contract narrowing, applied in Revision 3.2 (design change log R3.2-1 … R3.2-6):
+
+* `resolved_material_asset_path` is redefined as **the read-boundary value of
+  `Component->GetMaterial(slot)`** after the component's own assignment resolution, stated to be
+  not rendered-material state, not Nanite render-path substitution, not the render-proxy
+  default-material substitution, and not a claim about final rendered selection, with no
+  render-state inspection introduced (§3.8.2);
+* the accessor's conditional material-level step is stated accurately, including its session/build
+  gating, and the skinned family's absence of that step is made explicit (§3.8.2 rule 3);
+* the §3.8.5 `S7` row is reclassified as **intentionally equivalent** under the boundary sentence,
+  while the assignment-versus-asset-slot collision rows that carry the real collision-freedom
+  obligation are retained unchanged;
+* D17 is restated and split, with the retired pair replaced by **D17b**: the payload's `resolved`
+  must equal the session's accessor value, and the fixture must prove its assigned materials carry
+  no Nanite override so the equality is *known* rather than observed (§7.4);
+* the derived statements — §4.6 provenance row, §12 live-gate acceptance item, §15 F9 summary row —
+  and a new frozen §17 row follow the narrowed semantics.
+
+**Not done, deliberately:** the extraction accessor is unchanged; no error code, refusal, schema
+field name, or canonical encoding changed; no render-state access was added; no compatibility
+behaviour was introduced for the unobservable state.
+
+### 8.4 What remains unobservable
+
+The static family's conditional material-level Nanite step needs (i) an assigned material that
+carries a Nanite override and (ii) a session in which `ShouldCreateNaniteProxy(Component, nullptr)
+&& GEnableNaniteMaterialOverrides != 0`. No such material ships in the fixture's content, so the
+dimension is recorded `NOT YET LIVE-COVERED` in
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_VALIDATION_MATRIX.md` (implementation branch) with the
+conditions named. This is a coverage limit, not a contract ambiguity: whichever value the accessor
+returns is recorded verbatim, and build/session sensitivity of that value is a property of the
+recorded source fact.
+
+### 8.5 Residual material-contract ambiguity for the reviewer
+
+1. The field remains **session/build sensitive** in the presence of a material-level Nanite
+   override; a digest produced under a session that substitutes is not comparable with one produced
+   under a session that does not. This is consistent with the frozen "engine-build sensitivity is
+   intentional" restriction, but it is the one material case where two sessions reading the *same
+   saved asset* can record different facts. If the reviewer prefers, the alternative (collapse the
+   accessor value to the assignment and refuse components whose materials carry a Nanite override)
+   is a **capability restriction** and would need a separate approved revision — it is not taken
+   here.
+2. `asset_slot_empty` (null slot material, no override) still does not mean "renders untextured";
+   the render-proxy default substitution is declared outside extraction (§3.8.2 intentionally-
+   equivalent list). Two worlds differing only in that substitution are intentionally equivalent.
+3. Whether the *skinned* family's `USkinnedAsset::GetMaterials()` slot list can change without a
+   compile flag remains as recorded in §3.8.3 rule 8's coherence assertion; Revision 3.2 changes
+   nothing there.
+
+### 8.6 Final design status (Revision 3.2)
+
+**HOLD.** Revision 3.2 narrows exactly one field's semantics to what the extraction read boundary
+observes, corrects one factual error about the two accessors, and reclassifies one collision-matrix
+row. It adds no capability, weakens no refusal, and requires no implementation change. It cannot
+clear itself; the implementation branch remains unmergeable until an independent architectural
+review clears Revision 3.2.
+
+---
+
+## 9. Revision 3.3 — deterministic material resolution: analysis and disposition
+
+Revision 3.2 was held after review. This section answers the four architectural questions that hold
+raised, and records the decision. Every engine citation was read in the installed UE 5.6.1 tree
+(`C:/Program Files/Epic Games/UE_5.6/Engine/`).
+
+### 9.1 The question
+
+Revision 3.2 defined `resolved_material_asset_path` as the return value of
+`Component->GetMaterial(slot)`, and recorded — as an accepted property of the design — that this
+value can differ between sessions when the assigned material carries a Nanite override. It was
+classified as "engine-build sensitivity", which the design already admits. That classification is
+wrong. **Build sensitivity** means: a different engine build may produce different values, and v1
+disc owns that (§3.1.2). **Session/configuration sensitivity** means: the *same* build, the *same*
+saved source, a different session, a different value — and a digest that varies with the session is
+not a source-fidelity digest at all (§7.2, §5.4). A digested field may not depend on the second.
+
+### 9.2 Question 2 — can any session/configuration input change the accessor's value for identical saved source state?
+
+Yes, and the input list is not marginal. `UStaticMeshComponent::GetMaterial(int32)`
+(`StaticMeshComponent.cpp:2803-2811`) forwards to
+`FStaticMeshComponentHelper::GetMaterial(*this, idx, /*bDoingNaniteMaterialAudit=*/false)`, which
+resolves the assignment and then applies a material-level Nanite override
+(`OutMaterial->GetNaniteOverride()`, `StaticMeshComponentHelper.h:123-134`) whenever
+`Component.UseNaniteOverrideMaterials(false)` is true (`StaticMeshComponent.cpp:2372-2380`). That
+predicate (`Rendering/NaniteResourcesHelper.h`) is:
+
+```cpp
+return (bDoingMaterialAudit || FNaniteResourcesHelper::ShouldCreateNaniteProxy(Component, nullptr))
+       && Nanite::GEnableNaniteMaterialOverrides != 0;
+```
+
+and each input is session or configuration state:
+
+| Input | Provenance | Can differ between two sessions of one build? |
+|---|---|---|
+| `Nanite::GEnableNaniteMaterialOverrides` | scalability CVar `r.Nanite.MaterialOverrides` (`StaticMeshSceneProxy.cpp:121-124`, `ECVF_Scalability \| ECVF_RenderThreadSafe`, default 1) | yes — ini/device profile/scalability group/exec command |
+| `Component.GetScene()->GetShaderPlatform()` else `GMaxRHIShaderPlatform` | the running RHI (`NaniteResourcesHelper.h:130`) | yes — D3D12 vs D3D11 vs Vulkan vs `-nullrhi`, feature level, mobile preview |
+| `UseNanite(ShaderPlatform)` | platform support gate (`:132`) | yes — same axis as above |
+| `Component.HasValidNaniteData()` | the mesh's Nanite data availability in this session | yes — build/streaming state |
+| `Nanite::IsMaskingAllowed(Component.GetWorld(), …)` | world/CVar state (`:141`) | yes |
+| `Component.IsDisplayNaniteFallbackMesh()` | editor-only viewport toggle (`StaticMeshComponent.h:810-812`, `bDisplayNaniteFallbackMesh`) | yes — the open editor's view mode |
+
+**Self-critical note, recorded because it affects how the Revision 3.2 evidence must be read.** Every
+live measurement of Revision 3.2 ran in `-nullrhi` unattended sessions, where the shader platform is
+not a Nanite-capable RHI, so the substitution step was disabled in *all* of them. The measured
+`resolved == assignment` was therefore a configuration-dependent observation, not a proof of
+stability: a real-RHI session with `r.Nanite.MaterialOverrides 1` and a Nanite-enabled component could
+have recorded a different value from the same saved map. That is precisely the failure mode this
+revision removes.
+
+### 9.3 Question 1 — is source-side assignment resolution consistent for both families and with the collision matrix?
+
+Yes, and it is *simpler* than either precedent:
+
+- the two helpers' assignment halves are structurally identical: `OverrideMaterials[idx]` when the
+  index is valid and the entry is non-null, else the mesh asset's material for that index
+  (`StaticMeshComponentHelper.h:113-121`; `SkinnedMeshComponentHelper.h:110-120`). The **only**
+  asymmetry between the families was the static-only Nanite step, and it is the step being removed
+  from the contract — so after Revision 3.3 both families share one rule with no special case;
+- the collision matrix is unaffected where it carries obligations: the rows that distinguish
+  (override `A`, asset `B`) from (override `A`, asset `C`) rest on
+  `asset_slot_material_asset_path`, which is still a source fact. What changes is that `resolved`
+  stops being able to distinguish anything the two source facts do not already distinguish — which
+  the matrix now states explicitly, together with a session-variation row that must be
+  **equivalent** (§3.8.5);
+- the "intentionally equivalent" obligations do not multiply: the S7/rendered-appearance row already
+  existed, and Revision 3.3 extends its rationale from render-path substitution to engine-side
+  substitution generally.
+
+### 9.4 Questions 3 and 4 — narrowing versus fail-closed, and the smallest change
+
+| Option | What it means | Assessment |
+|---|---|---|
+| **A. Narrow the field to deterministic assignment resolution** (adopted) | `resolved` = override when non-null, else asset slot; computed from saved source facts; the component material accessor leaves the read boundary | **Adopted.** Same schema, same digest model, same collision obligations, no new error code, no new capability, and *fewer* engine calls than Revision 3.2 (the material helper is no longer invoked, so its `ConditionalPostLoad` disappears from the read path). Determinism holds by construction rather than by detection, and both families become identical |
+| **B. Keep the accessor and fail closed when determinism cannot be established** | refuse (`ERR_EXTRACTION_*`) whenever the session's accessor value differs from the assignment resolution | **Rejected as the primary rule.** It removes the *silent* session dependence but reintroduces session state into the extraction **outcome**: extraction would succeed in one session and refuse in another for the same saved map, which is a different non-determinism. It also needs a new producer error code for a condition the contract can simply not model |
+| **A+guard** (unadopted variant) | A, plus a fail-closed guard when the session's accessor disagrees with the projection | Recorded as the reviewer's option if they want an engine divergence to be *loud*. Its cost is a new error code and a session-dependent refusal path; it is not the smallest change and is not taken here |
+
+Question 4's constraint is satisfied: A invents no capability, preserves the architecture, and does
+not preserve the broader Nanite interpretation by any mechanism — that interpretation is
+deliberately dropped from v1's scope.
+
+### 9.5 Consequences recorded (as the request enumerated them)
+
+- **Source-versus-session provenance.** `resolved_material_asset_path` is derived from two saved
+  source facts (component override array; mesh asset material list). No session, RHI, scalability,
+  editor-view or CVar input can enter it, and the producer is forbidden from consulting one.
+- **Why the chosen field is reproducible.** It is a total two-branch projection evaluated in the
+  extraction process over data that is part of the saved map and its assets; it involves no engine
+  resolver, no rendering state and no configuration gate.
+- **Collision/state-collapse consequences.** `resolved` becomes a projection and can no longer
+  distinguish states; the obligation to distinguish stays with
+  `asset_slot_material_asset_path` / `override_material_asset_path`; session variation is an
+  intentional equivalence (§3.8.5).
+- **Exact extractor read boundary.** `OverrideMaterials.IsValidIndex(idx) && OverrideMaterials[idx]`
+  and the mesh asset's own slot material (`UStaticMesh::GetMaterial(idx)` /
+  `USkinnedAsset::GetMaterials()[idx].MaterialInterface`, the latter only when the asset is not
+  compiling) — and nothing else. The component accessor, the Nanite accessors, scene/render-proxy
+  accessors and any CVar read are forbidden for this field.
+- **Compatibility with the schema and digest model.** Unchanged: the field keeps its name, type
+  (`string|null`), position and provenance class (DSD). What changes is the value function, so a
+  session that *would* have substituted a different material now records the deterministic value
+  instead — a digest change only in sessions where the engine would have diverged, which is the
+  intended repair.
+
+### 9.6 Enforcement (so the invariant is mechanical, not aspirational)
+
+1. **Boundary rule (D17c):** the Python validator rejects any tree where
+   `resolved != (override if override is not None else asset_slot)`, in both families and including
+   the null cases. A producer that ever reintroduced a session-dependent value fails closed instead
+   of digesting it.
+2. **In-process test:** the projection is asserted against the engine's own objects
+   (`OverrideMaterials[idx]`, and the mesh asset's slot material read directly), and the session's
+   component-accessor value and substitution-gate inputs are *recorded* without being asserted, so a
+   substituting session is visible in the evidence.
+3. **Source gate:** the extraction translation unit must not contain a component material accessor
+   call or any Nanite/render-state accessor, and must not read a console variable for the value.
+4. **Configuration-variation run:** the gate is executed twice with deliberately different session
+   configuration (`r.Nanite.MaterialOverrides` varied, plus the RHI difference between the
+   `-nullrhi` sessions and any real-RHI session available), and the material-bearing extraction bytes
+   and digests are compared for byte equality.
+
+### 9.7 Final design status (Revision 3.3)
+
+**HOLD.** Revision 3.3 removes a session/configuration dependence from a digested field by
+redefining that field as a projection of saved source facts, removes the component material accessor
+from the read boundary, makes both supported families share one rule, and adds a closed boundary rule
+plus a source gate so the property cannot silently regress. It adds no capability, weakens no
+refusal, changes no error code, and touches no part of the frozen M4–M10 and M12.5 boundaries. It
+cannot clear itself; the implementation branch remains unmergeable until an independent architectural
+review clears Revision 3.3.
 
 ---
 
@@ -1116,3 +1376,54 @@ done
 ```
 
 As with the previous revisions, none of this required an engine process and no test was executed.
+
+---
+
+## Appendix D — Reproducing the Revision 3.2 verification
+
+Revision 3.2's evidence is engine-source plus one live measurement. No repository or engine file was
+modified; nothing here re-runs the design's own acceptance obligations.
+
+**D.1 Engine accessor (no engine process required).** The exact read path, in the order the
+arguments are consumed:
+
+```bash
+E="C:/Program Files/Epic Games/UE_5.6/Engine/Source/Runtime/Engine"
+# the component accessors and what they forward to
+grep -n "GetMaterial(int32" "$E/Private/Components/StaticMeshComponent.cpp"      # :2803-2811 (static)
+grep -n "GetMaterial(int32" "$E/Private/Components/SkinnedMeshComponent.cpp"     # :1753-1756 (skinned)
+# the helper signatures and defaults
+grep -n "static UMaterialInterface\* GetMaterial" "$E/Public/StaticMeshComponentHelper.h"   # :40 defaults
+sed -n '108,137p' "$E/Public/StaticMeshComponentHelper.h"                                    # conditional step
+sed -n '108,121p' "$E/Public/SkinnedMeshComponentHelper.h"                                   # no such step
+# the session gate on the static family's conditional step
+grep -n "UseNaniteOverrideMaterials" "$E/Private/Components/StaticMeshComponent.cpp"         # :2372-2380
+grep -n -A4 "bool FNaniteResourcesHelper::UseNaniteOverrideMaterials" \
+  "$E/Public/Rendering/NaniteResourcesHelper.h"
+# measured: (bDoingMaterialAudit || ShouldCreateNaniteProxy(Component, nullptr))
+#           && Nanite::GEnableNaniteMaterialOverrides != 0
+```
+
+**D.2 The implementation's read (source only).** `AtlasStateExtraction.cpp` (implementation branch)
+must resolve each slot through `Component->GetMaterial(SlotIndex)` and read the asset slot from the
+mesh asset; the Revision 3.2 source gate asserts that no render-state accessor, Nanite audit
+accessor, or render proxy symbol appears in that translation unit, and that every mention of Nanite
+in it is a comment stating the boundary.
+
+**D.3 The live measurement.** The fixture/validation rung's gate session (UE 5.6.1, CL 44394996) is
+reproduced by the commands in
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_VALIDATION_MATRIX.md`; the material cases must classify
+`PASS` for assignment-versus-asset-slot separation and `NOT YET LIVE-COVERED` for the rendered-
+appearance dimension. A `PASS` for the rendered dimension would mean the contract is again claiming
+more than the read boundary observes.
+
+**D.4 Line-ending discipline** for the two documents (the repository commits LF blobs on a CRLF
+worktree):
+
+```bash
+for f in docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_REV2_REVIEW.md; do
+  python -c "import sys;d=open(sys.argv[1],'rb').read();crlf=d.count(bytes([13,10]));lf=d.count(bytes([10]));cr=d.count(bytes([13]));print(sys.argv[1],'CRLF',crlf,'bareLF',lf-crlf,'bareCR',cr-crlf)" "$f"
+done
+# Revision 3.2 result: DESIGN CRLF 2460 bareLF 0 bareCR 0 ; REVIEW CRLF 1293 bareLF 0 bareCR 0
+# Revision 3.3 result: DESIGN CRLF 2560 bareLF 0 bareCR 0 ; REVIEW CRLF 1428 bareLF 0 bareCR 0
+```
