@@ -2,7 +2,7 @@
 
 **Updated:** September 17, 2026 (publication update)
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10` — published at `d582af3`
-**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice D (start-callback identity guard) is now COMPLETE + LIVE-PROVEN** on top of that: monitoring state (`Status`/`StatusMessage`/`Progress`) is written only for the exact registered executor job, so a foreign queued job can no longer overwrite the new Atlas job's monitoring state. The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, **CLEAR WITH MINOR FINDINGS**, read-only) concluded that accumulation is no longer a provenance correctness risk, accepted the current shared queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance. **Slice 3 queue consumption and the private-queue migration remain unimplemented and unauthorized.** **MRQ submission outcome propagation is now COMPLETE + LIVE-PROVEN** (`docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md`): the submission call and its `GetActiveExecutor()` identity observation happen in one game-thread task, so a refused submission is an immediate typed failure (measured 1.50 s) instead of the 300 s poll timeout, an unprovable outcome fails closed as ambiguous, and the rejected job's registry entry is removed. **Queue consumption and the private-queue migration remain unimplemented and unauthorized.** The queue-isolation question has now been through a **read-only design gate**: `docs/UNREAL_MRQ_QUEUE_ISOLATION_DESIGN_REVIEW.md` (**verdict CLEAR WITH MINOR FINDINGS**) concludes that **no remaining queue cost is a correctness risk**, recommends **keeping the shared queue semantics as the permanent default**, **defers** an Atlas-owned private queue against written triggers (T1-T4), and **rejects** consumption/deletion. **Nothing is authorized**; no next surface is scheduled.
+**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice D (start-callback identity guard) is now COMPLETE + LIVE-PROVEN** on top of that: monitoring state (`Status`/`StatusMessage`/`Progress`) is written only for the exact registered executor job, so a foreign queued job can no longer overwrite the new Atlas job's monitoring state. The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, **CLEAR WITH MINOR FINDINGS**, read-only) concluded that accumulation is no longer a provenance correctness risk, accepted the current shared queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance. **Slice 3 queue consumption and the private-queue migration remain unimplemented and unauthorized.** **MRQ submission outcome propagation is now COMPLETE + LIVE-PROVEN** (`docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md`): the submission call and its `GetActiveExecutor()` identity observation happen in one game-thread task, so a refused submission is an immediate typed failure (measured 1.50 s) instead of the 300 s poll timeout, an unprovable outcome fails closed as ambiguous, and the rejected job's registry entry is removed. **Queue consumption and the private-queue migration remain unimplemented and unauthorized.** The queue-isolation question has been through a **read-only design gate**: `docs/UNREAL_MRQ_QUEUE_ISOLATION_DESIGN_REVIEW.md` (**verdict CLEAR WITH MINOR FINDINGS** — approved and published) concludes that **no remaining queue cost is a correctness risk**, recommends **keeping the shared queue semantics as the permanent default**, **defers** an Atlas-owned private queue against written triggers (T1-T4), and **rejects** consumption/deletion. The immediately following gate, `docs/UNREAL_MRQ_PASS_FAILURE_ATTRIBUTION_DESIGN_REVIEW.md` (**verdict CLEAR WITH MINOR FINDINGS**), audited the one cost that review left standing: a **pass-scoped executor failure is written into job-scoped fields**, so a healthy Atlas render can be reported as failed because a different queued job failed (fail-closed false negative; availability + terminal-contract precision, never a false accept). Its correction is confined to one existing transport callback and needs no protocol, authority or evidence change. **Nothing is authorized.**
 
 ## Current milestone chain
 
@@ -25,8 +25,11 @@ MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN
         ↓
 MRQ queue isolation design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
         ↓
-NEXT: none scheduled (standing decision: shared queue stays the default;
-      isolation only against triggers T1-T4; consumption unimplemented)
+MRQ pass-failure attribution review    DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
+        ↓
+NEXT (not authorized): implementation gate for the pass-scoped verdict correction
+      (standing: shared queue default; isolation only against triggers T1-T4;
+       consumption/deletion unimplemented)
 ```
 
 ## MRQ artifact attribution — COMPLETE + LIVE-PROVEN
@@ -253,7 +256,30 @@ trigger T4    the queue-mate misdiagnosis appears in production reports as our r
 ```
 
 Slice 3 queue consumption and the private-queue migration stay unimplemented and unauthorized; a new gate is
-required before either changes. Nothing is scheduled next.
+required before either changes.
+
+### Pass-scoped executor failure attribution — ANSWERED (read-only design review, nothing authorized)
+
+`docs/UNREAL_MRQ_PASS_FAILURE_ATTRIBUTION_DESIGN_REVIEW.md` — **verdict CLEAR WITH MINOR FINDINGS**. Summary:
+
+```text
+defect       OnExecutorFinished carries a PASS aggregate (!bAnyJobHadFatalError) and Atlas writes it into
+             JOB-scoped fields (AtlasTransportServer.cpp:1480-1489), clobbering the healthy verdict our own job
+             already recorded from its identity-guarded per-job payload (:1444-1449). The pass continues after a
+             fatal job error, so both verdicts coexist in that entry.
+effect       a healthy, evidence-complete render is denied its receipt at two layers (workflow checks `failed`
+             before `finished`; the verifier rejects failed=True) and must be re-authorized and re-rendered.
+class        availability + terminal-contract precision (fail-closed false negative; never a false accept)
+fix scope    one existing callback: apply the pass verdict only when our entry has no job-scoped terminal verdict
+             of its own. No new field/operation/authority, no queue interaction, no retry.
+findings     F1 clobber; F2 no fixture pins the resulting state combination; F3 classification;
+             F4 the failing mate's identity is not observable (two-way contract only); F5 fix scope;
+             F6 OPEN live-gate precondition - arranging a deterministically failing queue-mate without queue
+             mutation, a new operation or fixture damage; F7 ordering safety (our own failure always arrives
+             through our own payload first)
+next         an implementation gate for that correction (NOT authorized). The design review docs themselves need
+             their own commit authorization before publication.
+```
 
 The audit and candidate evaluation for that review are recorded in `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (90 source anchors across the transport C++ and the UE 5.6.1 MovieRenderPipeline plugin, plus the measured failure evidence). Its recommended architecture is an identity guard in the existing `OnIndividualJobWorkFinished` lambda (the payload's job must equal the job this transport allocated) plus a PNG artifact-containment rule against the authorized output directory. The design gate returned `CLEAR WITH MINOR CONDITIONS`; Slice 1 and Slice 2 are now implemented and LIVE
 CLEAR (see `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`), and Slice 3 was deliberately not
@@ -299,7 +325,8 @@ docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDI
 docs/UNREAL_MRQ_SUBMISSION_ERROR_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDINGS)
 docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md
 docs/UNREAL_MRQ_SUBMISSION_ERROR_CLOSEOUT.md
-docs/UNREAL_MRQ_QUEUE_ISOLATION_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDINGS)
+docs/UNREAL_MRQ_QUEUE_ISOLATION_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDINGS; published)
+docs/UNREAL_MRQ_PASS_FAILURE_ATTRIBUTION_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDINGS)
 ```
 
 This file is the first-read continuation context for the next Unreal session.

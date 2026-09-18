@@ -209,9 +209,11 @@ MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN
         ↓
 MRQ queue isolation design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
         ↓
-NEXT: none scheduled. Standing decision: shared queue semantics stay the default;
-      isolation only against triggers T1-T4; queue consumption stays unimplemented
-      (a new gate is required before either changes)
+MRQ pass-failure attribution review    DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
+        ↓
+NEXT (not authorized): implementation gate for the pass-scoped verdict correction
+      standing decisions unchanged: shared queue stays the default; isolation only
+      against triggers T1-T4; queue consumption and deletion stay unimplemented
 ```
 
 ## CLOSED SURFACE — concurrent-submission rejection / error propagation (finding F2)
@@ -281,3 +283,33 @@ triggers T1..T4                   amplifier materiality (retained depth >= 5 or 
 
 Anything that would answer this differently, or that wants to implement B or C, needs a new gate. The blocked
 alternative is closed: this surface is answered, not open.
+
+---
+
+## ANSWERED SURFACE — pass-scoped executor failure attribution
+
+**Status: read-only design review performed — `docs/UNREAL_MRQ_PASS_FAILURE_ATTRIBUTION_DESIGN_REVIEW.md`,
+verdict `CLEAR WITH MINOR FINDINGS`. No implementation is authorized; the next rung is an implementation gate.**
+
+```text
+question    can a healthy Atlas render be reported as failed because a DIFFERENT queued MRQ job fails?
+answer      YES today, and the mechanism is one existing callback writing the wrong scope.
+mechanism   OnExecutorFinished carries a PASS aggregate (!bAnyJobHadFatalError, MoviePipelineExecutor.h:216-234),
+            and Atlas's lambda writes it into JOB-scoped fields (bFinished/bSuccess/bFailed/Status/
+            StatusMessage, AtlasTransportServer.cpp:1480-1489), clobbering the healthy verdict our own job
+            already recorded from its identity-guarded per-job payload (:1444-1449). The pass CONTINUES after a
+            fatal job error (LinearExecutor.cpp:81-90), so both verdicts really do coexist in that entry.
+effect      a valid, evidence-complete render is denied its receipt at two layers (the workflow checks `failed`
+            before `finished`; the verifier rejects failed=True) and, with retry prohibited, must be
+            re-authorized and re-rendered. Fail-closed false negative - never a false accept.
+class       availability + terminal-contract precision (not correctness)
+fix         confined to the existing transport: apply the pass verdict only when our entry has no job-scoped
+            terminal verdict of its own. No protocol field, no new operation, no new authority, no queue
+            interaction, no retry. Design only; nothing authorized.
+findings    F1 clobber; F2 the state combination (finished=true + failed=true + healthy output_files) is pinned
+            by no fixture; F3 classification; F4 the failing mate's identity is not observable (two-way contract
+            only); F5 fix scope; F6 OPEN precondition - how the live gate arranges a deterministically failing
+            queue-mate without queue mutation, a new operation or fixture damage; F7 ordering safety.
+also note   if isolation (triggers T1-T4) is ever adopted, it removes the CAUSE of this defect; this fix removes
+            the SYMPTOM for any queue contents, and the two are compatible.
+```
