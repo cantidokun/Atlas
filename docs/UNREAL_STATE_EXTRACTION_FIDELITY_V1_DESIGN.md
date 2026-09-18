@@ -71,14 +71,18 @@ PIE, game, preview, thumbnail, inactive, or otherwise non-editor world contexts 
 not eligible v1 authorities. The point is to remove selection dependence on
 `GetWorldContexts()` iteration order.
 
-World identity records:
+World identity is exactly:
 
-- world object path;
-- world package path;
-- world name;
-- world type;
-- engine version;
-- selection provenance.
+```text
+world_object_path
+world_package_path
+world_name
+world_type
+engine_version
+selection_provenance
+```
+
+No alternate world identity field is permitted in v1.
 
 ### 3.2 Actor representation
 
@@ -87,6 +91,7 @@ For explicitly selected entity IDs, extract:
 - entity ID;
 - actor name;
 - actor class;
+- actor object path;
 - actor level package identity;
 - parent binding state;
 - editor visibility state;
@@ -138,8 +143,9 @@ No parent identity is inferred from actor names.
 
 v1 records actor-level editor visibility only:
 
-- `hidden_in_editor` from the authoritative editor-hidden state;
-- `temporarily_hidden_in_editor` from the authoritative temporary editor-hidden state.
+- `hidden_in_editor` from the authoritative `AActor::IsHiddenEd()` state;
+- `temporarily_hidden_in_editor` from the authoritative
+  `AActor::IsTemporarilyHiddenInEditor()` state.
 
 These flags are source facts. The extractor does not infer renderer visibility,
 component visibility, lighting visibility, or semantic "visible to camera" state.
@@ -149,8 +155,16 @@ component visibility, lighting visibility, or semantic "visible to camera" state
 World-space transform is:
 
 - translation in Unreal source units (centimeters);
-- rotation as exact actor quaternion;
-- scale as exact actor scale.
+- rotation as the exact `AActor::GetActorQuat()` world quaternion;
+- scale as the exact `AActor::GetActorScale3D()` value.
+
+The canonical transform object is exactly:
+
+```text
+location_cm: { x, y, z }
+rotation: { coordinate_frame, representation, component_order, unit, source, x, y, z, w }
+scale: { x, y, z }
+```
 
 The canonical rotation representation is:
 
@@ -203,6 +217,11 @@ A null material slot is `missing/null`.
 
 A non-null slot whose required asset identity cannot be resolved is a hard extraction
 failure, not an omission.
+
+A material slot is accepted only when its material interface has a stable non-transient
+asset/object path. Transient-only dynamic material instances are unsupported in v1 and
+cause `ERR_UNSUPPORTED_MATERIAL_SOURCE` rather than being silently represented by a
+variant tag or transient object name.
 
 Material slot records are sorted by:
 
@@ -325,18 +344,61 @@ cannot silently be interpreted as belonging to a different editor world.
 
 Actor output is ordered by canonical `entity_id`, not request order.
 
+The canonical request target set is the unique sorted set of requested entity IDs;
+duplicate IDs are rejected before extraction rather than silently deduplicated.
+
 The complete actor record is:
 
 ```text
 entity_id
 actor_name
 actor_class
+actor_object_path
 level_package_path
 parent
 editor_visibility
 transform
 materials
 source_identity
+```
+
+`source_identity` is exactly:
+
+```json
+{
+  "actor_object_path": "<Unreal actor object path>"
+}
+```
+
+The complete world record is exactly:
+
+```text
+world_object_path
+world_package_path
+world_name
+world_type
+engine_version
+selection_provenance
+```
+
+The complete transform leaf fields are exactly:
+
+```text
+location_cm.x
+location_cm.y
+location_cm.z
+rotation.coordinate_frame
+rotation.representation
+rotation.component_order
+rotation.unit
+rotation.source
+rotation.x
+rotation.y
+rotation.z
+rotation.w
+scale.x
+scale.y
+scale.z
 ```
 
 The exact field spelling, nullability, and enum values defined above are normative;
@@ -437,6 +499,7 @@ The live gate must prove:
 - ambiguous sequence binding fails closed;
 - playback range bounds and tick/display rates are exact;
 - repeated extraction yields identical value trees;
+- RFC 8785 canonicalization matches its published test vectors;
 - repeated extraction yields identical canonical bytes and digest;
 - no package dirtying occurs;
 - no asset/world mutation occurs.
