@@ -1,5 +1,65 @@
 # Unreal Agent — Fresh Architecture Review After Composite Closeout
 
+## LATEST STATE — September 18, 2026 (development paused)
+
+Published shared branch:
+
+```text
+reconcile/unreal-autonomy-origin-20c6d10
+71728480a425f80c700c913aa00f376c254114bb
+```
+
+The Unreal Agent is paused. The following implementation milestones are complete and
+published/live-proven:
+
+```text
+Shot-level production continuity
+MRQ artifact attribution (Slice 1 + Slice 2)
+MRQ start-callback identity (Slice D)
+MRQ submission outcome propagation
+```
+
+The following design gates are complete:
+
+```text
+MRQ queue lifecycle
+MRQ queue isolation
+MRQ pass-failure attribution
+```
+
+All three returned **CLEAR WITH MINOR FINDINGS**.
+
+The queue-isolation decision is settled for now: shared MRQ queue semantics remain the
+default; queue consumption/deletion is rejected/deferred; private queue isolation is
+deferred behind written triggers T1-T4.
+
+The pass-failure review is closed on measured evidence. B1 and B2 both produced genuine
+queue-mate failures but both aborted the pass before the subsequent queued job executed.
+Therefore the hypothesized healthy-job-then-later-pass-failure clobber was not reached.
+Receipt impact is **UNPROVEN**.
+
+### CURRENT INTENT — PAUSED
+
+No production implementation is authorized.
+
+The next and only authorized action is a read-only design gate deciding whether the
+small pass-failure **state-fidelity** correction is worth implementing:
+
+```text
+job-scoped terminal verdict
+        >
+later pass-scoped aggregate
+```
+
+That decision must remain separate from F9, the current failed-job inspection-path
+limitation. F9 is a separate future contract review.
+
+Do not start queue consumption, private queue migration, registry pruning, or another
+Unreal feature before this gate is cleared.
+
+---
+
+
 **Date:** September 17, 2026  
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10`
 
@@ -328,3 +388,20 @@ F6 CLOSED   on MEASURED grounds (B1 + B2), receipt impact UNPROVEN (§8.8-§8.10
 also note   if isolation (triggers T1-T4) is ever adopted, it removes the CAUSE of this defect; this fix removes
             the SYMPTOM for any queue contents, and the two are compatible.
 ```
+
+
+---
+
+## SESSION PAUSE — September 18, 2026
+
+Development is intentionally paused at published commit `7172848`.
+
+No implementation is authorized beyond the state-fidelity design gate described above.
+Receipt impact of the pass-failure correction remains explicitly unproven. The current
+shared queue is the default; isolation remains trigger-based and deferred; consumption
+and deletion remain unimplemented and unauthorized.
+
+For continuation, read:
+`UNREAL_AGENT_HANDOFF_CURRENT.md`,
+`docs/UNREAL_SESSION_CLOSEOUT_2026-09-18.md`,
+and this document before making any change.
