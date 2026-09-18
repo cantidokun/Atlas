@@ -29,9 +29,11 @@
 
 ### Unreal track
 
-- **Unreal M12.5 independent semantic-evidence verification remains the next Unreal milestone** after M12.4. It is a separate track from the current Blender/temporal architecture work and was not changed by this checkpoint.
+- **Unreal M12.5 is intentionally deferred.** Do not modify or advance it from the current development session.
+- **Current Unreal development target: Unreal State Extraction Fidelity v1.** Design branch: `feat/unreal-state-extraction-fidelity-v1-design`; goal is a bounded, deterministic, read-only C++→Python state-extraction contract for factual Unreal world/actor/material/Sequencer state.
+- **Open authority-boundary repair:** draft PR #105 corrects actor verification tools incorrectly mapped as WRITE instead of VERIFY; merge remains gated on observed regression/CI results.
 - M10 live S1–S8 remain complete; M11 remains frozen/paused; M12.1–M12.4 remain implemented.
-- Do not conflate the Unreal M12.5 gate with the temporal design gate.
+- Do not conflate the Unreal extraction track with the deferred M12.5 verification gate.
 
 ## Current pause / resume intent
 
