@@ -1121,3 +1121,63 @@ fixtures             all four tracked assets byte-identical to baseline; editors
   gate), the same limitation recorded for Slice 1.
 - One earlier live attempt failed in this repository's **test harness** (it sampled the job state after completion
   instead of mid-render); the test was restructured and no production code was changed in response.
+
+## September 17, 2026 — `MRQ submission outcome propagation — COMPLETE + LIVE-PROVEN`
+
+```text
+preserved
+  queue consumption unimplemented
+  private queue migration unimplemented
+  automatic retry prohibited
+  exact job identity unchanged
+  receipts only from fresh verified terminal evidence
+```
+
+A render submission attempted while another render was active was refused by the engine
+(`UMoviePipelineQueueSubsystem::RenderQueueInstanceWithExecutorInstance`), but the transport had already
+deferred the start into a discarded `AsyncTask`, registered the job as `"submitted"` and returned success — so
+Atlas polled a job that would never start until its 300 s timeout.
+
+### Change
+
+`unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp` (+67/-9, blob
+`1d7d33fd5fc8fe598d3d6ff5e834c5a169025adb`): the submission call and the `GetActiveExecutor()` identity
+observation now happen in the same game-thread task, and the response is built only on proven acceptance.
+Rejected and ambiguous outcomes fail the operation through the existing `success`/`error` response fields (no
+protocol change), and the rejected submission's registry entry is removed instead of being left readable as
+`"submitted"`. `IsRendering()` is never used as the acceptance proof (it is false during the PIE startup window
+even for a registered executor).
+
+### Verification
+
+```text
+deterministic        tests/test_unreal_mrq_submission_outcome_contract.py            18 passed
+red proof            throwaway worktree at 9e2c893                                  8 of 18 FAIL
+broad sweep          identical selection, no editor                                 1216 passed, 7 skipped
+                     (baseline 9e2c893 same selection                                1198 passed, 7 skipped = +18)
+live, ONE session    tests/test_unreal_mrq_submission_outcome_real_integration.py    2 passed in 22.80 s
+   A accepted while idle    job CE3199F4-... (1-24) -> 24 exact artifacts, receipt, continuity
+   B attempted while rendering -> REJECTED in 1.50 s, typed non-timeout error
+   C no receipt for B       rejected submission's receipt never created
+   D multi-job queue        accepted job 2B55DA72-... -> exactly 2 PNGs in its own directory
+   E same range twice       accepted job 6DA54FB0-... -> exactly 2 PNGs, disjoint from D's
+   engine log               1x "Render already in progress.", 1x Atlas rejection line,
+                            3x "starting N jobs" (1,3,4) for FOUR attempts, 3 finishes, 6 Slice 1 discards
+DLL provenance       source 20:05:12 -> build 20:05:35 -> DLL 20:05:34, 364,544 B,
+                     sha256 4b7dc0a8...; session loaded 0.348 MB (previous slice: 0.345 MB) and the
+                     observed immediate rejection is impossible with the previous binary
+fixtures             all four tracked assets byte-identical; editor killed; pipe released
+```
+
+### Remaining risk / not done
+
+- A rejected submission leaves its allocated MRQ job in the queue (queue mutation is frozen), so a later
+  accepted submission renders it; measured `starting 3 jobs` and two orphan PNGs in that job's configured
+  directory. Slice 1 discards the payload and no receipt exists for it, so they are not evidence.
+- Engine mutual exclusion remains best-effort (the PIE startup window); this slice makes the outcome truthful
+  for the submission Atlas makes, not the engine's exclusion sound.
+- The C++ still has no deterministic execution cover (source-shape assertions plus the live gate).
+- Registry entries for accepted jobs are still never pruned; queue consumption and the private queue instance
+  remain unimplemented.
+- One live-gate attempt failed during development because the previous executor had not finished releasing; the
+  fix was a harness-side wait on the engine's executor-finished log line (test only, no production change).

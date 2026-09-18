@@ -31,6 +31,14 @@ B  consume/delete only Atlas-owned jobs       rejected for now (does not establi
 What remains from that review is the silent-drop hazard above (finding F2), carried forward — see the next
 surface at the end of this document. It was deliberately not fixed with the Slice D work.
 
+That carried surface has since been through its own **read-only design gate**
+(`docs/UNREAL_MRQ_SUBMISSION_ERROR_DESIGN_REVIEW.md`, **CLEAR WITH MINOR FINDINGS**) and then through an
+authorized **implementation slice**: **MRQ submission outcome propagation — COMPLETE + LIVE-PROVEN**
+(`docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md`). A refused submission is now an immediate typed failure
+instead of a 300 s poll timeout; acceptance is proven by the observed identity of the supplied executor, read in
+the same game-thread task as the submission call. See the CLOSED SURFACE section below. **The next surface is
+now a different question — see NEXT SURFACE at the end of this document.**
+
 The design review for that surface is drafted at `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (audit of the MRQ job lifecycle, `SubmitRender` identity creation, queue state, callback/event ownership, `InspectRenderJob` construction, job-ID binding, artifact collection, receipt/evidence relations, continuity interaction, and recovery; candidates A–D evaluated; recommended architecture = engine-side provenance guard in the existing per-job callback plus PNG artifact containment against the authorized output directory). Its status is `CLEAR WITH MINOR CONDITIONS` (the operator relayed the independent gate result); Slice 1 and Slice 2 from it were implemented, live-proven and published at `8ecf7db`. Every frozen constraint in this document (no new transport primitive, no second authorization authority, no model-derived authority, no entity discovery/cache, fresh verification, exact render-job identity, fail-closed recovery, no distributed-render architecture) continues to apply to that review.
 
 ## Review conclusion
@@ -195,37 +203,68 @@ MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-on
         ↓
 MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN
         ↓
-NEXT (needs its own design gate): concurrent-submission rejection / error propagation   [carried finding F2]
-        (still unimplemented: Slice 3 queue consumption; C private queue instance
-         unchanged default: A current shared queue semantics)
+MRQ submission-error design review     DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
+        ↓
+MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN
+        ↓
+NEXT (read-only design gate): is queue isolation / a private queue instance worth it?
+        (still unimplemented: Slice 3 queue consumption; private queue instance
+         unchanged default: current shared queue semantics)
 ```
 
-## NEXT SURFACE — concurrent-submission rejection and error propagation (carried finding F2)
+## CLOSED SURFACE — concurrent-submission rejection / error propagation (finding F2)
 
-Selected by the queue-lifecycle review as the item to evaluate **before** queue consumption or a private-queue
-migration. It is a design question first; nothing is authorized and nothing has been changed.
+**Status: design-reviewed AND implemented.** Design gate
+`docs/UNREAL_MRQ_SUBMISSION_ERROR_DESIGN_REVIEW.md` (`CLEAR WITH MINOR FINDINGS`); implementation
+`docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md` and
+`docs/UNREAL_MRQ_SUBMISSION_ERROR_CLOSEOUT.md` — **MRQ submission outcome propagation — COMPLETE +
+LIVE-PROVEN**.
 
 ```text
-condition   a render submission is made while another render is already active in the editor
-engine      UMoviePipelineQueueSubsystem::RenderQueueInstanceWithExecutorInstance refuses the call
-            (ensureMsgf(!IsRendering())), i.e. the submission never starts
-transport   AtlasTransportServer::SubmitRender returns as soon as the executor is scheduled; it cannot
-            observe the refusal, so no failure reaches the caller
-caller      the render workflow polls for a job that will never start and eventually reports a timeout,
-            which is indistinguishable from a slow render
-severity    fail-closed (no false success, no artifacts, no receipt) but the diagnosis is wrong, and the
-            operator cannot tell "refused" from "slow"
+before   the start was deferred into an AsyncTask whose outcome was discarded; a refused submission returned
+         success with a pollable job id, then polled "submitted" until the 300 s timeout
+after    the submission call and the GetActiveExecutor() identity observation happen in one game-thread task;
+         acceptance = the exact supplied executor is the observed active executor
+         REJECTED  -> the operation fails immediately with a typed message; no job id, no receipt, no retry
+         AMBIGUOUS -> fail closed, acceptance never claimed
+         ACCEPTED  -> unchanged response, job identity, polling and evidence semantics
+proof    18 deterministic tests (8 fail at the previous baseline) + one clean live UE 5.6.1 session:
+         accepted while idle, rejected in 1.50 s while rendering, no receipt for the rejection, multi-job and
+         same-range attribution still exact, four submission attempts against three executor starts
 ```
 
-Questions the gate must answer before any implementation:
+What did NOT change: the Named Pipe protocol, the response field set, job identity, receipt/evidence contracts,
+queue semantics, timeouts, shot continuity and artifact attribution. Still unimplemented: Slice 3 queue
+consumption and the private queue instance.
 
-1. Can the refusal be observed without inventing a second authority, a new transport primitive, or a protocol
-   change (e.g. is there an existing engine-visible condition the submission path can read)?
-2. If it cannot be observed, what is the correct fail-closed contract: a bounded, explicitly *distinguishable*
-   refusal/timeout outcome, or a documented operator precondition?
-3. Does the answer hold for both the local (PIE) executor and any future executor plug-in?
-4. What must NOT happen: no timeout inflation, no synthetic success, no automatic retry, no queue mutation, no
-   change to exact job identity or to receipt/evidence semantics.
+---
 
-Until that review is complete and cleared, Slice 3 queue consumption and the private-queue instance migration
-stay unimplemented, and the shared MRQ queue semantics remain the accepted default.
+## NEXT SURFACE — is queue isolation / a private queue instance worth its lifecycle surface?
+
+Selected by the operator after the submission-outcome slice. It is a **read-only design question first**: does
+isolating Atlas to its own MRQ queue instance (the mechanism Epic's own Quick Render uses, proven safe to
+instantiate in UE 5.6.1) buy enough operational value to justify the larger lifecycle surface it adds — or is
+the current shared-queue semantics plus the identity guards (Slice 1, Slice D, submission outcome) sufficient?
+
+```text
+known from the earlier reviews
+  - the shared queue accumulates: every submission renders every retained job (measured 1 -> 3 -> 4 jobs in one
+    session, and 6 Slice 1 discards per run)
+  - a rejected submission leaves its allocated job in the queue by design (queue mutation is frozen); a later
+    accepted submission renders it and Slice 1 discards its artifacts
+  - acceptance/exclusion is now truthful for the submission Atlas makes, but the engine's own mutual exclusion
+    is best-effort (PIE startup window) and unfixable within the frozen constraints
+  - the private-queue mechanism is engine-proven (MovieGraphQuickRender builds a transient queue, instantiates
+    the same UMoviePipelinePIEExecutor and calls RenderQueueInstanceWithExecutorInstance) but changes what the
+    operator sees, how long jobs live, and which queue the callbacks belong to
+questions the gate must answer
+  1. what operational problem remains that the identity guards do not already solve (efficiency, operator
+     visibility, accumulation, or something measurable)?
+  2. what does the operator lose by not seeing Atlas's jobs in the MRQ queue UI, and is that acceptable?
+  3. what is the queue's lifetime and owner under Atlas, and how is it released?
+  4. what happens to a private queue's retained jobs across submissions (accumulation inside Atlas's own queue)?
+  5. does any of this change the evidence chain, job identity, receipts, or the submission outcome contract?
+must not happen
+  no implementation before a cleared design gate; no queue consumption smuggled in; no new transport
+  operation; no second authority; no change to job identity, receipts or continuity semantics
+```

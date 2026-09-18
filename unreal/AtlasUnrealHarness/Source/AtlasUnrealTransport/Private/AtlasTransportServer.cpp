@@ -1496,16 +1496,74 @@ bool FAtlasTransportServer::SubmitRender(
     }
 
 
-    AsyncTask(
-        ENamedThreads::GameThread,
-        [QueueSubsystem, Executor]()
+    /*
+     * Submission outcome propagation. The engine registers the supplied executor
+     * (ActiveExecutor = InExecutor) inside the call, and refuses the call outright
+     * when another render is already active, in which case nothing is registered
+     * and no executor callback can ever fire. The call and the identity
+     * observation therefore happen in this one game-thread task, so no unrelated
+     * game-thread task can be interposed between them and the outcome is
+     * established before Atlas can treat the job as accepted.
+     * The observed identity of the active executor is the acceptance proof.
+     * IsRendering() is deliberately not used for acceptance, because a registered
+     * executor can still report IsRendering() == false until its own start path
+     * runs. Nothing is inferred from logs, queue position, timing, callback order,
+     * output files, filesystem state or the existence of the newly minted GUID.
+     */
+    if(!QueueSubsystem || !IsValid(QueueSubsystem) ||
+       !Executor || !IsValid(Executor))
+    {
         {
-            if (QueueSubsystem && IsValid(QueueSubsystem) &&
-                Executor && IsValid(Executor))
-            {
-                QueueSubsystem->RenderQueueWithExecutorInstance(Executor);
-            }
-        });
+            FScopeLock Lock(&RenderJobRegistryMutex);
+            RenderJobRegistry.Remove(JobId);
+        }
+
+        E=TEXT("render submission failed: the movie pipeline queue subsystem or the render executor was unavailable");
+        return false;
+    }
+
+    QueueSubsystem->RenderQueueWithExecutorInstance(Executor);
+
+    UMoviePipelineExecutorBase* ObservedActiveExecutor=
+        QueueSubsystem->GetActiveExecutor();
+
+    if(ObservedActiveExecutor!=Executor)
+    {
+        {
+            FScopeLock Lock(&RenderJobRegistryMutex);
+            RenderJobRegistry.Remove(JobId);
+        }
+
+        if(ObservedActiveExecutor!=nullptr)
+        {
+            E=TEXT("render submission rejected: a render is already active in this editor, so Unreal refused to register the supplied executor");
+
+            UE_LOG(
+                LogAtlasTransport,
+                Error,
+                TEXT("ATLAS MRQ SUBMISSION: rejected; another executor is active; no Atlas job was accepted"));
+        }
+        else if(JobState->bFinished || JobState->bFailed)
+        {
+            E=TEXT("render submission rejected: the supplied executor finished or failed without becoming the active executor");
+
+            UE_LOG(
+                LogAtlasTransport,
+                Error,
+                TEXT("ATLAS MRQ SUBMISSION: rejected; the supplied executor reached a terminal state without becoming active"));
+        }
+        else
+        {
+            E=TEXT("render submission outcome ambiguous: the supplied executor was not observed as the active executor after the submission call");
+
+            UE_LOG(
+                LogAtlasTransport,
+                Error,
+                TEXT("ATLAS MRQ SUBMISSION: ambiguous; the supplied executor was not observed as the active executor"));
+        }
+
+        return false;
+    }
 
     TSharedPtr<FJsonObject> RenderJob=
         MakeShareable(new FJsonObject);

@@ -2,7 +2,7 @@
 
 **Updated:** September 17, 2026 (publication update)
 **Branch:** `reconcile/unreal-autonomy-origin-20c6d10` — published at `d582af3`
-**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice D (start-callback identity guard) is now COMPLETE + LIVE-PROVEN** on top of that: monitoring state (`Status`/`StatusMessage`/`Progress`) is written only for the exact registered executor job, so a foreign queued job can no longer overwrite the new Atlas job's monitoring state. The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, **CLEAR WITH MINOR FINDINGS**, read-only) concluded that accumulation is no longer a provenance correctness risk, accepted the current shared queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance. **Slice 3 queue consumption and the private-queue migration remain unimplemented and unauthorized.** Next architectural review: **concurrent-submission rejection / error propagation** (carried, not fixed).
+**Status:** Shot-level production continuity is **COMPLETE + LIVE-PROVEN and PUBLISHED** (d582af3). **MRQ artifact attribution (Slice 1 + Slice 2) is COMPLETE + LIVE-PROVEN** and committed in this milestone's commit on top of `6e63d15`: the per-job callback records artifacts only for the exact executor job this Atlas submission allocated (foreign payloads are discarded), and PNG artifacts must be contained within the authorized output directory. **Slice D (start-callback identity guard) is now COMPLETE + LIVE-PROVEN** on top of that: monitoring state (`Status`/`StatusMessage`/`Progress`) is written only for the exact registered executor job, so a foreign queued job can no longer overwrite the new Atlas job's monitoring state. The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, **CLEAR WITH MINOR FINDINGS**, read-only) concluded that accumulation is no longer a provenance correctness risk, accepted the current shared queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance. **Slice 3 queue consumption and the private-queue migration remain unimplemented and unauthorized.** **MRQ submission outcome propagation is now COMPLETE + LIVE-PROVEN** (`docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md`): the submission call and its `GetActiveExecutor()` identity observation happen in one game-thread task, so a refused submission is an immediate typed failure (measured 1.50 s) instead of the 300 s poll timeout, an unprovable outcome fails closed as ambiguous, and the rejected job's registry entry is removed. **Queue consumption and the private-queue migration remain unimplemented and unauthorized.** Next architectural review: **whether queue isolation / a private queue instance is worth its lifecycle surface** — a read-only design gate, not started.
 
 ## Current milestone chain
 
@@ -18,6 +18,12 @@ MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED (8ecf7
 MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
         ↓
 MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN
+        ↓
+MRQ submission-error design review     DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
+        ↓
+MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN
+        ↓
+NEXT (read-only design gate): is queue isolation / a private queue instance worth it?
 ```
 
 ## MRQ artifact attribution — COMPLETE + LIVE-PROVEN
@@ -163,12 +169,69 @@ C  Atlas-owned private MRQ queue instance     engine-proven mechanism (Epic Quic
 B  consume/delete only Atlas-owned jobs       rejected for now (engine-queue mutation + index risk)
 ```
 
-**Next architectural review (not authorized, not started): concurrent-submission rejection / error
-propagation.** When a submission is made while another render is already active, UE refuses it inside the
-subsystem (`ensureMsgf(!IsRendering())`), the transport cannot surface that refusal as a failure, and the caller
-observes a poll timeout instead. This was discovered during the Slice D work and was deliberately **not fixed**
-in this slice: no timeout change and no synthetic success may be used to hide it. Slice 3 queue consumption and
-the private-queue migration stay unimplemented.
+### MRQ submission outcome propagation — COMPLETE + LIVE-PROVEN
+
+When a submission was made while another render was already active, UE refused it inside the subsystem
+(`ensureMsgf(!IsRendering())` → `KismetExecutionMessage("Render already in progress.")` → `return`), the
+transport could not surface that refusal, and the caller observed a poll timeout. **Closed by this slice.**
+
+```text
+MRQ submission outcome propagation   COMPLETE + LIVE-PROVEN
+  - the submission call and the GetActiveExecutor() identity observation share one game-thread task
+  - acceptance = the exact supplied executor is the observed active executor (IsRendering() never used)
+  - REJECTED  -> immediate typed failure; no job identity exposed; no receipt; no retry
+  - AMBIGUOUS -> fail closed; acceptance never claimed
+  - ACCEPTED  -> unchanged response, job identity, polling and evidence semantics
+  - a rejected submission's registry entry is removed (never left readable as "submitted")
+  - no new transport operation, response field, status value, queue mutation or timeout change
+```
+
+Milestone: `MRQ submission outcome propagation — COMPLETE + LIVE-PROVEN`.
+
+```text
+preserved
+  queue consumption unimplemented
+  private queue migration unimplemented
+  automatic retry prohibited
+  exact job identity unchanged
+  receipts only from fresh verified terminal evidence
+```
+
+Evidence: `tests/test_unreal_mrq_submission_outcome_real_integration.py` (2 passed in 22.80 s in ONE fresh UE
+5.6.1 session, FOUR submission attempts: accepted while idle, rejected in 1.50 s while rendering, no receipt for
+the rejection, multi-job and same-range attribution still exact), `tests/test_unreal_mrq_submission_outcome_contract.py`
+(18 deterministic tests; 8 fail at the previous baseline), broad sweep 1216 passed / 7 skipped vs 1198 / 7, and
+the engine log showing 3 executor starts for 4 attempts plus one "Render already in progress.". Details:
+`docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md`, `docs/UNREAL_MRQ_SUBMISSION_ERROR_CLOSEOUT.md`.
+
+Design-gate answers that framed it (`docs/UNREAL_MRQ_SUBMISSION_ERROR_DESIGN_REVIEW.md`, verdict
+`CLEAR WITH MINOR FINDINGS`):
+
+```text
+observable          only at the call site: GetActiveExecutor() == Executor immediately after the call, on the
+                    game thread (public accessor on both the editor and the runtime subsystem). No callback
+                    fires for a refusal; polling cannot see it (no liveness field; registry entries never pruned)
+protocol change     NONE needed: success=false + error already exist on the wire and already raise
+                    UnrealAdapterError -> structured UnrealPlanExecutionError (no job id, no polling, no receipt)
+contract            REJECTED = submit fails hard; ACCEPTED-NOT-COMPLETE = success + job id + poll;
+                    AMBIGUOUS = fail closed; LOST RESPONSE = typed transport error, no retry
+engine window       the PIE executor sets bIsRendering only in OnPIEStartupFinished, so between acceptance and
+                    that point IsRendering() is FALSE and a concurrent submission is ACCEPTED, overwriting
+                    ActiveExecutor (no identity check in the subsystem) -> acceptance must be proven by
+                    identity, never inferred from IsRendering(); exclusivity is best-effort engine behaviour
+crash window        fail-closed (registry + queue are process-lifetime/transient; receipts need verified
+                    terminal evidence; a retry mints a new GUID) — orphaned PNGs are not evidence
+future executors    the refusal and the identity signal live in the subsystem contract, so an identity-anchored
+                    design survives a future executor; an IsRendering()-timing-anchored design would not
+candidates          A accept (with F); C accept; B partial (cannot see a refusal); D rejected as the mechanism;
+                    E rejected as the contract
+forbidden           no timeout inflation, no synthetic success, no automatic retry, no queue mutation, no new
+                    transport operation, no new job-identity source, no new status value, no receipt change
+```
+
+**Closed and published.** The next architectural review is **whether queue isolation / a private queue instance
+provides enough operational value to justify its larger lifecycle surface** — a read-only design gate; nothing
+started. Slice 3 queue consumption and the private-queue migration stay unimplemented and unauthorized.
 
 The audit and candidate evaluation for that review are recorded in `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md` (90 source anchors across the transport C++ and the UE 5.6.1 MovieRenderPipeline plugin, plus the measured failure evidence). Its recommended architecture is an identity guard in the existing `OnIndividualJobWorkFinished` lambda (the payload's job must equal the job this transport allocated) plus a PNG artifact-containment rule against the authorized output directory. The design gate returned `CLEAR WITH MINOR CONDITIONS`; Slice 1 and Slice 2 are now implemented and LIVE
 CLEAR (see `docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md`), and Slice 3 was deliberately not
@@ -211,6 +274,9 @@ docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_DESIGN_REVIEW.md (design: CLEAR WITH MINOR 
 docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_IMPLEMENTATION.md
 docs/UNREAL_MRQ_ARTIFACT_ATTRIBUTION_CLOSEOUT.md
 docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDINGS)
+docs/UNREAL_MRQ_SUBMISSION_ERROR_DESIGN_REVIEW.md (design: CLEAR WITH MINOR FINDINGS)
+docs/UNREAL_MRQ_SUBMISSION_ERROR_IMPLEMENTATION.md
+docs/UNREAL_MRQ_SUBMISSION_ERROR_CLOSEOUT.md
 ```
 
 This file is the first-read continuation context for the next Unreal session.

@@ -94,6 +94,7 @@ Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED (d582a
 MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED (8ecf7db)
 MRQ queue lifecycle design review      DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
 MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN
+MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN
 ```
 
 The published shot-continuity contract is recorded in `docs/UNREAL_SHOT_CONTINUITY_RECONCILIATION.md` and `docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md`. It preserves inclusive Atlas frame semantics, translates the inclusive end frame to Unreal MRQ's half-open boundary exactly once, verifies fresh effective frame evidence, binds sequence identity through the authorized production plan, and verifies the exact PNG frame set.
@@ -194,7 +195,9 @@ docs/UNREAL_SESSION_CLOSEOUT_2026-09-17.md
 
 The queue-lifecycle design review (`docs/UNREAL_MRQ_QUEUE_LIFECYCLE_DESIGN_REVIEW.md`, `CLEAR WITH MINOR FINDINGS`, read-only) concluded that accumulation is no longer a provenance correctness risk, retained the current shared MRQ queue semantics as the default, rejected queue consumption for now, and deferred an Atlas-owned private queue instance with recorded entry criteria. The former operator precondition (fresh editor session + empty queue) is no longer load-bearing for attribution.
 
-**Next architectural review (nothing authorized): concurrent-submission rejection / error propagation.** A submission made while another render is active is refused by the engine subsystem and the transport cannot surface that refusal, so the caller sees a poll timeout. It was deliberately carried rather than hidden inside the Slice D work.
+**MRQ submission outcome propagation is COMPLETE + LIVE-PROVEN**: the submission call and its observation of the engine's active executor happen in one game-thread task, so a refused submission is an immediate typed failure (measured 1.50 s in a clean live session) instead of a 300 s poll timeout, an unprovable outcome fails closed as ambiguous, and a rejected submission exposes no job identity and produces no receipt. No protocol, job-identity, receipt, queue or timeout contract changed.
+
+**Next architectural review (nothing authorized): is queue isolation / a private queue instance worth its lifecycle surface?** The shared queue still accumulates jobs, and a rejected submission still leaves its allocated job behind by design; the question is whether isolating Atlas's own queue is worth the larger lifecycle it introduces. That is a read-only design gate and has not been started. Queue consumption and the private-queue migration remain unimplemented.
 
 ---
 
