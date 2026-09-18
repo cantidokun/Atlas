@@ -1,11 +1,11 @@
 # Atlas Unreal Agent — Current Handoff
 
-> **Authoritative current-state reconciliation (supersedes the legacy "Current focus" line below):** M10 live Unreal Scenarios **S1–S8 are COMPLETE — all PASSED live** against the real UE 5.6 boundary (per-scenario PASS reports in `live_run_state/{s1_final4,s2,s3,s4r,s5,s6,s7,s8}/`). The legacy "M7 ... Not run" / "S2–S8 NOT executed" statements are historical snapshots, preserved verbatim and superseded by this block. M11 (development model-router, PRs #82–#85) is **FROZEN/paused**. The next Unreal milestone is **M12 — Unreal Semantic Soccer Production Layer**: design (PR #86) merged; **M12.1** (semantic task contract + compile boundary), **M12.2** (catalog + fragments + composition), **M12.3** (semantic execution-plan boundary), and **M12.4** (semantic → runtime adapter) implemented in `planning/m12/` (`docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`, `docs/UNREAL_M12_2_CATALOG_FRAGMENTS_COMPOSITION.md`, `docs/UNREAL_M12_3_EXECUTION_PLAN.md`, `docs/UNREAL_M12_4_RUNTIME_ADAPTER.md`); M12.5 (independent semantic evidence verification) next. M12.4 is an adapter, not a new authority: it maps non-render plans onto the existing `AtlasTaskDefinition` runtime and fails closed for render-bearing intent. Atlas production-authority / M4-M10 recovery boundaries are unchanged.
+> **Unreal-track status remains unchanged.** M10 live Unreal Scenarios S1–S8 are COMPLETE — all PASSED live against the real UE 5.6 boundary. M11 is FROZEN/paused. M12.1–M12.4 are implemented and M12.5 independent semantic-evidence verification remains the next Unreal milestone.
+>
+> **Global Atlas architecture checkpoint — September 18, 2026:** Blender Extraction Fidelity v1 is CLEAR. Temporal Observation + State Delta v1 is at **Design Revision 7 — HOLD** after independent architectural review. No temporal implementation is authorized; the next global architecture step is a narrow Revision 8 design-only correction followed by independent review. This does not alter the Unreal authority/recovery boundaries or authorize M12.5 execution tonight.
+>
+> Historical dated Unreal status text below is retained for provenance.
 
-**Updated:** September 6, 2026 — M4/M5 merged (PR #68); M6 deterministic fault-injection/concurrency suite merged (PR #70); **M7 hardening/pre-flight implemented** (framed-catalog integrity, C++ append-only witness history, execution-deadline enforcement — production + deterministic tests, docs/UNREAL_M7_HARDENING.md). Per-item §31/§32 status: docs/UNREAL_M6_TEST_STATUS.md.
-**Active Atlas branch:** `main`
-**Current focus:** M5/M6 + M7 hardening complete. **M7 live UE 5.6 restart/recovery Scenarios 1–8 is the next authoritative gate and requires explicit human authorization** (live Unreal execution). Not run.
-**Latest M5 merge commit:** `a9b6eb00e62f252cc3aa5b7ef81998797cb12f83`
 
 ## Architectural position
 
