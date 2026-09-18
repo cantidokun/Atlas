@@ -76,4 +76,25 @@ namespace AtlasStateExtraction
         TSharedPtr<FJsonObject>& OutValueTree,
         FString& OutError,
         FString& OutErrorCode);
+
+    /**
+     * Test-only scope-revalidation probe.
+     *
+     * The contract requires the extraction to fail closed when the world's level scope
+     * changes between the snapshot and the post-scan re-query (§3.2.1.4b). No production
+     * read can induce that transition, and the design forbids the extractor from causing
+     * it, so the extractor exposes a single, null-by-default callback that runs *between*
+     * the snapshot and the re-query.
+     *
+     * Properties that keep this production-safe:
+     *   * the default is null, and nothing in the transport or the dispatcher ever sets it;
+     *   * the callback is invoked synchronously on the game thread — no waits, no task
+     *     hops, no polling — so the extractor's execution guarantees are unchanged;
+     *   * the extractor itself performs no mutation; whatever the callback does is the
+     *     test's business and is attributed to the test;
+     *   * only the extraction gate's own automation test uses it.
+     */
+    using FScopeProbe = TFunction<void()>;
+    void SetScopeRevalidationProbe(FScopeProbe InProbe);
+    void ClearScopeRevalidationProbe();
 }

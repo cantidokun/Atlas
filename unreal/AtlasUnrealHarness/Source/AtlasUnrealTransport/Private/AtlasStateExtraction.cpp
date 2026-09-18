@@ -84,6 +84,9 @@ const TCHAR* const PayloadTooLarge = TEXT("ERR_EXTRACTION_PAYLOAD_TOO_LARGE");
 
 namespace
 {
+/** Test-only scope probe storage; null in production (§10.2, §3.2.1a). */
+TFunction<void()> GScopeRevalidationProbe;
+
 // ---------------------------------------------------------------------------
 // Contract constants
 // ---------------------------------------------------------------------------
@@ -1090,6 +1093,14 @@ bool ResolveBindings(
 
     ScanScope(ScopeStorage, ExpectedNames, OutMatches);
 
+    // Test-only seam: runs between the snapshot and the re-query. Null in production, so
+    // this is a no-op there; the extractor performs no mutation and takes no waits, task
+    // hops or polling either way (§3.2.1a).
+    if (GScopeRevalidationProbe)
+    {
+        GScopeRevalidationProbe();
+    }
+
     // §3.2.1.4b: re-query the scope and compare it against the snapshot.
     TArray<FScopeLevel> Revalidated;
     if (!SnapshotScope(World, Revalidated, OutError, OutErrorCode))
@@ -1388,6 +1399,17 @@ bool ExtractSequencerState(
     }
     OutValueTree = Tree;
     return true;
+}
+
+void SetScopeRevalidationProbe(FScopeProbe InProbe)
+{
+    check(IsInGameThread());
+    GScopeRevalidationProbe = MoveTemp(InProbe);
+}
+
+void ClearScopeRevalidationProbe()
+{
+    GScopeRevalidationProbe = nullptr;
 }
 
 } // namespace AtlasStateExtraction

@@ -1,4 +1,5 @@
 #include "AtlasUnrealTransport.h"
+#include "AtlasExtractionFixture.h"
 #include "AtlasTransportServer.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -176,6 +177,10 @@ namespace
 void FAtlasUnrealTransportModule::StartupModule()
 {
     UE_LOG(LogAtlasTransport, Log, TEXT("AtlasUnrealTransport module starting up"));
+
+    // Extraction-gate fixture provisioning (test fixture content only; the extraction
+    // operation itself never creates, loads, saves or modifies anything).
+    AtlasExtractionFixture::StartRuntimeFixtureTicker();
 
     TransportServer = new FAtlasTransportServer();
     if (!TransportServer->StartServer())
@@ -453,6 +458,8 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
 void FAtlasUnrealTransportModule::ShutdownModule()
 {
     UE_LOG(LogAtlasTransport, Log, TEXT("AtlasUnrealTransport module shutting down"));
+
+    AtlasExtractionFixture::StopRuntimeFixtureTicker();
 
     if (SequencerFixtureTickerHandle.IsValid())
     {
