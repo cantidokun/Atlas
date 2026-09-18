@@ -6,67 +6,40 @@ This workspace is for continued development of the Atlas Unreal Agent only. It s
 
 ## Current gate
 
-The real Unreal Engine 5.6 smoke test has passed, the first real Unreal production/render-receipt paths have been proven, the agent-to-controller trust boundary has been reconciled with origin and validated against real Unreal execution, Blueprint semantic verification is live-proven, render-state semantic verification is live-proven, render-job identity semantic verification is live-proven, and the composite actor production boundary is now deterministic-green and live-proven against UE 5.6.1.
+**Current session state — September 18, 2026: development is paused.**
 
-The composite production milestone is closed with:
-
-```text
-28 passed — composite deterministic suite
-20 passed — schema/executor regression
-1 passed  — live UE 5.6.1 composite gate
-48 passed — post-helper targeted regression
-```
-
-The live composite gate proved the real Named Pipe path for:
+The Unreal Agent has now proven and published the major production-boundary
+milestones through MRQ submission outcome propagation:
 
 ```text
-inspect_target_actors
-→ set_actor_location / verify_actor_location
-→ set_actor_rotation / verify_actor_rotation
-→ set_actor_scale / verify_actor_scale
-→ inspect_material_state / apply_material_variant / verify_material_variant
-→ inspect_niagara_state / apply_niagara_variant / verify_niagara_variant
-→ composite restoration
+Controller trust boundary              COMPLETE + LIVE
+Blueprint semantic verification        COMPLETE + LIVE
+Render-state semantic verification     COMPLETE + LIVE
+Render-job identity verification       COMPLETE + LIVE
+Composite actor production             COMPLETE + LIVE
+Shot-level production continuity       COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ artifact attribution (Slice 1+2)   COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ start-callback identity (Slice D)  COMPLETE + LIVE-PROVEN + PUBLISHED
+MRQ submission outcome propagation     COMPLETE + LIVE-PROVEN + PUBLISHED
 ```
 
-The only live failure encountered in this milestone was a test-only evidence-container assumption: frozen `MappingProxyType` evidence was rejected by a helper requiring concrete `dict`. The smallest repair was to use `collections.abc.Mapping`. Production code was not changed.
+The current published branch is `reconcile/unreal-autonomy-origin-20c6d10`.
+The implementation baseline for the current paused state is `7172848`;
+the branch may advance only with documentation-only pause updates.
 
-Current branch and HEAD:
+The MRQ queue lifecycle and queue-isolation reviews both returned **CLEAR WITH
+MINOR FINDINGS**. Shared queue semantics remain the default. Queue
+consumption/deletion and private-queue migration are not implemented and are
+not authorized; private isolation remains a trigger-based future option (T1-T4).
 
-```text
-reconcile/unreal-autonomy-origin-20c6d10
-ad780241ee5ef7e409efbf6a02b69abee792c1a1
-```
+The MRQ pass-failure attribution review also returned **CLEAR WITH MINOR
+FINDINGS**, but measured B1 and B2 both abort the pass before the subsequent
+queued job executes. Therefore the hypothesized healthy-job-then-pass-failure
+clobber was not demonstrated and receipt impact remains **UNPROVEN**.
 
-`ad780241` is the current published checkpoint and has parent `5ecf429` (render-job identity semantic-verification documentation closeout).
-
-## Current milestone — September 17, 2026
-
-The explicit model-to-controller path has a host-owned execution context and has been validated against real Unreal execution. The Unreal production path now contains independently live-proven boundaries for controller trust, Blueprint semantic verification, render-state semantic verification, render-job identity semantic verification, and composite actor production.
-
-Composite production is intentionally thin: it groups already-authorized primitive actor mutations; it does not create a new transport primitive, new authorization authority, or new evidence architecture.
-
-The proven composite planner/executor boundary is:
-
-```text
-CompositeActorProductionOperation
- ↓
-UnrealTaskPlanner
- ↓
-UnrealTaskPlan
- ↓
-UnrealPlanExecutor
- ↓
-UnrealAdapterProduction
- ↓
-Windows Named Pipe
- ↓
-real Unreal Editor
- ↓
-fresh evidence
- ↓
-semantic verification
-```
+The next authorized action is a **read-only design gate** deciding whether a
+small terminal-state state-fidelity correction is worthwhile. No production
+implementation is authorized while paused.
 
 ## Architectural invariants
 
@@ -197,24 +170,32 @@ Deferred render-job issues remain intentionally separate:
 
 ## Fresh architecture review — next active surface
 
-The composite milestone should not be expanded further. The next review should address **production continuity across already-proven domains**, not introduce another convenience wrapper.
+The next active surface is **MRQ pass-failure state fidelity**.
 
-The candidate boundary is a narrow **shot-level production continuity gate** that binds, within one already-authorized intent, the existing sequence asset, sequencer range, render configuration, render submission, render-job identity, and final evidence/receipt chain.
+This is a design question only:
 
-The review must preserve these constraints:
+> Is the small guard that prevents a stronger job-scoped terminal verdict from
+> being overwritten by a later pass-scoped aggregate worth implementing?
 
-- no new transport primitive;
-- no second authorization authority;
-- no cross-plan entity discovery or cache;
-- no speculative distributed-rendering architecture;
-- use existing operation contracts where possible;
-- fresh engine reads remain authoritative;
-- expected state remains derived only from authorized plan arguments;
-- each WRITE still has the appropriate VERIFY immediately following it;
-- render-job identity remains bound exactly as already proven;
-- recovery remains fail-closed and never automatically retries a mutation.
+Measured evidence must remain explicit:
 
-Before implementation, the next gate should audit specifically for the remaining continuity risks already identified around sequence-asset continuity, render frame/range/frame-count semantics, and output-directory/output-format binding. The goal is to prove one coherent authorized production intent from scene state through render submission and verified result without creating a monolithic orchestration layer.
+- B1 and B2 were genuine UE 5.6.1 failures;
+- both aborted the pass before the subsequent queue job executed;
+- the healthy-job-then-pass-failure clobber was not reached;
+- receipt impact is therefore unproven.
+
+The next gate must not silently turn this into a receipt-correctness claim.
+
+F9 (failed jobs unreadable through the authorized inspection path) remains
+separate.
+
+```text
+Do not implement state-fidelity yet.
+Do not start queue consumption.
+Do not start private-queue migration.
+Do not start registry pruning.
+Do not touch Blender.
+```
 
 ## Git/workspace separation
 
