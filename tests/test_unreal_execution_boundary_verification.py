@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import pytest
 
-from planning.unreal_agent import UnrealOperationKind
+from planning.unreal_agent import UnrealCapability, UnrealOperationKind
 from planning.unreal_capability_registry import UnrealCapabilityRegistry
 from planning.unreal_execution_boundary import UnrealExecutionBoundary
 from planning.unreal_evidence_contract import UnrealEvidence
@@ -96,7 +96,7 @@ def test_actor_verification_tools_dispatch_to_verify_not_write(
 def test_modify_actor_capability_explicitly_allows_verify():
     registry = UnrealCapabilityRegistry()
     spec = registry.validate(
-        capability=__import__("planning.unreal_agent", fromlist=["UnrealCapability"]).UnrealCapability.MODIFY_ACTOR,
+        capability=UnrealCapability.MODIFY_ACTOR,
         kind=UnrealOperationKind.VERIFY,
     )
     assert UnrealOperationKind.VERIFY in spec.allowed_kinds
