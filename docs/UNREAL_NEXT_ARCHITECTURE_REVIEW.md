@@ -211,7 +211,9 @@ MRQ queue isolation design review      DONE - CLEAR WITH MINOR FINDINGS (read-on
         ↓
 MRQ pass-failure attribution review    DONE - CLEAR WITH MINOR FINDINGS (read-only; no code)
         ↓
-NEXT (not authorized): implementation gate for the pass-scoped verdict correction
+NEXT (not authorized): decide whether the state-fidelity correction is worth
+      implementing - its receipt impact is explicitly UNPROVEN (F6 closed on
+      measured B1+B2 grounds)
       standing decisions unchanged: shared queue stays the default; isolation only
       against triggers T1-T4; queue consumption and deletion stay unimplemented
 ```
@@ -308,8 +310,21 @@ fix         confined to the existing transport: apply the pass verdict only when
             interaction, no retry. Design only; nothing authorized.
 findings    F1 clobber; F2 the state combination (finished=true + failed=true + healthy output_files) is pinned
             by no fixture; F3 classification; F4 the failing mate's identity is not observable (two-way contract
-            only); F5 fix scope; F6 OPEN precondition - how the live gate arranges a deterministically failing
-            queue-mate without queue mutation, a new operation or fixture damage; F7 ordering safety.
+            only); F5 fix scope; F7 ordering safety.
+F6 CLOSED   on MEASURED grounds (B1 + B2), receipt impact UNPROVEN (§8.8-§8.10 of the review, read-only):
+            B1 (a retained Atlas job configured above the engine's max 2D texture dimension) and B2 (a retained
+            Atlas job whose output path cannot be satisfied -> export-time write failure) are BOTH genuine
+            engine-level fatal failures, and BOTH abort the pass at that job: measured "starting job [2/...]"
+            count 0, "MoviePipelineLinearExecutorBase finished" count 0, and a later Atlas submission's own job
+            never started (terminalised by the pass-level broadcast with no job-scoped verdict - the fallback
+            branch). Neither retained-mate mechanism can therefore produce the hypothesised
+            healthy-job-then-pass-failure clobber, and no receipt was denied, corrupted or fabricated.
+            What survives is a STATE-FIDELITY invariant: a job-scoped terminal verdict must not be overwritten
+            by a weaker, later pass-scoped aggregate. NO receipt-correctness claim is made. Mechanism A
+            (operator job) and C (interrupted render) remain rejected as gate mechanisms.
+            NEXT: a separate gate decides whether that small state-fidelity correction is worth implementing,
+            with the receipt impact explicitly treated as UNPROVEN. The ordering-inversion experiment was
+            deliberately NOT run.
 also note   if isolation (triggers T1-T4) is ever adopted, it removes the CAUSE of this defect; this fix removes
             the SYMPTOM for any queue contents, and the two are compatible.
 ```
