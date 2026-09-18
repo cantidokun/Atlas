@@ -347,3 +347,113 @@ def test_python_package_declares_no_verification_authority() -> None:
         assert banned not in identifiers, banned
         assert banned not in calls, banned
         assert banned not in modules, banned
+
+
+# ---------------------------------------------------------------------------
+# Closed accessor allowlist (review R-1)
+# ---------------------------------------------------------------------------
+#
+# §10.2 item 4 declares the engine accessors the extraction is permitted to call. Presence
+# checks alone cannot enforce that: a new, undeclared accessor would sail through them. These
+# tests close the set over the *call surface* of the extraction translation unit, so a new
+# engine call fails the gate until it is declared here deliberately (and, if the design does
+# not permit it, the design gate must be reopened first).
+#
+# The set is member calls reached through ``->``, which is how the extractor touches engine
+# objects. Ordinary container/helper calls (``TArray::Add``, ``FString::Compare``, ...) are
+# reached with ``.`` and are deliberately outside this set; only the JSON writer's members
+# are listed because the extractor writes the value tree through ``->`` as well.
+
+PERMITTED_ARROW_CALLS = frozenset(
+    {
+        # --- world / level scope (§3.1, §3.2.1) ---
+        "GetEditorWorldContext",
+        "IsPartitionedWorld",
+        "GetStreamingLevels",
+        "GetLevels",
+        "GetLoadedLevel",
+        "IsLevelLoaded",
+        "IsLevelVisible",
+        "GetWorldAssetPackageFName",
+        # --- object identity and lifetime (§3.3, §3.8) ---
+        "GetName",
+        "GetPathName",
+        "GetOuter",
+        "GetOutermost",
+        "GetClass",
+        "HasAnyFlags",
+        "IsRegistered",
+        # --- actor surface (§3.4-§3.6) ---
+        "GetAttachParentActor",
+        "GetActorLocation",
+        "GetActorQuat",
+        "GetActorScale3D",
+        "IsHiddenEd",
+        "IsHiddenEdAtStartup",
+        "IsTemporarilyHiddenInEditor",
+        # --- component / mesh / material surface (§3.8) ---
+        "GetStaticMesh",
+        "GetSkinnedAsset",
+        "GetNumMaterials",
+        "GetMaterial",  # the mesh ASSET slot read; the component accessor is forbidden below
+        "GetMaterials",
+        "IsCompiling",
+        # --- sequencer surface (§3.9) ---
+        "GetSequence",
+        "GetMovieScene",
+        "GetPlaybackRange",
+        "GetTickResolution",
+        "GetDisplayRate",
+        # --- value-tree writer (the extractor's own output object) ---
+        "SetStringField",
+        "SetNumberField",
+        "SetBoolField",
+        "SetObjectField",
+        "SetArrayField",
+        "SetField",
+    }
+)
+
+#: Accessors whose *call* would put a session-, render- or configuration-dependent value on
+#: the read boundary (§3.8.2, D17c). Secondary net: the material-boundary test asserts them
+#: too, from the contract side.
+FORBIDDEN_ACCESSOR_CALLS = (
+    "GetNaniteOverride",
+    "GetNaniteAuditMaterial",
+    "GetEditorMaterial",
+    "GetUsedMaterials",
+    "GetValueOnGameThread",
+    "GetValueOnAnyThread",
+)
+
+
+def _arrow_calls(text: str) -> set[str]:
+    """Member calls reached through ``->`` in comment- and string-literal-free code."""
+    without_blocks = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    without_lines = "\n".join(line.split("//", 1)[0] for line in without_blocks.splitlines())
+    without_literals = re.sub(r'"(\\.|[^"\\])*"', '""', without_lines)
+    return set(re.findall(r"->\s*([A-Za-z_]\w*)\s*\(", without_literals))
+
+
+def test_every_arrow_call_is_on_the_declared_list(extractor_source: str) -> None:
+    calls = _arrow_calls(extractor_source)
+    assert calls, "the extractor must call something through its objects"
+    undeclared = sorted(calls - PERMITTED_ARROW_CALLS)
+    assert not undeclared, (
+        "the extractor calls engine/owner members that §10.2 item 4 does not declare: "
+        f"{undeclared}. If the call is legitimate, add it to PERMITTED_ARROW_CALLS with the "
+        "design clause that permits it; if the design does not permit it, the design gate "
+        "must be reopened rather than widening the implementation."
+    )
+
+
+def test_the_declared_list_has_no_stale_entries(extractor_source: str) -> None:
+    """Keep the allowlist honest: an entry nothing calls is dead permission."""
+    calls = _arrow_calls(extractor_source)
+    unused = sorted(PERMITTED_ARROW_CALLS - calls)
+    assert not unused, f"PERMITTED_ARROW_CALLS lists accessors the extractor does not call: {unused}"
+
+
+@pytest.mark.parametrize("accessor", FORBIDDEN_ACCESSOR_CALLS)
+def test_forbidden_accessor_is_never_called(extractor_source: str, accessor: str) -> None:
+    assert accessor not in extractor_source, f"the extractor calls a forbidden accessor: {accessor}"

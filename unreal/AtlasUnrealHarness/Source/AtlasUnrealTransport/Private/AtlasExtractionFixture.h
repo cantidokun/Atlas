@@ -84,7 +84,39 @@ namespace AtlasExtractionFixture
     /** True when `World` is the extraction fixture map. */
     bool IsFixtureWorld(const UWorld* World);
 
-    /** Install/remove the provisioning ticker (called from the module's startup/shutdown). */
+    /**
+     * Deterministic integrity check of the committed fixture content (review F-1 item 5).
+     *
+     * Pure read: it loads and inspects saved assets and writes nothing, so it is safe to run
+     * in any session. It verifies that the content on disk still matches the fixture
+     * contract this build expects:
+     *
+     *   * each sequence asset exists and holds exactly the state its arm requires
+     *     (tick resolution, display rate, playback range);
+     *   * the fixture map exists, is not World Partition, and holds exactly one actor per
+     *     expected entity tag, with the sequence actors resolving to the expected sequence
+     *     assets.
+     *
+     * On any mismatch it returns false with the first difference in `OutError`. Stale
+     * content is never silently regenerated and never silently used: the extraction gate
+     * declares this check its precondition and fails closed when the status is not `OK`.
+     */
+    bool VerifyFixtureContentIntegrity(FString& OutError);
+
+    /** Result of the last integrity check (`Unknown` before the first one). */
+    bool IsFixtureIntegrityVerified();
+
+    /** The one-line status the session log carries, e.g. `OK version=3` or `FAILED ...`. */
+    FString GetFixtureIntegrityReport();
+
+    /** The content version this build expects; a bump means committed content must change. */
+    int32 GetExpectedFixtureContentVersion();
+
+    /**
+     * Install/remove the provisioning ticker. Called from the module's startup **only in the
+     * explicit extraction-fixture session** (`-AtlasExtractionFixture`), so an ordinary
+     * harness startup provisions nothing and writes nothing.
+     */
     void StartRuntimeFixtureTicker();
     void StopRuntimeFixtureTicker();
 }

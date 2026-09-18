@@ -101,16 +101,16 @@ const TCHAR* const PlaybackLowerBound = TEXT("inclusive");
 const TCHAR* const PlaybackUpperBound = TEXT("exclusive");
 const TCHAR* const BooleanOnlyUnrecordedHiddenInput = TEXT("bEditable");
 const int32 ExtractionSchemaVersion = 1;
-const int32 TransportMessageSizeLimit = 1024 * 1024;
 
 /**
- * Conservative envelope allowance for the §9.3 size check. The value tree plus this
- * headroom must fit the transport bound; the headroom covers the response envelope
- * (identity fields, the session-identity block, the echoed entity_ids and the frame
- * header). Exceeding it fails closed, which is the safe direction: an extraction that
- * passes the check is guaranteed to fit.
+ * The transport bound of design §9 item 1: the named pipe's `MaxMessageSize` (declared by the
+ * transport, which owns it). The extractor only mirrors the number so an extraction that
+ * cannot possibly fit fails closed early, on the game thread, before a response is built.
+ *
+ * The *decisive* check of §9 item 3 measures the actual serialized response where that
+ * response is produced; this early condition assumes no envelope allowance at all.
  */
-const int32 EnvelopeHeadroomBytes = 4096;
+const int32 TransportMessageSizeLimit = 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -1040,35 +1040,24 @@ bool PrepareCanonicalRequest(
     return true;
 }
 
-/** §3.8.3-style size bound: the response must fit the transport limit (§9.3). */
-bool EnforcePayloadBound(
-    const TSharedPtr<FJsonObject>& ValueTree,
-    FString& OutError,
-    FString& OutErrorCode)
+/**
+ * §9 item 3 measurement: the UTF-8 byte count of a value tree serialized under the same
+ * writer policy the transport uses for its responses. Returns -1 when the tree cannot be
+ * serialized, which callers must treat as a failure.
+ */
+int32 MeasureSerializedValueTreeBytes(const TSharedPtr<FJsonObject>& ValueTree)
 {
+    if (!ValueTree.IsValid())
+    {
+        return -1;
+    }
     FString Serialized;
     TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
     if (!FJsonSerializer::Serialize(ValueTree.ToSharedRef(), Writer))
     {
-        return Fail(
-            OutError,
-            OutErrorCode,
-            ErrorCodes::PayloadTooLarge,
-            TEXT("the extraction value tree could not be serialized for the size check"));
+        return -1;
     }
-    const FTCHARToUTF8 Converted(*Serialized);
-    const int32 ByteCount = Converted.Length();
-    if (ByteCount + EnvelopeHeadroomBytes > TransportMessageSizeLimit)
-    {
-        return Fail(
-            OutError,
-            OutErrorCode,
-            ErrorCodes::PayloadTooLarge,
-            FString::Printf(
-                TEXT("the extraction payload would exceed the transport bound (%d bytes)"),
-                ByteCount));
-    }
-    return true;
+    return FTCHARToUTF8(*Serialized).Length();
 }
 
 /** Shared scope/binding pipeline: world, scope snapshot, scan, revalidation. */
@@ -1214,7 +1203,7 @@ bool ExtractActorState(
     Tree->SetArrayField(TEXT("actors"), ActorArray);
     Tree->SetArrayField(TEXT("sequences"), TArray<TSharedPtr<FJsonValue>>());
 
-    if (!EnforcePayloadBound(Tree, OutError, OutErrorCode))
+    if (!CheckPayloadBound(Tree, OutError, OutErrorCode))
     {
         return false;
     }
@@ -1400,11 +1389,49 @@ bool ExtractSequencerState(
     Tree->SetArrayField(TEXT("actors"), TArray<TSharedPtr<FJsonValue>>());
     Tree->SetArrayField(TEXT("sequences"), SequenceArray);
 
-    if (!EnforcePayloadBound(Tree, OutError, OutErrorCode))
+    if (!CheckPayloadBound(Tree, OutError, OutErrorCode))
     {
         return false;
     }
     OutValueTree = Tree;
+    return true;
+}
+
+int32 MeasureValueTreeBytes(const TSharedPtr<FJsonObject>& ValueTree)
+{
+    return MeasureSerializedValueTreeBytes(ValueTree);
+}
+
+bool CheckPayloadBound(
+    const TSharedPtr<FJsonObject>& ValueTree,
+    FString& OutError,
+    FString& OutErrorCode)
+{
+    const int32 ByteCount = MeasureSerializedValueTreeBytes(ValueTree);
+    if (ByteCount < 0)
+    {
+        return Fail(
+            OutError,
+            OutErrorCode,
+            ErrorCodes::PayloadTooLarge,
+            TEXT("the extraction value tree could not be serialized for the size check"));
+    }
+
+    // Sound necessary condition: the wire response is this tree plus a non-empty envelope,
+    // so a tree at or above the transport bound can never produce a response that fits.
+    // No envelope allowance is assumed; the decisive check of §9 item 3 measures the
+    // serialized response itself, where the response is produced.
+    if (ByteCount >= TransportMessageSizeLimit)
+    {
+        return Fail(
+            OutError,
+            OutErrorCode,
+            ErrorCodes::PayloadTooLarge,
+            FString::Printf(
+                TEXT("the extraction value tree alone is %d bytes, at or above the transport bound (%d bytes)"),
+                ByteCount,
+                TransportMessageSizeLimit));
+    }
     return true;
 }
 

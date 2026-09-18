@@ -93,6 +93,17 @@ bool GSavedContentReady = false;
 int32 GSavedContentAttempts = 0;
 bool GRuntimeProbesEnsured = false;
 
+/** Result of the deterministic content check; the extraction gate reads this. */
+enum class EIntegrityState : int32
+{
+    Unknown,
+    Verified,
+    Failed
+};
+
+EIntegrityState GIntegrityState = EIntegrityState::Unknown;
+FString GIntegrityDetail;
+
 /** Bumped whenever the generated fixture content changes shape. */
 constexpr int32 FixtureContentVersion = 3;
 
@@ -246,32 +257,144 @@ enum class ESequenceMode
     BadRate
 };
 
-/** Creates (if missing) and saves one sequence asset in the requested validity state. */
+/** The exact saved state each arm requires; also what the integrity check verifies. */
+struct FSequenceExpectation
+{
+    FFrameRate TickResolution;
+    FFrameRate DisplayRate;
+    int32 LowerFrame = 0;
+    int32 UpperFrame = 0;
+};
+
+FSequenceExpectation ExpectationForMode(ESequenceMode Mode)
+{
+    FSequenceExpectation Expected;
+    Expected.TickResolution = FFrameRate(24000, 1);
+    Expected.DisplayRate = FFrameRate(30, 1);
+    Expected.LowerFrame = 0;
+    Expected.UpperFrame = 100;
+    if (Mode == ESequenceMode::DegenerateRange)
+    {
+        Expected.UpperFrame = 0;
+    }
+    else if (Mode == ESequenceMode::BadRate)
+    {
+        // The "Directly" setter bypasses the engine's own rate validation, which is what
+        // makes the invalid-rate state reachable at all.
+        Expected.TickResolution = FFrameRate(0, 1);
+    }
+    return Expected;
+}
+
+void ApplyExpectation(UMovieScene* MovieScene, const FSequenceExpectation& Expected)
+{
+    MovieScene->SetTickResolutionDirectly(Expected.TickResolution);
+    MovieScene->SetDisplayRate(Expected.DisplayRate);
+    MovieScene->SetPlaybackRange(
+        FFrameNumber(Expected.LowerFrame),
+        Expected.UpperFrame - Expected.LowerFrame);
+}
+
+/** True when a saved sequence already holds exactly the state its arm requires. */
+bool SequenceMatchesMode(const ULevelSequence* Sequence, ESequenceMode Mode, FString& OutMismatch)
+{
+    const UMovieScene* MovieScene = Sequence != nullptr ? Sequence->GetMovieScene() : nullptr;
+    if (MovieScene == nullptr)
+    {
+        OutMismatch = TEXT("the asset has no MovieScene");
+        return false;
+    }
+
+    const FSequenceExpectation Expected = ExpectationForMode(Mode);
+
+    const FFrameRate TickResolution = MovieScene->GetTickResolution();
+    if (TickResolution != Expected.TickResolution)
+    {
+        OutMismatch = FString::Printf(
+            TEXT("tick resolution is %d/%d, expected %d/%d"),
+            TickResolution.Numerator,
+            TickResolution.Denominator,
+            Expected.TickResolution.Numerator,
+            Expected.TickResolution.Denominator);
+        return false;
+    }
+
+    const FFrameRate DisplayRate = MovieScene->GetDisplayRate();
+    if (DisplayRate != Expected.DisplayRate)
+    {
+        OutMismatch = FString::Printf(
+            TEXT("display rate is %d/%d, expected %d/%d"),
+            DisplayRate.Numerator,
+            DisplayRate.Denominator,
+            Expected.DisplayRate.Numerator,
+            Expected.DisplayRate.Denominator);
+        return false;
+    }
+
+    const TRange<FFrameNumber> Range = MovieScene->GetPlaybackRange();
+    if (!Range.HasLowerBound() || !Range.HasUpperBound())
+    {
+        OutMismatch = TEXT("the playback range has an open bound");
+        return false;
+    }
+    const int32 Lower = Range.GetLowerBoundValue().Value;
+    const int32 Upper = Range.GetUpperBoundValue().Value;
+    if (Lower != Expected.LowerFrame || Upper != Expected.UpperFrame)
+    {
+        OutMismatch = FString::Printf(
+            TEXT("playback range is [%d,%d), expected [%d,%d)"),
+            Lower,
+            Upper,
+            Expected.LowerFrame,
+            Expected.UpperFrame);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Ensure one sequence asset holds its arm's state.
+ *
+ * Committed content wins: an existing asset is *verified* against the expectation and never
+ * rewritten (review F-1 item 4). A mismatch is stale content and fails closed -- reported
+ * with the exact difference and an instruction to regenerate deliberately -- rather than
+ * being silently overwritten on every editor startup (review F-1 item 5). Absent content is
+ * created once, in an explicit extraction-fixture session.
+ */
 bool EnsureSequenceAsset(const TCHAR* PackageName, ESequenceMode Mode, FString& OutError)
 {
     const FString AssetName = FPackageName::GetShortName(PackageName);
-    UPackage* Package = LoadPackage(nullptr, PackageName, LOAD_None);
-    if (Package == nullptr)
+
+    if (ULevelSequence* Existing = LoadObject<ULevelSequence>(nullptr, *(FString(PackageName) + TEXT(".") + AssetName)))
     {
-        Package = CreatePackage(PackageName);
+        FString Mismatch;
+        if (!SequenceMatchesMode(Existing, Mode, Mismatch))
+        {
+            OutError = FString::Printf(
+                TEXT("committed fixture sequence %s does not match the fixture contract (%s); delete "
+                     "Content/AtlasTest/Generated/AtlasExtraction* and re-run an explicit "
+                     "extraction-fixture session to regenerate it"),
+                PackageName,
+                *Mismatch);
+            return false;
+        }
+        return true;
     }
+
+    UPackage* Package = CreatePackage(PackageName);
     if (Package == nullptr)
     {
         OutError = FString::Printf(TEXT("unable to create package %s"), PackageName);
         return false;
     }
 
-    ULevelSequence* Sequence = LoadObject<ULevelSequence>(Package, *AssetName);
+    ULevelSequence* Sequence = NewObject<ULevelSequence>(Package, *AssetName, RF_Public | RF_Standalone);
     if (Sequence == nullptr)
     {
-        Sequence = NewObject<ULevelSequence>(Package, *AssetName, RF_Public | RF_Standalone);
-        if (Sequence == nullptr)
-        {
-            OutError = FString::Printf(TEXT("unable to create sequence %s"), *AssetName);
-            return false;
-        }
-        Sequence->Initialize();
+        OutError = FString::Printf(TEXT("unable to create sequence %s"), *AssetName);
+        return false;
     }
+    Sequence->Initialize();
 
     UMovieScene* MovieScene = Sequence->GetMovieScene();
     if (MovieScene == nullptr)
@@ -279,27 +402,7 @@ bool EnsureSequenceAsset(const TCHAR* PackageName, ESequenceMode Mode, FString& 
         OutError = FString::Printf(TEXT("sequence %s has no MovieScene"), *AssetName);
         return false;
     }
-
-    switch (Mode)
-    {
-    case ESequenceMode::Valid:
-        MovieScene->SetTickResolutionDirectly(FFrameRate(24000, 1));
-        MovieScene->SetDisplayRate(FFrameRate(30, 1));
-        MovieScene->SetPlaybackRange(FFrameNumber(0), 100);
-        break;
-    case ESequenceMode::DegenerateRange:
-        MovieScene->SetTickResolutionDirectly(FFrameRate(24000, 1));
-        MovieScene->SetDisplayRate(FFrameRate(30, 1));
-        MovieScene->SetPlaybackRange(FFrameNumber(0), 0);
-        break;
-    case ESequenceMode::BadRate:
-        // The "Directly" setter bypasses the engine's own rate validation, which is what
-        // makes the invalid-rate state reachable at all.
-        MovieScene->SetTickResolutionDirectly(FFrameRate(0, 1));
-        MovieScene->SetDisplayRate(FFrameRate(30, 1));
-        MovieScene->SetPlaybackRange(FFrameNumber(0), 100);
-        break;
-    }
+    ApplyExpectation(MovieScene, ExpectationForMode(Mode));
 
     const FString PackageFilename =
         FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
@@ -316,6 +419,7 @@ bool EnsureSequenceAsset(const TCHAR* PackageName, ESequenceMode Mode, FString& 
     }
     return true;
 }
+
 
 /** Attaches `Child` to `Parent`, which is the fixture's parent-state mechanism. */
 void AttachTo(AActor* Child, AActor* Parent)
@@ -544,16 +648,16 @@ bool EnsureSavedFixtureContent(FString& OutError)
 
     if (LoadObject<UWorld>(nullptr, FixtureMapObjectPath) != nullptr)
     {
-        // Fixture content is generated once. Bump the version when the fixture source
-        // changes and delete Content/AtlasTest/Generated/AtlasExtraction* to regenerate:
-        // a stale fixture must be a visible instruction, not a silent difference.
+        // Committed content wins: it is never rewritten merely to recreate what already
+        // exists (review F-1 item 4). The session verifies it against the fixture contract
+        // instead -- a mismatch fails closed and is never silently regenerated (item 5).
         UE_LOG(
             LogAtlasTransport,
             Log,
-            TEXT("Atlas extraction fixture map already exists (content version %d); delete "
-                 "Content/AtlasTest/Generated/AtlasExtraction* to regenerate"),
+            TEXT("Atlas extraction fixture content already exists (version %d); verifying it "
+                 "against the fixture contract instead of rewriting it"),
             FixtureContentVersion);
-        return true; // already saved
+        return true;
     }
 
     UWorld* MapWorld = EnsureEmptyMapWorld(FixtureMapPackage, TEXT("AtlasExtractionFixture"), OutError);
@@ -668,6 +772,217 @@ bool EnsureRuntimeProbeActors(UWorld* World, FString& OutError)
     return true;
 }
 
+/** The entity tags the *saved* fixture map must contain exactly once. */
+const TCHAR* const SavedEntityTags[] =
+{
+    PermutationA, PermutationB, CaseLower, CaseUpper, CaseVariantBound,
+    NumberedBase, NumberedOne, NumberedLeadingZero,
+    ParentNone, ParentUnbound, ParentBound,
+    MaterialOverrideA, MaterialOverrideB, OmittedPrimitive, NullSkinned,
+    UnsupportedComponent, SignedZero, QuaternionPositive, QuaternionNegative,
+    SequenceValid, SequenceDegenerate, SequenceBadRate
+};
+
+/** Tags created per session by the runtime probes; never part of the saved map. */
+const TCHAR* const RuntimeOnlyEntityTags[] =
+{
+    RuntimeMesh
+};
+
+bool VerifyFixtureContentIntegrity(FString& OutError)
+{
+    // 1. Every saved sequence asset holds exactly the state its arm requires.
+    struct FArm
+    {
+        const TCHAR* Package;
+        ESequenceMode Mode;
+    };
+    const FArm Arms[] =
+    {
+        { ValidSequencePackage, ESequenceMode::Valid },
+        { DegenerateSequencePackage, ESequenceMode::DegenerateRange },
+        { BadRateSequencePackage, ESequenceMode::BadRate }
+    };
+    for (const FArm& Arm : Arms)
+    {
+        const FString AssetName = FPackageName::GetShortName(Arm.Package);
+        ULevelSequence* Sequence =
+            LoadObject<ULevelSequence>(nullptr, *(FString(Arm.Package) + TEXT(".") + AssetName));
+        if (Sequence == nullptr)
+        {
+            OutError = FString::Printf(TEXT("sequence asset %s is missing"), Arm.Package);
+            return false;
+        }
+        FString Mismatch;
+        if (!SequenceMatchesMode(Sequence, Arm.Mode, Mismatch))
+        {
+            OutError = FString::Printf(TEXT("sequence asset %s: %s"), Arm.Package, *Mismatch);
+            return false;
+        }
+    }
+
+    // 2. The fixture map exists and is the non-partitioned world the contract requires.
+    UWorld* MapWorld = LoadObject<UWorld>(nullptr, FixtureMapObjectPath);
+    if (MapWorld == nullptr)
+    {
+        OutError = FString::Printf(TEXT("fixture map %s is missing"), FixtureMapObjectPath);
+        return false;
+    }
+    if (MapWorld->IsPartitionedWorld())
+    {
+        OutError = TEXT("fixture map is a World Partition world");
+        return false;
+    }
+
+    // 3. Exactly one actor per expected entity tag, no unexpected entity tags at all, and
+    //    the sequence actors resolving to the sequence assets the map must reference.
+    TMap<FString, int32> Counts;
+    TMap<FString, FString> SequenceBindings;
+    for (TActorIterator<AActor> It(MapWorld); It; ++It)
+    {
+        const AActor* Actor = *It;
+        if (Actor == nullptr)
+        {
+            continue;
+        }
+        for (const FName& Tag : Actor->Tags)
+        {
+            const FString TagString = Tag.ToString();
+            if (!TagString.StartsWith(EntityTagPrefix))
+            {
+                continue;
+            }
+            const FString EntityId = TagString.RightChop(FCString::Strlen(EntityTagPrefix));
+            Counts.FindOrAdd(EntityId) += 1;
+            if (const ALevelSequenceActor* SequenceActor = Cast<const ALevelSequenceActor>(Actor))
+            {
+                SequenceBindings.Add(
+                    EntityId,
+                    SequenceActor->GetSequence() != nullptr
+                        ? SequenceActor->GetSequence()->GetPathName()
+                        : FString());
+            }
+        }
+    }
+
+    for (const TCHAR* Tag : SavedEntityTags)
+    {
+        const int32 Count = Counts.FindOrAdd(FString(Tag));
+        if (Count != 1)
+        {
+            OutError = FString::Printf(
+                TEXT("expected exactly one actor tagged %s%s in the saved map, found %d"),
+                EntityTagPrefix,
+                Tag,
+                Count);
+            return false;
+        }
+    }
+
+    int32 RuntimeOnlyCount = 0;
+    for (const TCHAR* Tag : RuntimeOnlyEntityTags)
+    {
+        RuntimeOnlyCount += Counts.FindOrAdd(FString(Tag));
+    }
+    if (RuntimeOnlyCount > 1)
+    {
+        OutError = FString::Printf(
+            TEXT("expected at most one per-session probe actor, found %d"),
+            RuntimeOnlyCount);
+        return false;
+    }
+
+    // Entity tags owned by *other* fixture rungs share the editor session world (the legacy
+    // field-surface fixture spawns its actor into whichever world is open), so foreign tags are
+    // reported rather than failed: this fixture is accountable for its own tag set, and every
+    // tag of that set was checked exactly above. A renamed, removed or duplicated
+    // extraction-fixture actor still fails as a wrong expected-tag count, which is the staleness
+    // signal this check exists for.
+    TArray<FString> ForeignTags;
+    for (const TPair<FString, int32>& Pair : Counts)
+    {
+        bool bExtractionFixtureTag = false;
+        for (const TCHAR* Tag : SavedEntityTags)
+        {
+            if (Pair.Key == Tag)
+            {
+                bExtractionFixtureTag = true;
+                break;
+            }
+        }
+        for (const TCHAR* Tag : RuntimeOnlyEntityTags)
+        {
+            if (Pair.Key == Tag)
+            {
+                bExtractionFixtureTag = true;
+                break;
+            }
+        }
+        if (!bExtractionFixtureTag)
+        {
+            ForeignTags.Add(Pair.Key);
+        }
+    }
+    if (ForeignTags.Num() > 0)
+    {
+        ForeignTags.Sort();
+        UE_LOG(
+            LogAtlasTransport,
+            Log,
+            TEXT("Atlas extraction fixture integrity: %d entity tag(s) in this session world belong "
+                 "to another fixture rung and are outside this fixture's contract: %s"),
+            ForeignTags.Num(),
+            *FString::Join(ForeignTags, TEXT(", ")));
+    }
+
+    struct FSequenceArm
+    {
+        const TCHAR* Tag;
+        const TCHAR* Package;
+    };
+    const FSequenceArm SequenceArms[] =
+    {
+        { SequenceValid, ValidSequencePackage },
+        { SequenceDegenerate, DegenerateSequencePackage },
+        { SequenceBadRate, BadRateSequencePackage }
+    };
+    for (const FSequenceArm& Arm : SequenceArms)
+    {
+        const FString* BoundPath = SequenceBindings.Find(FString(Arm.Tag));
+        const FString AssetName = FPackageName::GetShortName(Arm.Package);
+        const FString ExpectedPath = FString(Arm.Package) + TEXT(".") + AssetName;
+        if (BoundPath == nullptr || *BoundPath != ExpectedPath)
+        {
+            OutError = FString::Printf(
+                TEXT("the actor tagged %s%s does not reference the expected sequence asset %s"),
+                EntityTagPrefix,
+                Arm.Tag,
+                *ExpectedPath);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool IsFixtureIntegrityVerified()
+{
+    return GIntegrityState == EIntegrityState::Verified;
+}
+
+FString GetFixtureIntegrityReport()
+{
+    return GIntegrityDetail.IsEmpty()
+        ? FString::Printf(TEXT("UNKNOWN version=%d"), FixtureContentVersion)
+        : GIntegrityDetail;
+}
+
+int32 GetExpectedFixtureContentVersion()
+{
+    return FixtureContentVersion;
+}
+
+
 void StartRuntimeFixtureTicker()
 {
     if (GTickerHandle.IsValid())
@@ -686,23 +1001,57 @@ void StartRuntimeFixtureTicker()
             if (!GSavedContentReady && GSavedContentAttempts < 20)
             {
                 ++GSavedContentAttempts;
-                if (EnsureSavedFixtureContent(Error))
+                if (!EnsureSavedFixtureContent(Error))
+                {
+                    GIntegrityDetail = FString::Printf(
+                        TEXT("FAILED version=%d: %s"),
+                        FixtureContentVersion,
+                        *Error);
+                    if (GSavedContentAttempts >= 20)
+                    {
+                        // Fail closed: report once, never silently regenerate.
+                        GIntegrityState = EIntegrityState::Failed;
+                        UE_LOG(
+                            LogAtlasTransport,
+                            Error,
+                            TEXT("ATLAS_EXTRACTION_FIXTURE_STATUS: %s"),
+                            *GIntegrityDetail);
+                    }
+                }
+                else if (VerifyFixtureContentIntegrity(Error))
                 {
                     GSavedContentReady = true;
-                    UE_LOG(LogAtlasTransport, Log, TEXT("Atlas extraction fixture content ready"));
-                }
-                else if (GSavedContentAttempts >= 20)
-                {
+                    GIntegrityState = EIntegrityState::Verified;
+                    GIntegrityDetail = FString::Printf(TEXT("OK version=%d"), FixtureContentVersion);
                     UE_LOG(
                         LogAtlasTransport,
-                        Warning,
-                        TEXT("Atlas extraction fixture content was not created: %s"),
+                        Display,
+                        TEXT("ATLAS_EXTRACTION_FIXTURE_STATUS: %s"),
+                        *GIntegrityDetail);
+                }
+                else
+                {
+                    // Committed content that does not match the contract is stale content:
+                    // the gate must fail closed rather than silently regenerate it.
+                    GSavedContentReady = true;
+                    GSavedContentAttempts = 20;
+                    GIntegrityState = EIntegrityState::Failed;
+                    GIntegrityDetail = FString::Printf(
+                        TEXT("FAILED version=%d: %s"),
+                        FixtureContentVersion,
                         *Error);
+                    UE_LOG(
+                        LogAtlasTransport,
+                        Error,
+                        TEXT("ATLAS_EXTRACTION_FIXTURE_STATUS: %s"),
+                        *GIntegrityDetail);
                 }
             }
 
             UWorld* World = GEditor->GetEditorWorldContext().World();
-            if (!GRuntimeProbesEnsured && IsFixtureWorld(World))
+            if (!GRuntimeProbesEnsured
+                && GIntegrityState == EIntegrityState::Verified
+                && IsFixtureWorld(World))
             {
                 if (EnsureRuntimeProbeActors(World, Error))
                 {

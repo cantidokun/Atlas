@@ -152,3 +152,56 @@ identification method.
 4. Run the gate (command 4). `PASS` requires all 27 checks; the JSON report records every
    check individually so a partial pass cannot be mistaken for a pass.
 5. Stop the editor. The gate never writes: it issues read operations only.
+
+## 8. Later rungs — current session shape (fixture rung and review-hardening rung)
+
+Sections 1-7 above record the Phase-E session exactly as it ran (27/27 checks, `/Game/AtlasTest/
+Generated/AtlasRenderFixture`). Two later rungs changed how the extraction session is started and
+what it must prove; this section is the current form, and the per-case evidence lives in
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_VALIDATION_MATRIX.md`.
+
+Fixture provisioning is **opt-in** (independent review F-1):
+
+```bash
+# build
+dotnet.exe "…/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll" \
+  AtlasUnrealHarnessEditor Win64 Development -Project="…/AtlasUnrealHarness.uproject" -WaitMutex
+# → Result: Succeeded
+
+# ordinary start-up: provisions NOTHING and writes NOTHING (no fixture switch present)
+"…/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "…/AtlasUnrealHarness.uproject" \
+  /Game/AtlasTest/Generated/AtlasExtractionFixture \
+  -unattended -nosplash -nop4 -nullrhi -stdout -FullStdOutLogOutput
+# → "Atlas extraction fixture provisioning disabled (no -AtlasExtractionFixture switch)"
+# → no ATLAS_EXTRACTION_FIXTURE_STATUS line; committed fixture assets byte-identical afterwards
+
+# extraction-fixture session: the only session that may provision or verify fixture content
+"…/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "…/AtlasUnrealHarness.uproject" \
+  /Game/AtlasTest/Generated/AtlasExtractionFixture \
+  -AtlasExtractionFixture -unattended -nosplash -nop4 -nullrhi -stdout -FullStdOutLogOutput \
+  -ExecCmds="Automation RunTests Atlas.StateExtraction"
+# → "Atlas extraction fixture content already exists (version 3); verifying it against the
+#    fixture contract instead of rewriting it"
+# → "ATLAS_EXTRACTION_FIXTURE_STATUS: OK version=3"      (exactly one such line)
+# → 8 of 8 automation tests Success
+# → committed fixture assets byte-identical afterwards (verified by SHA-256 before/after)
+
+# transport gate (the session's log is also the fixture precondition's source)
+python -m tests.unreal_state_extraction_live_gate --json <report.json> --automation-log <session log>
+# → result: PASS — 13 PASS / 4 REFUSAL VERIFIED / 3 BLOCKED BY ENGINE/API LIMITATION /
+#            6 NOT YET LIVE-COVERED, including fixture_status_precondition: PASS
+#   positive_baseline digest 5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a6
+#   (1862 canonical bytes) — byte-identical to the Revision 3.3 session, so this rung changed no
+#   successful extraction payload
+```
+
+The gate now has one **precondition**: the session log must carry
+`ATLAS_EXTRACTION_FIXTURE_STATUS: OK version=<n>`. A session that was not started with
+`-AtlasExtractionFixture` reports nothing, so the gate fails closed instead of running against
+content nobody verified; a session whose committed content no longer matches the fixture contract
+reports `FAILED …` with the exact difference and is likewise refused.
+
+Two cases remain deliberately *not* live-covered in this rung and are recorded as such rather than
+asserted: the payload bound (no fixture here can approach 1 MiB; it is proven in-process on a
+constructed payload) and the fixture-integrity check itself (proven in-process, with the session
+status line as the live precondition).

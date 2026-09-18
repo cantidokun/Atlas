@@ -7,7 +7,7 @@ available and the extraction fixture map open.
 Usage:
 
     UnrealEditor-Cmd.exe <project> /Game/AtlasTest/Generated/AtlasExtractionFixture \
-        -unattended -nosplash -nop4 -nullrhi -stdout -FullStdOutLogOutput
+        -AtlasExtractionFixture -unattended -nosplash -nop4 -nullrhi -stdout -FullStdOutLogOutput
 
     python -m tests.unreal_state_extraction_live_gate [--json report.json] \
         [--automation-log <editor-log-with-automation-results>]
@@ -24,6 +24,11 @@ source-level result into a live result:
 ``BLOCKED BY ENGINE/API LIMITATION``
     the branch cannot be induced through any API this harness may use, with the obstacle
     recorded verbatim.
+loudly instead of running against unverified content.
+and writes nothing -- so a session without ``-AtlasExtractionFixture`` fails this precondition
+(review F-1 item 5). Fixture provisioning is opt-in -- an ordinary harness startup provisions
+The run also has one precondition: the fixture session must report ``ATLAS_EXTRACTION_FIXTURE_STATUS: OK``
+
 
 A failure makes the overall result ``FAIL`` while every other case's result is still
 reported: a partial result stays a partial result.
@@ -685,6 +690,40 @@ def case_compiling_mesh_refusal(transport: LiveTransport) -> Tuple[str, Dict[str
     )
 
 
+def case_payload_bound_refusal(transport: LiveTransport) -> Tuple[str, Dict[str, Any]]:
+    """§9 item 3: the payload bound cannot be reached through this fixture's content."""
+    return (
+        NOT_COVERED,
+        {
+            "note": (
+                "no fixture in this rung can produce a response near the transport bound (the "
+                "fixture set is small, the bound is a transport constant of 1 MiB), so the "
+                "live arm is not claimed. The bound itself is proven in-process on a "
+                "deliberately constructed payload by "
+                "Atlas.StateExtraction.PayloadBoundRefusal, which measures the real "
+                "serialization and uses the transport's own predicate "
+                "(see payload_bound_refusal_in_process)"
+            ),
+        },
+    )
+
+
+def case_fixture_content_integrity(transport: LiveTransport) -> Tuple[str, Dict[str, Any]]:
+    """Review F-1 items 4-5: committed fixture content is verified, never rewritten."""
+    return (
+        NOT_COVERED,
+        {
+            "note": (
+                "verified in-process by Atlas.StateExtraction.FixtureContentIntegrity, which "
+                "checks the committed sequences, the map and the tagged actor set without "
+                "writing anything; the session's own status line is this run's precondition "
+                "(see fixture_status_precondition)"
+            ),
+        },
+    )
+
+
+
 Case = Tuple[str, Callable[[LiveTransport], Tuple[str, Dict[str, Any]]]]
 
 CASES: List[Case] = [
@@ -707,6 +746,8 @@ CASES: List[Case] = [
     ("scope_change_refusal", case_scope_change_refusal),
     ("package_dirty_invariance", case_package_dirty_invariance),
     ("compiling_mesh_refusal", case_compiling_mesh_refusal),
+    ("payload_bound_refusal", case_payload_bound_refusal),
+    ("fixture_content_integrity", case_fixture_content_integrity),
 ]
 
 
@@ -727,6 +768,30 @@ def _read_automation_results(log_path: Optional[str]) -> Dict[str, Dict[str, Any
         if match:
             results[match.group(2)] = {"result": match.group(1), "line": line.strip()[:400]}
     return results
+
+
+FIXTURE_STATUS_PREFIX = "ATLAS_EXTRACTION_FIXTURE_STATUS:"
+
+
+def _read_fixture_status(log_path: Optional[str]) -> List[str]:
+    """The fixture session's status lines (review F-1 items 2, 4 and 5).
+
+    The extraction-fixture session emits exactly one ``ATLAS_EXTRACTION_FIXTURE_STATUS: OK
+    version=N`` line after verifying the committed content against the fixture contract. An
+    ordinary session provisions nothing and emits nothing, which is what makes the absence of
+    this line a usable precondition.
+    """
+    if not log_path:
+        return []
+    path = Path(log_path)
+    if not path.exists():
+        return []
+    return [
+        line.split(FIXTURE_STATUS_PREFIX, 1)[1].strip()
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if FIXTURE_STATUS_PREFIX in line
+    ]
+
 
 
 def run_gate(automation_log: Optional[str] = None) -> Dict[str, Any]:
@@ -775,18 +840,74 @@ def run_gate(automation_log: Optional[str] = None) -> Dict[str, Any]:
                 {"note": "in-process automation result not supplied (--automation-log)"},
             ),
         },
+        {
+            "case": "payload_bound_refusal_in_process",
+            "status": (
+                PASS
+                if automation.get("Atlas.StateExtraction.PayloadBoundRefusal", {}).get("result") == "Success"
+                else FAIL
+                if automation
+                else NOT_COVERED
+            ),
+            "evidence": automation.get(
+                "Atlas.StateExtraction.PayloadBoundRefusal",
+                {"note": "in-process automation result not supplied (--automation-log)"},
+            ),
+        },
+        {
+            "case": "fixture_content_integrity_in_process",
+            "status": (
+                PASS
+                if automation.get("Atlas.StateExtraction.FixtureContentIntegrity", {}).get("result") == "Success"
+                else FAIL
+                if automation
+                else NOT_COVERED
+            ),
+            "evidence": automation.get(
+                "Atlas.StateExtraction.FixtureContentIntegrity",
+                {"note": "in-process automation result not supplied (--automation-log)"},
+            ),
+        },
     ]
     for entry in in_process:
         if entry["status"] == FAIL:
             overall = FAIL
 
+    # Fixture precondition (review F-1 items 2 and 5): the session states, once, that the
+    # committed fixture content was verified against the fixture contract. Provisioning is
+    # opt-in, so a session without -AtlasExtractionFixture reports nothing and fails this
+    # precondition instead of letting the gate run against content nobody checked.
+    fixture_statuses = _read_fixture_status(automation_log)
+    precondition: Dict[str, Any] = {
+        "case": "fixture_status_precondition",
+        "status": (
+            PASS
+            if automation_log and fixture_statuses and all(s.startswith("OK") for s in fixture_statuses)
+            else FAIL
+            if automation_log
+            else NOT_COVERED
+        ),
+        "evidence": {
+            "status_lines": fixture_statuses,
+            "note": (
+                "an explicit -AtlasExtractionFixture session emits exactly one "
+                "'ATLAS_EXTRACTION_FIXTURE_STATUS: OK version=N' line after verifying the "
+                "committed sequences, map and tagged actor set; ordinary start-up provisions "
+                "nothing and reports nothing"
+            ),
+        },
+    }
+    if precondition["status"] == FAIL:
+        overall = FAIL
+
+
     summary: Dict[str, int] = {}
-    for entry in case_results + in_process:
+    for entry in case_results + in_process + [precondition]:
         summary[entry["status"]] = summary.get(entry["status"], 0) + 1
 
     return {
         "result": overall,
-        "cases": case_results + in_process,
+        "cases": case_results + in_process + [precondition],
         "summary": summary,
         "automation_log": automation_log,
         "automation_results": sorted(automation.keys()),

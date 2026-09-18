@@ -15,23 +15,31 @@ state-space branches into evidence. It is not a design revision and it is not a 
     # 1. build
     UnrealBuildTool AtlasUnrealHarnessEditor Win64 Development -Project=<uproject> -WaitMutex
 
-    # 2. generate the fixture content (any session; the provisioner is idempotent)
-    #    the fixture ticker writes the map, the sublevel and the sequence assets once
-    UnrealEditor-Cmd.exe <uproject> -unattended -nosplash -nop4 -nullrhi -stdout
+    # 2. the fixture session: provisioning is OPT-IN and verifies committed content.
+    #    Without -AtlasExtractionFixture an ordinary harness start-up provisions nothing
+    #    and writes nothing; with it, existing content is verified against the fixture
+    #    contract and never rewritten. The session prints exactly one
+    #    "ATLAS_EXTRACTION_FIXTURE_STATUS: OK version=<n>" line once verified, which the
+    #    gate below uses as its precondition.
+    UnrealEditor-Cmd.exe <uproject> -AtlasExtractionFixture -unattended -nosplash -nop4 \
+        -nullrhi -stdout
 
-    # 3. gate session: fixture map open, in-process automation tests requested
+    # 3. gate session: fixture map open, fixture mode on, in-process automation requested
     UnrealEditor-Cmd.exe <uproject> /Game/AtlasTest/Generated/AtlasExtractionFixture \
-        -unattended -nosplash -nop4 -nullrhi -stdout -FullStdOutLogOutput \
-        -ExecCmds="Automation RunTests Atlas.StateExtraction"
+        -AtlasExtractionFixture -unattended -nosplash -nop4 -nullrhi -stdout \
+        -FullStdOutLogOutput -ExecCmds="Automation RunTests Atlas.StateExtraction"
 
     # 4. transport gate against the running editor, folding in the in-process results
     python -m tests.unreal_state_extraction_live_gate \
         --json <report.json> --automation-log <session log>
 
-Regeneration is explicit: the generated content lives in
-`Content/AtlasTest/Generated/AtlasExtraction*` and is deleted to regenerate; the provisioner
-records its content version so a stale fixture is a visible instruction rather than a silent
-difference.
+Regeneration is explicit and never silent: the generated content lives in
+`Content/AtlasTest/Generated/AtlasExtraction*`, provisioning only happens in an explicit
+`-AtlasExtractionFixture` session, existing content is verified against the fixture contract
+rather than rewritten, and a mismatch fails closed with the exact difference (the gate then
+refuses to proceed because the `OK` status line never appears). The build's expected content
+version is reported by `GetExpectedFixtureContentVersion()`; a bump means the committed
+content must change deliberately.
 
 Evidence classes used below, kept strictly apart:
 
@@ -122,8 +130,9 @@ new fixture source never references them.
 | contract requirement | evidence | result | remaining gap |
 | --- | --- | --- | --- |
 | World Partition refusal in the fixture session | none in this session | NOT YET LIVE-COVERED | the fixture map is deliberately non-partitioned; the refusal is observed in the default-world session |
-| Payload size bound (`ERR_EXTRACTION_PAYLOAD_TOO_LARGE`, 1 MiB) | none | NOT YET LIVE-COVERED | needs a fixture whose payload approaches the bound; U8 was unmeasured in the design too |
+| Payload size bound (`ERR_EXTRACTION_PAYLOAD_TOO_LARGE`) | LIVE IN-PROCESS (`Atlas.StateExtraction.PayloadBoundRefusal`): a deliberately constructed payload crosses the bound on **measured** bytes (`MeasureValueTreeBytes` equals the real serialized UTF-8 length), the early condition flips exactly at the limit, and the transport's own predicate (`ExceedsTransportBound`, the same comparison the wire path uses) accepts exactly the limit and refuses one byte more | PASS (boundary, in-process) | the **live** arm stays NOT YET LIVE-COVERED: no fixture in this rung can produce an engine response near the bound. Nothing here is claimed as a live oversize refusal |
 | Populated skinned-mesh material arm | none | NOT YET LIVE-COVERED | no skinned asset exists in project/engine content that is a saved top-level package |
+| Fixture content integrity before the gate proceeds (review F-1 items 4-5) | LIVE IN-PROCESS (`Atlas.StateExtraction.FixtureContentIntegrity`): the committed sequences hold exactly their arms' rates and ranges, the map is non-partitioned, every expected entity tag appears exactly once, no unexpected entity tag exists, and each sequence actor resolves to its expected sequence asset; the session's `ATLAS_EXTRACTION_FIXTURE_STATUS: OK version=3` line is the run precondition | PASS (in-process verification + session status precondition) | the integrity check proves the *committed* content; it cannot prove that a future edit to the fixture source keeps it in step, which is why the expected content version is reported and the check fails closed on any difference |
 | The static accessor's conditional material-level Nanite step (§3.8.2, Rev 3.2 → 3.3) | none | **NOT A COVERAGE GAP — declared out of scope by Revision 3.3** | the step is session/configuration gated (`ShouldCreateNaniteProxy` + `r.Nanite.MaterialOverrides`) and is therefore *not extracted*: `resolved` is the deterministic projection of the two source facts, so the step cannot appear in the payload even in a session that would take it. The in-process test records the session's accessor value and gate state so a substituting session is visible in the evidence |
 
 ### 3.4 BLOCKED BY ENGINE/API LIMITATION
@@ -134,6 +143,21 @@ new fixture source never references them.
 | `IsCompiling()` mesh → `ERR_EXTRACTION_MESH_COMPILING` | inducing a compiling `UStaticMesh` needs the static mesh compiling manager (`Runtime/Engine/Private/StaticMeshCompiler.h`), unreachable from a harness module; the only public path is a real async build whose completion timing is not deterministic, which would make the gate flaky. | BLOCKED | arm presence is SOURCE GATE + vocabulary closure only |
 | Quaternion `q` vs `-q` distinct through an actor transform | The engine stores an actor's rotation as an `FRotator` and derives the quaternion, so both fixtures hold the same signed quaternion (`z=3fe6a09e667f3bce`, `w=3fe6a09e667f3bcd`, and note the 1-ULP difference between the two components: the round-trip through rotator storage is itself lossy at the last bit). LIVE IN-PROCESS proves the payload equals the engine's own quaternion bit for bit on both fixtures. | BLOCKED | the ±q distinction is evidenced at the encoding level (PYTHON FORCED vectors for both signs) and by in-process fidelity, not by two live actors |
 | Live Nanite material substitution (resolved ≠ assignment ≠ asset slot) | Revision 3.3 resolves this as a **design** matter rather than a coverage matter: the engine's material accessor applies a session/configuration-gated substitution, so a digested field may not be defined through it. `resolved` is now the deterministic projection of the two source facts, a divergent tree is refused at the boundary (D17c), and the extractor no longer calls the accessor at all. | **RESOLVED by Revision 3.3 — out of scope by construction** | none for the recorded value; the engine substitution itself is deliberately not modelled |
+
+### 3.5 Review-hardening mechanisms (F-1, R-1, R-2)
+
+These address the independent review's findings without touching the frozen Revision 3.3 contract
+(no design change was required) and without changing extraction semantics.
+
+| finding | mechanism now in the tree | evidence |
+| --- | --- | --- |
+| **F-1.1/F-1.2** — provisioning must not run in every editor start-up | `FAtlasUnrealTransportModule::StartupModule` starts the fixture ticker only when `-AtlasExtractionFixture` is on the command line; otherwise it logs that provisioning is disabled | LIVE: an ordinary session's log contains no fixture line and writes no content (verified by running one); the fixture session's log contains exactly one status line |
+| **F-1.3** — behaviour preserved in fixture mode | the same provisioner and per-session runtime probes run unchanged when the switch is present | LIVE: the fixture session produces the same payloads as before (digests below) |
+| **F-1.4** — committed content must not be rewritten every start-up | `EnsureSequenceAsset` verifies an existing asset against `FSequenceExpectation` and returns without marking it dirty or saving; the map branch no longer regenerates anything | LIVE IN-PROCESS: `FixtureContentIntegrity`; source: the save path is now reachable only for absent content |
+| **F-1.5** — stale content must fail closed | `VerifyFixtureContentIntegrity` (pure read) reports the first difference and the ticker stops with `ATLAS_EXTRACTION_FIXTURE_STATUS: FAILED …`; the gate's `fixture_status_precondition` then fails the run | SOURCE GATE + LIVE: the precondition case appears in the gate report; a session without the switch fails it |
+| **F-1.6** — provisioning stays out of the extractor | the new checks live in `AtlasExtractionFixture.cpp`; the extractor TU still references no fixture symbol | SOURCE GATE: `test_extractor_never_depends_on_fixture_content` |
+| **R-1** — the §10.2 item 4 allow-list must be an allow-list | `PERMITTED_ARROW_CALLS` closes the extractor's `->` call surface: every arrow call must be declared (with its design clause) and every declared entry must be used; the component/Nanite accessors are separately forbidden | SOURCE GATE: `test_every_arrow_call_is_on_the_declared_list`, `test_the_declared_list_has_no_stale_entries`, `test_forbidden_accessor_is_never_called` |
+| **R-2** — the response must be measured, not assumed | the extractor's early condition measures the value tree with no envelope allowance; the server's `SerializeExtractionCheckedResponse` serializes the **actual** response through the existing path, measures its wire form with the transport's predicate and, for the two extraction operations only, replaces an oversize response with `ERR_EXTRACTION_PAYLOAD_TOO_LARGE` and clears `observed_state` before anything is written | SOURCE GATE: the closure tests pin the measured path, the scoping, the shared limit and the code; LIVE IN-PROCESS: the boundary test above |
 
 ## 4. Notes, and what a reviewer should not read into this document
 
@@ -240,3 +264,34 @@ unreachable through any engine API this harness may use, and one arm (`±q`) is 
 through an actor transform; all three are recorded as blocked with verbatim evidence, not as
 covered. This rung does **not** declare the implementation CLEAR, and it does not close the
 implementation gate.
+
+**(i) Review-hardening rung — measured results (F-1, R-1, R-2).** The three findings of the
+independent implementation review were addressed without touching the frozen Revision 3.3 contract
+(exact changes and mechanisms in §3.5):
+
+* **Live session (fixture mode, `-AtlasExtractionFixture`):** `ATLAS_EXTRACTION_FIXTURE_STATUS: OK
+  version=3`, **8/8 automation tests Success** (`FixtureContentIntegrity` and `PayloadBoundRefusal`
+  among them), and the committed fixture assets were **byte-identical before and after the session**
+  (SHA-256 of all six `.umap`/`.uasset` files), so existing content is verified rather than rewritten.
+* **Ordinary start-up (no switch):** zero `ATLAS_EXTRACTION_FIXTURE_STATUS` lines, the
+  "provisioning disabled" line present, and the same six assets byte-identical afterwards, so an
+  ordinary start-up provisions and writes nothing.
+* **Transport gate:** `result: PASS` — **13 PASS / 4 REFUSAL VERIFIED / 3 BLOCKED BY ENGINE/API
+  LIMITATION / 6 NOT YET LIVE-COVERED**, with `fixture_status_precondition: PASS`,
+  `payload_bound_refusal_in_process: PASS` and `fixture_content_integrity_in_process: PASS`. The two
+  live-dimension cases (`payload_bound_refusal`, `fixture_content_integrity`) stay
+  NOT YET LIVE-COVERED with their in-process evidence recorded.
+* **Digest invariance:** `positive_baseline` = `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a6`
+  over 1862 canonical bytes — byte-identical to the Revision 3.3 session, so the rung changed no
+  successful extraction payload.
+* **Suites:** `tests/test_unreal_state_extraction_*.py` — **448 passed** on CPython 3.9.6, 3.11.16 and
+  3.12.14; UBT `AtlasUnrealHarnessEditor Win64 Development` → `Result: Succeeded`.
+
+One measurement corrected a wrong assumption in the first version of the integrity check: the legacy
+field-surface fixture spawns its entity-tagged actor into whichever world is open, so a foreign
+`atlas_entity:` tag can be present in the fixture session's world without being committed content
+(the extraction map's package does not contain it — verified). The check therefore verifies its own
+tag set exactly and *reports* foreign tags instead of failing on them; a renamed, removed or
+duplicated extraction-fixture actor still fails as a wrong expected-tag count.
+
+This rung does **not** declare the implementation CLEAR, and it does not merge anything.

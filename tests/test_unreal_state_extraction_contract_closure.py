@@ -79,6 +79,12 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def _strip_comments(text: str) -> str:
+    """Remove /* */ blocks and // line comments (the contract rules exclude comments)."""
+    without_blocks = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return "\n".join(line.split("//", 1)[0] for line in without_blocks.splitlines())
+
+
 @pytest.mark.parametrize("key", ALL_SCHEMA_KEYS)
 def test_cpp_producer_writes_every_schema_key(key: str) -> None:
     source = _read(EXTRACTOR_CPP)
@@ -126,3 +132,61 @@ def test_the_server_envelope_field_names_match_the_contract() -> None:
     server = _read(SERVER_CPP)
     for field in ("success", "error", "error_code", "observed_state", "session_identity", "entity_ids"):
         assert f'TEXT("{field}")' in server, field
+
+
+
+# ---------------------------------------------------------------------------
+# §9 item 3 capacity: one bound, measured on the response that is actually sent
+# ---------------------------------------------------------------------------
+
+def test_the_extraction_response_is_measured_before_it_is_written() -> None:
+    """The extraction response path measures the *serialized response* against the limit."""
+    server = _read(SERVER_CPP)
+    # The extraction operations go through the measured path, not the raw serializer.
+    assert "WriteResponse(SerializeExtractionCheckedResponse(Response));" in server
+    assert "WriteResponse(SerializeResponse(Response));" not in server
+    # The measured path serializes first (the existing response path) and then decides.
+    assert "FString FAtlasTransportServer::SerializeExtractionCheckedResponse(FTransportResponse& Response)" in server
+    assert "FString Payload = SerializeResponse(Response);" in server
+    assert "ExceedsTransportBound(Payload, WireBytes)" in server
+    # ... and it is scoped to the extraction operations only.
+    assert 'Response.OperationName != TEXT("extract_actor_state")' in server
+    assert 'Response.OperationName != TEXT("extract_sequencer_state")' in server
+
+
+def test_the_bound_is_the_transport_limit_and_the_wire_encoding() -> None:
+    """The comparison uses the transport's own limit and the encoding actually written."""
+    server = _read(SERVER_CPP)
+    assert "OutWireBytes = FTCHARToUTF8(*SerializedResponse).Length();" in server
+    assert "return OutWireBytes > MaxMessageSize;" in server
+    # WriteResponse writes exactly that conversion, so the measurement is the wire size.
+    assert "FTCHARToUTF8 UTF8String(*JsonResponse);" in server
+
+
+def test_the_refusal_uses_the_extractors_own_payload_code() -> None:
+    """Fail-closed uses the closed extraction vocabulary; no second code, no rename."""
+    from planning.unreal_state_extraction import PRODUCER_ERROR_CODES
+
+    server = _read(SERVER_CPP)
+    extractor = _read(EXTRACTOR_CPP)
+    payload_code = "ERR_EXTRACTION_PAYLOAD_TOO_LARGE"
+    assert payload_code in PRODUCER_ERROR_CODES
+    assert f'TEXT("{payload_code}")' in extractor
+    assert f'TEXT("{payload_code}")' in server
+    # The refusal clears the observed state rather than emitting a partial tree.
+    assert "Response.ObservedState.Reset();" in server
+    # No chunking, compression or truncation path was introduced (comments excluded: the
+    # comment that forbids those mechanisms is allowed to name them).
+    measured_start = server.index("FString FAtlasTransportServer::SerializeExtractionCheckedResponse")
+    measured_end = server.index("bool FAtlasTransportServer::ValidateRequest", measured_start)
+    measured_code = _strip_comments(server[measured_start:measured_end])
+    for banned in ("Compress", "chunk", "Chunk", "Truncate", "truncat", "Zlib", "gzip"):
+        assert banned not in measured_code, banned
+
+
+def test_the_extractor_assumes_no_envelope_allowance() -> None:
+    """The early condition is a measurement, not a constant plus headroom."""
+    extractor = _read(EXTRACTOR_CPP)
+    assert "EnvelopeHeadroomBytes" not in extractor
+    assert "4096" not in extractor
+    assert "ByteCount >= TransportMessageSizeLimit" in extractor

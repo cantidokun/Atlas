@@ -40,6 +40,7 @@ class FAtlasTransportServer : public FRunnable
     friend class FAtlasUE56JournalReconcileRetainedHistoryTest;
     friend class FAtlasUE56JournalAttestationVectorTest;
     friend class FAtlasUE56ReconcileAttestationPreservedTest;
+    friend class FAtlasExtractionPayloadBoundTest;
 public:
     FAtlasTransportServer();
     virtual ~FAtlasTransportServer();
@@ -53,6 +54,15 @@ public:
 private:
     static const FString PipeName;
     static const int32 MaxMessageSize;
+
+    /**
+     * §9 item 3: the transport bound an extraction response must fit, and the predicate the
+     * response path uses to decide whether a serialized response exceeds it. Both are
+     * exposed so the extraction gate can prove boundary behaviour against the same limit and
+     * the same comparison the wire path uses, instead of inspecting the constant.
+     */
+    static int32 GetTransportMessageSizeLimit();
+    static bool ExceedsTransportBound(const FString& SerializedResponse, int32& OutWireBytes);
     FRunnableThread* Thread;
     FThreadSafeBool bStopRequested;
     void* PipeHandle;
@@ -129,7 +139,7 @@ private:
         FGameThreadExecutionState() : bCompleted(false), bSuccess(false), bCancelled(false), CompletionEvent(FPlatformProcess::GetSynchEventFromPool(false)) {}
         ~FGameThreadExecutionState() { if (CompletionEvent) FPlatformProcess::ReturnSynchEventToPool(CompletionEvent); }
     };
-    bool CreatePipeHandle(); void CloseNamedPipe(); bool WaitForClient(); bool ReadRequest(FString& OutJsonRequest); bool WriteResponse(const FString& JsonResponse); bool ParseRequest(const FString& JsonString,FTransportRequest& OutRequest); FString SerializeResponse(const FTransportResponse& Response); bool ValidateRequest(const FTransportRequest& Request,FString& OutError); bool ExecuteRequest(const FTransportRequest& Request,FTransportResponse& OutResponse);
+    bool CreatePipeHandle(); void CloseNamedPipe(); bool WaitForClient(); bool ReadRequest(FString& OutJsonRequest); bool WriteResponse(const FString& JsonResponse); bool ParseRequest(const FString& JsonString,FTransportRequest& OutRequest); FString SerializeResponse(const FTransportResponse& Response); FString SerializeExtractionCheckedResponse(FTransportResponse& Response); bool ValidateRequest(const FTransportRequest& Request,FString& OutError); bool ExecuteRequest(const FTransportRequest& Request,FTransportResponse& OutResponse);
     static void ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionState> SharedState);
     static bool InspectWorld(TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);
     static bool InspectTargetActors(const TArray<FString>& EntityIds,TSharedPtr<FJsonObject>& OutObservedState,FString& OutError);

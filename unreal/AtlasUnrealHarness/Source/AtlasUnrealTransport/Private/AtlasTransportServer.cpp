@@ -182,7 +182,7 @@ uint32 FAtlasTransportServer::Run()
                 {
                     FTransportResponse Response;
                     ExecuteRequest(Request, Response);
-                    WriteResponse(SerializeResponse(Response));
+                    WriteResponse(SerializeExtractionCheckedResponse(Response));
                 }
                 else
                 {
@@ -310,6 +310,56 @@ FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Respo
     TArray<TSharedPtr<FJsonValue>> EntityIdsArray; for (const FString& EntityId : Response.EntityIds) EntityIdsArray.Add(MakeShareable(new FJsonValueString(EntityId))); JsonObject->SetArrayField(TEXT("entity_ids"), EntityIdsArray);
     if (Response.ObservedState.IsValid()) JsonObject->SetObjectField(TEXT("observed_state"), Response.ObservedState); else JsonObject->SetObjectField(TEXT("observed_state"), MakeShareable(new FJsonObject));
     FString OutputString; TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString); FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer); return OutputString;
+}
+
+int32 FAtlasTransportServer::GetTransportMessageSizeLimit()
+{
+    return MaxMessageSize;
+}
+
+bool FAtlasTransportServer::ExceedsTransportBound(const FString& SerializedResponse, int32& OutWireBytes)
+{
+    // The wire form is exactly this conversion: WriteResponse writes FTCHARToUTF8 bytes.
+    OutWireBytes = FTCHARToUTF8(*SerializedResponse).Length();
+    return OutWireBytes > MaxMessageSize;
+}
+
+FString FAtlasTransportServer::SerializeExtractionCheckedResponse(FTransportResponse& Response)
+{
+    FString Payload = SerializeResponse(Response);
+    if (Response.OperationName != TEXT("extract_actor_state") && Response.OperationName != TEXT("extract_sequencer_state"))
+    {
+        return Payload; // every other operation keeps its existing behaviour, byte for byte
+    }
+
+    // Unreal State Extraction Fidelity v1 design §9 item 3: the producer MUST compute the
+    // serialized byte length of the response it is about to send and MUST fail closed with
+    // ERR_EXTRACTION_PAYLOAD_TOO_LARGE when the response would not fit the transport bound,
+    // never truncating, chunking or letting it surface as a framing error after crossing
+    // the wire. `Payload` is the exact string WriteResponse writes, so this measures the
+    // real response rather than a value-tree estimate plus an assumed envelope allowance.
+    // The bound is the existing transport limit: no new cap, no second authority.
+    int32 WireBytes = 0;
+    if (!ExceedsTransportBound(Payload, WireBytes))
+    {
+        return Payload;
+    }
+
+    UE_LOG(
+        LogAtlasTransport,
+        Error,
+        TEXT("Extraction response of %d bytes exceeds the transport bound of %d bytes; failing closed before writing"),
+        WireBytes,
+        MaxMessageSize);
+
+    Response.bSuccess = false;
+    Response.ObservedState.Reset();
+    Response.Error = FString::Printf(
+        TEXT("the extraction response would not fit the transport bound (%d bytes > %d bytes)"),
+        WireBytes,
+        MaxMessageSize);
+    Response.ErrorCode = TEXT("ERR_EXTRACTION_PAYLOAD_TOO_LARGE");
+    return SerializeResponse(Response);
 }
 
 bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FString& OutError)

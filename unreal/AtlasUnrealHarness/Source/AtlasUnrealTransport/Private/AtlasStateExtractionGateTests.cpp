@@ -22,6 +22,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "AtlasExtractionFixture.h"
+#include "AtlasTransportServer.h"
 #include "AtlasStateExtraction.h"
 #include "Editor.h"
 #include "Engine/LevelStreaming.h"
@@ -739,5 +741,132 @@ bool FAtlasExtractionNegativeControlTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("no session identity appears in the payload"), Serialized.Contains(TEXT("session")));
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// 6. §9 item 3 payload bound — boundary behaviour on a deliberately built payload
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasExtractionPayloadBoundTest,
+    "Atlas.StateExtraction.PayloadBoundRefusal",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAtlasExtractionPayloadBoundTest::RunTest(const FString& Parameters)
+{
+    // Every number here comes from real serialization: the limit from the transport itself,
+    // the sizes from the production measurement. Asserting the constant would prove nothing,
+    // so a deliberately constructed payload is pushed across the boundary instead.
+    const int32 Limit = FAtlasTransportServer::GetTransportMessageSizeLimit();
+    TestTrue(TEXT("the transport limit is a positive byte count"), Limit > 0);
+
+    auto MakeTree = [](int32 PayloadLength)
+    {
+        TSharedPtr<FJsonObject> Tree = MakeShareable(new FJsonObject());
+        Tree->SetStringField(TEXT("field"), FString::ChrN(PayloadLength, TEXT('A')));
+        return Tree;
+    };
+
+    const int32 BaseBytes = AtlasStateExtraction::MeasureValueTreeBytes(MakeTree(0));
+    TestTrue(TEXT("a zero-length field still serializes to real bytes"), BaseBytes > 0);
+
+    // The measurement must be the real serialization, recomputed independently here.
+    {
+        const int32 ProbeLength = 1024;
+        FString Serialized;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
+        FJsonSerializer::Serialize(MakeTree(ProbeLength).ToSharedRef(), Writer);
+        TestEqual(
+            TEXT("the measurement equals the real serialized UTF-8 length"),
+            AtlasStateExtraction::MeasureValueTreeBytes(MakeTree(ProbeLength)),
+            FTCHARToUTF8(*Serialized).Length());
+    }
+
+    const int32 InsideLength = Limit - BaseBytes - 1;
+    const int32 AtLength = Limit - BaseBytes;
+    TestTrue(TEXT("the inside-bound payload length is usable"), InsideLength > 0);
+
+    const TSharedPtr<FJsonObject> Inside = MakeTree(InsideLength);
+    TestEqual(
+        TEXT("the inside-bound tree measures exactly one byte less than the bound"),
+        AtlasStateExtraction::MeasureValueTreeBytes(Inside),
+        Limit - 1);
+
+    FString Error;
+    FString ErrorCode;
+    TestTrue(
+        TEXT("a tree strictly inside the bound passes the early condition"),
+        AtlasStateExtraction::CheckPayloadBound(Inside, Error, ErrorCode));
+
+    const TSharedPtr<FJsonObject> AtBound = MakeTree(AtLength);
+    TestEqual(
+        TEXT("the at-bound tree measures exactly the bound"),
+        AtlasStateExtraction::MeasureValueTreeBytes(AtBound),
+        Limit);
+
+    Error.Reset();
+    ErrorCode.Reset();
+    TestFalse(
+        TEXT("a tree at the bound is refused before any response is built"),
+        AtlasStateExtraction::CheckPayloadBound(AtBound, Error, ErrorCode));
+    TestEqual(
+        TEXT("the refusal carries the extraction payload code"),
+        ErrorCode,
+        FString(AtlasStateExtraction::ErrorCodes::PayloadTooLarge));
+    TestEqual(
+        TEXT("the payload code is the frozen literal"),
+        ErrorCode,
+        FString(TEXT("ERR_EXTRACTION_PAYLOAD_TOO_LARGE")));
+
+    // The decisive response-level predicate, on the serialized response itself: it is the
+    // comparison the wire path uses, and the measured size is the size that would be written.
+    int32 WireBytes = 0;
+    const FString AtLimitResponse = FString::ChrN(Limit, TEXT('A'));
+    TestFalse(
+        TEXT("a serialized response of exactly the limit still fits"),
+        FAtlasTransportServer::ExceedsTransportBound(AtLimitResponse, WireBytes));
+    TestEqual(TEXT("the measured wire size is the serialized size"), WireBytes, Limit);
+
+    const FString OverLimitResponse = FString::ChrN(Limit + 1, TEXT('A'));
+    TestTrue(
+        TEXT("a serialized response one byte over the limit is refused"),
+        FAtlasTransportServer::ExceedsTransportBound(OverLimitResponse, WireBytes));
+    TestEqual(TEXT("the measured wire size is the serialized size"), WireBytes, Limit + 1);
+
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 7. Fixture content integrity — committed content must match the fixture contract
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAtlasExtractionFixtureIntegrityTest,
+    "Atlas.StateExtraction.FixtureContentIntegrity",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAtlasExtractionFixtureIntegrityTest::RunTest(const FString& Parameters)
+{
+    // Review F-1 items 4-5: committed fixture content is verified against the fixture
+    // contract, never rewritten, and a mismatch fails closed. This check is a pure read, so
+    // it is meaningful in any session, fixture mode or not.
+    FString Error;
+    const bool bVerified = AtlasExtractionFixture::VerifyFixtureContentIntegrity(Error);
+    if (!bVerified)
+    {
+        AddError(FString::Printf(
+            TEXT("committed fixture content does not match the fixture contract: %s"),
+            *Error));
+    }
+    TestTrue(TEXT("the committed fixture content matches the fixture contract"), bVerified);
+    TestEqual(
+        TEXT("the fixture content version this build expects"),
+        AtlasExtractionFixture::GetExpectedFixtureContentVersion(),
+        3);
+    TestFalse(
+        TEXT("the integrity report is always well formed"),
+        AtlasExtractionFixture::GetFixtureIntegrityReport().IsEmpty());
+    return true;
+}
+
 
 #endif // WITH_DEV_AUTOMATION_TESTS

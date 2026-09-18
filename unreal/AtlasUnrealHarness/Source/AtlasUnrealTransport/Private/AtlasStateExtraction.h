@@ -2,7 +2,7 @@
 //
 // Unreal State Extraction Fidelity v1 — read-only extraction core (declarations).
 //
-// Contract: docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md, Revision 3.1
+// Contract: docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md, Revision 3.3
 // (design branch feat/unreal-state-extraction-fidelity-v1-design, PR #106).
 //
 // Architectural placement (design §10.2 items 1-2):
@@ -97,4 +97,27 @@ namespace AtlasStateExtraction
     using FScopeProbe = TFunction<void()>;
     void SetScopeRevalidationProbe(FScopeProbe InProbe);
     void ClearScopeRevalidationProbe();
+
+    /**
+     * §9 item 3 capacity measurement: the UTF-8 byte count of a value tree serialized under
+     * the same writer policy the transport uses (`TJsonWriterFactory<>` + `FJsonSerializer`),
+     * which is exactly the encoding `WriteResponse` puts on the wire. Returns -1 when the
+     * tree is invalid or cannot be serialized; callers must treat that as a failure.
+     *
+     * Exposed so the extraction gate can prove boundary behaviour on a deliberately
+     * constructed payload instead of inspecting the limit constant.
+     */
+    int32 MeasureValueTreeBytes(const TSharedPtr<FJsonObject>& ValueTree);
+
+    /**
+     * §9 item 3 early necessary condition: refuse with `ERR_EXTRACTION_PAYLOAD_TOO_LARGE`
+     * when the value tree *alone* is at or above the transport bound, because the response
+     * (tree + envelope) then cannot fit. No envelope allowance is assumed. The decisive
+     * check measures the serialized response where the response is produced, so a payload
+     * that survives this check and does not fit still fails closed before crossing the wire.
+     */
+    bool CheckPayloadBound(
+        const TSharedPtr<FJsonObject>& ValueTree,
+        FString& OutError,
+        FString& OutErrorCode);
 }
