@@ -1,5 +1,7 @@
 # Unreal Agent — Overnight Session Closeout
 
+> **SUPERSEDED CURRENT STATE — September 18, 2026:** This document remains a historical record of the September 17 overnight closeout. The Unreal work subsequently advanced through MRQ artifact attribution, Slice D, submission-outcome propagation, queue-isolation review, and pass-failure attribution review. The current pause record is `docs/UNREAL_SESSION_CLOSEOUT_2026-09-18.md`. Read that document plus `UNREAL_AGENT_HANDOFF_CURRENT.md` first.
+
 **Date:** September 17, 2026
 **Scope:** Unreal Agent only
 **Status:** Development paused for the night
