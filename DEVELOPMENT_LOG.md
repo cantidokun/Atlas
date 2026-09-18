@@ -1,3 +1,11 @@
+## 2026-09-18 - Unreal development resumed on state extraction fidelity
+
+- M12.5 semantic evidence verification is intentionally **deferred** and untouched.
+- Identified a concrete Unreal authority-boundary defect: `verify_actor_location`, `verify_actor_rotation`, and `verify_actor_scale` were mapped to `WRITE` in `planning/unreal_execution_boundary.py`, routing them through `apply_authorized` instead of `verify`.
+- Opened draft PR #105 with the narrow fix, explicit `MODIFY_ACTOR/VERIFY` capability support, and focused regression tests. CI results have not yet been observed in this environment.
+- Defined the next major Unreal architecture track: **Unreal State Extraction Fidelity v1**, branch `feat/unreal-state-extraction-fidelity-v1-design`, focused on a bounded deterministic read-only C++→Python extraction contract. Design only; implementation not yet authorized.
+- No M4–M10 recovery/evidence semantics, M12.5, Blender, or Temporal implementation was changed.
+
 ## 2026-09-18 - Temporal Revision 7 architectural hold + end-of-night checkpoint
 
 - Closed the night's development session at **Temporal Observation + State Delta v1 design Revision 7** (`44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`), with implementation explicitly unauthorized.
