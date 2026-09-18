@@ -1,6 +1,6 @@
 # Atlas — Temporal Observation + State Delta v1 (Design Gate)
 
-**Status:** DESIGN REVISION 3 — REVIEW REQUIRED / NO IMPLEMENTATION
+**Status:** DESIGN REVISION 4 — REVIEW REQUIRED / NO IMPLEMENTATION
 **Track:** Atlas temporal layer (engine-neutral, downstream of canonical world state)
 **Architectural parent (authoritative):** `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`
 (Blender Extraction Fidelity v1 implementation + verification commits, itself on the cleared design
@@ -30,7 +30,8 @@ the claim boundary.
 | `b95d5ab` | Close the section-8.2 canonicalization identifier in the section-9 gate | verification-only — **architectural parent of this document** |
 | `75744da` | Temporal Observation + State Delta v1 design gate | the document at **revision 1** (held pending review) |
 | `f26746d` | Correct eight contract defects in the temporal observation design | the document at **revision 2** (held pending review) |
-| *(this revision)* | Temporal Observation + State Delta v1 — **design revision 3**: five contract resolutions + re-audit of §§6, 8, 11, 12, 13, 14, 20, 21, 22.1 | this document only — §22.2 |
+| `f1ed30d` | Resolve five contract contradictions in the temporal observation design | the document at **revision 3** (held pending review) |
+| *(this revision)* | Temporal Observation + State Delta v1 — **design revision 4**: one contract ambiguity closed (the `NEW_EPOCH` boundary path) + full single-valuedness re-audit | this document only — §22.3 |
 
 **What design revision 2 changes.** Revision 1 was held pending a design revision. This revision
 corrects eight contract defects found in it — sequence-gap semantics, duplicate-observation admission,
@@ -48,7 +49,16 @@ single-valued end to end (new §6.8, §8.2, §10.5, §20, §21); (iv) whether th
 genuinely producer-order independent when `object_id`s are duplicated (§11.2 — it now is, by a
 content-derived tie-break); and (v) the dependent re-audit and adversarial requirements (§19.1 #27-#31,
 §19.2 `T-15..T-18`, §22.2 R3-1..R3-5). It changes no non-goal (§16), no Event Abstraction rule (§17),
-and it remains documentation-only for the reason below.
+**What design revision 4 changes.** Revision 3 was held pending one further correction: `NEW_EPOCH` with
+a missing `PairInput.A` permitted two readings (`TEMPORAL_DISCONTINUITY` or `OBSERVATION_INVALID` /
+`PAIR_INPUT_UNAVAILABLE`). This revision closes it with one deterministic rule — the **`NEW_EPOCH`
+boundary path** of §6.8.1 — which is distinct from the `SAME_EPOCH` comparison path, is chosen by the
+stage-2 classification alone, never invokes §9 or any cross-boundary comparison check, and lets pair-input
+availability determine only the *record form*. `NEW_EPOCH` classification takes precedence over the
+`SAME_EPOCH` stage-3 checks: pair-input availability never erases, downgrades or re-classifies an epoch
+boundary. Every dependent section is reconciled (§5.5, §6.2, §6.6, §6.7, §6.8, §8.1, §8.2, §10.5, §12.4,
+§14, §19.1, §19.2, §20, §21, §22) and §22.3 records the closure. No version number is bumped, no non-goal
+(§16) and no Event Abstraction rule (§17) changes, and it remains documentation-only for the reason below.
 
 This document was authored on branch `feat/temporal-observation-state-delta-design` created from
 `b95d5ab`. Nothing is implemented: no `TemporalState`, no `StateDelta`, no event detection, no
@@ -441,11 +451,18 @@ produce **no record at all**.
 | identical duplicate (same `sequence` **and** same `state_digest`) | `DUPLICATE_ACKNOWLEDGED` — idempotent acknowledgement of an observation already admitted | **no `StateDelta` is created** (§8.1); admission state unchanged |
 | same `sequence` with a **different** `state_digest` (contradictory duplicate) | `REJECTED_INVALID` (`CONTRADICTORY_SEQUENCE`) | no record; admission state unchanged |
 | stale observation (`sequence` < last accepted, **all declared continuity metadata unchanged**) | `REJECTED_STALE` (`STALE_SEQUENCE_REJECTED`) | no delta; admission state unchanged; **no epoch change** (§6.3) |
-| source timeline seek/scrub (`ordering_epoch` changes) | `NEW_EPOCH` | `TEMPORAL_DISCONTINUITY`; empty entity list |
-| engine restart (`producer_session_id` changes) | `NEW_EPOCH` | `TEMPORAL_DISCONTINUITY`; empty entity list |
-| Atlas restart | Atlas-owned admission state restored or re-established; comparable **iff** the next observation declares the same `continuity_id`, `producer_session_id` and `ordering_epoch` | `ACCEPTED` when continuity is restorable (compared against the restored last-accepted observation); `NEW_EPOCH` ⇒ `TEMPORAL_DISCONTINUITY` when a declared boundary field differs; `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) when the admission state cannot be established at all — nothing is guessed; and, when the state *is* restorable but the caller cannot supply the pair input, `ACCEPTED` followed by a record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` (§6.7) |
-| discontinuity/reset **declared** by the producer (`continuity_id` and/or `producer_session_id` and/or `ordering_epoch` changes) | `NEW_EPOCH` | `TEMPORAL_DISCONTINUITY`; empty entity list |
+| source timeline seek/scrub (`ordering_epoch` changes) | `NEW_EPOCH` | boundary path (§6.8.1): one boundary record — `TEMPORAL_DISCONTINUITY`, or `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when `A` is not supplied; empty entity list either way |
+| engine restart (`producer_session_id` changes) | `NEW_EPOCH` | boundary path (§6.8.1); empty entity list |
+| Atlas restart | Atlas-owned admission state restored or re-established; comparable **iff** the next observation declares the same `continuity_id`, `producer_session_id` and `ordering_epoch` | `ACCEPTED` (comparison path) when every declared boundary field is restored unchanged; `NEW_EPOCH` ⇒ boundary path (§6.8.1) when a declared boundary field differs; `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) when the admission state cannot be established at all — nothing is guessed. In both record-producing cases a missing `A` yields `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` **in place of** `COMPUTED` or of the boundary record, and the classification is unchanged (§6.8.1) |
+| discontinuity/reset **declared** by the producer (`continuity_id` and/or `producer_session_id` and/or `ordering_epoch` changes) | `NEW_EPOCH` | boundary path (§6.8.1); empty entity list |
 | missing/invalid time or identity metadata | `REJECTED_INVALID` (`MISSING_SOURCE_TIME` / `MALFORMED_TIME` / `MALFORMED_IDENTITY`) | no record; never default to zero |
+
+All four `NEW_EPOCH` rows share exactly one path — the **boundary path** of §6.8.1. It is chosen by the
+classification alone and is not one of the comparison outcomes: it emits exactly one `TEMPORAL_DISCONTINUITY`
+record when `A` is supplied, and exactly one `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record when it
+is not. The epoch boundary is established in both cases, the admission-state mutation is identical, and
+neither case may synthesize a transition, a `NO_CHANGE` entry, or a cross-epoch `observations_skipped`
+count (§6.8.1).
 
 Three rules make this table single-valued, and all are normative:
 
@@ -489,7 +506,7 @@ itself (§6.3).
 | `ContinuityState` | Condition | Comparison allowed |
 | --- | --- | --- |
 | `SAME_EPOCH` | `stream_id` equal, `continuity_id` equal, `producer_session_id` equal, `ordering_epoch` equal, and `sequence` **strictly greater** than the last accepted sequence (adjacent or gapped, §5.4) | yes |
-| `NEW_EPOCH` | `stream_id` equal and **at least one declared boundary field differs**: `continuity_id`, `producer_session_id` or `source_time.ordering_epoch`. **Nothing else creates an epoch** (§6.3) | no — emit `TEMPORAL_DISCONTINUITY` |
+| `NEW_EPOCH` | `stream_id` equal and **at least one declared boundary field differs**: `continuity_id`, `producer_session_id` or `source_time.ordering_epoch`. **Nothing else creates an epoch** (§6.3) | no comparison — the boundary path (§6.8.1) emits one `TEMPORAL_DISCONTINUITY` record, or one `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record when `A` is not supplied |
 | `UNKNOWN` | metadata missing/malformed, or `domain`/`rate` mismatch between the pair, or capability mismatch | no — emit a record with outcome `OBSERVATION_INVALID` and the reason (§8.1). Two already-admitted observations are refused as a **pair**; this is never the admission-level `REJECTED_INVALID` (§6.8) |
 | `DIFFERENT_STREAM` | `stream_id` differs | no comparison at all; not an error, but never a delta |
 
@@ -549,7 +566,7 @@ subject is a different stream, not a delta.
 | `ACCEPTED` | `SAME_EPOCH` and `sequence` strictly greater than the last accepted sequence | updates the accepted triple | yes — stage 3 evaluates the pair (§6.7, §6.8) |
 | `DUPLICATE_ACKNOWLEDGED` | same `sequence` **and** same `state_digest` as the last accepted observation | counter only | **no** — an idempotent acknowledgement, not a new fact about the world |
 | `REJECTED_STALE` | `sequence` < last accepted sequence, with **all** declared continuity metadata unchanged (§6.3, R-T3) | counter only | no |
-| `NEW_EPOCH` | a declared boundary field differs (§6.2) | boundary replaced, counters reset | yes — a boundary record: `TEMPORAL_DISCONTINUITY`, empty entity list |
+| `NEW_EPOCH` | a declared boundary field differs (§6.2) | boundary replaced, counters reset, **identically in both record forms** | yes — the boundary path (§6.8.1): one record, empty entity list — `TEMPORAL_DISCONTINUITY` when `A` is supplied, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not |
 | `REJECTED_INVALID` | the arrival is not a valid observation (malformed metadata, `CONTRADICTORY_SEQUENCE`, capability-declaration/§10.1 violation, `STATE_DIGEST_MISMATCH`, unparseable snapshot) **or** the admission state needed to classify it cannot be established (`ADMISSION_STATE_UNAVAILABLE`) | counter only | **no** |
 
 `DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` and `REJECTED_INVALID` are **not** errors in the sense of a
@@ -582,11 +599,14 @@ All five rules are normative:
 * **P2 — the layer keeps no snapshot.** Nothing in this contract permits the temporal layer to retain,
   cache, serialize or allocate storage for a snapshot, a field history or a prior delta (§13.4, §16).
   `StreamAdmissionState` (§6.4) holds no content.
-* **P3 — a missing pair input is a pair-level failure, not an admission failure.** If the caller cannot
-  supply `A`, the arrival is still admitted on its own facts (stage 2), and the step emits a record whose
-  outcome is `OBSERVATION_INVALID` with reason `PAIR_INPUT_UNAVAILABLE` and an empty entity list. It must
-  **never** emit `NO_CHANGE`, an empty `COMPUTED` delta, or a delta against a freshly captured "current"
-  state.
+* **P3 — a missing pair input is a pair-level failure, not an admission failure, and it never changes the
+  classification.** If the caller cannot supply `A`, the arrival is still admitted exactly on its own facts
+  (stage 2), and the step emits exactly one record whose outcome is `OBSERVATION_INVALID` with reason
+  `PAIR_INPUT_UNAVAILABLE` and an empty entity list. Which record it replaces depends on the stage-2
+  classification, and on nothing else: on `SAME_EPOCH` it replaces the `COMPUTED` comparison, on
+  `NEW_EPOCH` it replaces the `TEMPORAL_DISCONTINUITY` boundary record while the epoch boundary is still
+  established (§6.8.1). It must **never** emit `NO_CHANGE`, an empty `COMPUTED` delta, a delta against a
+  freshly captured "current" state, or a silent epoch merge.
 * **P4 — who retains `A` is out of scope.** Retention, buffering and windowing of observations belong to
   the caller or to a future store layer and need their own design gate (§13.4, §16). This subsection
   states only that the temporal layer is not that store.
@@ -602,25 +622,69 @@ For every arriving observation exactly one path is taken, in this order:
 | --- | --- | --- | --- |
 | 1 arrival validation | the envelope alone | is this a valid observation of this stream? | pass, or `REJECTED_INVALID` (§10.5 items 1-5) |
 | 2 admission | the arrival + `StreamAdmissionState` | does it enter the stream, and how? | exactly one `AdmissionOutcome` (§6.6) |
-| 3 pair evaluation | `PairInput` (§6.7) | what is the factual difference? | one record (§8.1) — only if stage 2 was `ACCEPTED` or `NEW_EPOCH` |
+| 3 pair evaluation | `PairInput` (§6.7) | what is the factual difference? | one record (§8.1) — via the **comparison path** for an `ACCEPTED` arrival, or the **boundary path** (§6.8.1) for a `NEW_EPOCH` one |
 | 4 state update | the outcome | what does the admission state become? | the §6.4 mutation rule |
 
 * Stages 1 and 2 share **one** outcome name, `REJECTED_INVALID`, distinguished by reason code
   (arrival-level: `STATE_DIGEST_MISMATCH`, `UNKNOWN_SCHEMA_VERSION`, `MALFORMED_TIME`; admission-level:
   `CONTRADICTORY_SEQUENCE`, `ADMISSION_STATE_UNAVAILABLE`). Neither emits a record.
-* Stage 3 runs only for an `ACCEPTED` (or `NEW_EPOCH`) outcome. Its failure mode is
-  `OBSERVATION_INVALID` — a different fact about a different object: the arrival *was* admitted, and its
-  *pair* could not be compared. Stage 3 always emits a record, with an empty entity list on refusal.
-* Stage-3 checks are evaluated in a fixed order and the **first** failure wins:
+* Stage 3 runs only for an `ACCEPTED` or `NEW_EPOCH` outcome, and it has **two mutually exclusive paths**,
+  chosen by the stage-2 classification and by nothing else:
+
+  | Classification | Path | Only question asked | Result |
+  | --- | --- | --- | --- |
+  | `ACCEPTED` (`SAME_EPOCH`) | comparison path | pair input available, then the four comparison checks below | `COMPUTED`, or one `OBSERVATION_INVALID` record with the failing reason |
+  | `NEW_EPOCH` | boundary path (§6.8.1) | pair input available, and nothing else | one boundary record: `TEMPORAL_DISCONTINUITY` when `A` is supplied, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not |
+
+* On the **comparison path** the checks are evaluated in a fixed order and the **first** failure wins:
   1. pair input available (§6.7) → `PAIR_INPUT_UNAVAILABLE`;
   2. capability equality (§10.4) → `CAPABILITY_MISMATCH`;
   3. `source_time` `domain`/`rate` agreement and monotonicity (§5.6) → `SOURCE_TIME_NON_MONOTONIC`;
   4. scene scope (§8.5) → `SCENE_SCOPE_CHANGED`;
   5. unit system (§8.5) → `UNIT_SYSTEM_CHANGED`.
+* The comparison path is **never** entered for a `NEW_EPOCH` arrival and the boundary path is never entered
+  for a `SAME_EPOCH` one. No check from one path may run inside the other.
 * A stage-3 refusal **never retracts** a stage-2 acceptance: `B` remains the latest accepted observation
-  and the next arrival pairs with it. Admission and comparison are independent facts.
+  (and, on the boundary path, the latest accepted observation *of the new epoch*) and the next arrival
+  pairs with it. Admission and comparison are independent facts.
 * The two names are not interchangeable anywhere in this document, and no outcome may be reported for a
   stage that did not run.
+
+#### 6.8.1 The `NEW_EPOCH` boundary path (distinct from the comparison path)
+
+Stage 2 detects `NEW_EPOCH` from the **declared** boundary fields alone — `continuity_id`,
+`producer_session_id` or `source_time.ordering_epoch` differing from the last accepted observation's
+(§6.2). That classification is made before any pair-level check runs, and it is not revised afterwards.
+
+With `B` the arriving observation:
+
+1. **`B` is admitted as the first accepted observation of the new epoch.** The admission-state mutation is
+   identical to every other `NEW_EPOCH` outcome: the boundary fields are replaced, the epoch counters reset,
+   and `last_accepted_sequence`/`last_accepted_state_digest`/`last_accepted_observation_id` become `B`'s. `B`
+   is the latest accepted observation afterwards (§6.4).
+2. **§9 field comparison is never invoked.** No field of the pair is compared, so no field change and no
+   `NO_CHANGE` may be reported for any field or entity, and `entity_deltas` is empty (§8.1).
+3. **No `SAME_EPOCH` comparison check is evaluated across the boundary** — not capability equality (§10.4),
+   not `source_time` `domain`/`rate` agreement or monotonicity (§5.6), not scene scope (§8.5), not unit
+   system (§8.5). Their inputs belong to two different temporal histories, so a reading taken across a
+   boundary would be meaningless. A capability or unit difference may still be recorded as a *cause* fact in
+   `reason_codes`, but it never becomes a comparison, a field change or a refusal.
+4. **`observations_skipped` is never computed across the boundary** — `sequence` counters restart per epoch.
+   It is `0` on whichever record the path emits, and no intermediate observation may be synthesized.
+5. **The only pair-level question the path asks is whether `A` was supplied**, and it determines the record
+   form alone:
+   * `A` **supplied** ⇒ emit exactly **one** boundary record with outcome `TEMPORAL_DISCONTINUITY`;
+   * `A` **not supplied** ⇒ emit exactly **one** record with outcome `OBSERVATION_INVALID` and reason
+     `PAIR_INPUT_UNAVAILABLE`.
+
+   Nothing else differs between the two cases: the epoch boundary is established either way, the
+   admission-state mutation is identical, `B` remains the latest accepted observation of the new epoch, and
+   neither case may synthesize a state transition, a `NO_CHANGE` entry, or a cross-epoch skip count.
+6. **Precedence.** `NEW_EPOCH` classification takes precedence over the `SAME_EPOCH` stage-3 comparison
+   checks. Pair-input availability determines only *which record the boundary path emits*; it must never
+   erase, downgrade or re-classify the detected boundary, and it must never route the step into the
+   comparison path. A step that declares a boundary is a boundary step, whether or not its earlier endpoint
+   was supplied.
 
 ## 7. Temporal identity model
 
@@ -718,7 +782,8 @@ StateDeltaRecord := the single record emitted for one stream step. Its domain is
   (2) boundary pairs    (A, B) where A is the last accepted observation of continuity epoch n and B
                         is the first accepted observation of the immediately following DECLARED
                         epoch n+1 of the same stream
-                        => outcome TEMPORAL_DISCONTINUITY
+                        => outcome TEMPORAL_DISCONTINUITY when A is supplied, or
+                           OBSERVATION_INVALID / PAIR_INPUT_UNAVAILABLE when it is not (§6.8.1)
 ```
 
 No other pair produces a record: a stream's first observation has no predecessor (no record), a
@@ -745,7 +810,12 @@ on comparability is refused:
 * `observations_skipped` is **not defined** across a boundary — `sequence` counters restart per epoch, so a
   cross-boundary difference of two sequence values is meaningless. The field is `0` on the record, and the
   boundary is named by its reason code (`RESTART_PRODUCER_SESSION`, `SEEK_OR_ORDERING_EPOCH_CHANGE`, …);
-* `coverage` records the *reason* the comparison could not be made (§10.2), not per-field states.
+* `coverage` records the *reason* the comparison could not be made (§10.2), not per-field states;
+* when the boundary path cannot supply `A`, the record it emits is an `OBSERVATION_INVALID` /
+  `PAIR_INPUT_UNAVAILABLE` refusal **in place of** the `TEMPORAL_DISCONTINUITY` record. Every rule above
+  still holds for it — no field comparison, an empty `entity_deltas`, `observations_skipped = 0`,
+  `source_time_hold = false`, coverage carrying the refusal — and the epoch boundary is established and `B`
+  admitted either way (§6.8.1). The record's *form* depends on what was supplied; the *boundary* does not.
 
 The record's `continuity` field and its `outcome` are in a fixed correspondence, so a record can never
 claim a comparison that was not performed:
@@ -753,7 +823,7 @@ claim a comparison that was not performed:
 | `ContinuityState` (§6.2) | Record | `outcome` |
 | --- | --- | --- |
 | `SAME_EPOCH` | comparison pair | `COMPUTED`, or `OBSERVATION_INVALID` on a stage-3 failure (§6.8) |
-| `NEW_EPOCH` | boundary pair | `TEMPORAL_DISCONTINUITY` |
+| `NEW_EPOCH` | boundary pair | `TEMPORAL_DISCONTINUITY`, or `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when `A` is not supplied (§6.8.1) |
 | `UNKNOWN` | comparison refused | `OBSERVATION_INVALID` |
 | `DIFFERENT_STREAM` | none | — |
 
@@ -792,13 +862,18 @@ change, and the semantic comparison must never alter a digest value (§11.5).
 | --- | --- | --- |
 | `COMPUTED` | two accepted observations, `SAME_EPOCH`, pair input supplied, capabilities identical, every stage-3 check passed (§6.8) | populated |
 | `TEMPORAL_DISCONTINUITY` | `NEW_EPOCH` — a **declared** continuity boundary (producer restart, seek, declared reset), §6.2. A boundary record, not a comparison (§8.1) | **empty by rule (R-T2)** |
-| `OBSERVATION_INVALID` | a **pair-level** refusal of two accepted observations: missing pair input (`PAIR_INPUT_UNAVAILABLE`), capability mismatch (§10.4), `domain`/`rate` mismatch, scene-scope change (§8.5), unit-system change (§8.5). **Never** for an arrival that failed validation — that is `REJECTED_INVALID` at admission and emits no record (§6.6, §6.8) | **empty** |
+| `OBSERVATION_INVALID` | a **pair-level** refusal of two accepted observations: missing pair input (`PAIR_INPUT_UNAVAILABLE`), capability mismatch (§10.4), `domain`/`rate` mismatch, scene-scope change (§8.5), unit-system change (§8.5). **Never** for an arrival that failed validation — that is `REJECTED_INVALID` at admission and emits no record (§6.6, §6.8). It also covers the `NEW_EPOCH` boundary path's missing-pair-input case, where the epoch boundary is still established and `B` is still admitted (§6.8.1) | **empty** |
 
 The three outcomes are exhaustive for a **record**. Four situations produce no record at all:
 `DIFFERENT_STREAM` (never paired) and the three admission-level non-acceptances
 (`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE`, `REJECTED_INVALID`, §6.6). Admission-level facts therefore
 never appear in this table, which is what keeps `StateDelta(A, B)` a pure function of a *supplied* pair of
 accepted observations (§6.7, §12.1) and keeps the stream-processing path single-valued (§6.8).
+
+One classification can produce either of two records: a `NEW_EPOCH` step yields `TEMPORAL_DISCONTINUITY`,
+or `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when `A` is not supplied — with an identical
+admission-state mutation and a still-established boundary in both cases (§6.8.1). The choice is made by
+pair-input availability alone and never by the comparison checks.
 
 ### 8.3 `EntityDeltaKind` (entity-level facts)
 
@@ -1068,14 +1143,16 @@ For one observation, validation is evaluated in this order and the **first** fai
 6. admission conflicts — a contradictory duplicate, an undeclared sequence regression, or an admission
    state that cannot be established for this stream ⇒ `REJECTED_INVALID` / `REJECTED_STALE` (§6.6);
    never a partial record, never a partial state mutation;
-7. **pair-level** refusals are not arrival validation and are evaluated at stage 3 (§6.8): a missing pair
-   input (§6.7), capability mismatch between the endpoints (§10.4), `domain`/`rate` mismatch, scene-scope
-   violation and unit-system violation (§8.5) each produce a record whose outcome is
-   `OBSERVATION_INVALID`, with an empty entity list and **no** admission-state change.
+7. **pair-level** refusals are not arrival validation and are evaluated at stage 3 (§6.8) **on the
+   comparison path only**: a missing pair input (§6.7), capability mismatch between the endpoints (§10.4),
+   `domain`/`rate` mismatch, scene-scope violation and unit-system violation (§8.5) each produce a record
+   whose outcome is `OBSERVATION_INVALID`, with an empty entity list and **no** admission-state change.
 
-Items 1-6 describe stages 1-2 and always end in `REJECTED_INVALID` with no record; item 7 describes
-stage 3 and always ends in a record with `OBSERVATION_INVALID`. The first failure wins within each stage,
-so no arrival and no pair can produce two outcomes.
+Items 1-6 describe stages 1-2 and always end in `REJECTED_INVALID` with no record; item 7 describes the
+comparison path of stage 3 and always ends in a record with `OBSERVATION_INVALID`. The **boundary path**
+(§6.8.1) evaluates none of items 1-7: it asks only whether `A` was supplied, so a `NEW_EPOCH` arrival never
+receives a comparison outcome. The first failure wins within each stage and within each path, so no arrival
+and no pair can produce two outcomes.
 
 ## 11. Digest and provenance boundaries
 
@@ -1285,6 +1362,11 @@ Revision 3 adds `PAIR_INPUT_UNAVAILABLE` (stage 3 could not obtain the pair's ea
 outcome `INVALID` to `REJECTED_INVALID` — a rename of an admission-level fact, not a new fact, required so
 that it can never be read as the pair-level `OBSERVATION_INVALID` of §8.2 (§6.6, §6.8).
 
+`PAIR_INPUT_UNAVAILABLE` is emitted on **both** stage-3 paths — the `SAME_EPOCH` comparison path and the
+`NEW_EPOCH` boundary path (§6.8.1) — and means the same thing on each: the earlier endpoint was not
+supplied. It never means that an epoch boundary went undetected, unestablished or downgraded. Revision 4
+adds no reason code.
+
 Adding a code is a schema revision (§15.3), never an ad-hoc string.
 
 ## 13. Low-latency considerations (cost model only — nothing is implemented)
@@ -1347,15 +1429,15 @@ as proof about anything else* (`docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRAC
 | Event | Detection | Temporal behaviour |
 | --- | --- | --- |
 | **Atlas restarts** | Atlas process incarnation changes | `stream_id` and `continuity_id` are Atlas-durable/declared, so comparability is preserved **iff** the next accepted observation declares the same `continuity_id` and the producer's session/epoch are unchanged. The prior `last_accepted_sequence` is restored from durable state or the epoch is re-established. If the admission state cannot be established at all, the arrival is `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) — the stream is re-established from a declared boundary rather than guessed. If the state *is* restorable but the caller cannot supply the pair input, stage 3 emits a record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` (**not** a silent `NO_CHANGE`, and never a reconstructed `A`) |
-| **Blender restarts** | `producer_session_id` changes (and normally `continuity_id`) | `NEW_EPOCH` ⇒ `TEMPORAL_DISCONTINUITY`, empty entity list; `producer_instance_ordinal` increments |
-| **Unreal restarts** | `producer_session_id` changes | identical rule; on the Unreal side this mirrors the recovery contract's `editor_session_id`-per-process-incarnation discipline, and PID alone is never identity |
+| **Blender restarts** | `producer_session_id` changes (and normally `continuity_id`) | `NEW_EPOCH` ⇒ boundary path (§6.8.1), empty entity list; `producer_instance_ordinal` increments |
+| **Unreal restarts** | `producer_session_id` changes | identical rule (boundary path, §6.8.1); on the Unreal side this mirrors the recovery contract's `editor_session_id`-per-process-incarnation discipline, and PID alone is never identity |
 | **producer stream resumes** | new session/epoch declared | `NEW_EPOCH`. If the stream already had an accepted observation, the first observation of the new epoch forms a **boundary pair** with the last accepted observation of the previous epoch and produces a `TEMPORAL_DISCONTINUITY` record (§8.1); if it is the stream's first observation ever, there is no predecessor and no record is produced |
 | **duplicate re-delivery** | same `sequence` **and** same `state_digest` as the last accepted observation | `DUPLICATE_ACKNOWLEDGED`: idempotent acknowledgement; **no** `StateDelta`, no admission-state change (§6.6) |
 | **sequence counter resets** | `sequence` regresses with **unchanged declared** continuity metadata | **`REJECTED_STALE`** (§6.3, §6.6): a bare regression is indistinguishable from a stale re-delivery, so it is neither an epoch change nor a delta. A producer that genuinely resets MUST declare the boundary through `continuity_id`, `producer_session_id` or `ordering_epoch` — then the "different continuity/session observed" row applies |
 | **source time resumes** (timeline continues after a stall) | same epoch, `source_time` non-decreasing | comparable; a large forward step is a legal gap (`observations_skipped`), not a discontinuity |
 | **stale observation arrives** (older `sequence` inside the same epoch) | `sequence` < `last_accepted_sequence` with unchanged declared continuity metadata | **`REJECTED_STALE`**; zero mutation of admission state (§6.4); no delta, and **no epoch change** — v1 refuses to guess whether it is looking at staleness or at an undeclared reset (§6.3) |
-| **different continuity/session observed** | `continuity_id`/`producer_session_id`/`ordering_epoch` differ | `NEW_EPOCH` ⇒ discontinuity, empty entity list |
-| **the pair's earlier endpoint is not supplied** | no `A` in the `PairInput` (§6.7) | the arrival is `ACCEPTED` on its own facts, then stage 3 emits a record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE`; the layer must not reconstruct `A` from `last_accepted_state_digest` or any store (R-R2, R-R6) |
+| **different continuity/session observed** | `continuity_id`/`producer_session_id`/`ordering_epoch` differ | `NEW_EPOCH` ⇒ boundary path (§6.8.1), empty entity list |
+| **the pair's earlier endpoint is not supplied** | no `A` in the `PairInput` (§6.7) | the arrival is admitted on its own facts and stage 3 emits exactly one `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record. The stage-2 classification is unchanged: on `SAME_EPOCH` (`ACCEPTED`) the refusal replaces the `COMPUTED` comparison; on `NEW_EPOCH` it replaces the `TEMPORAL_DISCONTINUITY` boundary record while the epoch boundary is still established and `B` is still the latest accepted observation of the new epoch (§6.8.1). The layer must not reconstruct `A` from `last_accepted_state_digest` or any store (R-R2, R-R6) |
 
 Additional normative rules:
 
@@ -1480,11 +1562,11 @@ its own red-team and its own live evidence (§18 Q6).
 | 14 | stale / out-of-order observations | `REJECTED_STALE`; zero admission-state mutation; **never** an epoch change | §5.5, §6.3, §6.6 |
 | 15 | duplicate observations | identical ⇒ `DUPLICATE_ACKNOWLEDGED`: idempotent, admission state unchanged, **no `StateDelta`**; same `sequence` with a different digest ⇒ `REJECTED_INVALID` (`CONTRADICTORY_SEQUENCE`) with **no record**, state unchanged | §5.5, §6.6, §8.1 |
 | 16 | sequence gaps vs source-time jumps | a gap is `observations_skipped = max(0, gap - 1)` with no synthesized intermediates, and is never reported as, derived from, or conflated with a source-time jump | §5.4, §5.5, §14 R-R1 |
-| 17 | timeline seek | `ordering_epoch` change ⇒ new epoch ⇒ discontinuity | §5.1, §5.5 |
-| 18 | engine restart | `producer_session_id` change ⇒ new epoch ⇒ discontinuity | §5.5, §14 |
-| 19 | Atlas restart | comparability preserved only via declared/durable continuity; otherwise `UNKNOWN` ⇒ invalid | §14 |
+| 17 | timeline seek | `ordering_epoch` change ⇒ `NEW_EPOCH` ⇒ boundary path (§6.8.1) | §5.1, §5.5, §6.8.1 |
+| 18 | engine restart | `producer_session_id` change ⇒ `NEW_EPOCH` ⇒ boundary path (§6.8.1) | §5.5, §6.8.1, §14 |
+| 19 | Atlas restart | comparability preserved only via declared/durable continuity: `ACCEPTED` when the boundary fields are restored unchanged, `NEW_EPOCH` ⇒ boundary path (§6.8.1) when a declared field differs, `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) when the admission state cannot be established | §6.8.1, §14 |
 | 20 | undeclared sequence reset | `REJECTED_STALE` — **never** an epoch change; only a declared boundary (`continuity_id`, `producer_session_id`, `ordering_epoch`) creates an epoch | §6.3, §6.6 |
-| 21 | declared continuity reset | `NEW_EPOCH` ⇒ `TEMPORAL_DISCONTINUITY` with an empty entity list; an undeclared reset is rejected, never promoted | §5.5 R-T2/R-T3, §6.2, §6.3 |
+| 21 | declared continuity reset | `NEW_EPOCH` ⇒ boundary path (§6.8.1) with an empty entity list: `TEMPORAL_DISCONTINUITY` when `A` is supplied, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not; an undeclared reset is rejected, never promoted | §5.5 R-T2/R-T3, §6.2, §6.3, §6.8.1 |
 | 22 | producer capability changes | `CAPABILITY_MISMATCH` ⇒ not comparable (no intersection narrowing) | §10.4 |
 | 23 | cross-engine snapshot equivalence | non-claim: `coordinate_frame` is in the declared-unobservable set (§10.1 set B); unit agreement only | §10.1, §15 |
 | 24 | stale observations | rejected before any comparison; no state mutation, no epoch change | §5.5, §6.3, §14 |
@@ -1495,6 +1577,10 @@ its own red-team and its own live evidence (§18 Q6).
 | 29 | an implementation reports `observations_skipped` across an epoch boundary from the two endpoints' `sequence` values | not defined across a boundary: `sequence` restarts per epoch, the field is `0` on a boundary record, and the boundary is named by its reason code | §8.1, §5.4 |
 | 30 | conflation of admission-level `REJECTED_INVALID` with pair-level `OBSERVATION_INVALID` (or the reverse: reporting a pair refusal as an admission rejection) | one name per stage (§6.8): stages 1-2 emit no record, stage 3 always emits one; a stage-3 refusal never retracts a stage-2 acceptance, and no outcome may be reported for a stage that did not run | §6.6, §6.8, §8.2, §20, §21 |
 | 31 | a producer emits the same object multiset with duplicated `object_id`s in a different order and claims the temporal digest is unchanged | the tie-break is content-derived (`object_id`, `entity_content_digest`), so emission order cannot move the digest; true content duplicates are interchangeable by construction; the `occurrence_index` rule of revision 2 (which was order-dependent for duplicated ids) is retracted | §11.2, §13.2 |
+| 32 | a `NEW_EPOCH` step whose `A` was not supplied is routed into the comparison path, or the boundary is downgraded to a comparison refusal | `NEW_EPOCH` takes the boundary path and takes precedence over the comparison checks: the epoch boundary is established either way, and pair-input availability selects **only** the record form (`TEMPORAL_DISCONTINUITY` with `A`, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` without) | §6.8, §6.8.1 P6, §8.1 |
+| 33 | a `NEW_EPOCH` step is made to run a `SAME_EPOCH` check across the boundary (capability equality, source-time monotonicity, scene scope or unit system) and reports a field or entity change | the boundary path never invokes §9 and never evaluates those checks: they may appear only as cause facts in `reason_codes`, never as a comparison, a field change or a refusal | §6.8, §6.8.1 clauses 2-3, §8.2 |
+| 34 | an implementation claims `B` was not admitted after a boundary record or after a pair-input refusal, or that the admission state differs between the two cases | `B` is admitted as the first accepted observation of the new epoch and the admission-state mutation is identical in both cases; a stage-3 refusal never retracts a stage-2 acceptance | §6.4, §6.8, §6.8.1 clauses 1 and 5 |
+| 35 | a missing-`A` boundary step produces an `observations_skipped` count from the two endpoints' `sequence` values, or synthesizes the observations between the epochs | `observations_skipped` is never computed across a boundary (counters restart per epoch): it is `0` on either record form, and no intermediate observation may be synthesized | §6.8.1 clause 4, §8.1, §14 R-R1 |
 
 ### 19.2 Deterministic test requirements (`T-n`, not implemented by this document)
 
@@ -1518,6 +1604,9 @@ its own red-team and its own live evidence (§18 Q6).
 | T-16 | Boundary-record shape (§8.1): a declared boundary emits exactly one record with `TEMPORAL_DISCONTINUITY`, an empty `entity_deltas`, `observations_skipped = 0` even when the two endpoints' `sequence` values would suggest a gap, `source_time_hold = false`, and coverage recording the reason; and the run must assert that no field comparison was performed (no `field_changes`, no `NO_CHANGE` entries) |
 | T-17 | Stage separation (§6.8): in one fixture, an arrival that fails arrival validation yields `REJECTED_INVALID` with **no record**, while a pair-level failure between two accepted observations yields exactly one record with `OBSERVATION_INVALID`; and after the stage-3 refusal the admission state is asserted unchanged, with the next accepted observation pairing against `B` |
 | T-18 | Digest order independence with duplicated ids (§11.2): the same object multiset — including two objects sharing one `object_id` with different content, and two that are content-identical — emitted in two different construction orders must produce identical `temporal_state_digest`; changing the content of one of them must change it; and the run must assert the comparison/entity ordering is unaffected by the tie-break |
+| T-19 | The `NEW_EPOCH` boundary path, both record forms (§6.8.1): one fixture declares a boundary with `A` supplied and asserts exactly one `TEMPORAL_DISCONTINUITY` record; the same fixture with `A` omitted asserts exactly one `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record. Both runs must assert an empty `entity_deltas`, `observations_skipped = 0`, `source_time_hold = false`, coverage carrying the boundary or refusal reason, an **identical** admission-state mutation, and `B` as the latest accepted observation of the new epoch |
+| T-20 | `NEW_EPOCH` never runs a `SAME_EPOCH` comparison check (§6.8.1 clauses 2-3): a fixture whose endpoints differ in capability, `unit_system`, `scene_id` and `source_time` ordering **and** sequence values that would suggest a gap must still produce the boundary path's record, with those differences appearing only as cause facts / reason codes — never as a `COMPUTED` outcome, a field change, a `NO_CHANGE` entry or a refusal reason from the comparison path |
+| T-21 | Boundary precedence and classification invariance (§6.8.1 P6): a boundary declaration with `A` missing must produce the boundary path's record (not a comparison refusal) and must leave the recorded epoch transition identical to the `A`-supplied run; additionally, the `ACCEPTED` + missing-`A` case must still produce `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` on the comparison path — the two classifications must be distinguishable in the emitted records and in the admission state |
 
 ### 19.3 Live-evidence requirements (`L-n`, not implemented by this document)
 
@@ -1546,8 +1635,10 @@ The single record emitted for one stream step. Its domain is the union of two pa
 **comparison pair** — two accepted observations of the same stream in the same epoch, `B` admitted after
 `A` — and a **boundary pair** — the last accepted observation of epoch *n* with the first accepted
 observation of the immediately following declared epoch *n+1*. The first yields a factual comparison
-(or a pair-level refusal); the second yields a **boundary record** (`TEMPORAL_DISCONTINUITY`) that asserts
-no transition and applies no field comparison. Every other arrival and pair produces no record at all:
+(or a pair-level refusal); the second yields a **boundary record** that asserts no transition and applies no
+field comparison — `TEMPORAL_DISCONTINUITY` when its earlier endpoint is supplied, and an
+`OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record when it is not, with the epoch boundary established
+and `B` admitted either way (§6.8.1). Every other arrival and pair produces no record at all:
 `DIFFERENT_STREAM`, and the admission-level `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` /
 `REJECTED_INVALID` (§6.6, §6.8). A record carries: a `DeltaOutcome`; the raw content-identity facts
 (`from_state_digest`, `to_state_digest`, `state_digest_changed`); an ordered per-entity list of
@@ -1564,7 +1655,8 @@ was `ACCEPTED` (§6.6), **and** the pair's earlier endpoint is **supplied** as t
 layer cannot compare an observation it does not hold, and it may not reconstruct one. An identical
 duplicate, a stale regression or a rejected arrival is never compared. Nothing else grants comparability —
 in particular, similar or identical snapshots never do (§5.5 R-T1), and neither does a `sequence`
-regression (§5.5 R-T3).
+regression (§5.5 R-T3). A declared boundary is not compared either: it is reported as a boundary, never as a
+difference (§6.8.1).
 
 **When must comparison fail closed or reset continuity?**
 There are two distinct failure levels, and they are never conflated (§6.8). **Admission-level
@@ -1578,7 +1670,9 @@ capability mismatch between the endpoints, non-monotonic source time inside an e
 mismatch, scene-scope change, unit-system change — evaluated in the §6.8 order, first failure wins.
 Reset continuity (new epoch, `TEMPORAL_DISCONTINUITY` boundary record, empty entity list) **only** on a
 **declared** boundary: producer restart, timeline seek, an explicit producer reset, or Atlas restart when
-continuity cannot be re-established. Reject without mutation and **without** an epoch change
+continuity cannot be re-established. If the caller cannot supply that boundary's earlier endpoint, the
+boundary still takes effect and the record becomes `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE`
+(§6.8.1): missing data never erases, downgrades or re-classifies a declared boundary. Reject without mutation and **without** an epoch change
 (`REJECTED_STALE`) on a `sequence` regression whose declared continuity metadata is unchanged, because a
 bare regression is not evidence of a reset (R-T3). A sequence gap is not a discontinuity: it is
 `observations_skipped` (§5.4) — and across a boundary it is not a count at all.
@@ -1662,7 +1756,13 @@ Implementation may begin only after an independent review confirms all of the fo
 21. the stream-processing path is single-valued end to end: one outcome name per stage, no record for an
    admission-level rejection, exactly one record for a pair-level refusal, and no retraction of an
    acceptance by a comparison failure (§6.6, §6.8, §8.2);
-22. an independent reviewer re-gates this revision — as revision 3 — and does not self-clear it.
+22. an independent reviewer re-gates this revision — as revision 3 — and does not self-clear it;
+23. the `NEW_EPOCH` boundary path is explicit, distinct from the comparison path and deterministic: one
+   record either way (`TEMPORAL_DISCONTINUITY` with a supplied endpoint, `OBSERVATION_INVALID` /
+   `PAIR_INPUT_UNAVAILABLE` without), no §9 comparison and no cross-boundary check, no cross-epoch skip
+   count, `B` admitted and the boundary established in both cases, and `NEW_EPOCH` classification taking
+   precedence over the `SAME_EPOCH` checks (§6.8, §6.8.1, §8.1);
+24. an independent reviewer re-gates this revision — as revision 4 — and does not self-clear it.
 
 ## 22. Closure map
 
@@ -1681,17 +1781,18 @@ Implementation may begin only after an independent review confirms all of the fo
 | digest / provenance boundaries | §11 | `scene_input_digest` frozen; `temporal_state_digest` (field table + content-derived object tie-break + raw-content-identity rule); `envelope_digest`; `delta_digest`; content-identity vs semantic-equivalence separation; comparison-vs-digest table |
 | determinism rules | §12 | purity statement, ordering checklist, equality table (incl. digests as raw identity), closed reason-code vocabulary |
 | low-latency considerations | §13 | cost ladder, per-entity digest primitive, explicitly no invented numbers, deferred list |
-| restart / recovery semantics | §14 | ten events, the duplicate-acknowledgement and pair-input rows, the declared-reset rule, R-R1..R-R6, connection to the recovery contract's identity discipline |
+| restart / recovery semantics | §14 | ten events, the duplicate-acknowledgement and pair-input rows (the latter covering both classifications), the declared-reset rule, R-R1..R-R6, connection to the recovery contract's identity discipline |
 | cross-language / C++ parity boundary | §15 | semantic parity contract, byte-parity non-claim, three-version scheme |
 | explicit non-goals | §16 | enumerated |
 | Event Abstraction boundary | §17 | produced/forbidden table + downstream requirements |
 | open questions | §18 | eight questions with next steps |
-| adversarial / red-team requirements | §19 | 31 attacks with design answers (incl. the revision-2 surface — undeclared resets, digest-as-comparison — and the revision-3 surface — pair sourcing, boundary records, stage conflation, digest order independence), `T-1..T-18`, `L-1..L-5` |
-| required conclusions | §20 | six questions answered without ambiguity, re-derived after the revision-2 corrections and again after the revision-3 resolutions |
-| exit criteria | §21 | twenty-two items, including the revision-2 and revision-3 conditions |
-| revisions and baseline | §0 | revision chain (incl. `75744da`, `f26746d` and this revision), frozen-boundary table, scope, citation provenance |
+| adversarial / red-team requirements | §19 | 35 attacks with design answers (incl. the revision-2 surface — undeclared resets, digest-as-comparison — the revision-3 surface — pair sourcing, boundary records, stage conflation, digest order independence — and the revision-4 surface — boundary-path precedence, classification invariance, admission invariance), `T-1..T-21`, `L-1..L-5` |
+| required conclusions | §20 | six questions answered without ambiguity, re-derived after the revision-2 corrections, the revision-3 resolutions and the revision-4 correction |
+| exit criteria | §21 | twenty-four items, including the revision-2, revision-3 and revision-4 conditions |
+| revisions and baseline | §0 | revision chain (incl. `75744da`, `f26746d`, `f1ed30d` and this revision), frozen-boundary table, scope, citation provenance |
 | design revision 2 corrections | §22.1 | eight corrections mapped to the rules that now close them, each with its re-audit and red-team coverage |
 | design revision 3 resolutions | §22.2 | five resolutions mapped to the rules that now close them, each with its adversarial requirement and its re-audit |
+| design revision 4 correction | §22.3 | the `NEW_EPOCH` boundary path, with the exhaustive single-valuedness re-audit of all eight outcomes |
 
 ### 22.1 Design revision 2 — required corrections and how they are closed
 
@@ -1751,6 +1852,30 @@ locally: §3 (vocabulary), §4.1/§4.6 (arrival-level rejection), §5.5 (outcome
 (conclusions), §21 (criteria), §22 (closure map). The chain is single-valued at each point revision 2
 left ambiguous: one source for the pair, one domain for a record, one name per stage, one ordering rule
 per projection, and no outcome reportable for a stage that did not run.
+
+**Nothing in this closure map is an implementation claim.** This revision changes no production file,
+no test, no schema and no frozen boundary: it revises one document (§0.3).
+
+### 22.3 Design revision 4 — required correction and how it is closed
+
+Revision 3 was held pending a single correction: `NEW_EPOCH` with a missing `PairInput.A` admitted two
+readings, because §6.7 P3 made a missing endpoint a pair-level refusal while §6.8 ran stage 3 for
+`NEW_EPOCH` and §8.1/§8.2 assigned `NEW_EPOCH` a `TEMPORAL_DISCONTINUITY` boundary record. It is closed by
+one deterministic rule, with every dependent passage re-derived around it.
+
+| # | Required correction | Closed in | How |
+| --- | --- | --- | --- |
+| R4-1 | `NEW_EPOCH` + missing `PairInput.A` was not single-valued (§6.7 P3 vs §6.8 vs §8.1/§8.2) | §5.5 (the four `NEW_EPOCH` rows + the boundary-path footnote), §6.2, §6.6, §6.7 P3, §6.8 (two mutually exclusive stage-3 paths), §6.8.1 (new), §8.1 (domain, boundary-record clause, correspondence table), §8.2, §10.5, §12.4, §14, §19.1 #32-#35, §19.2 T-19..T-21, §20, §21 item 23, §22 rows | one rule: a `NEW_EPOCH` arrival takes the **boundary path** (§6.8.1). The classification is made at stage 2 from the declared boundary fields alone and is never revised; §9 and every `SAME_EPOCH` comparison check are excluded from it; `B` is admitted as the first accepted observation of the new epoch with an admission-state mutation identical to every `NEW_EPOCH`; the only pair-level question asked is whether `A` was supplied, and it selects the record form alone — `TEMPORAL_DISCONTINUITY` when supplied, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when not — with no synthesized transition, no `NO_CHANGE` entry and no cross-epoch `observations_skipped`. Pair-input availability can therefore never erase, downgrade or re-classify a detected boundary, and `NEW_EPOCH` classification takes precedence over the comparison checks |
+
+**Re-audit of single-valuedness (the revision-4 sweep).** Every path through the contract was re-read and
+enumerated: `ACCEPTED` + `A` supplied ⇒ comparison path (`COMPUTED`, or one `OBSERVATION_INVALID` record
+naming the first failing check); `ACCEPTED` + `A` missing ⇒ one `OBSERVATION_INVALID` /
+`PAIR_INPUT_UNAVAILABLE` record; `NEW_EPOCH` + `A` supplied ⇒ one `TEMPORAL_DISCONTINUITY` record;
+`NEW_EPOCH` + `A` missing ⇒ one `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record with the boundary
+still established and `B` still admitted; `REJECTED_STALE` ⇒ no record, no epoch change, no state mutation;
+`REJECTED_INVALID` ⇒ no record, no state mutation; `DUPLICATE_ACKNOWLEDGED` ⇒ no record, counter only;
+`DIFFERENT_STREAM` ⇒ no record. Each path produces exactly one outcome and each outcome is produced by
+exactly one path, for the eight outcomes of §6.6 and §8.2 together.
 
 **Nothing in this closure map is an implementation claim.** This revision changes no production file,
 no test, no schema and no frozen boundary: it revises one document (§0.3).
