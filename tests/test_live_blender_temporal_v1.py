@@ -335,17 +335,16 @@ def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
 
 
 def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
-    first_snapshot, _ = _run_live_snapshot(
-        session="live-session-1",
-        continuity="live-continuity-1",
-        ordering_epoch=0,
-        x=0.0,
-    )
-    replay_snapshot, _ = _run_live_snapshot(x=99.0)
+    first_snapshot, first_meta = _run_live_snapshot(x=0.0)
+    replay_snapshot, replay_meta = _run_live_snapshot(x=99.0)
+
+    first_session = first_meta["producer_session_id"]
+    replay_session = replay_meta["producer_session_id"]
+    assert first_session != replay_session
 
     a = _observation(
         first_snapshot,
-        session="live-session-1",
+        session=first_session,
         continuity="live-continuity-1",
         sequence=12,
         ordering_epoch=0,
@@ -376,12 +375,15 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
 def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
     snapshot_a, meta_a = _run_live_snapshot(x=0.0)
     snapshot_b, meta_b = _run_live_snapshot(x=1.0)
-    frozen_session = meta_a["producer_session_id"]
-    assert frozen_session == meta_b["producer_session_id"]
+    session_a = meta_a["producer_session_id"]
+    session_b = meta_b["producer_session_id"]
 
+    # L-5 is a frozen-fixture determinism check. The snapshots are produced live,
+    # then evaluated from the same immutable pair values twice. The process/session
+    # used to produce each snapshot is not part of the semantic state comparison.
     a = _observation(
         snapshot_a,
-        session=frozen_session,
+        session=session_a,
         continuity="live-continuity-frozen",
         sequence=0,
         ordering_epoch=0,
@@ -389,7 +391,7 @@ def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
     )
     b = _observation(
         snapshot_b,
-        session="live-session-frozen",
+        session=session_a,
         continuity="live-continuity-frozen",
         sequence=1,
         ordering_epoch=0,
