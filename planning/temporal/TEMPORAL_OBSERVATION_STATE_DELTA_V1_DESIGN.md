@@ -267,15 +267,17 @@ Vocabulary (all names are v1 contract names; none is implemented in this milesto
 | Concept | Meaning | Section |
 | --- | --- | --- |
 | `stream_id` | stable identity of the observed subject across restarts; survives producer and Atlas restarts | §4.2 |
-| `continuity_id` | identity of one continuous temporal history *within* a stream; changes on restart, seek, reset | §6 |
+| `continuity_id` | producer-declared continuity token; paired with `ordering_epoch` to identify one temporal epoch | §6 |
+| `ordering_epoch` | monotone source-epoch order; strictly increases across declared epoch boundaries | §5.2, §6 |
 | `sequence` | deterministic admission-order counter inside one continuity epoch | §5.4 |
 | `source_time` | engine/media timeline position the snapshot represents (typed, integer-exact) | §5.1 |
 | `capture_time` | when Atlas observed it (host monotonic, diagnostic only) | §5.2 |
 | `state_digest` | **raw content identity** of the canonical state (temporal-level, §11.2): no semantic equivalence is applied to it | §11 |
 | `envelope_digest` | identity of the observation record as received, including metadata | §11.3 |
 | `observation_id` | derived, stable handle for one observation inside its stream | §4.3 |
-| `pair input` | the previously accepted observation `A`, **supplied** to a comparison by the caller and never stored or reconstructed by the layer | §6.7 |
-| `AdmissionOutcome` | stream admission result: `ACCEPTED` / `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` / `NEW_EPOCH` / `REJECTED_INVALID` — the last is admission-level only and is never the pair-level `OBSERVATION_INVALID` | §6.6, §6.8 |
+| `pair input` | the previously accepted observation `A`, supplied to comparison by the caller and never stored or reconstructed | §6.12 |
+| `AdmissionOutcome` | `INITIAL_ACCEPTED` / `ACCEPTED` / `NEW_EPOCH` / `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` / `REJECTED_INVALID` | §6.6 |
+| `TemporalEpochKey` | `(continuity_id, ordering_epoch)`; unique epoch identity within a stream | §6.1 |
 | `DeltaOutcome` | delta-level outcome: `COMPUTED` / `TEMPORAL_DISCONTINUITY` / `OBSERVATION_INVALID` | §8.2 |
 | `EntityDeltaKind` | entity-level fact: `OBJECT_ADDED` / `OBJECT_REMOVED` / `OBJECT_CHANGED` / `NO_CHANGE` / `IDENTITY_AMBIGUOUS` | §8.3 |
 | `FieldObservationState` | per-field coverage: observed-changed / observed-unchanged / unavailable / unsupported / invalid | §10.2 |
@@ -293,7 +295,7 @@ TemporalObservation := {
   observation_schema_version : "1"
   stream_id                  : non-empty string
   continuity_id              : non-empty string
-  sequence                   : integer >= 0          # strictly increasing per epoch; MAY gap (§5.4)
+  sequence                   : int64 >= 0          # strictly increasing per epoch; MAY gap (§5.4)
   source_time                : SourceTime            # §5.1
   capture_time               : CaptureTime           # §5.2, diagnostic only
   producer                   : ProducerProvenance    # §4.4
@@ -317,9 +319,9 @@ is not admitted as an observation and no record is emitted (§6.8, §10.5).
 | `continuity_id` | one continuous temporal history | **no** (must change on producer restart) | yes | no — comparability gate only |
 | `sequence` | one continuity epoch | **no** (reset on epoch change) | yes | no — order only |
 | `state_digest` | one canonical state | yes | yes | **yes** (§11.2) |
-| `observation_id` | one observation record | derived | derived | no |
+| `observation_id` | one observation record | derived from stream + epoch + sequence | derived | no |
 
-`stream_id` and `continuity_id` are **producer-declared but Atlas-validated** (§6.3): a producer
+`stream_id`, `continuity_id` and `ordering_epoch` are **producer-declared but Atlas-validated** (§6): a producer
 that keeps `continuity_id` constant and resets `sequence` without declaring a boundary is **not**
 granted a new epoch — its observations are rejected as stale (§6.3, §6.6), so an undeclared reset can
 never buy a fresh comparability window.
