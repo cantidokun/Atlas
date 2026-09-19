@@ -1,6 +1,6 @@
 # Atlas — Temporal Observation + State Delta v1 (Design Gate)
 
-**Status:** DESIGN REVISION 9 — REVIEW REQUIRED / NO IMPLEMENTATION
+**Status:** DESIGN REVISION 9 — CLEARED FOR IMPLEMENTATION
 **Track:** Atlas temporal layer (engine-neutral, downstream of canonical world state)
 **Architectural parent (authoritative):** `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`
 (Blender Extraction Fidelity v1 implementation + verification commits, itself on the cleared design
@@ -59,7 +59,7 @@ Revision 8 remains documentation-only. No schema implementation, production code
 7. recovery checkpoints fail closed when incomplete and are atomic when durable crash recovery is claimed;
 8. boundary-anchor semantics and post-boundary B -> C comparison are explicit.
 
-Revision 9 remains design-only and is intentionally not implementation-cleared.
+Revision 9 was independently cleared by the final Hermes red-team and the one-shot Gemini architecture review; implementation is authorized only against this frozen rule set.
 
 **What design revision 2 changes.** Revision 1 was held pending a design revision. This revision
 corrects eight contract defects found in it — sequence-gap semantics, duplicate-observation admission,
@@ -616,7 +616,7 @@ A stage-3 refusal never retracts an accepted B.
 When NEW_EPOCH is classified:
 
 1. B is admitted as the first accepted observation of the new epoch;
-2. epoch_count increments and lifetime counters are preserved;
+2. epoch_count is incremented and lifetime counters are preserved;
 3. all last_accepted_* fields become B's fields;
 4. no old/new source-time, scene, capability or unit comparison occurs;
 5. no cross-epoch observations_skipped count is computed;
@@ -870,6 +870,10 @@ A pair-level refusal is itself the StateDelta record for the accepted edge. The 
 ```
 StateDelta := {
   delta_schema_version : 1,
+
+The StateDelta `delta_schema_version` is the integer literal `1` in v1. The TemporalObservation
+`observation_schema_version` is the string literal `"1"` defined in §4.1; the two fields intentionally
+use different JSON primitive types and MUST be pinned exactly by implementation fixtures.
   outcome              : COMPUTED | TEMPORAL_DISCONTINUITY | OBSERVATION_INVALID,
   pair_input           : AVAILABLE | UNAVAILABLE,
   stream_id            : string,
@@ -2032,4 +2036,4 @@ Revision 9 responds to the first independent architectural red-team. Its princip
 | R9-14 | digest canonical value domain was incomplete | int64 bounds, Unicode scalar validity, unique keys and no-normalization rule are arrival-level invariants, including every digest-bearing identity/envelope/record value |
 | R9-15 | source_time_hold, anchor provenance and concurrency semantics were underdefined | all three are normative and closed in §§6, 8, 14; `from_observation_origin` is explicitly derived from predecessor emission history |
 
-Revision 9 remains REVIEW REQUIRED / NO IMPLEMENTATION until the independent review gate clears.
+Revision 9 has been independently cleared: Hermes returned CLEAR, followed by the one-shot Gemini architecture gate returning CLEAR. This document now authorizes implementation of the contract but does not itself contain production implementation.
