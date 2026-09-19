@@ -1,6 +1,5 @@
 """Stage-1 ingress classification coverage for Temporal v1 Rev9."""
 
-import copy
 import json
 
 import pytest
@@ -87,7 +86,7 @@ def test_nonfinite_snapshot_value_is_rejected_at_stage_one():
 
 def test_int64_overflow_snapshot_value_is_rejected_at_stage_one():
     value = _envelope()
-    value["snapshot"]["objects"][0]["location"][0] = 1 << 63
+    value["snapshot"]["objects"][0]["mesh"]["faces"][0][0] = 1 << 63
     _assert_invalid(value, "signed-64")
 
 
@@ -112,11 +111,12 @@ def test_duplicate_json_key_is_rejected_as_structured_arrival_error():
 
 def test_canonical_parser_error_is_preserved_verbatim():
     value = _envelope()
-    value["snapshot"]["objects"][0]["location"][0] = 1 << 63
+    value["snapshot"]["objects"][0]["mesh"]["faces"][0][0] = 1 << 63
+
+    from planning.temporal.canonical import temporal_canonical_bytes
 
     try:
-        from planning.temporal.model import snapshot_to_scene
-        snapshot_to_scene(copy.deepcopy(value["snapshot"]))
+        temporal_canonical_bytes(value["snapshot"])
     except CanonicalValueError as expected:
         parser_message = str(expected)
     else:
