@@ -124,7 +124,7 @@ print("ATLAS_FIXTURE_CREATED")
 
 def _plan_from_fixture(path, operation):
     profile = {"name": "soccer-field", "version": "1"}
-    script = f"""
+    script = """
 import json
 import bpy
 from planning.blender.bpy_extraction import extract_scene
@@ -132,7 +132,7 @@ from planning.blender.extraction_payload import payload_to_scene_model
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
 from planning.blender.correction_planner import plan_scene_report, plan_merge_vertex_correction
 
-bpy.ops.wm.open_mainfile(filepath={str(path)!r}, load_ui=False)
+bpy.ops.wm.open_mainfile(filepath=PATH_VALUE, load_ui=False)
 payload = extract_scene(bpy)
 scene = payload_to_scene_model(payload)
 report = run_scene_health(scene, soccer_field_profile_default())
@@ -141,10 +141,10 @@ report_payload["digest"] = report.digest()
 scene_input = dict(payload)
 scene_input.pop("schema_version", None)
 
-if {operation!r} == "REPAIR_MERGE_VERTEX":
-    outcome = plan_merge_vertex_correction(report_payload, scene_input, profile={profile!r})
+if OPERATION_VALUE == "REPAIR_MERGE_VERTEX":
+    outcome = plan_merge_vertex_correction(report_payload, scene_input, profile=PROFILE_VALUE)
 else:
-    outcome = plan_scene_report(report_payload, profile={profile!r})
+    outcome = plan_scene_report(report_payload, profile=PROFILE_VALUE)
 
 if outcome.plan is None:
     raise RuntimeError("planner returned no plan: " + repr(getattr(outcome, "refusal_code", None)))
@@ -152,7 +152,7 @@ if outcome.plan is None:
 print("ATLAS_PLAN_START")
 print(json.dumps(outcome.plan.to_json_compatible(), sort_keys=True, separators=(",",":")))
 print("ATLAS_PLAN_END")
-"""
+""".replace("PATH_VALUE", repr(str(path))).replace("OPERATION_VALUE", repr(operation)).replace("PROFILE_VALUE", repr(profile))
     proc = _run_blender_script(script)
     assert proc.returncode == 0, proc.stderr[-5000:]
     start = proc.stdout.find("ATLAS_PLAN_START")
