@@ -123,6 +123,7 @@ print("ATLAS_FIXTURE_CREATED")
 
 
 def _plan_from_fixture(path, operation):
+    profile = {"name": "soccer-field", "version": "1"}
     script = f"""
 import json
 import bpy
@@ -141,9 +142,9 @@ scene_input = dict(payload)
 scene_input.pop("schema_version", None)
 
 if {operation!r} == "REPAIR_MERGE_VERTEX":
-    outcome = plan_merge_vertex_correction(report_payload, scene_input, profile={"name":"soccer-field","version":"1"})
+    outcome = plan_merge_vertex_correction(report_payload, scene_input, profile={profile!r})
 else:
-    outcome = plan_scene_report(report_payload, profile={"name":"soccer-field","version":"1"})
+    outcome = plan_scene_report(report_payload, profile={profile!r})
 
 if outcome.plan is None:
     raise RuntimeError("planner returned no plan: " + repr(getattr(outcome, "refusal_code", None)))
