@@ -154,7 +154,7 @@ def test_refusal_then_continue_uses_refused_b_as_predecessor():
     stream = ObservationStream("stream-1")
     a = observation(0)
     b = observation(1, contract_id="other-contract")
-    c = observation(2, location=(2.0, 0.0, 0.0))
+    c = observation(2, location=(2.0, 0.0, 0.0), contract_id="other-contract")
 
     stream.step(a)
     refusal = stream.step(b, a)
@@ -241,7 +241,7 @@ def test_new_epoch_boundary_never_compares_fields():
     assert result.record["entity_deltas"] == []
     assert result.record["observations_skipped"] == 0
     assert result.record["source_time_hold"] is False
-    assert result.record["from_observation_origin"] == "EMITTED_PREDECESSOR"
+    assert result.record["from_observation_origin"] == "UNEMITTED_EPOCH_ANCHOR"
 
 
 def test_new_epoch_missing_predecessor_is_refusal_but_still_admitted():
