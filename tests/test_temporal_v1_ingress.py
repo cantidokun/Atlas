@@ -82,19 +82,19 @@ def test_invalid_canonical_value_domain_is_normative_reason_code():
 def test_nonfinite_snapshot_value_is_rejected_at_stage_one():
     value = _envelope()
     value["snapshot"]["objects"][0]["location"][0] = float("nan")
-    _assert_invalid(value, "non-finite float")
+    _assert_invalid(value, "must be finite")
 
 
 def test_int64_overflow_snapshot_value_is_rejected_at_stage_one():
     value = _envelope()
     value["snapshot"]["objects"][0]["location"][0] = 1 << 63
-    _assert_invalid(value, "signed int64")
+    _assert_invalid(value, "signed-64")
 
 
 def test_surrogate_snapshot_string_is_rejected_at_stage_one():
     value = _envelope()
     value["snapshot"]["objects"][0]["object_id"] = "\ud800"
-    _assert_invalid(value, "surrogate")
+    _assert_invalid(value, "Unicode surrogate")
 
 
 def test_duplicate_json_key_is_rejected_as_structured_arrival_error():
