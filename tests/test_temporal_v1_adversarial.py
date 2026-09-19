@@ -391,3 +391,33 @@ def test_equal_input_evaluation_is_digest_deterministic():
         "UNEMITTED_EPOCH_ANCHOR",
     )
     assert first == second
+
+
+
+def test_duplicate_object_id_emits_ambiguity_cardinality_without_pairing():
+    a = observation(0)
+    b_body = snapshot()
+    b_body["objects"].append(copy.deepcopy(b_body["objects"][0]))
+
+    b = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=1,
+        source_time=SourceTime("FRAME_INDEX", 1, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=b_body,
+        state_digest=temporal_state_digest(b_body),
+    )
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    result = stream.step(b, a)
+
+    ambiguous = [
+        item for item in result.record["entity_deltas"]
+        if item["kind"] == "IDENTITY_AMBIGUOUS"
+    ]
+    assert len(ambiguous) == 1
+    assert ambiguous[0]["ambiguity"] == {"count_before": 1, "count_after": 2}
+    assert ambiguous[0]["field_changes"] == []
+    assert ambiguous[0]["object_id"] == "obj-1"
