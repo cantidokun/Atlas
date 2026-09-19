@@ -474,3 +474,141 @@ def test_temporal_metadata_does_not_change_temporal_state_digest():
     assert b.state_digest == temporal_state_digest(body)
     assert a.state_digest == b.state_digest
     assert a.admission_identity_digest != b.admission_identity_digest
+
+
+
+@pytest.mark.parametrize(
+    "field,mutator",
+    [
+        ("collection", lambda body: body["objects"][0].update(collection="Other")),
+        ("parent_object_id", lambda body: body["objects"][0].update(parent_object_id="parent-1")),
+        ("location", lambda body: body["objects"][0].update(location=[1.0, 0.0, 0.0])),
+        ("scale", lambda body: body["objects"][0].update(scale=[2.0, 1.0, 1.0])),
+        ("rotation", lambda body: body["objects"][0].update(rotation=[0.0, 1.0, 0.0, 0.0])),
+        ("visible", lambda body: body["objects"][0].update(visible=False)),
+        ("mesh_presence", lambda body: body["objects"][0].update(mesh=None)),
+        ("mesh_id", lambda body: body["objects"][0]["mesh"].update(mesh_id="mesh-2")),
+        ("vertices", lambda body: body["objects"][0]["mesh"].update(
+            vertices=[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+        )),
+        ("faces", lambda body: body["objects"][0]["mesh"].update(faces=[[0, 2, 1]])),
+        ("materials", lambda body: body["objects"][0]["mesh"].update(materials=["mat-2"])),
+    ],
+)
+def test_each_temporal_comparison_field_is_reported(field, mutator):
+    a_body = snapshot()
+    b_body = copy.deepcopy(a_body)
+    mutator(b_body)
+
+    a = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=0,
+        source_time=SourceTime("FRAME_INDEX", 0, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=a_body,
+        state_digest=temporal_state_digest(a_body),
+    )
+    b = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=1,
+        source_time=SourceTime("FRAME_INDEX", 1, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=b_body,
+        state_digest=temporal_state_digest(b_body),
+    )
+
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    result = stream.step(b, a)
+
+    changes = [
+        change
+        for entity in result.record["entity_deltas"]
+        for change in entity["field_changes"]
+        if change["field"] == field
+    ]
+    assert len(changes) == 1
+
+
+def test_name_change_is_raw_digest_change_without_semantic_field_change():
+    a_body = snapshot()
+    b_body = copy.deepcopy(a_body)
+    b_body["objects"][0]["name"] = "different-name"
+
+    a = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=0,
+        source_time=SourceTime("FRAME_INDEX", 0, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=a_body,
+        state_digest=temporal_state_digest(a_body),
+    )
+    b = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=1,
+        source_time=SourceTime("FRAME_INDEX", 1, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=b_body,
+        state_digest=temporal_state_digest(b_body),
+    )
+
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    result = stream.step(b, a)
+
+    assert result.record["state_digest_changed"] is True
+    assert all(
+        change["field"] != "name"
+        for entity in result.record["entity_deltas"]
+        for change in entity["field_changes"]
+    )
+    assert all(entity["kind"] == "NO_CHANGE" for entity in result.record["entity_deltas"])
+
+
+def test_unobservable_fields_are_unsupported_in_coverage():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    b = observation(1, location=(1.0, 0.0, 0.0))
+
+    stream.step(a)
+    result = stream.step(b, a)
+
+    for field in UNOBSERVABLE_FIELDS:
+        assert result.record["coverage"][field] == "UNSUPPORTED_BY_PRODUCER"
+
+
+def test_sequence_gap_is_independent_from_source_time_gap():
+    stream = ObservationStream("stream-1")
+    a = observation(0, source_value=0)
+    b = observation(3, source_value=0, location=(1.0, 0.0, 0.0))
+    stream.step(a)
+    result = stream.step(b, a)
+
+    assert result.record["observations_skipped"] == 2
+    assert result.record["source_time_hold"] is True
+
+    stream2 = ObservationStream("stream-1")
+    x = observation(0, source_value=0)
+    y = observation(1, source_value=10, location=(1.0, 0.0, 0.0))
+    stream2.step(x)
+    result2 = stream2.step(y, x)
+
+    assert result2.record["observations_skipped"] == 0
+    assert result2.record["source_time_hold"] is False
+
+
+def test_envelope_digest_changes_with_capture_time_but_state_digest_does_not():
+    a = observation(0)
+    b = replace(a, capture_time=1234)
+
+    assert a.state_digest == b.state_digest
+    assert a.admission_identity_digest == b.admission_identity_digest
+    assert a.envelope_digest != b.envelope_digest
