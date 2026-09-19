@@ -140,6 +140,7 @@ def _run_live_snapshot(*, x: float) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     env.update(
         {
             "ATLAS_REPO_ROOT": repo,
+            "PYTHONPATH": repo + os.pathsep + env.get("PYTHONPATH", ""),
             "ATLAS_TEMPORAL_X": str(x),
             "ATLAS_TEMPORAL_CAPTURE_PAIR": "0",
         }
@@ -166,7 +167,8 @@ def _run_live_snapshot(*, x: float) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     start = proc.stdout.find("ATLAS_TEMPORAL_LIVE_START")
     end = proc.stdout.find("ATLAS_TEMPORAL_LIVE_END")
     assert start != -1 and end != -1, (
-        "live Temporal output markers missing: " + proc.stdout[-3000:]
+        "live Temporal output markers missing. "
+        "stdout: " + proc.stdout[-3000:] + " | stderr: " + proc.stderr[-5000:]
     )
     payload = json.loads(
         proc.stdout[
@@ -182,6 +184,7 @@ def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, seco
     env.update(
         {
             "ATLAS_REPO_ROOT": repo,
+            "PYTHONPATH": repo + os.pathsep + env.get("PYTHONPATH", ""),
             "ATLAS_TEMPORAL_X": str(first_x),
             "ATLAS_TEMPORAL_X_SECOND": str(second_x),
             "ATLAS_TEMPORAL_CAPTURE_PAIR": "1",
@@ -203,7 +206,8 @@ def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, seco
     start = proc.stdout.find("ATLAS_TEMPORAL_LIVE_START")
     end = proc.stdout.find("ATLAS_TEMPORAL_LIVE_END")
     assert start != -1 and end != -1, (
-        "live Temporal paired output markers missing: " + proc.stdout[-3000:]
+        "live Temporal paired output markers missing. "
+        "stdout: " + proc.stdout[-3000:] + " | stderr: " + proc.stderr[-5000:]
     )
     result = json.loads(proc.stdout[start + len("ATLAS_TEMPORAL_LIVE_START") : end].strip())
     assert "first_snapshot" in result and "second_snapshot" in result
