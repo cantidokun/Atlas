@@ -236,9 +236,14 @@ def live_bridge_results(tmp_path_factory):
         auth = _authorization_for(plan, operation)
 
         bridge = CorrectionExecutionBridge(blender_command=__import__("tools.blender", fromlist=["BLENDER"]).BLENDER)
+        fixture_inventory_before = _blend_inventory(tmp_root)
         result = bridge.execute(plan, operation=operation, authorization=auth, source_blend_path=str(fixture))
 
         fixture_after = _sha256(fixture)
+        fixture_inventory_after = _blend_inventory(tmp_root)
+        assert fixture_inventory_after == fixture_inventory_before, (
+            f"bridge created or modified a .blend/.blend1 artifact in its disposable session for {operation}"
+        )
         cases.append({
             "operation": operation,
             "result": result,
