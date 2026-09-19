@@ -237,6 +237,20 @@ def _plain(value):
     return value
 
 
+def _boundary_reasons_from_identity(
+    b: TemporalObservation,
+    from_identity: FromIdentity,
+) -> List[DeltaReasonCode]:
+    reasons: List[DeltaReasonCode] = []
+    if from_identity.last_accepted_continuity_id != b.continuity_id:
+        reasons.append(DeltaReasonCode.TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE)
+    if from_identity.last_accepted_producer_session_id != b.producer.producer_session_id:
+        reasons.append(DeltaReasonCode.RESTART_PRODUCER_SESSION)
+    if from_identity.last_accepted_ordering_epoch != b.ordering_epoch:
+        reasons.append(DeltaReasonCode.ORDERING_EPOCH_CHANGE)
+    return reasons
+
+
 def _boundary_reasons(a: TemporalObservation, b: TemporalObservation) -> List[DeltaReasonCode]:
     reasons = []
     if a.continuity_id != b.continuity_id:
@@ -260,12 +274,17 @@ def evaluate(evaluation_input: EvaluationInput) -> Dict[str, Any]:
     """Pure evaluator. It reads only the supplied EvaluationInput."""
 
     if isinstance(evaluation_input, BoundaryRefusalInput):
+        boundary_reasons = _boundary_reasons_from_identity(
+            evaluation_input.b,
+            evaluation_input.from_identity,
+        )
         return _refusal(
             evaluation_input.b,
             evaluation_input.from_identity,
             evaluation_input.reason,
             continuity="NEW_EPOCH",
             pair_input="UNAVAILABLE",
+            additional_reasons=boundary_reasons,
         )
 
     if isinstance(evaluation_input, RefusalInput):
@@ -347,6 +366,7 @@ def _refusal(
     *,
     continuity: str,
     pair_input: str,
+    additional_reasons: Sequence[DeltaReasonCode] = (),
 ) -> Dict[str, Any]:
     return _draft_base(
         outcome=DeltaOutcome.OBSERVATION_INVALID,
@@ -354,7 +374,7 @@ def _refusal(
         continuity=continuity,
         b=b,
         from_identity=from_identity,
-        reason_codes=[reason],
+        reason_codes=[reason, *additional_reasons],
         entity_deltas=[],
         coverage=_invalid_coverage(b.capability),
         observations_skipped=0,
