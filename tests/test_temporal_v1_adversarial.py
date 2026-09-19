@@ -612,3 +612,34 @@ def test_envelope_digest_changes_with_capture_time_but_state_digest_does_not():
     assert a.state_digest == b.state_digest
     assert a.admission_identity_digest == b.admission_identity_digest
     assert a.envelope_digest != b.envelope_digest
+
+
+
+def test_new_epoch_missing_a_preserves_boundary_causes_and_refusal_reason():
+    stream = ObservationStream("stream-1")
+    a = observation(0, session="session-1", ordering_epoch=0, continuity_id="continuity-1")
+    b = observation(
+        0,
+        session="session-2",
+        ordering_epoch=1,
+        continuity_id="continuity-2",
+        contract_id="other-contract",
+    )
+
+    stream.step(a)
+    result = stream.step(b)
+
+    assert result.admission.outcome is AdmissionOutcome.NEW_EPOCH
+    assert result.record["outcome"] == "OBSERVATION_INVALID"
+    assert result.record["pair_input"] == "UNAVAILABLE"
+    assert result.record["entity_deltas"] == []
+    assert result.record["observations_skipped"] == 0
+    assert result.record["source_time_hold"] is False
+    assert "PAIR_INPUT_UNAVAILABLE" in result.record["reason_codes"]
+    assert result.record["reason_codes"] == sorted([
+        "PAIR_INPUT_UNAVAILABLE",
+        "RESTART_PRODUCER_SESSION",
+        "ORDERING_EPOCH_CHANGE",
+        "TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE",
+    ])
+    assert stream.state.last_accepted_observation_id == b.observation_id
