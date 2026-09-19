@@ -1258,3 +1258,88 @@ def test_one_mesh_less_entity_makes_the_field_unavailable_without_losing_a_real_
     }
     assert ("obj-1", "location") in changes
     assert ("obj-2", "mesh_presence") in changes
+
+
+# --------------------------------------------------------------------------- contract closure
+# Coverage is intentionally record-scoped in the emitted schema: it summarizes which fields were
+# comparable across the pair. Entity deltas remain entity-scoped and retain the concrete changes.
+# This distinction prevents a single uncomparable entity from fabricating a field change while also
+# preserving real changes on other entities.
+
+
+def test_temporal_v1_canonical_golden_vector_is_cross_language_pinnable():
+    value = {"a": [1, True], "b": None}
+    expected_bytes_hex = (
+        "060000000000000002"
+        "01000000000000000161050000000000000002"
+        "0300000000000000010201"
+        "0100000000000000016200"
+    )
+    expected_digest = "1edddc1f3d2ca55bca2da5333a453ebd628d0047bc603a35b18217f90127cb4e"
+    from planning.temporal.canonical import temporal_canonical_bytes
+
+    assert temporal_canonical_bytes(value).hex() == expected_bytes_hex
+    assert sha256_digest(value) == expected_digest
+
+
+def test_temporal_v1_emitted_record_golden_digest_is_pinnable():
+    draft = {
+        "delta_schema_version": 1,
+        "outcome": "COMPUTED",
+        "pair_input": "AVAILABLE",
+        "stream_id": "stream-1",
+        "from_observation_id": "obs:0000000000000001",
+        "to_observation_id": "obs:0000000000000002",
+        "from_state_digest": "0" * 64,
+        "to_state_digest": "1" * 64,
+        "state_digest_changed": True,
+        "continuity": "SAME_EPOCH",
+        "observations_skipped": 0,
+        "source_time_hold": False,
+        "identity_ambiguous_ids": [],
+        "entity_deltas": [],
+        "coverage": {
+            "location": "OBSERVED_CHANGED",
+            "materials": "UNAVAILABLE",
+        },
+        "reason_codes": [],
+    }
+    record = finalize_record(draft, "EMITTED_PREDECESSOR")
+    assert record["delta_digest"] == "a0d8b0835a46c02d5ece046ef785d67c408a3ceeffbf203b15a0f1d93df3602d"
+
+
+def test_unknown_representation_state_fails_closed():
+    with pytest.raises(Exception, match="unknown values"):
+        capability(representation_state=("materials:future-unknown",))
+
+
+def test_mesh_coverage_scope_is_explicitly_record_wide_but_deltas_remain_entity_scoped():
+    before = observation(0)
+    after = observation(1)
+    body = copy.deepcopy(after.snapshot)
+    body["objects"][0]["mesh"] = None
+    after = TemporalObservation(
+        stream_id=after.stream_id,
+        continuity_id=after.continuity_id,
+        sequence=after.sequence,
+        source_time=after.source_time,
+        producer=after.producer,
+        capability=after.capability,
+        snapshot=body,
+        state_digest=temporal_state_digest(body),
+    )
+
+    stream = ObservationStream("stream-1")
+    stream.step(before)
+    result = stream.step(after, before)
+
+    assert result.record["coverage"]["mesh_presence"] == "OBSERVED_CHANGED"
+    assert result.record["coverage"]["mesh_id"] == "UNAVAILABLE"
+    assert result.record["coverage"]["vertices"] == "UNAVAILABLE"
+    assert result.record["coverage"]["faces"] == "UNAVAILABLE"
+    assert result.record["coverage"]["materials"] == "UNAVAILABLE"
+    assert [
+        (entity["object_id"], change["field"])
+        for entity in result.record["entity_deltas"]
+        for change in entity["field_changes"]
+    ] == [("obj-1", "mesh_presence")]
