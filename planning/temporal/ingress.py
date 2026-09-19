@@ -169,6 +169,8 @@ def parse_temporal_observation(value: Mapping[str, Any]) -> TemporalObservation:
             observation_schema_version=version,
             capture_time=value.get("capture_time"),
         )
+    except CanonicalValueError as exc:
+        _reject(AdmissionReasonCode.INVALID_CANONICAL_VALUE_DOMAIN, str(exc))
     except TemporalValidationError as exc:
         if "state_digest" in str(exc):
             _reject(AdmissionReasonCode.STATE_DIGEST_MISMATCH, str(exc))
