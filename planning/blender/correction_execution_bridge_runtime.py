@@ -19,6 +19,7 @@ from planning.blender.bpy_extraction import extract_scene
 from planning.blender.correction_authorization import parse_authorization
 from planning.blender.correction_contract import CorrectionPlan, CorrectionProposal
 from planning.blender.correction_executor import (
+    EXECUTOR_VERSION,
     ExecutionOutcome,
     execute_merge_vertex,
     execute_remove_degenerate_face,
@@ -86,7 +87,7 @@ def _canonical_postcondition_binding(plan: CorrectionPlan, operation: str) -> tu
     if len(matches) != 1:
         raise BridgeRuntimeError("expected exactly one selected correction")
     correction = matches[0]
-    reference = f"correction_executor:1:{operation}"
+    reference = f"correction_executor:{EXECUTOR_VERSION}:{operation}"
     body = {
         "reference": reference,
         "correction_type": correction.correction_type,
