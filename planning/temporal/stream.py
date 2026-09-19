@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 from .admission import (
     AdmissionDecision,
@@ -35,6 +35,7 @@ class ObservationStream:
     def __init__(self, stream_id: str):
         self.state = AdmissionState(stream_id=stream_id)
         self._admission = AdmissionEngine()
+        self._pending_reinitialization: Optional[Tuple[str, int]] = None
 
     @property
     def stream_id(self) -> str:
@@ -70,10 +71,28 @@ class ObservationStream:
             invalid_count=self.state.invalid_count,
             epoch_count=self.state.epoch_count,
         )
+        self._pending_reinitialization = (new_continuity_id, new_ordering_epoch)
+
+    def _reinitialization_mismatch(self, observation: TemporalObservation, reason) -> AdmissionDecision:
+        return AdmissionDecision(
+            outcome=AdmissionOutcome.REJECTED_INVALID,
+            reason_codes=(reason,),
+            observation=observation,
+            from_identity=None,
+            advances_baseline=False,
+        )
 
     def step(self, observation: TemporalObservation, predecessor: Optional[TemporalObservation] = None) -> StepResult:
         if observation.stream_id != self.stream_id:
             raise ValueError("DIFFERENT_STREAM is routing, not an admission outcome")
+
+        if self._pending_reinitialization is not None:
+            expected_continuity_id, expected_ordering_epoch = self._pending_reinitialization
+            if observation.continuity_id != expected_continuity_id or observation.ordering_epoch != expected_ordering_epoch:
+                from .admission import AdmissionReasonCode
+                decision = self._reinitialization_mismatch(observation, AdmissionReasonCode.CONTINUITY_DECLARATION_MISMATCH)
+                self._admission.commit(self.state, decision)
+                return StepResult(decision, None)
 
         decision = self._admission.prepare(self.state, observation)
 
@@ -82,6 +101,7 @@ class ObservationStream:
             return StepResult(decision, None)
 
         if decision.outcome == AdmissionOutcome.INITIAL_ACCEPTED:
+            self._pending_reinitialization = None
             self._admission.commit(self.state, decision)
             return StepResult(decision, None)
 
