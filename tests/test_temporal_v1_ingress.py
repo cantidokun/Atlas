@@ -59,7 +59,7 @@ def _envelope():
         },
         "capability": {
             "contract_id": "test-v1",
-            "observable_fields": ["location"],
+            "observable_fields": ["collection","coordinate_frame","faces","local_frame_id","location","materials","mesh_id","mesh_presence","normals","parent_object_id","rotation","scale","scene_id","unit_system","uvs","vertices","visible"],
             "unobservable_fields": [],
             "representation_state": [],
         },
