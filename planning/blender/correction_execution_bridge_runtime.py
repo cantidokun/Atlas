@@ -249,6 +249,7 @@ def run_embedded_request(request_json: str) -> None:
     engine_evidence = {
         "process_disposed": True,
         "ambiguous_result": False,
+        "mutator_invocations": 0,
         "source_loaded": False,
         "filepath_before_load": bpy.data.filepath,
         "filepath_after_load": None,
@@ -287,6 +288,7 @@ def run_embedded_request(request_json: str) -> None:
 
         out = _run_executor(plan, request)
         receipt = out["receipt"]
+        engine_evidence["mutator_invocations"] = out["mutator_invocations"]
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
@@ -297,6 +299,8 @@ def run_embedded_request(request_json: str) -> None:
             "engine_evidence": engine_evidence,
         }
     except Exception as exc:
+        if engine_evidence.get("mutator_invocations", 0) > 0:
+            engine_evidence["ambiguous_result"] = True
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         payload = {
