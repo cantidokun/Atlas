@@ -80,7 +80,7 @@ class BoundaryRefusalInput:
     reason: DeltaReasonCode
 
 
-EvaluationInput = ComparisonInput | BoundaryInput | RefusalInput | BoundaryRefusalInput
+EvaluationInput = Union[ComparisonInput, BoundaryInput, RefusalInput, BoundaryRefusalInput]
 
 
 FIELD_ORDER = (
