@@ -27,7 +27,7 @@ from planning.temporal import (
     temporal_state_digest,
 )
 from planning.temporal.canonical import CanonicalValueError, sha256_digest
-from planning.temporal.model import parse_canonical_snapshot_json
+from planning.temporal.model import TemporalValidationError, parse_canonical_snapshot_json
 
 
 COMPARISON_FIELDS = (
