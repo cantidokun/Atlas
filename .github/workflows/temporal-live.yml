@@ -1,0 +1,39 @@
+name: Atlas Temporal Live Blender Gate
+
+on:
+  push:
+    branches:
+      - feat/temporal-observation-state-delta-v1-core-implementation
+  workflow_dispatch:
+
+jobs:
+  temporal-live-blender:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify pinned Blender runtime
+        shell: pwsh
+        run: |
+          & "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe" --version
+
+      - name: Install pytest
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pytest
+
+      - name: Run Temporal live Blender gate
+        shell: pwsh
+        env:
+          ATLAS_RUN_LIVE_BLENDER: "1"
+        run: |
+          python -m pytest -q tests/test_live_blender_temporal_v1.py -s
+
+      - name: Record gate result
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "ATLAS_TEMPORAL_LIVE_GATE_COMPLETED=1"
