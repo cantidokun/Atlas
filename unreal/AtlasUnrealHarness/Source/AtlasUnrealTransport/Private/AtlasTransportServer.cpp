@@ -1,4 +1,5 @@
 #include "AtlasTransportServer.h"
+#include "AtlasStateExtraction.h"
 #include "HAL/CriticalSection.h"
 #include "AtlasUnrealTransport.h"
 #include "Engine/Engine.h"
@@ -181,7 +182,7 @@ uint32 FAtlasTransportServer::Run()
                 {
                     FTransportResponse Response;
                     ExecuteRequest(Request, Response);
-                    WriteResponse(SerializeResponse(Response));
+                    WriteResponse(SerializeExtractionCheckedResponse(Response));
                 }
                 else
                 {
@@ -309,6 +310,56 @@ FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Respo
     TArray<TSharedPtr<FJsonValue>> EntityIdsArray; for (const FString& EntityId : Response.EntityIds) EntityIdsArray.Add(MakeShareable(new FJsonValueString(EntityId))); JsonObject->SetArrayField(TEXT("entity_ids"), EntityIdsArray);
     if (Response.ObservedState.IsValid()) JsonObject->SetObjectField(TEXT("observed_state"), Response.ObservedState); else JsonObject->SetObjectField(TEXT("observed_state"), MakeShareable(new FJsonObject));
     FString OutputString; TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString); FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer); return OutputString;
+}
+
+int32 FAtlasTransportServer::GetTransportMessageSizeLimit()
+{
+    return MaxMessageSize;
+}
+
+bool FAtlasTransportServer::ExceedsTransportBound(const FString& SerializedResponse, int32& OutWireBytes)
+{
+    // The wire form is exactly this conversion: WriteResponse writes FTCHARToUTF8 bytes.
+    OutWireBytes = FTCHARToUTF8(*SerializedResponse).Length();
+    return OutWireBytes > MaxMessageSize;
+}
+
+FString FAtlasTransportServer::SerializeExtractionCheckedResponse(FTransportResponse& Response)
+{
+    FString Payload = SerializeResponse(Response);
+    if (Response.OperationName != TEXT("extract_actor_state") && Response.OperationName != TEXT("extract_sequencer_state"))
+    {
+        return Payload; // every other operation keeps its existing behaviour, byte for byte
+    }
+
+    // Unreal State Extraction Fidelity v1 design §9 item 3: the producer MUST compute the
+    // serialized byte length of the response it is about to send and MUST fail closed with
+    // ERR_EXTRACTION_PAYLOAD_TOO_LARGE when the response would not fit the transport bound,
+    // never truncating, chunking or letting it surface as a framing error after crossing
+    // the wire. `Payload` is the exact string WriteResponse writes, so this measures the
+    // real response rather than a value-tree estimate plus an assumed envelope allowance.
+    // The bound is the existing transport limit: no new cap, no second authority.
+    int32 WireBytes = 0;
+    if (!ExceedsTransportBound(Payload, WireBytes))
+    {
+        return Payload;
+    }
+
+    UE_LOG(
+        LogAtlasTransport,
+        Error,
+        TEXT("Extraction response of %d bytes exceeds the transport bound of %d bytes; failing closed before writing"),
+        WireBytes,
+        MaxMessageSize);
+
+    Response.bSuccess = false;
+    Response.ObservedState.Reset();
+    Response.Error = FString::Printf(
+        TEXT("the extraction response would not fit the transport bound (%d bytes > %d bytes)"),
+        WireBytes,
+        MaxMessageSize);
+    Response.ErrorCode = TEXT("ERR_EXTRACTION_PAYLOAD_TOO_LARGE");
+    return SerializeResponse(Response);
 }
 
 bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FString& OutError)
@@ -589,6 +640,16 @@ bool FAtlasTransportServer::ValidateRequest(const FTransportRequest& Request, FS
         if(FMath::RoundToInt(StartFrame)!=StartFrame||FMath::RoundToInt(EndFrame)!=EndFrame){OutError=TEXT("expected_start_frame and expected_end_frame must be integers");return false;}
         if(StartFrame>EndFrame){OutError=TEXT("Sequencer start frame must not exceed end frame");return false;} return true;
     }
+    if (Request.OperationName == TEXT("extract_actor_state"))
+    {
+        if (Request.Capability != TEXT("inspect_actor") || Request.Kind != TEXT("read")) { OutError = TEXT("extract_actor_state requires inspect_actor/read"); return false; }
+        return true;
+    }
+    if (Request.OperationName == TEXT("extract_sequencer_state"))
+    {
+        if (Request.Capability != TEXT("sequencer") || Request.Kind != TEXT("read")) { OutError = TEXT("extract_sequencer_state requires sequencer/read"); return false; }
+        return true;
+    }
     OutError = FString::Printf(TEXT("Unsupported operation_name: %s"), *Request.OperationName); return false;
 }
 
@@ -598,7 +659,7 @@ bool FAtlasTransportServer::ExecuteRequest(const FTransportRequest& Request, FTr
     OutResponse.SchemaVersion=1;
     OutResponse.ErrorCode=TEXT("");
 
-    const bool bSupported = Request.OperationName==TEXT("inspect_world")||Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata")||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("submit_render")||Request.OperationName==TEXT("inspect_render_job")||Request.OperationName==TEXT("verify_render_state")||Request.OperationName==TEXT("get_capabilities")||Request.OperationName==TEXT("reconcile_render_jobs");
+    const bool bSupported = Request.OperationName==TEXT("inspect_world")||Request.OperationName==TEXT("inspect_target_actors")||Request.OperationName==TEXT("set_actor_location")||Request.OperationName==TEXT("set_actor_rotation")||Request.OperationName==TEXT("set_actor_scale")||Request.OperationName==TEXT("inspect_material_state")||Request.OperationName==TEXT("apply_material_variant")||Request.OperationName==TEXT("inspect_niagara_state")||Request.OperationName==TEXT("apply_niagara_variant")||Request.OperationName==TEXT("inspect_sequencer_state")||Request.OperationName==TEXT("set_sequencer_playback_range")||Request.OperationName==TEXT("verify_sequencer_playback_range")||Request.OperationName==TEXT("inspect_blueprint_state")||Request.OperationName==TEXT("compile_blueprint")||Request.OperationName==TEXT("verify_blueprint_state")||Request.OperationName==TEXT("set_blueprint_metadata")||Request.OperationName==TEXT("inspect_render_state")||Request.OperationName==TEXT("configure_render")||Request.OperationName==TEXT("submit_render")||Request.OperationName==TEXT("inspect_render_job")||Request.OperationName==TEXT("verify_render_state")||Request.OperationName==TEXT("get_capabilities")||Request.OperationName==TEXT("reconcile_render_jobs")||Request.OperationName==TEXT("extract_actor_state")||Request.OperationName==TEXT("extract_sequencer_state");
     if (!bSupported) { OutResponse.bSuccess=false; OutResponse.Error=FString::Printf(TEXT("Unsupported operation: %s"),*Request.OperationName); OutResponse.ErrorCode=TEXT("ERR_UNKNOWN_OPERATION"); return false; }
     TSharedPtr<FGameThreadExecutionState> SharedState=MakeShareable(new FGameThreadExecutionState()); SharedState->Request=Request; SharedState->Response.RequestId=Request.RequestId; SharedState->Response.OperationName=Request.OperationName; SharedState->Response.EntityIds=Request.EntityIds; SharedState->Response.Source=TEXT("unreal-editor-atlas-transport");
     SharedState->Response.SchemaVersion=1;
@@ -640,6 +701,31 @@ void FAtlasTransportServer::ExecuteOnGameThread(TSharedPtr<FGameThreadExecutionS
     else if(S->Request.OperationName==TEXT("verify_sequencer_playback_range")) bTaskSuccess=InspectSequencerState(S->Request.EntityIds,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("get_capabilities")) bTaskSuccess=GetCapabilities(S->Request,S->ObservedState,S->Error);
     else if(S->Request.OperationName==TEXT("reconcile_render_jobs")) bTaskSuccess=ReconcileRenderJobs(S->Request,S->ObservedState,S->Error);
+    else if(S->Request.OperationName==TEXT("extract_actor_state"))
+    {
+        // One-way seam (design §10.2 item 2): the extractor receives the request's entity
+        // ids and returns a value tree or one code from the closed error vocabulary. The
+        // extractor never calls back into the server, and the envelope wrapping stays here.
+        TSharedPtr<FJsonObject> ValueTree;
+        bTaskSuccess=AtlasStateExtraction::ExtractActorState(S->Request.EntityIds,ValueTree,S->Error,S_ErrorCode);
+        if(bTaskSuccess)
+        {
+            TSharedPtr<FJsonObject> ExtractionNode=MakeShareable(new FJsonObject());
+            ExtractionNode->SetObjectField(TEXT("unreal_state_extraction"),ValueTree);
+            S->ObservedState=ExtractionNode;
+        }
+    }
+    else if(S->Request.OperationName==TEXT("extract_sequencer_state"))
+    {
+        TSharedPtr<FJsonObject> ValueTree;
+        bTaskSuccess=AtlasStateExtraction::ExtractSequencerState(S->Request.EntityIds,ValueTree,S->Error,S_ErrorCode);
+        if(bTaskSuccess)
+        {
+            TSharedPtr<FJsonObject> ExtractionNode=MakeShareable(new FJsonObject());
+            ExtractionNode->SetObjectField(TEXT("unreal_state_extraction"),ValueTree);
+            S->ObservedState=ExtractionNode;
+        }
+    }
     else S->Error=FString::Printf(TEXT("Unsupported operation: %s"),*S->Request.OperationName);
     if(bTaskSuccess&&S->Error.IsEmpty()){
         S->Response.bSuccess=true;

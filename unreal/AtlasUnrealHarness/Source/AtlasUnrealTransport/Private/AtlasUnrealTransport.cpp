@@ -1,4 +1,5 @@
 #include "AtlasUnrealTransport.h"
+#include "AtlasExtractionFixture.h"
 #include "AtlasTransportServer.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -12,6 +13,8 @@
 #include "Editor.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/SavePackage.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Misc/PackageName.h"
 #include "HAL/FileManager.h"
 #include "Factories/WorldFactory.h"
@@ -176,6 +179,24 @@ namespace
 void FAtlasUnrealTransportModule::StartupModule()
 {
     UE_LOG(LogAtlasTransport, Log, TEXT("AtlasUnrealTransport module starting up"));
+
+    // Extraction-gate fixture provisioning is opt-in (review F-1 items 1-2): it runs only in
+    // an explicit extraction-fixture session (`-AtlasExtractionFixture`), so an ordinary
+    // harness startup provisions nothing and writes nothing. The provisioning itself is test
+    // fixture content; the extraction operation never creates, loads, saves or modifies
+    // anything, in either mode.
+    if (FParse::Param(FCommandLine::Get(), TEXT("AtlasExtractionFixture")))
+    {
+        AtlasExtractionFixture::StartRuntimeFixtureTicker();
+    }
+    else
+    {
+        UE_LOG(
+            LogAtlasTransport,
+            Log,
+            TEXT("Atlas extraction fixture provisioning disabled (no -AtlasExtractionFixture "
+                 "switch): no fixture content is created, saved or verified this session"));
+    }
 
     TransportServer = new FAtlasTransportServer();
     if (!TransportServer->StartServer())
@@ -453,6 +474,8 @@ bool FAtlasUnrealTransportModule::EnsureSequencerFixture(float DeltaTime)
 void FAtlasUnrealTransportModule::ShutdownModule()
 {
     UE_LOG(LogAtlasTransport, Log, TEXT("AtlasUnrealTransport module shutting down"));
+
+    AtlasExtractionFixture::StopRuntimeFixtureTicker();
 
     if (SequencerFixtureTickerHandle.IsValid())
     {
