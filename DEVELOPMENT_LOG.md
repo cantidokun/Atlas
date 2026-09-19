@@ -693,3 +693,15 @@ Cross-process Unreal render-job recovery is implemented and merged via Milestone
 - Keep dependency-aware execution serial until concurrency is independently justified.
 - Keep lineage/provenance separate from execution authority.
 - Keep project handoffs and readmes synchronized with verified milestones.
+
+
+## September 19, 2026 — Temporal end-of-night checkpoint
+
+- Temporal Observation + State Delta v1 Rev9 implementation candidate reached real Blender 4.4.3 L-1–L-5 PASS.
+- O-1 material representation fidelity was resolved at the existing Blender Extraction Fidelity v1 producer boundary; no new Temporal token was introduced.
+- O-2 mesh-presence coverage was corrected to use UNAVAILABLE for incomparable mesh fields.
+- Latest reported regression: 4,173 passed, 40 skipped, 0 failed.
+- Independent red-team review: CLEAR WITH MINOR FINDINGS (NON-BLOCKING); no blocking architectural or authority defect.
+- Remaining review work: signed-zero semantic/digest consistency and two specification-precision clarifications. A separate declaration/payload consistency residual remains a contract-level open point.
+- Latest corrections remain uncommitted/not pushed. Development paused for the night; no merge/commit decision was made.
+- D4 correction-file drift remains unrelated and untouched.
