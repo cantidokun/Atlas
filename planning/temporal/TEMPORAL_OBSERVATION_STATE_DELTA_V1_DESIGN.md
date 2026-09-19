@@ -35,7 +35,6 @@ the claim boundary.
 | `cdf376d` | Define the missing-pair-input record schema in the temporal observation design | the document at **revision 5** (held pending review) |
 | `fd48733` | Unify the StateDelta pure-function domain in the temporal observation design | the document at **revision 6** (held pending review) |
 | `44d0a1c` | Complete the evaluation-input purity boundary with `FromIdentity` in every variant | the document at **revision 7** (held pending review) |
-| `44d0a1c` | Complete the evaluation-input purity boundary with `FromIdentity` in every variant | the document at **revision 7** (held pending review) |
 | `rev9-parent` | Temporal Observation + StateDelta v1 — **design revision 8**: close the remaining domain, boundary-mutation, enumeration and multi-cause consistency defects | prior design baseline for revision 9 |
 | *(this revision)* | Temporal Observation + StateDelta v1 — **design revision 9**: close admission invariants, epoch ordering, admission identity, evaluation lineage, recovery commit semantics and digest parity | this document only — §22.8 |
 
@@ -48,6 +47,19 @@ the claim boundary.
 5. Simultaneous boundary-field changes are deterministic: reason codes are the complete set of applicable boundary-cause codes for the changed declaring fields, emitted together and sorted; no implementation may select an arbitrary single cause or depend on input/order construction.
 
 Revision 8 remains documentation-only. No schema implementation, production code, tests, version bump, live gate, Event Abstraction, streaming/storage, or runtime authority is introduced.
+
+**What design revision 9 changes.** Revision 9 is the first revision derived from the admission/comparison separation attack. It closes the architectural gaps identified by the first independent red-team:
+
+1. membership-shaping invariants are resolved before acceptance;
+2. continuity_id is the sole epoch identity and ordering_epoch is the monotone epoch-order key;
+3. sequence may reset per epoch, but lower ordering_epoch arrivals are stale and cannot re-enter later history;
+4. admission identity and state digests use Atlas-pinned canonical digest bytes;
+5. the last accepted observation is the sole predecessor cursor because every accepted step emits an explicit record, including pair refusals;
+6. supplied A content is checked against the recorded predecessor identity without retracting B;
+7. recovery checkpoints fail closed when incomplete and are atomic when durable crash recovery is claimed;
+8. boundary-anchor semantics and post-boundary B -> C comparison are explicit.
+
+Revision 9 remains design-only and is intentionally not implementation-cleared.
 
 **What design revision 2 changes.** Revision 1 was held pending a design revision. This revision
 corrects eight contract defects found in it — sequence-gap semantics, duplicate-observation admission,
@@ -1918,3 +1930,20 @@ The revision-8 re-audit must inspect the entire document for the prior two-form 
 terminology, stale admission-mutation claims, and any boundary-cause singularization before independent review.
 The document remains **DESIGN REVISION 8 — REVIEW REQUIRED / NO IMPLEMENTATION** until a fresh independent
 architectural reviewer clears this revision.
+### 22.8 Design revision 9 — closure map
+
+Revision 9 responds to the first independent architectural red-team. Its principal resolutions are:
+
+| Item | Finding | Resolution |
+| --- | --- | --- |
+| R9-1 | post-refusal delta cursor ambiguity | one last_accepted_observation predecessor; every accepted step after the first emits a record, so refusal edges are explicit and B remains the next predecessor |
+| R9-2 | pair-input identity disagreement could be read as membership failure | PAIR_INPUT_IDENTITY_MISMATCH is explicitly pair-input integrity, never membership retraction |
+| R9-3 | digest authority was not sufficiently pinned | Atlas recomputes digests from normative canonical content; digest-bearing canonical bytes are part of the contract |
+| R9-4 | recovery commit atomicity was unspecified | durable recovery requires atomic admission identity/outcome checkpointing; incomplete checkpoints fail closed |
+| R9-5 | old epoch sequence could weave into a new epoch | ordering_epoch strictly increases across boundaries; lower epochs are stale before continuity reclassification |
+| R9-6 | boundary anchor semantics were implicit | B is explicitly the new epoch anchor and later B -> C comparison predecessor, without treating the boundary record as an A -> B state transition |
+| R9-7 | FromIdentity could be treated as a substitute for A content | supplied A admission identity is recomputed from canonical content before evaluation |
+| R9-8 | epoch authority was split across continuity/session/order fields | continuity_id identifies; ordering_epoch orders; producer_session_id supplies restart evidence |
+| R9-9 | capability/unit changes versus membership were ambiguous in red-team reading | capability/unit remain pair-level comparability facts; B can still become the next valid baseline and the refusal is explicitly recorded |
+
+Revision 9 remains REVIEW REQUIRED / NO IMPLEMENTATION.
