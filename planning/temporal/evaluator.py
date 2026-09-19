@@ -387,6 +387,10 @@ def _compare(
                 "object_id": object_id,
                 "kind": EntityDeltaKind.IDENTITY_AMBIGUOUS.value,
                 "field_changes": [],
+                "ambiguity": {
+                    "count_before": len(left),
+                    "count_after": len(right),
+                },
             })
             continue
 
