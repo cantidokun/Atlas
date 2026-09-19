@@ -53,7 +53,7 @@ def _blend_inventory(root):
     return found
 
 
-def _run_blender_script(script):
+def _run_blender_script(script, blend_path=None):
     from tools.blender import BLENDER
 
     encoded = base64.b64encode(script.encode("utf-8")).decode("ascii")
@@ -61,8 +61,14 @@ def _run_blender_script(script):
         "import base64; "
         "exec(compile(base64.b64decode('" + encoded + "').decode('utf-8'), '<atlas-live-gate>', 'exec'))"
     )
+    command = [BLENDER, "--background"]
+    if blend_path is None:
+        command.append("--factory-startup")
+    else:
+        command.append(str(blend_path))
+    command.extend(["--python-expr", expr])
     return subprocess.run(
-        [BLENDER, "--background", "--factory-startup", "--python-expr", expr],
+        command,
         capture_output=True,
         text=True,
         timeout=240,
@@ -132,7 +138,6 @@ from planning.blender.extraction_payload import payload_to_scene_model
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
 from planning.blender.correction_planner import plan_scene_report, plan_merge_vertex_correction
 
-bpy.ops.wm.open_mainfile(filepath=PATH_VALUE, load_ui=False)
 payload = extract_scene(bpy)
 scene = payload_to_scene_model(payload)
 report = run_scene_health(scene, soccer_field_profile_default())
@@ -153,7 +158,7 @@ print("ATLAS_PLAN_START")
 print(json.dumps(outcome.plan.to_json_compatible(), sort_keys=True, separators=(",",":")))
 print("ATLAS_PLAN_END")
 """.replace("PATH_VALUE", repr(str(path))).replace("OPERATION_VALUE", repr(operation)).replace("PROFILE_VALUE", repr(profile))
-    proc = _run_blender_script(script)
+    proc = _run_blender_script(script, blend_path=path)
     assert proc.returncode == 0, proc.stderr[-5000:]
     start = proc.stdout.find("ATLAS_PLAN_START")
     end = proc.stdout.find("ATLAS_PLAN_END", start + 1)
