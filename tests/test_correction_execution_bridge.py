@@ -64,7 +64,7 @@ def _plan(
         corrections=(proposal,),
         dependencies=(),
         summary_metrics={},
-        state="REVIEW_REQUIRED" if requires_human_review else "APPROVED",
+        state="REVIEW_REQUIRED",
         planning_errors=(),
     )
 
