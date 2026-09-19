@@ -65,6 +65,8 @@ Use a correction-specific operation vocabulary separate from the 14-tool generic
 - REPAIR_FACE_WINDING
 - REPAIR_MERGE_VERTEX
 
+These identifiers are transport-level aliases for the existing canonical correction type identifiers; they must not become a second correction taxonomy. The implementation must derive or validate them against the canonical executor/mapping identifiers rather than maintaining an independently drifting list.
+
 Unknown operations fail closed. The bridge accepts no arbitrary Python expression, arbitrary Blender operator path, or free-form mutation script.
 
 ### 4.2 Language-neutral correction request
@@ -220,7 +222,7 @@ Unless an existing canonical contract already guarantees them, the bridge does n
 - arbitrary custom-data-layer preservation;
 - broader local-coordinate-frame fidelity.
 
-Wave 14 raw material-slot and same-datablock observations remain bounded evidence, not a new global invariant.
+The important qualification is operation-specific: REPAIR_MERGE_VERTEX already has canonical material-slot preservation clauses in its existing MQ postconditions. The bridge must preserve that existing claim rather than weakening it. By contrast, raw material-slot/datablock observations that are not part of a canonical correction contract remain test-only evidence.
 
 ## 12. Receipts and provenance
 
