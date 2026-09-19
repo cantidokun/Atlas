@@ -1319,44 +1319,41 @@ The three concepts are distinct and are never interchanged:
 | digests (`state_digest`, `envelope_digest`, `delta_digest`, `scene_input_digest`) | exact hex string equality — raw content identity, **never** normalized (§11.5) |
 | `state_digest_changed` | the raw digest comparison; a reported fact, never a comparison result and never an input to classification (§8.1) |
 
-### 12.4 Reason-code vocabulary (closed)
+### 12.4 Reason-code namespaces (closed)
 
-`TEMPORAL_DISCONTINUITY_*`, `TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE`, `RESTART_PRODUCER_SESSION`, `SEEK_OR_ORDERING_EPOCH_CHANGE`,
-`UNDECLARED_SEQUENCE_RESET`, `STALE_SEQUENCE_REJECTED`, `DUPLICATE_IDEMPOTENT_ACK`,
-`CONTRADICTORY_SEQUENCE`, `SOURCE_TIME_NON_MONOTONIC`, `SOURCE_TIME_HOLD`, `OBSERVATIONS_SKIPPED`,
-`CAPABILITY_MISMATCH`, `CAPABILITY_UNIVERSE_INCOMPLETE`, `STATE_DIGEST_MISMATCH`, `SCENE_SCOPE_CHANGED`,
-`UNIT_SYSTEM_CHANGED`, `IDENTITY_AMBIGUOUS_IDS`, `ROTATION_SIGN_EQUIVALENT_ONLY`,
-`UNOBSERVABLE_FIELDS_PRESENT`, `MISSING_SOURCE_TIME`, `MALFORMED_TIME`, `MALFORMED_IDENTITY`,
-`PAIR_INPUT_UNAVAILABLE`, `PAIR_INPUT_IDENTITY_MISMATCH`, `ADMISSION_STATE_UNAVAILABLE`,
-`UNKNOWN_SCHEMA_VERSION`.
+AdmissionReasonCode:
 
-`SEQUENCE_REGRESSION` and `DUPLICATE_OBSERVATION` were removed in revision 2: a bare regression no
-longer names an epoch change (it is `STALE_SEQUENCE_REJECTED` / `UNDECLARED_SEQUENCE_RESET`), and an
-identical duplicate no longer produces a delta to carry a reason code (`DUPLICATE_IDEMPOTENT_ACK` is an
-admission acknowledgement, §6.6).
+UNKNOWN_SCHEMA_VERSION
+MALFORMED_IDENTITY
+MISSING_SOURCE_TIME
+MALFORMED_TIME
+CAPABILITY_UNIVERSE_INCOMPLETE
+STATE_DIGEST_MISMATCH
+ADMISSION_STATE_UNAVAILABLE
+STALE_SEQUENCE_REJECTED
+ORDERING_EPOCH_REGRESSION
+CONTRADICTORY_SEQUENCE
+SOURCE_TIME_DOMAIN_MISMATCH
+SOURCE_TIME_RATE_MISMATCH
+SOURCE_TIME_NON_MONOTONIC
+SCENE_SCOPE_CHANGED
+CONTINUITY_DECLARATION_MISMATCH
 
-Revision 3 adds `PAIR_INPUT_UNAVAILABLE` (stage 3 could not obtain the pair's earlier endpoint, §6.7) and
-`ADMISSION_STATE_UNAVAILABLE` (stage 2 could not classify the arrival at all), and renames the admission
-outcome `INVALID` to `REJECTED_INVALID` — a rename of an admission-level fact, not a new fact, required so
-that it can never be read as the pair-level `OBSERVATION_INVALID` of §8.2 (§6.6, §6.8).
+DeltaReasonCode:
 
-`PAIR_INPUT_UNAVAILABLE` is emitted on **both** stage-3 paths — the `SAME_EPOCH` comparison path and the
-`NEW_EPOCH` boundary path (§6.8.1) — and means the same thing on each: the earlier endpoint was not
-supplied. It never means that an epoch boundary went undetected, unestablished or downgraded. Revision 4
-adds no reason code.
+TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE
+RESTART_PRODUCER_SESSION
+ORDERING_EPOCH_CHANGE
+PAIR_INPUT_UNAVAILABLE
+PAIR_INPUT_IDENTITY_MISMATCH
+CAPABILITY_MISMATCH
+UNIT_SYSTEM_CHANGED
+IDENTITY_AMBIGUOUS_IDS
+ROTATION_SIGN_EQUIVALENT_ONLY
 
-Revision 5 adds `PAIR_INPUT_IDENTITY_MISMATCH`: a supplied `A` whose `observation_id` or `state_digest`
-disagrees with the identity the admission state recorded for the earlier endpoint (§8.1). It names a
-contradiction between two Atlas-owned facts, is emitted with `pair_input = "AVAILABLE"`, and never
-produces a comparison. No other code is added.
+Diagnostic fields such as source_time_hold and observations_skipped are fields, not reason codes.
 
-Revision 6 adds no reason code either: unifying the evaluation-input domain (§8.1) formalises how records
-are produced and introduces no new fact to name.
-
-Revision 7 adds none: making `FromIdentity` an explicit component of every variant makes an existing input
-explicit and names no new fact (§22.6).
-
-Adding a code is a schema revision (§15.3), never an ad-hoc string.
+There is no wildcard temporal-discontinuity code and no UNDECLARED_SEQUENCE_RESET code. An undeclared reset is represented by stale or malformed admission metadata; Atlas never invents a new epoch from it.
 
 ## 13. Low-latency considerations (cost model only — nothing is implemented)
 
