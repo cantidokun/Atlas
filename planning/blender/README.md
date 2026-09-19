@@ -72,9 +72,9 @@ Do not use the old pre-revision-9 Temporal hold text in archival handoffs as the
 
 | Wave | Capability | Current status |
 |---|---|---|
-| W1 | REMOVE_DUPLICATE_FACE | Deterministic implementation/regression complete; no committed real-Blender correction gate |
-| W1b | REMOVE_DEGENERATE_FACE | Deterministic implementation/regression complete; no committed real-Blender correction gate |
-| W2 | REPAIR_FACE_WINDING | Deterministic implementation/design complete; no committed real-Blender correction gate |
+| W1 | REMOVE_DUPLICATE_FACE | Live-validated and merged in Wave 15 |
+| W1b | REMOVE_DEGENERATE_FACE | Live-validated and merged in Wave 15 |
+| W2 | REPAIR_FACE_WINDING | Live-validated and merged in Wave 15 |
 | W3 / W13 | REPAIR_MERGE_VERTEX | Live-validated and merged; Wave 13 middle-table planner closure included |
 | W4 | REPAIR_PARENT_REFERENCE | Live-validated and merged |
 | W5 | Topology intelligence | Analysis/read-only boundary live-validated and merged |
@@ -153,37 +153,58 @@ Those cases either require additional representation semantics, human review, or
 contract. They should not be forced into an implementation wave merely to keep the wave number
 moving.
 
-## Next Blender milestone — live closure of the pre-existing W1/W2 capabilities
+## Next Blender milestone — read-only discovery / design
 
-The next concrete Blender milestone is **not yet an implementation-authorized Wave 15**.
+**Wave 15 is complete.** The three previously deterministic-only correction capabilities are now live-validated, independently red-teamed, and merged:
 
-The next design/discovery target is:
+1. REMOVE_DUPLICATE_FACE — PR #115, merge dcb04f704644b7814bd9fd7eae314423dd528860;
+2. REMOVE_DEGENERATE_FACE — PR #115, same merge;
+3. REPAIR_FACE_WINDING — PR #116, merge 4a27af868c418181c3363b939d585944599ac400.
 
-**W1/W2 Live Boundary Closure**
+There is **no implementation-authorized Wave 16 correction family at this checkpoint**.
 
-Purpose:
+The next Blender milestone therefore begins as a **read-only discovery/design gate** against current main. Its purpose is to determine whether the next meaningful bounded capability is:
 
-- establish real Blender 4.4.3 boundary gates for the already-defined duplicate-face,
-  degenerate-face, and face-winding corrections;
-- prove that the live adapter implements the already-frozen correction contracts rather than merely
-  exercising in-memory SceneModel transforms;
-- apply Wave 14 representation-fidelity evidence wherever the live operation rebuilds geometry tables;
-- preserve the existing authorization, planner, executor, receipt, persistence, and fail-closed
-  boundaries;
-- introduce no new finding code, correction family, extraction field, Temporal behavior, or
-  workflow authority.
+- a new live evidence/verification boundary for an already-defined review-only finding;
+- a narrowly bounded correction family backed by an existing contract and real engine capability;
+- a representation-fidelity closure that is genuinely missing from the current frozen contract;
+- or no immediate correction extension is justified.
 
-This milestone should begin with a **read-only design/discovery gate**. Implementation should be
-authorized only after the live Blender mutation primitives, target selection, material-slot behavior,
-persistence/no-save behavior, and adversarial refusal cases are independently reviewed.
+The discovery gate must inventory the remaining finding/correction mappings, deterministic test coverage, existing live gates, canonical representation limits, and Blender-engine feasibility. It must not change production semantics or invent a correction policy merely to continue the wave sequence.
 
-The milestone should remain split into independently provable gates even if delivered in one wave:
+### Explicitly not pre-approved
 
-1. REMOVE_DUPLICATE_FACE;
-2. REMOVE_DEGENERATE_FACE;
-3. REPAIR_FACE_WINDING.
+Do not assume the next milestone is an implementation for:
 
-Do not label the work "Wave 15 implementation" until that design/discovery gate is cleared.
+- MESH_INVALID_INDEX;
+- MESH_NON_MANIFOLD_EDGE;
+- MESH_SCALE_OUT_OF_RANGE;
+- MESH_NORMAL_INCONSISTENT;
+- SCENE_ORIGIN_INVALID;
+- OBJECT_BOUNDS_OVERLAP;
+- OBJECT_COLLECTION_INVALID;
+- OBJECT_ID_DUPLICATE;
+- OBJECT_TRANSFORM_INVALID.
+
+Those findings are currently classified as review-only, unsafe, or otherwise non-automatable. Any future change would require its own contract and safety evidence.
+
+### Discovery promotion gate
+
+Before any implementation task is issued, the next design package must establish:
+
+- the exact current contract authority in code/tests;
+- why the candidate belongs in the next milestone;
+- real Blender representability of the intended primitive;
+- authorization model;
+- target-selection identity;
+- canonical vs raw evidence boundaries;
+- adversarial refusal matrix;
+- persistence/no-save boundary;
+- frozen-file audit;
+- independent red-team clearance;
+- explicit non-claims and out-of-scope cases.
+
+No "Wave 16" implementation label should be used until that design/discovery gate is independently cleared.
 
 ## Repository-state hygiene
 
