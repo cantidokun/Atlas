@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
 from .admission import AdmissionOutcome, AdmissionState, FromIdentity
-from .canonical import CanonicalValueError, sha256_digest
-from .model import SourceTime, TemporalValidationError
+from .canonical import sha256_digest
+from .model import SourceTime, TemporalValidationError, _validate_digest
 
 
 CHECKPOINT_SCHEMA_VERSION = "1"
@@ -217,15 +217,17 @@ class AdmissionCheckpoint:
         return state
 
 
-def explicit_reinitialize(
+def validate_reinitialization_declaration(
     state: AdmissionState,
     *,
     new_continuity_id: str,
     new_ordering_epoch: int,
-) -> AdmissionState:
-    """Discard the old baseline under an explicitly declared new TemporalEpochKey.
+) -> None:
+    """Validate the external authority's new TemporalEpochKey declaration.
 
-    Lifetime counters are preserved. No synthetic boundary record is created.
+    A successful call does not mutate the state and does not synthesize a boundary record. The
+    recovery authority must then establish a fresh admission baseline; the first valid observation
+    is INITIAL_ACCEPTED.
     """
     _require_string(new_continuity_id, "new_continuity_id")
     _require_i64(new_ordering_epoch, "new_ordering_epoch", minimum=0)
@@ -242,15 +244,3 @@ def explicit_reinitialize(
         raise RecoveryCheckpointError(
             "REJECTED_INVALID: explicit recovery reinitialization requires a new continuity_id"
         )
-
-    return AdmissionState(
-        stream_id=state.stream_id,
-        continuity_id=None,
-        producer_session_id=None,
-        ordering_epoch=None,
-        accepted_count=state.accepted_count,
-        duplicate_acknowledged_count=state.duplicate_acknowledged_count,
-        rejected_stale_count=state.rejected_stale_count,
-        invalid_count=state.invalid_count,
-        epoch_count=state.epoch_count,
-    )
