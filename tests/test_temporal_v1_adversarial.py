@@ -1316,7 +1316,7 @@ def test_unknown_representation_state_fails_closed():
 def test_mesh_coverage_scope_is_explicitly_record_wide_but_deltas_remain_entity_scoped():
     before = observation(0)
     after = observation(1)
-    body = copy.deepcopy(after.snapshot)
+    body = snapshot()
     body["objects"][0]["mesh"] = None
     after = TemporalObservation(
         stream_id=after.stream_id,
