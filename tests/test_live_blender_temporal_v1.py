@@ -115,6 +115,8 @@ result = {
     "object_ids": sorted(item["object_id"] for item in snapshot["objects"]),
     "vertex_count": len(snapshot["objects"][0]["mesh"]["vertices"]),
     "producer_session_id": "blender-pid-" + str(os.getpid()),
+    "engine_version": bpy.app.version_string,
+    "engine_build": bpy.app.build_hash,
 }
 
 if os.environ.get("ATLAS_TEMPORAL_CAPTURE_PAIR", "0") == "1":
@@ -174,7 +176,7 @@ def _run_live_snapshot(*, x: float) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return payload["snapshot"], payload
 
 
-def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, second_x: float) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, second_x: float) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, str]]:
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env = dict(os.environ)
     env.update(
@@ -205,7 +207,15 @@ def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, seco
     )
     result = json.loads(proc.stdout[start + len("ATLAS_TEMPORAL_LIVE_START") : end].strip())
     assert "first_snapshot" in result and "second_snapshot" in result
-    return result["first_snapshot"], result["second_snapshot"], result["producer_session_id"]
+    return (
+        result["first_snapshot"],
+        result["second_snapshot"],
+        {
+            "producer_session_id": result["producer_session_id"],
+            "engine_version": result["engine_version"],
+            "engine_build": result["engine_build"],
+        },
+    )
 
 
 def _observation(
@@ -216,6 +226,8 @@ def _observation(
     sequence: int,
     ordering_epoch: int,
     capture_time: int,
+    engine_version: str,
+    engine_build: str,
 ) -> TemporalObservation:
     return TemporalObservation(
         stream_id="live-temporal-v1",
@@ -231,8 +243,8 @@ def _observation(
         producer=ProducerProvenance(
             producer_source="BLENDER",
             producer_contract="extraction_fidelity_v1",
-            engine_version="live",
-            engine_build="operator-gated",
+            engine_version=engine_version,
+            engine_build=engine_build,
             producer_session_id=session,
             producer_instance_ordinal=1,
         ),
@@ -244,7 +256,7 @@ def _observation(
 
 
 def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
-    first_snapshot, second_snapshot, producer_session = _run_live_pair(
+    first_snapshot, second_snapshot, producer_meta = _run_live_pair(
         continuity="live-continuity-1",
         ordering_epoch=0,
         first_x=0.0,
@@ -258,19 +270,23 @@ def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
 
     a = _observation(
         first_snapshot,
-        session=producer_session,
+        session=producer_meta["producer_session_id"],
         continuity="live-continuity-1",
         sequence=0,
         ordering_epoch=0,
         capture_time=1,
+        engine_version=producer_meta["engine_version"],
+        engine_build=producer_meta["engine_build"],
     )
     b = _observation(
         second_snapshot,
-        session=producer_session,
+        session=producer_meta["producer_session_id"],
         continuity="live-continuity-1",
         sequence=1,
         ordering_epoch=0,
         capture_time=2,
+        engine_version=producer_meta["engine_version"],
+        engine_build=producer_meta["engine_build"],
     )
 
     stream = ObservationStream("live-temporal-v1")
@@ -297,6 +313,9 @@ def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
     first_snapshot, first_meta = _run_live_snapshot(x=0.0)
     restarted_snapshot, restarted_meta = _run_live_snapshot(x=0.0)
 
+    assert first_meta["engine_version"].startswith("4.4.")
+    assert restarted_meta["engine_version"] == first_meta["engine_version"]
+
     first_session = first_meta["producer_session_id"]
     restarted_session = restarted_meta["producer_session_id"]
     assert first_session != restarted_session
@@ -308,6 +327,8 @@ def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
         sequence=7,
         ordering_epoch=0,
         capture_time=10,
+        engine_version=first_meta["engine_version"],
+        engine_build=first_meta["engine_build"],
     )
     b = _observation(
         restarted_snapshot,
@@ -316,6 +337,8 @@ def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
         sequence=0,
         ordering_epoch=1,
         capture_time=1,
+        engine_version=restarted_meta["engine_version"],
+        engine_build=restarted_meta["engine_build"],
     )
 
     stream = ObservationStream("live-temporal-v1")
@@ -338,6 +361,8 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
     first_snapshot, first_meta = _run_live_snapshot(x=0.0)
     replay_snapshot, replay_meta = _run_live_snapshot(x=99.0)
 
+    assert first_meta["engine_version"] == replay_meta["engine_version"]
+
     first_session = first_meta["producer_session_id"]
     replay_session = replay_meta["producer_session_id"]
     assert first_session != replay_session
@@ -349,6 +374,8 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
         sequence=12,
         ordering_epoch=0,
         capture_time=10,
+        engine_version=first_meta["engine_version"],
+        engine_build=first_meta["engine_build"],
     )
     b = _observation(
         replay_snapshot,
@@ -357,6 +384,8 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
         sequence=0,
         ordering_epoch=7,
         capture_time=1,
+        engine_version=replay_meta["engine_version"],
+        engine_build=replay_meta["engine_build"],
     )
 
     stream = ObservationStream("live-temporal-v1")
@@ -375,6 +404,7 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
 def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
     snapshot_a, meta_a = _run_live_snapshot(x=0.0)
     snapshot_b, meta_b = _run_live_snapshot(x=1.0)
+    assert meta_a["engine_version"] == meta_b["engine_version"]
     session_a = meta_a["producer_session_id"]
     session_b = meta_b["producer_session_id"]
 
@@ -388,6 +418,8 @@ def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
         sequence=0,
         ordering_epoch=0,
         capture_time=100,
+        engine_version=meta_a["engine_version"],
+        engine_build=meta_a["engine_build"],
     )
     b = _observation(
         snapshot_b,
@@ -396,6 +428,8 @@ def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
         sequence=1,
         ordering_epoch=0,
         capture_time=101,
+        engine_version=meta_b["engine_version"],
+        engine_build=meta_b["engine_build"],
     )
 
     stream = ObservationStream("live-temporal-v1")
