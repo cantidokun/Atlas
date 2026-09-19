@@ -76,7 +76,8 @@ def _producer_contract() -> CapabilityContract:
     )
 
 
-def _live_script() -> str:
+def _live_script(*, capture_pair: bool = False) -> str:
+    pair_flag = "1" if capture_pair else "0"
     return r'''
 import bpy, json, os, sys
 
@@ -114,7 +115,17 @@ result = {
     "scene_id": scene.scene_id,
     "object_ids": sorted(item["object_id"] for item in snapshot["objects"]),
     "vertex_count": len(snapshot["objects"][0]["mesh"]["vertices"]),
+    "producer_session_id": "blender-pid-" + str(os.getpid()),
 }
+
+if os.environ.get("ATLAS_TEMPORAL_CAPTURE_PAIR", "0") == "1":
+    first_snapshot = snapshot
+    obj.location.x = float(os.environ["ATLAS_TEMPORAL_X_SECOND"])
+    second_payload = run_live_blender_extraction(bpy)
+    second_scene = payload_to_scene_model(second_payload)
+    second_snapshot = _scene_to_canonical(second_scene)
+    result["first_snapshot"] = first_snapshot
+    result["second_snapshot"] = second_snapshot
 
 print("ATLAS_TEMPORAL_LIVE_START")
 print(json.dumps(result, sort_keys=True, separators=(",", ":")))
@@ -172,6 +183,40 @@ def _run_live_snapshot(
     return payload["snapshot"], payload
 
 
+def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, second_x: float) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ)
+    env.update(
+        {
+            "ATLAS_REPO_ROOT": repo,
+            "ATLAS_TEMPORAL_X": str(first_x),
+            "ATLAS_TEMPORAL_X_SECOND": str(second_x),
+            "ATLAS_TEMPORAL_CAPTURE_PAIR": "1",
+        }
+    )
+    proc = subprocess.run(
+        [_blender_command(), "--background", "--python-expr", _live_script(capture_pair=True)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=repo,
+        env=env,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "live Blender Temporal paired extraction failed "
+            f"rc={proc.returncode}: {proc.stderr[-3000:]}"
+        )
+    start = proc.stdout.find("ATLAS_TEMPORAL_LIVE_START")
+    end = proc.stdout.find("ATLAS_TEMPORAL_LIVE_END")
+    assert start != -1 and end != -1, (
+        "live Temporal paired output markers missing: " + proc.stdout[-3000:]
+    )
+    result = json.loads(proc.stdout[start + len("ATLAS_TEMPORAL_LIVE_START") : end].strip())
+    assert "first_snapshot" in result and "second_snapshot" in result
+    return result["first_snapshot"], result["second_snapshot"], result["producer_session_id"]
+
+
 def _observation(
     snapshot: Dict[str, Any],
     *,
@@ -208,26 +253,21 @@ def _observation(
 
 
 def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
-    first_snapshot, first_meta = _run_live_snapshot(
-        session="live-session-1",
+    first_snapshot, second_snapshot, producer_session = _run_live_pair(
         continuity="live-continuity-1",
         ordering_epoch=0,
-        x=0.0,
-    )
-    second_snapshot, second_meta = _run_live_snapshot(
-        session="live-session-1",
-        continuity="live-continuity-1",
-        ordering_epoch=0,
-        x=1.0,
+        first_x=0.0,
+        second_x=1.0,
     )
 
-    assert first_meta["object_ids"] == ["temporal_probe"]
-    assert second_meta["object_ids"] == ["temporal_probe"]
-    assert first_meta["vertex_count"] == second_meta["vertex_count"] == 3
+    assert sorted(first_snapshot["objects"][0]["object_id"] for _ in [0]) == ["temporal_probe"]
+    assert sorted(second_snapshot["objects"][0]["object_id"] for _ in [0]) == ["temporal_probe"]
+    assert len(first_snapshot["objects"][0]["mesh"]["vertices"]) == 3
+    assert len(second_snapshot["objects"][0]["mesh"]["vertices"]) == 3
 
     a = _observation(
         first_snapshot,
-        session="live-session-1",
+        session=producer_session,
         continuity="live-continuity-1",
         sequence=0,
         ordering_epoch=0,
@@ -235,7 +275,7 @@ def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
     )
     b = _observation(
         second_snapshot,
-        session="live-session-1",
+        session=producer_session,
         continuity="live-continuity-1",
         sequence=1,
         ordering_epoch=0,
@@ -244,6 +284,8 @@ def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
 
     stream = ObservationStream("live-temporal-v1")
     assert stream.step(a).record is None
+    from_identity = stream.state.from_identity()
+    assert from_identity is not None
     first = stream.step(b, a)
     assert first.record is not None
     assert first.record["outcome"] == "COMPUTED"
@@ -253,12 +295,9 @@ def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
         for change in entity["field_changes"]
     )
 
-    from_identity = stream.state.from_identity()
-    assert from_identity is not None
-
     rerun = finalize_record(
         evaluate(ComparisonInput(a=a, b=b, from_identity=from_identity)),
-        "EMITTED_PREDECESSOR",
+        "UNEMITTED_EPOCH_ANCHOR",
     )
     assert rerun["delta_digest"] == first.record["delta_digest"]
 
