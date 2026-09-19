@@ -1188,28 +1188,32 @@ Purpose: identity of the *record as received* (provenance/audit binding, mirrori
 track binds evidence to identity tuples via `docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md`
 §16). It is **not** world-state identity and must never be used to decide whether the world changed.
 
-### 11.4 Digest 4 — `delta_digest`
+### 11.4 Admission identity digest
 
-`delta_digest` is the canonical hash of the emitted `StateDelta` (same §8.2-style encoding: sorted keys,
-compact separators, `ensure_ascii=True`, `allow_nan=False`). It therefore covers `from_state_digest`,
-`to_state_digest` and `state_digest_changed` along with every other field, so a delta that records a
-raw-content change while reporting no semantic field change is referenced by a digest that commits to
-**both** facts. It exists so downstream layers can reference a specific delta (bind, receipt, replay
-comparison) without re-deriving it. It excludes itself and excludes `capture_time` of either
-observation.
+AdmissionIdentityProjection is:
 
-A `pair_input = "UNAVAILABLE"` record (§8.1) is hashed exactly as emitted: the digest commits to the
-outcome, the availability declaration and the `from_*` identity metadata — and it contains no observation
-content, because the record holds none. It must never be described as committing to, standing in for, or
-substituting for `A`'s snapshot (§6.7.1), and its value must not depend on whether `A`'s content happened to
-be resident in the process.
+    observation_schema_version
+    stream_id
+    continuity_id
+    sequence
+    source_time
+    producer_session_id
+    capability
+    state_digest
 
-**`delta_digest` is defined over the emitted record, never over the inputs.** For every `EvaluationInput`
-variant (§8.1) it is the canonical hash of the record `F` returns — so it is deterministic for
-`ComparisonInput`, `BoundaryInput`, `RefusalInput` and `BoundaryRefusalInput` alike, and two identical
-inputs of the same variant always produce the same digest. Nothing outside the emitted record participates
-in it. The mutable admission state is never read: the immutable projection the record was built from is a
-component of the evaluation input (§8.1), and only the emitted record is hashed.
+admission_identity_digest = SHA256(canonical_bytes(AdmissionIdentityProjection)).
+
+The canonical bytes for every digest-bearing projection are normative: sorted keys, compact separators, ASCII escaping, exact scalar representation, fixed-width integer bounds and non-finite refusal. Atlas is the canonicalizer of record.
+
+The producer's state_digest is a claim. Atlas recomputes the state digest from the single normative snapshot and rejects a mismatch before admission.
+
+General transport serialization remains outside this contract. Digest-bearing canonicalization is not deferred: any implementation that claims the same digest MUST reproduce the same canonical bytes.
+
+### 11.4A Digest 4 — `delta_digest`
+
+`delta_digest` is the canonical hash of the emitted StateDelta record. It covers the record's identity fields, outcome, availability, reason codes, coverage, entity deltas and raw endpoint digests, excludes itself, and never includes capture_time.
+
+The digest is defined over the emitted record, not over mutable admission state or unavailable observation content.
 
 ### 11.5 Content identity vs semantic equivalence (two independent relations)
 
