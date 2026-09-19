@@ -732,6 +732,7 @@ print(stream.step(b, a).record["delta_digest"])
             capture_output=True,
             text=True,
             check=True,
+            env=env,
         )
         values.append(proc.stdout.strip().splitlines()[-1])
     assert len(set(values)) == 1
