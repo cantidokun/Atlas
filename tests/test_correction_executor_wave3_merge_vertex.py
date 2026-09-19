@@ -34,7 +34,11 @@ from planning.blender.correction_planner import (
     plan_merge_vertex_correction,
 )
 from planning.blender.correction_values import thaw_jsonable
-from planning.blender.extraction_payload import PAYLOAD_SCHEMA_VERSION, payload_to_scene_model
+from planning.blender.extraction_payload import (
+    PAYLOAD_SCHEMA_VERSION,
+    payload_representation_state,
+    payload_to_scene_model,
+)
 from planning.blender.finding_codes import FindingCode, severity_of
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
 from planning.blender.scene_model import MeshModel, ObjectModel, SceneModel
@@ -50,14 +54,16 @@ MERGE_CODE = FindingCode.MESH_DUPLICATE_VERTEX
 # ---------------------------------------------------------------------------
 
 def _payload(faces, verts, *, object_id="o", mesh_id="m", scene_id="s", unit="METERS",
-             extra_objects=()):
+             extra_objects=(), materials=()):
+    # WAVE 14: ``materials`` is parameterised so the offline MQ-5 discriminators can run against a
+    # MATERIAL-BEARING fixture. The default stays ``()`` so every historical case is unchanged.
     obj = {
         "object_id": object_id, "name": object_id, "collection": "Field",
         "parent_object_id": None, "location": [0, 0, 0], "scale": [1, 1, 1],
         "rotation": [1, 0, 0, 0], "visible": True,
         "mesh": {"mesh_id": mesh_id, "vertices": [list(v) for v in verts],
                  "faces": [list(f) for f in faces], "normals": None, "uvs": None,
-                 "materials": [], "local_frame_id": None},
+                 "materials": list(materials), "local_frame_id": None},
     }
     objs = [obj] + list(extra_objects)
     return {"schema_version": PAYLOAD_SCHEMA_VERSION, "scene_id": scene_id,
@@ -1818,3 +1824,166 @@ def test_b1_no_legal_case_mutates_and_then_reports_a_postcondition_failure():
                 continue
             assert post_counts.get(code, 0) >= count, f"{label}: {code} was CLEARED"
         assert _mq7(result)[0]["ok"] is True, label
+
+
+# ===========================================================================
+# 9. WAVE 14 — REPRESENTATION FIDELITY DISCRIMINATORS (material slots, no bpy)
+#
+# The Wave 14 gap: MQ-5 already compares ``tuple(mesh.materials)``, but every fixture was
+# material-free, so the comparison was vacuous (``() == ()``). These tests run the SAME existing
+# MQ-5 mechanism against a MATERIAL-BEARING fixture: the faithful mutation must complete, and every
+# tampering mutation must be refused. No second verifier is introduced anywhere.
+#
+# What the canonical model CANNOT detect is documented (not "fixed") in section 9c: the canonical
+# representation has no slot link kind, no unassigned-slot concept and no datablock identity, and the
+# frozen parser collapses an omitted ``materials`` key and ``materials: []`` to the same tuple.
+# ===========================================================================
+
+#: distinct, order-sensitive material names for the material-bearing fixture
+FIXTURE_MATERIALS = ("turf", "line_markings", "goal_net")
+
+
+def _fixture_tail_with_materials():
+    """The tail fixture (real planner) carrying a NON-EMPTY canonical material tuple."""
+    scene = _scene(TAIL_FACES, TAIL_VERTS, materials=FIXTURE_MATERIALS)
+    plan, corr = _real_plan(scene, TAIL_VERTS, TAIL_FACES, materials=FIXTURE_MATERIALS)
+    return scene, plan, corr
+
+
+def _tamper_materials_mutator(replacement):
+    """Perform the faithful merge, then set the target mesh's materials to ``replacement``."""
+    def mutator(engine_state, *, object_id, mesh_id, vertices, faces, old_to_new_mapping):
+        _merge_mutator(engine_state, object_id=object_id, mesh_id=mesh_id, vertices=vertices,
+                       faces=faces, old_to_new_mapping=old_to_new_mapping)
+        def transform(o):
+            if o.object_id != object_id:
+                return o
+            return _with_mesh(o, MeshModel(mesh_id=o.mesh.mesh_id, vertices=o.mesh.vertices,
+                                           faces=o.mesh.faces, normals=o.mesh.normals,
+                                           uvs=o.mesh.uvs, materials=tuple(replacement),
+                                           local_frame_id=o.mesh.local_frame_id))
+        _rebuild(engine_state, transform)
+    return mutator
+
+
+def test_wave14_green_faithful_mutation_preserves_non_empty_materials():
+    """GREEN: with a material-bearing fixture the material clause of MQ-5 is exercised for real."""
+    scene, plan, corr = _fixture_tail_with_materials()
+    assert tuple(scene.objects[0].mesh.materials) == FIXTURE_MATERIALS, "anti-vacuity"
+    result, engine, counted = _run(scene, plan, _artifact(plan, corr))
+    assert result["result"] == ExecutionOutcome.COMPLETED
+    assert result["failure_code"] is None
+    assert len(counted.calls) == 1, "exactly one bounded mutation"
+    assert tuple(engine.scene.objects[0].mesh.materials) == FIXTURE_MATERIALS
+    mq5 = next(e for e in result["postcondition_results"] if e["reason"].startswith("MQ-5"))
+    assert mq5["ok"] is True
+
+
+def test_wave14_red_material_slot_dropped_is_refused_by_mq5():
+    scene, plan, corr = _fixture_tail_with_materials()
+    before = tuple(scene.objects[0].mesh.materials)
+    result, engine, counted = _run(scene, plan, _artifact(plan, corr),
+                                   mutator=_tamper_materials_mutator(()))
+    assert result["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert result["failure_code"] == "MQ-5", f"pre={before!r} post={tuple(engine.scene.objects[0].mesh.materials)!r}"
+    assert len(counted.calls) == 1, "fail-closed AFTER the single bounded mutation: no retry"
+    assert engine.scene.objects[0].mesh.materials == ()
+
+
+def test_wave14_red_material_slot_added_is_refused_by_mq5():
+    scene, plan, corr = _fixture_tail_with_materials()
+    before = tuple(scene.objects[0].mesh.materials)
+    added = before + ("extra_slot",)
+    result, engine, counted = _run(scene, plan, _artifact(plan, corr),
+                                   mutator=_tamper_materials_mutator(added))
+    assert result["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert result["failure_code"] == "MQ-5", f"pre={before!r} post={added!r}"
+    assert len(counted.calls) == 1
+    assert tuple(engine.scene.objects[0].mesh.materials) == added
+
+
+def test_wave14_red_material_slot_reordered_is_refused_by_mq5():
+    scene, plan, corr = _fixture_tail_with_materials()
+    before = tuple(scene.objects[0].mesh.materials)
+    reordered = tuple(reversed(before))
+    assert reordered != before, "the reordering must be a REAL difference (order is significant)"
+    result, engine, counted = _run(scene, plan, _artifact(plan, corr),
+                                   mutator=_tamper_materials_mutator(reordered))
+    assert result["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert result["failure_code"] == "MQ-5", f"pre={before!r} reordered={reordered!r}"
+    assert len(counted.calls) == 1
+    assert tuple(engine.scene.objects[0].mesh.materials) == reordered
+
+
+def test_wave14_red_material_name_substituted_is_refused_by_mq5():
+    scene, plan, corr = _fixture_tail_with_materials()
+    before = tuple(scene.objects[0].mesh.materials)
+    spoofed = (before[0], "SPOOFED_SLOT_NAME") + before[2:]
+    assert spoofed != before and len(spoofed) == len(before)
+    result, engine, counted = _run(scene, plan, _artifact(plan, corr),
+                                   mutator=_tamper_materials_mutator(spoofed))
+    assert result["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert result["failure_code"] == "MQ-5", f"pre={before!r} spoofed={spoofed!r}"
+    assert len(counted.calls) == 1
+    assert tuple(engine.scene.objects[0].mesh.materials) == spoofed
+
+
+# ---------------------------------------------------------------------------
+# 9c. DOCUMENTED CANONICAL LIMITATIONS (limitation tests, NOT a request to change anything)
+# ---------------------------------------------------------------------------
+
+def test_wave14_limitation_omitted_key_and_empty_list_collapse_canonically():
+    """The frozen parser collapses ``materials: []`` and an OMITTED ``materials`` key to the same
+    canonical ``MeshModel.materials == ()``. Only the payload-level representation-state fact (which
+    the canonical model does not carry) distinguishes them.
+
+    Consequence, stated plainly: in the unassigned-slot / OBJECT-linked configurations the producer
+    omits the key, so canonical MQ-5 sees ``() == ()`` and CANNOT detect a slot loss. Those classes
+    are RAW-BLENDER-BOUNDARY-ONLY and are asserted by the live gate's raw slot table.
+    """
+    omitted = _payload(TAIL_FACES, TAIL_VERTS, extra_objects=())
+    omitted_obj = omitted["objects"][0]["mesh"]
+    omitted_obj.pop("materials")                      # §4.3 branch 2 (OBJECT-linked / unassigned)
+    empty = _payload(TAIL_FACES, TAIL_VERTS, extra_objects=())
+
+    assert payload_representation_state(omitted) == ("materials:omitted",)
+    assert payload_representation_state(empty) == ()
+
+    scene_omitted = payload_to_scene_model(omitted)
+    scene_empty = payload_to_scene_model(empty)
+    assert scene_omitted.objects[0].mesh.materials == ()
+    assert scene_empty.objects[0].mesh.materials == ()
+    assert scene_omitted.objects[0].mesh.materials == scene_empty.objects[0].mesh.materials
+
+
+def test_wave14_limitation_unassigned_or_object_linked_loss_is_invisible_to_mq5():
+    """LIMITATION: an empty canonical material tuple cannot distinguish 'no materials' from 'slots
+    existed in Blender but were unassignable/OBJECT-linked'. A fixture whose canonical tuple is empty
+    completes even if a raw slot table was destroyed, because MQ-5 compares ``()`` to ``()``.
+
+    This test documents the boundary; the live gate asserts the raw slot table for those cases.
+    """
+    scene = _scene(TAIL_FACES, TAIL_VERTS, materials=())
+    plan, corr = _real_plan(scene, TAIL_VERTS, TAIL_FACES, materials=())
+    assert tuple(scene.objects[0].mesh.materials) == ()
+    result, _engine, counted = _run(scene, plan, _artifact(plan, corr),
+                                    mutator=_tamper_materials_mutator(()))
+    assert len(counted.calls) == 1
+    assert result["result"] == ExecutionOutcome.COMPLETED, \
+        "documented limitation: MQ-5 cannot see this class (its canonical view is empty)"
+    assert result["failure_code"] is None
+
+
+def test_wave14_limitation_same_name_material_substitution_is_invisible_to_mq5():
+    """LIMITATION: the canonical representation carries material NAMES only, so substituting a
+    material datablock for a different one that carries the same name is not observable canonically.
+    The name tuple is the strongest canonical claim Wave 14 makes; datablock identity is NOT claimed
+    (see the Wave 14 design's classification matrix).
+    """
+    scene, plan, corr = _fixture_tail_with_materials()
+    same_names = tuple(FIXTURE_MATERIALS)           # a different datablock, the same names
+    result, engine, counted = _run(scene, plan, _artifact(plan, corr),
+                                   mutator=_tamper_materials_mutator(same_names))
+    assert len(counted.calls) == 1
+    assert result["result"] == ExecutionOutcome.COMPLETED
+    assert tuple(engine.scene.objects[0].mesh.materials) == same_names

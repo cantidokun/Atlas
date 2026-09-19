@@ -19,6 +19,25 @@ mesh.from_pydata(
 mesh.update()
 obj = bpy.data.objects.new('Wave6Target', mesh)
 bpy.context.collection.objects.link(obj)
+# WAVE 14 material-slot fixture (RAW-BLENDER-BOUNDARY-ONLY evidence): two ASSIGNED data-linked slots
+# with distinct names plus one UNASSIGNED data-linked slot, in a fixed order. The bmesh in-place
+# primitive must leave this table untouched.
+mesh.materials.append(bpy.data.materials.new('wave6_turf'))
+mesh.materials.append(bpy.data.materials.new('wave6_line_markings'))
+mesh.materials.append(None)
+
+
+def slot_table(target):
+    return [[str(slot.link), (slot.material.name if slot.material else None)]
+            for slot in target.material_slots]
+
+
+before_slots = slot_table(obj)
+if (len(before_slots) != 3 or before_slots[0][1] is None or before_slots[1] is None
+        or before_slots[2][1] is not None):
+    raise RuntimeError('WAVE 14 anti-vacuity: expected 2 assigned + 1 unassigned slot, got %r'
+                       % (before_slots,))
+
 obj.location = (3.0, 4.0, 5.0)
 obj.rotation_euler = (0.1, 0.2, 0.3)
 obj.scale = (1.2, 0.8, 1.5)
@@ -55,8 +74,14 @@ after_vertices = tuple(vec(v.co) for v in mesh.vertices)
 after_faces = tuple(tuple(p.vertices) for p in mesh.polygons)
 after_matrix = tuple(tuple(round(float(x), 8) for x in row) for row in obj.matrix_world)
 after_other = tuple(vec(v.co) for v in other_mesh.vertices)
+after_slots = slot_table(obj)
 
 checks = {
+    'material_slots_preserved': after_slots == before_slots,
+    'material_slot_count_preserved': len(after_slots) == len(before_slots),
+    'material_slot_order_and_names_preserved':
+        [s[1] for s in after_slots] == [s[1] for s in before_slots],
+    'unassigned_slot_still_unassigned': after_slots[2] == ['DATA', None],
     'isolated_removed_only': len(mesh.vertices) == 3 and not ({i for p in mesh.polygons for i in p.vertices} ^ {0, 1, 2}),
     'surviving_vertices_preserved': after_vertices == before_vertices[:3],
     'face_semantics_preserved': after_faces == ((0, 1, 2),),
@@ -69,4 +94,4 @@ if not all(checks.values()):
     raise RuntimeError('Wave6 live checks failed: %r' % checks)
 
 print('ATLAS_WAVE6_ISOLATED_VERTEX_LIVE_PASS')
-print(json.dumps({'checks': checks, 'before_vertices': before_vertices, 'after_vertices': after_vertices, 'before_faces': before_faces, 'after_faces': after_faces, 'save_attempted': False}))
+print(json.dumps({'checks': checks, 'before_vertices': before_vertices, 'after_vertices': after_vertices, 'before_faces': before_faces, 'after_faces': after_faces, 'before_slots': before_slots, 'after_slots': after_slots, 'save_attempted': False}))
