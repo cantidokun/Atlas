@@ -674,3 +674,241 @@ def test_new_epoch_missing_a_preserves_boundary_causes_and_refusal_reason():
         "TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE",
     ])
     assert stream.state.last_accepted_observation_id == b.observation_id
+
+
+def test_same_epoch_missing_a_emits_closed_refusal_schema():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    b = observation(1, location=(1.0, 0.0, 0.0))
+    stream.step(a)
+
+    result = stream.step(b)
+
+    assert result.admission.outcome is AdmissionOutcome.ACCEPTED
+    record = result.record
+    assert record is not None
+    assert record["outcome"] == DeltaOutcome.OBSERVATION_INVALID.value
+    assert record["pair_input"] == "UNAVAILABLE"
+    assert record["continuity"] == "SAME_EPOCH"
+    assert record["from_observation_id"] == a.observation_id
+    assert record["from_state_digest"] == a.state_digest
+    assert record["to_observation_id"] == b.observation_id
+    assert record["to_state_digest"] == b.state_digest
+    assert record["entity_deltas"] == []
+    assert record["observations_skipped"] == 0
+    assert record["source_time_hold"] is False
+    assert "PAIR_INPUT_UNAVAILABLE" in record["reason_codes"]
+    assert not any("field_changes" in entity for entity in record["entity_deltas"])
+
+
+def test_refusal_projection_metadata_never_fabricates_content():
+    a = observation(0)
+    b = observation(1, location=(1.0, 0.0, 0.0))
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    baseline = stream.state.from_identity()
+    assert baseline is not None
+
+    variants = [
+        replace(
+            baseline,
+            last_accepted_observation_id="obs:wrong",
+        ),
+        replace(
+            baseline,
+            last_accepted_state_digest="0" * 64,
+        ),
+        replace(
+            baseline,
+            last_accepted_admission_identity_digest="1" * 64,
+        ),
+    ]
+
+    for projection in variants:
+        record = finalize_record(
+            evaluate(
+                RefusalInput(
+                    b=b,
+                    from_identity=projection,
+                    reason=DeltaReasonCode.PAIR_INPUT_UNAVAILABLE,
+                )
+            ),
+            "UNEMITTED_EPOCH_ANCHOR",
+        )
+        assert record["outcome"] == DeltaOutcome.OBSERVATION_INVALID.value
+        assert record["entity_deltas"] == []
+        assert record["pair_input"] == "UNAVAILABLE"
+        assert "PAIR_INPUT_UNAVAILABLE" in record["reason_codes"]
+        assert record["coverage"]["location"] in {
+            "INVALID_OBSERVATION",
+            "OBSERVED_UNCHANGED",
+            "OBSERVED_CHANGED",
+        }
+        assert not any(
+            "field_changes" in entity and entity["field_changes"]
+            for entity in record["entity_deltas"]
+        )
+
+
+def test_refusal_and_boundary_input_determinism_is_byte_stable():
+    a = observation(0)
+    b = observation(1, location=(1.0, 0.0, 0.0))
+    boundary_b = observation(0, continuity_id="continuity-2", ordering_epoch=1)
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    from_identity = stream.state.from_identity()
+    assert from_identity is not None
+
+    refusal_input = RefusalInput(
+        b=b,
+        from_identity=from_identity,
+        reason=DeltaReasonCode.PAIR_INPUT_UNAVAILABLE,
+    )
+    boundary_input = BoundaryInput(
+        a=a,
+        b=boundary_b,
+        from_identity=from_identity,
+    )
+
+    refusal_one = finalize_record(
+        evaluate(refusal_input),
+        "UNEMITTED_EPOCH_ANCHOR",
+    )
+    refusal_two = finalize_record(
+        evaluate(replace(refusal_input)),
+        "UNEMITTED_EPOCH_ANCHOR",
+    )
+    boundary_one = finalize_record(
+        evaluate(boundary_input),
+        "UNEMITTED_EPOCH_ANCHOR",
+    )
+    boundary_two = finalize_record(
+        evaluate(replace(boundary_input)),
+        "UNEMITTED_EPOCH_ANCHOR",
+    )
+
+    assert refusal_one == refusal_two
+    assert boundary_one == boundary_two
+
+
+def test_evaluation_input_four_variant_matrix_has_one_record_form_each():
+    a = observation(0)
+    same_b = observation(1, location=(1.0, 0.0, 0.0))
+    boundary_b = observation(0, continuity_id="continuity-2", ordering_epoch=1)
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    from_identity = stream.state.from_identity()
+    assert from_identity is not None
+
+    cases = (
+        (
+            ComparisonInput(a, same_b, from_identity),
+            "AVAILABLE",
+            "COMPUTED",
+            "SAME_EPOCH",
+        ),
+        (
+            RefusalInput(
+                same_b,
+                from_identity,
+                DeltaReasonCode.PAIR_INPUT_UNAVAILABLE,
+            ),
+            "UNAVAILABLE",
+            "OBSERVATION_INVALID",
+            "SAME_EPOCH",
+        ),
+        (
+            BoundaryInput(a, boundary_b, from_identity),
+            "AVAILABLE",
+            "TEMPORAL_DISCONTINUITY",
+            "NEW_EPOCH",
+        ),
+        (
+            BoundaryRefusalInput(
+                boundary_b,
+                from_identity,
+                DeltaReasonCode.PAIR_INPUT_UNAVAILABLE,
+            ),
+            "UNAVAILABLE",
+            "OBSERVATION_INVALID",
+            "NEW_EPOCH",
+        ),
+    )
+
+    seen = set()
+    for evaluation_input, pair_input, outcome, continuity in cases:
+        record = finalize_record(
+            evaluate(evaluation_input),
+            "UNEMITTED_EPOCH_ANCHOR",
+        )
+        key = (
+            type(evaluation_input).__name__,
+            record["pair_input"],
+            record["outcome"],
+            record["continuity"],
+        )
+        seen.add(key)
+        assert record["pair_input"] == pair_input
+        assert record["outcome"] == outcome
+        assert record["continuity"] == continuity
+    assert len(seen) == 4
+
+
+def test_refusal_variants_cannot_emit_computed_or_no_change_entities():
+    a = observation(0)
+    b = observation(1, location=(1.0, 0.0, 0.0))
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    from_identity = stream.state.from_identity()
+    assert from_identity is not None
+
+    for evaluation_input in (
+        RefusalInput(b, from_identity, DeltaReasonCode.PAIR_INPUT_UNAVAILABLE),
+        BoundaryRefusalInput(
+            observation(0, continuity_id="continuity-2", ordering_epoch=1),
+            from_identity,
+            DeltaReasonCode.PAIR_INPUT_UNAVAILABLE,
+        ),
+    ):
+        record = finalize_record(
+            evaluate(evaluation_input),
+            "UNEMITTED_EPOCH_ANCHOR",
+        )
+        assert record["outcome"] == DeltaOutcome.OBSERVATION_INVALID.value
+        assert record["entity_deltas"] == []
+        assert not any(
+            entity.get("kind") == "NO_CHANGE"
+            for entity in record["entity_deltas"]
+        )
+
+
+def test_reinitialize_anchor_remains_unemitted_after_non_record_admissions():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    stream.step(a)
+    stream.reinitialize(
+        new_continuity_id="continuity-2",
+        new_ordering_epoch=1,
+    )
+
+    b = observation(0, continuity_id="continuity-2", ordering_epoch=1)
+    duplicate = replace(b, capture_time=777)
+    c = observation(
+        1,
+        continuity_id="continuity-2",
+        ordering_epoch=1,
+        location=(1.0, 0.0, 0.0),
+    )
+
+    first = stream.step(b)
+    assert first.admission.outcome is AdmissionOutcome.INITIAL_ACCEPTED
+    assert first.record is None
+
+    duplicate_result = stream.step(duplicate)
+    assert duplicate_result.admission.outcome is AdmissionOutcome.DUPLICATE_ACKNOWLEDGED
+    assert duplicate_result.record is None
+
+    result = stream.step(c, b)
+    assert result.admission.outcome is AdmissionOutcome.ACCEPTED
+    assert result.record["from_observation_id"] == b.observation_id
+    assert result.record["from_observation_origin"] == "UNEMITTED_EPOCH_ANCHOR"
