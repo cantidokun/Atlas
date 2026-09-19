@@ -38,10 +38,16 @@ jobs:
         env:
           ATLAS_RUN_LIVE_BLENDER: "1"
         run: |
-          python -m pytest -q tests/test_live_blender_temporal_v1.py -s
+          python -m pytest -q tests/test_live_blender_temporal_v1.py -s 2>&1 | Tee-Object -FilePath temporal-live-gate.log
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
-      - name: Record gate result
+      - name: Upload Temporal live evidence
         if: always()
-        shell: pwsh
-        run: |
-          Write-Host "ATLAS_TEMPORAL_LIVE_GATE_COMPLETED=1"
+        uses: actions/upload-artifact@v4
+        with:
+          name: temporal-live-blender-evidence
+          path: temporal-live-gate.log
+          if-no-files-found: warn
+          retention-days: 14
