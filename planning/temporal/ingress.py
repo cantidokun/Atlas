@@ -8,18 +8,10 @@ TemporalObservation.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from typing import Any, Mapping, Tuple
+from typing import Any, Mapping
 
 from .admission import AdmissionReasonCode
-from .model import (
-    CapabilityContract,
-    ProducerProvenance,
-    SourceTime,
-    TemporalObservation,
-    TemporalValidationError,
-    parse_canonical_snapshot_json,
-)
+from .model import CapabilityContract, ProducerProvenance, SourceTime, TemporalObservation, TemporalValidationError
 
 
 _ALLOWED_TOP_LEVEL = {
@@ -191,6 +183,8 @@ def parse_temporal_observation_json(text: str) -> TemporalObservation:
         value = json.loads(text, object_pairs_hook=lambda pairs: _reject_duplicate_keys(pairs))
     except json.JSONDecodeError as exc:
         _reject(AdmissionReasonCode.INVALID_CANONICAL_VALUE_DOMAIN, f"invalid JSON: {exc}")
+    except ValueError as exc:
+        _reject(AdmissionReasonCode.INVALID_CANONICAL_VALUE_DOMAIN, str(exc))
     if not isinstance(value, dict):
         _reject(AdmissionReasonCode.MALFORMED_IDENTITY, "temporal observation JSON root must be an object")
     return parse_temporal_observation(value)
