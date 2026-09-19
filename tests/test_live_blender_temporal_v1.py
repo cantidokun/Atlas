@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from typing import Any, Dict, Tuple
 
 import pytest
@@ -134,6 +135,32 @@ print("ATLAS_TEMPORAL_LIVE_END")
 '''
 
 
+def _run_blender_live_script(*, repo: str, env: Dict[str, str]) -> subprocess.CompletedProcess[str]:
+    fd, script_path = tempfile.mkstemp(prefix="atlas_temporal_live_", suffix=".py", dir=repo, text=True)
+    os.close(fd)
+    try:
+        with open(script_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(_live_script())
+        return subprocess.run(
+            [
+                _blender_command(),
+                "--background",
+                "--python",
+                script_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=repo,
+            env=env,
+        )
+    finally:
+        try:
+            os.remove(script_path)
+        except FileNotFoundError:
+            pass
+
+
 def _run_live_snapshot(*, x: float) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env = dict(os.environ)
@@ -145,23 +172,11 @@ def _run_live_snapshot(*, x: float) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             "ATLAS_TEMPORAL_CAPTURE_PAIR": "0",
         }
     )
-    proc = subprocess.run(
-        [
-            _blender_command(),
-            "--background",
-            "--python-expr",
-            _live_script(),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        cwd=repo,
-        env=env,
-    )
+    proc = _run_blender_live_script(repo=repo, env=env)
     if proc.returncode != 0:
         raise AssertionError(
             "live Blender Temporal extraction failed "
-            f"rc={proc.returncode}: {proc.stderr[-3000:]}"
+            f"rc={proc.returncode}: stdout={proc.stdout[-3000:]} stderr={proc.stderr[-5000:]}"
         )
 
     start = proc.stdout.find("ATLAS_TEMPORAL_LIVE_START")
@@ -190,18 +205,11 @@ def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, seco
             "ATLAS_TEMPORAL_CAPTURE_PAIR": "1",
         }
     )
-    proc = subprocess.run(
-        [_blender_command(), "--background", "--python-expr", _live_script()],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        cwd=repo,
-        env=env,
-    )
+    proc = _run_blender_live_script(repo=repo, env=env)
     if proc.returncode != 0:
         raise AssertionError(
             "live Blender Temporal paired extraction failed "
-            f"rc={proc.returncode}: {proc.stderr[-3000:]}"
+            f"rc={proc.returncode}: stdout={proc.stdout[-3000:]} stderr={proc.stderr[-5000:]}"
         )
     start = proc.stdout.find("ATLAS_TEMPORAL_LIVE_START")
     end = proc.stdout.find("ATLAS_TEMPORAL_LIVE_END")
