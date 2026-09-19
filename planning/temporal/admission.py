@@ -138,7 +138,7 @@ class AdmissionEngine:
 
         # Step 1: epoch ordering / continuity declaration.
         if observation.ordering_epoch < state.ordering_epoch:
-            return self._reject_stale(
+            return _reject_stale(
                 state,
                 observation,
                 previous,
@@ -147,14 +147,14 @@ class AdmissionEngine:
 
         if observation.ordering_epoch == state.ordering_epoch:
             if observation.continuity_id != state.continuity_id:
-                return self._reject_invalid(
+                return _reject_invalid(
                     state,
                     observation,
                     previous,
                     AdmissionReasonCode.CONTINUITY_DECLARATION_MISMATCH,
                 )
             if observation.producer.producer_session_id != state.producer_session_id:
-                return self._reject_invalid(
+                return _reject_invalid(
                     state,
                     observation,
                     previous,
@@ -163,7 +163,7 @@ class AdmissionEngine:
             new_epoch = False
         else:
             if observation.continuity_id == state.continuity_id:
-                return self._reject_invalid(
+                return _reject_invalid(
                     state,
                     observation,
                     previous,
@@ -183,7 +183,7 @@ class AdmissionEngine:
 
         # Step 2: sequence.
         if observation.sequence < state.last_accepted_sequence:
-            return self._reject_stale(
+            return _reject_stale(
                 state,
                 observation,
                 previous,
@@ -193,13 +193,13 @@ class AdmissionEngine:
         # Step 3: same-sequence admission identity.
         if observation.sequence == state.last_accepted_sequence:
             if observation.admission_identity_digest == state.last_accepted_admission_identity_digest:
-                return self._preserve(
+                return _preserve(
                     state,
                     observation,
                     previous,
                     AdmissionOutcome.DUPLICATE_ACKNOWLEDGED,
                 )
-            return self._reject_invalid(
+            return _reject_invalid(
                 state,
                 observation,
                 previous,
@@ -209,7 +209,7 @@ class AdmissionEngine:
         # Step 4: scene scope.
         scene_id = _scene_id(observation)
         if scene_id != state.last_accepted_scene_id:
-            return self._reject_invalid(
+            return _reject_invalid(
                 state,
                 observation,
                 previous,
@@ -220,7 +220,7 @@ class AdmissionEngine:
         current_time = observation.source_time
         previous_time = state.last_accepted_source_time
         if current_time.domain != previous_time.domain:
-            return self._reject_invalid(
+            return _reject_invalid(
                 state,
                 observation,
                 previous,
@@ -230,7 +230,7 @@ class AdmissionEngine:
             previous_time.rate_num,
             previous_time.rate_den,
         ):
-            return self._reject_invalid(
+            return _reject_invalid(
                 state,
                 observation,
                 previous,
@@ -239,7 +239,7 @@ class AdmissionEngine:
 
         # Step 7: exact source-time monotonicity.
         if current_time.value < previous_time.value:
-            return self._reject_invalid(
+            return _reject_invalid(
                 state,
                 observation,
                 previous,
