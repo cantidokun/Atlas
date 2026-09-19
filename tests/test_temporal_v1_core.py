@@ -8,8 +8,11 @@ from planning.temporal import (
     AdmissionOutcome,
     CapabilityContract,
     DeltaReasonCode,
+    AdmissionCheckpoint,
     ObservationStream,
     ProducerProvenance,
+    RecoveryCheckpointError,
+    validate_reinitialization_declaration,
     SourceTime,
     TemporalObservation,
     temporal_state_digest,
@@ -271,3 +274,77 @@ def test_new_epoch_missing_predecessor_is_refusal_but_still_admitted():
     assert result.record["pair_input"] == "UNAVAILABLE"
     assert "PAIR_INPUT_UNAVAILABLE" in result.record["reason_codes"]
     assert stream.state.last_accepted_observation_id == b.observation_id
+
+
+
+def test_recovery_checkpoint_round_trip_is_content_free_and_integrity_checked():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    stream.step(a)
+
+    checkpoint = AdmissionCheckpoint.from_state(stream.state, generation=7)
+    payload = checkpoint.to_dict()
+    restored = AdmissionCheckpoint.restore(payload).restore_state()
+
+    assert restored.stream_id == stream.state.stream_id
+    assert restored.last_accepted_observation_id == stream.state.last_accepted_observation_id
+    assert restored.last_accepted_state_digest == stream.state.last_accepted_state_digest
+    assert "snapshot" not in payload
+    assert payload["checkpoint_commit_state"] == "COMMITTED"
+
+
+def test_recovery_checkpoint_fails_closed_for_tamper_and_non_committed_state():
+    stream = ObservationStream("stream-1")
+    stream.step(observation(0))
+    payload = AdmissionCheckpoint.from_state(stream.state, generation=1).to_dict()
+
+    tampered = dict(payload)
+    tampered["accepted_count"] += 1
+    with pytest.raises(RecoveryCheckpointError, match="digest mismatch"):
+        AdmissionCheckpoint.restore(tampered)
+
+    uncommitted = dict(payload)
+    uncommitted["checkpoint_commit_state"] = "PREPARED"
+    with pytest.raises(RecoveryCheckpointError, match="not COMMITTED"):
+        AdmissionCheckpoint.restore(uncommitted)
+
+
+def test_recovery_checkpoint_rejects_unknown_or_missing_fields():
+    stream = ObservationStream("stream-1")
+    stream.step(observation(0))
+    payload = AdmissionCheckpoint.from_state(stream.state, generation=1).to_dict()
+
+    unknown = dict(payload)
+    unknown["unexpected"] = 1
+    with pytest.raises(RecoveryCheckpointError, match="unknown checkpoint fields"):
+        AdmissionCheckpoint.restore(unknown)
+
+    missing = dict(payload)
+    del missing["last_accepted_sequence"]
+    with pytest.raises(RecoveryCheckpointError, match="incomplete checkpoint"):
+        AdmissionCheckpoint.restore(missing)
+
+
+def test_recovery_reinitialization_requires_new_continuity_and_higher_epoch():
+    stream = ObservationStream("stream-1")
+    stream.step(observation(0))
+
+    with pytest.raises(RecoveryCheckpointError, match="strictly greater ordering_epoch"):
+        validate_reinitialization_declaration(
+            stream.state,
+            new_continuity_id=stream.state.continuity_id,
+            new_ordering_epoch=stream.state.ordering_epoch,
+        )
+
+    with pytest.raises(RecoveryCheckpointError, match="new continuity_id"):
+        validate_reinitialization_declaration(
+            stream.state,
+            new_continuity_id=stream.state.continuity_id,
+            new_ordering_epoch=stream.state.ordering_epoch + 1,
+        )
+
+    validate_reinitialization_declaration(
+        stream.state,
+        new_continuity_id="continuity-2",
+        new_ordering_epoch=stream.state.ordering_epoch + 1,
+    )
