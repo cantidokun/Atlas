@@ -10,6 +10,9 @@ from planning.blender.scene_model import ObjectModel, SceneModel
 
 from .admission import FromIdentity
 from .canonical import sha256_digest
+COMPARISON_CONTRACT_VERSION = 1
+
+
 from .model import (
     CapabilityContract,
     TemporalObservation,
@@ -57,6 +60,7 @@ class ComparisonInput:
     a: TemporalObservation
     b: TemporalObservation
     from_identity: FromIdentity
+    comparison_contract_version: int = COMPARISON_CONTRACT_VERSION
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,7 @@ class BoundaryInput:
     a: TemporalObservation
     b: TemporalObservation
     from_identity: FromIdentity
+    comparison_contract_version: int = COMPARISON_CONTRACT_VERSION
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,7 @@ class RefusalInput:
     b: TemporalObservation
     from_identity: FromIdentity
     reason: DeltaReasonCode
+    comparison_contract_version: int = COMPARISON_CONTRACT_VERSION
 
 
 @dataclass(frozen=True)
@@ -78,6 +84,7 @@ class BoundaryRefusalInput:
     b: TemporalObservation
     from_identity: FromIdentity
     reason: DeltaReasonCode
+    comparison_contract_version: int = COMPARISON_CONTRACT_VERSION
 
 
 EvaluationInput = Union[ComparisonInput, BoundaryInput, RefusalInput, BoundaryRefusalInput]
@@ -272,6 +279,12 @@ def _identity_agrees(a: TemporalObservation, from_identity: FromIdentity) -> boo
 
 def evaluate(evaluation_input: EvaluationInput) -> Dict[str, Any]:
     """Pure evaluator. It reads only the supplied EvaluationInput."""
+
+    if evaluation_input.comparison_contract_version != COMPARISON_CONTRACT_VERSION:
+        raise ValueError(
+            "unsupported comparison contract version: "
+            f"{evaluation_input.comparison_contract_version!r}"
+        )
 
     if isinstance(evaluation_input, BoundaryRefusalInput):
         boundary_reasons = _boundary_reasons_from_identity(
