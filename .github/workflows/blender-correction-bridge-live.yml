@@ -4,16 +4,7 @@ on:
   push:
     branches:
       - feat/blender-correction-execution-bridge
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
-concurrency:
-  group: atlas-correction-bridge-live-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_dispatch:
 
 jobs:
   correction-bridge-live-blender:
