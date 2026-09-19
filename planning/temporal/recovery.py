@@ -12,7 +12,7 @@ from typing import Any, Dict, Mapping, Optional
 
 from .admission import AdmissionOutcome, AdmissionState, FromIdentity
 from .canonical import sha256_digest
-from .model import SourceTime, TemporalValidationError, _validate_digest
+from .model import SourceTime, TemporalValidationError
 
 
 CHECKPOINT_SCHEMA_VERSION = "1"
@@ -89,6 +89,11 @@ def _payload_without_digest(payload: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_complete_payload(payload: Mapping[str, Any]) -> None:
+    unknown = [key for key in payload if key not in _REQUIRED_FIELDS]
+    if unknown:
+        raise RecoveryCheckpointError(
+            "ADMISSION_STATE_UNAVAILABLE: unknown checkpoint fields: " + ", ".join(sorted(unknown))
+        )
     missing = [key for key in _REQUIRED_FIELDS if key not in payload]
     if missing:
         raise RecoveryCheckpointError(
@@ -108,10 +113,14 @@ def _validate_complete_payload(payload: Mapping[str, Any]) -> None:
     _require_i64(payload["last_accepted_sequence"], "last_accepted_sequence", minimum=0)
     _require_string(payload["last_accepted_scene_id"], "last_accepted_scene_id")
     _require_string(payload["last_accepted_state_digest"], "last_accepted_state_digest")
+    if len(payload["last_accepted_state_digest"]) != 64 or any(ch not in "0123456789abcdef" for ch in payload["last_accepted_state_digest"]):
+        raise RecoveryCheckpointError("ADMISSION_STATE_UNAVAILABLE: invalid last_accepted_state_digest")
     _require_string(payload["last_accepted_observation_id"], "last_accepted_observation_id")
     _require_string(
         payload["last_accepted_admission_identity_digest"],
         "last_accepted_admission_identity_digest",
+    if len(payload["last_accepted_admission_identity_digest"]) != 64 or any(ch not in "0123456789abcdef" for ch in payload["last_accepted_admission_identity_digest"]):
+        raise RecoveryCheckpointError("ADMISSION_STATE_UNAVAILABLE: invalid last_accepted_admission_identity_digest")
     )
 
     for name in (
@@ -134,6 +143,8 @@ def _validate_complete_payload(payload: Mapping[str, Any]) -> None:
 
     digest = payload["checkpoint_digest"]
     _require_string(digest, "checkpoint_digest")
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        raise RecoveryCheckpointError("ADMISSION_STATE_UNAVAILABLE: invalid checkpoint_digest")
     expected = sha256_digest(_payload_without_digest(payload))
     if digest != expected:
         raise RecoveryCheckpointError("ADMISSION_STATE_UNAVAILABLE: checkpoint digest mismatch")
