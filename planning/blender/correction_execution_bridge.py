@@ -335,6 +335,10 @@ class CorrectionExecutionBridge:
             "--python-expr",
             expression,
         ]
+        env = dict(os.environ)
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        pythonpath = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = repo_root if not pythonpath else repo_root + os.pathsep + pythonpath
         try:
             proc = subprocess.run(
                 command,
@@ -342,6 +346,8 @@ class CorrectionExecutionBridge:
                 text=True,
                 timeout=self._timeout,
                 check=False,
+                cwd=repo_root,
+                env=env,
             )
         except subprocess.TimeoutExpired as exc:
             return CorrectionBridgeResult(
