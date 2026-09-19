@@ -870,10 +870,6 @@ A pair-level refusal is itself the StateDelta record for the accepted edge. The 
 ```
 StateDelta := {
   delta_schema_version : 1,
-
-The StateDelta `delta_schema_version` is the integer literal `1` in v1. The TemporalObservation
-`observation_schema_version` is the string literal `"1"` defined in §4.1; the two fields intentionally
-use different JSON primitive types and MUST be pinned exactly by implementation fixtures.
   outcome              : COMPUTED | TEMPORAL_DISCONTINUITY | OBSERVATION_INVALID,
   pair_input           : AVAILABLE | UNAVAILABLE,
   stream_id            : string,
@@ -893,6 +889,10 @@ use different JSON primitive types and MUST be pinned exactly by implementation 
   delta_digest         : 64-lowercase-hex
 }
 ```
+
+The StateDelta `delta_schema_version` is the integer literal `1` in v1. The TemporalObservation
+`observation_schema_version` is the string literal `"1"` defined in §4.1; the two fields intentionally
+use different JSON primitive types and MUST be pinned exactly by implementation fixtures.
 
 from_* fields identify the expected/supplied predecessor. They are identity metadata, never a substitute for predecessor content.
 
