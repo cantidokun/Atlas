@@ -902,12 +902,6 @@ are therefore unseen anchors; a `NEW_EPOCH` anchor is an emitted predecessor bec
 is logically generated even if transport delivery later loses or redelivers it. The value is derived from
 the admitted predecessor's recorded logical emission history and the selected record path, and is not an
 additional evaluator input.
-`EMITTED_PREDECESSOR` iff, for this stream, a StateDelta record with
-`to_observation_id == from_observation_id` was emitted; otherwise it is
-`UNEMITTED_EPOCH_ANCHOR`. The latter applies to the stream's first accepted observation and to the first
-accepted observation after explicit recovery reinitialization. The value is derived from the admitted predecessor's recorded emission history and the selected
-record path, and is not an additional evaluator input.
-
 
 **`source_time_hold` is normative:** it is `true` iff a SAME_EPOCH comparison actually occurred, `A.source_time == B.source_time` under the full SourceTime tuple equality rule (domain, value, rate and ordering_epoch), and the semantic comparison reports at least one real state difference represented by at least one field change listed in `entity_deltas`, excluding `NO_CHANGE` entries and the reason-only `ROTATION_SIGN_EQUIVALENT_ONLY` case. It is always `false` on INITIAL_ACCEPTED, TEMPORAL_DISCONTINUITY, PAIR_INPUT_UNAVAILABLE, PAIR_INPUT_IDENTITY_MISMATCH and all other refusal records.
 
