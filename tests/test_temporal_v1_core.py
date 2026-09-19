@@ -71,8 +71,8 @@ def snapshot(location=(0.0, 0.0, 0.0), rotation=(1.0, 0.0, 0.0, 0.0), scene_id="
                 "visible": True,
                 "mesh": {
                     "mesh_id": "mesh-1",
-                    "vertices": [[0.0, 0.0, 0.0]],
-                    "faces": [[0, 0, 0]],
+                    "vertices": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "faces": [[0, 1, 2]],
                     "materials": ["mat"],
                 },
             }
