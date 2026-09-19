@@ -1124,108 +1124,45 @@ A pair-level refusal emits one StateDelta record and never retracts B.
 * `materials`, `normals`, `uvs`, `local_frame_id` are **not** in it (extraction §11.1) — which is
   precisely why it cannot serve as a temporal comparison (§11.6).
 
-### 11.2 Digest 2 — `temporal_state_digest` (NEW, temporal-level)
+### 11.2 Digest 2 — temporal_state_digest
 
-Canonicalization (v1, normative; a new canonicalization, not a modification of any existing one):
+temporal_state_digest is SHA-256 over the TemporalCanonicalBytes encoding of the temporal state projection.
 
-```text
-temporal_state_digest := sha256_hex( json.dumps(projection, sort_keys=True,
-                                                 separators=(",", ":"),
-                                                 ensure_ascii=True, allow_nan=False) )
+The v1 temporal canonical byte encoding is language-neutral and normative:
 
-projection := {
-  "scene_id": ..., "unit_system": ...,
-  "objects": [ per object, sorted by (object_id, entity_content_digest):
-      {"object_id", "name", "collection", "parent_object_id",
-       "location", "scale", "rotation", "visible",
-       "mesh": {"mesh_id", "vertices", "faces", "materials"} | null } ]
-}
-```
+* null = tag 0x00;
+* UTF-8 string = tag 0x01 + unsigned-64 length + UTF-8 bytes;
+* bool = tag 0x02 + one byte 0x00 or 0x01;
+* signed int64 = tag 0x03 + big-endian two's-complement 64-bit value;
+* IEEE-754 binary64 = tag 0x04 + raw 64-bit big-endian bit pattern;
+* list = tag 0x05 + unsigned-64 item count + recursively encoded items;
+* object/dict = tag 0x06 + unsigned-64 pair count + recursively encoded key/value pairs, with string keys sorted by Unicode code-point order.
 
-Decisions, each with its reason:
+Non-finite floating-point values are invalid before digesting. Raw floating-point bits are preserved for digest identity, so +0.0 and -0.0 may have different raw digest identity even though semantic numeric equality treats them as equal.
 
-* **Objects are sorted by `(object_id, entity_content_digest)`.** Unlike the frozen kernel digest (which
-  consumes producer order), the temporal digest is a *content* identity and must not depend on the order a
-  producer happened to emit. `entity_content_digest` is the digest of that one object's own canonical
-  projection — the same field set, no ordering information, computed on demand and never stored (the
-  single primitive of §13.2).
+The temporal state projection remains the Revision-8 field set: scene_id, unit_system and the observable object/mesh fields including materials; temporal metadata, capture metadata, capability metadata and unobservable/derived fields are excluded.
 
-  Revision 2 used `occurrence_index` (the 0-based position among equal ids) as the tie-break, and that was
-  **producer-order dependent whenever an `object_id` is duplicated**: the position of two same-id objects
-  tracks the producer's emission order, so swapping them could move `temporal_state_digest` while the
-  multiset of canonical content was unchanged. Revision 3 replaces it, and the claim is now a mechanism
-  rather than an assertion:
+Objects are sorted by (object_id, entity_content_digest) for the digest projection. The tie-break is content-derived and therefore remains independent of producer emission order, including duplicated object_id values.
 
-  * two objects with the same `object_id` and **different** content are ordered by their content digests,
-    so swapping their emission order cannot move `temporal_state_digest`;
-  * two objects with the same `object_id` **and** the same content are interchangeable by construction, so
-    their relative order cannot move it either;
-  * therefore the digest is independent of producer emission order in **all** cases, duplicated ids
-    included — the property revision 1 claimed and revision 2 half-delivered.
+No semantic normalization is applied to the digest projection. q and -q therefore produce different raw content identity values.
 
-  The tie-break orders the *digest projection only*. It never reorders the entity comparison (§8.4), the
-  canonical object order inside a snapshot (extraction design §5.3), or any payload/report output; and a
-  digest difference still never implies a field change (§11.5).
-* **`materials` participates** (the kernel digest excludes it), because materials *are* part of the
-  observable v1 state and a temporal identity that ignored them would call a material change
-  "identical".
-* **`normals`/`uvs`/`local_frame_id` do NOT participate**: including their canonical (empty/None)
-  values would assert equality of things the producer never observed — the §10.3 error, embedded in a
-  hash. Their absence is recorded in `capability`/`coverage`, not in the digest.
-* **`coordinate_frame` / `world_bounds` do not participate** (declared-unobservable / derived — §10.1
-  sets B and C).
-* **Raw content identity: no semantic equivalence is ever applied.** The digest is computed from the raw
-  canonical values exactly as stored, so `q` and `-q` produce **different** `temporal_state_digest`
-  values (§9.4). This is deliberate: normalizing would make the identity hash disagree with the
-  canonical content that the frozen `scene_input_digest` and every correction artifact bind to.
-  Semantic equivalence is a *comparison* relation (§9) and is never a digest transformation (§11.5).
-* **No envelope metadata participates.** Two observations with identical canonical state have identical
-  `temporal_state_digest` **regardless of** any difference in sequence, time, session, producer build or
-  capture metadata (§11.5).
-* Relationship to §11.1, stated plainly: `temporal_state_digest` is a **superset** of
-  `scene_input_digest`'s object/mesh field list by exactly `{materials}`, with a different object
-  ordering rule and a different role. Neither is derived from the other; neither substitutes for the
-  other.
+### 11.3 Digest 3 — `observation_envelope_digest`
 
-### 11.3 Digest 3 — `observation_envelope_digest` (provenance identity)
+The envelope digest is SHA-256 over the canonical bytes of the envelope excluding the envelope-digest field itself. Its purpose is audit/provenance identity. Capture metadata may participate here because this digest is not used for world-state identity or duplicate admission.
 
-```text
-observation_envelope_digest := sha256_hex(canonical_json(envelope_without_this_field))
-```
+### 11.4 Admission identity and delta digest
 
-covers: `observation_schema_version`, `stream_id`, `continuity_id`, `sequence`, `source_time`,
-`capture_time`, `producer`, `capability`, `state_digest`.
+AdmissionIdentityProjection contains:
 
-Purpose: identity of the *record as received* (provenance/audit binding, mirroring how the recovery
-track binds evidence to identity tuples via `docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md`
-§16). It is **not** world-state identity and must never be used to decide whether the world changed.
+observation_schema_version, stream_id, continuity_id, sequence, source_time, producer_session_id, capability, state_digest.
 
-### 11.4 Admission identity digest
+admission_identity_digest is SHA-256 over the TemporalCanonicalBytes encoding of that projection.
 
-AdmissionIdentityProjection is:
+delta_digest is SHA-256 over the TemporalCanonicalBytes encoding of the emitted StateDelta record excluding delta_digest itself.
 
-    observation_schema_version
-    stream_id
-    continuity_id
-    sequence
-    source_time
-    producer_session_id
-    capability
-    state_digest
+All digest-bearing byte encodings are therefore pinned and cross-language normative. General transport serialization remains a separate future gate; it does not affect these digest bytes.
 
-admission_identity_digest = SHA256(canonical_bytes(AdmissionIdentityProjection)).
-
-The canonical bytes for every digest-bearing projection are normative: sorted keys, compact separators, ASCII escaping, exact scalar representation, fixed-width integer bounds and non-finite refusal. Atlas is the canonicalizer of record.
-
-The producer's state_digest is a claim. Atlas recomputes the state digest from the single normative snapshot and rejects a mismatch before admission.
-
-General transport serialization remains outside this contract. Digest-bearing canonicalization is not deferred: any implementation that claims the same digest MUST reproduce the same canonical bytes.
-
-### 11.4A Digest 4 — `delta_digest`
-
-`delta_digest` is the canonical hash of the emitted StateDelta record. It covers the record's identity fields, outcome, availability, reason codes, coverage, entity deltas and raw endpoint digests, excludes itself, and never includes capture_time.
-
-The digest is defined over the emitted record, not over mutable admission state or unavailable observation content.
+Producer-declared state_digest values are claims. Atlas recomputes temporal_state_digest from the canonical snapshot and rejects any mismatch before admission.
 
 ### 11.5 Content identity vs semantic equivalence (two independent relations)
 
