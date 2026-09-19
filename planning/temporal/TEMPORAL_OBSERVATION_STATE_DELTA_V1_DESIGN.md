@@ -424,6 +424,8 @@ Requirements:
 4. `state_digest` is always required, is computed from `snapshot` under §11.2, and is **recomputed**
    before use; a mismatch makes the arrival `REJECTED_INVALID` (`STATE_DIGEST_MISMATCH`) at stage 1, so
    no record is emitted (§6.8). A producer-supplied digest is metadata, never authority.
+5. At ingress, duplicate object keys MUST be rejected before the snapshot becomes a canonical mapping; every string must be a valid Unicode scalar sequence and is carried without normalization; every integer that can participate in a digest must fit signed int64.
+
 5. The snapshot is **not** re-serialized into `scene_input_digest`'s input space: `scene_input_digest`
    remains a kernel-computed property of the canonical scene (§11.1) and is never recomputed,
    redefined or extended here.
@@ -623,6 +625,16 @@ Boundary causes are emitted as a complete sorted set:
 
 Frequent producer-declared boundaries are legal but explicit. v1 makes no claim that a producer cannot intentionally fragment history; consumers MUST NOT treat a boundary as evidence of the missing intermediate states.
 
+### 6.10.1 NEW_EPOCH boundary evaluation path
+
+Once admission classifies B as NEW_EPOCH, the boundary path is selected before pair evaluation and is never downgraded to SAME_EPOCH.
+
+* A supplied and identity-agreeing -> OBSERVATION_DISCONTINUITY is not the case: outcome is TEMPORAL_DISCONTINUITY.
+* A supplied but identity-disagreeing -> OBSERVATION_INVALID / PAIR_INPUT_IDENTITY_MISMATCH.
+* A unavailable -> OBSERVATION_INVALID / PAIR_INPUT_UNAVAILABLE.
+
+In all three cases B remains admitted as the new epoch anchor. No field, capability, unit, scene or source-time comparison is performed across the boundary. observations_skipped = 0, source_time_hold = false, and entity_deltas = []. Boundary cause codes are the complete sorted set of changed declaring fields.
+
 ### 6.11 Stream processing stages
 
 1. arrival validation;
@@ -678,7 +690,7 @@ The evaluator reads no mutable admission state.
 
 ### 6.14 Linearization
 
-Admission for one stream is logically serialized. A concurrent implementation MUST establish one unambiguous predecessor state for each accepted arrival. Two arrivals cannot both commit against the same predecessor without a deterministic serialization rule.
+Admission for one stream is an ordered input operation at the temporal boundary. v1 does not define concurrent admission scheduling: a caller or adapter MUST serialize arrivals for a stream before invoking the admission decision. The temporal contract reasons over that supplied arrival order, not wall-clock race order. Two observations must never be committed against the same predecessor.
 
 ## 7. Temporal identity model
 
@@ -1696,7 +1708,7 @@ A stable stream_id; continuity_id + ordering_epoch as epoch identity; strictly i
 
 **Revision-9 architectural invariant.**
 
-Membership is decided before acceptance. Pair comparability is decided after acceptance. Delta generation never changes membership. The same last_accepted_observation is the predecessor cursor for the next pair; refusal edges are represented explicitly rather than skipped. continuity_id identifies an epoch; ordering_epoch orders epochs. Digest-bearing canonicalization is pinned even though general transport serialization remains deferred.
+Membership is decided before acceptance. Pair comparability is decided after acceptance. Delta generation never changes membership. The same last_accepted_observation is the predecessor cursor for the next pair; refusal edges are represented explicitly rather than skipped. continuity_id is the continuity token; ordering_epoch orders epochs; their pair identifies the epoch. Digest-bearing canonicalization is pinned even though general transport serialization remains deferred.
 
 ## 21. Exit criteria
 
@@ -1706,7 +1718,7 @@ Implementation may begin only after an independent review confirms all of the fo
 2. TemporalObservation has one normative snapshot representation and a required Atlas-verified state digest;
 3. all temporal integer fields use fixed-width signed 64-bit semantics;
 4. source_time uses exact integer/rational semantics and SOURCE_SECONDS_EXACT has one normative rate encoding;
-5. continuity_id is the sole epoch identity;
+5. the temporal epoch identity is the pair (continuity_id, ordering_epoch); continuity_id is the continuity token and ordering_epoch orders epochs;
 6. ordering_epoch strictly increases across every declared continuity boundary;
 7. lower ordering_epoch observations cannot re-enter a newer epoch;
 8. sequence is strictly increasing within an epoch and may reset only with a new continuity_id and higher ordering_epoch;
@@ -1716,7 +1728,7 @@ Implementation may begin only after an independent review confirms all of the fo
 12. every invariant that shapes B's membership is resolved before B is accepted;
 13. capability mismatch remains pair-level and cannot be confused with invalid membership;
 14. unit-system mismatch remains pair-level and cannot be confused with invalid membership;
-15. every accepted step after the first emits exactly one StateDelta-shaped record;
+15. the temporal function emits exactly one logical StateDelta record for every accepted step after the first; delivery is explicitly not an exactly-once claim;
 16. pair refusal is itself a recorded edge, eliminating any hidden delta-base cursor;
 17. NEW_EPOCH establishes B as the new epoch anchor without asserting a state transition across the boundary;
 18. boundary causes form a closed, deterministic sorted set;
@@ -1731,9 +1743,9 @@ Implementation may begin only after an independent review confirms all of the fo
 27. producer-declared state digests are verified claims, not authority;
 28. digest-bearing canonical bytes are cross-language normative even though general transport serialization is deferred;
 29. recovery restores every admission invariant required by the next decision or returns ADMISSION_STATE_UNAVAILABLE;
-30. crash-recovery checkpoints are atomic for the logical admission identity/outcome unit when durable recovery is claimed;
-31. incomplete recovery checkpoints fail closed;
-32. old continuity/ordering epochs cannot be re-admitted after a later epoch;
+30. crash-recovery checkpoints are atomically committed, generation-marked and integrity-checked when durable recovery is claimed;
+31. mixed-generation, non-COMMITTED or integrity-failing recovery checkpoints fail closed;
+32. lower ordering_epoch observations cannot re-enter a later epoch;
 33. producer-session changes with unchanged continuity/ordering metadata fail closed;
 34. higher ordering_epoch with unchanged continuity_id fails closed;
 35. same-epoch capability/unit refusal followed by a B -> C computation is deterministic and explicitly observable;
@@ -1741,7 +1753,8 @@ Implementation may begin only after an independent review confirms all of the fo
 37. all canonical comparison, coverage and digest rules inherited from Revision 8 remain unchanged unless explicitly restated;
 38. the adversarial register covers the Revision-9 cases including stale epoch re-entry, digest authority, atomic recovery and pair-input integrity;
 39. the C++ parity claim distinguishes semantic parity from digest-byte parity and general serialization;
-40. an independent reviewer clears Revision 9; no self-clear is permitted.
+40. the digest value-domain, concurrency serialization boundary, record-delivery non-claim and anchor-origin semantics are independently verified;
+41. an independent reviewer clears Revision 9; no self-clear is permitted;
 
 ## 22. Closure map
 
@@ -1767,7 +1780,7 @@ Implementation may begin only after an independent review confirms all of the fo
 | open questions | §18 | eight questions with next steps |
 | adversarial / red-team requirements | §19 | 48 attacks with design answers (including the revision-7 input-completion surface and the revision-8 pair-domain, boundary-mutation, enumeration, and multi-cause surfaces), `T-1..T-36`, `L-1..L-5` |
 | required conclusions | §20 | six questions answered without ambiguity, re-derived after the revision-2 corrections, the revision-3 resolutions, the revision-4 correction, the revision-5 schema closure, the revision-6 purity unification, the revision-7 input completion and the revision-8 consistency repairs |
-| exit criteria | §21 | forty items, including the revision-2, revision-3, revision-4, revision-5, revision-6, revision-7 and revision-8 conditions |
+| exit criteria | §21 | forty-one items, including the revision-2, revision-3, revision-4, revision-5, revision-6, revision-7 and revision-8 conditions |
 | revisions and baseline | §0 | revision chain (incl. `75744da`, `f26746d`, `f1ed30d`, `6394803`, `cdf376d`, `fd48733`, `44d0a1c` and this revision), frozen-boundary table, scope, citation provenance |
 | design revision 2 corrections | §22.1 | eight corrections mapped to the rules that now close them, each with its re-audit and red-team coverage |
 | design revision 3 resolutions | §22.2 | five resolutions mapped to the rules that now close them, each with its adversarial requirement and its re-audit |
@@ -1980,7 +1993,14 @@ Revision 9 responds to the first independent architectural red-team. Its princip
 | R9-5 | old epoch sequence could weave into a new epoch | ordering_epoch strictly increases across boundaries; lower epochs are stale before continuity reclassification |
 | R9-6 | boundary anchor semantics were implicit | B is explicitly the new epoch anchor and later B -> C comparison predecessor, without treating the boundary record as an A -> B state transition |
 | R9-7 | FromIdentity could be treated as a substitute for A content | supplied A admission identity is recomputed from canonical content before evaluation |
-| R9-8 | epoch authority was split across continuity/session/order fields | continuity_id identifies; ordering_epoch orders; producer_session_id supplies restart evidence |
+| R9-8 | epoch authority was split across continuity/session/order fields | (continuity_id, ordering_epoch) identifies the epoch; continuity_id is the continuity token; ordering_epoch orders epochs; producer_session_id supplies restart evidence |
 | R9-9 | capability/unit changes versus membership were ambiguous in red-team reading | capability/unit remain pair-level comparability facts; B can still become the next valid baseline and the refusal is explicitly recorded |
+
+| R9-10 | continuity reuse / observation_id aliasing | observation_id includes ordering_epoch; the epoch key is the pair (continuity_id, ordering_epoch) |
+| R9-11 | recovery reinitialization could restart sequence inside an existing epoch | explicit reinitialization requires a new continuity_id and strictly greater ordering_epoch |
+| R9-12 | exactly-once delivery was accidentally implied | exactly-one is a logical record-generation property; transport/delivery is explicitly out of scope and not exactly-once |
+| R9-13 | incomplete checkpoints lacked a detectable completeness condition | checkpoint generation, commit state and integrity digest are normative |
+| R9-14 | digest canonical value domain was incomplete | int64 bounds, Unicode scalar validity, unique keys and no-normalization rule are arrival-level invariants |
+| R9-15 | source_time_hold, anchor provenance and concurrency semantics were underdefined | all three are normative and closed in §§6, 8, 14 |
 
 Revision 9 remains REVIEW REQUIRED / NO IMPLEMENTATION.
