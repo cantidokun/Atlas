@@ -1092,7 +1092,19 @@ def plan_merge_vertex_correction(
     except (AuthorizationContractError, AuthorizationInputError) as exc:
         return _refuse(MergePlanningCode.MAPPING_DIGEST_MISMATCH,
                        f"internal mapping invariant failed: {exc}")
-    kept = sorted(set(old_to_new))
+    # old_to_new is indexed by PRE-state vertex and stores POST-state indices.
+    # Therefore set(old_to_new) is the post-index range, not the surviving PRE-state
+    # indices. That shortcut is only accidentally correct when every removed vertex is a
+    # suffix of the table. Derive the kept PRE-state subsequence explicitly from the
+    # canonical groups/survivors so interleaved or middle-table duplicate groups are predicted
+    # against the same vertex table the executor is authorized to construct.
+    removed_indices = {
+        member
+        for group in groups
+        for member in group
+        if member != min(group)
+    }
+    kept = [index for index in range(vertex_count) if index not in removed_indices]
     if digest != mapping_digest(mesh_id, vertex_count, old_to_new):
         return _refuse(MergePlanningCode.MAPPING_DIGEST_MISMATCH,
                        "the recomputed mapping digest is not stable")

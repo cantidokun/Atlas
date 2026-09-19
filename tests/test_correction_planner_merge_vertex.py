@@ -196,6 +196,24 @@ def test_interleaved_group_indices_are_grouped_by_coincidence_not_by_proximity()
     assert params(proposal)["old_to_new_mapping"] == [0, 1, 2, 0]
 
 
+def test_middle_table_survivor_prediction_uses_pre_state_indices():
+    """A removed vertex in the middle of the table must not shift the planner's predicted vertices.
+
+    Duplicate vertices 0 and 2 leave PRE-state indices [0, 1, 3]. The old implementation used
+    set(old_to_new_mapping) == [0, 1, 2], which selected vertex 2 again and falsely left a duplicate
+    in the predicted post-state. The planner must predict the actual surviving PRE-state subsequence.
+    """
+    vertices = ((0.0, 0.0, 0.0), (5.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 5.0, 0.0))
+    faces = ((0, 1, 3),)
+    proposal = single_proposal(plan(scene_payload((OBJECT_ID, MESH_ID, vertices, faces))))
+    parameters = params(proposal)
+    assert parameters["duplicate_groups"] == [[0, 2]]
+    assert parameters["survivor_indices"] == [0]
+    assert parameters["old_to_new_mapping"] == [0, 1, 0, 2]
+    assert parameters["all_groups_exact"] is True
+    assert proposal.requires_human_review is True
+
+
 def test_group_and_pair_ordering_is_deterministic_and_canonical():
     vertices = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
                 (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0))

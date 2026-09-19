@@ -103,6 +103,7 @@ def test_environment_and_no_persistence(live_results):
 
 def test_positive_b1_live_merge_completes(live_results):
     case = _case(live_results, "positive-B1-live")
+    assert case["mode"] == "real_planner", "this case must take its plan from the real planner"
     receipt = case["receipt"]
     assert case["mutator_invocations"] == 1, "exactly one real Blender mutation"
     assert receipt["result"] == "COMPLETED" and receipt["failure_code"] is None
@@ -163,7 +164,8 @@ def test_positive_b1_live_is_the_B1_class_and_MQ_all_pass(live_results):
 
 
 def test_unrelated_live_state_is_bit_identical(live_results):
-    for label in ("positive-B1-live", "positive-tail-real-planner", "positive-transitive-3"):
+    for label in ("positive-B1-live", "positive-tail-real-planner", "positive-transitive-3",
+                  "positive-middle-table-real-planner"):
         case = _case(live_results, label)
         before, after = case["raw_before"], case["raw_after"]
         assert after["object_count"] == before["object_count"]
@@ -188,8 +190,69 @@ def test_positive_tail_case_through_the_real_planner(live_results):
     assert case["post"]["duplicate_vertex"] == []
 
 
+def test_positive_middle_table_real_planner_preserves_pre_state_survivors(live_results):
+    """Wave 13 live closure: a duplicate group whose removed member is NOT a suffix of the vertex table
+    must pass through the REAL planner and execute into exactly the post-state the planner authorized.
+
+    The pre-fix planner derived its predicted kept set from ``set(old_to_new_mapping)`` - the POST index
+    range - and indexed the PRE-state table with it. For this fixture that predicts the vertices
+    (0,0,0), (5,0,0), (0,0,0): a post-state that still contains the duplicate, so the planner refused
+    with PARTIAL_GROUP_COVERAGE and no middle-table case could ever reach the engine. The authorized
+    post-state is the surviving PRE-state subsequence [0, 1, 3].
+    """
+    case = _case(live_results, "positive-middle-table-real-planner")
+    assert case["mode"] == "real_planner"
+    assert case["planner"]["merge_corrections"] == 1, "the real planner must authorize this merge"
+
+    # (1) the planner's OWN emitted parameters (not the harness derivation)
+    params = case["planner"]["parameters"][0]
+    assert params["duplicate_groups"] == [[0, 2]]
+    assert params["survivor_indices"] == [0]
+    assert params["old_to_new_mapping"] == [0, 1, 0, 2]
+    assert params["all_groups_exact"] is True
+    assert params["predicted_topology_unchanged"] is True
+
+    # (2) the harness's independent derivation agrees, and the kept set is the PRE-state subsequence
+    assert case["derived"]["groups"] == [[0, 2]]
+    assert case["derived"]["survivors"] == [0]
+    assert case["derived"]["kept"] == [0, 1, 3]
+    assert case["derived"]["mapping"] == [0, 1, 0, 2]
+
+    # (3) exactly one REAL Blender mutation, from the executor's own re-derivation of the same facts
+    assert case["mutator_invocations"] == 1
+    receipt = case["receipt"]
+    assert receipt["result"] == "COMPLETED" and receipt["failure_code"] is None
+    assert receipt["authorization_verified"] is True
+    assert receipt["duplicate_groups"] == [[0, 2]]
+    assert receipt["survivor_indices"] == [0]
+    assert receipt["removed_vertex_indices"] == [2]
+    assert receipt["old_to_new_mapping"] == [0, 1, 0, 2]
+    assert receipt["old_to_new_mapping_digest"] == params["mapping_digest"]
+    assert receipt["pre_vertex_count"] == 4 and receipt["post_vertex_count"] == 3
+    assert receipt["changed_face_indices"] == [0]
+    assert receipt["vertex_merge_only"] is True and receipt["index_renumbering_only"] is True
+    assert receipt["persisted"] is False and receipt["rollback_performed"] is False
+    assert [e["reason"].split(":")[0] for e in receipt["postcondition_results"]] == [
+        "MQ-1", "MQ-2", "MQ-3", "MQ-4", "MQ-5", "MQ-6", "MQ-7"]
+    assert all(e["ok"] is True for e in receipt["postcondition_results"])
+
+    # (4) the fresh post-extraction: the duplicate is cleared and post vertex 2 is PRE vertex 3
+    assert case["post"]["duplicate_vertex"] == []
+    assert case["post"]["vertex_count"] == 3
+    assert case["post"]["vertices"] == [[0.0, 0.0, 0.0], [5.0, 0.0, 0.0], [0.0, 5.0, 0.0]]
+    assert case["post"]["faces"] == [[0, 1, 2]]
+
+    # (5) the RAW Blender datablock really holds the authorized tables (independent of extraction)
+    raw_before = next(o for o in case["raw_before"]["objects"] if o["name"] == "pitch")
+    raw_after = next(o for o in case["raw_after"]["objects"] if o["name"] == "pitch")
+    assert raw_before["vertex_count"] == 4 and raw_before["faces"] == [[0, 1, 3]]
+    assert raw_after["vertex_count"] == 3 and raw_after["faces"] == [[0, 1, 2]]
+    assert raw_after["vertices"] == [[0.0, 0.0, 0.0], [5.0, 0.0, 0.0], [0.0, 5.0, 0.0]]
+
+
 def test_positive_transitive_group_live(live_results):
     case = _case(live_results, "positive-transitive-3")
+    assert case["mode"] == "real_planner", "this case must take its plan from the real planner"
     assert case["receipt"]["result"] == "COMPLETED"
     assert case["mutator_invocations"] == 1
     assert case["derived"]["groups"] == [[0, 1, 2]]

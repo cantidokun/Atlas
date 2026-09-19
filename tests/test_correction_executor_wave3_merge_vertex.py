@@ -260,15 +260,20 @@ def _run(scene, plan, artifact, *, mutator=None, extractor=None, **kwargs):
 # ---------------------------------------------------------------------------
 
 #: Design Fixture-A shape: one bit-identical duplicate pair whose REMOVED member is the last
-#: vertex, so the real Slice-2 planner can emit a plan for it (see the reported planner defect at
-#: the end of this file). kept set S == {0..m-1} here.
+#: vertex, so the surviving PRE-state subsequence happens to be {0..m-1}. This is the one shape for
+#: which the RETIRED planner kept set ``sorted(set(old_to_new_mapping))`` (the POST index range) was
+#: accidentally correct; the general case is the middle-table regression in section 8.
 TAIL_VERTS = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
               (5.0, 0.0, 0.0), (6.0, 0.0, 0.0), (5.0, 1.0, 0.0), (0.0, 0.0, 0.0)]
 TAIL_FACES = [(0, 1, 2), (3, 4, 5)]
 
 #: The general case: a bit-identical duplicate pair in the MIDDLE of the table (removed index 3
-#: between kept indices). The executor handles this correctly; the current Slice-2 planner cannot
-#: emit it (reported defect), so its plan is built through the real CorrectionPlan contract.
+#: between kept indices), so the surviving PRE-state subsequence is [0, 1, 2, 4, 5, 6]. The executor
+#: has always derived that correctly; before Wave 13 the planner used the POST index range as its kept
+#: set and therefore refused this shape with PARTIAL_GROUP_COVERAGE, which is why its plan was built
+#: through the real CorrectionPlan contract. The planner now emits it (section 8), and the real
+#: planner -> real executor integration is pinned by
+#: ``test_real_planner_middle_table_plan_is_executed_by_the_real_executor``.
 MID_VERTS = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
              (0.0, 0.0, 0.0), (5.0, 0.0, 0.0), (6.0, 0.0, 0.0), (5.0, 1.0, 0.0)]
 MID_FACES = [(0, 1, 2), (4, 5, 6)]
@@ -1088,50 +1093,77 @@ def test_merge_executor_does_not_import_bpy():
 
 
 # ===========================================================================
-# 8. REPORTED DEFECT (NOT ENDORSED) — Slice-2 planner kept-set construction
+# 8. WAVE 13 REGRESSION — planner kept-set closure for middle-table groups
 # ===========================================================================
 
-def test_reported_defect_slice2_planner_uses_the_post_index_range_as_the_kept_set():
-    """REPORTED DEFECT — pinned for the record, NOT endorsed and NOT remediated in this slice.
-
-    ``correction_planner.plan_merge_vertex_correction`` builds its predicted post-state as
-    ``kept = sorted(set(old_to_new_mapping))`` and then indexes the PRE-state vertex table with it.
-    But ``old_to_new_mapping`` maps every pre index to its POST index, so ``set(mapping)`` is exactly
-    ``range(m)`` — the post index RANGE, never the kept PRE indices ``S`` (design §4). The two
-    coincide only when every removed index exceeds every kept index.
-
-    Consequence: for any duplicate group whose removed member is not positioned after all kept
-    indices, the planner predicts a wrong ``V'``, the kernel then sees a spurious
-    ``MESH_DUPLICATE_VERTEX`` in that prediction, and the planner refuses with a FALSE
-    ``PARTIAL_GROUP_COVERAGE`` — so no plan is emitted for the general case. The executor is
-    unaffected (it derives ``S`` correctly and accepts a correct general-case plan); the defect is
-    confined to the cleared Slice-2 planner artifact (hash 7400834fb3b6f4a6…), which this slice is
-    not authorized to modify.
-    """
-    from planning.blender.correction_authorization import (
-        canonical_survivor_indices, make_index_mapping,
-    )
-    # middle-removed duplicate: S != range(m), so the planner must falsely refuse
+def test_wave13_planner_closes_middle_table_kept_set():
+    """A valid exact-bit merge must plan successfully when a removed vertex is not a suffix."""
     mid = _scene(MID_FACES, MID_VERTS)
-    groups = _groups_of(mid)
-    mapping = make_index_mapping(len(MID_VERTS), groups)
-    kept_range = sorted(set(mapping))
-    survivor_set = set(canonical_survivor_indices(groups))
-    removed = {i for grp in groups for i in grp} - survivor_set
-    true_kept = sorted(survivor_set | {i for i in range(len(MID_VERTS)) if i not in removed})
-    assert true_kept == [0, 1, 2, 4, 5, 6]
-    assert kept_range == [0, 1, 2, 3, 4, 5]
-    assert kept_range != true_kept, "the planner's kept set is wrong for this fixture"
     outcome = _plan_for(mid, _scene_input_for(MID_FACES, MID_VERTS))
-    assert outcome.refusal_code == "PARTIAL_GROUP_COVERAGE", \
-        "current behaviour: the planner falsely refuses a valid exact-bit merge"
-    assert outcome.plan.corrections == ()
+    assert outcome.refusal_code is None
+    correction = _merge_correction(outcome.plan)
+    parameters = _params(correction)
+    assert parameters["duplicate_groups"] == [[0, 3]]
+    assert parameters["survivor_indices"] == [0]
+    assert parameters["old_to_new_mapping"] == [0, 1, 2, 0, 3, 4, 5]
+    assert parameters["all_groups_exact"] is True
+    assert parameters["predicted_topology_unchanged"] is True
 
-    # and it only 'works' when the removed index is after every kept index
-    tail = _scene(TAIL_FACES, TAIL_VERTS)
-    tail_outcome = _plan_for(tail, _scene_input_for(TAIL_FACES, TAIL_VERTS))
-    assert tail_outcome.refusal_code is None, \
-        "current behaviour: the planner succeeds only when S == range(m)"
+    # The actual surviving PRE-state vertices are [0, 1, 2, 4, 5, 6], not
+    # the post-index range [0, 1, 2, 3, 4, 5]. The planner must therefore emit
+    # the same valid merge correction the executor already knows how to apply.
+
+
+def test_real_planner_middle_table_plan_is_executed_by_the_real_executor():
+    """Wave 13 review finding NB-1: the REAL planner's middle-table plan flows through the REAL
+    executor, offline and deterministically (no bpy, no live Blender, no workflow runner).
+
+    The two adjacent tests each pin ONE layer: test_wave13_planner_closes_middle_table_kept_set pins
+    the plan the real planner emits, and the executor's middle-table tests pin the executor against a
+    contract-built plan. Neither runs the layers together, so nothing in CI would notice a future
+    divergence between the planner's predicted kept set and the executor's independently re-derived
+    one. This test is that integration: ``plan_merge_vertex_correction(...)`` → authorization artifact
+    → ``execute_merge_vertex(...)``.
+
+    It is also the regression for the Wave 13 defect. ``_real_plan`` asserts no refusal, so a planner
+    that still derived its kept set as ``sorted(set(old_to_new_mapping))`` (the POST index range)
+    refuses this fixture with PARTIAL_GROUP_COVERAGE and fails this test before any execution.
+    """
+    scene = _scene(MID_FACES, MID_VERTS)
+    plan, corr = _real_plan(scene, MID_VERTS, MID_FACES)
+
+    # the plan is the REAL planner's, and it authorizes the PRE-state survivor subsequence
+    parameters = _params(corr)
+    assert parameters["duplicate_groups"] == [[0, 3]]
+    assert parameters["survivor_indices"] == [0]
+    assert parameters["old_to_new_mapping"] == [0, 1, 2, 0, 3, 4, 5]
+    assert parameters["all_groups_exact"] is True
+
+    result, engine, counted = _run(scene, plan, _artifact(plan, corr))
+
+    assert result["result"] == ExecutionOutcome.COMPLETED
+    assert result["failure_code"] is None
+    assert result["authorization_verified"] is True
+    assert len(counted.calls) == 1, "exactly ONE bounded mutation per execution"
+    assert result["executed_correction_ids"] == [corr.correction_id]
+    assert result["target_object_mesh"] == {"object_id": "o", "mesh_id": "m"}
+    assert result["duplicate_groups"] == [[0, 3]]
+    assert result["survivor_indices"] == [0]
+    assert result["removed_vertex_indices"] == [3]
+    assert result["old_to_new_mapping"] == [0, 1, 2, 0, 3, 4, 5]
+    assert result["pre_vertex_count"] == 7 and result["post_vertex_count"] == 6
+
+    # MQ-1/MQ-3: the constructed post-state is the surviving PRE-state subsequence [0, 1, 2, 4, 5, 6]
+    # with the middle removal renumbering the face that referenced the removed member.
+    post = engine.scene.objects[0].mesh
+    assert post.vertices == tuple(MID_VERTS[i] for i in (0, 1, 2, 4, 5, 6))
+    assert post.faces == ((0, 1, 2), (3, 4, 5))
+    assert result["changed_face_indices"] == [1]
+
+    # MQ-6: the unrelated object survives the authorized merge bit-identically.
+    other_before = next(o for o in scene.objects if o.object_id == "other")
+    other_after = next(o for o in engine.scene.objects if o.object_id == "other")
+    assert other_after == other_before
 
 # ===========================================================================
 # 9. F-1 REMEDIATION — an EMPTY authoritative group set must refuse, not no-op
@@ -1723,14 +1755,15 @@ def test_b1_mq1_to_mq7_regression_on_a_renumbered_payload_case():
 
 
 def test_b1_valid_tail_mid_and_transitive_merges_still_complete():
-    # tail-positioned group through the REAL planner (unaffected by the Slice-2 planner defect)
+    # tail-positioned group through the REAL planner
     scene = _scene(TAIL_FACES, TAIL_VERTS)
     plan, corr = _real_plan(scene, TAIL_VERTS, TAIL_FACES)
     result, _engine, counted = _run(scene, plan, _artifact(plan, corr))
     assert result["result"] == ExecutionOutcome.COMPLETED and len(counted.calls) == 1
-    # mid-table group (contract-built plan; the planner cannot emit it — its own reported defect)
+    # mid-table group through the REAL planner (Wave 13: the planner now derives the PRE-state
+    # survivor subsequence, so this shape no longer needs a contract-built plan)
     scene = _scene(MID_FACES, MID_VERTS)
-    plan, corr = _synthetic_plan_for(scene, _params_for(scene))
+    plan, corr = _real_plan(scene, MID_VERTS, MID_FACES)
     result, _engine, counted = _run(scene, plan, _artifact(plan, corr))
     assert result["result"] == ExecutionOutcome.COMPLETED and len(counted.calls) == 1
     assert result["removed_vertex_indices"] == [3]
