@@ -646,6 +646,201 @@ def test_envelope_digest_changes_with_capture_time_but_state_digest_does_not():
 
 
 
+def test_python_hash_seed_does_not_change_temporal_delta_digest():
+    import os
+    import subprocess
+    import sys
+
+    code = r'''
+from planning.temporal import (
+    CapabilityContract,
+    ObservationStream,
+    ProducerProvenance,
+    SourceTime,
+    TemporalObservation,
+    temporal_state_digest,
+)
+
+fields = (
+    "collection", "faces", "location", "materials", "mesh_id",
+    "mesh_presence", "parent_object_id", "rotation", "scale",
+    "scene_id", "unit_system", "vertices", "visible",
+)
+unobservable = ("coordinate_frame", "local_frame_id", "normals", "uvs")
+
+def snap(x):
+    return {
+        "scene_id": "scene-a",
+        "unit_system": "METERS",
+        "objects": [{
+            "object_id": "obj-1",
+            "name": "obj-1",
+            "collection": "Collection",
+            "parent_object_id": None,
+            "location": [x, 0.0, 0.0],
+            "scale": [1.0, 1.0, 1.0],
+            "rotation": [1.0, 0.0, 0.0, 0.0],
+            "visible": True,
+            "mesh": {
+                "mesh_id": "mesh-1",
+                "vertices": [[0.0,0.0,0.0],[1.0,0.0,0.0],[0.0,1.0,0.0]],
+                "faces": [[0,1,2]],
+                "materials": ["mat"],
+            },
+        }],
+        "coordinate_frame": None,
+        "world_bounds": None,
+    }
+
+def obs(x, seq):
+    body = snap(x)
+    return TemporalObservation(
+        stream_id="hash-seed-stream",
+        continuity_id="continuity-1",
+        sequence=seq,
+        source_time=SourceTime("FRAME_INDEX", seq, 1, 1, 0),
+        producer=ProducerProvenance(
+            producer_source="BLENDER",
+            producer_contract="extraction_fidelity_v1",
+            engine_version="4.4.3",
+            engine_build="test",
+            producer_session_id="session-1",
+            producer_instance_ordinal=1,
+        ),
+        capability=CapabilityContract(
+            contract_id="test-v1",
+            observable_fields=tuple(sorted(fields)),
+            unobservable_fields=tuple(sorted(unobservable)),
+            representation_state=(),
+        ),
+        snapshot=body,
+        state_digest=temporal_state_digest(body),
+    )
+
+stream = ObservationStream("hash-seed-stream")
+a = obs(0.0, 0)
+b = obs(1.0, 1)
+stream.step(a)
+print(stream.step(b, a).record["delta_digest"])
+'''
+    values = []
+    for seed in ("1", "777", "random"):
+        env = dict(os.environ)
+        env["PYTHONHASHSEED"] = seed
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        values.append(proc.stdout.strip().splitlines()[-1])
+    assert len(set(values)) == 1
+
+
+def test_admission_counter_mutation_matrix():
+    stream = ObservationStream("stream-1")
+    a = observation(5)
+    stream.step(a)
+
+    duplicate = replace(a, capture_time=999)
+    duplicate_result = stream.step(duplicate)
+    assert duplicate_result.admission.outcome is AdmissionOutcome.DUPLICATE_ACKNOWLEDGED
+    assert stream.state.accepted_count == 1
+    assert stream.state.duplicate_acknowledged_count == 1
+    assert stream.state.rejected_stale_count == 0
+    assert stream.state.invalid_count == 0
+    assert stream.state.epoch_count == 1
+
+    stale = observation(4)
+    stale_result = stream.step(stale)
+    assert stale_result.admission.outcome is AdmissionOutcome.REJECTED_STALE
+    assert stream.state.accepted_count == 1
+    assert stream.state.duplicate_acknowledged_count == 1
+    assert stream.state.rejected_stale_count == 1
+    assert stream.state.invalid_count == 0
+    assert stream.state.epoch_count == 1
+
+    invalid = observation(6, scene_id="scene-b")
+    invalid_result = stream.step(invalid)
+    assert invalid_result.admission.outcome is AdmissionOutcome.REJECTED_INVALID
+    assert stream.state.accepted_count == 1
+    assert stream.state.duplicate_acknowledged_count == 1
+    assert stream.state.rejected_stale_count == 1
+    assert stream.state.invalid_count == 1
+    assert stream.state.epoch_count == 1
+
+    accepted = observation(6)
+    accepted_result = stream.step(accepted)
+    assert accepted_result.admission.outcome is AdmissionOutcome.ACCEPTED
+    assert stream.state.accepted_count == 2
+    assert stream.state.duplicate_acknowledged_count == 1
+    assert stream.state.rejected_stale_count == 1
+    assert stream.state.invalid_count == 1
+    assert stream.state.epoch_count == 1
+
+    boundary = observation(
+        0,
+        continuity_id="continuity-2",
+        ordering_epoch=1,
+        session="session-2",
+    )
+    boundary_result = stream.step(boundary)
+    assert boundary_result.admission.outcome is AdmissionOutcome.NEW_EPOCH
+    assert stream.state.accepted_count == 3
+    assert stream.state.duplicate_acknowledged_count == 1
+    assert stream.state.rejected_stale_count == 1
+    assert stream.state.invalid_count == 1
+    assert stream.state.epoch_count == 2
+
+
+def test_duplicate_id_digest_is_order_independent_and_content_sensitive():
+    base = snapshot()
+    second = copy.deepcopy(base["objects"][0])
+    second["location"] = [5.0, 0.0, 0.0]
+    base["objects"].append(second)
+
+    reversed_body = copy.deepcopy(base)
+    reversed_body["objects"].reverse()
+
+    assert temporal_state_digest(base) == temporal_state_digest(reversed_body)
+
+    changed = copy.deepcopy(base)
+    changed["objects"][1]["location"] = [6.0, 0.0, 0.0]
+    assert temporal_state_digest(base) != temporal_state_digest(changed)
+
+
+def test_entity_delta_and_field_change_order_is_canonical():
+    a_body = snapshot()
+    b_body = copy.deepcopy(a_body)
+    obj = b_body["objects"][0]
+    obj["visible"] = False
+    obj["location"] = [1.0, 2.0, 3.0]
+    obj["scale"] = [2.0, 2.0, 2.0]
+    obj["collection"] = "Changed"
+    obj["parent_object_id"] = "parent-1"
+
+    a = observation(0)
+    a = replace(a, snapshot=a_body, state_digest=temporal_state_digest(a_body))
+    b = replace(
+        observation(1),
+        snapshot=b_body,
+        state_digest=temporal_state_digest(b_body),
+    )
+
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    result = stream.step(b, a)
+    changes = result.record["entity_deltas"][0]["field_changes"]
+
+    assert [item["field"] for item in changes] == [
+        "collection",
+        "parent_object_id",
+        "location",
+        "scale",
+        "visible",
+    ]
+
+
 def test_new_epoch_missing_a_preserves_boundary_causes_and_refusal_reason():
     stream = ObservationStream("stream-1")
     a = observation(0, session="session-1", ordering_epoch=0, continuity_id="continuity-1")
