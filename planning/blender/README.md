@@ -1,6 +1,7 @@
-# Atlas Blender Development
+# Blender Development README
 
-This directory contains the deterministic Blender health kernel, canonical scene/mesh contracts, bounded correction capabilities, and Blender boundary validation work.
+> **Current global checkpoint — September 19, 2026.** Blender Extraction Fidelity v1 remains **CLEAR / frozen**. Its producer contract is consumed by the Temporal Observation + State Delta v1 implementation without reopening the extraction milestone. Real Blender 4.4.3 Temporal L-1–L-5 gates pass. O-1 material representation fidelity is resolved at the producer boundary; O-2 mesh-presence coverage is resolved in the Temporal evaluator. The latest independent red-team review is **CLEAR WITH MINOR FINDINGS (NON-BLOCKING)**. Development is paused for the night before Temporal commit/push.
+
 
 ## Current authoritative position — September 18, 2026
 
