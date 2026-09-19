@@ -245,6 +245,38 @@ def _load_source(path: Optional[str]) -> None:
     if "FINISHED" not in result:
         raise BridgeRuntimeError(f"Blender failed to load source file: {result}")
 
+def _file_fingerprint(path: str | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    try:
+        with open(path, "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+        stat = os.stat(path)
+        return {"path": path, "sha256": digest, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    except OSError:
+        return {"path": path, "missing": True}
+
+
+def _blend_inventory(root: str) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if not os.path.isdir(root):
+        return out
+    for current, _dirs, files in os.walk(root):
+        if ".git" in current or ".venv" in current:
+            continue
+        for name in files:
+            if not name.lower().endswith((".blend", ".blend1")):
+                continue
+            path = os.path.join(current, name)
+            try:
+                with open(path, "rb") as handle:
+                    digest = hashlib.sha256(handle.read()).hexdigest()
+                stat = os.stat(path)
+                out[path] = {"sha256": digest, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+            except OSError:
+                out[path] = {"missing": True}
+    return out
+
 
 def run_embedded_request(request_json: str) -> None:
     engine_evidence = {
@@ -255,7 +287,12 @@ def run_embedded_request(request_json: str) -> None:
         "filepath_before_load": bpy.data.filepath,
         "filepath_after_load": None,
         "filepath_at_end": None,
-        "saved_anything": False,
+        "persistence_unchanged": False,
+        "save_detected": False,
+        "source_fingerprint_before": None,
+        "source_fingerprint_after": None,
+        "blend_inventory_before": {},
+        "blend_inventory_after": {},
         "is_dirty_at_end": False,
         "extraction_invocations": 0,
     }
@@ -275,8 +312,12 @@ def run_embedded_request(request_json: str) -> None:
         if request["expected_postcondition_digest"] != digest:
             raise BridgeRuntimeError("expected_postcondition_digest mismatch")
 
-        _load_source(request.get("source_blend_path"))
-        engine_evidence["source_loaded"] = request.get("source_blend_path") is not None
+        source_path = request.get("source_blend_path")
+        source_root = os.path.dirname(source_path) if source_path else None
+        engine_evidence["source_fingerprint_before"] = _file_fingerprint(source_path)
+        engine_evidence["blend_inventory_before"] = _blend_inventory(source_root or os.getcwd())
+        _load_source(source_path)
+        engine_evidence["source_loaded"] = source_path is not None
         engine_evidence["filepath_after_load"] = bpy.data.filepath
 
         original_extractor = _extractor
@@ -293,6 +334,14 @@ def run_embedded_request(request_json: str) -> None:
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
+        engine_evidence["source_fingerprint_after"] = _file_fingerprint(source_path)
+        engine_evidence["blend_inventory_after"] = _blend_inventory(source_root or os.getcwd())
+        engine_evidence["persistence_unchanged"] = (
+            engine_evidence["source_fingerprint_before"] == engine_evidence["source_fingerprint_after"]
+            and engine_evidence["blend_inventory_before"] == engine_evidence["blend_inventory_after"]
+            and engine_evidence["filepath_after_load"] == engine_evidence["filepath_at_end"]
+        )
+        engine_evidence["save_detected"] = not engine_evidence["persistence_unchanged"]
 
         payload = {
             "request_digest": hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
@@ -303,6 +352,14 @@ def run_embedded_request(request_json: str) -> None:
         if engine_evidence.get("mutator_invocations", 0) > 0:
             engine_evidence["ambiguous_result"] = True
         engine_evidence["filepath_at_end"] = bpy.data.filepath
+        engine_evidence["source_fingerprint_after"] = _file_fingerprint(request.get("source_blend_path") if isinstance(request, dict) else None)
+        engine_evidence["blend_inventory_after"] = _blend_inventory(os.path.dirname(request.get("source_blend_path")) if isinstance(request, dict) and request.get("source_blend_path") else os.getcwd())
+        engine_evidence["persistence_unchanged"] = (
+            engine_evidence["source_fingerprint_before"] == engine_evidence["source_fingerprint_after"]
+            and engine_evidence["blend_inventory_before"] == engine_evidence["blend_inventory_after"]
+            and engine_evidence["filepath_after_load"] == engine_evidence["filepath_at_end"]
+        )
+        engine_evidence["save_detected"] = not engine_evidence["persistence_unchanged"]
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         payload = {
             "request_digest": request_digest or hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
