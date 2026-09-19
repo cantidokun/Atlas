@@ -307,6 +307,15 @@ def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
         "UNEMITTED_EPOCH_ANCHOR",
     )
     assert rerun["delta_digest"] == first.record["delta_digest"]
+    print("ATLAS_TEMPORAL_L1_EVIDENCE=" + json.dumps({
+        "engine_version": producer_meta["engine_version"],
+        "engine_build": producer_meta["engine_build"],
+        "producer_session_id": producer_meta["producer_session_id"],
+        "from_observation_id": first.record["from_observation_id"],
+        "to_observation_id": first.record["to_observation_id"],
+        "delta_digest": first.record["delta_digest"],
+        "outcome": first.record["outcome"],
+    }, sort_keys=True))
 
 
 def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
@@ -355,6 +364,13 @@ def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
     assert "RESTART_PRODUCER_SESSION" in result.record["reason_codes"]
     assert "ORDERING_EPOCH_CHANGE" in result.record["reason_codes"]
     assert "TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE" in result.record["reason_codes"]
+    print("ATLAS_TEMPORAL_L2_EVIDENCE=" + json.dumps({
+        "engine_version": first_meta["engine_version"],
+        "first_session": first_session,
+        "restarted_session": restarted_session,
+        "reason_codes": result.record["reason_codes"],
+        "delta_digest": result.record["delta_digest"],
+    }, sort_keys=True))
 
 
 def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
@@ -399,6 +415,13 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
     assert result.record["observations_skipped"] == 0
     assert result.record["source_time_hold"] is False
     assert "ORDERING_EPOCH_CHANGE" in result.record["reason_codes"]
+    print("ATLAS_TEMPORAL_L3_EVIDENCE=" + json.dumps({
+        "engine_version": first_meta["engine_version"],
+        "first_session": first_session,
+        "replay_session": replay_session,
+        "reason_codes": result.record["reason_codes"],
+        "delta_digest": result.record["delta_digest"],
+    }, sort_keys=True))
 
 
 def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
@@ -447,3 +470,9 @@ def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
 
     assert first["delta_digest"] == second["delta_digest"]
     assert first == second
+    print("ATLAS_TEMPORAL_L5_EVIDENCE=" + json.dumps({
+        "engine_version": meta_a["engine_version"],
+        "engine_build": meta_a["engine_build"],
+        "delta_digest": first["delta_digest"],
+        "deterministic": True,
+    }, sort_keys=True))
