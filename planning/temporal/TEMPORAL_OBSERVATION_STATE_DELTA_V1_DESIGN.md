@@ -895,8 +895,8 @@ from_* fields identify the expected/supplied predecessor. They are identity meta
 `EMITTED_PREDECESSOR` iff, for this stream, a StateDelta record with
 `to_observation_id == from_observation_id` was emitted; otherwise it is
 `UNEMITTED_EPOCH_ANCHOR`. The latter applies to the stream's first accepted observation and to the first
-accepted observation after explicit recovery reinitialization. The value is determined by the selected
-record-producing variant and is not an additional evaluator input.
+accepted observation after explicit recovery reinitialization. The value is derived from the admitted predecessor's recorded emission history and the selected
+record path, and is not an additional evaluator input.
 
 
 **`source_time_hold` is normative:** it is `true` iff a SAME_EPOCH comparison actually occurred, `A.source_time == B.source_time` under the full SourceTime tuple equality rule (domain, value, rate and ordering_epoch), and the semantic comparison reports at least one real state difference represented by at least one field change listed in `entity_deltas`, excluding `NO_CHANGE` entries and the reason-only `ROTATION_SIGN_EQUIVALENT_ONLY` case. It is always `false` on INITIAL_ACCEPTED, TEMPORAL_DISCONTINUITY, PAIR_INPUT_UNAVAILABLE, PAIR_INPUT_IDENTITY_MISMATCH and all other refusal records.
@@ -1608,7 +1608,7 @@ its own red-team and its own live evidence (§18 Q6).
 | 46 | `FromIdentity` is constructed after the stage-4 mutation, or from post-mutation values, so `from_*` and the boundary cause describe the new epoch instead of the previous one | the projection is by definition taken **before** the stage-4 mutation; a projection reflecting the new epoch is a different input and would name the wrong earlier endpoint | §6.4, §8.1, §12.1 |
 | 47 | a consumer treats `PairInput` as the complete evaluation domain, or routes a refusal through an implicit fifth form | `PairInput` is only the caller-supplied content-bearing subset; the complete record-producing domain is exactly the four-variant `EvaluationInput` union, and every variant carries `FromIdentity` | §6.7, §8.1 |
 | 48 | multiple declared boundary fields change at once and the implementation chooses an arbitrary single cause, depends on field/input order, or omits one changed field from the reason set | derive the boundary-cause set independently for each changed declared field, include every applicable cause code, and emit `reason_codes` in canonical sorted order; the result is independent of construction order and there is no primary-cause tie-break | §6.10.1, §8.1, §12.2, §12.4 |
-| 49 | a consumer or producer implementation disagrees about whether `from_observation_id` refers to an emitted predecessor or an unseen epoch anchor | `from_observation_origin` is variant-determined by the emitted-record history: `EMITTED_PREDECESSOR` iff a prior StateDelta with `to_observation_id == from_observation_id` exists for the stream; otherwise `UNEMITTED_EPOCH_ANCHOR` | §8.6 |
+| 49 | a consumer or producer implementation disagrees about whether `from_observation_id` refers to an emitted predecessor or an unseen epoch anchor | `from_observation_origin` is derived from predecessor emission history: `EMITTED_PREDECESSOR` iff a prior StateDelta with `to_observation_id == from_observation_id` exists for the stream; otherwise `UNEMITTED_EPOCH_ANCHOR` | §8.6 |
 
 ### 19.1A Normative invariant labels
 
@@ -2027,6 +2027,6 @@ Revision 9 responds to the first independent architectural red-team. Its princip
 | R9-12 | exactly-once delivery was accidentally implied | exactly-one is a logical record-generation property; transport/delivery is explicitly out of scope and not exactly-once |
 | R9-13 | incomplete checkpoints lacked a detectable completeness condition | checkpoint generation, commit state and integrity digest are normative |
 | R9-14 | digest canonical value domain was incomplete | int64 bounds, Unicode scalar validity, unique keys and no-normalization rule are arrival-level invariants, including every digest-bearing identity/envelope/record value |
-| R9-15 | source_time_hold, anchor provenance and concurrency semantics were underdefined | all three are normative and closed in §§6, 8, 14; `from_observation_origin` is explicitly variant-determined |
+| R9-15 | source_time_hold, anchor provenance and concurrency semantics were underdefined | all three are normative and closed in §§6, 8, 14; `from_observation_origin` is explicitly derived from predecessor emission history |
 
 Revision 9 remains REVIEW REQUIRED / NO IMPLEMENTATION until the independent review gate clears.
