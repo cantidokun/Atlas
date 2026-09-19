@@ -1,0 +1,1429 @@
+# Unreal State Extraction Fidelity v1 — Revision 2/3/3.1/3.2/3.3 Review
+
+**Status:** REVIEW RECORD — IMPLEMENTATION NOT AUTHORIZED
+**Reviews:** `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md` at Revision 2 (§1–§5), at
+Revision 3 (§6), at Revision 3.1 (§7, the final focused design audit), at Revision 3.2 (§8, the
+material-resolution semantic correction) and at Revision 3.3 (§9, the deterministic
+material-resolution narrowing)
+**Branch:** `feat/unreal-state-extraction-fidelity-v1-design` (PR #106, draft)
+**Author of this review:** the remediating agent (not an independent reviewer) — §7, §8 and §9 are
+likewise self-authored and cannot clear the design
+**Input to this review:** (a) the prior independent architectural red-team verdict **BLOCK**,
+delivered as findings F1–F15 plus canonicalization and determinism directives; and (b) a second
+architectural review pass delivered as eleven priority areas (P1–P11), classified in §6.1
+
+This document records (1) the verification of every input finding against the repository and
+the installed UE 5.6 engine source, (2) the design changes those findings produced, (3) the
+second-pass hostile review of the revised design, (4) what remains unresolved, and (5) one
+verdict token per revision.
+
+Environment used for every engine citation: `C:/Program Files/Epic Games/UE_5.6/Engine/`
+(Build.version: `MajorVersion 5 / MinorVersion 6 / PatchVersion 1 / Changelist 44394996`).
+Repository citations are `path:line` against the design branch head.
+
+---
+
+## 1. Input finding classification
+
+Legend: **C** = CONFIRMED, **P** = PARTIALLY CONFIRMED, **F** = FALSE POSITIVE.
+
+| # | Finding | Class | Repository / engine evidence |
+|---|---|---|---|
+| F1 | Transform precision premise (LWC doubles) | **C** | `Core/Public/Math/MathFwd.h:47,50,53` — `FVector = TVector<double>`, `FQuat = TQuat<double>`, `FTransform = TTransform<double>`; float variants are separate types at `:73` (`FVector3f`) and `:76` (`FQuat4f`); the LWC macro binds the default alias to `double` (`Core/Public/Misc/LargeWorldCoordinates.h:17`). `AActor::GetActorLocation/GetActorQuat/GetActorScale3D` return those aliases (`Engine/Classes/GameFramework/Actor.h:1700,2482,2500`). Revision 1 §4's "All Unreal transform scalar values in v1 originate as `float32` source facts" was false. |
+| F2 | Transport/session metadata contaminates extraction | **C** | Envelope carries `session_identity` beside `observed_state` (`AtlasTransportServer.cpp:294-311`); contents are `editor_session_id`, `process_id`, `process_creation_time_utc`, `server_start_time_utc`, `engine_version`, `project_identity` (`:2309-2333`). The Python adapter copies `observed_state` and injects `_session_identity` (`planning/unreal_adapter_production.py:76-95`), and the existing evidence digest digests `observed_state` verbatim (`planning/unreal_evidence_digest.py:36-45,52-57`) — so the existing evidence digest is session-varying. `inspect_render_state` embeds `engine_session_identity` inside its own `observed_state` (`AtlasTransportServer.cpp:1969-1971`). Revision 1 declared session metadata "excluded" without defining the boundary. |
+| F3 | Loaded-world scope | **C** | `TActorIterator`'s default flags are `OnlyActiveLevels \| SkipPendingKill` (`Engine/Public/EngineUtils.h:509`) and with `OnlyActiveLevels` a level is iterated only when `(bIsVisible && !bIsBeingRemoved) \|\| bIsAssociatingLevel \|\| bIsDisassociatingLevel` and its collection is the active collection or `StaticLevels` (`EngineUtils.h:462-483`). So load/visibility/association state changes the visible entity set for one world identity. The existing code also has two divergent selections: `FindActorByEntityId` uses `GEngine->GetWorldContexts()[0].World()` (`AtlasTransportServer.cpp:2300-2303`) while provisioning uses `GetActiveEditorWorld()` (`AtlasUnrealTransport.cpp:207`) — the exact split-world trap. |
+| F4 | Parent identity is lossy | **C** | Revision 1 §3.2 mapped both "no attach-parent actor" and "attach-parent actor with no Atlas entity binding" to `unbound/null`, so two different scene graphs produced one extraction state. The current C++ has no parent extraction at all to fall back on. |
+| F5 | Visibility semantics | **C** | `AActor::IsHiddenEd()` is a derived aggregate: `bHiddenEdLayer \|\| !bEditable \|\| (GIsEditor && (IsTemporarilyHiddenInEditor() \|\| bHiddenEdLevel))` (`Engine/Private/ActorEditor.cpp:973-982`) — execution-mode dependent through `GIsEditor`, and it folds in a flag (`bEditable`) that is `protected` (`Actor.h:1253,1264`) and one (`bHiddenEdTemporary`) that is `private` (`Actor.h:1286-1289`). Revision 1 called `IsHiddenEd()` a "source fact". |
+| F6 | Sequencer fixture violates the contract | **C** | All five reported properties verified in `AtlasSequencerIntegrationFixture.cpp`: core ticker at 0.25 s (`:72`); spawns into the live editor world (`:21,41`); `ESpawnActorNameMode::Requested` (`:38`), which per `Engine/Classes/Engine/World.h:496-509` generates an unused name when the requested one is taken; transient, `NAME_None` sequence (`:50`). Two further conflicts found: `ULevelSequence::Initialize()` reads `CVarDefaultTickResolution` / `CVarDefaultDisplayRate` and stamps `FDateTime::UtcNow()` into MovieScene metadata (`LevelSequence/Private/LevelSequence.cpp:103-127`), and the harness fixture dirties the level package at startup (`AtlasUnrealTransport.cpp:438`, also `:113` and `:378`). |
+| F7 | FName/entity-ID case semantics | **C** | `FName` is "case-insensitive, but case-preserving" (`Core/Public/UObject/NameTypes.h:573`) and compares comparison-index + number (`:762-765`); `Tags.Contains(FName(...))` (`AtlasTransportServer.cpp:2300-2303`) is therefore case-insensitive. Additionally `FString::operator==` is case-insensitive (`Containers/UnrealString.h.inl:1053-1056,1067-1070`) — a cross-language divergence hazard for any ordinal comparison written with `==`. |
+| F8 | Actor object path versus stable identity | **C** | The object path contains the mutable object name, so rename/recreate/level-move change it. A stable GUID alternative is refuted on engine evidence: `ActorGuid` is derived from the path for persisted actors (`Engine/Private/Actor.cpp:1013-1015`) and randomly regenerated on duplicate (`:1017-1019`), i.e. it either adds nothing or is not reproducible across sessions. Revision 1 also duplicated `actor_object_path` at top level and inside `source_identity`. |
+| F9 | Material state machine | **C** | A binary `resolved \| missing` is insufficient: `UStaticMeshComponent::GetNumMaterials()` returns 0 with no mesh asset (`Engine/Private/Components/StaticMeshComponent.cpp:2765-2775`); the skinned path returns 0 slots **while compiling** and `GetMaterial` returns null while compiling (`SkinnedMeshComponent.cpp:1713-1720`, `Engine/Public/SkinnedMeshComponentHelper.h:114-120`); the resolved value may be a **Nanite override** rather than the assigned one (`StaticMeshComponentHelper.h:108-137`); empty slots render with the engine's default material, which is render state. The existing "material verification" is unrelated: `BuildMaterialVariantState` returns only a tag name (`AtlasTransportServer.cpp:692-694`) and `verify_material_variant` is mapped to that read (`planning/unreal_adapter_production.py:109`). |
+| F10 | Fail-closed numeric semantics | **P** | The narrowing premise is confirmed as F1 (binary32 canonicalisation of binary64 source facts). The specific corruption outcomes — a finite value becoming infinite, a nonzero becoming zero — were **latent in the specified representation rather than demonstrated**, because Revision 1 had no implementation; and Revision 1 did require non-finite values to fail closed. Recorded as PARTIALLY CONFIRMED: real hazard, not yet an observed defect. |
+| F11 | Quaternion / zero semantics | **P** | Revision 1 already forbade normalisation, shortest-path selection, tolerance and equivalence comparison, and stated that non-finite values fail closed — so part of the directive was met. It did not state that `q`/`-q` and `±0` remain **distinct**, and it did not separate source-fidelity identity from semantic equivalence. |
+| F12 | State authority / trust boundary | **P** | Revision 1 said the extractor must not authorize/receipt/verify and that M12.5 is unchanged. Missing: the untrusted-input statement, "validation is not verification", "a digest is not a verdict", "must not replace `TargetStateEvaluator`", "must not become M12.5", and the reserved seam. Anchors that make these binding: `planning/unreal_transport_contract.py:6-11` ("neither trusts the other", "responses never carry a `verified` flag"), `planning/unreal_evidence_contract.py:267-268` (only `verify_render_job_evidence` constructs verified evidence), `planning/target_state.py:50-77`, `planning/m12/target_state.py:1-13`, `docs/ATLAS_ARCHITECTURE_CONTRACT.md:23,176-187`. |
+| F13 | World-selection implementation mismatch | **C** | `GetActiveEditorWorld()` falls back to `GEngine->GetWorldContexts()` in **two** copies (`AtlasTransportServer.cpp:81-100`, `AtlasUnrealTransport.cpp:149-173`); `FindActorByEntityId` uses `GetWorldContexts()[0].World()` and returns the first tag match (`AtlasTransportServer.cpp:2300-2303`); `InspectWorld` takes the last valid context, preferring `EWorldType::Editor` (`:769-790`). The world enum is `namespace EWorldType { enum Type { None, Game, Editor, PIE, EditorPreview, GamePreview, GameRPC, Inactive } }` (`Engine/Classes/Engine/EngineTypes.h:1222-1249`). Engine version is a hardcoded literal `FString EngineVersion = TEXT("5.6")` (`AtlasTransportServer.cpp:120`) surfaced through `session_identity` (`:2322,2331`), and it **already disagrees with the host engine**, which is 5.6.1 (`UE_5.6/Engine/Build/Build.version`). Revision 1 §13 said the probes may be "reused or refined". |
+| F14 | Sequencer validity/bounds | **P** | Revision 1 did define bound markers, exact rational rates and open-bound rejection. Missing: a validity predicate, the fact that `FFrameRate::IsValid()` tests **only** `Denominator > 0` (`Core/Public/Misc/FrameRate.h:48-51`), the legacy read/write asymmetry, and removal of an unreachable failure class. The asymmetry is real and frozen: `inspect_sequencer_state` reports `end_frame` as the **exclusive** upper bound (`AtlasTransportServer.cpp:719-743`) while `set_sequencer_playback_range` treats `end_frame` as **inclusive** and converts with size `EndFrame - StartFrame + 1` (`:763`, frozen by `tests/m10/test_m10_defect_d2_sequence_range.py:95-102`). `SetPlaybackRange(FFrameNumber Start, int32 Duration)` is half-open (`MovieScene/Public/MovieScene.h:998`). |
+| F15 | Error and capacity boundaries | **C** | The transport vocabulary is 9 free-string codes with a generic catch-all `ERR_OPERATION_FAILED` set in the dispatcher wrapper (`AtlasTransportServer.cpp:658`); the Python side has 5 codes; nothing maps extraction failure classes to codes. Both directions are bounded at 1 MiB (`AtlasTransportServer.cpp:46`, `:218`, `:251`; `planning/unreal_transport_named_pipe.py:212`), and a client-side framed envelope with declared length + SHA-256 fails closed on mismatch (`unreal_transport_named_pipe.py:261-281`). Game-thread execution is bounded by a 5000 ms wait (`AtlasTransportServer.cpp:606,608`). No policy existed for oversize extraction. |
+| — | Canonicalization: no in-repo JCS implementation | **C** | `RFC 8785` / "JSON Canonicalization" appears nowhere in the repository except Revision 1 of the design. Every existing digest path uses `json.dumps(..., sort_keys=True, separators=(",", ":"))` with inconsistent `ensure_ascii` (`planning/unreal_evidence_digest.py:56`, `planning/unreal_render_contract.py:54,88`, `planning/production_artifact.py:75`, `planning/blender_execution_receipt.py:12`). |
+| — | Canonicalization: `json.dumps(sort_keys=True)` is not RFC 8785 | **C** | Three reachable divergences: key ordering domain (Python code points vs JCS UTF-16 code units — reachable through object paths, which are not ASCII-constrained); string escaping (JCS = ECMAScript `JSON.stringify`; the repo's own call sites do not even agree with each other on `ensure_ascii`); number serialisation (ECMAScript rules, where Python prints `-0.0` for negative zero). Revision 1 named the standard and supplied no implementation strategy, ownership, vector requirement or byte-encoding rule. |
+| — | Determinism: ordering/collation/testing unspecified | **C** | Revision 1 asserted determinism without naming who orders arrays, the collation for entity IDs and object paths, source-order preservation, duplicate handling, or any process-run/seed/reordered-fixture test. Two engine traps it did not exclude: `FLevelCollection::GetLevels()` is a `TSet` (hash order, `Engine/Classes/Engine/World.h:675,735`) and `UWorld::GetLevels()` is an arrival-ordered array (`:3426`). |
+
+**Totals: 11 CONFIRMED, 4 PARTIALLY CONFIRMED, 0 FALSE POSITIVE**, plus all canonicalization and
+determinism directives confirmed. No input finding was dismissed.
+
+---
+
+## 2. Changes made to the design
+
+Only `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md` was modified. No C++ or Python
+production code, no tests, no transport, no M4–M10 file, no M12.5 file, and no fixture were
+touched. The document was restructured into a closed normative contract; the changes below are
+the substance (the design's §15 carries the same mapping).
+
+### 2.1 Structure
+
+New: §2 Authority and trust boundary; §4.2 extraction boundary; §4.3 asserted-precondition
+derivation; §4.4 world record; §4.5 collections; §5 exact numeric policy; §6 canonicalization
+and digest; §7 determinism contract; §8 closed error vocabulary; §9 capacity/framing/execution
+bounds; §10.1 operation surface; §11 fixture policy. Sections 3.1–3.9, 11 and 13–15 were
+rewritten where the findings land.
+
+### 2.2 Per-finding remediation
+
+- **F1** — source scalars are declared binary64 with engine citations; canonical form is a
+  16-hex-digit binary64 bit pattern reinterpreted by `memcpy`/`struct.pack`; narrowing
+  (`static_cast<float>`, `UE_REAL_TO_FLOAT*`, `struct.pack("<f")`, `numpy.float32`) is forbidden
+  anywhere between accessor and encoding; the payload asserts the claim in-band via
+  `transform.source_component_type: "binary64"`, derived from a compile-time `FReal`
+  assertion (§3.7, §5.1–5.2, §4.3).
+- **F2** — the value tree is a closed schema under exactly one key
+  (`observed_state.unreal_state_extraction`); reserved-key rejection at any depth (including
+  `_session_identity`, `session_identity`, `engine_session_identity`, `process_id` and all
+  timestamps); the digest input is **reconstructed from declared fields only**, never copied
+  from `observed_state`; the extraction boundary must run un-augmented and stripping is
+  forbidden (§4.1–4.2, §6.5).
+- **F3** — a complete loaded-visible scope is a precondition
+  (`IsLevelLoaded() && IsLevelVisible()` for every streaming level); partitioned worlds are
+  refused; the extractor never force-loads; entity binding scans an explicit level set
+  (`ULevel::Actors` over the scope) instead of `TActorIterator`; the scope is recorded in the
+  payload (§3.2).
+- **F4** — three parent states `none` / `unbound` / `bound`; the `unbound` state carries the
+  parent's object path, so re-parenting between unbound parents is digest-visible; two or more
+  `atlas_entity:` tags on the parent fails closed (§3.5).
+- **F5** — the derived aggregate (`hidden_in_editor` from `IsHiddenEd()`) is labelled derived
+  and separated from the four public source flags; `GIsEditor` is recorded as
+  `derived_from_gis_editor`; the unreadable input is declared in-band as the frozen literal
+  `unrecorded_hidden_inputs: ["bEditable"]` (§3.6).
+- **F6** — the ticker fixture is quarantined with a five-row evidence table; the design records
+  that foreign transient actors are harmless **by construction** because extraction never
+  enumerates the world actor set; the entity-tagged sequencer fixture that the gate needs is
+  named as an implementation deliverable; the design does not modify the fixture (§11.1–11.2).
+- **F7** — canonical entity-ID grammar `^[A-Za-z0-9_.-]{1,64}$`; case-insensitive uniqueness
+  within a request; case-insensitive binding with explicit zero/one/many arms; tag-conflict
+  rejection; ordinal, case-sensitive string comparison mandated everywhere except the binding
+  lookup; the grammar makes UTF-8/UTF-16/code-point orders coincide, which is what makes the
+  cross-language sort key unambiguous (§3.3, §7.3).
+- **F8** — canonical entity identity, source-object provenance and mutable source locator are
+  separated in a table; renaming is declared to change the digest by design; the duplicated
+  nested `source_identity` object is removed; GUID-based identity is rejected on the
+  `NewDeterministicGuid`/`NewGuid` evidence (§3.4).
+- **F9** — a total component/slot state machine
+  (`mesh_state` × `slot_state` ∈ {`mesh_asset_present`,`no_mesh_asset`} ×
+  {`component_override`,`asset_slot`,`asset_slot_empty`}), with `assigned_*` and `resolved_*`
+  material paths distinguished, Nanite substitution documented as the engine's own resolution
+  (later narrowed by Revision 3.2 §8: the accessor's conditional *material-level* step only, with
+  render-path substitution explicitly outside extraction),
+  async compilation failing closed, transient/dynamic instances rejected, null-mesh components
+  recorded rather than omitted, registered-component filtering, and an explicit non-equivalence
+  statement for `verify_material_variant` / `atlas_material_variant:` (§3.8).
+- **F10** — finiteness is tested on the returned `double` before encoding; no narrowing exists,
+  so overflow-to-inf and flush-to-zero are structurally impossible; both classes are mandatory
+  tests D11–D12, with D13 rejecting any non-16-hex lexical form (§5.5–5.6, §7.4).
+- **F11** — `q`/`-q` and `±0` are declared distinct and never canonicalised; source-fidelity
+  identity is defined separately from semantic equivalence, with the four implication rules for
+  equal and unequal digests (§5.4).
+- **F12** — extraction results are untrusted input; validation is not verification; a digest is
+  an identity/integrity value and never a verdict; extraction must not replace
+  `TargetStateEvaluator`, must not become M12.5, and the M12.5 seam is reserved and not
+  implemented (§2).
+- **F13** — `GEditor->GetEditorWorldContext().World()` only, `EWorldType::Editor` named
+  explicitly, `Inactive` and `EditorPreview` rejected by name, partitioned worlds refused; the
+  three existing order-dependent selections are tabulated as **replaced, not reused**; engine
+  identity is sourced from `FEngineVersion::Current().ToString(EVersionComponent::Patch)` and
+  `FApp::GetBuildVersion()` with the hardcoded legacy literal explicitly disqualified (§3.1).
+- **F14** — a six-clause validity predicate with one error per clause; v1's own
+  `numerator > 0 && denominator > 0` in place of `FFrameRate::IsValid()`; `upper_frame >
+  lower_frame`; the legacy exclusive-read/inclusive-write asymmetry disclosed as a compatibility
+  boundary; the unreachable multiple-candidate condition removed (§3.9).
+- **F15** — a closed 21-code extraction vocabulary plus 3 Python-side codes, with one error per
+  normative failure class and a prohibition on reporting extraction failures as
+  `ERR_OPERATION_FAILED`; the 1 MiB bound, the framed envelope, a pre-response size check that
+  fails closed with `ERR_EXTRACTION_PAYLOAD_TOO_LARGE`, no chunking, and timeout classified as a
+  transport class (§8, §9).
+- **Canonicalization** — RFC 8785 retained with an explicit implementation strategy: single
+  Atlas-owned Python canonicalizer, restricted payload domain, in-domain vectors pass
+  byte-exactly, out-of-domain (float/exponent) vectors must be **rejected**, byte encoding fixed
+  as UTF-8 without BOM or trailing newline, and the existing `digest_evidence` path excluded
+  (§6).
+- **Determinism** — the producer orders arrays, Python **validates** canonical order and fails
+  closed rather than silently sorting (JCS preserves array order); collation fixed as UTF-16
+  code-unit order with the ASCII equivalence stated for entity IDs and the
+  `utf-16-be`-key technique stated for object paths; the `TSet`/arrival-order traps named;
+  duplicates rejected not deduplicated; mandatory tests D1–D13 covering different
+  `PYTHONHASHSEED` values, reordered construction, request-order permutation, one-session and
+  fresh-session repetition, non-canonical-order rejection, metadata rejection, JCS vectors,
+  engine-identity difference, and the binary64 magnitude cases (§7).
+
+---
+
+## 3. Second-pass findings (hostile review of Revision 2)
+
+The revised design was attacked for new contradictions, unresolved normative choices, decisions
+left to the future coder, determinism gaps, hidden authority coupling, UE5.6 API assumptions and
+live-fixture impossibilities. Seven findings were raised; all seven were remediated in the same
+revision. They are recorded here rather than hidden, because each was a defect the remediating
+author introduced.
+
+### SP-1 — A field whose determinism is unprovable was in the digest — REMEDIATED (field removed)
+
+Revision 2 (as first drafted) reported `entity_tag_literal`, the matched tag's stored casing.
+That field is not demonstrably reproducible: tag comparison is case-insensitive
+(`NameTypes.h:573,762`), and the casing returned for a name is a property of the process name
+table — comparison and display entries are distinct, `FNamePool::Store` returns an existing
+display entry for an exact-casing match and otherwise inserts one against the already-existing
+comparison entry (`Core/Private/UObject/UnrealNames.cpp:1860-1883`), with
+`InsertExistingEntryWithNumber` / `SetLoadedDifferentDisplayId` paths for the numbered and
+loaded cases. The shipped headers and implementation do not let this contract *prove* that the
+reported casing is identical across two fresh sessions, and a field that cannot be shown
+deterministic must not participate in a digest. Removed; §3.3.3.6 now states the removal and the
+reason, and the actor record no longer carries the field.
+
+Disposition: the underlying engine question ("which casing does a tag FName report, and is it
+stable across processes?") is **not fully determined from shipped sources** and is recorded here
+as an open engine-semantics question. The contract no longer depends on the answer.
+
+### SP-2 — Dead normative text — REMEDIATED (removed, replaced by a limitation)
+
+Revision 2 (as first drafted) defined a failure arm for "a source tag whose prefix matches and
+whose ID is case-insensitively equal to the requested ID but violates the canonical grammar".
+That arm is unreachable: for a canonical request ID, a case-insensitively equal ID is itself
+canonical, since the grammar admits both cases. A dead failure arm is exactly the defect the
+input's F14 identified in Revision 1. The arm and its code
+(`ERR_EXTRACTION_SOURCE_TAG_NON_CANONICAL`) are removed; the parallel parent clause is removed
+too; and the real consequence is now stated as an explicit addressability limitation (§3.3.3.5):
+a source tag whose ID is not canonical cannot be addressed by v1, and the answer is a correct
+not-found.
+
+### SP-3 — Acceptance markers could be satisfied by hardcoding — REMEDIATED (§4.3)
+
+Revision 2 carries several fields whose legal value is fixed by the contract
+(`world_type: "editor"`, `is_partitioned_world: false`, `selection_provenance`,
+`level_scope.levels[].loaded/visible`, `transform.source_component_type: "binary64"`). As first
+drafted, an implementation could write those literals — and a live gate observing them would
+prove nothing. §4.3 now requires each marker to be **derived from the engine object it
+describes**, with a compile-time assertion where the property is compile-time
+(`FVector::FReal`/`FQuat::FReal` being `double`, `Math/Vector.h:55`), and asserted by Python.
+Acceptance gate 12 requires a negative test: a stub reporting `world_type: "editor"` for a
+non-editor world must fail.
+
+### SP-4 — Hidden coupling to the session-augmenting adapter path — REMEDIATED (§4.2.8)
+
+The production adapter copies `observed_state` and injects `_session_identity`
+(`planning/unreal_adapter_production.py:76-95`). With §4.2.1's closed-schema rule, an extraction
+consuming that path would fail closed on **every** production response — and the cheapest
+apparent fix available to a future implementer is to delete the key, which is precisely the
+containment breach §4.1 exists to prevent. §4.2.8 now states that the extraction boundary reads
+the transport response's own `observed_state` (or an adapter path that does no augmentation),
+that a session key at the boundary is a hard failure, and that stripping is forbidden.
+
+### SP-5 — Unregistered components would have been extracted — REMEDIATED (§3.8.1)
+
+As first drafted, the component set was "every `UMeshComponent`", which includes unregistered
+components: components that do not participate in the world and whose material view is
+necessarily unresolved. That would have introduced source facts no world state depends on and
+made the payload sensitive to transient component construction. The set is now filtered to
+registered components (`UActorComponent::IsRegistered()`, `ActorComponent.h:1243`).
+
+### SP-6 — Engine identity could silently degrade to empty — REMEDIATED (§8.1)
+
+`engine_version` and `engine_build_version` are digested, so an empty string would silently
+weaken identity instead of failing. A closed code
+`ERR_EXTRACTION_ENGINE_IDENTITY_UNAVAILABLE` now covers an empty version or build string.
+
+### SP-7 — The JCS vector obligation contradicted the restricted domain — REMEDIATED (§6.4, D9)
+
+Revision 2 requires a canonicalizer that fails closed on floats, and simultaneously requires the
+RFC 8785 published vectors to pass — but those vectors include floating-point/exponent cases the
+restricted domain can never produce. The two obligations as originally written could only be
+satisfied by a canonicalizer that silently grows a number-formatting behaviour the contract
+forbids. The obligation is now split: in-domain vectors (including the key-ordering and
+string-escaping cases this contract actually needs) must canonicalise byte-exactly; out-of-domain
+vectors must be **rejected**, and the test must assert the rejection.
+
+### Second-pass items checked and found sound (no change)
+
+- The closed-schema/reserved-key design does not accidentally forbid any legitimate field (no
+  declared field name begins with `_`).
+- The `world_package_path` == persistent `level_package_path` equality is a consequence of the
+  scope rule, not a defect; it is now stated explicitly so it is not "corrected" by stripping a
+  suffix.
+- The material state machine is total over the component/slot domain, and every reported slot
+  maps to exactly one state.
+- The digest's exclusion of the request, the authorization, the transport and the session is
+  intentional (identity of *source state*, not of intent) and is stated.
+- The engine-identity-in-digest decision makes digests differ across engine builds; this is
+  intended, is stated in §3.1.2, and is covered by D10 rather than left implicit.
+- No finding was remediated by expanding scope: World Partition, chunked transport, forced level
+  loading, source repair and semantic interpretation were all refused explicitly (§12).
+
+---
+
+## 4. Remaining unresolved issues
+
+These are not masked and are not fixed here. Each has an explicit disposition.
+
+**U1 — The complete-scope precondition is a material scope restriction (accepted, requires
+independent acceptance).** v1 refuses to extract from any world with a streaming level that is
+not loaded and visible. Many production maps deliberately keep a streaming level unloaded, so
+those worlds are simply not extractable in v1. The alternative — extracting from a partial scope
+and recording incompleteness — was rejected because it reintroduces exactly the ambiguity F3
+exists to remove (an entity present only in an unloaded level would be indistinguishable from a
+non-existent entity). Disposition: accepted bounded cost, documented in §3.2.1; an independent
+reviewer should confirm the trade-off is acceptable rather than assume it.
+
+**U2 — `hidden_in_editor` is not fully decomposable.** `bEditable` is `protected` and is folded
+into the derived aggregate, so a change in that flag that leaves the aggregate unchanged is not
+observable. Disposition: declared in-band via `unrecorded_hidden_inputs` (§3.6.3); a reviewer
+could reasonably prefer a reflection-based read, which this design rejects as brittle and as a
+private-state read path.
+
+**U3 — Class-specific material semantics are out of scope.** Landscape and similar components
+override the slot model; v1 records the generic `UMeshComponent` answer and claims nothing
+class-specific (§3.8.3.4). Disposition: declared scope limit.
+
+**U4 — Component identity is a mutable locator.** A component created at runtime with an
+engine-generated name yields a non-reproducible object path. Disposition: declared (§3.8.1),
+with the live gate required to use explicitly named components. A future milestone could bind
+component identity to a slot name rather than an object path; that is a separate design.
+
+**U5 — Cross-engine-build digest instability is intended but must be understood.** Because
+engine identity is digested, the same content extracted by two engine builds yields different
+digests. Disposition: stated (§3.1.2, D10); consumers must compare digests within a build.
+
+**U6 — The live gate is not buildable as written.** §11.1.2's obligations require an
+`ALevelSequenceActor` carrying an `atlas_entity:` tag; the repository's stable-sequence fixture
+actor carries only `atlas_sequencer_fixture`. The fixture is named as an implementation
+deliverable; no fixture was modified in this task. Disposition: implementation precondition,
+recorded so the next rung cannot discover it late.
+
+**U7 — The error vocabulary is contract-closed, not type-closed.** The transport's `error_code`
+is a free string and the C++ side has no enum, so closure is enforced by tests and by the Python
+validator, not by the type system. Disposition: an enforcement-quality note; the acceptance gates
+require tests over the full vocabulary.
+
+**U8 — The practical capacity limit is unmeasured.** No engine run was performed, so whether a
+realistic multi-entity extraction approaches the 1 MiB bound is unknown. The design fails closed
+either way (pre-response size check). Disposition: unmeasured; the first live gate should report
+observed payload sizes.
+
+**U9 — The FName display-casing question is unresolved at the engine level.** SP-1 records it:
+the contract no longer depends on the answer, but the underlying semantics were not established
+from shipped sources. Disposition: open engine-semantics question, documented, no reliance.
+
+**U10 — This review is not independent.** It was written by the same agent that produced
+Revision 2. Per the standing gate convention, a design milestone must not self-clear.
+Disposition: the revised head requires an independent re-gate before implementation.
+
+---
+
+## 5. Revision 2 verdict (historical)
+
+**HOLD**
+
+Reasons, in order of weight:
+
+1. **Self-review cannot supply the required independence.** This review verified the input
+   findings against real repository and engine source and remediated all of them, but the
+   remediating author is not the independent reviewer the design's own acceptance gate 1
+   requires. The rung the process defines here is an independent re-gate on this head, not a
+   self-clearance.
+2. **One material scope trade-off requires independent acceptance.** U1 (complete-scope
+   precondition) materially narrows which worlds v1 can extract from. It is defensible, it is
+   documented, and it is the only mechanism found that removes the F3 ambiguity — but it is a
+   scope decision that a reviewer must accept explicitly rather than inherit.
+3. **One live-gate precondition does not exist in the tree yet** (U6: no entity-tagged
+   `ALevelSequenceActor` fixture), and one bound is unmeasured (U8). Neither blocks the design,
+   both block an immediate implementation start without a decision.
+4. **The error vocabulary and the JCS domain are contract-level closures** enforced by tests
+   rather than by types (U7, §6.4), so the first implementation slice must land the vocabulary
+   tests and the vector tests before any consumer exists.
+
+What is **not** a reason to hold: the eleven confirmed and four partially confirmed input
+findings are all resolved explicitly in the design text, and no finding was dismissed,
+downgraded without evidence, or "fixed" by expanding scope. All seven second-pass defects the
+remediating author introduced were found and removed in the same revision.
+
+**Implementation remains unauthorized.** Explicitly NOT authorized by this document: the C++
+extractor, Python extraction code, any change to the transport, to M4–M10, to M12.5, or to
+`AtlasSequencerIntegrationFixture.cpp`; and merging PR #106.
+
+---
+
+## 6. Revision 3 — architectural review remediation and third-pass review
+
+### 6.1 Classification of the architectural review's priority areas
+
+Verified against the repository and the installed UE 5.6 source; every row carries the evidence
+that decided it. **C** = CONFIRMED, **P** = PARTIALLY CONFIRMED, **F** = FALSE POSITIVE.
+
+| Area | Claim | Class | Evidence and decision |
+|---|---|---|---|
+| **P1** entity-ID case contradiction | Revision 2 could produce different payloads, and therefore different digests, for the same source actor when the caller changes ID casing, while the digest is declared to exclude the request | **C** | Revision 2 §3.3.3.6 read "`entity_id` … is the requested (canonical) ID verbatim" while §6.5 declared the digest excludes the request. `cam01` and `CAM01` are the same `FName` (case-insensitive comparison, `NameTypes.h:573,762-765`) so both bind the same actor, yet the tree recorded the caller's spelling. **Design defect, now fixed by canonicalisation (§3.3.4).** |
+| **P1a** FName numeric-name semantics | `foo_1` / `foo_01` / `foo` might be comparison-equivalent through the engine's numbered-name handling | **P** | The engine *does* split a trailing `_<digits>`: `FName(string)` → `FNameHelper::MakeDetectNumber` (`UnrealNames.cpp:3411-3417`) → `ParseNumber` (`:3169-3199`), with the number stored as `NAME_EXTERNAL_TO_INTERNAL(n)=n+1` (`NameTypes.h:153`) against `NAME_NO_NUMBER_INTERNAL 0` (`:149`), and compared as part of `FName::operator==` (`:762-765`, `ToUnstableInt` `:1176-1183`, `UE_FNAME_OUTLINE_NUMBER 0` per `:38`). **But the three spellings are NOT equivalent:** `foo_01` is blocked from splitting by the leading-zero rule, so it stays an unnumbered name; and `foo` (no number) ≠ `foo_1` (base `foo`, number 1). The hypothesis as stated is refuted; the real hazards are different and are now closed: identity is the (base, number) pair, not the string; `FName::IsEqual(..., bCompareNumber=false)` (`:759-762`) is number-blind; `GetTypeHash(FName)` is index-only under the outline-number configuration (`:1310-1312`); and any string round-trip re-parses a rendered tag. All four are forbidden in §3.3.3 and tested in §7.4 D15. |
+| **P2** material component type contract | The component set is every `UMeshComponent` while the state machine uses `GetStaticMesh()`/`GetSkinnedAsset()` and class-specific behaviour — broader than the API supports | **C** | Shipped 5.6 defines dozens of `UMeshComponent` subclasses with different material models: `UWidgetComponent` (overrides `GetNumMaterials` **and** `GetMaterial`; `UMG/…/WidgetComponent.h:94,117,119`), `UProceduralMeshComponent` (overrides `GetNumMaterials`; `ProceduralMeshComponent.h:149,307`), `UBaseDynamicMeshComponent` (overrides both; `GeometryFramework/…/BaseDynamicMeshComponent.h:125,667,668`), `UGeometryCollectionComponent` (`:577`), `UHeterogeneousVolumeComponent` (`:20`), plus Paper2D, Groom, Water, Cable, CustomMesh, GeometryCache, Lidar and the editor drawing components. None exposes `GetStaticMesh()`/`GetSkinnedAsset()`, so a generic state machine is not implementable. **Option A adopted** (§3.8.1): the `UStaticMeshComponent` and `USkinnedMeshComponent` families only; anything else registered fails closed with `ERR_EXTRACTION_UNSUPPORTED_COMPONENT_TYPE`. Descendants of those two roots are accepted because they inherit the model (checked: `UInstancedStaticMeshComponent`, `USplineMeshComponent`, `ULandscapeNaniteComponent` declare no material-API override). |
+| **P3** source fact vs request-derived data | Some payload fields may be request-derived while the digest excludes the request | **C** | Two were: `entity_id`/`parent.entity_id`/sequence `entity_id` (P1) and `extraction_kind` (copied from the request). Both are now derived — identity from the matched binding, kind from the populated collection (§4.5). The full payload is classified field by field in §4.6, with the new rule that a request defines extraction **scope**, not identity (§4.6.1). Remaining non-source entries are declared: execution metadata (`derived_from_gis_editor`) and implementation metadata (`extraction_schema_version`, `selection_provenance`, `source_component_type`, `unrecorded_hidden_inputs`). |
+| **P4** world scope stability | The scope could change between the check and the actor scan, so the payload might claim a scope that was not the one scanned | **C** | Revision 2 checked the predicate and then re-queried the world for the scan, with no snapshot and no revalidation. Supporting facts: `ULevel::Actors` is a public `TArray` that can hold null slots between removal and compaction (`Level.h:426-432`; `Level.cpp:833,1223`); `UWorld::GetStreamingLevels()` is the full list (`World.h:1026`) while `StreamingLevelsToConsider` is a private subset (`World.h:988-993`) and `UActorContainer::Actors` is a hash-ordered `TMap` (`Level.h:78-80`); a material read can trigger `ConditionalPostLoad` (`StaticMeshComponentHelper.h:126-127`). **Fixed** by snapshot → scan → revalidate with `ERR_EXTRACTION_SCOPE_CHANGED`, explicit null-slot and null-streaming-level rules, and a ban on the narrowed containers (§3.2.1.4–5). |
+| **P5** double bit encoding | The canonical bit representation may be implicitly host-endian, and the non-finite handling may be incomplete | **P** | The Revision 2 formulation was already value-correct, but it did not *say* so. Measured on the project interpreter: `1.0` yields `3ff0000000000000` under `<`, `>` and `=` packing alike, so the *integer* is endian-neutral; the only wrong form is a mismatched pair, e.g. `struct.unpack(">Q", struct.pack("<d", 1.0))` → `000000000000f03f`. Revision 2 also named `struct.unpack("<Q", struct.pack("<d", v))` without stating why it is correct. **Fixed** by defining the canonical value as the integer value of the bit pattern, naming the counter-example, and adding a fixed vector table (§5.2, §7.4 D20). NaN handling: Revision 2 said non-finite fails closed; Revision 3 additionally refuses quiet *and* signaling NaN by the same `isnan` test and states that NaN payload bits are never encoded (§5.5). |
+| **P6** material source/resolution semantics | Two materially different engine states might produce the same canonical material record | **C** (one real collision) | With Revision 2's assigned/resolved pair, the states (override `A`, asset slot `B`) and (override `A`, asset slot `C`) produced **identical** records even though the mesh asset's source state differs, because `resolved` is `A` in both and the asset slot was not recorded. **Fixed** by recording `asset_slot_material_asset_path` and `override_material_asset_path` as source facts beside `resolved_material_asset_path` (§3.8.2, tested by §7.4 D17). The other pairs checked are either distinct (null mesh vs zero slots) or intentionally equivalent and now declared: a null override entry behaves exactly like an absent one, and override entries beyond `GetNumMaterials()` are not slots. *(The "Nanite-substituted vs unresolved" pair listed here as distinct was reclassified by Revision 3.2 §8.)* |
+| **P7** Sequencer read-only semantics | The Sequencer reads may have side effects (lazy loading, player creation, dirtying) | **C** | Verified from source: `ALevelSequenceActor::GetSequence()` is `return LevelSequenceAsset;` (`LevelSequenceActor.cpp:332-335`); `GetSequencePlayer()` is `return SequencePlayer;` (`:145-150`) and does **not** lazily create a player; `ULevelSequence::GetMovieScene()` is `return MovieScene;` (`LevelSequence.cpp:733-736`); `UMovieScene::GetPlaybackRange/GetTickResolution/GetDisplayRate` are member reads (`MovieScene.h:801,809-812,822-825`); path resolution loads nothing. The mutating counterparts (`SetSequence` `:337-347`, `InitializePlayer`/`InitializePlayerWithSequence` `LevelSequenceActor.h:304-307`, `SetPlaybackRange` `MovieScene.h:998,1007`, `MovieScene->Modify()`) are excluded. The only read-path effect in the whole extraction is the material helper's `ConditionalPostLoad()`, now declared as an engine object-graph/lazy-load effect and distinguished from persistent editor-state mutation (§3.8.3.6, §10.3). |
+| **P8** read-only architectural boundary | "Do not call write functions" is insufficient when one translation unit contains both halves | **C** | `AtlasTransportServer.cpp` (3105 lines) mixes reads with `set_actor_*` (`:665-679`), `apply_*_variant` (`:687-711`), `set_sequencer_playback_range` (`:763`), render submission, and mutation primitives `SetTaggedVariantName` (`:68-79`), `MarkPackageDirty` (`:78,1062,1234`), `Modify()` (`:764,1219,1539`), `UPackage::SavePackage` (`:1073,1252`), `NewObject<…>` (`:1582`). **Fixed** by §10.2: own translation unit, one-way dispatch, engine-accessor allowlist, and a source-level forbidden-token test (precedent: `tests/m10/test_m10_defect_d2_sequence_range.py:74-102` asserts C++ source text). |
+| **P9** canonicalization review | The parser may admit values the canonicalizer rejects, and Python-specific traps (bool/int, duplicates, surrogates) may be unhandled | **C** | Measured on Python 3.11.16: duplicate keys silently last-win (`{"a":1,"a":2}` → `{"a":2}`); `NaN` and `Infinity` tokens are accepted by default; a lone surrogate survives `json.dumps(..., ensure_ascii=False)` and then fails UTF-8 encoding with `UnicodeEncodeError: surrogates not allowed`; `isinstance(True, int)` is `True` while `type(True) is int` is `False`; integers are unbounded (`100000000000000000000000` parses) while the C++ side is int32. **Fixed** by the hardening table in §6.4 (parser hooks plus validation rules) and §7.4 D19. Surrogate pairs were checked and need no special case. |
+| **P10** digest collision audit | A systematic state-collapse attack over every category | **C** (one collision) | Full pair-by-pair audit in §6.3. Exactly one unintended same-tree collision was found (the material asset slot, P6). Every other pair is either a different tree, a rejection, or a declared intentional equivalence. |
+| **P11** implementation-readiness test | Two engineers could implement some requirements differently while both claiming compliance | **C** | Roughly a dozen such requirements were found (recomputing `IsHiddenEd`, uppercasing semantics, rate reduction, component enumeration, skip predicate, scope multiplicity, object-path collation, tag comparison, hex formatting, digest placement, kind derivation, inventory ordering). All are now frozen decisions in §17, classified as architectural or frozen implementation detail. |
+
+**Totals: 10 CONFIRMED, 2 PARTIALLY CONFIRMED (P1a numeric names, P5 encoding), 0 FALSE POSITIVE.**
+No area was dismissed.
+
+### 6.2 Third-pass findings (hostile review of Revision 3 by its own author)
+
+Findings the architectural review did not raise, found while re-attacking the revised text:
+
+| # | Finding | Disposition |
+|---|---|---|
+| T1 | Revision 2's SP-1 removed the tag's stored casing *because* it is unprovable, and then item 6 kept the caller's spelling as the identity — an internal inconsistency between two adjacent rules in the same section. | Fixed by R3-1 (canonicalisation); the contradiction is gone because identity is now derived from the binding's comparison class. |
+| T2 | Revision 2 §7.4 rejected a duplicate (`level_package_path`, `level_kind`) pair in the scope. Two streaming instances of one package are a legal world, so that rule was a **false refusal** — the opposite failure mode from a lossy collapse, and equally a defect. | Fixed: duplicates permitted and each instance recorded (§3.2.1.6, D16). |
+| T3 | Revision 2's rule "components that override the slot model … are recorded as the generic `UMeshComponent` contract reports them" described behaviour the API cannot produce (no generic asset accessor exists). | Fixed by the class scope of §3.8.1; the claim is replaced with fail-closed behaviour. |
+| T4 | Revision 2 had no rule for null actor slots in `ULevel::Actors` or for a null streaming-level entry — an implementation would have had to guess (skip, crash, or fail). | Frozen: skip `!IsValid()` actor slots; fail closed on a null streaming-level entry (§3.2.1.5). |
+| T5 | Revision 2 did not say whether frame-rate pairs may be reduced to lowest terms, although `{60,2}` and `{30,1}` are numerically equal and textually different. | Frozen: verbatim, never reduced (§3.9.3.6). |
+| T6 | Stale cross-references: §3.1.1/§4.2 pointed at "§3.10" and §7.4 at "§3.3.3.2", neither of which exists in the document. | Fixed by renumbering and re-pointing. |
+| T7 | The number-blind comparison API `FName::IsEqual(Other, ENameCase, bCompareNumber)` was not mentioned anywhere, although it silently equates `foo_1` with `foo`. | Fixed: explicitly forbidden with its citation (§3.3.3). |
+| T8 | `GetTypeHash(FName)` is index-only under the outline-number configuration, so a container keyed on it would not distinguish numbered names. | Fixed: keying on the hash is forbidden (§3.3.3). |
+| T9 | The `world_type` leaf was specified as the lowercase literal with no anchored source, leaving "lowercase of what?" open. | Frozen: ASCII-lowercased `LexToString(World->WorldType)` (§17). |
+| T10 | Revision 2's material state machine had a `slot_state` enum whose values were derivable from, and could contradict, the neighbouring path fields. | Fixed: the enum is removed; the record now carries the source facts plus the resolved value, and Python asserts consistency. |
+
+### 6.3 Collision audit (state-collapse attack, priority 10)
+
+Two materially different engine states are compared per category. "Different tree" means the
+canonical bytes differ; "rejected" means the second state fails closed.
+
+| Category | State A → State B | Result |
+|---|---|---|
+| world | same world extracted in two sessions | **same tree** (intended: reproducibility) |
+| world | same content, different engine build/changelist | **different tree** (engine identity is digested, intended) |
+| world | `EWorldType::Editor` world vs `Inactive`/PIE/preview context | **rejected** (`ERR_EXTRACTION_WORLD_NOT_EDITOR`) |
+| world | non-partitioned world vs partitioned world | **rejected** (`ERR_EXTRACTION_WORLD_PARTITION_UNSUPPORTED`) |
+| level scope | all streaming levels loaded+visible vs one unloaded | **rejected** (`ERR_EXTRACTION_LEVEL_SCOPE_INCOMPLETE`) — never a silent same-tree |
+| level scope | scope unchanged before/after the scan vs changed | **rejected** (`ERR_EXTRACTION_SCOPE_CHANGED`) |
+| level scope | one package loaded once vs loaded twice | **different tree** (two entries; no refusal) |
+| level scope | null entry in the streaming-level array | **rejected** (`ERR_EXTRACTION_LEVEL_SCOPE_INVALID`) |
+| actor identity | request `cam01` vs `CAM01` for one actor | **same tree** (after R3-1; this was the P1 defect) |
+| actor identity | request `cam_1` vs `cam_01` (tags for both exist) | **different tree** (distinct bindings; §7.4 D15) |
+| actor identity | one actor renamed (same tag, new object name) | **different tree** (provenance; intended, §3.4.1) |
+| actor identity | two actors carrying case-variant tags | **rejected** (`ERR_EXTRACTION_ENTITY_AMBIGUOUS`) |
+| actor identity | one actor carrying two distinct entity tags | **rejected** (`ERR_EXTRACTION_ENTITY_TAG_CONFLICT`) |
+| parent | no parent vs parent with no entity tag | **different tree** (`none` vs `unbound`, locator recorded) |
+| parent | two different unbound parents | **different tree** (locator differs) |
+| parent | parent with two distinct entity tags | **rejected** (`ERR_EXTRACTION_PARENT_TAG_CONFLICT`) |
+| visibility | `bHiddenEd` / `bHiddenEdLayer` / `bHiddenEdLevel` / temporary flag toggled | **different tree** (raw flags recorded) |
+| visibility | only `bEditable` changed, aggregate unchanged | **same tree** — *intentionally omitted, declared in-band* (`unrecorded_hidden_inputs`) |
+| visibility | `GIsEditor` differs (editor vs commandlet) | **different tree** (`derived_from_gis_editor`, plus a possibly different aggregate) |
+| transform | `q` vs `-q`; `+0.0` vs `-0.0` | **different tree** (both distinct by contract) |
+| transform | NaN / ±Inf at the source | **rejected** (`ERR_EXTRACTION_NON_FINITE`) |
+| transform | a delta below binary64 resolution (identical doubles) | **same tree** — *intentionally equivalent* (the engine stores the same value) |
+| transform | magnitude above `FLT_MAX` | **different tree**, no saturation (no narrowing) |
+| material | override `A` + asset slot `B` vs override `A` + asset slot `C` | **different tree** (R3-6; was the P6 collision) |
+| material | null override entry vs absent override entry | **same tree** — *intentionally equivalent* (engine behaviour identical) |
+| material | mesh asset absent vs mesh asset with zero slots | **different tree** (`mesh_state`, `mesh_asset_path`) |
+| material | skinned asset mid-compilation | **rejected** (`ERR_EXTRACTION_MESH_COMPILING`) |
+| material | unsupported `UMeshComponent` subclass present | **rejected** (`ERR_EXTRACTION_UNSUPPORTED_COMPONENT_TYPE`) |
+| material | non-mesh primitive (e.g. decal) present vs absent | **different tree** (`omitted_material_components`) |
+| material | one non-mesh primitive vs two of the same class | **different tree** (`count`) |
+| material | two non-mesh primitives of the same class vs a different pair of the same class | **same tree** — *intentionally omitted, declared* (not enumerated) |
+| material | dynamic/transient material instance; unstable asset path | **rejected** (`ERR_EXTRACTION_UNSUPPORTED_MATERIAL_SOURCE`, `ERR_EXTRACTION_MATERIAL_UNRESOLVED`) |
+| Sequencer | explicit `ALevelSequenceActor` binding vs a non-sequence actor | **rejected** (`ERR_EXTRACTION_SEQUENCE_ACTOR_TYPE`) |
+| Sequencer | open playback bound; degenerate range; invalid rate; transient sequence asset | **rejected** (four distinct codes) |
+| Sequencer | same range, different tick resolution or display rate | **different tree** |
+| Sequencer | `{60,2}` vs `{30,1}` for a rate | **different tree** (verbatim, not reduced) |
+| Sequencer | two candidate sequence actors for one entity | **rejected** (`ERR_EXTRACTION_ENTITY_AMBIGUOUS`) |
+
+Classification of the *same-tree* rows, as required: reproducibility rows are intended
+equivalences at the engine-state level; the `bEditable` row and the non-mesh-primitive
+multiplicity row are **intentionally omitted state, declared in-band**; there is no remaining
+row that is an accidental loss. Rejections are not collapses: they are fail-closed refusals,
+which is the contract's chosen failure mode for states v1 does not model.
+
+### 6.4 Changes made in Revision 3
+
+R3-1 … R3-14, tabulated with their sections in the design document's §15 change log. In summary:
+canonical identity and the engine's `FName` model (§3.3.3–3.3.5); the closed material component
+scope and the declared omission inventory (§3.8.1, §3.8.1a); material source facts beside the
+resolved value (§3.8.2); scope snapshot and revalidation (§3.2.1); endian-neutral bit encoding
+and complete non-finite handling (§5.2, §5.5); declared read-path effects and the verified
+Sequencer read path (§3.8.3.6, §10.3); architectural separation (§10.2); parser hardening
+(§6.4); field provenance, content-derived `extraction_kind`, and the scope-versus-identity rule
+(§4.5, §4.6); verbatim rates (§3.9.3.6); and the frozen implementation-readiness decisions
+(§17). Tests D14–D20 were added and acceptance gates 14–17.
+
+### 6.5 Remaining unresolved issues (carried into Revision 3)
+
+Carried from Revision 2, still open, with the same dispositions: **U1** the complete-scope
+precondition refuses worlds with an unloaded or hidden streaming level (scope trade-off needing
+explicit acceptance); **U2** `bEditable` is unreadable, so `hidden_in_editor` is not fully
+decomposable; **U3** no per-class material semantics (now fail-closed for mesh classes and
+declared for non-mesh primitives); **U4** component identity is a mutable locator for
+runtime-named components; **U5** digests legitimately differ across engine builds; **U6** the
+entity-tagged `ALevelSequenceActor` fixture does not exist yet; **U7** the error vocabulary is
+closed by contract and tests, not by types; **U8** the practical payload-size limit is unmeasured
+(the gate now records sizes); **U9** the `FName` display-casing question is not fully determined
+from shipped sources (the contract no longer depends on it); **U10** this review is self-authored
+and cannot substitute for independent review.
+
+New in Revision 3:
+
+- **U11** The closed material class scope means an engine release that adds a new
+  `UMeshComponent` subclass (or promotes a class out of the supported subtrees) turns formerly
+  extractable actors into fail-closed refusals. This is the intended direction (fail closed
+  rather than half-model), but it is an operator-visible behaviour change tied to engine
+  upgrades, and an implementer should surface it in the error text.
+- **U12** `omitted_material_components` is an inventory, not an enumeration: two different
+  non-mesh material-bearing components of the same class are indistinguishable. Declared, not
+  hidden.
+- **U13** The architectural separation of §10.2 is enforced by a source-text test plus an
+  allowlist, so it proves the *absence of named mutation calls in our own source*. It cannot
+  prove that no engine accessor on the read path mutates state internally; the live gate's
+  dirty-state measurement is the empirical complement. Neither alone is a proof, and the design
+  says so rather than claiming a stronger property.
+- **U14** The scan depends on `ULevel::Actors` being the array that holds a level's actors (it is
+  documented as the array used by the engine's own actor iterators, `Level.h:431-432`). A future
+  engine change to actor storage (for example external-package-only actors) would require a
+  design revision; the contract pins the accessor, not the engine's internals.
+
+### 6.6 Final remediation status (Revision 3)
+
+**HOLD**
+
+Rationale, in order of weight:
+
+1. **Independence.** This remediation was performed and reviewed by one agent (U10). All ten
+   confirmed and two partially confirmed areas are closed with source evidence and no finding was
+   dismissed, but a self-review cannot supply the independent CLEAR that acceptance gate 1
+   requires.
+2. **One scope trade-off needs a decision** (U1): v1 refuses any world with an unloaded or hidden
+   streaming level. The mechanism is documented and defensible; the acceptance is the reviewer's.
+3. **Three items need an operator or architect decision before implementation** (U6, U11, U13),
+   and two are declared limitations that should be acknowledged rather than inherited (U12, U14).
+4. **Implementation readiness is asserted, not proven.** §17 freezes the decisions where two
+   engineers could diverge, and gates 14–17 make the claims testable — but they are obligations
+   on the implementation rung, so the design's own status cannot be CLEAR before those tests
+   exist and pass.
+
+What is **not** a reason to hold: the review's ten confirmed areas are all closed in the text,
+the two partially confirmed ones are refuted-or-refined with citations, the single real digest
+collision is removed, and no finding was resolved by expanding scope — World Partition, chunked
+transport, forced level loading, generic mesh support, source repair and semantic interpretation
+are all explicitly refused instead.
+
+**Implementation remains unauthorized.** Explicitly not authorized by this document: the C++
+extractor, Python extraction code, any change to the transport, to M4–M10, to M12.5, or to
+`AtlasSequencerIntegrationFixture.cpp`; and merging PR #106.
+
+---
+
+## 7. Revision 3.1 — final focused design audit
+
+### 7.0 Scope, method, evidence basis
+
+This section is the record of the final focused audit of Revision 3, made by the design's own
+author at the request of the architectural reviewer. The reviewer makes the CLEAR/HOLD/BLOCK
+decision; this document does not and cannot self-clear.
+
+Method: verify each audit area against (a) the repository at
+`fc6bc537930092aab0448b86cece1ba5fc4df6e5`, (b) the installed engine source
+(`UE_5.6`, `Build.version` 5 / 6 / Patch 1 / CL 44394996), (c) direct measurement in Python
+3.11.16 for the numeric and canonicalization claims. **No engine process was launched and no test
+was executed** in this audit; every claim below is either a source citation or an in-process
+measurement, and the claims that require a running editor are listed as live-gate obligations
+(§11.3) rather than asserted here.
+
+Only two files were modified: this document and
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md`. No C++, Python, test, transport, M4–M10,
+M12.5 or fixture file was touched; `main` was untouched; PR #106 was not merged.
+
+### 7.1 Audit area results
+
+| # | Audit area | Result | Evidence | Disposition |
+|---|---|---|---|---|
+| 1 | Canonical entity ID provenance | **CONFIRMED — wording defect (not a semantics defect)** | §3.3.4 (pre-audit) described the same value as both a caller transform and a source property | remediated: R3.1-1, §3.3.4 rewritten, invariance stated with proof |
+| 2 | Complete digest provenance audit | **GAP — no per-field classification** | §4.6 classified *categories* of fields, not every leaf, and used different category names than the reviewer's five | remediated: R3.1-2, per-leaf table + §4.6.1 |
+| 3 | `extraction_kind` classification | **GAP — undefined class** | §4.5 said it was content-derived but did not classify it | remediated: R3.1-3, class `CM`, justification recorded |
+| 4 | Material state machine collision attack | **ONE UNINTENDED EQUIVALENCE SURVIVED + two declared-but-unstated boundaries** | `omitted_material_components` semantics; §3.8.1/§3.8.1a ordering ambiguity; no full pair table | remediated: R3.1-6, §3.8.5 matrix + §3.8.1a ordering rule |
+| 5 | World scope concurrency/consistency | **SUFFICIENT, but the argument was unstated** | `AsyncTask(ENamedThreads::GameThread, …)` + 5000 ms wait (`AtlasTransportServer.cpp:603-609`); level mutators `World.cpp:4980,5038` | remediated: R3.1-7, §3.2.1a + snapshot-derived scope record |
+| 6 | binary64 cross-language proof | **PARTIAL — the mapping was explained but not stated as a function** | §5.2 gave two language recipes and a counter-example, not a single-valued definition; the non-finite class table was prose | remediated: R3.1-8, formal `P(v)` + class table + §5.5.1 |
+| 7 | Read-only boundary | **THREE MUTABLE-ACCESSOR HOLES** | `GetStreamingLevels()` returns non-const `ULevelStreaming*` (`World.h:1026`); `ULevel::Actors` public non-const (`Level.h:426-432`); `OverrideMaterials` public non-const (`MeshComponent.h:28-31`) | remediated: R3.1-9, §10.2 items 5–6 + A/B/C taxonomy |
+| 8 | U1 complete loaded/visible scope | **ACCEPTABLE V1 RESTRICTION** | refuses rather than guessing; consistent with §3.2.1.1–4 | kept; acceptance is the reviewer's call (§7.17) |
+| 9 | U6 sequencer fixture | **IMPLEMENTATION PREREQUISITE** | §11.2 now enumerates seven required properties | kept as prerequisite (§11.2) |
+| 10 | U11 engine-upgrade behaviour | **EXPECTED CONTRACT BEHAVIOUR — closed** | engine identity is digested; refusals are the failure mode | remediated: no-version-branching rule added (§3.1.2) |
+| 11 | U13 internal accessor side effects | **SUFFICIENT AND TESTABLE** | static token test + dirty-state comparison + in-session and cross-session repeatability (§10.2, §11.3) | kept; obligation scoped to class A/C explicitly |
+| 12 | §17 implementation readiness | **ALL ROWS READY** | line-by-line audit, §7.13 | remediated: status column + newly frozen rows (§17) |
+| 13 | Second hostile state-collapse pass | **20/20 cases resolved, 0 unintended collisions** | §7.14 | closed |
+
+### 7.2 Canonical entity ID provenance (audit area 1)
+
+The audit's concern was sound: the pre-audit §3.3.4 wrote the identity as
+`ASCII-uppercase(requested_id)` while claiming it was derived from the source binding. Both
+statements were individually defensible and jointly incoherent — a reader could implement either
+"uppercase whatever the caller sent" (a caller transform, which the digest boundary forbids) or
+"describe the binding" without knowing the computation.
+
+Verified engine facts the resolution rests on (unchanged from Revision 3):
+
+- `FName` identity is the case-folded (base, number) pair; `FName(str)` → `MakeDetectNumber` →
+  `ParseNumber` (`Core/Private/UObject/UnrealNames.cpp:2960-3045,3120-3215`), with the leading-zero
+  rule and the round-trip rendering `base + "_" + number`;
+- `operator==` compares that pair, so a request can only bind a tag whose pair matches, and the
+  design forbids the number-blind comparison `IsEqual(..., bCompareNumber=false)` (§3.3.3).
+
+Resolution (R3.1-1): the identity is defined as **the uppercase rendering of the bound tag's
+comparison class**, and step 3 of §3.3.4 makes the reported string a function of the *binding*
+rather than of the request: a request may be reported only if it is `FName`-equal to the tag it is
+reported for. The invariance result — two requests binding the same tag produce the same
+`entity_id` — is stated with its proof, including the numbered-name cases the audit asked about:
+
+| Requests binding the same tag | Canonical identity | Included by proof |
+|---|---|---|
+| `cam01`, `CAM01`, `cAm01` | `CAM01` | yes — case variants of one base, unnumbered |
+| `cam_1`, `CAM_1` | `CAM_1` | yes — base `atlas_entity:cam`, number 1, digits unaffected by uppercasing |
+| `cam`, `CAM`, `cam_01`, `CAM_01` | the two classes are **different** (`cam` is unnumbered; `cam_01` cannot be split by the leading-zero rule) | yes — `cam`/`CAM` → `CAM`; `cam_01`/`CAM_01` → `CAM_01`; no cross-class equality |
+
+The audit also asked whether identity should be redefined away from a caller-string transform. It
+is: the transform is retained only as an *equivalent computation* of the class representative, and
+the equivalence is proven rather than assumed. The Atlas binding convention is unchanged.
+
+### 7.3 Digest provenance audit (audit area 2)
+
+The complete per-leaf table is §4.6 of the design. Result:
+
+- **`DIRECT_SOURCE_FACT`** leaves: world identity, engine identity, level identity, actor identity
+  and provenance, raw visibility flags, transform scalars, `mesh_asset_path`, both material
+  assignment fields, sequence identity and rates — all digested.
+- **`DETERMINISTIC_SOURCE_DERIVATION`** leaves: `world_type`, `is_partitioned_world`, level
+  `level_kind`/`loaded`/`visible`, `entity_id` (all three), `parent.binding`, `hidden_in_editor`,
+  `mesh_state`, `slot_count`, `slot_index`, `resolved_material_asset_path`, the omitted inventory —
+  all digested, each with the derivation named.
+- **`CONTRACT_METADATA`** leaves: `extraction_schema_version`, `extraction_kind`,
+  `selection_provenance`, `unrecorded_hidden_inputs`, `transform.source_component_type`, the
+  rotation encoding labels, the playback-range bound labels — digested, each justified as
+  interpreting the bytes rather than describing the request.
+- **`REQUEST_METADATA`** leaves: **zero.** The request contributes scope only.
+- **`EXECUTION_METADATA`** leaves: exactly one, `editor_visibility.derived_from_gis_editor`, which
+  is digested and justified in §4.6: it is not a request value, an authorization value, a
+  timestamp, a process/session identifier or transient transport data, and it is an input the
+  engine folds into `hidden_in_editor`.
+
+> **Could changing only the caller's request, without changing the actual bound source state,
+> change the canonical digest? No.** The proof is in §4.6.1: the only request-dependent effect is
+> which bindings are selected (scope), and the scope is itself recorded in the tree.
+
+### 7.4 `extraction_kind` (audit area 3)
+
+Answered explicitly: **`extraction_kind` is `CONTRACT_METADATA`**, describing which bounded
+extraction representation the tree is and therefore how to read its two collections. It is not
+source state (the engine has no such concept) and not request metadata (it is re-derived from the
+content, and a tree whose kind disagrees with its content is rejected outright). It is digested
+because a consumer handed canonical bytes must see the same kind the digest was taken over.
+
+### 7.5 Material state machine — final collision attack (audit area 4)
+
+The exhaustive matrix is §3.8.5. Results relevant to the audit's questions:
+
+- the record is the tuple `(mesh_asset_path, mesh_state, [(slot_index, asset_slot, override,
+  resolved)])`, so two component states collapse only if every element agrees;
+- the only material collapses are the two the engine itself makes — a null override entry vs no
+  entry — and they are declared, not accidental;
+- `override A + asset B` vs `override A + asset C` produce **different** trees (this was the
+  Revision-2 collision, closed in Revision 3 and re-verified here);
+- null mesh vs a legitimate asset with zero slots produce different trees (`mesh_state`,
+  `mesh_asset_path`);
+- Nanite substitution is visible in `resolved` and therefore distinguished **(superseded by
+  Revision 3.2, §8: the static accessor's conditional material-level step is part of `resolved`,
+  while render-path substitution is not observable at all — the two states in this bullet are
+  *intentionally equivalent* under the narrowed contract)**;
+- unsupported mesh components, compiling assets, and transient/dynamic materials are
+  **deterministic rejections**, not representable states.
+
+**The `omitted_material_components` question, answered directly.** Two different unsupported
+components of the same class *are* legitimately allowed to share an omitted inventory, and this is
+not a violation of the v1 scope: the inventory's contract is *existence and class* —
+"this actor has N registered components outside the supported families, of these classes" — and v1
+makes **no material claim at all** about them. §3.8.1a now says so in those words, so the design
+cannot be read as falsely claiming representation. The audit's separate worry — does the design
+claim representation it does not deliver? — was answered by the same edit.
+
+The audit also surfaced a boundary the design had left implicit: does an unsupported *mesh*
+component fail the extraction or appear in the inventory? §3.8.1a now states the ordering
+explicitly (fail closed; never inventoried) and states that non-mesh primitives must **not** fail.
+
+### 7.6 World scope — sufficiency of snapshot + scan + revalidation (audit area 5)
+
+Stated explicitly, as the audit requires: **yes, snapshot + scan + revalidation establishes the
+invariant under UE 5.6's execution model**, and the invariant is
+
+> **A successful payload records the exact bounded world scope that was actually scanned.**
+
+The mechanism (§3.2.1a): the extractor body is a single game-thread task (the transport dispatches
+with `AsyncTask(ENamedThreads::GameThread, …)` and blocks the pipe thread up to 5000 ms —
+`AtlasTransportServer.cpp:603-609`); level membership and level state are mutated by the engine's
+own game-thread paths (`UWorld::AddStreamingLevel` / `RemoveStreamingLevelAt`,
+`Engine/Private/World.cpp:4980,5038`); nothing interleaves with a running game-thread task.
+Pre-existing conditions are handled deterministically: null actor slots (legal, `Level.cpp:833,1223`)
+and pending-kill actors are skipped by `IsValid`; a null streaming-level entry is an invariant break
+and fails closed. Actor add/remove/destroy/pending-kill *during* extraction cannot occur, and if a
+future engine revision made any of this false, the post-scan **re-query** would disagree with the
+snapshot and the extraction fails closed (`ERR_EXTRACTION_SCOPE_CHANGED`). The design now also
+requires the recorded scope to be built from the snapshot objects themselves, so the payload cannot
+describe a scope other than the scanned one.
+
+### 7.7 binary64 representation — cross-language proof (audit area 6)
+
+The encoding is now stated as one single-valued function of the IEEE-754 pattern
+(`P(v) = (sign << 63) | (exponent << 52) | significand`, rendered as 16 lowercase hex digits,
+§5.2). Byte order, host endianness and language-specific steps are excluded from the definition;
+the C++ and Python recipes are labelled as recovery steps for `P(v)`.
+
+Measured, in-process (Python 3.11.16):
+
+| Class | Pattern | Disposition |
+|---|---|---|
+| `+0.0` | `0000000000000000` | encoded |
+| `-0.0` | `8000000000000000` | encoded, distinct from `+0.0` |
+| `5e-324` (min subnormal) | `0000000000000001` | encoded, nonzero preserved |
+| `2**-1022` (min normal) | `0010000000000000` | encoded |
+| `1.0` / `-1.0` | `3ff0000000000000` / `bff0000000000000` | encoded |
+| max finite | `7fefffffffffffff` | encoded |
+| `FLT_MAX` as binary64 | `47efffffe0000000` | encoded (the design's vector is correct) |
+| `1e300` | `7e37e43c8800759c` | encoded (the design's vector is correct) |
+| `+Inf` / `-Inf` | `7ff0000000000000` / `fff0000000000000` | refused before encoding |
+| qNaN with payload | `7ff8000000000001` | refused (`isnan`) |
+| sNaN with payload | `7ff0000000000001` | refused (`isnan`) |
+| NaN payload bits | — | never encoded |
+
+Endianness is not a live risk: `1.0` yields `3ff0000000000000` under `"<"`, `">"` and `"="` packing
+alike; only a mismatched pack/unpack pair produces `000000000000f03f`.
+
+**One measured trap was found and recorded** (§5.5, D22). The audit's own construction advice —
+testing "a NaN pattern" — is easy to get backwards: `struct.unpack("<d", bytes.fromhex("7ff8000000000001"))`
+does **not** yield a NaN; it yields a *finite* subnormal (`isfinite` → `True`, pattern
+`010000000000f87f`). The first draft of this audit's own vector table made exactly that mistake and
+reported `isfinite=True` for what looked like a NaN. The contract now requires vectors to be
+constructed in pattern terms (`struct.pack("<Q", 0x7ff8000000000001)`).
+
+### 7.8 Read-only boundary (audit area 7)
+
+The taxonomy the audit asked for is now explicit in §10.2:
+
+| Class | Verdict |
+|---|---|
+| **A — persistent/editor mutation** (dirtying, `Modify`, saving, spawning/destroying/renaming, setting transforms/tags/materials/sequence state, transactions) | prohibited |
+| **B — ephemeral engine-internal caching / lazy loading** (`ConditionalPostLoad`, package loads from the object graph, allocation, shader/streaming caches) | permitted; not a violation |
+| **C — world/package/transaction mutation** (adding/removing streaming levels, visibility/association changes, moving actors between levels) | prohibited |
+
+The contract's obligation is therefore precisely *no persistent Unreal state mutation attributable
+to Atlas extraction* — classes A and C — and the boundary cannot be misread as "prove the engine
+allocated nothing".
+
+**Does the accessor allowlist permit an accessor that can mutate persistent state?** Three holes
+existed, all now closed by the const-ness rule of §10.2 item 5:
+
+1. `UWorld::GetStreamingLevels()` returns a `const` array of **non-const** `ULevelStreaming*`
+   (`World.h:1026`) — a caller could have called `SetShouldBeLoaded`/`SetShouldBeVisible` through an
+   element pointer; only the const accessors of §3.2.1.1 and `GetWorldAssetPackageFName()` are now
+   permitted on those pointers;
+2. `ULevel::Actors` is a public non-const `TArray` (`Level.h:426-432`) — iteration only, never
+   modification, resize or sort;
+3. `UMeshComponent::OverrideMaterials` is a public non-const `TArray` (`MeshComponent.h:28-31`) —
+   read and index only. The engine's own declaration warns that writing it races the render thread
+   and GC, which is an independent reason this contract never writes it.
+
+Accessor-by-accessor, the only non-pure effects on the whole read path remain the material helper's
+`ConditionalPostLoad()` calls (class B); every other allowlisted accessor is a field read or a pure
+derivation.
+
+### 7.9 U1 — the complete loaded/visible scope restriction
+
+**Disposition: ACCEPTABLE V1 RESTRICTION**, not an architectural blocker.
+
+It is technically correct and internally consistent: the visible entity set genuinely depends on
+level load/visibility state, so a contract that must produce one deterministic tree per source
+state can either model load state (a much larger milestone: World Partition cells, external actor
+packages, forced loading) or refuse. v1 refuses, and the refusal is a closed error code
+(`ERR_EXTRACTION_LEVEL_SCOPE_INCOMPLETE`) rather than a silent partial answer. The restriction also
+buys a property the contract depends on: the entity-not-found error carries no scope ambiguity,
+because no level that could contain a matching actor is excluded.
+
+Applicability note for the reviewer, stated plainly rather than buried: a world with any unloaded
+or hidden streaming level, or a World Partition world, cannot be extracted at all in v1. The
+current live gate target (the non-partitioned `AtlasRenderFixture` world) is unaffected. Whether
+that applicability is acceptable for the program is a **program decision** (§7.17), not an open
+design question — the rule itself is not ambiguous and the design must not be asked to guess.
+
+### 7.10 U6 — the sequencer fixture
+
+**Disposition: implementation prerequisite, not design underspecification.** §11.2 now enumerates
+seven required properties of the fixture (saved level actor; canonical single entity tag; saved
+non-transient sequence asset in a stable package; explicit positive tick resolution and display
+rate; explicitly bounded non-degenerate playback range; created by level content rather than a
+runtime ticker; read-only for the gate). Properties 1–5 are checkable from the fixture's saved
+state; 6–7 are procedural gate obligations. No property in that list requires a design decision, so
+no design question remains open.
+
+### 7.11 U11 — engine-upgrade behaviour
+
+**Disposition: expected contract behaviour, closed, not a defect.** Verified: engine identity
+(`FEngineVersion::Current()`, `FApp::GetBuildVersion()`) participates in the digest (§3.1.2, §4.6);
+unsupported engine behaviour fails closed through the refusal codes of §3.8.3; and §3.1.2 now
+freezes that the extractor MUST NOT branch on engine version, with no compatibility shim, no
+downgrade path and no "known-good engine" tolerance — a version-conditional behaviour would be a
+silent change of source semantics under a stable-looking digest. A behaviour change a new engine
+version requires is a new design revision with its own review, and its residue must be visible as a
+refusal code rather than as a relaxed rule.
+
+### 7.12 U13 — internal accessor side effects
+
+**Disposition: the combination is sufficient engineering evidence, and the obligation is testable.**
+The evidence set is: the accessor allowlist (§10.2 item 4) + the const-ness rule (item 5) + the
+accessor-by-accessor audit result (item 6) + the forbidden-token source test (item 3) + a separate
+translation unit with a one-way seam (items 1–2) + the package-dirty comparison across the call and
+in-session/cross-session repeatability (§11.3).
+
+The contract being tested is exactly *no persistent Unreal state mutation attributable to Atlas
+extraction*, and it is testable: statically (forbidden tokens absent), dynamically (dirty flags and
+dirty-package count unchanged across the call), and by consequence (two extractions of an unchanged
+world produce identical bytes). The design explicitly does **not** demand a proof that every
+engine-internal accessor is forever allocation-free, and §11.3 now states that class-B effects are
+not to be asserted against.
+
+### 7.13 Implementation-readiness audit (§17, audit area 12)
+
+§17 was audited line by line and now carries a status column. Result: **every row is READY** — each
+names one observable behaviour whose outcomes are distinguishable from the canonical bytes, from the
+`error_code`, or from the recorded fact itself. **No row remains an architectural decision.**
+
+The audit added four rows and sharpened two: the component-override probe accessor (public read of
+`OverrideMaterials`; slot set driven by `GetNumMaterials()`), the exact `slot_count` definition
+(asset material-slot count in both families, verified from the engine implementations), the
+mesh-asset stability test, the mesh-slot coherence re-check, plus the snapshot-derived scope record
+and the unregistered-component equivalence.
+
+### 7.14 Second hostile state-collapse pass (audit area 13)
+
+Every case was traced against the design text; "same tree" below always means *intentionally* so,
+with the rule named.
+
+| # | Case | Outcome |
+|---|---|---|
+| 1 | `cam01` request vs `CAM01` request, same actor | same canonical tree — invariance of §3.3.4 |
+| 2 | same `FName` entity, different stored tag display casing | same canonical tree — display casing never read (§3.3.3 item 6) |
+| 3 | numbered `FName` variants (`cam_1`/`CAM_1` vs `cam`/`cam_01`) | same tree within a class; **different** trees across classes (number is identity) |
+| 4 | parent `none` vs parent with no Atlas identity (`unbound`) | different trees (three-state contract, §3.5) |
+| 5 | two different unidentified parents | different trees — the unbound state records the parent's locator |
+| 6 | two supported material components of the same class | different trees (`component_object_path`, array length) |
+| 7 | unsupported components, same class, different instances | deterministic rejection (mesh components); for non-mesh primitives, same inventory intentionally (§3.8.1a) |
+| 8 | override `A` + asset slot `B` vs override `A` + asset slot `C` | different trees (asset-slot field) — the Revision-2 collision |
+| 9 | null mesh vs a legitimate asset with zero slots | different trees (`mesh_state`, `mesh_asset_path`) |
+| 10 | Nanite-substituted resolution vs direct assignment | **superseded by Revision 3.2 (§8): intentionally equivalent** — rendered appearance is not an extracted fact; the assignment-versus-asset-slot rows (8, 9) carry the collision obligation |
+| 11 | actor in an unloaded level vs a nonexistent actor | deterministic rejection (scope incomplete) vs deterministic not-found — never the same outcome |
+| 12 | duplicated scope level instances (same package twice) | different trees vs a single instance (two scope entries); duplicates are permitted, not refused |
+| 13 | scope mutated during extraction | deterministic rejection (`ERR_EXTRACTION_SCOPE_CHANGED`) |
+| 14 | same source transform with `-0.0` vs `+0.0` | different trees intentionally (§5.5.1) |
+| 15 | `q` vs `-q` | different trees intentionally (§5.5.1) |
+| 16 | two different engine builds | different trees intentionally (engine identity digested) |
+| 17 | actor rename | different trees intentionally (§3.4.1) |
+| 18 | `actor_state` vs `sequencer_state` | different trees (different collections; kind derived from content) |
+| 19 | request order permuted | same canonical tree — canonical ordering (§7.3, D3) |
+| 20 | duplicate request IDs | deterministic rejection (`ERR_EXTRACTION_REQUEST_INVALID`) |
+| 21 | **(added)** mesh asset generated at runtime | deterministic rejection (`ERR_EXTRACTION_MESH_ASSET_UNSTABLE`) — new in this audit |
+| 22 | **(added)** asset's slot list changes under the read | deterministic rejection (`ERR_EXTRACTION_MESH_COMPILING`) — new in this audit |
+
+**Unintended collisions found: none.** The only equivalences are the declared ones: case/spelling
+of a bound ID, request order, null-vs-absent override entry, unregistered components, and the
+existence-and-class granularity of the omitted inventory.
+
+### 7.15 New findings from this audit
+
+**N-1 (major, remediated) — a supported-family component can hold a runtime-generated mesh asset,
+and the contract had no rule for it.** §3.8.2 described `mesh_asset_path` as "its stable object
+path" without validating stability. Evidence: `UWaterBodyStaticMeshComponent`,
+`UWaterBodyMeshComponent` and `UWaterBodyInfoMeshComponent` derive from `UStaticMeshComponent` and
+declare no material API — so the family rule of §3.8.1 admits them — yet their mesh assets are
+created at runtime with
+
+```cpp
+FName WaterBodyMeshName = MakeUniqueObjectName(MeshComponentOuter, UStaticMesh::StaticClass(), TEXT("WaterBodyMesh"));
+UStaticMesh* StaticMesh = CreateUStaticMesh(MeshComponentOuter, WaterBodyMeshName);
+// → NewObject<UStaticMesh>(Outer, MeshName, RF_TextExportTransient | RF_NonPIEDuplicateTransient)
+```
+
+with `MeshComponentOuter = WaterBodyComponent->GetOwner()` — the water body **actor**
+(`Plugins/Experimental/Water/Source/Runtime/Private/WaterBodyMeshBuilder.cpp:392,405-407,427-428,598-600`).
+The engine's own flag comment describes the case: `RF_TextExportTransient` is "Generally used for
+sub-objects that can be regenerated from data in their parent object" (`ObjectMacros.h:574`). The
+`MakeUniqueObjectName` counter makes the name session-history dependent (`WaterBodyMesh`,
+`WaterBodyMesh_1`, …), so the path is a *mutable source locator*, not a source identity, and
+recording it would let session history change the digest with no change in source state.
+Change: §3.8.3 rule 7 (three acceptance tests, fail closed with the new
+`ERR_EXTRACTION_MESH_ASSET_UNSTABLE`), §8.1 vocabulary row, §3.8.2 tightened, §7.4 D21.
+
+**N-2 (minor, remediated) — the mesh-slot read had no coherence assertion.** Neither §3.8.2 nor
+§3.8.3 required the slot count and the per-index asset-slot reads to come from one asset state, so a
+mid-read change would have produced a record matching neither state. Change: §3.8.3 rule 8 asserts
+`IsCompiling()` still false and the slot count unchanged after the read, else
+`ERR_EXTRACTION_MESH_COMPILING`.
+
+**N-3 (minor, remediated) — the omitted-inventory boundary was ambiguous.** §3.8.1 rule 3 and
+§3.8.1a could be read two ways for a registered `UMeshComponent` outside the supported families
+(fail closed, or inventory it). Change: §3.8.1a now states the ordering explicitly (fail closed
+first; the inventory covers non-mesh primitives only).
+
+**N-4 (minor, remediated) — engine-upgrade consequences were described but not constrained.**
+§3.1.2 documented that upgrades may cause refusals, without forbidding a version-conditional
+implementation. Change: §3.1.2 now forbids version branching and any compatibility shim, and routes
+required behaviour changes to a new design revision.
+
+### 7.16 Attacks verified and refuted (no change made)
+
+- **"A descendant of a supported family may override the material model."** Refuted exhaustively:
+  a transitive inheritance scan over `Runtime`, `Editor`, `Developer` and `Plugins` headers found
+  **43 descendants** of `UStaticMeshComponent`/`USkinnedMeshComponent`, and **none** declares
+  `GetNumMaterials` or `GetMaterial` in its own class body — the family rule of §3.8.1 is therefore
+  accurate as written for this engine build. Method: `class X : public Y` regex graph → transitive
+  closure from the two roots → per-class header check (script retained outside the repository at
+  `%LOCALAPPDATA%\Temp\atlas-final-audit-scan\mat_scope.py`).
+- **"`UStaticMeshComponent::GetMaterial` may be overridden, so the resolver is not sealed."**
+  Refuted: it is declared `final` (`Components/StaticMeshComponent.h:631`). `GetNumMaterials` is not
+  `final` (`:591`), which is why N-2's coherence check is worthwhile rather than decorative.
+- **"Instanced static meshes carry per-instance materials, so the component-level record is
+  incomplete."** Refuted for 5.6: `FInstancedStaticMeshInstanceData` contains only a
+  `FMatrix Transform` (`InstancedStaticMeshComponent.h:39-…`), and the class declares no material
+  API, so its material model is exactly the asset-slot + component-override model §3.8.2 defines.
+- **"The D20 vector table may encode wrong expectations."** Re-measured independently: `1.0`,
+  `-0.0`, `5e-324`, `FLT_MAX` and `1e300` all match the design's stated patterns.
+- **"The numbered-name model may break the invariance proof."** Refuted: `ParseNumber` requires an
+  underscore before the digit run and refuses leading-zero forms, so uppercasing cannot change the
+  decomposition, and the rendering round-trips for every grammar-valid ID (`cam_01` stays whole and
+  unnumbered; `cam_1` splits consistently on both sides of the comparison).
+- **"`hidden_in_editor`'s dependence on `GIsEditor` may make the digest execution-dependent."**
+  Verified and accepted rather than refuted: `GIsEditor` is digested deliberately and is expected to
+  be `true` in an editor build reached through `GEditor`; recording it is what makes the difference
+  visible instead of hidden (§4.6).
+
+### 7.17 Remaining architectural decisions for the reviewer
+
+These are the only items this audit cannot close by design work; they are decisions, not
+ambiguities, and none of them is an implementation choice left to a coder.
+
+1. **Accept the U1 applicability cost** (§7.9): v1 cannot extract a world that has any unloaded or
+   hidden streaming level, and cannot extract a World Partition world. The rule is correct and
+   consistent; whether the program accepts the resulting applicability limit is the reviewer's call.
+2. **Accept the N-1 applicability cost**: a tagged actor carrying a supported-family component whose
+   mesh asset is runtime-generated (e.g. a water body) is refused rather than recorded. This follows
+   necessarily from requiring reproducible paths, and it is bounded by the entity binding (only
+   actors actually requested can trigger it).
+3. **Accept the digest's engine-build sensitivity** (U5/U11): digests are comparable only within one
+   engine build, and an upgrade may turn previously extractable actors into refusals. This is the
+   intended consequence of a source-fidelity identity bound to the producing binary.
+4. **Decide whether v1's declared scope limits are acceptable for the first implementation rung**
+   (unloaded streaming levels, World Partition, non-mesh material-bearing components whose material
+   state is not represented, engine-generated mesh assets). Each is now visible in-band rather than
+   silent; the design does not hide any of them.
+
+No item in this list requires further design text, and none of them is a defect: each is a
+boundary the reviewer either accepts or sends back as a scope change.
+
+### 7.18 Final design status (Revision 3.1)
+
+**HOLD.** Revision 3.1 is internally complete for the audited areas: every audit area has an
+explicit disposition, every confirmed defect has been remediated in the design, and the
+implementation-readiness table contains no remaining architectural decisions. This document does
+not and cannot declare CLEAR — that is the architectural reviewer's decision — and the four
+acceptance items in §7.17 are the reviewer's, not the author's. Implementation remains
+unauthorized; no production file, test, fixture, transport file, M4–M10 artefact or M12.5 artefact
+was modified, and PR #106 was not merged.
+
+---
+
+## 8. Revision 3.2 — material-resolution boundary: measured contradiction and disposition
+
+This section was added after the fixture/validation rung of the implementation branch produced a
+live UE 5.6.1 measurement of the material read path. It records one genuine contract/implementation
+mismatch, where the *contract text* was broader than what the extraction read boundary can observe.
+It is recorded as a **design** defect, not an implementation failure: the implementation reads the
+accessor named by the contract and is consistent with the corrected, narrower semantics.
+
+### 8.1 What was measured
+
+1. **The implementation's read.** `AtlasStateExtraction.cpp` resolves each slot with
+   `Component->GetMaterial(SlotIndex)` and records that object's stable path in
+   `resolved_material_asset_path`; the asset slot is read from the mesh asset
+   (`GetStaticMesh()->GetMaterial(idx)`) and the override from `OverrideMaterials[idx]`.
+2. **The engine's accessor.** `UStaticMeshComponent::GetMaterial(int32)`
+   (`StaticMeshComponent.cpp:2803-2811`) forwards to
+   `FStaticMeshComponentHelper::GetMaterial(*this, idx, /*bDoingNaniteMaterialAudit=*/false)` with
+   `bIgnoreNaniteOverrideMaterials` left at its `false` default
+   (`StaticMeshComponentHelper.h:40`). The helper (`:108-137`) performs the component's own
+   assignment resolution and then, **conditionally**, substitutes a *material-level* Nanite override
+   (`OutMaterial->GetNaniteOverride()`), gated by
+   `Component.UseNaniteOverrideMaterials(bDoingNaniteMaterialAudit)`
+   (`StaticMeshComponent.cpp:2372-2380`) →
+   `Nanite::FNaniteResourcesHelper::UseNaniteOverrideMaterials` =
+   `(bDoingMaterialAudit || ShouldCreateNaniteProxy(Component, nullptr)) && GEnableNaniteMaterialOverrides != 0`
+   (`Runtime/Engine/Public/Rendering/NaniteResourcesHelper.h`): i.e. **session/build dependent**.
+   `USkinnedMeshComponent::GetMaterial(int32)` (`SkinnedMeshComponent.cpp:1753-1756`) →
+   `FSkinnedMeshComponentHelper::GetMaterial` (`SkinnedMeshComponentHelper.h:108-121`) performs the
+   assignment resolution and **nothing else**.
+3. **The live fixture rung.** With fixture content whose assigned materials carry no Nanite
+   override, every extracted slot satisfied `resolved == (override if present else asset slot)`, and
+   two actors with different asset slots under different overrides produced different digests. No
+   material in project or engine content was found that carries a Nanite override, so the accessor's
+   conditional step was never exercised live. The classification recorded by that rung is
+   `NOT YET LIVE-COVERED`, not `PASS`, for the rendered-appearance dimension.
+
+### 8.2 The contradiction, stated precisely
+
+Revision 3.1 §3.8.2 said three things that the sources and the measurement do not support as
+written:
+
+1. *"in both families the resolved value may then be replaced by a Nanite override material"* — the
+   skinned helper has no such step at all. The sentence conflated two accessors that differ.
+2. *"including Nanite substitution"* as the description of the field — ambiguous between the
+   accessor's own conditional material-level step and the renderer's material selection. The field
+   is the former and never the latter; the design must not describe an extracted value in
+   render-path terms.
+3. The §3.8.5 collision matrix asserted that a "Nanite-substituted" state and its
+   assignment-only counterpart were *different trees*. Under the corrected semantics those two
+   states share every extracted fact, and their difference lives entirely in rendered appearance,
+   which extraction does not observe — so the row claimed a distinction the contract cannot make,
+   and, worse, the D17 obligation asked implementers to *produce* a state that no fixture can
+   produce.
+
+None of the three changed what the implementation does; all three changed what the contract is
+allowed to claim about it.
+
+### 8.3 Disposition
+
+Contract narrowing, applied in Revision 3.2 (design change log R3.2-1 … R3.2-6):
+
+* `resolved_material_asset_path` is redefined as **the read-boundary value of
+  `Component->GetMaterial(slot)`** after the component's own assignment resolution, stated to be
+  not rendered-material state, not Nanite render-path substitution, not the render-proxy
+  default-material substitution, and not a claim about final rendered selection, with no
+  render-state inspection introduced (§3.8.2);
+* the accessor's conditional material-level step is stated accurately, including its session/build
+  gating, and the skinned family's absence of that step is made explicit (§3.8.2 rule 3);
+* the §3.8.5 `S7` row is reclassified as **intentionally equivalent** under the boundary sentence,
+  while the assignment-versus-asset-slot collision rows that carry the real collision-freedom
+  obligation are retained unchanged;
+* D17 is restated and split, with the retired pair replaced by **D17b**: the payload's `resolved`
+  must equal the session's accessor value, and the fixture must prove its assigned materials carry
+  no Nanite override so the equality is *known* rather than observed (§7.4);
+* the derived statements — §4.6 provenance row, §12 live-gate acceptance item, §15 F9 summary row —
+  and a new frozen §17 row follow the narrowed semantics.
+
+**Not done, deliberately:** the extraction accessor is unchanged; no error code, refusal, schema
+field name, or canonical encoding changed; no render-state access was added; no compatibility
+behaviour was introduced for the unobservable state.
+
+### 8.4 What remains unobservable
+
+The static family's conditional material-level Nanite step needs (i) an assigned material that
+carries a Nanite override and (ii) a session in which `ShouldCreateNaniteProxy(Component, nullptr)
+&& GEnableNaniteMaterialOverrides != 0`. No such material ships in the fixture's content, so the
+dimension is recorded `NOT YET LIVE-COVERED` in
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_VALIDATION_MATRIX.md` (implementation branch) with the
+conditions named. This is a coverage limit, not a contract ambiguity: whichever value the accessor
+returns is recorded verbatim, and build/session sensitivity of that value is a property of the
+recorded source fact.
+
+### 8.5 Residual material-contract ambiguity for the reviewer
+
+1. The field remains **session/build sensitive** in the presence of a material-level Nanite
+   override; a digest produced under a session that substitutes is not comparable with one produced
+   under a session that does not. This is consistent with the frozen "engine-build sensitivity is
+   intentional" restriction, but it is the one material case where two sessions reading the *same
+   saved asset* can record different facts. If the reviewer prefers, the alternative (collapse the
+   accessor value to the assignment and refuse components whose materials carry a Nanite override)
+   is a **capability restriction** and would need a separate approved revision — it is not taken
+   here.
+2. `asset_slot_empty` (null slot material, no override) still does not mean "renders untextured";
+   the render-proxy default substitution is declared outside extraction (§3.8.2 intentionally-
+   equivalent list). Two worlds differing only in that substitution are intentionally equivalent.
+3. Whether the *skinned* family's `USkinnedAsset::GetMaterials()` slot list can change without a
+   compile flag remains as recorded in §3.8.3 rule 8's coherence assertion; Revision 3.2 changes
+   nothing there.
+
+### 8.6 Final design status (Revision 3.2)
+
+**HOLD.** Revision 3.2 narrows exactly one field's semantics to what the extraction read boundary
+observes, corrects one factual error about the two accessors, and reclassifies one collision-matrix
+row. It adds no capability, weakens no refusal, and requires no implementation change. It cannot
+clear itself; the implementation branch remains unmergeable until an independent architectural
+review clears Revision 3.2.
+
+---
+
+## 9. Revision 3.3 — deterministic material resolution: analysis and disposition
+
+Revision 3.2 was held after review. This section answers the four architectural questions that hold
+raised, and records the decision. Every engine citation was read in the installed UE 5.6.1 tree
+(`C:/Program Files/Epic Games/UE_5.6/Engine/`).
+
+### 9.1 The question
+
+Revision 3.2 defined `resolved_material_asset_path` as the return value of
+`Component->GetMaterial(slot)`, and recorded — as an accepted property of the design — that this
+value can differ between sessions when the assigned material carries a Nanite override. It was
+classified as "engine-build sensitivity", which the design already admits. That classification is
+wrong. **Build sensitivity** means: a different engine build may produce different values, and v1
+disc owns that (§3.1.2). **Session/configuration sensitivity** means: the *same* build, the *same*
+saved source, a different session, a different value — and a digest that varies with the session is
+not a source-fidelity digest at all (§7.2, §5.4). A digested field may not depend on the second.
+
+### 9.2 Question 2 — can any session/configuration input change the accessor's value for identical saved source state?
+
+Yes, and the input list is not marginal. `UStaticMeshComponent::GetMaterial(int32)`
+(`StaticMeshComponent.cpp:2803-2811`) forwards to
+`FStaticMeshComponentHelper::GetMaterial(*this, idx, /*bDoingNaniteMaterialAudit=*/false)`, which
+resolves the assignment and then applies a material-level Nanite override
+(`OutMaterial->GetNaniteOverride()`, `StaticMeshComponentHelper.h:123-134`) whenever
+`Component.UseNaniteOverrideMaterials(false)` is true (`StaticMeshComponent.cpp:2372-2380`). That
+predicate (`Rendering/NaniteResourcesHelper.h`) is:
+
+```cpp
+return (bDoingMaterialAudit || FNaniteResourcesHelper::ShouldCreateNaniteProxy(Component, nullptr))
+       && Nanite::GEnableNaniteMaterialOverrides != 0;
+```
+
+and each input is session or configuration state:
+
+| Input | Provenance | Can differ between two sessions of one build? |
+|---|---|---|
+| `Nanite::GEnableNaniteMaterialOverrides` | scalability CVar `r.Nanite.MaterialOverrides` (`StaticMeshSceneProxy.cpp:121-124`, `ECVF_Scalability \| ECVF_RenderThreadSafe`, default 1) | yes — ini/device profile/scalability group/exec command |
+| `Component.GetScene()->GetShaderPlatform()` else `GMaxRHIShaderPlatform` | the running RHI (`NaniteResourcesHelper.h:130`) | yes — D3D12 vs D3D11 vs Vulkan vs `-nullrhi`, feature level, mobile preview |
+| `UseNanite(ShaderPlatform)` | platform support gate (`:132`) | yes — same axis as above |
+| `Component.HasValidNaniteData()` | the mesh's Nanite data availability in this session | yes — build/streaming state |
+| `Nanite::IsMaskingAllowed(Component.GetWorld(), …)` | world/CVar state (`:141`) | yes |
+| `Component.IsDisplayNaniteFallbackMesh()` | editor-only viewport toggle (`StaticMeshComponent.h:810-812`, `bDisplayNaniteFallbackMesh`) | yes — the open editor's view mode |
+
+**Self-critical note, recorded because it affects how the Revision 3.2 evidence must be read.** Every
+live measurement of Revision 3.2 ran in `-nullrhi` unattended sessions, where the shader platform is
+not a Nanite-capable RHI, so the substitution step was disabled in *all* of them. The measured
+`resolved == assignment` was therefore a configuration-dependent observation, not a proof of
+stability: a real-RHI session with `r.Nanite.MaterialOverrides 1` and a Nanite-enabled component could
+have recorded a different value from the same saved map. That is precisely the failure mode this
+revision removes.
+
+### 9.3 Question 1 — is source-side assignment resolution consistent for both families and with the collision matrix?
+
+Yes, and it is *simpler* than either precedent:
+
+- the two helpers' assignment halves are structurally identical: `OverrideMaterials[idx]` when the
+  index is valid and the entry is non-null, else the mesh asset's material for that index
+  (`StaticMeshComponentHelper.h:113-121`; `SkinnedMeshComponentHelper.h:110-120`). The **only**
+  asymmetry between the families was the static-only Nanite step, and it is the step being removed
+  from the contract — so after Revision 3.3 both families share one rule with no special case;
+- the collision matrix is unaffected where it carries obligations: the rows that distinguish
+  (override `A`, asset `B`) from (override `A`, asset `C`) rest on
+  `asset_slot_material_asset_path`, which is still a source fact. What changes is that `resolved`
+  stops being able to distinguish anything the two source facts do not already distinguish — which
+  the matrix now states explicitly, together with a session-variation row that must be
+  **equivalent** (§3.8.5);
+- the "intentionally equivalent" obligations do not multiply: the S7/rendered-appearance row already
+  existed, and Revision 3.3 extends its rationale from render-path substitution to engine-side
+  substitution generally.
+
+### 9.4 Questions 3 and 4 — narrowing versus fail-closed, and the smallest change
+
+| Option | What it means | Assessment |
+|---|---|---|
+| **A. Narrow the field to deterministic assignment resolution** (adopted) | `resolved` = override when non-null, else asset slot; computed from saved source facts; the component material accessor leaves the read boundary | **Adopted.** Same schema, same digest model, same collision obligations, no new error code, no new capability, and *fewer* engine calls than Revision 3.2 (the material helper is no longer invoked, so its `ConditionalPostLoad` disappears from the read path). Determinism holds by construction rather than by detection, and both families become identical |
+| **B. Keep the accessor and fail closed when determinism cannot be established** | refuse (`ERR_EXTRACTION_*`) whenever the session's accessor value differs from the assignment resolution | **Rejected as the primary rule.** It removes the *silent* session dependence but reintroduces session state into the extraction **outcome**: extraction would succeed in one session and refuse in another for the same saved map, which is a different non-determinism. It also needs a new producer error code for a condition the contract can simply not model |
+| **A+guard** (unadopted variant) | A, plus a fail-closed guard when the session's accessor disagrees with the projection | Recorded as the reviewer's option if they want an engine divergence to be *loud*. Its cost is a new error code and a session-dependent refusal path; it is not the smallest change and is not taken here |
+
+Question 4's constraint is satisfied: A invents no capability, preserves the architecture, and does
+not preserve the broader Nanite interpretation by any mechanism — that interpretation is
+deliberately dropped from v1's scope.
+
+### 9.5 Consequences recorded (as the request enumerated them)
+
+- **Source-versus-session provenance.** `resolved_material_asset_path` is derived from two saved
+  source facts (component override array; mesh asset material list). No session, RHI, scalability,
+  editor-view or CVar input can enter it, and the producer is forbidden from consulting one.
+- **Why the chosen field is reproducible.** It is a total two-branch projection evaluated in the
+  extraction process over data that is part of the saved map and its assets; it involves no engine
+  resolver, no rendering state and no configuration gate.
+- **Collision/state-collapse consequences.** `resolved` becomes a projection and can no longer
+  distinguish states; the obligation to distinguish stays with
+  `asset_slot_material_asset_path` / `override_material_asset_path`; session variation is an
+  intentional equivalence (§3.8.5).
+- **Exact extractor read boundary.** `OverrideMaterials.IsValidIndex(idx) && OverrideMaterials[idx]`
+  and the mesh asset's own slot material (`UStaticMesh::GetMaterial(idx)` /
+  `USkinnedAsset::GetMaterials()[idx].MaterialInterface`, the latter only when the asset is not
+  compiling) — and nothing else. The component accessor, the Nanite accessors, scene/render-proxy
+  accessors and any CVar read are forbidden for this field.
+- **Compatibility with the schema and digest model.** Unchanged: the field keeps its name, type
+  (`string|null`), position and provenance class (DSD). What changes is the value function, so a
+  session that *would* have substituted a different material now records the deterministic value
+  instead — a digest change only in sessions where the engine would have diverged, which is the
+  intended repair.
+
+### 9.6 Enforcement (so the invariant is mechanical, not aspirational)
+
+1. **Boundary rule (D17c):** the Python validator rejects any tree where
+   `resolved != (override if override is not None else asset_slot)`, in both families and including
+   the null cases. A producer that ever reintroduced a session-dependent value fails closed instead
+   of digesting it.
+2. **In-process test:** the projection is asserted against the engine's own objects
+   (`OverrideMaterials[idx]`, and the mesh asset's slot material read directly), and the session's
+   component-accessor value and substitution-gate inputs are *recorded* without being asserted, so a
+   substituting session is visible in the evidence.
+3. **Source gate:** the extraction translation unit must not contain a component material accessor
+   call or any Nanite/render-state accessor, and must not read a console variable for the value.
+4. **Configuration-variation run:** the gate is executed twice with deliberately different session
+   configuration (`r.Nanite.MaterialOverrides` varied, plus the RHI difference between the
+   `-nullrhi` sessions and any real-RHI session available), and the material-bearing extraction bytes
+   and digests are compared for byte equality.
+
+### 9.7 Final design status (Revision 3.3)
+
+**HOLD.** Revision 3.3 removes a session/configuration dependence from a digested field by
+redefining that field as a projection of saved source facts, removes the component material accessor
+from the read boundary, makes both supported families share one rule, and adds a closed boundary rule
+plus a source gate so the property cannot silently regress. It adds no capability, weakens no
+refusal, changes no error code, and touches no part of the frozen M4–M10 and M12.5 boundaries. It
+cannot clear itself; the implementation branch remains unmergeable until an independent architectural
+review clears Revision 3.3.
+
+---
+
+## Appendix A — Reproducing the verification
+
+Repository evidence (no engine required):
+
+```bash
+git -C <repo> show <head>:docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md | sed -n '820,930p'
+grep -n "_session_identity" planning/unreal_adapter_production.py
+grep -n "observed_state" planning/unreal_evidence_digest.py
+grep -n "GetWorldContexts" unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp
+grep -n "EngineVersion = TEXT" unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp
+grep -rn "8785" . --include=*.py --include=*.md
+```
+
+Engine evidence (installed UE 5.6.1, no editor launch required):
+
+```bash
+E="/c/Program Files/Epic Games/UE_5.6/Engine/Source/Runtime"
+sed -n '45,58p' "$E/Core/Public/Math/MathFwd.h"                  # FVector/FQuat are double
+sed -n '1860,1883p' "$E/Core/Private/UObject/UnrealNames.cpp"      # FName comparison vs display id
+sed -n '973,982p'  "$E/Engine/Private/ActorEditor.cpp"            # IsHiddenEd is derived
+sed -n '462,483p'  "$E/Engine/Public/EngineUtils.h"               # TActorIterator level filter
+sed -n '48,51p'    "$E/Core/Public/Misc/FrameRate.h"              # FFrameRate::IsValid
+sed -n '108,137p'  "$E/Engine/Public/StaticMeshComponentHelper.h" # assigned vs resolved, Nanite
+sed -n '114,120p'  "$E/Engine/Public/SkinnedMeshComponentHelper.h"# compiling -> null material
+cat "/c/Program Files/Epic Games/UE_5.6/Engine/Build/Build.version" # 5.6.1 vs hardcoded "5.6"
+```
+
+No engine process was launched, no test was executed, and no file outside the two documents
+named in this task was modified.
+
+## Appendix B — Reproducing the Revision 3 verification
+
+`FName` identity and numbered names (priority 1, area P1/P1a):
+
+```bash
+E="/c/Program Files/Epic Games/UE_5.6/Engine/Source/Runtime"
+sed -n '3411,3417p' "$E/Core/Private/UObject/UnrealNames.cpp"   # FName(str) -> MakeDetectNumber
+sed -n '3169,3199p' "$E/Core/Private/UObject/UnrealNames.cpp"   # ParseNumber: the '_<digits>' split
+sed -n '3605,3621p' "$E/Core/Private/UObject/UnrealNames.cpp"   # rendering: base + "_" + number
+sed -n '145,156p'   "$E/Core/Public/UObject/NameTypes.h"        # NAME_NO_NUMBER_INTERNAL / EXTERNAL_TO_INTERNAL
+sed -n '757,770p'   "$E/Core/Public/UObject/NameTypes.h"        # IsEqual(bCompareNumber) vs operator==
+sed -n '1176,1183p' "$E/Core/Public/UObject/NameTypes.h"        # ToUnstableInt (number in equality)
+sed -n '1308,1330p' "$E/Core/Public/UObject/NameTypes.h"        # GetTypeHash(FName), index-only variant
+sed -n '36,40p'     "$E/Core/Public/UObject/NameTypes.h"        # UE_FNAME_OUTLINE_NUMBER default
+```
+
+Material component families (priority 2, area P2):
+
+```bash
+E="/c/Program Files/Epic Games/UE_5.6/Engine"
+grep -rn "public UMeshComponent" "$E/Source/Runtime" "$E/Plugins" | sed 's|.*/Engine/||'
+grep -n "GetNumMaterials\|GetMaterial(" \
+  "$E/Plugins/Runtime/ProceduralMeshComponent/Source/ProceduralMeshComponent/Public/ProceduralMeshComponent.h" \
+  "$E/Source/Runtime/UMG/Public/Components/WidgetComponent.h" \
+  "$E/Source/Runtime/GeometryFramework/Public/Components/BaseDynamicMeshComponent.h"
+grep -n "GetNumMaterials\|GetMaterial(" "$E/Source/Runtime/Engine/Classes/Components/SplineMeshComponent.h"
+```
+
+Scope stability, containers and actor slots (priority 4, area P4):
+
+```bash
+E="/c/Program Files/Epic Games/UE_5.6/Engine/Source/Runtime"
+sed -n '1020,1030p' "$E/Engine/Classes/Engine/World.h"   # UWorld::GetStreamingLevels (full list)
+sed -n '985,995p'   "$E/Engine/Classes/Engine/World.h"   # StreamingLevelsToConsider (private subset)
+sed -n '426,433p'   "$E/Engine/Classes/Engine/Level.h"   # ULevel::Actors (TArray)
+sed -n '70,82p'     "$E/Engine/Classes/Engine/Level.h"   # UActorContainer::Actors (TMap)
+grep -n "Actors\[ActorIndex\] = nullptr\|Actors.Remove(nullptr)" "$E/Engine/Private/Level.cpp"
+sed -n '440,452p'   "$E/Engine/Public/EngineUtils.h"     # SkipPendingKill / IsActorSuitable
+```
+
+Sequencer read path (priority 7, area P7):
+
+```bash
+E="/c/Program Files/Epic Games/UE_5.6/Engine/Source/Runtime"
+sed -n '145,150p;332,347p' "$E/LevelSequence/Private/LevelSequenceActor.cpp"
+sed -n '733,736p'          "$E/LevelSequence/Private/LevelSequence.cpp"
+sed -n '298,310p'          "$E/LevelSequence/Public/LevelSequenceActor.h"  # InitializePlayer*
+```
+
+Python-side hazards and bit vectors (priorities 5 and 9, areas P5/P9):
+
+```bash
+python - <<'PY'
+import json, struct, math
+print(json.loads('{"k":"a","k":"b"}'))          # duplicate key -> last wins (no error)
+print(json.loads('[NaN]'), json.loads('{"i":Infinity}'))   # accepted by default
+print(isinstance(True, int), type(True) is int)            # bool is an int subclass
+s = json.dumps({"a": "\ud800"}, ensure_ascii=False)
+try: s.encode("utf-8")
+except Exception as e: print(type(e).__name__, e)          # lone surrogate cannot encode
+for name, v in [("1.0",1.0),("-0.0",-0.0),("5e-324",5e-324),
+                ("FLT_MAX",3.4028234663852886e38),("1e300",1e300)]:
+    print(name, f"{struct.unpack('<Q', struct.pack('<d', v))[0]:016x}")
+print("mismatched pair", f"{struct.unpack('>Q', struct.pack('<d', 1.0))[0]:016x}")
+try: struct.pack("<f", 1e300)
+except Exception as e: print("narrow 1e300 ->", type(e).__name__, e)
+print("narrow 5e-324 ->", struct.unpack("<f", struct.pack("<f", 5e-324))[0])
+PY
+```
+
+Transport module separation evidence (priority 8, area P8):
+
+```bash
+R="unreal/AtlasUnrealHarness/Source/AtlasUnrealTransport/Private/AtlasTransportServer.cpp"
+grep -n "MarkPackageDirty\|SavePackage\|->Modify()\|SpawnActor\|NewObject<\|SetActor" "$R"
+grep -n "^bool FAtlasTransportServer::SetActor\|^bool FAtlasTransportServer::Apply" "$R"
+```
+
+Both revisions were verified without launching an engine process and without executing any test;
+every claim above is either a source citation or a measurement on the local interpreter.
+
+---
+
+## Appendix C — Reproducing the Revision 3.1 verification
+
+The material-descendant scan (audit §7.16 — the "43 descendants, 0 overrides" result). The script
+walks `Runtime`, `Editor`, `Developer` and `Plugins` headers, builds a `class X : public Y` graph,
+takes the transitive closure from `UStaticMeshComponent` and `USkinnedMeshComponent`, and checks each
+descendant's own header for a material-API declaration:
+
+```python
+# script: %LOCALAPPDATA%\Temp\atlas-final-audit-scan\mat_scope.py
+cls_re  = re.compile(r'^\s*(?:template\s*<[^>]*>\s*)?class\s+(?:\w+_API\s+)?(\w+)\s*:\s*(.*?)\s*$')
+base_re = re.compile(r'\b(?:public|protected|private)\s+([AUFI]\w+)')
+mat_re  = re.compile(r'GetNumMaterials\s*\(|GetMaterial\s*\(')
+# roots: Engine/Source/{Runtime,Editor,Developer} and Engine/Plugins, *.h only
+# then: transitive descendants of {"UStaticMeshComponent", "USkinnedMeshComponent"}
+# result: total descendants found: 43 ; material-API hits: 0
+```
+
+The runtime-generated-mesh evidence (audit §7.15, N-1):
+
+```bash
+E="/c/Program Files/Epic Games/UE_5.6/Engine"
+sed -n '390,430p' "$E/Plugins/Experimental/Water/Source/Runtime/Private/WaterBodyMeshBuilder.cpp"   # owner as outer, MakeUniqueObjectName, SetStaticMesh
+sed -n '598,606p' "$E/Plugins/Experimental/Water/Source/Runtime/Private/WaterBodyMeshBuilder.cpp"   # NewObject<UStaticMesh> + RF_TextExportTransient
+sed -n '543,580p' "$E/Source/Runtime/CoreUObject/Public/UObject/ObjectMacros.h"                     # RF_Transient / RF_TextExportTransient / RF_NonPIEDuplicateTransient
+```
+
+Material-API access levels and sealing (audit §7.16):
+
+```bash
+E="/c/Program Files/Epic Games/UE_5.6/Engine/Source/Runtime"
+sed -n '18,40p' "$E/Engine/Classes/Components/MeshComponent.h"          # OverrideMaterials is public
+sed -n '585,595p' "$E/Engine/Classes/Components/StaticMeshComponent.h"  # GetNumMaterials (not final)
+sed -n '627,635p' "$E/Engine/Classes/Components/StaticMeshComponent.h"  # GetMaterial(int32) is final
+sed -n '2765,2775p' "$E/Engine/Private/Components/StaticMeshComponent.cpp"   # slot count == asset slot count
+sed -n '1713,1720p' "$E/Engine/Private/Components/SkinnedMeshComponent.cpp"  # 0 while compiling
+sed -n '105,125p' "$E/Engine/Public/SkinnedMeshComponentHelper.h"            # skinned resolution chain
+sed -n '36,60p' "$E/Engine/Classes/Components/InstancedStaticMeshComponent.h" # FInstancedStaticMeshInstanceData: transform only
+```
+
+Numeric and canonicalization measurements (in-process, Python 3.11.16):
+
+```python
+import struct, math
+canon = lambda v: f"{struct.unpack('<Q', struct.pack('<d', v))[0]:016x}"
+assert canon(1.0) == "3ff0000000000000"
+assert canon(-0.0) == "8000000000000000"
+assert canon(5e-324) == "0000000000000001"
+assert canon(2.0**-1022) == "0010000000000000"
+assert canon(3.4028234663852886e38) == "47efffffe0000000"   # FLT_MAX widened
+assert canon(1e300) == "7e37e43c8800759c"
+# endianness is irrelevant to the mapping: all three packings agree
+assert len({f"{struct.unpack(f+'Q', struct.pack(f+'d', 1.0))[0]:016x}" for f in ("<", ">", "=")}) == 1
+# NaN must be built from the PATTERN, not from hex bytes:
+qnan = struct.unpack("<d", struct.pack("<Q", 0x7ff8000000000001))[0]
+assert math.isfinite(qnan) is False and canon(qnan) == "7ff8000000000001"
+wrong = struct.unpack("<d", bytes.fromhex("7ff8000000000001"))[0]     # this is NOT a NaN
+assert math.isfinite(wrong) is True and canon(wrong) == "010000000000f87f"
+```
+
+Line-ending discipline for the two documents (the repository commits LF blobs on a CRLF worktree):
+
+```bash
+for f in docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_REV2_REVIEW.md; do
+  python -c "import sys;d=open(sys.argv[1],'rb').read();crlf=d.count(bytes([13,10]));lf=d.count(bytes([10]));cr=d.count(bytes([13]));print(sys.argv[1],'CRLF',crlf,'bareLF',lf-crlf,'bareCR',cr-crlf)" "$f"
+done
+# Revision 3.1 result: DESIGN CRLF 2388 bareLF 0 bareCR 0 ; REVIEW CRLF 1118 bareLF 0 bareCR 0
+```
+
+As with the previous revisions, none of this required an engine process and no test was executed.
+
+---
+
+## Appendix D — Reproducing the Revision 3.2 verification
+
+Revision 3.2's evidence is engine-source plus one live measurement. No repository or engine file was
+modified; nothing here re-runs the design's own acceptance obligations.
+
+**D.1 Engine accessor (no engine process required).** The exact read path, in the order the
+arguments are consumed:
+
+```bash
+E="C:/Program Files/Epic Games/UE_5.6/Engine/Source/Runtime/Engine"
+# the component accessors and what they forward to
+grep -n "GetMaterial(int32" "$E/Private/Components/StaticMeshComponent.cpp"      # :2803-2811 (static)
+grep -n "GetMaterial(int32" "$E/Private/Components/SkinnedMeshComponent.cpp"     # :1753-1756 (skinned)
+# the helper signatures and defaults
+grep -n "static UMaterialInterface\* GetMaterial" "$E/Public/StaticMeshComponentHelper.h"   # :40 defaults
+sed -n '108,137p' "$E/Public/StaticMeshComponentHelper.h"                                    # conditional step
+sed -n '108,121p' "$E/Public/SkinnedMeshComponentHelper.h"                                   # no such step
+# the session gate on the static family's conditional step
+grep -n "UseNaniteOverrideMaterials" "$E/Private/Components/StaticMeshComponent.cpp"         # :2372-2380
+grep -n -A4 "bool FNaniteResourcesHelper::UseNaniteOverrideMaterials" \
+  "$E/Public/Rendering/NaniteResourcesHelper.h"
+# measured: (bDoingMaterialAudit || ShouldCreateNaniteProxy(Component, nullptr))
+#           && Nanite::GEnableNaniteMaterialOverrides != 0
+```
+
+**D.2 The implementation's read (source only).** `AtlasStateExtraction.cpp` (implementation branch)
+must resolve each slot through `Component->GetMaterial(SlotIndex)` and read the asset slot from the
+mesh asset; the Revision 3.2 source gate asserts that no render-state accessor, Nanite audit
+accessor, or render proxy symbol appears in that translation unit, and that every mention of Nanite
+in it is a comment stating the boundary.
+
+**D.3 The live measurement.** The fixture/validation rung's gate session (UE 5.6.1, CL 44394996) is
+reproduced by the commands in
+`docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_VALIDATION_MATRIX.md`; the material cases must classify
+`PASS` for assignment-versus-asset-slot separation and `NOT YET LIVE-COVERED` for the rendered-
+appearance dimension. A `PASS` for the rendered dimension would mean the contract is again claiming
+more than the read boundary observes.
+
+**D.4 Line-ending discipline** for the two documents (the repository commits LF blobs on a CRLF
+worktree):
+
+```bash
+for f in docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_REV2_REVIEW.md; do
+  python -c "import sys;d=open(sys.argv[1],'rb').read();crlf=d.count(bytes([13,10]));lf=d.count(bytes([10]));cr=d.count(bytes([13]));print(sys.argv[1],'CRLF',crlf,'bareLF',lf-crlf,'bareCR',cr-crlf)" "$f"
+done
+# Revision 3.2 result: DESIGN CRLF 2460 bareLF 0 bareCR 0 ; REVIEW CRLF 1293 bareLF 0 bareCR 0
+# Revision 3.3 result: DESIGN CRLF 2560 bareLF 0 bareCR 0 ; REVIEW CRLF 1428 bareLF 0 bareCR 0
+```
