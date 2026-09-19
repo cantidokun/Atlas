@@ -1,4 +1,5 @@
 """Adversarial deterministic coverage for Atlas Temporal v1 Revision 9."""
+import copy
 
 from dataclasses import replace
 
