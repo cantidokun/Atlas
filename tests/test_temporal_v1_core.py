@@ -348,3 +348,32 @@ def test_recovery_reinitialization_requires_new_continuity_and_higher_epoch():
         new_continuity_id="continuity-2",
         new_ordering_epoch=stream.state.ordering_epoch + 1,
     )
+
+
+
+def test_temporal_state_digest_changes_for_name_and_material_state():
+    base = snapshot()
+    renamed = copy.deepcopy(base)
+    renamed["objects"][0]["name"] = "obj-1-renamed"
+    changed_material = copy.deepcopy(base)
+    changed_material["objects"][0]["mesh"]["materials"] = ["mat-2"]
+
+    assert temporal_state_digest(base) != temporal_state_digest(renamed)
+    assert temporal_state_digest(base) != temporal_state_digest(changed_material)
+
+
+def test_snapshot_representation_preserves_omitted_materials_key():
+    body = snapshot()
+    del body["objects"][0]["mesh"]["materials"]
+    obs = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=0,
+        source_time=SourceTime("FRAME_INDEX", 0, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=body,
+        state_digest=temporal_state_digest(body),
+    )
+
+    assert "materials" not in obs.snapshot["objects"][0]["mesh"]
