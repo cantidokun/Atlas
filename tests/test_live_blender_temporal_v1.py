@@ -440,6 +440,66 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
     }, sort_keys=True))
 
 
+
+def test_live_temporal_l4_material_omission_is_unavailable_not_unchanged():
+    snapshot_a, meta = _run_live_snapshot(x=0.0)
+    snapshot_b = json.loads(json.dumps(snapshot_a, sort_keys=True))
+
+    # Use a real Blender-produced snapshot as the fixture, then model the frozen
+    # producer omission contract explicitly: an omitted materials key is not an
+    # observed empty/materials-equal value and must surface as UNAVAILABLE.
+    for snapshot in (snapshot_a, snapshot_b):
+        mesh = snapshot["objects"][0]["mesh"]
+        mesh.pop("materials", None)
+
+    capability = CapabilityContract(
+        contract_id="extraction_fidelity_v1",
+        observable_fields=tuple(sorted(_COMPARISON_FIELDS)),
+        unobservable_fields=tuple(sorted(_UNOBSERVABLE_FIELDS)),
+        representation_state=("materials:omitted",),
+    )
+
+    def make_observation(snapshot: Dict[str, Any], sequence: int) -> TemporalObservation:
+        return TemporalObservation(
+            stream_id="live-temporal-v1",
+            continuity_id="live-continuity-materials",
+            sequence=sequence,
+            source_time=SourceTime("FRAME_INDEX", sequence, 1, 1, 0),
+            producer=ProducerProvenance(
+                producer_source="BLENDER",
+                producer_contract="extraction_fidelity_v1",
+                engine_version=meta["engine_version"],
+                engine_build=meta["engine_build"],
+                producer_session_id=meta["producer_session_id"],
+                producer_instance_ordinal=1,
+            ),
+            capability=capability,
+            snapshot=snapshot,
+            state_digest=temporal_state_digest(snapshot),
+        )
+
+    a = make_observation(snapshot_a, 0)
+    b = make_observation(snapshot_b, 1)
+    stream = ObservationStream("live-temporal-v1")
+    stream.step(a)
+    result = stream.step(b, a)
+
+    assert result.record is not None
+    assert result.record["outcome"] == "COMPUTED"
+    assert result.record["coverage"]["materials"] == "UNAVAILABLE"
+    assert not any(
+        change["field"] == "materials"
+        for entity in result.record["entity_deltas"]
+        for change in entity["field_changes"]
+    )
+    print("ATLAS_TEMPORAL_L4_EVIDENCE=" + json.dumps({
+        "engine_version": meta["engine_version"],
+        "engine_build": meta["engine_build"],
+        "producer_session_id": meta["producer_session_id"],
+        "materials_coverage": result.record["coverage"]["materials"],
+        "delta_digest": result.record["delta_digest"],
+    }, sort_keys=True))
+
 def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
     snapshot_a, meta_a = _run_live_snapshot(x=0.0)
     snapshot_b, meta_b = _run_live_snapshot(x=1.0)
