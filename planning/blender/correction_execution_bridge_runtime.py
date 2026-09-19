@@ -297,6 +297,7 @@ def run_embedded_request(request_json: str) -> None:
         "extraction_invocations": 0,
     }
     request_digest = None
+    request = None
     try:
         request = json.loads(request_json)
         if type(request) is not dict:
