@@ -119,9 +119,14 @@ def _validate_complete_payload(payload: Mapping[str, Any]) -> None:
     _require_string(
         payload["last_accepted_admission_identity_digest"],
         "last_accepted_admission_identity_digest",
-    if len(payload["last_accepted_admission_identity_digest"]) != 64 or any(ch not in "0123456789abcdef" for ch in payload["last_accepted_admission_identity_digest"]):
-        raise RecoveryCheckpointError("ADMISSION_STATE_UNAVAILABLE: invalid last_accepted_admission_identity_digest")
     )
+    if len(payload["last_accepted_admission_identity_digest"]) != 64 or any(
+        ch not in "0123456789abcdef"
+        for ch in payload["last_accepted_admission_identity_digest"]
+    ):
+        raise RecoveryCheckpointError(
+            "ADMISSION_STATE_UNAVAILABLE: invalid last_accepted_admission_identity_digest"
+        )
 
     for name in (
         "accepted_count",
