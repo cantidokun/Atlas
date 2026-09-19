@@ -1067,36 +1067,36 @@ silently understate the observation. v1 refuses instead of narrowing.
 
 ### 10.5 Failure precedence (single-valued)
 
-For one observation, validation is evaluated in this order and the **first** failure wins:
+Validation and admission are resolved before comparison:
 
-1. envelope schema version unknown/unsupported ⇒ invalid (`UNKNOWN_SCHEMA_VERSION`);
-2. required envelope fields missing/malformed (ids, sequence, time) ⇒ invalid
-   (`MALFORMED_IDENTITY` / `MISSING_SOURCE_TIME` / `MALFORMED_TIME`);
-3. capability declaration inconsistent — overlap, unknown field, a set-C/derived field listed, or a
-   universe other than §10.1 set A ∪ set B ⇒ invalid (`CAPABILITY_UNIVERSE_INCOMPLETE`);
-4. the digest **recomputed** from `snapshot` under §11.2 ≠ the declared `state_digest` ⇒
-   `REJECTED_INVALID` (`STATE_DIGEST_MISMATCH`). There is no "declared invalid" variant to skip this
-   check, and the declared value is never trusted as an authority (§4.6);
-5. `snapshot` fails canonical parsing (or is not in the single §4.6 representation) ⇒
-   `REJECTED_INVALID` (parser error reported verbatim);
-6. admission conflicts — a contradictory duplicate, an undeclared sequence regression, or an admission
-   state that cannot be established for this stream ⇒ `REJECTED_INVALID` / `REJECTED_STALE` (§6.6);
-   never a partial record, never a partial state mutation;
-7. **pair-level** refusals are not arrival validation and are evaluated at stage 3 (§6.8). On the `SAME_EPOCH`
-   comparison path, a missing pair input (§6.7), capability mismatch between the endpoints (§10.4),
-   `domain`/`rate` mismatch, an identity disagreement between the supplied `A` and the `FromIdentity`
-   projection (§8.1), scene-scope violation and unit-system violation (§8.5) each produce a record whose
-   outcome is `OBSERVATION_INVALID` with an empty entity list. On the `NEW_EPOCH` boundary path, a supplied
-   `A` that disagrees with the projection likewise produces `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH`
-   with no comparison; **this refusal does not undo the stage-2 admission** — `B` remains admitted and the new
-   epoch remains established (§6.8.1). Only the `SAME_EPOCH` identity-mismatch case leaves admission state
-   unchanged, because there was no boundary mutation to preserve.
+1. schema version;
+2. envelope structure and primitive types;
+3. identity, sequence and fixed-width integer bounds;
+4. capability declaration;
+5. canonical snapshot parsing;
+6. recomputation of state_digest;
+7. stream routing;
+8. ordering_epoch / continuity declaration;
+9. sequence;
+10. admission identity;
+11. scene scope;
+12. source-time domain;
+13. source-time rate;
+14. source-time monotonicity.
 
-Items 1-6 describe stages 1-2 and always end in `REJECTED_INVALID` with no record; item 7 describes stage-3
-pair refusals and always ends in a record with `OBSERVATION_INVALID`. The **boundary path** (§6.8.1)
-evaluates none of the `SAME_EPOCH` comparison checks: a `NEW_EPOCH` arrival asks only whether `A` was
-supplied and, when it was, whether it agrees with the projection (§8.1). The first failure wins within each
-stage and within each path, so no arrival and no pair can produce two outcomes.
+The first failure wins.
+
+Only after B is accepted may pair evaluation run. Pair-level refusals are:
+
+* PAIR_INPUT_UNAVAILABLE;
+* PAIR_INPUT_IDENTITY_MISMATCH;
+* CAPABILITY_MISMATCH;
+* UNIT_SYSTEM_CHANGED.
+
+Scene scope and source-time checks are deliberately absent from this list because they are admission invariants. Accepting B and discovering either later would create accepted-but-unusable temporal history.
+
+A pair-level refusal emits one StateDelta record and never retracts B.
+
 ## 11. Digest and provenance boundaries
 
 ### 11.1 Digest 1 — `scene_input_digest` (FROZEN, unchanged)
