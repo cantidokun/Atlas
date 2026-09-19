@@ -11,6 +11,14 @@ It never opens or writes a ``.blend``: Blender is started WITHOUT a file argumen
 built in memory, and the frozen validation asset is hash-checked before/after and must stay
 byte-identical. No workflow/action-runner tests are involved.
 
+WAVE 14 (representation fidelity, material slots): the same gate also asserts, at the RAW Blender
+boundary, that a geometry-rebuilding correction preserves the target object's material-slot table —
+assigned DATA slots, an unassigned slot and an OBJECT-linked slot — with an ANTI-VACUITY assertion
+that the material-bearing positive case really has a non-empty canonical material tuple, and a
+deliberately lossy diagnostic case (superseded Pattern A) that must FAIL through MQ-5 and raw slot
+evidence. Raw assertions do NOT extend the canonical contract; see
+``planning/blender/BLENDER_WAVE14_CORRECTION_REPRESENTATION_FIDELITY_DESIGN.md``.
+
 Explicit authorized run only::
 
     ATLAS_RUN_LIVE_BLENDER=1 .venv/Scripts/python.exe -m pytest \
@@ -124,8 +132,13 @@ def test_positive_b1_live_merge_completes(live_results):
     assert target_before["faces"] == [[0, 2, 3], [5, 2, 3]]
     assert target_after["faces"] == [[0, 1, 2], [3, 1, 2]]
     assert [v[0] for v in target_after["vertices"]] == [0.0, 7.0, 3.0, 4.0]
-    # the datablock is REPLACED (design §9) - identity is proven by the model, not the block name
-    assert target_before["data_block"] != target_after["data_block"]
+    # WAVE 14 SUPERSESSION: the datablock is NO LONGER replaced. The normative reference primitive
+    # rebuilds the authorized tables IN PLACE on the SAME datablock (design §5 of
+    # BLENDER_WAVE14_CORRECTION_REPRESENTATION_FIDELITY_DESIGN.md). Datablock replacement remains
+    # canonically legal (MQ-5 records that the datablock may be replaced while identity may not
+    # change), but it is demoted from the reference pattern and the mesh-datablock inventory must be
+    # unchanged. The previous assertion (data_block differs) encoded the superseded primitive.
+    assert target_before["data_block"] == target_after["data_block"]
     assert target_before["name"] == target_after["name"]
 
     # exact post tables, checked against the fixture + the derived kept set (independent here)
@@ -331,3 +344,207 @@ def test_liar_live_mutator_return_value_is_not_authority(live_results):
     assert case["mutator_invocations"] == 1
     assert case["receipt"]["result"] == "COMPLETED"
     assert case["receipt"]["output_report_digest"] == case["post"]["digest"]
+
+
+# ===========================================================================
+# WAVE 14 — correction-boundary representation fidelity (material slots)
+# ===========================================================================
+
+MATERIAL_POSITIVE = "positive-material-slots-real-planner"
+MATERIAL_UNASSIGNED = "positive-material-slots-with-unassigned"
+MATERIAL_OBJECT_LINKED = "positive-object-linked-slot"
+MATERIAL_DIAGNOSTIC_RED = "diagnostic-lossy-pattern-a-drops-material-slots"
+MATERIAL_CASES = (MATERIAL_POSITIVE, MATERIAL_UNASSIGNED, MATERIAL_OBJECT_LINKED,
+                  MATERIAL_DIAGNOSTIC_RED)
+
+
+def _raw_object(case, key, name="pitch"):
+    return next(o for o in case[key]["objects"] if o["name"] == name)
+
+
+def test_material_slot_positive_case_is_non_vacuous_and_preserved(live_results):
+    """The material-bearing POSITIVE case: MQ-5's material clause is exercised non-vacuously.
+
+    This is the assertion the Wave 14 gap was about: before this wave every live fixture was
+    material-free, so MQ-5 compared () == (). The ANTI-VACUITY assertion below fails if the fixture
+    ever loses its material slots again (which would silently re-vacuum the whole test).
+    """
+    case = _case(live_results, MATERIAL_POSITIVE)
+    assert case["primitive"] == "pattern_b_same_datablock", \
+        "the material-bearing positive case must use the normative same-datablock primitive"
+
+    pre_canonical = case["pre"]["materials"]["canonical"]
+    post_canonical = case["post"]["materials"]["canonical"]
+    # --- ANTI-VACUITY (the whole point of Wave 14) ---
+    assert pre_canonical == ["turf", "line_markings", "goal_net"]
+    assert len(pre_canonical) == 3, "the fixture regressed to a material-free mesh"
+    assert case["pre"]["materials"]["key_present"] is True
+
+    # canonical equality pre/post -> MQ-5's material clause really ran (and MQ-5 is green)
+    assert post_canonical == pre_canonical
+    assert case["post"]["materials"]["key_present"] is True
+    assert case["post"]["materials"]["payload_value"] == pre_canonical
+
+    # the correction itself still completed with exactly one authorized mutation
+    assert case["mutator_invocations"] == 1
+    assert case["receipt"]["result"] == "COMPLETED"
+    assert case["receipt"]["failure_code"] is None
+    assert case["receipt"]["authorization_verified"] is True
+    assert case["receipt"]["field_count"] == 44, "no receipt schema growth in Wave 14"
+    assert [e["reason"].split(":")[0] for e in case["receipt"]["postcondition_results"]] == [
+        "MQ-1", "MQ-2", "MQ-3", "MQ-4", "MQ-5", "MQ-6", "MQ-7"]
+    assert all(e["ok"] is True for e in case["receipt"]["postcondition_results"])
+    mq5 = next(e for e in case["receipt"]["postcondition_results"]
+               if e["reason"].startswith("MQ-5"))
+    assert mq5["ok"] is True
+
+    # RAW boundary: slot table, count, order and names preserved (properties the canonical model
+    # only partly represents - see the design's classification matrix)
+    before = _raw_object(case, "raw_before")
+    after = _raw_object(case, "raw_after")
+    assert before["material_slots"] == [["DATA", "turf"], ["DATA", "line_markings"],
+                                        ["DATA", "goal_net"]]
+    assert after["material_slots"] == before["material_slots"]
+    assert len(after["material_slots"]) == len(before["material_slots"])
+    assert [s[1] for s in after["material_slots"]] == [s[1] for s in before["material_slots"]]
+    assert [s[0] for s in after["material_slots"]] == [s[0] for s in before["material_slots"]]
+
+    # MQ-6's material clause is non-vacuous too: the UNRELATED object carries a slot and keeps it
+    assert case["pre"]["unrelated_materials"]["canonical"] == ["banner"]
+    assert case["post"]["unrelated_materials"]["canonical"] == ["banner"]
+
+    # the normative in-place primitive leaves no orphan and no new datablock
+    assert after["data_block"] == before["data_block"]
+    assert case["raw_after"]["mesh_datablocks"] == case["raw_before"]["mesh_datablocks"]
+
+
+def test_material_slot_unassigned_case_is_raw_boundary_only(live_results):
+    """An UNASSIGNED data slot forces the frozen producer's §4.3 branch 2 (the ``materials`` key is
+    OMITTED), so canonical ``materials`` is ``()`` before and after and MQ-5 CANNOT see a loss.
+
+    This case therefore asserts the raw Blender slot table and asserts the omission honestly, rather
+    than pretending the canonical materials tuple proves anything about the slot.
+    """
+    case = _case(live_results, MATERIAL_UNASSIGNED)
+    assert case["primitive"] == "pattern_b_same_datablock"
+    pre_materials = case["pre"]["materials"]
+    post_materials = case["post"]["materials"]
+
+    # canonical: the key is OMITTED and the canonical tuple collapses to () - documented limitation
+    assert pre_materials["key_present"] is False
+    assert pre_materials["payload_value"] is None
+    assert pre_materials["canonical"] == []
+    assert post_materials["key_present"] is False
+    assert post_materials["canonical"] == []
+    assert pre_materials["representation_state"] == ["materials:omitted"]
+    assert post_materials["representation_state"] == ["materials:omitted"]
+
+    # raw boundary: the unassigned slot is preserved, in order, and stays unassigned
+    before = _raw_object(case, "raw_before")
+    after = _raw_object(case, "raw_after")
+    assert before["material_slots"] == [["DATA", "turf"], ["DATA", None], ["DATA", "goal_net"]]
+    assert after["material_slots"] == before["material_slots"]
+    assert after["material_slots"][1] == ["DATA", None]
+
+    assert case["mutator_invocations"] == 1
+    assert case["receipt"]["result"] == "COMPLETED"
+    assert case["raw_after"]["mesh_datablocks"] == case["raw_before"]["mesh_datablocks"]
+
+
+def test_object_linked_slot_case_is_raw_boundary_only(live_results):
+    """An OBJECT-linked slot is representable in Blender but NOT in the canonical model: §4.3 branch 2
+    omits the key and dominates. The slot's survival is therefore provable only from raw Blender
+    state — asserted here via ``slot.link`` + ``slot.material.name``.
+    """
+    case = _case(live_results, MATERIAL_OBJECT_LINKED)
+    assert case["primitive"] == "pattern_b_same_datablock"
+
+    pre_materials = case["pre"]["materials"]
+    post_materials = case["post"]["materials"]
+    assert pre_materials["key_present"] is False and post_materials["key_present"] is False
+    assert pre_materials["canonical"] == [] and post_materials["canonical"] == []
+    assert pre_materials["representation_state"] == ["materials:omitted"]
+    assert post_materials["representation_state"] == ["materials:omitted"]
+
+    before = _raw_object(case, "raw_before")
+    after = _raw_object(case, "raw_after")
+    assert before["material_slots"] == [["DATA", "turf"], ["OBJECT", "line_markings"]]
+    assert after["material_slots"] == before["material_slots"], \
+        "the OBJECT-linked slot (link kind and material name) must survive the correction"
+    assert after["material_slots"][1][0] == "OBJECT"
+    assert after["material_slots"][1][1] == "line_markings"
+
+    assert case["mutator_invocations"] == 1
+    assert case["receipt"]["result"] == "COMPLETED"
+    assert case["raw_after"]["mesh_datablocks"] == case["raw_before"]["mesh_datablocks"]
+
+
+def test_diagnostic_pattern_a_case_detects_material_slot_loss(live_results):
+    """The RED discriminator: the SUPERSEDED Pattern A primitive (datablock replacement) on a
+    material-bearing target MUST fail — through the existing canonical MQ-5 postcondition AND through
+    raw slot evidence. If this ever passes, the Wave 14 assertions have gone vacuous again.
+    """
+    case = _case(live_results, MATERIAL_DIAGNOSTIC_RED)
+    assert case["primitive"] == "pattern_a_datablock_replacement", \
+        "the diagnostic case must use the superseded lossy primitive"
+
+    # the fixture was genuinely material-bearing BEFORE the mutation (anti-vacuity for the RED case)
+    assert case["pre"]["materials"]["canonical"] == ["turf", "line_markings", "goal_net"]
+    assert case["pre"]["materials"]["key_present"] is True
+
+    # exactly one mutation happened, then the postcondition refused, with no rollback and no cleanup
+    receipt = case["receipt"]
+    assert case["mutator_invocations"] == 1
+    assert receipt["result"] == "POSTCONDITION_FAILED"
+    assert receipt["failure_code"] == "MQ-5"
+    assert receipt["rollback_performed"] is False
+    assert receipt["persisted"] is False
+    assert receipt["postcondition_results"][-1]["ok"] is False
+    assert receipt["postcondition_results"][-1]["reason"].startswith("MQ-5")
+
+    # the loss is visible in the canonical view ...
+    assert case["post"]["materials"]["canonical"] == []
+    # ... and in raw Blender state (the boundary-only evidence)
+    before = _raw_object(case, "raw_before")
+    after = _raw_object(case, "raw_after")
+    assert before["material_slots"] == [["DATA", "turf"], ["DATA", "line_markings"],
+                                        ["DATA", "goal_net"]]
+    assert after["material_slots"] == [], "Pattern A must be shown to lose every slot"
+    assert after["data_block"] != before["data_block"]
+
+
+def test_diagnostic_case_is_isolated_and_leaves_no_orphan_behind(live_results):
+    """FIXTURE ISOLATION: the lossy diagnostic case creates an orphaned datablock inside its own
+    case; no later case may inherit it. Every case's PRE snapshot must contain exactly the fixture's
+    own datablocks (no ``.001`` leftovers), which is what makes the positive inventory comparison
+    meaningful rather than order-dependent.
+    """
+    for case in live_results["cases"]:
+        blocks = case["raw_before"]["mesh_datablocks"]
+        assert not [b for b in blocks if b.endswith(".001")], \
+            f"{case['case']}: inherited an orphaned datablock from an earlier case: {blocks}"
+        mesh_objects = [o for o in case["raw_before"]["objects"] if o["type"] == "MESH"]
+        assert len(blocks) == len(mesh_objects), \
+            f"{case['case']}: inventory {blocks} does not match its own mesh objects"
+
+    # the diagnostic case's own orphan is real evidence (and confined to that case) ...
+    diagnostic = _case(live_results, MATERIAL_DIAGNOSTIC_RED)
+    gained = sorted(set(diagnostic["raw_after"]["mesh_datablocks"])
+                    - set(diagnostic["raw_before"]["mesh_datablocks"]))
+    assert gained, "the lossy primitive was expected to orphan the superseded datablock"
+    # ... and the NEXT case after it started clean
+    labels = [c["case"] for c in live_results["cases"]]
+    index = labels.index(MATERIAL_DIAGNOSTIC_RED)
+    if index + 1 < len(labels):
+        following = live_results["cases"][index + 1]
+        assert following["raw_before"]["mesh_datablocks"] == \
+            sorted([b for b in following["raw_before"]["mesh_datablocks"]])
+
+
+def test_material_cases_all_use_the_real_planner(live_results):
+    """Every Wave 14 material case must go through the REAL planner (no synthetic plan shortcut)."""
+    for label in MATERIAL_CASES:
+        case = _case(live_results, label)
+        assert case["mode"] == "real_planner", label
+        assert case["planner"] is not None and case["planner"]["merge_corrections"] == 1, label
+        assert case["mutator_invocations"] == 1, label
