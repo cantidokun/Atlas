@@ -1086,6 +1086,23 @@ def test_refusal_variants_cannot_emit_computed_or_no_change_entities():
         )
 
 
+
+def test_new_epoch_boundary_becomes_emitted_predecessor_for_next_edge():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    b = observation(0, continuity_id="continuity-2", ordering_epoch=1, session="session-2")
+    c = observation(1, continuity_id="continuity-2", ordering_epoch=1, session="session-2", location=(2.0, 0.0, 0.0))
+
+    stream.step(a)
+    boundary = stream.step(b, a)
+    assert boundary.admission.outcome is AdmissionOutcome.NEW_EPOCH
+    assert boundary.record["from_observation_origin"] == "UNEMITTED_EPOCH_ANCHOR"
+
+    next_edge = stream.step(c, b)
+    assert next_edge.admission.outcome is AdmissionOutcome.ACCEPTED
+    assert next_edge.record["from_observation_id"] == b.observation_id
+    assert next_edge.record["from_observation_origin"] == "EMITTED_PREDECESSOR"
+
 def test_reinitialize_anchor_remains_unemitted_after_non_record_admissions():
     stream = ObservationStream("stream-1")
     a = observation(0)
