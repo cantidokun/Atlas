@@ -105,6 +105,9 @@ FIELD_ORDER = (
 )
 
 
+_MESH_FIELDS = ("mesh_id", "vertices", "faces", "materials")
+
+
 def _draft_base(
     *,
     outcome: DeltaOutcome,
@@ -407,6 +410,11 @@ def _compare(
 
     entity_deltas: List[Dict[str, Any]] = []
     changed_fields = set()
+    # Fields the pair did not carry on at least one side. §10.1 compares the mesh fields
+    # "when both sides have a mesh"; when either side has none, the observation did not carry
+    # mesh_id/vertices/faces/materials, so §10.2 requires UNAVAILABLE — never
+    # OBSERVED_UNCHANGED for a field that was not compared.
+    uncompared_fields: set = set()
     rotation_sign_only = False
     ambiguous = False
 
@@ -446,6 +454,8 @@ def _compare(
         before_obj = left[0]
         after_obj = right[0]
         field_changes: List[Dict[str, Any]] = []
+        if before_obj.mesh is None or after_obj.mesh is None:
+            uncompared_fields.update(_MESH_FIELDS)
 
         for field in FIELD_ORDER:
             supported, available = _field_supported_and_available(field, a, b)
@@ -482,7 +492,7 @@ def _compare(
         supported, available = _field_supported_and_available(field, a, b)
         if not supported:
             coverage[field] = FieldObservationState.UNSUPPORTED_BY_PRODUCER
-        elif not available:
+        elif not available or field in uncompared_fields:
             coverage[field] = FieldObservationState.UNAVAILABLE
         elif field in changed_fields:
             coverage[field] = FieldObservationState.OBSERVED_CHANGED

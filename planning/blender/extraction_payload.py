@@ -105,3 +105,27 @@ def payload_to_scene_model(payload: dict):
     validate_payload_schema(payload)
     kernel_payload = {k: v for k, v in payload.items() if k != "schema_version"}
     return parse_scene_report_input(kernel_payload)
+# --------------------------------------------------------------------------- representation state
+# Temporal Observation + State Delta v1 (design §4.5) declares the producer's payload ENCODING
+# facts as `representation_state`; the v1 evaluator consumes exactly one of them (`materials:omitted`,
+# extraction fidelity v1 §4.3/§4.5). The canonical model cannot distinguish an omitted `materials` key
+# from `materials: []` (extraction §4.5 "canonical-collapse disclosure"), so an omission that is not
+# declared here would be reported by the Temporal layer as OBSERVED_UNCHANGED for a field that was
+# never observed. This function is the single derivation of that fact from a real payload.
+MATERIALS_OMITTED = "materials:omitted"
+
+
+def payload_representation_state(payload: dict) -> tuple:
+    """Return the representation-state facts of one validated extraction payload.
+
+    ``("materials:omitted",)`` when §4.3 omitted the ``materials`` key for at least one mesh - the field
+    is then UNAVAILABLE for the whole observation, because Temporal coverage is per field, not per
+    entity - otherwise ``()`` (no representation limitation: materials were represented, as names or as
+    a legitimate empty list).
+    """
+    validate_payload_schema(payload)
+    for obj in payload["objects"]:
+        mesh = obj.get("mesh")
+        if isinstance(mesh, dict) and "materials" not in mesh:
+            return (MATERIALS_OMITTED,)
+    return ()

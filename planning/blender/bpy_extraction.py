@@ -4,6 +4,7 @@ from planning.blender.blender_units import UnitMappingError, map_unit_system
 from planning.blender.extraction_payload import PAYLOAD_SCHEMA_VERSION, validate_payload_schema
 from planning.blender.transforms import euler_xyz_degrees_to_quaternion
 _SORT_KEY = "name"
+_OBJECT_LINK = "OBJECT"
 
 class SceneMembershipError(ValueError):
     pass
@@ -54,6 +55,50 @@ def _extract_object(bpy,obj)->dict:
     mesh=_extract_mesh(obj) if getattr(obj,"type","")=="MESH" else None
     return {"object_id":oid,"name":oid,"collection":collection,"parent_object_id":parent_id,"location":[float(v) for v in location],"scale":[float(v) for v in scale],"rotation":[float(v) for v in rotation],"visible":visible,"mesh":mesh}
 
+# ---------------------------------------------------------------------------
+# Extraction fidelity v1 §4.3 — materials: ordered, single-valued decision tree.
+# Ported from the frozen producer (branch feat/blender-extraction-fidelity-v1) so that the Temporal
+# v1 representation-state mechanism has a producer that can emit all three encodings.
+# ---------------------------------------------------------------------------
+
+def _material_name(value, label):
+    if type(value) is not str or not value.strip():
+        raise ValueError(f"{label} must be a non-empty material name; refusing to invent a token (§4.3 branch 1) (fail closed)")
+    return value
+
+def _extract_materials(obj, label):
+    """Return the data-slot names, ``[]``, or ``None`` meaning "omit the key" (§4.3).
+
+    Branch precedence is normative and single-valued:
+      1. any assigned material with a malformed/empty name -> FAIL CLOSED;
+      2. any unrepresentable object-level slot (``link == 'OBJECT'`` or unassigned) -> OMIT the key
+         entirely; this branch dominates even when the mesh datablock has zero data slots;
+      3. zero data slots (and, by branch 2, no OBJECT-linked slot) -> ``[]``;
+      4. otherwise the data-slot names in exact source slot order (never lexically sorted).
+    """
+    object_slots=getattr(obj,"material_slots",None)
+    if object_slots is None: raise ValueError(f"{label}.material_slots is unavailable; cannot determine slot representability (fail closed)")
+    data_slots=getattr(getattr(obj,"data",None),"materials",None)
+    if data_slots is None: raise ValueError(f"{label}.data.materials is unavailable (fail closed)")
+
+    for slot in object_slots:
+        material=getattr(slot,"material",None)
+        if material is None: continue
+        _material_name(getattr(material,"name",None), f"{label} material slot")
+
+    for slot in object_slots:
+        link=getattr(slot,"link",None)
+        if link not in ("DATA",_OBJECT_LINK): raise ValueError(f"{label} has a material slot with an unreadable link ({link!r}) (fail closed)")
+        if link==_OBJECT_LINK or getattr(slot,"material",None) is None: return None
+
+    if len(data_slots)==0: return []
+
+    names=[]
+    for material in data_slots:
+        if material is None: raise ValueError(f"{label}.data.materials contains an unassigned slot mid-list; refusing a partial list (fail closed)")
+        names.append(_material_name(getattr(material,"name",None), f"{label}.data.materials[i]"))
+    return names
+
 def _extract_mesh(obj)->Optional[dict]:
     data=getattr(obj,"data",None)
     if data is None: raise ValueError(f"mesh object {getattr(obj,'name','')} has no data; refusing a count-only mesh")
@@ -61,6 +106,12 @@ def _extract_mesh(obj)->Optional[dict]:
     if not vertices: raise ValueError("mesh has no vertices; refusing to emit an empty/partial mesh")
     polygons=getattr(data,"polygons",()) or (); faces=[[int(idx) for idx in poly.vertices] for poly in polygons]
     # Wave 11: zero polygons are a truthful source state. Never invent topology.
-    return {"mesh_id":_safe_str(getattr(obj,"name","")),"vertices":vertices,"faces":faces,"normals":None,"uvs":None,"materials":[],"local_frame_id":None}
+    label=_safe_str(getattr(obj,"name",""))
+    mesh={"mesh_id":label,"vertices":vertices,"faces":faces,"normals":None,"uvs":None,"local_frame_id":None}
+    # Extraction fidelity v1 §4.3: materials is emitted only when the decision tree permits it;
+    # an unrepresentable slot omits the key entirely (omission is all-or-nothing per mesh).
+    materials=_extract_materials(obj,label)
+    if materials is not None: mesh["materials"]=materials
+    return mesh
 
 def run_live_blender_extraction(bpy)->dict: return extract_scene(bpy)

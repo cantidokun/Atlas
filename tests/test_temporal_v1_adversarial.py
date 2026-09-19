@@ -1133,3 +1133,128 @@ def test_reinitialize_anchor_remains_unemitted_after_non_record_admissions():
     assert result.admission.outcome is AdmissionOutcome.ACCEPTED
     assert result.record["from_observation_id"] == b.observation_id
     assert result.record["from_observation_origin"] == "UNEMITTED_EPOCH_ANCHOR"
+# --------------------------------------------------------------------------- mesh-presence coverage
+# Rev9 10.1 compares the mesh fields "when both sides have a mesh". When one side has none, that
+# observation did not carry mesh_id/vertices/faces/materials, which 10.2 defines as UNAVAILABLE. Before
+# the correction those four fields were reported OBSERVED_UNCHANGED although the evaluator had
+# deliberately skipped comparing them - a 10.2 "never report an unobserved field as observed" violation.
+# No new coverage state is introduced: UNAVAILABLE already exists and already means "this observation
+# did not carry the field".
+
+_MESH_FIELDS = ("mesh_id", "vertices", "faces", "materials")
+
+
+def _pair_record(a_body, b_body):
+    a = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=0,
+        source_time=SourceTime("FRAME_INDEX", 0, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=a_body,
+        state_digest=temporal_state_digest(a_body),
+    )
+    b = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=1,
+        source_time=SourceTime("FRAME_INDEX", 1, 1, 1, 0),
+        producer=producer(),
+        capability=capability(),
+        snapshot=b_body,
+        state_digest=temporal_state_digest(b_body),
+    )
+    stream = ObservationStream("stream-1")
+    stream.step(a)
+    return stream.step(b, a).record
+
+
+def _two_object_snapshot():
+    body = snapshot()
+    second = copy.deepcopy(body["objects"][0])
+    second["object_id"] = "obj-2"
+    second["name"] = "obj-2"
+    second["mesh"]["mesh_id"] = "obj-2"
+    second["location"] = [3.0, 0.0, 0.0]
+    body["objects"].append(second)
+    return body
+
+
+def test_mesh_presence_loss_reports_the_mesh_fields_unavailable():
+    a_body = snapshot()
+    b_body = copy.deepcopy(a_body)
+    b_body["objects"][0]["mesh"] = None
+
+    record = _pair_record(a_body, b_body)
+
+    assert record["outcome"] == "COMPUTED"
+    assert record["state_digest_changed"] is True
+    assert record["coverage"]["mesh_presence"] == "OBSERVED_CHANGED"
+    for field in _MESH_FIELDS:
+        assert record["coverage"][field] == "UNAVAILABLE", (
+            f"{field} was not compared and must not be reported as observed"
+        )
+    assert [
+        change["field"]
+        for entity in record["entity_deltas"]
+        for change in entity["field_changes"]
+    ] == ["mesh_presence"]
+
+
+def test_mesh_appearance_reports_the_mesh_fields_unavailable():
+    b_body = snapshot()
+    a_body = copy.deepcopy(b_body)
+    a_body["objects"][0]["mesh"] = None
+
+    record = _pair_record(a_body, b_body)
+
+    assert record["outcome"] == "COMPUTED"
+    assert record["coverage"]["mesh_presence"] == "OBSERVED_CHANGED"
+    for field in _MESH_FIELDS:
+        assert record["coverage"][field] == "UNAVAILABLE"
+    assert [
+        change["field"]
+        for entity in record["entity_deltas"]
+        for change in entity["field_changes"]
+    ] == ["mesh_presence"]
+
+
+def test_both_meshes_present_still_reports_observed_states():
+    """Falsification control: the correction must not spread UNAVAILABLE over comparable pairs."""
+    a_body = snapshot()
+    b_body = copy.deepcopy(a_body)
+    b_body["objects"][0]["mesh"]["vertices"] = [
+        [0.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ]
+
+    record = _pair_record(a_body, b_body)
+
+    assert record["coverage"]["vertices"] == "OBSERVED_CHANGED"
+    for field in ("mesh_id", "faces", "materials"):
+        assert record["coverage"][field] == "OBSERVED_UNCHANGED"
+    assert record["coverage"]["mesh_presence"] == "OBSERVED_UNCHANGED"
+
+
+def test_one_mesh_less_entity_makes_the_field_unavailable_without_losing_a_real_change():
+    """Coverage is per record, so one uncomparable entity is reported conservatively - and no change
+    belonging to a comparable entity is lost."""
+    a_body = _two_object_snapshot()
+    b_body = copy.deepcopy(a_body)
+    b_body["objects"][0]["location"] = [1.0, 0.0, 0.0]   # obj-1: fully comparable, real change
+    b_body["objects"][1]["mesh"] = None                  # obj-2: no mesh on the B side
+
+    record = _pair_record(a_body, b_body)
+
+    assert record["coverage"]["vertices"] == "UNAVAILABLE"
+    assert record["coverage"]["mesh_id"] == "UNAVAILABLE"
+    assert record["coverage"]["location"] == "OBSERVED_CHANGED"
+    changes = {
+        (entity["object_id"], change["field"])
+        for entity in record["entity_deltas"]
+        for change in entity["field_changes"]
+    }
+    assert ("obj-1", "location") in changes
+    assert ("obj-2", "mesh_presence") in changes

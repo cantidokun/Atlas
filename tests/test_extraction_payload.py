@@ -11,7 +11,9 @@ import pytest
 
 from planning.blender import FindingCode
 from planning.blender.extraction_payload import (
+    MATERIALS_OMITTED,
     PAYLOAD_SCHEMA_VERSION,
+    payload_representation_state,
     payload_to_scene_model,
     validate_payload_schema,
 )
@@ -137,6 +139,8 @@ class _MeshData:
     def __init__(self):
         self.vertices = [_Vec(0, 0, 0), _Vec(1, 0, 0), _Vec(0, 1, 0), _Vec(1, 1, 0)]
         self.polygons = [_Poly(0, 1, 2), _Poly(1, 3, 2)]
+        # Real bpy.types.Mesh always exposes .materials (empty when no data slot is assigned).
+        self.materials = []
 
 
 class _MeshObj:
@@ -148,6 +152,9 @@ class _MeshObj:
         self.scale = _Vec(1, 1, 1)
         self.parent = None
         self.users_collection = []
+        # Real bpy.types.Object always exposes .material_slots, so the §4.3 representability
+        # check can read the object-level view; the stub must model the same engine surface.
+        self.material_slots = []
 
 
 class _Object:
@@ -528,3 +535,122 @@ def test_live_script_injects_repo_via_syspath_before_planning_import():
     # Script must not read the repo path from a shell env var (it comes from sys.path, INSIDE the
     # script). Blender's embedded Python ignores a shell PYTHONPATH, so there must be no env read.
     assert "os.environ" not in rendered
+# --------------------------------------------------------------------------- material representation
+# Extraction fidelity v1 4.3 defines a single-valued decision tree for `materials`. The Temporal v1
+# layer depends on it: `materials: []` and an omitted key are canonically indistinguishable
+# (extraction 4.5 "canonical-collapse disclosure"), so the omission must exist as a real producer state
+# and must be declared through `payload_representation_state`.
+
+
+class _Mat:
+    def __init__(self, name):
+        self.name = name
+
+
+class _Slot:
+    def __init__(self, material, link="DATA"):
+        self.material, self.link = material, link
+
+
+def _material_mesh(name, mats=(), extra_slots=()):
+    """A MESH stub exposing both real Blender surfaces 4.3 reads: data slots and object-level slots."""
+    obj = _MeshObj(name)
+    obj.data.materials = [_Mat(m) if m is not None else None for m in mats]
+    obj.material_slots = [_Slot(m, "DATA") for m in obj.data.materials] + list(extra_slots)
+    return obj
+
+
+def _single_object_payload(*objects):
+    bpy = _BpyStub()
+    bpy.context.scene.collection.objects = list(objects)
+    return extract_scene(bpy)
+
+
+def _mesh_of(payload, object_id):
+    return next(o for o in payload["objects"] if o["object_id"] == object_id)["mesh"]
+
+
+def test_materials_zero_data_slots_is_a_legitimate_empty_list():
+    assert _mesh_of(_single_object_payload(_material_mesh("m")), "m")["materials"] == []
+
+
+def test_materials_names_are_emitted_in_source_slot_order_never_sorted():
+    order = ["Zeta", "Alpha", "Mid"]
+    emitted = _mesh_of(_single_object_payload(_material_mesh("m", mats=order)), "m")["materials"]
+    assert emitted == order
+    assert emitted != sorted(order)  # the fixture can detect a lexically sorting producer
+
+
+def test_materials_key_is_omitted_for_an_object_linked_slot():
+    obj = _material_mesh("m", mats=["A", "B"], extra_slots=[_Slot(_Mat("ObjOnly"), "OBJECT")])
+    assert "materials" not in _mesh_of(_single_object_payload(obj), "m")
+
+
+def test_materials_omission_dominates_the_zero_data_slot_case():
+    obj = _material_mesh("m", extra_slots=[_Slot(_Mat("ObjOnly"), "OBJECT")])
+    assert "materials" not in _mesh_of(_single_object_payload(obj), "m")
+
+
+def test_materials_key_is_omitted_for_an_unassigned_data_slot():
+    assert "materials" not in _mesh_of(
+        _single_object_payload(_material_mesh("m", mats=["A", None])), "m"
+    )
+
+
+def test_materials_key_is_omitted_for_a_sole_unassigned_slot():
+    assert "materials" not in _mesh_of(_single_object_payload(_material_mesh("m", mats=[None])), "m")
+
+
+@pytest.mark.parametrize("bad_name", ["", "   ", None, 7])
+def test_materials_present_but_malformed_name_fails_closed(bad_name):
+    obj = _material_mesh("m", extra_slots=[_Slot(_Mat(bad_name), "DATA")])
+    with pytest.raises(ValueError, match="material"):
+        _single_object_payload(obj)
+
+
+def test_materials_malformed_name_fails_closed_before_omission():
+    obj = _material_mesh("m", mats=["A"], extra_slots=[_Slot(_Mat(""), "OBJECT")])
+    with pytest.raises(ValueError, match="material"):
+        _single_object_payload(obj)
+
+
+def test_materials_are_never_derived_from_face_indices():
+    obj = _material_mesh("m", mats=["A", "B"])
+    obj.data.polygons = [_Poly(0, 1, 2)]
+    mesh = _mesh_of(_single_object_payload(obj), "m")
+    assert mesh["materials"] == ["A", "B"]
+    assert "material_index" not in mesh
+
+
+def test_omitted_materials_key_is_canonically_indistinguishable_from_an_empty_list():
+    """The canonical collapse that makes `payload_representation_state` necessary (extraction 4.5)."""
+    omitted = payload_to_scene_model(_single_object_payload(_material_mesh("m", mats=[None])))
+    empty = payload_to_scene_model(_single_object_payload(_material_mesh("m")))
+    assert omitted.objects[0].mesh.materials == ()
+    assert empty.objects[0].mesh.materials == ()
+
+
+def test_payload_representation_state_reports_only_what_the_producer_encoded():
+    assert payload_representation_state(_single_object_payload(_material_mesh("m"))) == ()
+    assert payload_representation_state(
+        _single_object_payload(_material_mesh("m", mats=["A", "B"]))
+    ) == ()
+    assert payload_representation_state(
+        _single_object_payload(_material_mesh("m", mats=[None]))
+    ) == (MATERIALS_OMITTED,)
+    assert payload_representation_state(
+        _single_object_payload(_material_mesh("m", extra_slots=[_Slot(_Mat("ObjOnly"), "OBJECT")]))
+    ) == (MATERIALS_OMITTED,)
+
+
+def test_payload_representation_state_is_scene_wide_when_one_mesh_omits_the_key():
+    payload = _single_object_payload(_material_mesh("a"), _material_mesh("b", mats=[None]))
+    assert [o["object_id"] for o in payload["objects"]] == ["a", "b"]
+    assert payload_representation_state(payload) == (MATERIALS_OMITTED,)
+
+
+def test_payload_representation_state_fails_closed_on_an_invalid_payload():
+    payload = _single_object_payload(_material_mesh("m"))
+    payload["schema_version"] = "9999"
+    with pytest.raises(ValueError, match="schema_version"):
+        payload_representation_state(payload)
