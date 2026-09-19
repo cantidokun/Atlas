@@ -114,14 +114,20 @@ payload = run_live_blender_extraction(bpy)
 scene = payload_to_scene_model(payload)
 snapshot = _scene_to_canonical(scene)
 
+build_hash = bpy.app.build_hash
+if isinstance(build_hash, (bytes, bytearray)):
+    build_hash = bytes(build_hash).decode("ascii")
+else:
+    build_hash = str(build_hash)
+
 result = {
     "snapshot": snapshot,
     "scene_id": scene.scene_id,
     "object_ids": sorted(item["object_id"] for item in snapshot["objects"]),
     "vertex_count": len(snapshot["objects"][0]["mesh"]["vertices"]),
     "producer_session_id": "blender-pid-" + str(os.getpid()),
-    "engine_version": bpy.app.version_string,
-    "engine_build": bpy.app.build_hash,
+    "engine_version": str(bpy.app.version_string),
+    "engine_build": build_hash,
 }
 
 if os.environ.get("ATLAS_TEMPORAL_CAPTURE_PAIR", "0") == "1":
