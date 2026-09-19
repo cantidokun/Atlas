@@ -188,7 +188,7 @@ def _run_live_pair(*, continuity: str, ordering_epoch: int, first_x: float, seco
         }
     )
     proc = subprocess.run(
-        [_blender_command(), "--background", "--python-expr", _live_script(capture_pair=True)],
+        [_blender_command(), "--background", "--python-expr", _live_script()],
         capture_output=True,
         text=True,
         timeout=180,
@@ -406,7 +406,6 @@ def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
     snapshot_b, meta_b = _run_live_snapshot(x=1.0)
     assert meta_a["engine_version"] == meta_b["engine_version"]
     session_a = meta_a["producer_session_id"]
-    session_b = meta_b["producer_session_id"]
 
     # L-5 is a frozen-fixture determinism check. The snapshots are produced live,
     # then evaluated from the same immutable pair values twice. The process/session
