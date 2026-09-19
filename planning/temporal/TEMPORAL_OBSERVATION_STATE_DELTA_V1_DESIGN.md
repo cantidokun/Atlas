@@ -443,6 +443,7 @@ All temporal integer fields use signed 64-bit range. Out-of-range values are inv
 **Within one epoch, after source-time domain and rate equality have been established, `source_time.value` MUST
 be non-decreasing relative to `last_accepted_source_time.value`. Equality is legal; only a strictly lower
 value is `REJECTED_INVALID / SOURCE_TIME_NON_MONOTONIC`.**
+A declared `NEW_EPOCH` re-establishes the source-time baseline from B; the in-epoch monotonicity rule is not applied across an epoch boundary.
 
 Rate equality is exact tuple equality on (num, den); the temporal layer performs no rational reduction.
 
@@ -892,6 +893,15 @@ StateDelta := {
 from_* fields identify the expected/supplied predecessor. They are identity metadata, never a substitute for predecessor content.
 
 **`from_observation_origin` is normative and variant-determined, not caller-supplied:** it is
+`EMITTED_PREDECESSOR` iff, for this stream, a logically generated StateDelta record under §14.1 has
+`to_observation_id == from_observation_id`; otherwise it is `UNEMITTED_EPOCH_ANCHOR`. Equivalently, for
+a conforming admitted history, `UNEMITTED_EPOCH_ANCHOR` occurs exactly when the predecessor observation
+was established by `INITIAL_ACCEPTED`, because that admission outcome emits no StateDelta record. The
+stream's first accepted observation and the first accepted observation after explicit recovery reinitialization
+are therefore unseen anchors; a `NEW_EPOCH` anchor is an emitted predecessor because its boundary record
+is logically generated even if transport delivery later loses or redelivers it. The value is derived from
+the admitted predecessor's recorded logical emission history and the selected record path, and is not an
+additional evaluator input.
 `EMITTED_PREDECESSOR` iff, for this stream, a StateDelta record with
 `to_observation_id == from_observation_id` was emitted; otherwise it is
 `UNEMITTED_EPOCH_ANCHOR`. The latter applies to the stream's first accepted observation and to the first
@@ -1572,15 +1582,15 @@ its own red-team and its own live evidence (§18 Q6).
 | 10 | mesh topology mutation | positional comparison; reorder/re-index is a change; no correspondence inference | §9.5 |
 | 11 | material-slot changes | ordered comparison + representation-state gate (omitted ≠ unchanged) | §9.6, §10.2 |
 | 12 | unavailable and derived fields | five-state coverage for declared fields; never reported as unchanged; **derived** fields (`world_bounds`) are outside the contract entirely and have no coverage entry | §10.1, §10.2, §10.3 |
-| 13 | identical snapshots at different times | content-identical, therefore also semantically equivalent (§11.5); **not** evidence of continuity | §5.5 R-T1, §11.5 |
-| 14 | stale / out-of-order observations | `REJECTED_STALE`; zero admission-state mutation; **never** an epoch change | §5.5, §6.3, §6.6 |
+| 13 | identical snapshots at different times | content-identical, therefore also semantically equivalent (§11.5); **not** evidence of continuity | §19.1A R-T1, §11.5 |
+| 14 | stale / out-of-order observations | `REJECTED_STALE`; zero admission-state mutation; **never** an epoch change | §5.4, §6.2, §6.5 item 2, §19.1A R-T3 |
 | 15 | duplicate observations | identical ⇒ `DUPLICATE_ACKNOWLEDGED`: idempotent, admission state unchanged, **no `StateDelta`**; same `sequence` with a different digest ⇒ `REJECTED_INVALID` (`CONTRADICTORY_SEQUENCE`) with **no record**, state unchanged | §5.5, §6.6, §8.1 |
 | 16 | sequence gaps vs source-time jumps | a gap is `observations_skipped = max(0, gap - 1)` with no synthesized intermediates, and is never reported as, derived from, or conflated with a source-time jump | §5.4, §5.5, §19.1A R-R1 |
 | 17 | timeline seek | a declared boundary (**new continuity_id + strictly greater ordering_epoch**) ⇒ `NEW_EPOCH` ⇒ boundary path (§6.10.1); an epoch-only bump with unchanged continuity_id fails closed as `CONTINUITY_DECLARATION_MISMATCH` | §5.1, §5.5, §6.2, §6.10.1 |
 | 18 | engine restart | a producer_session_id change requires the declared boundary (**new continuity_id + strictly greater ordering_epoch**) ⇒ `NEW_EPOCH`; a session change without that full boundary fails closed as `CONTINUITY_DECLARATION_MISMATCH` | §5.5, §6.1, §6.2, §6.10.1, §14 |
 | 19 | Atlas restart | comparability is preserved only from a complete restored checkpoint with unchanged boundary fields; a **newly declared full boundary** yields `NEW_EPOCH`; a session/epoch/continuity mismatch without that full declaration fails closed; unavailable admission state yields `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) | §6.2, §6.10.1, §14 |
-| 20 | undeclared sequence reset | `REJECTED_STALE` — **never** an epoch change; only a declared boundary (`continuity_id`, `producer_session_id`, `ordering_epoch`) creates an epoch | §6.3, §6.6 |
-| 21 | declared continuity reset | `NEW_EPOCH` ⇒ boundary path (§6.10.1) with an empty entity list: `TEMPORAL_DISCONTINUITY` when `A` is supplied, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not; an undeclared reset is rejected, never promoted | §5.5 R-T2/R-T3, §6.2, §6.3, §6.10.1 |
+| 20 | undeclared sequence reset | `REJECTED_STALE` — **never** an epoch change; only a declared boundary (`continuity_id`, `producer_session_id`, `ordering_epoch`) creates an epoch | §5.4, §6.2, §6.5 item 2, §19.1A R-T3 |
+| 21 | declared continuity reset | `NEW_EPOCH` ⇒ boundary path (§6.10.1) with an empty entity list: `TEMPORAL_DISCONTINUITY` when `A` is supplied, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not; an undeclared reset is rejected, never promoted | §19.1A R-T2/R-T3, §6.2, §6.3, §6.10.1 |
 | 22 | producer capability changes | `CAPABILITY_MISMATCH` ⇒ not comparable (no intersection narrowing) | §10.4 |
 | 23 | cross-engine snapshot equivalence | non-claim: `coordinate_frame` is in the declared-unobservable set (§10.1 set B); unit agreement only | §10.1, §15 |
 | 24 | stale observations | rejected before any comparison; no state mutation, no epoch change | §5.5, §6.3, §14 |
