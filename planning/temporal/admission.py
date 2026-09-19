@@ -257,8 +257,6 @@ class AdmissionEngine:
     def commit(self, state: AdmissionState, decision: AdmissionDecision) -> None:
         outcome = decision.outcome
         observation = decision.observation
-        state.last_admission_identity_digest = observation.admission_identity_digest
-        state.last_admission_outcome = outcome
 
         if outcome == AdmissionOutcome.DUPLICATE_ACKNOWLEDGED:
             state.duplicate_acknowledged_count += 1
@@ -283,6 +281,8 @@ class AdmissionEngine:
         state.last_accepted_observation_id = observation.observation_id
         state.last_accepted_admission_identity_digest = observation.admission_identity_digest
         state.accepted_count += 1
+        state.last_admission_identity_digest = observation.admission_identity_digest
+        state.last_admission_outcome = outcome
 
         if outcome == AdmissionOutcome.INITIAL_ACCEPTED:
             state.epoch_count = 1
