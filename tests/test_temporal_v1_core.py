@@ -167,6 +167,20 @@ def test_refusal_then_continue_uses_refused_b_as_predecessor():
     assert computed.record["from_observation_id"] == b.observation_id
 
 
+def test_rejected_arrival_does_not_rewrite_predecessor_origin():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    duplicate = observation(0)
+    b = observation(1, location=(1.0, 0.0, 0.0))
+
+    stream.step(a)
+    duplicate_result = stream.step(duplicate)
+    result = stream.step(b, a)
+
+    assert duplicate_result.admission.outcome is AdmissionOutcome.DUPLICATE_ACKNOWLEDGED
+    assert result.record["from_observation_origin"] == "UNEMITTED_EPOCH_ANCHOR"
+
+
 def test_scene_scope_change_is_admission_rejection():
     stream = ObservationStream("stream-1")
     a = observation(0)
