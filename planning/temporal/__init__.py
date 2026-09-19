@@ -1,6 +1,7 @@
 """Atlas Temporal Observation + State Delta v1 implementation package."""
 
 from .admission import AdmissionOutcome, AdmissionState, FromIdentity
+from .ingress import ArrivalValidationError, parse_temporal_observation, parse_temporal_observation_json
 from .canonical import CanonicalValueError, sha256_digest, temporal_canonical_bytes
 from .evaluator import (
     BoundaryInput,
@@ -32,6 +33,7 @@ from .stream import ObservationStream, StepResult
 __all__ = [
     "AdmissionCheckpoint",
     "AdmissionOutcome",
+    "ArrivalValidationError",
     "AdmissionState",
     "BoundaryInput",
     "BoundaryRefusalInput",
@@ -52,6 +54,8 @@ __all__ = [
     "TemporalObservation",
     "TemporalValidationError",
     "evaluate",
+    "parse_temporal_observation",
+    "parse_temporal_observation_json",
     "finalize_record",
     "sha256_digest",
     "temporal_canonical_bytes",
