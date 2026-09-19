@@ -420,3 +420,28 @@ def test_duplicate_object_digest_is_order_independent():
     second = copy.deepcopy(first)
     second["objects"].insert(0, second["objects"].pop())
     assert temporal_state_digest(first) == temporal_state_digest(second)
+
+
+def test_reinitialize_requires_the_declared_epoch_on_the_first_valid_observation():
+    stream = ObservationStream("stream-1")
+    stream.step(observation(0))
+
+    stream.reinitialize(
+        new_continuity_id="continuity-2",
+        new_ordering_epoch=1,
+    )
+
+    wrong = observation(0, continuity_id="continuity-3", ordering_epoch=2)
+    rejected = stream.step(wrong)
+    assert rejected.admission.outcome is AdmissionOutcome.REJECTED_INVALID
+    assert "CONTINUITY_DECLARATION_MISMATCH" in [
+        code.value for code in rejected.admission.reason_codes
+    ]
+    assert rejected.record is None
+    assert stream.state.last_accepted_observation_id is None
+
+    right = observation(0, continuity_id="continuity-2", ordering_epoch=1)
+    accepted = stream.step(right)
+    assert accepted.admission.outcome is AdmissionOutcome.INITIAL_ACCEPTED
+    assert accepted.record is None
+    assert stream.state.last_accepted_observation_id == right.observation_id
