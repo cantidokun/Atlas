@@ -2,7 +2,7 @@
 
 > **Current authoritative checkpoint — September 19, 2026.**
 >
-> Main is at 0d6cf88b2b7d0a72501bd20e5b42aa091be890bf, the merge of Wave 14 (PR #111).
+> Main includes the Wave 14 merge 0d6cf88b2b7d0a72501bd20e5b42aa091be890bf (PR #111) plus the post-Wave14 roadmap refresh in the current documentation checkpoint.
 > Extraction Fidelity v1 is frozen and merged. Temporal Observation + State Delta v1 core is
 > implemented and merged. Blender correction waves through Wave 14 are either live-validated and
 > merged or explicitly retained as deterministic-only capabilities awaiting a dedicated live
