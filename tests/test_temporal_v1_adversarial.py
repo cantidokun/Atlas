@@ -10,6 +10,7 @@ from planning.temporal import (
     AdmissionOutcome,
     BoundaryInput,
     BoundaryRefusalInput,
+    COMPARISON_CONTRACT_VERSION,
     CapabilityContract,
     ComparisonInput,
     DeltaReasonCode,
@@ -374,6 +375,36 @@ def test_boundary_does_not_compare_capability_or_sequence_gap():
         DeltaReasonCode.TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE.value,
         DeltaReasonCode.ORDERING_EPOCH_CHANGE.value,
     ])
+
+
+def test_evaluation_input_union_carries_and_enforces_v1_contract_version():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    stream.step(a)
+    from_identity = stream.state.from_identity()
+    assert from_identity is not None
+
+    b_same = observation(1, location=(1.0, 0.0, 0.0))
+    b_boundary = observation(0, continuity_id="continuity-2", ordering_epoch=1)
+
+    inputs = (
+        ComparisonInput(a, b_same, from_identity),
+        RefusalInput(b_same, from_identity, DeltaReasonCode.PAIR_INPUT_UNAVAILABLE),
+        BoundaryInput(a, b_boundary, from_identity),
+        BoundaryRefusalInput(
+            b_boundary,
+            from_identity,
+            DeltaReasonCode.PAIR_INPUT_UNAVAILABLE,
+        ),
+    )
+
+    for evaluation_input in inputs:
+        assert evaluation_input.comparison_contract_version == COMPARISON_CONTRACT_VERSION
+        record = finalize_record(evaluate(evaluation_input), "UNEMITTED_EPOCH_ANCHOR")
+        assert isinstance(record["delta_digest"], str)
+
+    with pytest.raises(ValueError, match="unsupported comparison contract version"):
+        evaluate(replace(inputs[0], comparison_contract_version=99))
 
 
 def test_equal_input_evaluation_is_digest_deterministic():
