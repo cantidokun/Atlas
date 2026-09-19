@@ -125,6 +125,11 @@ class _Vec:
         self.x, self.y, self.z = x, y, z
 
 
+class _Quat:
+    def __init__(self, w=1.0, x=0.0, y=0.0, z=0.0):
+        self.w, self.x, self.y, self.z = w, x, y, z
+
+
 class _Angle:
     def __init__(self, *a):
         self.a = tuple(a)
@@ -152,6 +157,10 @@ class _MeshObj:
         self.scale = _Vec(1, 1, 1)
         self.parent = None
         self.users_collection = []
+        self.rotation_mode = "XYZ"
+        self.rotation_euler = _Vec(0.0, 0.0, 0.0)
+        self.rotation_quaternion = _Quat()
+        self.hide_viewport = False
         # Real bpy.types.Object always exposes .material_slots, so the §4.3 representability
         # check can read the object-level view; the stub must model the same engine surface.
         self.material_slots = []
@@ -170,8 +179,10 @@ class _Object:
 class _SceneCol:
     """Models Blender's scene.active-collection object membership (scene.collection.objects)."""
 
-    def __init__(self, objs=None):
+    def __init__(self, objs=None, name="MasterCollection"):
+        self.name = name
         self.objects = list(objs) if objs else []
+        self.children = []
 
 
 class _Scene:
