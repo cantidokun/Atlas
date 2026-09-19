@@ -802,9 +802,21 @@ def execute_remove_degenerate_face(
 #   1. read the authoritative vertex table (v.co per vertex);
 #   2. build a new face table from the read faces, replacing ONLY the designated index's tuple with
 #      reverse(pre_tuple); every other tuple carried through unchanged, in order;
-#   3. rebuild the datablock via from_pydata(vertices, [], faces) and assign obj.data = new_mesh;
+#   3. rebuild the mesh tables IN PLACE on the SAME datablock
+#      (mesh.clear_geometry(); mesh.from_pydata(vertices, [], faces); mesh.update());
 #   4. no vertex edits, no other face edits, no other object touched, no rename/transform/save.
 # It must be validated against real Blender 4.4.3 (design §4.4 criteria) before live use.
+#
+# SUPERSEDED (Wave 14 — planning/blender/BLENDER_WAVE14_CORRECTION_REPRESENTATION_FIDELITY_DESIGN.md §5):
+# step 3 above previously read "rebuild the datablock via from_pydata(vertices, [], faces) and assign
+# obj.data = new_mesh". That replacement pattern is NO LONGER the normative reference primitive: it can
+# lose the target object's material slots (it truncates the object's slot table to the new datablock's
+# table, so assigned, unassigned and OBJECT-linked slots alike are destroyed) and it leaves the
+# superseded datablock orphaned. Same-datablock table rebuilding (Pattern B) is now the normative
+# reference pattern for geometry-rebuilding corrections when represented material slots must be
+# preserved. Datablock replacement remains canonically legal — MQ-5 records that the datablock may be
+# replaced while identity may not change — it is merely demoted from the reference implementation.
+# Documentation only: no executable behaviour in this module is altered by this annotation.
 
 
 class WindingPredicateError(PreconditionError):
