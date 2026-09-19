@@ -104,6 +104,10 @@ mesh.update()
 
 obj = bpy.data.objects.new("temporal_probe", mesh)
 collection.objects.link(obj)
+# Atlas' current extraction boundary enumerates direct scene-root membership.
+# Keep the semantic collection link while also linking this disposable fixture
+# object to the scene master collection, matching the established live gate pattern.
+bpy.context.scene.collection.objects.link(obj)
 obj.location.x = float(os.environ["ATLAS_TEMPORAL_X"])
 
 payload = run_live_blender_extraction(bpy)
