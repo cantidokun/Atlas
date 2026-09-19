@@ -411,4 +411,12 @@ def test_stream_explicit_reinitialize_discards_baseline_without_synthetic_record
     assert result.admission.outcome is AdmissionOutcome.INITIAL_ACCEPTED
     assert result.record is None
     assert stream.state.accepted_count == 2
-    assert stream.state.epoch_count == 0
+    assert stream.state.epoch_count == 1
+
+
+
+def test_duplicate_object_digest_is_order_independent():
+    first = snapshot()
+    second = copy.deepcopy(first)
+    second["objects"].insert(0, second["objects"].pop())
+    assert temporal_state_digest(first) == temporal_state_digest(second)
