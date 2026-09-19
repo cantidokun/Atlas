@@ -2006,10 +2006,9 @@ design-only correction and deliberately makes no implementation claim.
 | R8-4 | older requirements/exit criteria did not enumerate all three `NEW_EPOCH` record forms | §5.5, §6.2, §6.6, §6.10.1, §8.1, §10.5, §19.1, §19.2, §21 | the boundary path is consistently documented as: agreeing `A` ⇒ `TEMPORAL_DISCONTINUITY`; contradictory `A` ⇒ `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH`; missing `A` ⇒ `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE`, with the same stage-2 boundary mutation in every case |
 | R8-5 | multiple simultaneous boundary-cause fields had no deterministic rule | §6.10.1, §8.1, §12.2, §12.4, §19.1 #48, §19.2 T-36 | each changed declared boundary field contributes its mapped cause code; the complete applicable set is emitted together and sorted canonically. No arbitrary primary cause, field-order dependency, or hidden state is permitted |
 
-The revision-8 re-audit must inspect the entire document for the prior two-form `NEW_EPOCH` wording, pair-domain
-terminology, stale admission-mutation claims, and any boundary-cause singularization before independent review.
-The document remains **DESIGN REVISION 8 — REVIEW REQUIRED / NO IMPLEMENTATION** until a fresh independent
-architectural reviewer clears this revision.
+The revision-8 re-audit was the historical prerequisite for Revision 9. The resulting Revision-9 work replaced
+that review gate; the paragraph is retained here only as historical provenance and does not describe the current
+Revision-9 status.
 ### 22.8 Design revision 9 — closure map
 
 Revision 9 responds to the first independent architectural red-team. Its principal resolutions are:
