@@ -174,6 +174,10 @@ class _Object:
         self.scale = _Vec(1, 1, 1)
         self.parent = None
         self.users_collection = []
+        self.rotation_mode = "XYZ"
+        self.rotation_euler = _Vec(0.0, 0.0, 0.0)
+        self.rotation_quaternion = _Quat()
+        self.hide_viewport = False
 
 
 class _SceneCol:
