@@ -266,7 +266,8 @@ def test_live_bridge_all_four_operations_complete(live_bridge_results):
         assert result.engine_evidence["process_disposed"] is True
         assert result.engine_evidence["mutator_invocations"] == 1, case
         assert result.engine_evidence["extraction_invocations"] >= 2, case
-        assert result.engine_evidence["saved_anything"] is False, case
+        assert result.engine_evidence["save_detected"] is False, case
+        assert result.engine_evidence["persistence_unchanged"] is True, case
 
 
 def test_live_bridge_source_files_are_unchanged(live_bridge_results):
