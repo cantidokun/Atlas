@@ -6,9 +6,17 @@ on:
       - feat/temporal-observation-state-delta-v1-core-implementation
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-temporal-live-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   temporal-live-blender:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
     timeout-minutes: 15
 
     steps:
