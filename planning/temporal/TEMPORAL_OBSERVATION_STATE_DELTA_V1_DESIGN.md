@@ -1364,7 +1364,7 @@ Recovery has exactly three semantic cases.
 
 A content-free recovery checkpoint contains:
 
-stream_id; continuity_id; producer_session_id; ordering_epoch; last_accepted_sequence; last_accepted_source_time; last_accepted_scene_id; last_accepted_state_digest; last_accepted_observation_id; last_accepted_admission_identity_digest; counters; last_admission_identity_digest; last_admission_outcome; last_record_digest when a record was emitted.
+stream_id; continuity_id; producer_session_id; ordering_epoch; last_accepted_sequence; last_accepted_source_time; last_accepted_scene_id; last_accepted_state_digest; last_accepted_observation_id; last_accepted_admission_identity_digest; counters; last_admission_identity_digest; last_admission_outcome; 
 
 If durable crash recovery is claimed, the admission checkpoint and the identity/outcome information for one logical admission step MUST be committed atomically. Re-delivery of the same admission identity is idempotent. An incomplete checkpoint is unusable and MUST fail closed.
 
@@ -1382,15 +1382,15 @@ A partially committed boundary cannot be interpreted as a fresh producer boundar
 
 ### 15.1 Semantic and digest parity
 
-A C++ implementation must reproduce the same admission outcome, continuity classification, comparison/refusal result, field-change set, ordering and exact-equality semantics.
+A C++ implementation must reproduce the same admission outcomes, continuity classifications, comparison/refusal results, field-change sets, ordering and exact-equality semantics.
 
-For every digest-bearing projection, it must also reproduce the exact pinned canonical bytes defined by §11. Semantic parity alone is insufficient where a digest participates in identity or validation.
+When it computes a digest-bearing value, it must reproduce the exact TemporalCanonicalBytes encoding of §11.2-§11.4. This byte-level canonical encoding is part of the temporal contract.
 
 ### 15.2 General transport serialization remains separate
 
-Byte-identical general envelope/transport serialization is not claimed in v1. That is a separate serialization gate.
+Byte-identical general envelope/transport serialization is not claimed by v1. That is a separate future serialization gate.
 
-Digest-bearing canonicalization is the explicit exception: it is part of this contract because digest values are authority-bearing.
+Digest-bearing canonicalization is the explicit exception because digest values participate in identity and validation.
 
 ## 16. Explicit non-goals
 
