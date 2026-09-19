@@ -285,7 +285,7 @@ class AdmissionEngine:
         state.last_admission_outcome = outcome
 
         if outcome == AdmissionOutcome.INITIAL_ACCEPTED:
-            state.epoch_count = 1
+            state.epoch_count = 1 if state.epoch_count == 0 else state.epoch_count + 1
         elif outcome == AdmissionOutcome.NEW_EPOCH:
             state.epoch_count += 1
 
