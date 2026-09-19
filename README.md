@@ -1,6 +1,6 @@
 # Atlas
 
-> **Current-state reconciliation — September 18, 2026 end-of-night checkpoint.** Blender Extraction Fidelity v1 is **CLEAR**. The current Temporal Observation + State Delta v1 design is at **Revision 7 — HOLD pending independent architectural review**; no temporal implementation is authorized. The next architecture step is a narrow **Revision 8 design-only consistency repair**, followed by another independent review. Token-optimization/M13.8 work is paused. The Unreal track remains separate: M10 S1–S8 complete, M11 frozen/paused, M12.1–M12.4 implemented, M12.5 independent semantic-evidence verification remains the next Unreal milestone. Historical dated handoffs remain archival and are not rewritten.
+> **Current-state reconciliation — September 19, 2026 end-of-night checkpoint.** Temporal Observation + State Delta v1 has progressed through Rev9 implementation and real Blender 4.4.3 L-1–L-5 validation. O-1 and O-2 are resolved in the current uncommitted candidate; the latest independent red-team review is **CLEAR WITH MINOR FINDINGS (NON-BLOCKING)**. Development is paused for the night before commit/push. Blender Extraction Fidelity v1 remains CLEAR/frozen; Unreal M10 S1–S8 remain complete; M11 is frozen/paused; M12.1–M12.4 are implemented; M12.5 is deferred; M13.8/token optimization remains paused. Historical dated handoffs remain archival and are not rewritten.
 
 
 ## What Atlas is
@@ -47,18 +47,21 @@ Qwen, Gemini, DeepSeek, Claude, Astra, Hermes, OpenHands, and other model/agent 
 
 ---
 
-# Current position — September 18, 2026 pause checkpoint
+# Current position — September 19, 2026 pause checkpoint
 
-**Authoritative architecture position**
+**Temporal Observation + State Delta v1**
 
-- **Blender Extraction Fidelity v1 — CLEAR.** The bounded read-only producer contract is closed and independently verified. Architectural parent: `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`.
-- **Temporal Observation + State Delta v1 — HOLD at Revision 7** (`44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`). Revision 7 correctly makes `FromIdentity` an explicit immutable input to all four evaluation variants, but the independent architectural review found residual consistency issues: stale §8.2 purity wording, an incomplete conceptual record-domain statement, incorrect “no admission-state change” wording on boundary identity mismatch, stale two-form `NEW_EPOCH` enumerations, and an unstated rule for multiple boundary-cause fields.
-- **No temporal implementation is authorized.** The design must clear Revision 8 first; no schema/version bump or live evidence gate is authorized before that.
-- **Token optimization / M13.8 is paused** and remains outside the current architecture progression.
-- **Unreal remains a separate track**: M10 S1–S8 complete, M11 frozen/paused, M12.1–M12.4 implemented; M12.5 is intentionally deferred. The active Unreal target is **State Extraction Fidelity v1**.
+- Rev9 implementation candidate: `feat/temporal-observation-state-delta-v1-core-implementation` at `1a055eecab1a335309834be9bc3aafa356ab589f`.
+- PR #109: open, mergeable, not merged.
+- Latest O-1/O-2 corrections: uncommitted and not pushed.
+- Real Blender 4.4.3 L-1–L-5: PASS.
+- Latest full non-integration regression: **4,173 passed, 40 skipped, 0 failed**.
+- Independent red-team: **CLEAR WITH MINOR FINDINGS (NON-BLOCKING)**.
+- Remaining work: signed-zero semantic/digest consistency and two specification-precision clarifications.
+- O-1 declaration/payload consistency remains an explicit contract-level residual.
+- **Development is paused for the night. Do not commit, push, or continue implementation until the next session.**
 
-**Tonight's intent:** development is paused after the independent Revision 7 review. The next resume point is Temporal Design Revision 8, design-only, followed by independent architectural review.
-
+The next session resumes from the Temporal candidate, not the stale Revision 7 design-only checkpoint recorded in older documentation.
 
 ## Unreal autonomy architecture — MERGED TO MAIN
 
@@ -229,12 +232,14 @@ The model comparison should be judged on concrete development outcomes such as u
 - Do not run workflow/action-runner tests unless explicitly authorized.
 - Do not rewrite historical dated handoffs merely to make them agree with the latest checkpoint.
 
-## End-of-night resume point — September 6, 2026
+## End-of-night resume point — September 19, 2026
 
-1. Pull the latest `main`.
-2. Treat M4 cross-process Unreal recovery and M5 evidence verification as the current merged baseline.
-3. Preserve the live UE 5.6 Stage 17 proof as historical evidence of the working production/provenance chain.
-4. Continue from the next unresolved Atlas milestone rather than reopening completed M4/M5 work unless a regression appears.
-5. For Hermes development-model experiments, compare Gemini vs DeepSeek V4 Flash while keeping Astra and Claude 5 available for red-team evaluation.
+1. Re-read `ATLAS_HANDOFF_CURRENT.md` and `ATLAS_HANDOFF_2026-09-19_END_OF_NIGHT.md`.
+2. Verify PR #109 and the Temporal branch HEAD.
+3. Inspect the uncommitted candidate/evidence package.
+4. Investigate the signed-zero finding and the two specification-precision items without inventing semantics.
+5. Re-run affected gates.
+6. Freeze the candidate before commit/push/CI.
+7. Preserve unrelated D4 correction drift separately.
 
 Historical handoff snapshots remain archival records and should not be rewritten to reflect this checkpoint.
