@@ -411,7 +411,7 @@ def test_stream_explicit_reinitialize_discards_baseline_without_synthetic_record
     assert result.admission.outcome is AdmissionOutcome.INITIAL_ACCEPTED
     assert result.record is None
     assert stream.state.accepted_count == 2
-    assert stream.state.epoch_count == 1
+    assert stream.state.epoch_count == 2
 
 
 
