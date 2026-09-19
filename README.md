@@ -1,6 +1,6 @@
 # Atlas
 
-> **Current-state reconciliation — September 19, 2026 end-of-night checkpoint.** Temporal Observation + State Delta v1 has progressed through Rev9 implementation and real Blender 4.4.3 L-1–L-5 validation. O-1 and O-2 are resolved in the current uncommitted candidate; the latest independent red-team review is **CLEAR WITH MINOR FINDINGS (NON-BLOCKING)**. Development is paused for the night before commit/push. Blender Extraction Fidelity v1 remains CLEAR/frozen; Unreal M10 S1–S8 remain complete; M11 is frozen/paused; M12.1–M12.4 are implemented; M12.5 is deferred; M13.8/token optimization remains paused. Historical dated handoffs remain archival and are not rewritten.
+> **Current-state reconciliation — September 19, 2026.** Temporal Observation + State Delta v1 is merged to `main` (PR #109 → `7c63c3190c4adacfddb8d8b6a35721234876669b`). Blender Wave 15 live boundary closure is now complete: W1/W1b merged in PR #115 → `dcb04f704644b7814bd9fd7eae314423dd528860`, and W2 merged in PR #116 → `4a27af868c418181c3363b939d585944599ac400`. The Wave 15 live gates were independently red-teamed and cleared with minor non-blocking findings. Historical dated handoffs remain archival and are not rewritten.
 
 
 ## What Atlas is
@@ -47,21 +47,33 @@ Qwen, Gemini, DeepSeek, Claude, Astra, Hermes, OpenHands, and other model/agent 
 
 ---
 
-# Current position — September 19, 2026 pause checkpoint
+# Current position — September 19, 2026
 
 **Temporal Observation + State Delta v1**
 
-- Rev9 implementation candidate: `feat/temporal-observation-state-delta-v1-core-implementation` at `1a055eecab1a335309834be9bc3aafa356ab589f`.
-- PR #109: open, mergeable, not merged.
-- Latest O-1/O-2 corrections: uncommitted and not pushed.
-- Real Blender 4.4.3 L-1–L-5: PASS.
-- Latest full non-integration regression: **4,173 passed, 40 skipped, 0 failed**.
-- Independent red-team: **CLEAR WITH MINOR FINDINGS (NON-BLOCKING)**.
-- Remaining work: signed-zero semantic/digest consistency and two specification-precision clarifications.
-- O-1 declaration/payload consistency remains an explicit contract-level residual.
-- **Development is paused for the night. Do not commit, push, or continue implementation until the next session.**
+- PR #109 is merged to `main` at `7c63c3190c4adacfddb8d8b6a35721234876669b`.
+- Real Blender 4.4.3 L-1–L-5 validation: PASS.
+- The Temporal v1 contract and implementation are now part of `main`; the older uncommitted-candidate/pause wording above is no longer current.
 
-The next session resumes from the Temporal candidate, not the stale Revision 7 design-only checkpoint recorded in older documentation.
+**Blender Wave 15 — W1/W1b/W2 live boundary closure — COMPLETE**
+
+- Authoritative design merged in PR #114 → `b9a589c215f6d769fec9f340eb24f4f90d423a3b`.
+- W1/W1b live gate merged in PR #115 → `dcb04f704644b7814bd9fd7eae314423dd528860`.
+- W2 authorization-aware live gate merged in PR #116 → `4a27af868c418181c3363b939d585944599ac400`.
+- Blender 4.4.3 / build `802179c51ccc` live evidence passed independently for both gate families.
+- W1/W1b: 49 live gate assertions passed; W2: 34 live gate assertions passed.
+- Exact-head CI remained green; the deterministic passed count remained **4,193**.
+- Frozen asset SHA-256 remained `cf618bdc1123734bf49bf6f22677ded3f2e6c3fa2803b97f7a6cf7c7c66f11aa`.
+- No production semantic changes were introduced by the Wave 15 live-closure PRs.
+- W2 authorization semantics remain isolated from W1/W1b; W1/W1b remain isolated from W2.
+- The remaining minor red-team findings are record-level/documentation refinements and do not block the merged implementation.
+
+**Next Blender step**
+
+- Wave 15 is closed across all three live correction families.
+- Do not infer a new correction implementation from the Wave 15 completion alone.
+- The next Blender milestone should begin with a **read-only discovery/design gate** against the current `main`; no new production semantic is authorized until that gate establishes the next bounded capability and its live evidence requirements.
+- Preserve the existing separation between canonical contract authority, engine-specific adapters, deterministic validation, live evidence, and independent red-team review.
 
 ## Unreal autonomy architecture — MERGED TO MAIN
 
@@ -218,28 +230,3 @@ ChatGPT can participate in the evaluation of Hermes-produced work as an addition
 The model comparison should be judged on concrete development outcomes such as useful reasoning per token, defect discovery, architectural fidelity, regression rate, test-fix efficiency, and amount of rework—not token consumption alone.
 
 ## Non-regression rules
-
-- Qwen and other models remain proposal/reasoning-only.
-- Never allow model-supplied authorization IDs, receipts, protected Unreal intent, or protected production flags to become Atlas authority.
-- Never automatically retry failed writes.
-- Never silently mutate an authorized plan.
-- Never declare completion from transport/write success alone.
-- Preserve independent verification and the evidence ledger.
-- Keep engine-specific behavior behind adapter/tool boundaries.
-- Preserve canonical Digital Twin identity separately from production artifacts.
-- Never weaken tests or contracts merely to make a model-produced change pass.
-- Treat red-team models as evaluators, not alternate execution authorities.
-- Do not run workflow/action-runner tests unless explicitly authorized.
-- Do not rewrite historical dated handoffs merely to make them agree with the latest checkpoint.
-
-## End-of-night resume point — September 19, 2026
-
-1. Re-read `ATLAS_HANDOFF_CURRENT.md` and `ATLAS_HANDOFF_2026-09-19_END_OF_NIGHT.md`.
-2. Verify PR #109 and the Temporal branch HEAD.
-3. Inspect the uncommitted candidate/evidence package.
-4. Investigate the signed-zero finding and the two specification-precision items without inventing semantics.
-5. Re-run affected gates.
-6. Freeze the candidate before commit/push/CI.
-7. Preserve unrelated D4 correction drift separately.
-
-Historical handoff snapshots remain archival records and should not be rewritten to reflect this checkpoint.
