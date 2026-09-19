@@ -16,6 +16,10 @@ from .canonical import CanonicalValueError, sha256_digest, temporal_canonical_by
 TEMPORAL_OBSERVATION_SCHEMA_VERSION = "1"
 DELTA_SCHEMA_VERSION = 1
 PRODUCER_SOURCES = frozenset({"BLENDER", "UNREAL", "PHOTOGRAMMETRY", "REPLAY", "OTHER"})
+# Rev9 representation-state vocabulary is deliberately closed. Unknown states are
+# rejected at the capability boundary so evaluators cannot silently treat an
+# unrecognized omission/representation condition as fully available data.
+REPRESENTATION_STATE_VOCABULARY = frozenset({"materials:omitted"})
 
 TEMPORAL_COMPARISON_FIELDS = (
     "scene_id",
@@ -271,6 +275,12 @@ class CapabilityContract:
         obs = _sorted_unique_strings(self.observable_fields, "capability.observable_fields")
         unobs = _sorted_unique_strings(self.unobservable_fields, "capability.unobservable_fields")
         rep = _sorted_unique_strings(self.representation_state, "capability.representation_state")
+        unknown_representation_states = set(rep) - REPRESENTATION_STATE_VOCABULARY
+        if unknown_representation_states:
+            raise TemporalValidationError(
+                "capability.representation_state contains unknown values: "
+                f"{sorted(unknown_representation_states)!r}"
+            )
         if set(obs) & set(unobs):
             raise TemporalValidationError("capability observable/unobservable fields overlap")
         if set(obs) | set(unobs) != TEMPORAL_FIELD_UNIVERSE:
