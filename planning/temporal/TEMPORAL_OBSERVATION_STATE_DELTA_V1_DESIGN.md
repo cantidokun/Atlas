@@ -413,132 +413,48 @@ Requirements:
 
 ## 5. Time-domain model
 
-### 5.1 `source_time` — engine/media timeline position (typed, integer-exact)
+### 5.1 source_time — exact and cross-language stable
 
-```text
-SourceTime := {
-  domain : "MEDIA_TICKS" | "FRAME_INDEX" | "SOURCE_SECONDS_EXACT"
-  value  : integer                 # ticks / frame number / exact-microsecond count
-  rate   : {num: integer > 0, den: integer > 0}   # ticks or frames per second (exact rational)
-  ordering_epoch : integer >= 0     # producer-declared timeline epoch; MUST change on seek/reset
-}
-```
+SourceTime is:
 
-Design decisions, with rationale:
+    domain         : MEDIA_TICKS | FRAME_INDEX | SOURCE_SECONDS_EXACT
+    value          : signed int64
+    rate           : { num: signed int64 > 0, den: signed int64 > 0 }
+    ordering_epoch : signed int64 >= 0
 
-* **Integers and rationals, not floats.** Ordering and equality on `source_time` are integer
-  operations, so they are exactly reproducible in C++ and immune to float drift. `SOURCE_SECONDS_EXACT`
-  is expressed in exact microseconds precisely so no decimal approximation enters ordering.
-* **`ordering_epoch` is part of the time value.** A timeline seek/scrub is not a large backwards step
-  in `value`; it is a **new epoch**. This makes "time went backwards" a legal, nameable event instead
-  of an ordering error.
-* **No cross-domain arithmetic, ever.** A `MEDIA_TICKS` value and a `FRAME_INDEX` value are never
-  subtracted, compared for staleness, or converted for ordering. Domain mismatch between two
-  observations is a comparability failure (§6.3), not a conversion problem. (This mirrors the
-  established clock-domain rule: only same-domain subtraction is meaningful.)
-* **`source_time` is not world-state identity.** Two observations may share `source_time` and differ in
-  state (§5.3); they may differ in `source_time` and share state (§5.6). Nothing in §11 digests
-  `source_time`.
+All temporal integer fields use signed 64-bit range. Out-of-range values are invalid.
 
-### 5.2 `capture_time` — when Atlas observed it (diagnostic only)
+Rate equality is exact tuple equality on (num, den); the temporal layer performs no rational reduction.
 
-```text
-CaptureTime := {
-  domain : "MONOTONIC_HOST"
-  value  : integer   # nanoseconds from the host monotonic clock (perf_counter_ns-class)
-  received_wallclock_utc : OPTIONAL string, ISO-8601 display form
-}
-```
+SOURCE_SECONDS_EXACT uses integer microseconds for value and requires rate = {1000000, 1}. No cross-domain arithmetic is permitted.
 
-* `capture_time` is **never** used for ordering, identity, staleness decisions against source time, or
-  digests. It exists for diagnostics and latency measurement only.
-* **No wall-clock value is canonical world-state identity.** `received_wallclock_utc` is an optional
-  display field; it is not identity-bearing, may be absent, and must never enter any digest in §11.
-  Two observations whose *only* difference is capture metadata are **semantically identical** (§11.5).
-* Host monotonic time is meaningful **within** one Atlas process incarnation only. It is not compared
-  across an Atlas restart.
+### 5.2 ordering_epoch — monotone epoch-order key
 
-### 5.3 The four time concepts, kept apart
+continuity_id identifies the epoch. ordering_epoch orders epochs.
 
-| Concept | Answers | Authoritative field | Never used for |
-| --- | --- | --- | --- |
-| **source time** | "which point of the engine/media timeline is this?" | `source_time` | identity, digest, ordering across epochs |
-| **capture time** | "when did Atlas see this?" | `capture_time` | ordering, identity, comparability |
-| **sequence** | "what is the deterministic order of admission inside this continuity?" | `sequence` | identity, time arithmetic |
-| **continuity** | "are these two observations part of one continuous history?" | `continuity_id` + `producer_session_id` | anything about content |
+Within one epoch ordering_epoch is unchanged. Every declared continuity boundary MUST increase ordering_epoch strictly.
 
-### 5.4 Ordering rule (single-valued)
+ordering_epoch < current is stale prior-epoch evidence. ordering_epoch == current with a different continuity_id is a malformed boundary declaration. ordering_epoch > current with an unchanged continuity_id is also a malformed boundary declaration.
 
-Within one continuity epoch, admission order is **`sequence`**. `sequence` is **strictly increasing
-for accepted observations but MAY gap**: an accepted observation must satisfy
-`sequence > last_accepted_sequence`, and the difference is *not* required to be 1. Revision 1 said
-"strictly increasing by 1" here while §5.5 accepted gaps; this subsection is now the single rule.
+### 5.3 capture_time — diagnostic only
 
-```text
-sequence_gap(A, B)    := B.sequence - A.sequence           # >= 1 for two accepted observations in one epoch
-observations_skipped  := max(0, sequence_gap(A, B) - 1)    # 0 when the two sequences are adjacent
-```
+capture_time answers when Atlas received the observation. It never participates in ordering, identity, duplicate admission, state identity, comparison eligibility or delta identity.
 
-A gap is an **admission-count fact**: it means Atlas did not admit an observation carrying those
-intervening sequence values. It says nothing about the source timeline, and **a sequence gap must
-never be conflated with a source-time jump** (or with its absence): the gap is reported as
-`observations_skipped`, a source-time step is reported by the `source_time` fields themselves (§5.6),
-and neither is ever derived from the other.
+### 5.4 sequence — per-epoch admission order
 
-Ordering by `source_time.value` is *not* the admission rule (it is an independent, declared-ordering
-property that must be non-decreasing, §5.6). A chain of observations for delta computation is built
-from ascending `sequence` inside one epoch; **no chain ever crosses an epoch boundary**.
+sequence is signed int64 >= 0 and is strictly increasing inside one continuity epoch. It MAY reset when a new continuity_id / ordering_epoch is declared.
 
-### 5.5 Required behaviours (single-valued outcomes)
+Because ordering_epoch strictly increases across epochs, an observation from an older epoch cannot re-enter a newer epoch merely because its per-epoch sequence is numerically larger.
 
-Every arriving observation has exactly one `AdmissionOutcome` (§6.6), and only an `ACCEPTED` arrival
-proceeds to pair evaluation (§6.8): `DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` and `REJECTED_INVALID`
-produce **no record at all**.
+### 5.5 Canonical ordering rule
 
-| Situation | Required `AdmissionOutcome` | Delta consequence |
-| --- | --- | --- |
-| normal forward progression | `ACCEPTED`; `sequence` strictly increases (adjacent or gapped); `source_time` non-decreasing | compare with the previous accepted observation |
-| identical `source_time` on consecutive observations, **same state** | `ACCEPTED` | `COMPUTED`; all entities `NO_CHANGE` |
-| identical `source_time` on consecutive observations, **different state** | `ACCEPTED`, with `source_time_hold = true` on the delta | `COMPUTED` with real field changes; the delta must **not** claim time advanced |
-| sequence gap (same epoch, `sequence` > last accepted + 1) | `ACCEPTED`, with `observations_skipped = max(0, gap - 1)` | direct pair comparison only; **no intermediate state may be synthesized** |
-| identical duplicate (same `sequence` **and** same `state_digest`) | `DUPLICATE_ACKNOWLEDGED` — idempotent acknowledgement of an observation already admitted | **no `StateDelta` is created** (§8.1); admission state unchanged |
-| same `sequence` with a **different** `state_digest` (contradictory duplicate) | `REJECTED_INVALID` (`CONTRADICTORY_SEQUENCE`) | no record; admission state unchanged |
-| stale observation (`sequence` < last accepted, **all declared continuity metadata unchanged**) | `REJECTED_STALE` (`STALE_SEQUENCE_REJECTED`) | no delta; admission state unchanged; **no epoch change** (§6.3) |
-| source timeline seek/scrub (`ordering_epoch` changes) | `NEW_EPOCH` | boundary path (§6.8.1): one boundary record — `TEMPORAL_DISCONTINUITY` when `A` is supplied and agrees with the recorded identity, `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` when it is supplied but contradicts it, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not supplied; empty entity list in every case |
-| engine restart (`producer_session_id` changes) | `NEW_EPOCH` | boundary path (§6.8.1); empty entity list |
-| Atlas restart | Atlas-owned admission state restored or re-established; comparable **iff** the next observation declares the same `continuity_id`, `producer_session_id` and `ordering_epoch` | `ACCEPTED` (comparison path) when every declared boundary field is restored unchanged; `NEW_EPOCH` ⇒ boundary path (§6.8.1) when a declared boundary field differs; `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) when the admission state cannot be established at all — nothing is guessed. In each record-producing case a missing `A` yields `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` **in place of** `COMPUTED` or of the boundary record, a supplied `A` that contradicts the recorded identity yields `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` (§8.1), and the classification is unchanged (§6.8.1) |
-| discontinuity/reset **declared** by the producer (`continuity_id` and/or `producer_session_id` and/or `ordering_epoch` changes) | `NEW_EPOCH` | boundary path (§6.8.1); empty entity list |
-| missing/invalid time or identity metadata | `REJECTED_INVALID` (`MISSING_SOURCE_TIME` / `MALFORMED_TIME` / `MALFORMED_IDENTITY`) | no record; never default to zero |
+For an established stream the temporal ordering key is (ordering_epoch, sequence).
 
-All four `NEW_EPOCH` rows share exactly one path — the **boundary path** of §6.8.1. It is chosen by the
-classification alone and is not one of the comparison outcomes: it emits exactly one `TEMPORAL_DISCONTINUITY`
-record when `A` is supplied and agrees with the recorded identity, exactly one `OBSERVATION_INVALID` /
-`PAIR_INPUT_IDENTITY_MISMATCH` record when it is supplied but contradicts it, and exactly one
-`OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record when it is not supplied. The epoch boundary is
-established in all three cases, the admission-state mutation is identical, and none of them may synthesize
-a transition, a `NO_CHANGE` entry, or a cross-epoch `observations_skipped` count (§6.8.1).
+For two accepted observations in one epoch:
 
-Three rules make this table single-valued, and all are normative:
+    observations_skipped = max(0, B.sequence - A.sequence - 1)
 
-* **R-T1 (no inferred continuity).** Continuity is derived **only** from the declared continuity
-  boundary: `stream_id`, `continuity_id`, `producer_session_id` and `source_time.ordering_epoch`
-  (§6.2). **Similar or identical snapshots must never be treated as evidence of continuity**, and an
-  identical `state_digest` across two epochs does not merge them.
-* **R-T2 (no fabricated transitions).** A comparison across an epoch boundary produces
-  `TEMPORAL_DISCONTINUITY` with an **empty entity list**. A discontinuity must not be reported as a
-  burst of `OBJECT_ADDED`/`OBJECT_REMOVED`/`OBJECT_CHANGED` — that would manufacture a state transition
-  Atlas did not observe.
-* **R-T3 (a reset must be declared).** A `sequence` regression with unchanged declared continuity
-  metadata is **not** a new epoch. Because a stale re-delivery and an undeclared producer reset are
-  indistinguishable from the evidence alone, v1 admits neither: the observation is `REJECTED_STALE`,
-  with no epoch change and no delta (§6.3, §6.6). A producer that resets its counter **MUST** declare the
-  boundary through `continuity_id`, `producer_session_id` or `source_time.ordering_epoch`.
-
-### 5.6 `source_time` monotonicity: declared-ordering property
-
-Within one epoch, `source_time.value` (with `domain` and `rate` fixed) MUST be non-decreasing across
-accepted observations. A decrease without an `ordering_epoch` change is a producer self-contradiction:
-**fail closed** (`OBSERVATION_INVALID`, `SOURCE_TIME_NON_MONOTONIC`). Equal values are legal (§5.5).
+Sequence gaps are admission-count facts. They never imply source-time gaps, and source-time jumps never imply sequence gaps.
 
 ## 6. Continuity model
 
