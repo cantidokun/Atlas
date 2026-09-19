@@ -122,13 +122,9 @@ observation, `A` is never replaced by a digest or a handle, `NEW_EPOCH` preceden
 exists. No version number is bumped, no non-goal (§16) and no Event Abstraction rule (§17) changes, and it
 remains documentation-only for the reason below.
 
-This document is revision 8 on branch `feat/temporal-observation-state-delta-design`, extending the revision-7
-design-only checkpoint `44d0a1c`. Nothing is implemented: no `TemporalState`, no `StateDelta`, no event
-detection, no streaming, cache, mutable temporal store or background worker — and none of the frozen
-boundaries in §0.2 is touched.
-`b95d5ab`. Nothing is implemented: no `TemporalState`, no `StateDelta`, no event detection, no
-streaming, cache, mutable temporal store or background worker — and none of the frozen boundaries in
-§0.2 is touched.
+Revision 9 is the active design gate on `feat/temporal-observation-state-delta-rev9`. Nothing is implemented:
+no `TemporalState`, no `StateDelta`, no event detection, no streaming/cache layer, mutable temporal store
+or background worker — and none of the frozen boundaries in §0.2 is touched.
 
 ### 0.2 Frozen boundaries this design must not move
 
@@ -158,10 +154,10 @@ Per-file line numbers are cited only where this revision verified them against `
 claim rests on a *symbol* rather than a verified line (for example
 `planning/digital_twin_identity.py` → `IdentityMatchStatus`), the citation is file + symbol and is
 authoritative at symbol granularity. No claim in this document rests on an untracked working-tree
-file. There is currently **no** tracked file in the repository containing the word `temporal` (checked
-with `git grep -il temporal` → zero hits): this layer is new ground and deliberately borrows its
-vocabulary from the existing identity, revision, provenance and recovery surfaces rather than
-inventing names.
+Before this temporal document was introduced, there was **no** tracked file containing the word
+`temporal` (the `git grep -il temporal` check at the frozen parent returned zero hits): this layer is new
+ground and deliberately borrows its vocabulary from the existing identity, revision, provenance and
+recovery surfaces rather than inventing names.
 
 ## 1. Purpose and bounded claim
 
@@ -199,6 +195,7 @@ schedule anything.
 | numeric tolerance as *semantic* equality | **not delivered** — semantic equality is exact; only diagnostic magnitudes exist | §9.4 |
 | multi-stream merging, cross-stream ordering | **not delivered** | §6, §16 |
 | persistence of observations or deltas | **not designed** | §16 |
+| proving that a post-boundary anchor is current rather than buffered | **not delivered** — this is a producer obligation that Atlas cannot infer from canonical state | §1.1, §14.2 |
 | byte-identical cross-language serialization | **not claimed** — semantic parity only | §15 |
 | any runtime authority (mutation, repair, authorization, execution) | **absent by construction** | §2 |
 
@@ -271,15 +268,15 @@ Vocabulary (all names are v1 contract names; none is implemented in this milesto
 | `ordering_epoch` | monotone source-epoch order; strictly increases across declared epoch boundaries | §5.2, §6 |
 | `sequence` | deterministic admission-order counter inside one continuity epoch | §5.4 |
 | `source_time` | engine/media timeline position the snapshot represents (typed, integer-exact) | §5.1 |
-| `capture_time` | when Atlas observed it (host monotonic, diagnostic only) | §5.2 |
+| `capture_time` | when Atlas observed it (host monotonic, diagnostic only) | §5.3 |
 | `state_digest` | **raw content identity** of the canonical state (temporal-level, §11.2): no semantic equivalence is applied to it | §11 |
 | `envelope_digest` | identity of the observation record as received, including metadata | §11.3 |
 | `observation_id` | derived, stable handle for one observation inside its stream | §4.3 |
 | `pair input` | the previously accepted observation `A`, supplied to comparison by the caller and never stored or reconstructed | §6.12 |
 | `AdmissionOutcome` | `INITIAL_ACCEPTED` / `ACCEPTED` / `NEW_EPOCH` / `DUPLICATE_ACKNOWLEDGED` / `REJECTED_STALE` / `REJECTED_INVALID` | §6.6 |
 | `TemporalEpochKey` | `(continuity_id, ordering_epoch)`; unique epoch identity within a stream | §6.1 |
-| `DeltaOutcome` | delta-level outcome: `COMPUTED` / `TEMPORAL_DISCONTINUITY` / `OBSERVATION_INVALID` | §8.2 |
-| `EntityDeltaKind` | entity-level fact: `OBJECT_ADDED` / `OBJECT_REMOVED` / `OBJECT_CHANGED` / `NO_CHANGE` / `IDENTITY_AMBIGUOUS` | §8.3 |
+| `DeltaOutcome` | delta-level outcome: `COMPUTED` / `TEMPORAL_DISCONTINUITY` / `OBSERVATION_INVALID` | §8.6 / §8.6A |
+| `EntityDeltaKind` | entity-level fact: `OBJECT_ADDED` / `OBJECT_REMOVED` / `OBJECT_CHANGED` / `NO_CHANGE` / `IDENTITY_AMBIGUOUS` | §8.6 / §9 |
 | `FieldObservationState` | per-field coverage: observed-changed / observed-unchanged / unavailable / unsupported / invalid | §10.2 |
 
 ## 4. Temporal Observation contract
@@ -297,7 +294,7 @@ TemporalObservation := {
   continuity_id              : non-empty string
   sequence                   : int64 >= 0          # strictly increasing per epoch; MAY gap (§5.4)
   source_time                : SourceTime            # §5.1
-  capture_time               : CaptureTime           # §5.2, diagnostic only
+  capture_time               : CaptureTime           # §5.3, diagnostic only
   producer                   : ProducerProvenance    # §4.4
   capability                 : CapabilityContract    # §4.5 / §10
   snapshot                   : CanonicalSnapshot     # §4.6 — ONE normative representation
@@ -323,7 +320,7 @@ is not admitted as an observation and no record is emitted (§6.8, §10.5).
 
 `stream_id`, `continuity_id` and `ordering_epoch` are **producer-declared but Atlas-validated** (§6): a producer
 that keeps `continuity_id` constant and resets `sequence` without declaring a boundary is **not**
-granted a new epoch — its observations are rejected as stale (§6.3, §6.6), so an undeclared reset can
+granted a new epoch — its observations are rejected as stale (§5.4, §6.2, §6.5 item 2, R-T3), so an undeclared reset can
 never buy a fresh comparability window.
 
 ### 4.3 `observation_id`
@@ -334,7 +331,7 @@ canonical_tuple := ("v1", stream_id, continuity_id, ordering_epoch, sequence)
 ```
 
 `observation_id` is a *handle*, not evidence of state: two different states never share an
-`observation_id` inside a stream (the triple is unique by admission, §6.4), while an identical
+`observation_id` inside a stream (the canonical tuple is unique by admission, §6.4), while an identical
 duplicate re-delivery carries the **same** `observation_id` and is acknowledged idempotently instead
 of producing a delta (§5.5, §6.6). Nothing may compare states via `observation_id`.
 
@@ -426,7 +423,7 @@ Requirements:
    no record is emitted (§6.8). A producer-supplied digest is metadata, never authority.
 5. At ingress, duplicate object keys MUST be rejected before the snapshot becomes a canonical mapping; every string must be a valid Unicode scalar sequence and is carried without normalization; every integer that can participate in a digest must fit signed int64.
 
-5. The snapshot is **not** re-serialized into `scene_input_digest`'s input space: `scene_input_digest`
+6. The snapshot is **not** re-serialized into `scene_input_digest`'s input space: `scene_input_digest`
    remains a kernel-computed property of the canonical scene (§11.1) and is never recomputed,
    redefined or extended here.
 
@@ -442,6 +439,10 @@ SourceTime is:
     ordering_epoch : signed int64 >= 0
 
 All temporal integer fields use signed 64-bit range. Out-of-range values are invalid.
+
+**Within one epoch, after source-time domain and rate equality have been established, `source_time.value` MUST
+be non-decreasing relative to `last_accepted_source_time.value`. Equality is legal; only a strictly lower
+value is `REJECTED_INVALID / SOURCE_TIME_NON_MONOTONIC`.**
 
 Rate equality is exact tuple equality on (num, den); the temporal layer performs no rational reduction.
 
@@ -508,7 +509,7 @@ Continuity is never inferred from snapshot similarity, digest equality, source-t
 | `ordering_epoch > current` and continuity_id differs | `NEW_EPOCH` |
 | `ordering_epoch > current` but continuity_id unchanged | `REJECTED_INVALID / CONTINUITY_DECLARATION_MISMATCH` |
 | continuity_id unchanged but producer_session_id differs | `REJECTED_INVALID / CONTINUITY_DECLARATION_MISMATCH` |
-| same `TemporalEpochKey` previously used in this stream | admitted only as the exact prior baseline identity; otherwise contradictory sequence/duplicate handling applies |
+| `TemporalEpochKey` equals the current epoch key | admitted only as the exact prior baseline identity; otherwise contradictory sequence/duplicate handling applies (§6.5 items 2-3) |
 
 The temporal layer does not need a retired-key store because the epoch-order cursor prevents a prior `ordering_epoch` from re-entering. Reuse of a continuity label at a new, higher `ordering_epoch` is a new epoch by definition and cannot collide with an older observation_id.
 
@@ -552,6 +553,10 @@ After arrival validation:
 8. ACCEPTED.
 
 The first failure wins.
+
+Within one epoch, `scene_id` MUST equal `last_accepted_scene_id`. A changed `scene_id` is
+`REJECTED_INVALID / SCENE_SCOPE_CHANGED`. A declared `NEW_EPOCH` re-establishes scene scope from B's
+new-epoch anchor and therefore does not apply the in-epoch equality rule across the boundary.
 
 ### 6.6 Closed AdmissionOutcome vocabulary
 
@@ -629,7 +634,7 @@ Frequent producer-declared boundaries are legal but explicit. v1 makes no claim 
 
 Once admission classifies B as NEW_EPOCH, the boundary path is selected before pair evaluation and is never downgraded to SAME_EPOCH.
 
-* A supplied and identity-agreeing -> OBSERVATION_DISCONTINUITY is not the case: outcome is TEMPORAL_DISCONTINUITY.
+* A supplied and identity-agreeing -> outcome is `TEMPORAL_DISCONTINUITY`.
 * A supplied but identity-disagreeing -> OBSERVATION_INVALID / PAIR_INPUT_IDENTITY_MISMATCH.
 * A unavailable -> OBSERVATION_INVALID / PAIR_INPUT_UNAVAILABLE.
 
@@ -886,8 +891,15 @@ StateDelta := {
 
 from_* fields identify the expected/supplied predecessor. They are identity metadata, never a substitute for predecessor content.
 
+**`from_observation_origin` is normative and variant-determined, not caller-supplied:** it is
+`EMITTED_PREDECESSOR` iff, for this stream, a StateDelta record with
+`to_observation_id == from_observation_id` was emitted; otherwise it is
+`UNEMITTED_EPOCH_ANCHOR`. The latter applies to the stream's first accepted observation and to the first
+accepted observation after explicit recovery reinitialization. The value is determined by the selected
+record-producing variant and is not an additional evaluator input.
 
-**`source_time_hold` is normative:** it is `true` iff a SAME_EPOCH comparison actually occurred, `A.source_time == B.source_time` under the full SourceTime tuple equality rule (domain, value, rate and ordering_epoch), and the semantic comparison reports at least one real state difference. It is always `false` on INITIAL_ACCEPTED, TEMPORAL_DISCONTINUITY, PAIR_INPUT_UNAVAILABLE, PAIR_INPUT_IDENTITY_MISMATCH and all other refusal records.
+
+**`source_time_hold` is normative:** it is `true` iff a SAME_EPOCH comparison actually occurred, `A.source_time == B.source_time` under the full SourceTime tuple equality rule (domain, value, rate and ordering_epoch), and the semantic comparison reports at least one real state difference represented by at least one field change listed in `entity_deltas`, excluding `NO_CHANGE` entries and the reason-only `ROTATION_SIGN_EQUIVALENT_ONLY` case. It is always `false` on INITIAL_ACCEPTED, TEMPORAL_DISCONTINUITY, PAIR_INPUT_UNAVAILABLE, PAIR_INPUT_IDENTITY_MISMATCH and all other refusal records.
 
 ### 8.6A Legal outcome/continuity/availability combinations
 
@@ -902,7 +914,7 @@ Only these combinations are legal on emitted StateDelta records:
 | `OBSERVATION_INVALID` | `NEW_EPOCH` | `AVAILABLE` |
 | `OBSERVATION_INVALID` | `NEW_EPOCH` | `UNAVAILABLE` |
 
-Any other combination is invalid and MUST be unstateable by an implementation.
+Any other combination is invalid and MUST be unstateable by an implementation. In particular, `COMPUTED / NEW_EPOCH` and `TEMPORAL_DISCONTINUITY / SAME_EPOCH` are illegal, as are any `COMPUTED` or `TEMPORAL_DISCONTINUITY` form paired with `pair_input = UNAVAILABLE`.
 
 ### 8.7 Boundary anchor semantics
 
@@ -1155,9 +1167,11 @@ Validation and admission are resolved before comparison:
 
 The first failure wins.
 
-Before admission, the canonical snapshot representation is also checked for digest-domain validity: every integer that participates in a digest MUST fit signed int64; every string MUST be a valid Unicode scalar sequence and is compared without Unicode normalization; object keys MUST be unique; and non-finite numbers are forbidden. A violation is `REJECTED_INVALID / INVALID_CANONICAL_VALUE_DOMAIN`. These rules apply before any Atlas digest is computed.
-
-Only after B is accepted may pair evaluation run. Pair-level refusals are:
+Before admission, every value that participates in any Atlas digest is checked for digest-domain validity: every
+participating integer MUST fit signed int64; every participating string MUST be a valid Unicode scalar sequence
+and is carried without Unicode normalization; every participating object/dict MUST have unique keys; and
+non-finite numbers are forbidden. A violation is `REJECTED_INVALID / INVALID_CANONICAL_VALUE_DOMAIN`.
+These rules apply before any Atlas digest is computed, including admission-identity, envelope and emitted-record digests.
 
 * PAIR_INPUT_UNAVAILABLE;
 * PAIR_INPUT_IDENTITY_MISMATCH;
@@ -1424,6 +1438,10 @@ Recovery has exactly three semantic cases.
 
 A content-free recovery checkpoint contains:
 
+The persisted checkpoint state is a **superset of the admission-state fields in §6.4**. The additional
+`last_admission_identity_digest` and `last_admission_outcome` values are recovery/audit metadata; they do
+not participate in the content-free predecessor snapshot model.
+
 ```text
 checkpoint_schema_version
 checkpoint_generation
@@ -1544,7 +1562,7 @@ its own red-team and its own live evidence (§18 Q6).
 | --- | --- | --- | --- |
 | 1 | duplicate `object_id`s across observations | `IDENTITY_AMBIGUOUS` for that id, no pairing, digest still defined | §7.2, §7.3, §11.2 |
 | 2 | rename vs replacement | declared limitation: remove+add; **no** rename inference | §7.4 |
-| 3 | object disappearance/reappearance across a gap | direct pair comparison inside an epoch (`observations_skipped`); across an epoch: discontinuity, empty deltas | §5.5, §14 R-R1 |
+| 3 | object disappearance/reappearance across a gap | direct pair comparison inside an epoch (`observations_skipped`); across an epoch: discontinuity, empty deltas | §5.5, §19.1A R-R1 |
 | 4 | reused ID by a different object | reported as `OBJECT_CHANGED` (v1 cannot tell) — declared, not hidden | §7.4 |
 | 5 | collection movement | `collection` change is a representative-level fact only | §9.1, §9.6 |
 | 6 | parent changes | compared exactly; `None`↔value is a change | §9.1 |
@@ -1557,10 +1575,10 @@ its own red-team and its own live evidence (§18 Q6).
 | 13 | identical snapshots at different times | content-identical, therefore also semantically equivalent (§11.5); **not** evidence of continuity | §5.5 R-T1, §11.5 |
 | 14 | stale / out-of-order observations | `REJECTED_STALE`; zero admission-state mutation; **never** an epoch change | §5.5, §6.3, §6.6 |
 | 15 | duplicate observations | identical ⇒ `DUPLICATE_ACKNOWLEDGED`: idempotent, admission state unchanged, **no `StateDelta`**; same `sequence` with a different digest ⇒ `REJECTED_INVALID` (`CONTRADICTORY_SEQUENCE`) with **no record**, state unchanged | §5.5, §6.6, §8.1 |
-| 16 | sequence gaps vs source-time jumps | a gap is `observations_skipped = max(0, gap - 1)` with no synthesized intermediates, and is never reported as, derived from, or conflated with a source-time jump | §5.4, §5.5, §14 R-R1 |
-| 17 | timeline seek | `ordering_epoch` change ⇒ `NEW_EPOCH` ⇒ boundary path (§6.10.1) | §5.1, §5.5, §6.10.1 |
-| 18 | engine restart | `producer_session_id` change ⇒ `NEW_EPOCH` ⇒ boundary path (§6.10.1) | §5.5, §6.10.1, §14 |
-| 19 | Atlas restart | comparability preserved only via declared/durable continuity: `ACCEPTED` when the boundary fields are restored unchanged, `NEW_EPOCH` ⇒ boundary path (§6.10.1) when a declared field differs, `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) when the admission state cannot be established | §6.10.1, §14 |
+| 16 | sequence gaps vs source-time jumps | a gap is `observations_skipped = max(0, gap - 1)` with no synthesized intermediates, and is never reported as, derived from, or conflated with a source-time jump | §5.4, §5.5, §19.1A R-R1 |
+| 17 | timeline seek | a declared boundary (**new continuity_id + strictly greater ordering_epoch**) ⇒ `NEW_EPOCH` ⇒ boundary path (§6.10.1); an epoch-only bump with unchanged continuity_id fails closed as `CONTINUITY_DECLARATION_MISMATCH` | §5.1, §5.5, §6.2, §6.10.1 |
+| 18 | engine restart | a producer_session_id change requires the declared boundary (**new continuity_id + strictly greater ordering_epoch**) ⇒ `NEW_EPOCH`; a session change without that full boundary fails closed as `CONTINUITY_DECLARATION_MISMATCH` | §5.5, §6.1, §6.2, §6.10.1, §14 |
+| 19 | Atlas restart | comparability is preserved only from a complete restored checkpoint with unchanged boundary fields; a **newly declared full boundary** yields `NEW_EPOCH`; a session/epoch/continuity mismatch without that full declaration fails closed; unavailable admission state yields `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) | §6.2, §6.10.1, §14 |
 | 20 | undeclared sequence reset | `REJECTED_STALE` — **never** an epoch change; only a declared boundary (`continuity_id`, `producer_session_id`, `ordering_epoch`) creates an epoch | §6.3, §6.6 |
 | 21 | declared continuity reset | `NEW_EPOCH` ⇒ boundary path (§6.10.1) with an empty entity list: `TEMPORAL_DISCONTINUITY` when `A` is supplied, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not; an undeclared reset is rejected, never promoted | §5.5 R-T2/R-T3, §6.2, §6.3, §6.10.1 |
 | 22 | producer capability changes | `CAPABILITY_MISMATCH` ⇒ not comparable (no intersection narrowing) | §10.4 |
@@ -1568,7 +1586,7 @@ its own red-team and its own live evidence (§18 Q6).
 | 24 | stale observations | rejected before any comparison; no state mutation, no epoch change | §5.5, §6.3, §14 |
 | 25 | a producer declares `state_digest` invalid, or lies about it | `state_digest` is always required and always **recomputed**; there is no producer-declared invalid variant to admit, and a mismatch is `REJECTED_INVALID` (`STATE_DIGEST_MISMATCH`) at stage 1, with **no record** | §4.1, §4.6, §6.8, §10.5 |
 | 26 | a consumer reads `state_digest_changed = true` as "something observable changed" | the delta carries the two facts separately; `state_digest_changed` is raw content identity and may never add, remove or reclassify a field change | §8.1, §9.4, §11.5 |
-| 27 | a layer that cannot supply the pair's earlier endpoint tries to rebuild it from `last_accepted_state_digest`, from a durable record, or by capturing a fresh "current" state | refused: a digest is not an observation (R-R2, R-R6). The arrival is still admitted on its own facts, and stage 3 emits `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` with an empty entity list — never `NO_CHANGE`, never an empty `COMPUTED` delta, never a synthetic `A` | §6.4, §6.12 P1/P3, §12.1, §14 R-R6 |
+| 27 | a layer that cannot supply the pair's earlier endpoint tries to rebuild it from `last_accepted_state_digest`, from a durable record, or by capturing a fresh "current" state | refused: a digest is not an observation (R-R2, R-R6). The arrival is still admitted on its own facts, and stage 3 emits `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` with an empty entity list — never `NO_CHANGE`, never an empty `COMPUTED` delta, never a synthetic `A` | §6.4, §6.12 P1/P3, §12.1, §19.1A R-R6 |
 | 28 | a consumer treats a `TEMPORAL_DISCONTINUITY` record as a state transition | the record is a boundary record, not a comparison: §9 is never applied across a boundary, `entity_deltas` is empty by rule (R-T2), and the two endpoint digests being different is not a transition | §8.1, §8.2, R-T2 |
 | 29 | an implementation reports `observations_skipped` across an epoch boundary from the two endpoints' `sequence` values | not defined across a boundary: `sequence` restarts per epoch, the field is `0` on a boundary record, and the boundary is named by its reason code | §8.1, §5.4 |
 | 30 | conflation of admission-level `REJECTED_INVALID` with pair-level `OBSERVATION_INVALID` (or the reverse: reporting a pair refusal as an admission rejection) | one name per stage (§6.8): stages 1-2 emit no record, stage 3 always emits one; a stage-3 refusal never retracts a stage-2 acceptance, and no outcome may be reported for a stage that did not run | §6.6, §6.8, §8.2, §20, §21 |
@@ -1576,9 +1594,9 @@ its own red-team and its own live evidence (§18 Q6).
 | 32 | a `NEW_EPOCH` step whose `A` was not supplied is routed into the comparison path, or the boundary is downgraded to a comparison refusal | `NEW_EPOCH` takes the boundary path and takes precedence over the comparison checks: the epoch boundary is established in every case, and pair-input availability selects **only** the variant and thereby the record form (`TEMPORAL_DISCONTINUITY` with an agreeing `A`, `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` with a contradicting one, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` without one) | §6.8, §6.10.1 P6, §8.1 |
 | 33 | a `NEW_EPOCH` step is made to run a `SAME_EPOCH` check across the boundary (capability equality, source-time monotonicity, scene scope or unit system) and reports a field or entity change | the boundary path never invokes §9 and never evaluates those checks: they may appear only as cause facts in `reason_codes`, never as a comparison, a field change or a refusal | §6.8, §6.10.1 clauses 2-3, §8.2 |
 | 34 | an implementation claims `B` was not admitted after a boundary record or after a pair-input refusal, or that the admission state differs between the two cases | `B` is admitted as the first accepted observation of the new epoch and the admission-state mutation is identical in every case; a stage-3 refusal never retracts a stage-2 acceptance | §6.4, §6.8, §6.10.1 clauses 1 and 5 |
-| 35 | a missing-`A` boundary step produces an `observations_skipped` count from the two endpoints' `sequence` values, or synthesizes the observations between the epochs | `observations_skipped` is never computed across a boundary (counters restart per epoch): it is `0` on any record form, and no intermediate observation may be synthesized | §6.10.1 clause 4, §8.1, §14 R-R1 |
+| 35 | a missing-`A` boundary step produces an `observations_skipped` count from the two endpoints' `sequence` values, or synthesizes the observations between the epochs | `observations_skipped` is never computed across a boundary (counters restart per epoch): it is `0` on any record form, and no intermediate observation may be synthesized | §6.10.1 clause 4, §8.1, §19.1A R-R1 |
 | 36 | a consumer reads the empty `entity_deltas` of a `PAIR_INPUT_UNAVAILABLE` record as `NO_CHANGE`, or infers availability from an empty list, a present digest or a reason code | the record states its own availability: `pair_input = "UNAVAILABLE"` with outcome `OBSERVATION_INVALID`, coverage all `INVALID_OBSERVATION` for set A, `observations_skipped = 0`, `source_time_hold = false` — a refusal is never a report of no change | §8.1, §8.2, §10.2 |
-| 37 | an implementation "fills in" `from_state_digest` / `from_observation_id` by re-reading a payload or report store, by re-capturing the scene, or by inverting a digest | the `from_*` fields are read from Atlas-owned admission bookkeeping only, before the stage-4 mutation; any other source is a contract violation (R-R2, R-R6), and no field may stand in for `A`'s content | §6.4, §6.12 P1, §6.12.1, §8.1, §14 R-R6 |
+| 37 | an implementation "fills in" `from_state_digest` / `from_observation_id` by re-reading a payload or report store, by re-capturing the scene, or by inverting a digest | the `from_*` fields are read from Atlas-owned admission bookkeeping only, before the stage-4 mutation; any other source is a contract violation (R-R2, R-R6), and no field may stand in for `A`'s content | §6.4, §6.12 P1, §6.12.1, §8.1, §19.1A R-R6 |
 | 38 | a consumer treats a known `from_state_digest` as proof that `A`'s content was available, or claims that digest equality implies a comparison was made | a digest is content *identity*, never content, and `pair_input` is the only authority on availability; `state_digest_changed` is a raw identity fact that never implies a field comparison | §6.12.1, §8.1, §11.4 |
 | 39 | a caller supplies an `A` that contradicts the recorded identity and the step is compared anyway, including on a `NEW_EPOCH` step | a supplied `A` MUST agree with `last_accepted_observation_id` / `last_accepted_state_digest`; a disagreement is exactly one `OBSERVATION_INVALID` record with `PAIR_INPUT_IDENTITY_MISMATCH`, `pair_input = "AVAILABLE"`, empty `entity_deltas` and no field comparison. On `SAME_EPOCH` the admission state is unchanged; on `NEW_EPOCH` the refusal still leaves `B` admitted and the new epoch established exactly as stage 2 specified | §6.12.1, §6.10.1, §8.1, §12.4 |
 | 40 | a record is produced from an input outside the four variants, or a path is defined as a function of an unavailable `A` (e.g. "compare against the recorded digest") | the evaluation-input union is closed and exhaustive: every record comes from exactly one of `ComparisonInput`, `BoundaryInput`, `RefusalInput`, `BoundaryRefusalInput`, and no path may consume an unavailable `A` — a refusal is the only output available to a refusal variant | §8.1, §12.1 |
@@ -1590,6 +1608,7 @@ its own red-team and its own live evidence (§18 Q6).
 | 46 | `FromIdentity` is constructed after the stage-4 mutation, or from post-mutation values, so `from_*` and the boundary cause describe the new epoch instead of the previous one | the projection is by definition taken **before** the stage-4 mutation; a projection reflecting the new epoch is a different input and would name the wrong earlier endpoint | §6.4, §8.1, §12.1 |
 | 47 | a consumer treats `PairInput` as the complete evaluation domain, or routes a refusal through an implicit fifth form | `PairInput` is only the caller-supplied content-bearing subset; the complete record-producing domain is exactly the four-variant `EvaluationInput` union, and every variant carries `FromIdentity` | §6.7, §8.1 |
 | 48 | multiple declared boundary fields change at once and the implementation chooses an arbitrary single cause, depends on field/input order, or omits one changed field from the reason set | derive the boundary-cause set independently for each changed declared field, include every applicable cause code, and emit `reason_codes` in canonical sorted order; the result is independent of construction order and there is no primary-cause tie-break | §6.10.1, §8.1, §12.2, §12.4 |
+| 49 | a consumer or producer implementation disagrees about whether `from_observation_id` refers to an emitted predecessor or an unseen epoch anchor | `from_observation_origin` is variant-determined by the emitted-record history: `EMITTED_PREDECESSOR` iff a prior StateDelta with `to_observation_id == from_observation_id` exists for the stream; otherwise `UNEMITTED_EPOCH_ANCHOR` | §8.6 |
 
 ### 19.1A Normative invariant labels
 
@@ -1646,6 +1665,8 @@ The historical references used by this design resolve as follows:
 | T-34 | The conceptual pair-domain wording remains single-valued (§6.7, §8.1): a fixture must distinguish the caller-supplied `PairInput` content-bearing subset from the complete four-variant `EvaluationInput` domain and must reject any implementation path that invents a fifth record-producing variant or treats refusal variants as `PairInput` values |
 | T-35 | `NEW_EPOCH` identity mismatch preserves admission semantics (§6.10.1): a supplied `A` that contradicts `FromIdentity` must yield `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` with no field comparison while still committing the stage-2 boundary mutation (`B` admitted, epoch established); the equivalent `SAME_EPOCH` mismatch must leave admission unchanged |
 | T-36 | Multi-cause boundary determinism (§6.10.1, §12.2): fixtures where any two or all three of `continuity_id`, `producer_session_id`, and `ordering_epoch` differ must emit the complete applicable boundary-cause code set in canonical sorted order, with identical output regardless of source-field construction order; no arbitrary primary cause is permitted |
+| T-37 | Anchor-origin determinism (§8.6): every emitted record whose `from_observation_id` names an observation with a previously emitted StateDelta uses `EMITTED_PREDECESSOR`; the stream's first accepted observation and the first accepted observation after explicit recovery reinitialization are never given an emitted predecessor origin and any record following them is linked to the new anchor deterministically |
+| T-38 | Source-time hold is not a raw-digest signal: an equal-source-time q/-q comparison that is semantically unchanged must assert `source_time_hold = false`, while an equal-source-time comparison with an actual entity field change asserts `source_time_hold = true` |
 
 ### 19.2A Live-evidence requirements (`L-n`, not implemented by this document)
 
@@ -1656,6 +1677,11 @@ The historical references used by this design resolve as follows:
 | L-3 | A real seek/timeline discontinuity (or a replay fixture that changes `ordering_epoch`) producing `TEMPORAL_DISCONTINUITY` with an empty entity list |
 | L-4 | A live duplicate/material-omission case proving `UNAVAILABLE` is not reported as `OBSERVED_UNCHANGED` |
 | L-5 | A frozen-fixture regression: the same observation pair re-evaluated after the gate must reproduce its `delta_digest` byte-for-byte |
+
+### 19.3 Traceability pointer
+
+The adversarial register (§19.1), deterministic test requirements (§19.2) and live-evidence requirements (§19.2A)
+are the normative verification surface for this gate; §19.4 adds the Revision-9 mandatory attacks.
 
 ### 19.4 Revision-9 mandatory attacks
 
@@ -2000,7 +2026,7 @@ Revision 9 responds to the first independent architectural red-team. Its princip
 | R9-11 | recovery reinitialization could restart sequence inside an existing epoch | explicit reinitialization requires a new continuity_id and strictly greater ordering_epoch |
 | R9-12 | exactly-once delivery was accidentally implied | exactly-one is a logical record-generation property; transport/delivery is explicitly out of scope and not exactly-once |
 | R9-13 | incomplete checkpoints lacked a detectable completeness condition | checkpoint generation, commit state and integrity digest are normative |
-| R9-14 | digest canonical value domain was incomplete | int64 bounds, Unicode scalar validity, unique keys and no-normalization rule are arrival-level invariants |
-| R9-15 | source_time_hold, anchor provenance and concurrency semantics were underdefined | all three are normative and closed in §§6, 8, 14 |
+| R9-14 | digest canonical value domain was incomplete | int64 bounds, Unicode scalar validity, unique keys and no-normalization rule are arrival-level invariants, including every digest-bearing identity/envelope/record value |
+| R9-15 | source_time_hold, anchor provenance and concurrency semantics were underdefined | all three are normative and closed in §§6, 8, 14; `from_observation_origin` is explicitly variant-determined |
 
-Revision 9 remains REVIEW REQUIRED / NO IMPLEMENTATION.
+Revision 9 remains REVIEW REQUIRED / NO IMPLEMENTATION until the independent review gate clears.
