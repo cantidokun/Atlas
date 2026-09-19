@@ -368,10 +368,10 @@ def test_boundary_does_not_compare_capability_or_sequence_gap():
     assert result.record["outcome"] == "TEMPORAL_DISCONTINUITY"
     assert result.record["observations_skipped"] == 0
     assert result.record["entity_deltas"] == []
-    assert result.record["reason_codes"] == [
+    assert result.record["reason_codes"] == sorted([
         DeltaReasonCode.TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE.value,
         DeltaReasonCode.ORDERING_EPOCH_CHANGE.value,
-    ]
+    ])
 
 
 def test_equal_input_evaluation_is_digest_deterministic():
