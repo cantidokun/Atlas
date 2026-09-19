@@ -76,8 +76,7 @@ def _producer_contract() -> CapabilityContract:
     )
 
 
-def _live_script(*, capture_pair: bool = False) -> str:
-    pair_flag = "1" if capture_pair else "0"
+def _live_script() -> str:
     return r'''
 import bpy, json, os, sys
 
@@ -133,22 +132,14 @@ print("ATLAS_TEMPORAL_LIVE_END")
 '''
 
 
-def _run_live_snapshot(
-    *,
-    session: str,
-    continuity: str,
-    ordering_epoch: int,
-    x: float,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def _run_live_snapshot(*, x: float) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env = dict(os.environ)
     env.update(
         {
             "ATLAS_REPO_ROOT": repo,
-            "ATLAS_TEMPORAL_SESSION": session,
-            "ATLAS_TEMPORAL_CONTINUITY": continuity,
-            "ATLAS_TEMPORAL_EPOCH": str(ordering_epoch),
             "ATLAS_TEMPORAL_X": str(x),
+            "ATLAS_TEMPORAL_CAPTURE_PAIR": "0",
         }
     )
     proc = subprocess.run(
@@ -303,22 +294,16 @@ def test_live_temporal_l1_two_observation_computed_delta_and_rerun():
 
 
 def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
-    first_snapshot, _ = _run_live_snapshot(
-        session="live-session-1",
-        continuity="live-continuity-1",
-        ordering_epoch=0,
-        x=0.0,
-    )
-    restarted_snapshot, _ = _run_live_snapshot(
-        session="live-session-2",
-        continuity="live-continuity-2",
-        ordering_epoch=1,
-        x=0.0,
-    )
+    first_snapshot, first_meta = _run_live_snapshot(x=0.0)
+    restarted_snapshot, restarted_meta = _run_live_snapshot(x=0.0)
+
+    first_session = first_meta["producer_session_id"]
+    restarted_session = restarted_meta["producer_session_id"]
+    assert first_session != restarted_session
 
     a = _observation(
         first_snapshot,
-        session="live-session-1",
+        session=first_session,
         continuity="live-continuity-1",
         sequence=7,
         ordering_epoch=0,
@@ -326,7 +311,7 @@ def test_live_temporal_l2_real_process_restart_establishes_new_epoch():
     )
     b = _observation(
         restarted_snapshot,
-        session="live-session-2",
+        session=restarted_session,
         continuity="live-continuity-2",
         sequence=0,
         ordering_epoch=1,
@@ -356,12 +341,7 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
         ordering_epoch=0,
         x=0.0,
     )
-    replay_snapshot, _ = _run_live_snapshot(
-        session="live-session-3",
-        continuity="live-continuity-replay",
-        ordering_epoch=7,
-        x=99.0,
-    )
+    replay_snapshot, _ = _run_live_snapshot(x=99.0)
 
     a = _observation(
         first_snapshot,
@@ -373,7 +353,7 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
     )
     b = _observation(
         replay_snapshot,
-        session="live-session-3",
+        session=replay_session,
         continuity="live-continuity-replay",
         sequence=0,
         ordering_epoch=7,
@@ -394,22 +374,14 @@ def test_live_temporal_l3_replay_epoch_change_is_boundary_not_transition():
 
 
 def test_live_temporal_l5_frozen_pair_recomputes_identical_digest():
-    snapshot_a, _ = _run_live_snapshot(
-        session="live-session-frozen",
-        continuity="live-continuity-frozen",
-        ordering_epoch=0,
-        x=0.0,
-    )
-    snapshot_b, _ = _run_live_snapshot(
-        session="live-session-frozen",
-        continuity="live-continuity-frozen",
-        ordering_epoch=0,
-        x=1.0,
-    )
+    snapshot_a, meta_a = _run_live_snapshot(x=0.0)
+    snapshot_b, meta_b = _run_live_snapshot(x=1.0)
+    frozen_session = meta_a["producer_session_id"]
+    assert frozen_session == meta_b["producer_session_id"]
 
     a = _observation(
         snapshot_a,
-        session="live-session-frozen",
+        session=frozen_session,
         continuity="live-continuity-frozen",
         sequence=0,
         ordering_epoch=0,
