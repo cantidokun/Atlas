@@ -169,6 +169,7 @@ def _temporal_state_projection(scene: SceneModel) -> Dict[str, Any]:
     for obj in scene.objects:
         item: Dict[str, Any] = {
             "object_id": obj.object_id,
+            "name": obj.name,
             "collection": obj.collection,
             "parent_object_id": obj.parent_object_id,
             "location": list(obj.location),
@@ -300,10 +301,13 @@ class TemporalObservation:
         _require_i64(self.sequence, "sequence", minimum=0)
         if self.observation_schema_version != TEMPORAL_OBSERVATION_SCHEMA_VERSION:
             raise TemporalValidationError("unsupported temporal observation schema version")
-        if type(self.snapshot) is not dict:
-            raise TemporalValidationError("snapshot must be an exact built-in dict")
-        parsed = snapshot_to_scene(self.snapshot)
-        actual = temporal_state_digest(_scene_to_canonical(parsed))
+        if not isinstance(self.snapshot, Mapping):
+            raise TemporalValidationError("snapshot must be a mapping")
+        raw_snapshot = _thaw(self.snapshot)
+        if type(raw_snapshot) is not dict:
+            raise TemporalValidationError("snapshot must map to an exact built-in dict")
+        parsed = snapshot_to_scene(raw_snapshot)
+        actual = temporal_state_digest(raw_snapshot)
         _validate_digest(self.state_digest, "state_digest")
         if self.state_digest != actual:
             raise TemporalValidationError("state_digest does not match Atlas recomputation")
@@ -311,7 +315,7 @@ class TemporalObservation:
             _require_i64(self.capture_time, "capture_time")
         if self.source_time.ordering_epoch < 0:
             raise TemporalValidationError("ordering_epoch must be >= 0")
-        object.__setattr__(self, "snapshot", _freeze(_scene_to_canonical(parsed)))
+        object.__setattr__(self, "snapshot", _freeze(raw_snapshot))
 
     @property
     def ordering_epoch(self) -> int:
