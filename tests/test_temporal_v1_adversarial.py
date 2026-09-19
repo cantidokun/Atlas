@@ -46,12 +46,12 @@ COMPARISON_FIELDS = (
 UNOBSERVABLE_FIELDS = ("coordinate_frame", "local_frame_id", "normals", "uvs")
 
 
-def capability(contract_id="test-v1"):
+def capability(contract_id="test-v1", representation_state=()):
     return CapabilityContract(
         contract_id=contract_id,
         observable_fields=tuple(sorted(COMPARISON_FIELDS)),
         unobservable_fields=tuple(sorted(UNOBSERVABLE_FIELDS)),
-        representation_state=(),
+        representation_state=tuple(sorted(representation_state)),
     )
 
 
@@ -114,6 +114,7 @@ def observation(
     rate_num=1,
     rate_den=1,
     contract_id="test-v1",
+    representation_state=(),
 ):
     body = snapshot(
         location=location,
@@ -133,7 +134,7 @@ def observation(
             ordering_epoch=ordering_epoch,
         ),
         producer=producer(session),
-        capability=capability(contract_id),
+        capability=capability(contract_id, representation_state),
         snapshot=body,
         state_digest=temporal_state_digest(body),
     )
@@ -421,3 +422,54 @@ def test_duplicate_object_id_emits_ambiguity_cardinality_without_pairing():
     assert ambiguous[0]["ambiguity"] == {"count_before": 1, "count_after": 2}
     assert ambiguous[0]["field_changes"] == []
     assert ambiguous[0]["object_id"] == "obj-1"
+
+
+
+def test_material_omission_is_unavailable_not_observed_unchanged():
+    stream = ObservationStream("stream-1")
+    a_body = snapshot()
+    b_body = snapshot()
+    del a_body["objects"][0]["mesh"]["materials"]
+    del b_body["objects"][0]["mesh"]["materials"]
+
+    a = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=0,
+        source_time=SourceTime("FRAME_INDEX", 0, 1, 1, 0),
+        producer=producer(),
+        capability=capability(representation_state=("materials:omitted",)),
+        snapshot=a_body,
+        state_digest=temporal_state_digest(a_body),
+    )
+    b = TemporalObservation(
+        stream_id="stream-1",
+        continuity_id="continuity-1",
+        sequence=1,
+        source_time=SourceTime("FRAME_INDEX", 0, 1, 1, 0),
+        producer=producer(),
+        capability=capability(representation_state=("materials:omitted",)),
+        snapshot=b_body,
+        state_digest=temporal_state_digest(b_body),
+    )
+
+    stream.step(a)
+    result = stream.step(b, a)
+
+    assert result.record["coverage"]["materials"] == "UNAVAILABLE"
+    assert not any(
+        change["field"] == "materials"
+        for entity in result.record["entity_deltas"]
+        for change in entity["field_changes"]
+    )
+
+
+def test_temporal_metadata_does_not_change_temporal_state_digest():
+    body = snapshot()
+    a = observation(0, source_value=0)
+    b = observation(99, source_value=99, session="session-2")
+
+    assert a.state_digest == temporal_state_digest(body)
+    assert b.state_digest == temporal_state_digest(body)
+    assert a.state_digest == b.state_digest
+    assert a.admission_identity_digest != b.admission_identity_digest
