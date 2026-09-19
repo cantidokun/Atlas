@@ -56,26 +56,31 @@ def _blend_inventory(root):
 def _run_blender_script(script, blend_path=None):
     from tools.blender import BLENDER
 
-    encoded = base64.b64encode(script.encode("utf-8")).decode("ascii")
-    expr = (
-        "import base64; "
-        "exec(compile(base64.b64decode('" + encoded + "').decode('utf-8'), '<atlas-live-gate>', 'exec'))"
-    )
-    command = [BLENDER, "--background"]
-    if blend_path is None:
-        command.append("--factory-startup")
-    else:
-        command.append(str(blend_path))
-    command.extend(["--python-expr", expr])
-    return subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=240,
-        cwd=REPO,
-        env=dict(os.environ, PYTHONPATH=str(REPO)),
-        check=False,
-    )
+    fd, script_path = tempfile.mkstemp(prefix="atlas_bridge_live_", suffix=".py", dir=str(REPO), text=True)
+    os.close(fd)
+    try:
+        with open(script_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(script)
+        command = [BLENDER, "--background"]
+        if blend_path is None:
+            command.append("--factory-startup")
+        else:
+            command.append(str(blend_path))
+        command.extend(["--python", script_path])
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            cwd=REPO,
+            env=dict(os.environ, PYTHONPATH=str(REPO)),
+            check=False,
+        )
+    finally:
+        try:
+            os.remove(script_path)
+        except FileNotFoundError:
+            pass
 
 
 def _create_fixture(path, operation):
