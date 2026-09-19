@@ -235,9 +235,15 @@ def _preflight_review_authorization(
         correction_id=correction.correction_id,
         plan_id=plan.plan_id,
         source_report_digest=plan.source_report_digest,
-        target_object_mesh=(correction.object_id or "", correction.mesh_id or ""),
+        target_object_mesh={
+            "object_id": correction.object_id or "",
+            "mesh_id": correction.mesh_id or "",
+        },
         duplicate_groups=tuple(tuple(group) for group in params["duplicate_groups"]),
-        plan_target_object_mesh=(correction.object_id or "", params["mesh_id"]),
+        plan_target_object_mesh={
+            "object_id": correction.object_id or "",
+            "mesh_id": params["mesh_id"],
+        },
         mapping_digest=params["mapping_digest"],
         all_groups_exact=params["all_groups_exact"],
     )
