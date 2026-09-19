@@ -726,285 +726,127 @@ identity, the temporal layer:
 
 ## 8. State Delta model
 
-### 8.1 Definition, record domain, and the boundary record
+### 8.1 Record domain
 
-```text
-StateDeltaRecord := the single record emitted for one stream step. Its domain is the union of:
+A StateDelta record exists only for one of:
 
-  (1) comparison pairs  (A, B) where A and B are accepted observations of the same stream, B was
-                        admitted after A, and ContinuityState(A, B) == SAME_EPOCH
-                        => outcome COMPUTED, or OBSERVATION_INVALID if a stage-3 check fails
+1. a SAME_EPOCH accepted step after the stream's first observation;
+2. a NEW_EPOCH accepted step.
 
-  (2) boundary pairs    (A, B) where A is the last accepted observation of continuity epoch n and B
-                        is the first accepted observation of the immediately following DECLARED
-                        epoch n+1 of the same stream
-                        => outcome TEMPORAL_DISCONTINUITY when A is supplied and agrees with
-                           the FromIdentity projection, OBSERVATION_INVALID /
-                           PAIR_INPUT_IDENTITY_MISMATCH when it is supplied but contradicts
-                           it, or OBSERVATION_INVALID / PAIR_INPUT_UNAVAILABLE when it is
-                           not supplied (§6.8.1)
+The first observation produces INITIAL_ACCEPTED and no record. DUPLICATE_ACKNOWLEDGED, REJECTED_STALE and REJECTED_INVALID produce no record. Different streams are never paired.
+
+Every accepted step after the first emits exactly one StateDelta-shaped record. This includes pair-level refusals. Therefore the record stream itself makes a refused edge explicit.
+
+### 8.2 Closed evaluation-input domain
+
+```
+EvaluationInput =
+    ComparisonInput(A, B, FromIdentity, COMPARISON_CONTRACT_VERSION)
+  | BoundaryInput(A, B, FromIdentity, COMPARISON_CONTRACT_VERSION)
+  | RefusalInput(B, FromIdentity, COMPARISON_CONTRACT_VERSION)
+  | BoundaryRefusalInput(B, FromIdentity, COMPARISON_CONTRACT_VERSION)
 ```
 
-No other pair produces a record: a stream's first observation has no predecessor (no record), a
-`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE` or `REJECTED_INVALID` arrival produces none (§6.6, §6.8), and
-two observations of different streams are never paired (§6.2 `DIFFERENT_STREAM`).
+StateDelta = F(EvaluationInput).
 
-**One normative evaluation-input domain (closed, and the only purity definition in this document).** Every
-record is produced by exactly one variant of one closed tagged union, and it is a **pure function of that
-variant and of nothing else**:
+This is the only purity definition. F reads no mutable admission state, clock, cache, process fact, iteration order or retained snapshot.
 
-```text
-EvaluationInput :=
-    ComparisonInput(A, B, FromIdentity, COMPARISON_CONTRACT_VERSION)         # SAME_EPOCH, A supplied
-  | BoundaryInput(A, B, FromIdentity, COMPARISON_CONTRACT_VERSION)           # NEW_EPOCH, A supplied
-  | RefusalInput(B, FromIdentity, COMPARISON_CONTRACT_VERSION)               # SAME_EPOCH, A not supplied
-  | BoundaryRefusalInput(B, FromIdentity, COMPARISON_CONTRACT_VERSION)       # NEW_EPOCH, A not supplied
+Variant selection is a total function of the admission classification and A-content availability:
 
-FromIdentity := ImmutableProjection(Atlas-owned admission bookkeeping, taken BEFORE the stage-4 mutation)
-  # constructed by the admission layer and handed to evaluation as a value; never read from the state
-  # itself, and carrying no snapshot content (§6.4, P6)
-  last_accepted_observation_id      : string
-  last_accepted_state_digest        : 64-lowercase-hex
-  last_accepted_continuity_id       : string      # the previous epoch's declaring fields, so that both
-  last_accepted_producer_session_id : string      # the identity agreement and a boundary cause are
-  last_accepted_ordering_epoch      : integer     # functions of the input alone
-
-StateDelta := F(EvaluationInput)   # ONE function, ONE input domain, defined here and nowhere else
-```
-
-| Record-producing path | `EvaluationInput` variant | `pair_input` | `outcome` |
-| --- | --- | --- | --- |
-| `SAME_EPOCH` + `A` supplied | `ComparisonInput` | `"AVAILABLE"` | `COMPUTED`, or `OBSERVATION_INVALID` when a comparison-path check fails — including the identity agreement, check 2 (§6.8) |
-| `SAME_EPOCH` + `A` unavailable | `RefusalInput` | `"UNAVAILABLE"` | `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` |
-| `NEW_EPOCH` + `A` supplied | `BoundaryInput` | `"AVAILABLE"` | `TEMPORAL_DISCONTINUITY`, or `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` when `A` contradicts the projection (the epoch boundary is still established, §6.8.1) |
-| `NEW_EPOCH` + `A` unavailable | `BoundaryRefusalInput` | `"UNAVAILABLE"` | `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE`, with the epoch boundary still established (§6.8.1) |
-
-Rules:
-
-* **The union is exhaustive and the variants are disjoint.** `A` is either supplied or not, and the
-  stage-2 classification is either `SAME_EPOCH` or `NEW_EPOCH`; those four combinations are exactly the
-  four variants. There is no fifth record-producing path and no record outside this union (§6.6, §6.8).
-* **`pair_input` is determined by the variant, not carried as an independent parameter** — `"AVAILABLE"`
-  for `ComparisonInput` and `BoundaryInput`, `"UNAVAILABLE"` for `RefusalInput` and
-  `BoundaryRefusalInput`. A redundant availability parameter could express the illegal combination
-  "refusal with content supplied", which this contract must not even be able to state.
-* **Every variant carries the immutable `FromIdentity` projection**, and `F` reads nothing outside its
-  argument. The refusal variants carry no `A` at all; the content-bearing variants carry `A` and the
-  projection. In every case `FromIdentity` is **bookkeeping, not an observation**: it names the expected
-  earlier endpoint and the epoch it belonged to, it holds no snapshot content, and it is never a substitute
-  for `A` (§6.7.1, R-R2/R-R6).
-* **The identity agreement is a function of the input.** For `ComparisonInput` and `BoundaryInput`,
-  `A.observation_id` MUST equal `FromIdentity.last_accepted_observation_id` and `A.state_digest` MUST equal
-  `FromIdentity.last_accepted_state_digest`. A disagreement yields exactly one record with outcome
-  `OBSERVATION_INVALID`, reason `PAIR_INPUT_IDENTITY_MISMATCH` and `pair_input = "AVAILABLE"`, with an
-  empty `entity_deltas`, **no field comparison** and — on the boundary path — **no boundary record**; the
-  classification, and with it the epoch boundary, is unaffected (§6.8, §6.8.1).
-* **Boundary causes are a function of the input, and the cause set is complete.** On `BoundaryInput` the
-  boundary-cause reason codes are derived directly from every declared boundary field that differs between
-  `B` and `FromIdentity`: `RESTART_PRODUCER_SESSION` for a different `producer_session_id`,
-  `SEEK_OR_ORDERING_EPOCH_CHANGE` for a different `ordering_epoch`, and
-  `TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE` for a different `continuity_id`. **Every applicable cause
-  code is emitted**, not just one selected cause, and the final `reason_codes` list is sorted canonically.
-  No hidden or mutable state, producer field order, dictionary order, or input construction order participates
-  in the result (§6.8.1, §12.2).
-  comparing `B`'s declaring fields with the projection's recorded epoch fields — `RESTART_PRODUCER_SESSION`
-  when `producer_session_id` differs, `SEEK_OR_ORDERING_EPOCH_CHANGE` when `ordering_epoch` differs, and so
-  on. No hidden or mutable state participates in it (§6.8.1).
-* **No path is defined as a function of an unavailable `A`.** When `A` is not supplied the input is a
-  refusal variant, and `F` cannot return `COMPUTED`, a field change or a `NO_CHANGE` entry from it.
-* **`F` is the only definition of purity in this document.** §12.1 restates it and adds nothing else.
-
-`StateDelta` is not a function of capture wall-clock, host state, iteration order, any mutable cache, or any
-state the layer retained: the layer retains no observation at all (§12.1).
-
-**A `TEMPORAL_DISCONTINUITY` record is a `StateDelta`-shaped boundary record, and it is not a comparison.**
-A boundary pair is non-comparable *by construction* — the declared boundary is exactly the statement that
-the two endpoints belong to different temporal histories (§6.2). Emitting the record is legitimate (it is
-the only way to report that continuity broke without inventing a transition), but everything that depends
-on comparability is refused:
-
-* §9 field comparison is **never applied** across a boundary: no field is compared, so no field change and
-  no `NO_CHANGE` may be reported for any field;
-* `entity_deltas` is empty **by rule** (R-T2): the record asserts *no* state transition, and it must never
-  be rendered, summarized or re-exported as a burst of adds/removes/changes;
-* `from_state_digest`/`to_state_digest`/`state_digest_changed` are still the raw content identities of the
-  two endpoints (§11.2): `true` across a boundary is not evidence of a transition, and `false` does **not**
-  merge the epochs (R-T1);
-* `observations_skipped` is **not defined** across a boundary — `sequence` counters restart per epoch, so a
-  cross-boundary difference of two sequence values is meaningless. The field is `0` on the record, and the
-  boundary is named by its reason code (`RESTART_PRODUCER_SESSION`, `SEEK_OR_ORDERING_EPOCH_CHANGE`, …);
-* `coverage` carries no per-field result: every set-A field is `INVALID_OBSERVATION` (the comparison could
-  not be made) and every set-B field keeps its `UNSUPPORTED_BY_PRODUCER` capability fact, with the *reason*
-  in `reason_codes` (§10.2);
-* the boundary path takes `BoundaryInput` when `A` is supplied — whether or not it agrees with the
-  projection — and `BoundaryRefusalInput` when it is not. A supplied `A` that contradicts the projection
-  makes the record an `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` refusal, and a missing `A`
-  makes it an `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` refusal **in place of** the
-  `TEMPORAL_DISCONTINUITY` record. Every rule above
-  still holds for every such record — no field comparison, an empty `entity_deltas`, `observations_skipped = 0`,
-  `source_time_hold = false`, coverage carrying the refusal — and the epoch boundary is established and `B`
-  admitted in every case (§6.8.1). The record's *form* depends on what was supplied and on whether it
-  agrees; the *boundary* does not.
-
-The record's `continuity` field and its `outcome` are in a fixed correspondence, so a record can never
-claim a comparison that was not performed:
-
-| `ContinuityState` (§6.2) | Record | `outcome` |
+| Admission classification | A content | Variant |
 | --- | --- | --- |
-| `SAME_EPOCH` | comparison pair | `COMPUTED`, or `OBSERVATION_INVALID` on a stage-3 failure (§6.8) |
-| `NEW_EPOCH` | boundary pair | `TEMPORAL_DISCONTINUITY` when `A` is supplied and agrees with the projection, `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` when it is supplied but contradicts it, `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not supplied (§6.8.1) |
-| `UNKNOWN` | comparison refused | `OBSERVATION_INVALID` |
-| `DIFFERENT_STREAM` | none | — |
+| SAME_EPOCH / ACCEPTED | supplied | ComparisonInput |
+| SAME_EPOCH / ACCEPTED | unavailable | RefusalInput |
+| NEW_EPOCH | supplied | BoundaryInput |
+| NEW_EPOCH | unavailable | BoundaryRefusalInput |
 
-```text
+INITIAL_ACCEPTED never invokes F.
+
+### 8.3 FromIdentity and predecessor integrity
+
+FromIdentity is an immutable projection of the admission state immediately before the accepted B is committed:
+
+```
+last_accepted_observation_id
+last_accepted_state_digest
+last_accepted_admission_identity_digest
+last_accepted_continuity_id
+last_accepted_producer_session_id
+last_accepted_ordering_epoch
+```
+
+When A is supplied, the system recomputes A's admission identity from A's canonical content using the same pinned canonicalization as admission. The recomputed identity, A.observation_id and A.state_digest must agree with FromIdentity.
+
+If they do not agree, the record is OBSERVATION_INVALID / PAIR_INPUT_IDENTITY_MISMATCH with no field comparison. This result validates the supplied pair input; it never retracts B or changes admission state.
+
+This rule removes the metadata-substitution ambiguity: FromIdentity names the expected predecessor, but only supplied A content can prove that the caller actually supplied that predecessor.
+
+### 8.4 Boundary evaluation
+
+For BoundaryInput, the complete set of changed declaring fields is converted to reason codes and sorted:
+
+* TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE;
+* RESTART_PRODUCER_SESSION;
+* ORDERING_EPOCH_CHANGE.
+
+No field comparison is performed across a boundary. entity_deltas is empty. observations_skipped is 0. source_time_hold is false.
+
+A supplied A that disagrees with FromIdentity yields PAIR_INPUT_IDENTITY_MISMATCH instead of TEMPORAL_DISCONTINUITY, but B remains admitted and the new epoch remains established.
+
+A missing A yields PAIR_INPUT_UNAVAILABLE, with the same boundary admission already established.
+
+### 8.5 Comparison refusal rules
+
+For SAME_EPOCH:
+
+1. missing A -> PAIR_INPUT_UNAVAILABLE;
+2. supplied A identity mismatch -> PAIR_INPUT_IDENTITY_MISMATCH;
+3. capability mismatch -> CAPABILITY_MISMATCH;
+4. unit-system mismatch -> UNIT_SYSTEM_CHANGED;
+5. otherwise perform §9 comparison.
+
+Source-time, scene-scope and sequence rules are not repeated here because admission has already established them.
+
+A pair-level refusal is itself the StateDelta record for the accepted edge. The next accepted observation uses the refused step's B as its predecessor.
+
+### 8.6 StateDelta schema
+
+```
 StateDelta := {
-  delta_schema_version   : "1"
-  outcome                : DeltaOutcome               # exactly one, §8.2
-  pair_input             : PairInputAvailability      # ALWAYS present: was A's CONTENT supplied? (§6.7.1)
-  stream_id              : string
-  from_observation_id    : string                     # identity metadata, never A's content (§6.7.1)
-  to_observation_id      : string
-  from_state_digest      : 64-lowercase-hex           # content identity of A — identity, not content (§6.7.1)
-  to_state_digest        : 64-lowercase-hex           # content identity of B (§11.2)
-  state_digest_changed   : bool                        # from_state_digest != to_state_digest
-  continuity             : "SAME_EPOCH" | "NEW_EPOCH" | "UNKNOWN" | "DIFFERENT_STREAM"
-  observations_skipped   : integer >= 0               # max(0, sequence gap - 1) on a COMPUTED record;
-                                                       # 0 on a refusal or boundary record (§5.4, §8.1)
-  source_time_hold       : bool                        # true iff identical source_time and different
-                                                       # state; always false on a boundary record
-  identity_ambiguous_ids : sorted list of strings
-  entity_deltas          : ordered list of EntityDelta # §8.3, ordering in §8.4
-  coverage               : per-field FieldObservationState map   # §10.2 — never optional
-  reason_codes           : sorted list of strings      # named, closed vocabulary
-}   # + delta_digest (§11.4)
-```
-
-`from_state_digest`, `to_state_digest` and `state_digest_changed` are **raw content-identity facts**
-copied verbatim from the two observations; they are covered by `delta_digest` (§11.4). They are *not* a
-comparison result: `state_digest_changed = true` with an empty field-change set is a legitimate delta —
-it says the raw canonical content differs in a way the §9 relation declares equivalent (the pure
-`q`/`-q` case of §9.4). `state_digest_changed` must never add, remove or reclassify an entity or field
-change, and the semantic comparison must never alter a digest value (§11.5).
-
-**`pair_input` and the `from_*` fields on every record (single-valued).** Every record carries
-`pair_input` (§6.7.1), and its `from_*` fields are always defined: a record is emitted only for a step
-whose classification succeeded, and classification requires the admission state (§6.7.1). The two positions
-differ in exactly one thing — whether the earlier endpoint's *content* was in hand:
-
-| Field | `pair_input = "AVAILABLE"` | `pair_input = "UNAVAILABLE"` |
-| --- | --- | --- |
-| `from_observation_id` | the supplied `A`'s `observation_id`, which MUST equal `FromIdentity.last_accepted_observation_id` (§8.1); a disagreement is the identity refusal `PAIR_INPUT_IDENTITY_MISMATCH` | `FromIdentity.last_accepted_observation_id` — identity metadata naming the **expected** earlier endpoint |
-| `from_state_digest` | as above, for `FromIdentity.last_accepted_state_digest` | `FromIdentity.last_accepted_state_digest` — a content **identity**, never content, and never a licence to reconstruct `A` |
-| `to_observation_id`, `to_state_digest` | `B`'s handle and content identity | identical — `B` is always the supplied arrival |
-| `state_digest_changed` | `from_state_digest != to_state_digest`, a raw identity fact (§11.2) | the same comparison against `A`'s **recorded** identity: still a fact, and it never implies that a field comparison happened |
-| `continuity` | the stage-2 classification | **unchanged** — availability never alters the classification (§6.8.1 clause 6) |
-| `entity_deltas` | populated (`COMPUTED`), or empty on a refusal / boundary record | **empty**, and it means "nothing was compared" — never "nothing changed" |
-| `observations_skipped` | `max(0, gap - 1)` on `COMPUTED`, else `0` | `0` — the count is a property of an admitted sequence pair and is populated only on `COMPUTED` |
-| `source_time_hold` | per §5.5 | always `false` — with no content it cannot be established, and it is never inferred |
-| `coverage` | per §10.2 | every set-A field `INVALID_OBSERVATION`, every set-B field `UNSUPPORTED_BY_PRODUCER`, and **no** `OBSERVED_*` entry anywhere (§10.2) |
-| `reason_codes` | the failing check's code | exactly `PAIR_INPUT_UNAVAILABLE`, or exactly `PAIR_INPUT_IDENTITY_MISMATCH` when a supplied `A` contradicts the projection; either refusal also carries **all applicable boundary-cause codes** (`RESTART_PRODUCER_SESSION`, `SEEK_OR_ORDERING_EPOCH_CHANGE`, and/or `TEMPORAL_DISCONTINUITY_CONTINUITY_ID_CHANGE`) when the classification is `NEW_EPOCH` |
-| `delta_digest` (derived) | canonical hash of the record (§11.4) | the same rule: it commits to the record **as emitted** — including `pair_input` and the identity metadata — and contains no observation content, so it can never be read as evidence that `A` was available |
-
-`outcome` and `pair_input` are correlated but not interchangeable:
-
-| `outcome` | `pair_input` | When |
-| --- | --- | --- |
-| `COMPUTED` | `"AVAILABLE"` | comparison path, every check passed |
-| `TEMPORAL_DISCONTINUITY` | `"AVAILABLE"` | boundary path, `A` supplied |
-| `OBSERVATION_INVALID` | `"AVAILABLE"` | a comparison-path check failed, or the supplied `A` contradicted the recorded identity (`PAIR_INPUT_IDENTITY_MISMATCH`) |
-| `OBSERVATION_INVALID` | `"UNAVAILABLE"` | no comparison was performed because the earlier endpoint was not supplied — on **either** path (§6.8.1 clause 5) |
-
-**An empty `entity_deltas` is never self-describing.** On a `COMPUTED` record it means "compared, nothing
-changed"; on a `TEMPORAL_DISCONTINUITY` record "a boundary, no comparison"; on a `PAIR_INPUT_UNAVAILABLE`
-record "no comparison was possible". The `outcome` and `pair_input` fields carry that distinction — never
-the emptiness of a list, never the absence of a value, and never a reason code.
-
-**Why not nullable `from_*` fields, and why not a separate result type (decision record).** Three models
-were available for this form; the contract takes the first, and records why the others were rejected:
-
-* **Chosen — keep every field present, populate the identity metadata from Atlas-owned bookkeeping, and
-  state availability explicitly.** Atlas always knows which observation it expected to compare against;
-  that is exactly what `last_accepted_observation_id` / `last_accepted_state_digest` exist for (§6.4,
-  R-R4). The schema stays rigid, the one diagnosable fact is kept, and availability lives in a field
-  instead of having to be inferred from a null, an empty list or a reason code.
-* **Rejected — making `from_*` nullable or absent.** It discards information Atlas legitimately holds,
-  makes the schema conditional per record, and leaves "no predecessor" (which produces no record at all,
-  §8.1) distinguishable from "predecessor not supplied" only by other means. A null also reads as a gap to
-  be filled, which invites exactly the reconstruction this contract forbids (§6.7 P1, R-R6).
-* **Rejected — a separate result type for this form.** §8.1 defines one record domain and §8.2 makes the
-  outcomes exhaustive for a record; a second result type would give one stream step two wire shapes, force
-  every consumer to branch on type before reading any field, and contradict §6.8's "stage 3 always emits a
-  record".
-
-Under all three models the same thing must hold, and it holds here: **no field of a record may be
-described, documented or implemented as reconstructing, standing in for, or substituting for `A`'s
-snapshot** (§6.7.1).
-
-### 8.2 `DeltaOutcome` (delta-level, exactly one)
-
-| `DeltaOutcome` | When | `entity_deltas` |
-| --- | --- | --- |
-| `COMPUTED` | two accepted observations, `SAME_EPOCH`, pair input supplied, capabilities identical, every stage-3 check passed (§6.8) | populated |
-| `TEMPORAL_DISCONTINUITY` | `NEW_EPOCH` — a **declared** continuity boundary (producer restart, seek, declared reset), §6.2. A boundary record, not a comparison (§8.1) | **empty by rule (R-T2)** |
-| `OBSERVATION_INVALID` | a **pair-level** refusal of two accepted observations: missing pair input (`PAIR_INPUT_UNAVAILABLE`), a supplied `A` that contradicts the `FromIdentity` projection (`PAIR_INPUT_IDENTITY_MISMATCH`, §8.1), capability mismatch (§10.4), `domain`/`rate` mismatch, scene-scope change (§8.5), unit-system change (§8.5). **Never** for an arrival that failed validation — that is `REJECTED_INVALID` at admission and emits no record (§6.6, §6.8). It also covers the missing-pair-input case on **either** path, where the epoch boundary (if any) is still established and `B` is still admitted (§6.8.1); those records are distinguished from the check-failure ones by `pair_input = "UNAVAILABLE"` (§8.1) | **empty** |
-
-The three outcomes are exhaustive for a **record**. Four situations produce no record at all:
-`DIFFERENT_STREAM` (never paired) and the three admission-level non-acceptances
-(`DUPLICATE_ACKNOWLEDGED`, `REJECTED_STALE`, `REJECTED_INVALID`, §6.6). Admission-level facts therefore
-never appear in this table, which is what keeps `StateDelta(A, B)` a pure function of a *supplied* pair of
-accepted observations (§6.7, §12.1) and keeps the stream-processing path single-valued (§6.8).
-
-Every record states whether the earlier endpoint's content was supplied (`pair_input`, §6.7.1), so an empty
-`entity_deltas` can never be misread as "nothing changed" (§8.1). One classification can produce one of
-three records: a `NEW_EPOCH` step yields `TEMPORAL_DISCONTINUITY` when `A` is supplied and agrees with the
-projection, `OBSERVATION_INVALID` / `PAIR_INPUT_IDENTITY_MISMATCH` when it is supplied but contradicts it,
-and `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` when it is not supplied — with an identical
-admission-state mutation and a still-established boundary in all three cases (§6.8.1). The choice is made by
-availability and by the identity agreement alone, never by the comparison checks. Each outcome belongs to a
-specific `EvaluationInput` variant and to no other (§8.1): `COMPUTED` only to `ComparisonInput`,
-`TEMPORAL_DISCONTINUITY` only to `BoundaryInput`, and `OBSERVATION_INVALID` to every variant — a failed
-comparison-path check on `ComparisonInput`, the identity agreement on either content-bearing variant, or a
-missing endpoint on either refusal variant.
-
-### 8.3 `EntityDeltaKind` (entity-level facts)
-
-```text
-EntityDelta := {
-  object_id    : string
-  kind         : EntityDeltaKind
-  field_changes: ordered list of {field, before, after}    # empty iff kind != OBJECT_CHANGED
-  ambiguity    : {count_before, count_after}                # present iff kind == IDENTITY_AMBIGUOUS
+  delta_schema_version : 1,
+  outcome              : COMPUTED | TEMPORAL_DISCONTINUITY | OBSERVATION_INVALID,
+  pair_input           : AVAILABLE | UNAVAILABLE,
+  stream_id            : string,
+  from_observation_id  : string,
+  to_observation_id    : string,
+  from_state_digest    : 64-lowercase-hex,
+  to_state_digest      : 64-lowercase-hex,
+  state_digest_changed : bool,
+  continuity           : SAME_EPOCH | NEW_EPOCH,
+  observations_skipped : int64 >= 0,
+  source_time_hold     : bool,
+  identity_ambiguous_ids : sorted list of strings,
+  entity_deltas        : ordered list,
+  coverage             : mandatory field-coverage map,
+  reason_codes         : sorted list,
+  delta_digest         : 64-lowercase-hex
 }
-
-EntityDeltaKind :=
-  OBJECT_ADDED | OBJECT_REMOVED | OBJECT_CHANGED | NO_CHANGE | IDENTITY_AMBIGUOUS
 ```
 
-Wording discipline (this is a contract, not style): the kinds are **factual state transitions only**.
-`OBJECT_ADDED` means "an entity with this id is present in B and absent in A". It must never be
-rendered, summarized or re-exported as an event name (§17).
+from_* fields identify the expected/supplied predecessor. They are identity metadata, never a substitute for predecessor content.
 
-### 8.4 Ordering (deterministic, total)
+### 8.7 Boundary anchor semantics
 
-1. Entity entries are ordered by `object_id` in **Unicode code-point order** (Python `str` ordering;
-   UTF-8 byte order agrees — the same rule extraction §5.3 uses for objects).
-2. Ties are impossible for `PAIRABLE` ids (uniqueness precondition); `IDENTITY_AMBIGUOUS` entries are
-   unique per id by construction.
-3. Field entries inside an `OBJECT_CHANGED` are ordered by the **canonical field order** of §9.1.
-4. `identity_ambiguous_ids` and `reason_codes` are sorted; `coverage` is a map keyed by field name and
-   is therefore order-free.
-5. No ordering depends on dictionary insertion order, hash seed, pointer identity or producer order.
+B is the first accepted observation of a NEW_EPOCH and therefore the predecessor for the first ordinary comparison in that epoch. This is an admission-baseline fact, not a state-transition claim.
 
-### 8.5 Scene-level fields
+A boundary record is not rendered as OBJECT_ADDED, OBJECT_REMOVED, OBJECT_CHANGED or NO_CHANGE. It reports only that temporal comparability was reset.
 
-`scene_id` and `unit_system` are compared **before** object pairing:
+### 8.8 Deterministic lineage example
 
-* `scene_id` differs inside a comparable pair ⇒ `OBSERVATION_INVALID` / `SCENE_SCOPE_CHANGED` (§6.5).
-* `unit_system` differs inside a comparable pair ⇒ `OBSERVATION_INVALID` / `UNIT_SYSTEM_CHANGED` —
-  coordinate comparisons across a unit change are meaningless, and silently reporting them as
-  "movement" would be a false state transition.
-* `coordinate_frame` is **unobservable in v1** (§10.3), so it can never be a change *or* an
-  unchanged claim.
+    A -> B : OBSERVATION_INVALID / CAPABILITY_MISMATCH
+    B -> C : COMPUTED
+
+is valid and fully specified. The first edge was not silently omitted; it was explicitly refused. C compares with B because B is the latest accepted predecessor.
 
 ## 9. Field comparison rules
 
