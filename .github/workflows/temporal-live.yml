@@ -24,17 +24,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify pinned Blender runtime
-        shell: pwsh
+        shell: powershell
         run: |
           & "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe" --version
 
       - name: Install pytest
-        shell: pwsh
+        shell: powershell
         run: |
           python -m pip install --upgrade pytest
 
       - name: Run Temporal live Blender gate
-        shell: pwsh
+        shell: powershell
         env:
           ATLAS_RUN_LIVE_BLENDER: "1"
         run: |
