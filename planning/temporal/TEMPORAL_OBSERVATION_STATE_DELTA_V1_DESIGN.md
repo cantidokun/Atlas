@@ -1,11 +1,11 @@
 # Atlas — Temporal Observation + State Delta v1 (Design Gate)
 
-**Status:** DESIGN REVISION 8 — REVIEW REQUIRED / NO IMPLEMENTATION
+**Status:** DESIGN REVISION 9 — REVIEW REQUIRED / NO IMPLEMENTATION
 **Track:** Atlas temporal layer (engine-neutral, downstream of canonical world state)
 **Architectural parent (authoritative):** `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`
 (Blender Extraction Fidelity v1 implementation + verification commits, itself on the cleared design
 revision `32eb4f76`), whose own baseline is `origin/main` = `2ec5a84c0b4d82898a0fb8169844ddd5d93668d2`.
-**Design branch:** `feat/temporal-observation-state-delta-design`
+**Design branch:** `feat/temporal-observation-state-delta-rev9-candidate`
 **Scope statement (read before the title):** this milestone designs **observation and factual
 difference** only — a versioned, engine-neutral `TemporalObservation` envelope, an ordered observation
 stream with explicit admission rules, and a deterministic `StateDelta` between two comparable
@@ -35,7 +35,9 @@ the claim boundary.
 | `cdf376d` | Define the missing-pair-input record schema in the temporal observation design | the document at **revision 5** (held pending review) |
 | `fd48733` | Unify the StateDelta pure-function domain in the temporal observation design | the document at **revision 6** (held pending review) |
 | `44d0a1c` | Complete the evaluation-input purity boundary with `FromIdentity` in every variant | the document at **revision 7** (held pending review) |
-| *(this revision)* | Temporal Observation + StateDelta v1 — **design revision 8**: close the remaining domain, boundary-mutation, enumeration and multi-cause consistency defects | this document only — §22.7 |
+| `44d0a1c` | Complete the evaluation-input purity boundary with `FromIdentity` in every variant | the document at **revision 7** (held pending review) |
+| `rev9-parent` | Temporal Observation + StateDelta v1 — **design revision 8**: close the remaining domain, boundary-mutation, enumeration and multi-cause consistency defects | prior design baseline for revision 9 |
+| *(this revision)* | Temporal Observation + StateDelta v1 — **design revision 9**: close admission invariants, epoch ordering, admission identity, evaluation lineage, recovery commit semantics and digest parity | this document only — §22.8 |
 
 **What design revision 8 changes.** Revision 7 was held pending five consistency defects found by the independent architectural review. This revision closes them without changing the temporal v1 claim boundary or introducing implementation:
 
