@@ -20,6 +20,7 @@ from .evaluator import (
     finalize_record,
 )
 from .model import TemporalObservation
+from .recovery import AdmissionCheckpoint, RecoveryCheckpointError, validate_reinitialization_declaration
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,37 @@ class ObservationStream:
     @property
     def stream_id(self) -> str:
         return self.state.stream_id
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: AdmissionCheckpoint) -> "ObservationStream":
+        state = checkpoint.restore_state()
+        stream = cls(state.stream_id)
+        stream.state = state
+        return stream
+
+    def reinitialize(
+        self,
+        *,
+        new_continuity_id: str,
+        new_ordering_epoch: int,
+    ) -> None:
+        """Explicitly discard the current baseline under a new TemporalEpochKey.
+
+        No synthetic StateDelta is emitted. The next valid observation is INITIAL_ACCEPTED.
+        """
+        validate_reinitialization_declaration(
+            self.state,
+            new_continuity_id=new_continuity_id,
+            new_ordering_epoch=new_ordering_epoch,
+        )
+        self.state = AdmissionState(
+            stream_id=self.state.stream_id,
+            accepted_count=self.state.accepted_count,
+            duplicate_acknowledged_count=self.state.duplicate_acknowledged_count,
+            rejected_stale_count=self.state.rejected_stale_count,
+            invalid_count=self.state.invalid_count,
+            epoch_count=self.state.epoch_count,
+        )
 
     def step(self, observation: TemporalObservation, predecessor: Optional[TemporalObservation] = None) -> StepResult:
         if observation.stream_id != self.stream_id:
