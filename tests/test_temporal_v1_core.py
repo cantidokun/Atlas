@@ -377,3 +377,38 @@ def test_snapshot_representation_preserves_omitted_materials_key():
     )
 
     assert "materials" not in obs.snapshot["objects"][0]["mesh"]
+
+
+
+def test_stream_restore_from_checkpoint_preserves_predecessor_identity():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    stream.step(a)
+
+    checkpoint = AdmissionCheckpoint.from_state(stream.state, generation=4)
+    restored = ObservationStream.from_checkpoint(checkpoint)
+
+    b = observation(1, location=(1.0, 0.0, 0.0))
+    result = restored.step(b, a)
+
+    assert result.admission.outcome is AdmissionOutcome.ACCEPTED
+    assert result.record["from_observation_id"] == a.observation_id
+
+
+def test_stream_explicit_reinitialize_discards_baseline_without_synthetic_record():
+    stream = ObservationStream("stream-1")
+    a = observation(0)
+    stream.step(a)
+
+    stream.reinitialize(
+        new_continuity_id="continuity-2",
+        new_ordering_epoch=1,
+    )
+
+    b = observation(0, continuity_id="continuity-2", ordering_epoch=1)
+    result = stream.step(b)
+
+    assert result.admission.outcome is AdmissionOutcome.INITIAL_ACCEPTED
+    assert result.record is None
+    assert stream.state.accepted_count == 2
+    assert stream.state.epoch_count == 0
