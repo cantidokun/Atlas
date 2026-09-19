@@ -309,26 +309,35 @@ def _decision(
 ) -> AdmissionDecision:
     return AdmissionDecision(
         outcome,
-        _reason_tuple(reason) if reason is not None else (),
+        (reason,) if reason is not None else (),
         observation,
         previous,
         False,
     )
 
 
-def _install_helpers():
-    def _reject_invalid(self, state, observation, previous, reason):
-        return _decision(AdmissionOutcome.REJECTED_INVALID, observation, previous, reason)
-
-    def _reject_stale(self, state, observation, previous, reason):
-        return _decision(AdmissionOutcome.REJECTED_STALE, observation, previous, reason)
-
-    def _preserve(self, state, observation, previous, outcome):
-        return _decision(outcome, observation, previous)
-
-    AdmissionEngine._reject_invalid = _reject_invalid
-    AdmissionEngine._reject_stale = _reject_stale
-    AdmissionEngine._preserve = _preserve
+def _reject_invalid(
+    state: AdmissionState,
+    observation: TemporalObservation,
+    previous: FromIdentity,
+    reason: AdmissionReasonCode,
+) -> AdmissionDecision:
+    return _decision(AdmissionOutcome.REJECTED_INVALID, observation, previous, reason)
 
 
-_install_helpers()
+def _reject_stale(
+    state: AdmissionState,
+    observation: TemporalObservation,
+    previous: FromIdentity,
+    reason: AdmissionReasonCode,
+) -> AdmissionDecision:
+    return _decision(AdmissionOutcome.REJECTED_STALE, observation, previous, reason)
+
+
+def _preserve(
+    state: AdmissionState,
+    observation: TemporalObservation,
+    previous: FromIdentity,
+    outcome: AdmissionOutcome,
+) -> AdmissionDecision:
+    return _decision(outcome, observation, previous)
