@@ -1,99 +1,217 @@
 # Blender Development README
 
-> **Current global checkpoint — September 19, 2026.** Blender Extraction Fidelity v1 remains **CLEAR / frozen**. Its producer contract is consumed by the Temporal Observation + State Delta v1 implementation without reopening the extraction milestone. Real Blender 4.4.3 Temporal L-1–L-5 gates pass. O-1 material representation fidelity is resolved at the producer boundary; O-2 mesh-presence coverage is resolved in the Temporal evaluator. The latest independent red-team review is **CLEAR WITH MINOR FINDINGS (NON-BLOCKING)**. Development is paused for the night before Temporal commit/push.
+> **Current authoritative checkpoint — September 19, 2026.**
+>
+> Main is at 0d6cf88b2b7d0a72501bd20e5b42aa091be890bf, the merge of Wave 14 (PR #111).
+> Extraction Fidelity v1 is frozen and merged. Temporal Observation + State Delta v1 core is
+> implemented and merged. Blender correction waves through Wave 14 are either live-validated and
+> merged or explicitly retained as deterministic-only capabilities awaiting a dedicated live
+> boundary milestone.
 
+## Architectural position
 
-## Current authoritative position — September 18, 2026
+Atlas's Blender track is now organized into four bounded layers:
 
-**Blender Extraction Fidelity v1 — CLEAR.** The bounded read-only extraction producer contract is complete and independently reviewed. The implementation in `planning/blender/bpy_extraction.py` is frozen from this milestone unless a concrete defect is discovered.
+1. **Canonical extraction** — Blender Extraction Fidelity v1. The producer is frozen unless a
+   concrete defect is discovered.
+2. **Scene health / analysis** — deterministic findings, topology intelligence, and readiness
+   evaluation.
+3. **Bounded correction** — planner, authorization, executor, receipts, and narrowly scoped
+   Blender boundary adapters.
+4. **Temporal observation** — Temporal Observation + State Delta v1 consumes canonical world
+   state; it does not repair or redefine that state.
 
-Key cleared references:
+The authority boundary remains unchanged:
 
-- design revision: `32eb4f76f82447fc468eeb3c4c86bbe47625297`
-- implementation: `9a9e3e840371db46c79de43fe098c6c0846c7840`
-- determinism-evidence repair: `a0f0071ceb514dc9f556c4a7fabe40840b1f2bc7`
-- final canonicalization/verification closure: `b95d5ab3b1f92a803098c16e9d2af29e3c42aae9`
+    canonical extraction
+            ↓
+    scene health / deterministic analysis
+            ↓
+    bounded correction proposal
+            ↓
+    authorization
+            ↓
+    canonical execution contract
+            ↓
+    real Blender boundary adapter
+            ↓
+    postcondition verification + receipt
+            ↓
+    temporal observation of resulting canonical state
 
-The cleared Extraction Fidelity v1 scope covers deterministic object membership, visibility, transforms including quaternion-mode handling, mesh vertices/faces, material-slot names, explicit omission semantics for normals/UV/local-frame, deterministic payload evidence, and preservation of the existing digest boundary. It does not add correction/write-back, persistence, event recognition, or temporal state.
+Canonical executors remain engine-neutral. Blender-facing mutation is performed only through the
+narrow injected/live adapter seam and never gains persistence, recovery, workflow, or action-runner
+authority.
 
-## Current next architecture layer — Temporal Observation + State Delta v1
+## Completed authoritative milestones
 
-The next layer is **design-only** at present. Current revision:
+### Blender Extraction Fidelity v1 — FROZEN / MERGED
 
-- branch: `feat/temporal-observation-state-delta-design`
-- revision 7: `44d0a1cc38dee7c34e996a1f7d7f2cd0504f6ed4`
-- status: **HOLD — independent architectural review found residual consistency defects**
-- implementation status: **NO IMPLEMENTATION AUTHORIZED**
+The read-only producer contract is complete and independently reviewed.
 
-Revision 7 correctly closes the previous purity gap by making `FromIdentity` an immutable explicit input of all four evaluation variants. The remaining corrections required for Revision 8 are:
+Frozen scope includes deterministic object membership and visibility, transforms including
+quaternion-mode handling, mesh vertices/faces, material-slot names, explicit omission semantics for
+unsupported normals/UV/local-frame data, deterministic payload evidence, and the established digest
+boundary.
 
-1. remove stale `StateDelta(A,B)` purity wording;
-2. reconcile the conceptual pair-domain wording with the complete four-variant evaluation-input domain;
-3. correct T-25 / attack #39 so boundary identity mismatch does not incorrectly prohibit the `NEW_EPOCH` admission mutation;
-4. update stale two-form `NEW_EPOCH` enumerations/exit criteria to include `PAIR_INPUT_IDENTITY_MISMATCH`;
-5. define deterministic handling of multiple simultaneous boundary-cause fields.
+The producer remains frozen unless a concrete correctness defect requires reopening it.
 
-Do not implement Temporal Observation/StateDelta, schema versions, Event Abstraction, or streaming/storage from this hold point.
+### Temporal Observation + State Delta v1 — IMPLEMENTED / MERGED
 
-## Development pattern
+Design revision 9 was cleared for implementation and the core implementation merged in PR #109:
 
-```text
-bounded design
-    ↓
-implementation
-    ↓
-deterministic validation
-    ↓
-adversarial validation
-    ↓
-live Blender boundary validation
-    ↓
-focused regression + CI
-    ↓
-independent red-team review
-    ↓
-merge
-```
+- merge commit: 7c63c3190c4adacfddb8d8b6a35721234876669b;
+- real Blender temporal L-1–L-5 evidence passed;
+- the temporal layer remains engine-neutral and downstream of canonical world state;
+- Event Abstraction, event recognition, streaming/storage, retention, and runtime authority remain
+  outside this milestone.
 
-Execution authority remains separate from the canonical analysis/model layer. Blender-facing adapters are boundary components; canonical executors do not gain persistence, receipt, recovery, workflow, or action-runner authority.
+Do not use the old pre-revision-9 Temporal hold text in archival handoffs as the current status.
 
-## Wave 12 — `REPAIR_PARENT_CYCLE`
+## Blender correction closure
 
-Branch: `feat/blender-wave12-reference-integrity`
+| Wave | Capability | Current status |
+|---|---|---|
+| W1 | REMOVE_DUPLICATE_FACE | Deterministic implementation/regression complete; no committed real-Blender correction gate |
+| W1b | REMOVE_DEGENERATE_FACE | Deterministic implementation/regression complete; no committed real-Blender correction gate |
+| W2 | REPAIR_FACE_WINDING | Deterministic implementation/design complete; no committed real-Blender correction gate |
+| W3 / W13 | REPAIR_MERGE_VERTEX | Live-validated and merged; Wave 13 middle-table planner closure included |
+| W4 | REPAIR_PARENT_REFERENCE | Live-validated and merged |
+| W5 | Topology intelligence | Analysis/read-only boundary live-validated and merged |
+| W6 | REMOVE_ISOLATED_VERTICES | Live-validated and merged |
+| W7 | REMOVE_DUPLICATE_VERTICES | Live-validated and merged |
+| W8 | NORMALIZE_UNIT_METADATA | Live-validated and merged |
+| W9 | RENAME_OBJECT | Live-validated and merged |
+| W10 | RESTRUCTURE_COLLECTION | Live-validated and merged |
+| W11 | Empty-mesh canonical contract | Live-validated and merged |
+| W12 | REPAIR_PARENT_CYCLE | Live-validated and merged |
+| W14 | Correction-boundary material-slot fidelity | Live-validated, independently red-teamed, and merged |
 
-Status: **IMPLEMENTATION / VALIDATION COMPLETE — INDEPENDENT REVIEW PENDING**
+Wave 14 is now the normative representation-fidelity reference for geometry-rebuilding Blender
+corrections. Same-datablock table rebuilding is the reference pattern; raw Blender slot evidence is
+used only at the boundary for information the frozen canonical model cannot express. The wave did
+not expand the extraction contract or correction authority.
 
-Design gate: `BLENDER_WAVE12_PARENT_CYCLE_REPAIR_DESIGN.md`
+## Wave 14 — representation fidelity
 
-Review packet: `docs/ATLAS_WAVE12_DEEPSEEK_REVIEW_HANDOFF.md`
+Wave 14 closed the demonstrated material-slot evidence gap.
 
-Wave 12 extends the existing Wave 4 hierarchy-correction boundary to one additional malformed-reference class: a parent cycle. The canonical health kernel already reports hierarchy cycles through `OBJECT_HIERARCHY_INVALID`; Wave 12 makes cycle repair explicit without broadening Wave 4's dangling-parent correction.
+Key decisions:
 
-The correction is intentionally bounded to one selected parent edge: the explicitly authorized target object's `parent_object_id` is detached to `None`. No new parent is inferred, no other hierarchy edge is changed, and no geometry, transform, naming, collection, persistence, recovery, receipt, workflow, or action-runner authority is introduced.
+- canonical MQ-5 material comparison is retained and is now exercised non-vacuously;
+- material-bearing real-Blender fixtures prove slot preservation rather than comparing () == ();
+- unassigned and OBJECT-linked slots are treated as raw-Blender-boundary evidence because the frozen
+  producer omits the material key for those states;
+- Pattern B (clear_geometry + from_pydata + update) is the normative reference primitive;
+- the historical Pattern A datablock-replacement primitive is superseded as the reference pattern
+  and retained only as a deliberately lossy RED diagnostic;
+- datablock identity is not a canonical Atlas invariant;
+- normals, UVs, local-frame data, polygon material_index, material node metadata, and material
+  datablock identity remain outside the contract.
 
-The canonical executor preserves the selected target's local `location`, `rotation`, and `scale`. A malformed cyclic graph has no defined world pose under the existing parent-chain engine, so world-pose preservation is proven separately at the live Blender boundary using an acyclic disposable parent relationship and `CLEAR_KEEP_TRANSFORM`.
+Wave 14 merged as PR #111 in merge commit 0d6cf88b2b7d0a72501bd20e5b42aa091be890bf.
 
-## Validation status
+## Current validation posture
 
-The current Wave 12 validation gates are green:
+The established development pattern remains:
 
-- deterministic cycle/reference tests — **PASS**;
-- adversarial fail-closed tests — **PASS**;
-- combined Wave 12 topology + live Blender gate — **PASS**;
-- full Wave 1–Wave 12 regression — **PASS**;
-- real Blender **4.4.3** disposable boundary gate on the user's host — **PASS**;
-- final-head GitHub Actions run **#1904** — **PASS** on Python 3.9 and 3.11, including M13.7 on 3.11.
+    bounded design
+        ↓
+    implementation
+        ↓
+    deterministic validation
+        ↓
+    adversarial validation
+        ↓
+    live Blender boundary validation
+        ↓
+    focused regression + CI
+        ↓
+    independent red-team review
+        ↓
+    merge
 
-The live gate verified parent detachment, world-matrix preservation within Blender float32 round-off tolerance (`1.1920928955078125e-07` measured delta against a `1e-6` acceptance threshold), object/mesh identity preservation, object-set preservation, no frozen asset opened, and no save attempt.
-
-## Independent review gate
-
-The remaining gate is an actually independent review of the final HEAD `a2bfdb19071594669f93cb6b81c448b36caf9600`.
-
-The earlier Wave 12 review findings were incorporated, but the GitHub review submissions currently recorded on PR #102 were authored by the repository owner and therefore do **not** satisfy the independent-review requirement. Do not describe them as independent red-team approval.
-
-DeepSeek is planned as the independent adversarial reviewer on the next development session. The reviewer must inspect the final HEAD and the complete Wave 12 contract, not an older checkpoint.
+Live Blender evidence is operator-gated and must not be described as CI evidence unless a workflow
+actually executes it.
 
 Workflow/action-runner tests remain excluded unless explicitly authorized.
 
-Do not broaden a cycle repair into general hierarchy normalization. A multi-edge mutation, stale authorization acceptance, hidden re-parenting, canonical local-transform drift, world-pose drift at the live boundary, or ambiguous target selection blocks merge.
+## What is NOT the next correction wave
+
+There is currently no evidence-based justification to invent a new correction family for:
+
+- normals or UVs;
+- invalid indices;
+- non-manifold topology;
+- bounds overlap;
+- invalid transforms;
+- duplicate object identifiers;
+- scene-origin review cases;
+- other findings already classified as review-only or unsafe.
+
+Those cases either require additional representation semantics, human review, or a separate safety
+contract. They should not be forced into an implementation wave merely to keep the wave number
+moving.
+
+## Next Blender milestone — live closure of the pre-existing W1/W2 capabilities
+
+The next concrete Blender milestone is **not yet an implementation-authorized Wave 15**.
+
+The next design/discovery target is:
+
+**W1/W2 Live Boundary Closure**
+
+Purpose:
+
+- establish real Blender 4.4.3 boundary gates for the already-defined duplicate-face,
+  degenerate-face, and face-winding corrections;
+- prove that the live adapter implements the already-frozen correction contracts rather than merely
+  exercising in-memory SceneModel transforms;
+- apply Wave 14 representation-fidelity evidence wherever the live operation rebuilds geometry tables;
+- preserve the existing authorization, planner, executor, receipt, persistence, and fail-closed
+  boundaries;
+- introduce no new finding code, correction family, extraction field, Temporal behavior, or
+  workflow authority.
+
+This milestone should begin with a **read-only design/discovery gate**. Implementation should be
+authorized only after the live Blender mutation primitives, target selection, material-slot behavior,
+persistence/no-save behavior, and adversarial refusal cases are independently reviewed.
+
+The milestone should remain split into independently provable gates even if delivered in one wave:
+
+1. REMOVE_DUPLICATE_FACE;
+2. REMOVE_DEGENERATE_FACE;
+3. REPAIR_FACE_WINDING.
+
+Do not label the work "Wave 15 implementation" until that design/discovery gate is cleared.
+
+## Repository-state hygiene
+
+The following older documents are historical/archival and must not be treated as current status
+without reconciliation against main:
+
+- ATLAS_HANDOFF_2026-09-15_END_OF_NIGHT.md
+- ATLAS_HANDOFF_2026-09-16_END_OF_NIGHT.md
+- ATLAS_HANDOFF_2026-09-18_END_OF_NIGHT.md
+- older Wave 12 review handoffs that describe independent review as still pending
+- any pre-revision-9 Temporal handoff that describes the implementation as unauthorized
+
+The authoritative source for the current Blender track is this README plus the current design and
+test artifacts on main.
+
+## Frozen boundaries
+
+Unless a separately approved design gate exists, do not reopen:
+
+- planning/blender/bpy_extraction.py;
+- planning/blender/extraction_payload.py;
+- planning/blender/scene_model.py;
+- Temporal representation or schema semantics;
+- correction authorization semantics;
+- correction receipt schema;
+- persistence / rollback / recovery;
+- workflow / action-runner authority;
+- Unreal integration.
+
+A concrete correctness defect may reopen a frozen boundary, but that requires its own evidence and
+must not be smuggled into an unrelated correction wave.
