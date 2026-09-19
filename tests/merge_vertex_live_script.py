@@ -239,9 +239,12 @@ MIDDLE_FACES = [(0, 1, 3)]
 def derive_merge_parameters(scene, report, mesh_id):
     """Plan parameters derived from the FRESH live evidence (design §4), executor-independent.
 
-    (The Slice-2 planner cannot emit the mid-table cases — its known over-refusal defect — so the
-    live gate builds the plan through the real CorrectionPlan contract with these derived values,
-    exactly as the Slice-3 deterministic gate did.)
+    This is the driver's OWN derivation of the same facts, kept as an INDEPENDENT witness: the gate
+    asserts the receipt's groups/survivors/mapping against these values, and the hostile cases build a
+    contract-valid plan from them that is then mutated (``mutate_params``) — a path that must bypass the
+    planner on purpose. Historical note: this synthetic path was also the only way to drive mid-table
+    shapes while the retired planner kept set was the POST index range; Wave 13 replaced that with the
+    PRE-state survivor subsequence, so every positive case now takes its plan from the real planner.
     """
     mesh = next(o.mesh for o in scene.objects if o.mesh is not None and o.mesh.mesh_id == mesh_id)
     table = mesh.vertices
@@ -501,11 +504,11 @@ def main():
                 handle.read()).hexdigest()
 
     cases = [
-        ("positive-B1-live", B1_VERTS, B1_FACES, {}),
+        ("positive-B1-live", B1_VERTS, B1_FACES, {"mode": "real_planner"}),
         ("positive-tail-real-planner", TAIL_VERTS, TAIL_FACES, {"mode": "real_planner"}),
         ("positive-middle-table-real-planner", MIDDLE_VERTS, MIDDLE_FACES,
          {"mode": "real_planner"}),
-        ("positive-transitive-3", TRANSITIVE_VERTS, TRANSITIVE_FACES, {}),
+        ("positive-transitive-3", TRANSITIVE_VERTS, TRANSITIVE_FACES, {"mode": "real_planner"}),
         ("negative-missing-authorization", B1_VERTS, B1_FACES, {"authorization": None}),
         ("negative-no-artifact-string", B1_VERTS, B1_FACES,
          {"authorization": "REPAIR_MERGE_VERTEX"}),

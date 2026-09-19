@@ -103,6 +103,7 @@ def test_environment_and_no_persistence(live_results):
 
 def test_positive_b1_live_merge_completes(live_results):
     case = _case(live_results, "positive-B1-live")
+    assert case["mode"] == "real_planner", "this case must take its plan from the real planner"
     receipt = case["receipt"]
     assert case["mutator_invocations"] == 1, "exactly one real Blender mutation"
     assert receipt["result"] == "COMPLETED" and receipt["failure_code"] is None
@@ -251,6 +252,7 @@ def test_positive_middle_table_real_planner_preserves_pre_state_survivors(live_r
 
 def test_positive_transitive_group_live(live_results):
     case = _case(live_results, "positive-transitive-3")
+    assert case["mode"] == "real_planner", "this case must take its plan from the real planner"
     assert case["receipt"]["result"] == "COMPLETED"
     assert case["mutator_invocations"] == 1
     assert case["derived"]["groups"] == [[0, 1, 2]]
