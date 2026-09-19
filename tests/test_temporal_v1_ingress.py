@@ -126,4 +126,5 @@ def test_canonical_parser_error_is_preserved_verbatim():
         parse_temporal_observation(value)
 
     assert exc_info.value.reason_code is AdmissionReasonCode.INVALID_CANONICAL_VALUE_DOMAIN
-    assert str(exc_info.value) == parser_message
+    assert str(exc_info.value) == "$['mesh']['faces'][0][0] is outside signed-64 range"
+    assert parser_message == "$['objects'][0]['mesh']['faces'][0][0] is outside signed-64 range"
