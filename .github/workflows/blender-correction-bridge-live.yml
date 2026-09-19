@@ -4,7 +4,9 @@ on:
   push:
     branches:
       - feat/blender-correction-execution-bridge
-  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -15,6 +17,7 @@ concurrency:
 
 jobs:
   correction-bridge-live-blender:
+    if: github.ref == 'refs/heads/feat/blender-correction-execution-bridge' || github.event.pull_request.head.ref == 'feat/blender-correction-execution-bridge'
     runs-on: [self-hosted, windows, local-win]
     environment: local-testing
     timeout-minutes: 25
