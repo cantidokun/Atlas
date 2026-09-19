@@ -1088,50 +1088,25 @@ def test_merge_executor_does_not_import_bpy():
 
 
 # ===========================================================================
-# 8. REPORTED DEFECT (NOT ENDORSED) — Slice-2 planner kept-set construction
+# 8. WAVE 13 REGRESSION — planner kept-set closure for middle-table groups
 # ===========================================================================
 
-def test_reported_defect_slice2_planner_uses_the_post_index_range_as_the_kept_set():
-    """REPORTED DEFECT — pinned for the record, NOT endorsed and NOT remediated in this slice.
-
-    ``correction_planner.plan_merge_vertex_correction`` builds its predicted post-state as
-    ``kept = sorted(set(old_to_new_mapping))`` and then indexes the PRE-state vertex table with it.
-    But ``old_to_new_mapping`` maps every pre index to its POST index, so ``set(mapping)`` is exactly
-    ``range(m)`` — the post index RANGE, never the kept PRE indices ``S`` (design §4). The two
-    coincide only when every removed index exceeds every kept index.
-
-    Consequence: for any duplicate group whose removed member is not positioned after all kept
-    indices, the planner predicts a wrong ``V'``, the kernel then sees a spurious
-    ``MESH_DUPLICATE_VERTEX`` in that prediction, and the planner refuses with a FALSE
-    ``PARTIAL_GROUP_COVERAGE`` — so no plan is emitted for the general case. The executor is
-    unaffected (it derives ``S`` correctly and accepts a correct general-case plan); the defect is
-    confined to the cleared Slice-2 planner artifact (hash 7400834fb3b6f4a6…), which this slice is
-    not authorized to modify.
-    """
-    from planning.blender.correction_authorization import (
-        canonical_survivor_indices, make_index_mapping,
-    )
-    # middle-removed duplicate: S != range(m), so the planner must falsely refuse
+def test_wave13_planner_closes_middle_table_kept_set():
+    """A valid exact-bit merge must plan successfully when a removed vertex is not a suffix."""
     mid = _scene(MID_FACES, MID_VERTS)
-    groups = _groups_of(mid)
-    mapping = make_index_mapping(len(MID_VERTS), groups)
-    kept_range = sorted(set(mapping))
-    survivor_set = set(canonical_survivor_indices(groups))
-    removed = {i for grp in groups for i in grp} - survivor_set
-    true_kept = sorted(survivor_set | {i for i in range(len(MID_VERTS)) if i not in removed})
-    assert true_kept == [0, 1, 2, 4, 5, 6]
-    assert kept_range == [0, 1, 2, 3, 4, 5]
-    assert kept_range != true_kept, "the planner's kept set is wrong for this fixture"
     outcome = _plan_for(mid, _scene_input_for(MID_FACES, MID_VERTS))
-    assert outcome.refusal_code == "PARTIAL_GROUP_COVERAGE", \
-        "current behaviour: the planner falsely refuses a valid exact-bit merge"
-    assert outcome.plan.corrections == ()
+    assert outcome.refusal_code is None
+    correction = _merge_correction(outcome.plan)
+    parameters = _params(correction)
+    assert parameters["duplicate_groups"] == [[0, 3]]
+    assert parameters["survivor_indices"] == [0]
+    assert parameters["old_to_new_mapping"] == [0, 1, 2, 0, 3, 4, 5]
+    assert parameters["all_groups_exact"] is True
+    assert parameters["predicted_topology_unchanged"] is True
 
-    # and it only 'works' when the removed index is after every kept index
-    tail = _scene(TAIL_FACES, TAIL_VERTS)
-    tail_outcome = _plan_for(tail, _scene_input_for(TAIL_FACES, TAIL_VERTS))
-    assert tail_outcome.refusal_code is None, \
-        "current behaviour: the planner succeeds only when S == range(m)"
+    # The actual surviving PRE-state vertices are [0, 1, 2, 4, 5, 6], not
+    # the post-index range [0, 1, 2, 3, 4, 5]. The planner must therefore emit
+    # the same valid merge correction the executor already knows how to apply.
 
 # ===========================================================================
 # 9. F-1 REMEDIATION — an EMPTY authoritative group set must refuse, not no-op
