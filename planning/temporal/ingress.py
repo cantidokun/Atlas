@@ -11,6 +11,7 @@ import json
 from typing import Any, Mapping
 
 from .admission import AdmissionReasonCode
+from .canonical import CanonicalValueError
 from .model import CapabilityContract, ProducerProvenance, SourceTime, TemporalObservation, TemporalValidationError
 
 
@@ -149,7 +150,7 @@ def parse_temporal_observation(value: Mapping[str, Any]) -> TemporalObservation:
         # Reuse the frozen canonical parser as the authority for allowed keys/types.
         from .model import snapshot_to_scene
         snapshot_to_scene(parsed_snapshot)
-    except Exception as exc:
+    except CanonicalValueError as exc:
         _reject(AdmissionReasonCode.INVALID_CANONICAL_VALUE_DOMAIN, str(exc))
 
     state_digest = value.get("state_digest")
