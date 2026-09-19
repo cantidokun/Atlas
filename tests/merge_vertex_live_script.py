@@ -9,8 +9,7 @@ validation asset is never touched), runs the complete live path
 
     live Blender scene -> bpy_extraction.extract_scene -> payload_to_scene_model
     -> run_scene_health -> CorrectionPlan -> authorization artifact -> execute_merge_vertex
-    -> REAL Blender mutation (from_pydata + obj.data assignment) -> fresh extraction
-    -> MQ-1..MQ-7 -> receipt
+    -> REAL Blender mutation -> fresh extraction -> MQ-1..MQ-7 -> receipt
 
 and prints one JSON evidence block between the markers ``ATLAS_MERGE_LIVE_START`` /
 ``ATLAS_MERGE_LIVE_END``.
@@ -18,6 +17,19 @@ and prints one JSON evidence block between the markers ``ATLAS_MERGE_LIVE_START`
 Boundary: the mutation primitive is implemented HERE (in the live driver), exactly as the
 Wave-2 live gate did — no second planning-layer adapter is invented, and the executor keeps
 importing no bpy. No persistence, no save, no rollback, no cleanup, no retry.
+
+WAVE 14 — REPRESENTATION FIDELITY (material slots)
+    SUPERSEDED: this driver previously called the datablock-REPLACEMENT pattern
+    (``bpy.data.meshes.new(...)`` + ``from_pydata(...)`` + ``obj.data = new_mesh``, "Pattern A") the
+    normative primitive. It is no longer normative: it truncates the target object's slot table to
+    the new datablock's table, so assigned, unassigned and OBJECT-linked material slots alike are
+    destroyed, and it leaves the superseded datablock orphaned. The normative reference pattern is
+    now the SAME-DATABLOCK table rebuild ("Pattern B", ``LiveMutator`` below):
+        mesh.clear_geometry(); mesh.from_pydata(vertices, [], faces); mesh.update()
+    Pattern A survives here ONLY as ``LossyPatternAMutator``, a deliberately lossy diagnostic used by
+    the RED case, which must FAIL through raw material-slot evidence and/or the existing MQ-5
+    canonical postcondition. Authority, receipt schema and the MQ-1..MQ-7 vocabulary are unchanged.
+    See planning/blender/BLENDER_WAVE14_CORRECTION_REPRESENTATION_FIDELITY_DESIGN.md §5.
 """
 
 import hashlib
@@ -68,6 +80,28 @@ WINDING = "MESH_WINDING_INCONSISTENT"
 #: case onto a mesh with no duplicate-vertex findings (Wave 13 live-gate finding).
 TARGET_OBJECT_ID = "pitch"
 
+#: WAVE 14 material-slot fixtures (in-memory only; no material datablock is ever saved). Order is the
+#: slot order, names are distinct and non-sortable-by-accident, and each spec pins the producer §4.3
+#: branch it exercises: all-DATA-assigned (canonical names), unassigned (key OMITTED), OBJECT-linked
+#: (key OMITTED). See BLENDER_WAVE14_CORRECTION_REPRESENTATION_FIDELITY_DESIGN.md §3.1.
+MATERIAL_SLOTS_ASSIGNED = (("DATA", "turf"), ("DATA", "line_markings"), ("DATA", "goal_net"))
+MATERIAL_SLOTS_UNASSIGNED = (("DATA", "turf"), ("DATA", None), ("DATA", "goal_net"))
+MATERIAL_SLOTS_OBJECT_LINKED = (("DATA", "turf"), ("OBJECT", "line_markings"))
+MATERIAL_SLOTS_UNRELATED = (("DATA", "banner"),)
+
+
+def mutator_for(bpy, primitive, **kwargs):
+    """Select the live mutation primitive by NAME (never by fallback).
+
+    ``pattern_b`` (default) is the normative same-datablock reference primitive; ``pattern_a`` is the
+    SUPERSEDED, deliberately lossy diagnostic used only by the RED case.
+    """
+    if primitive == "pattern_b":
+        return LiveMutator(bpy, **kwargs)
+    if primitive == "pattern_a":
+        return LossyPatternAMutator(bpy, **kwargs)
+    raise RuntimeError(f"unknown live mutation primitive: {primitive!r}")
+
 
 # --------------------------------------------------------------------------- live boundary
 class LiveEngine:
@@ -86,12 +120,21 @@ def live_extractor(engine_state):
 
 
 class LiveMutator:
-    """The normative design §9 primitive, implemented against real Blender.
+    """The NORMATIVE reference primitive (Wave 14 Pattern B), implemented against real Blender.
 
-    Rebuild the target object's mesh datablock from the DERIVED tables and assign it; touch
-    nothing else. Invocations are counted so the receipt-level claim can be checked against the
-    real engine contact.
+    Rebuild the target object's mesh TABLES IN PLACE on the SAME datablock from the DERIVED tables
+    and touch nothing else. Because the datablock is never replaced, the object's material-slot
+    table (assigned, unassigned and OBJECT-linked slots alike) and the mesh-datablock inventory are
+    left untouched, which is what the existing MQ-5/MQ-6 postconditions require. Invocations are
+    counted so the receipt-level claim can be checked against the real engine contact.
+
+    WAVE 14 SUPERSESSION: this class previously performed a datablock REPLACEMENT
+    (``bpy.data.meshes.new`` + ``from_pydata`` + ``obj.data = new_mesh``). That pattern is retained
+    in this driver only as ``LossyPatternAMutator`` (diagnostic RED evidence), never as the
+    normative primitive. See BLENDER_WAVE14_CORRECTION_REPRESENTATION_FIDELITY_DESIGN.md §5.
     """
+
+    primitive = "pattern_b_same_datablock"
 
     def __init__(self, bpy_module, *, drop_last_face=False, shift_coord=False, liar=False):
         self.bpy = bpy_module
@@ -99,6 +142,40 @@ class LiveMutator:
         self.drop_last_face = drop_last_face
         self.shift_coord = shift_coord
         self.liar = liar
+
+    def __call__(self, engine_state, *, object_id, mesh_id, vertices, faces, old_to_new_mapping):
+        self.calls.append({"object_id": object_id, "mesh_id": mesh_id,
+                           "vertex_count": len(vertices), "face_count": len(faces)})
+        bpy = engine_state.bpy if hasattr(engine_state, "bpy") else engine_state
+        obj = bpy.data.objects.get(object_id)
+        if obj is None:
+            raise RuntimeError(f"live target object {object_id!r} does not exist")
+        verts = [tuple(float(c) for c in v) for v in vertices]
+        face_tuples = [tuple(int(i) for i in f) for f in faces]
+        if self.shift_coord:
+            verts[0] = (verts[0][0] + 1.0, verts[0][1], verts[0][2])
+        if self.drop_last_face:
+            face_tuples = face_tuples[:-1]
+        # Pattern B: same datablock, tables rebuilt in place.
+        obj.data.clear_geometry()
+        obj.data.from_pydata(verts, [], face_tuples)
+        obj.data.update()
+        if self.liar:
+            return {"ok": True, "result": "COMPLETED"}
+        return None
+
+
+class LossyPatternAMutator(LiveMutator):
+    """DIAGNOSTIC RED primitive (superseded Pattern A) — deliberately lossy, never normative.
+
+    Builds a NEW mesh datablock and assigns it (``obj.data = new_mesh``). This truncates the
+    object's material-slot table to the new datablock's (empty) table and orphans the superseded
+    datablock, so a material-bearing target loses every slot at the real Blender boundary. It exists
+    only so the live gate can prove it DETECTS material-slot loss (raw slot evidence and/or the
+    existing MQ-5 canonical postcondition). It must never be described as the reference primitive.
+    """
+
+    primitive = "pattern_a_datablock_replacement"
 
     def __call__(self, engine_state, *, object_id, mesh_id, vertices, faces, old_to_new_mapping):
         self.calls.append({"object_id": object_id, "mesh_id": mesh_id,
@@ -122,6 +199,61 @@ class LiveMutator:
         return None
 
 
+def material_slot_table(obj):
+    """The RAW Blender slot table: ordered ``[link, material name or None]`` pairs.
+
+    Wave 14: this is the authoritative raw evidence for the properties the canonical model cannot
+    express (unassigned slots, OBJECT-linked slots, slot-order identity). It replaces nothing — the
+    canonical comparison keeps its own meaning — and it is never read as canonical state.
+    """
+    return [[str(getattr(slot, "link", None)),
+             (slot.material.name if getattr(slot, "material", None) is not None else None)]
+            for slot in obj.material_slots]
+
+
+def slot_material(bpy, name):
+    """Fetch-or-create one material datablock by name (in-memory fixtures only)."""
+    if name is None:
+        return None
+    existing = bpy.data.materials.get(name)
+    return existing if existing is not None else bpy.data.materials.new(name)
+
+
+def apply_material_slots(bpy, obj, spec):
+    """Build the object's material-slot table in the given order from a slot spec.
+
+    ``spec`` entries are ``("DATA", name)`` (a data-linked slot), ``("DATA", None)`` (an UNASSIGNED
+    data-linked slot) or ``("OBJECT", name)`` (an OBJECT-linked slot). Slot order is the spec order,
+    so the fixture's ordering evidence is order-sensitive by construction.
+    """
+    for index, (link, name) in enumerate(spec):
+        obj.data.materials.append(slot_material(bpy, name))
+        if link == "OBJECT":
+            obj.material_slots[index].link = "OBJECT"
+            obj.material_slots[index].material = slot_material(bpy, name)
+    return material_slot_table(obj)
+
+
+def materials_view(payload, scene, object_id):
+    """Canonical + payload-level material evidence for one object (Wave 14).
+
+    ``key_present`` / ``payload_value`` show what the FROZEN producer emitted (a key that is omitted
+    is different payload state from ``[]``), ``canonical`` is what the canonical model can compare,
+    and ``representation_state`` is the payload-level representation fact that the canonical model
+    cannot see. Nothing here is read as authority.
+    """
+    from planning.blender.extraction_payload import payload_representation_state
+    entry = next((o for o in payload["objects"] if o["object_id"] == object_id), None)
+    mesh = (entry or {}).get("mesh") or {}
+    target = next((o for o in scene.objects if o.object_id == object_id and o.mesh is not None), None)
+    return {
+        "key_present": "materials" in mesh,
+        "payload_value": mesh.get("materials"),
+        "canonical": list(target.mesh.materials) if target is not None else None,
+        "representation_state": list(payload_representation_state(payload)),
+    }
+
+
 def raw_scene_snapshot(bpy):
     """An INDEPENDENT raw-Blender snapshot (outside the extraction model), for pre/post proof."""
     objects = []
@@ -142,7 +274,11 @@ def raw_scene_snapshot(bpy):
                         if obj.type == "MESH" and data else None,
             "faces": [list(p.vertices) for p in data.polygons]
                      if obj.type == "MESH" and data else None,
-            "material_slots": [m.name if m else None for m in obj.data.materials]
+            # WAVE 14: the authoritative raw slot table is link-aware (a data-slot-name list
+            # cannot see OBJECT-linked slots and cannot distinguish an unassigned slot).
+            "material_slots": material_slot_table(obj)
+                              if obj.type == "MESH" and data else None,
+            "material_data_slots": [m.name if m else None for m in obj.data.materials]
                               if obj.type == "MESH" and data else None,
             "custom_keys": sorted(dict(obj.items()).keys()),
         }
@@ -173,8 +309,14 @@ def reset_scene(bpy):
 
 
 def build_scene(bpy, *, verts, faces, unrelated=True, goals_collection=True,
-                signed_zero_coords=None):
-    """One target mesh object + (optionally) one unrelated mesh object and one unrelated empty."""
+                signed_zero_coords=None, target_slots=None, unrelated_slots=None):
+    """One target mesh object + (optionally) one unrelated mesh object and one unrelated empty.
+
+    Wave 14: ``target_slots`` / ``unrelated_slots`` build real material-slot tables (see
+    ``apply_material_slots``) so the target's canonical material tuple can be NON-EMPTY and the raw
+    slot table can be asserted. ``reset_scene`` removes every mesh datablock first, so a fixture can
+    never inherit a datablock (or an orphan) from the previous case.
+    """
     scene = reset_scene(bpy)
     mesh = bpy.data.meshes.new("pitch")
     mesh.from_pydata([tuple(float(c) for c in v) for v in verts], [], [tuple(int(i) for i in f)
@@ -182,6 +324,8 @@ def build_scene(bpy, *, verts, faces, unrelated=True, goals_collection=True,
     mesh.update()
     target = bpy.data.objects.new("pitch", mesh)
     scene.collection.objects.link(target)
+    if target_slots:
+        apply_material_slots(bpy, target, target_slots)
 
     if unrelated:
         goals = bpy.data.collections.new("Goals")
@@ -191,6 +335,8 @@ def build_scene(bpy, *, verts, faces, unrelated=True, goals_collection=True,
                           [(0, 1, 2)])
         gmesh.update()
         goal = bpy.data.objects.new("goal", gmesh)
+        if unrelated_slots:
+            apply_material_slots(bpy, goal, unrelated_slots)
         goal.location = (5.0, 0.0, 0.0)
         goal.rotation_euler = (0.0, 0.0, 0.0)
         if goals_collection:
@@ -384,11 +530,13 @@ def receipt_view(receipt):
 
 def run_case(label, verts, faces, *, mode="synthetic", authorization=None,
              mutate_params=None, mutator_kwargs=None, unrelated=True, goals_collection=True,
-             planner=True):
+             planner=True, primitive="pattern_b", target_slots=None, unrelated_slots=None):
     """Build the disposable scene, run the whole live path, capture raw + receipt evidence."""
     build_scene(bpy, verts=verts, faces=faces, unrelated=unrelated,
-                goals_collection=goals_collection)
+                goals_collection=goals_collection, target_slots=target_slots,
+                unrelated_slots=unrelated_slots)
     engine = LiveEngine(bpy)
+    pre_payload = extract_scene(bpy)
     pre_scene, pre_report = live_extractor(engine)
     target_object = next((o for o in pre_scene.objects
                           if o.object_id == TARGET_OBJECT_ID and o.mesh is not None), None)
@@ -420,7 +568,7 @@ def run_case(label, verts, faces, *, mode="synthetic", authorization=None,
         if mode != "real_planner":
             plan, correction = synthetic_plan(pre_scene, params)
 
-    mutator = LiveMutator(bpy, **(mutator_kwargs or {}))
+    mutator = mutator_for(bpy, primitive, **(mutator_kwargs or {}))
     raw_before = raw_scene_snapshot(bpy)
     auth = authorization
     if auth == "AUTO":
@@ -428,7 +576,9 @@ def run_case(label, verts, faces, *, mode="synthetic", authorization=None,
     receipt = execute_merge_vertex(engine_state=engine, plan=plan, authorization=auth,
                                    mutator=mutator, extractor=live_extractor)
     raw_after = raw_scene_snapshot(bpy)
+    post_payload = None
     try:
+        post_payload = extract_scene(bpy)
         post_scene, post_report = live_extractor(engine)
         post_error = None
     except Exception as exc:  # noqa: BLE001 - a destroyed post-state is itself evidence
@@ -442,6 +592,7 @@ def run_case(label, verts, faces, *, mode="synthetic", authorization=None,
     return {
         "case": label,
         "mode": mode,
+        "primitive": mutator.primitive,
         "planner": planner_out,
         "fixture": {"vertices": [list(v) for v in verts], "faces": [list(f) for f in faces]},
         "derived": derived,
@@ -459,6 +610,10 @@ def run_case(label, verts, faces, *, mode="synthetic", authorization=None,
                                                 "MESH_DUPLICATE_FACE"),
             "degenerate_face": measured_payloads(pre_report, target.mesh_id,
                                                  "MESH_DEGENERATE_FACE"),
+            # WAVE 14 representation evidence: what the frozen producer emitted, what the canonical
+            # model can compare, and the payload-level representation fact it cannot see.
+            "materials": materials_view(pre_payload, pre_scene, target_object.object_id),
+            "unrelated_materials": materials_view(pre_payload, pre_scene, "goal"),
         },
         "post": None if target_after is None else {
             "digest": post_report.digest(),
@@ -473,6 +628,10 @@ def run_case(label, verts, faces, *, mode="synthetic", authorization=None,
                                                 "MESH_DUPLICATE_FACE"),
             "degenerate_face": measured_payloads(post_report, target.mesh_id,
                                                  "MESH_DEGENERATE_FACE"),
+            "materials": (None if post_payload is None or post_scene is None
+                          else materials_view(post_payload, post_scene, target_object.object_id)),
+            "unrelated_materials": (None if post_payload is None or post_scene is None
+                                    else materials_view(post_payload, post_scene, "goal")),
         },
         "post_extraction_error": post_error,
         "mutator_invocations": len(mutator.calls),
@@ -509,6 +668,17 @@ def main():
         ("positive-middle-table-real-planner", MIDDLE_VERTS, MIDDLE_FACES,
          {"mode": "real_planner"}),
         ("positive-transitive-3", TRANSITIVE_VERTS, TRANSITIVE_FACES, {"mode": "real_planner"}),
+        # ---- WAVE 14: material-slot representation fidelity (real planner, normative Pattern B) ----
+        ("positive-material-slots-real-planner", TAIL_VERTS, TAIL_FACES,
+         {"mode": "real_planner", "target_slots": MATERIAL_SLOTS_ASSIGNED,
+          "unrelated_slots": MATERIAL_SLOTS_UNRELATED}),
+        ("positive-material-slots-with-unassigned", TAIL_VERTS, TAIL_FACES,
+         {"mode": "real_planner", "target_slots": MATERIAL_SLOTS_UNASSIGNED}),
+        ("positive-object-linked-slot", TAIL_VERTS, TAIL_FACES,
+         {"mode": "real_planner", "target_slots": MATERIAL_SLOTS_OBJECT_LINKED}),
+        ("diagnostic-lossy-pattern-a-drops-material-slots", TAIL_VERTS, TAIL_FACES,
+         {"mode": "real_planner", "target_slots": MATERIAL_SLOTS_ASSIGNED,
+          "primitive": "pattern_a"}),
         ("negative-missing-authorization", B1_VERTS, B1_FACES, {"authorization": None}),
         ("negative-no-artifact-string", B1_VERTS, B1_FACES,
          {"authorization": "REPAIR_MERGE_VERTEX"}),
