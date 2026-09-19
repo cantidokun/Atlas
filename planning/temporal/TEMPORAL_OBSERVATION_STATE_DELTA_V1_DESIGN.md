@@ -1407,80 +1407,41 @@ exists, the layer's only state is the content-free §6.4 triple plus counters.
 
 ## 14. Restart and recovery semantics
 
-The temporal layer must connect cleanly to Atlas's existing recovery architecture, whose central
-discipline is: *identity is declared and bound, ambiguity fails closed, and a restart is never treated
-as proof about anything else* (`docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md` §4, §9, §16,
-§20 Step 6 — "Unambiguous matches may proceed. Ambiguous matches MUST fail closed.").
+Recovery has exactly three semantic cases.
 
-| Event | Detection | Temporal behaviour |
-| --- | --- | --- |
-| **Atlas restarts** | Atlas process incarnation changes | `stream_id` and `continuity_id` are Atlas-durable/declared, so comparability is preserved **iff** the next accepted observation declares the same `continuity_id` and the producer's session/epoch are unchanged. The prior `last_accepted_sequence` is restored from durable state or the epoch is re-established. If the admission state cannot be established at all, the arrival is `REJECTED_INVALID` (`ADMISSION_STATE_UNAVAILABLE`) — the stream is re-established from a declared boundary rather than guessed. If the state *is* restorable but the caller cannot supply the pair input, stage 3 emits a record with `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` (**not** a silent `NO_CHANGE`, and never a reconstructed `A`) |
-| **Blender restarts** | `producer_session_id` changes (and normally `continuity_id`) | `NEW_EPOCH` ⇒ boundary path (§6.8.1), empty entity list; `producer_instance_ordinal` increments |
-| **Unreal restarts** | `producer_session_id` changes | identical rule (boundary path, §6.8.1); on the Unreal side this mirrors the recovery contract's `editor_session_id`-per-process-incarnation discipline, and PID alone is never identity |
-| **producer stream resumes** | new session/epoch declared | `NEW_EPOCH`. If the stream already had an accepted observation, the first observation of the new epoch forms a **boundary pair** with the last accepted observation of the previous epoch and produces a `TEMPORAL_DISCONTINUITY` record (§8.1); if it is the stream's first observation ever, there is no predecessor and no record is produced |
-| **duplicate re-delivery** | same `sequence` **and** same `state_digest` as the last accepted observation | `DUPLICATE_ACKNOWLEDGED`: idempotent acknowledgement; **no** `StateDelta`, no admission-state change (§6.6) |
-| **sequence counter resets** | `sequence` regresses with **unchanged declared** continuity metadata | **`REJECTED_STALE`** (§6.3, §6.6): a bare regression is indistinguishable from a stale re-delivery, so it is neither an epoch change nor a delta. A producer that genuinely resets MUST declare the boundary through `continuity_id`, `producer_session_id` or `ordering_epoch` — then the "different continuity/session observed" row applies |
-| **source time resumes** (timeline continues after a stall) | same epoch, `source_time` non-decreasing | comparable; a large forward step is a legal gap (`observations_skipped`), not a discontinuity |
-| **stale observation arrives** (older `sequence` inside the same epoch) | `sequence` < `last_accepted_sequence` with unchanged declared continuity metadata | **`REJECTED_STALE`**; zero mutation of admission state (§6.4); no delta, and **no epoch change** — v1 refuses to guess whether it is looking at staleness or at an undeclared reset (§6.3) |
-| **different continuity/session observed** | `continuity_id`/`producer_session_id`/`ordering_epoch` differ | `NEW_EPOCH` ⇒ boundary path (§6.8.1), empty entity list |
-| **the pair's earlier endpoint is not supplied** | no `A` in the `PairInput` (§6.7) | the arrival is admitted on its own facts and stage 3 emits exactly one `OBSERVATION_INVALID` / `PAIR_INPUT_UNAVAILABLE` record. The stage-2 classification is unchanged: on `SAME_EPOCH` (`ACCEPTED`) the refusal replaces the `COMPUTED` comparison; on `NEW_EPOCH` it replaces the `TEMPORAL_DISCONTINUITY` boundary record while the epoch boundary is still established and `B` is still the latest accepted observation of the new epoch (§6.8.1). The layer must not reconstruct `A` from `last_accepted_state_digest` or any store (R-R2, R-R6). The record's
-`from_observation_id` / `from_state_digest` are the admission state's recorded identity metadata, read
-before the stage-4 mutation, and `pair_input = "UNAVAILABLE"` states that no content was supplied (§6.7.1,
-§8.1) |
+1. Complete admission checkpoint restored: restore every latest-accepted field and authoritative counter required by admission.
+2. Explicit recovery reinitialization: the external recovery authority deliberately discards the previous baseline; the next valid observation is INITIAL_ACCEPTED. No synthetic boundary is invented.
+3. Missing or incomplete checkpoint without explicit reinitialization: REJECTED_INVALID / ADMISSION_STATE_UNAVAILABLE.
 
-Additional normative rules:
+A content-free recovery checkpoint contains:
 
-* **R-R1 — no intermediate states across a restart or discontinuity.** Atlas may not invent the states
-  between the last observation of epoch *n* and the first of epoch *n+1*. The delta is a boundary
-  marker, not a transition narrative.
-* **R-R2 — recovery is not re-observation.** The temporal layer must never re-derive an observation
-  from durable state to "fill a hole"; a missing observation is missing.
-* **R-R3 — the temporal layer grants nothing.** Recovery authority (adjudicating orphaned work,
-  receipts, claims, retries) stays with the existing recovery coordinator contract; the temporal layer
-  may only *report* `TEMPORAL_DISCONTINUITY`.
-* **R-R4 — durable state is minimal and content-free.** If Atlas persists anything across restarts, it
-  is the §6.4 admission state (identity + counters + one digest), never snapshots or field history.
-* **R-R5 — a reset is evidence only when it is declared.** A producer that resets `sequence` without
-  changing a declared boundary field produces rejected-stale observations, not a new epoch (§6.3, R-T3).
-  Atlas must never manufacture a fresh continuity window from an undeclared reset, because a new window
-  would silently re-authorize comparisons the producer never asked for.
-* **R-R6 — an observation is never reconstructed.** No path may rebuild a previously accepted observation
-  from a digest, a durable record or a store, and no path may substitute a fresh capture for one: a
-  comparison whose earlier endpoint cannot be supplied is refused (§6.7 P1/P3). Recovery restores
-  *bookkeeping*, never content (R-R4).
+stream_id; continuity_id; producer_session_id; ordering_epoch; last_accepted_sequence; last_accepted_source_time; last_accepted_scene_id; last_accepted_state_digest; last_accepted_observation_id; last_accepted_admission_identity_digest; counters; last_admission_identity_digest; last_admission_outcome; last_record_digest when a record was emitted.
+
+If durable crash recovery is claimed, the admission checkpoint and the identity/outcome information for one logical admission step MUST be committed atomically. Re-delivery of the same admission identity is idempotent. An incomplete checkpoint is unusable and MUST fail closed.
+
+The storage mechanism, retention policy and transport remain out of scope. This is a correctness boundary for any future recovery implementation, not a storage design.
+
+Recovery restores bookkeeping only. No observation is reconstructed from a digest or checkpoint.
+
+### 14.1 False continuation and false new epoch
+
+A missing cursor is never treated as a permissive 'unknown'. Missing sequence, source-time, scene-scope, continuity, ordering-epoch or admission-identity state produces ADMISSION_STATE_UNAVAILABLE.
+
+A partially committed boundary cannot be interpreted as a fresh producer boundary. It fails closed until the recovery authority supplies a complete checkpoint or explicitly reinitializes the stream.
 
 ## 15. Cross-engine / future C++ parity boundary
 
-### 15.1 What parity means here (semantic, not byte-identical)
+### 15.1 Semantic and digest parity
 
-A C++ implementation must be able to consume the same canonical snapshot dictionary + observation
-envelope and produce a **semantically identical** delta:
+A C++ implementation must reproduce the same admission outcome, continuity classification, comparison/refusal result, field-change set, ordering and exact-equality semantics.
 
-* same `DeltaOutcome` and `EntityDeltaKind` for every input pair;
-* same field-change set and same ordering;
-* same exact-equality semantics (IEEE-754 double comparison, `-0.0 == 0.0`, no epsilon);
-* same `q ≡ -q` rule and the same `ROTATION_SIGN_EQUIVALENT_ONLY` reason code;
-* same canonicalization rules for the digests of §11 (sorted keys, compact separators, ASCII-only
-  escaping, non-finite refusal) so digest **values** agree for the same content — subject to §15.2.
+For every digest-bearing projection, it must also reproduce the exact pinned canonical bytes defined by §11. Semantic parity alone is insufficient where a digest participates in identity or validation.
 
-### 15.2 Byte-identical serialization is NOT claimed
+### 15.2 General transport serialization remains separate
 
-The repository's only canonical serializer today is Python's `json` (used by
-`planning/blender/scene_report.py` :127-140 and `planning/unreal_evidence_digest.py` →
-`_canonicalize`). Float *encoding* is Python-`repr`-based, so asserting byte-identical JSON across
-languages would be an unverifiable claim. v1 therefore claims **semantic parity**, and requires a
-separate serialization gate (shared, language-independent numeric encoding) before any
-byte-identity claim. The same limitation was disclosed for the extraction layer (extraction design
-§8.3) and is inherited unchanged here.
+Byte-identical general envelope/transport serialization is not claimed in v1. That is a separate serialization gate.
 
-### 15.3 Versioning and compatibility
-
-Three independent version numbers, never conflated: `PAYLOAD_SCHEMA_VERSION` (frozen, `"1"`),
-`REPORT_FORMAT_VERSION`/`VALIDATOR_VERSION` (frozen, `"1"`), and the temporal pair
-`TEMPORAL_OBSERVATION_SCHEMA_VERSION` / `DELTA_SCHEMA_VERSION` (new, `"1"`). A bump of any one is
-mandatory before: adding a compared field, changing an equality rule, adding a `DeltaOutcome` or
-`EntityDeltaKind`, extending the reason-code vocabulary, or changing a digest's field set. The temporal
-layer may not bump a frozen version to make a new temporal concept fit.
+Digest-bearing canonicalization is the explicit exception: it is part of this contract because digest values are authority-bearing.
 
 ## 16. Explicit non-goals
 
