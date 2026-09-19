@@ -905,22 +905,28 @@ def test_refusal_projection_metadata_never_fabricates_content():
     baseline = stream.state.from_identity()
     assert baseline is not None
 
-    variants = [
+    baseline_record = finalize_record(
+        evaluate(
+            RefusalInput(
+                b=b,
+                from_identity=baseline,
+                reason=DeltaReasonCode.PAIR_INPUT_UNAVAILABLE,
+            )
+        ),
+        "UNEMITTED_EPOCH_ANCHOR",
+    )
+
+    projections = (
+        replace(baseline, last_accepted_observation_id="obs:wrong"),
+        replace(baseline, last_accepted_state_digest="0" * 64),
         replace(
             baseline,
             last_accepted_observation_id="obs:wrong",
-        ),
-        replace(
-            baseline,
             last_accepted_state_digest="0" * 64,
         ),
-        replace(
-            baseline,
-            last_accepted_admission_identity_digest="1" * 64,
-        ),
-    ]
+    )
 
-    for projection in variants:
+    for projection in projections:
         record = finalize_record(
             evaluate(
                 RefusalInput(
@@ -932,18 +938,20 @@ def test_refusal_projection_metadata_never_fabricates_content():
             "UNEMITTED_EPOCH_ANCHOR",
         )
         assert record["outcome"] == DeltaOutcome.OBSERVATION_INVALID.value
-        assert record["entity_deltas"] == []
         assert record["pair_input"] == "UNAVAILABLE"
-        assert "PAIR_INPUT_UNAVAILABLE" in record["reason_codes"]
-        assert record["coverage"]["location"] in {
-            "INVALID_OBSERVATION",
-            "OBSERVED_UNCHANGED",
-            "OBSERVED_CHANGED",
-        }
-        assert not any(
-            "field_changes" in entity and entity["field_changes"]
-            for entity in record["entity_deltas"]
+        assert record["entity_deltas"] == []
+        assert record["from_observation_id"] == projection.last_accepted_observation_id
+        assert record["from_state_digest"] == projection.last_accepted_state_digest
+        assert record["to_observation_id"] == b.observation_id
+        assert record["to_state_digest"] == b.state_digest
+        assert record["state_digest_changed"] == (
+            projection.last_accepted_state_digest != b.state_digest
         )
+        assert record["coverage"]["location"] == "INVALID_OBSERVATION"
+        assert "PAIR_INPUT_UNAVAILABLE" in record["reason_codes"]
+        assert record["reason_codes"] == ["PAIR_INPUT_UNAVAILABLE"]
+
+    assert baseline_record["entity_deltas"] == []
 
 
 def test_refusal_and_boundary_input_determinism_is_byte_stable():
