@@ -1,14 +1,14 @@
 # Pre-Review Architectural Adversarial Assessment — Correction Execution Bridge
 
 Target: PR #119
-Current design head: 0b67e03aa3c3d48155d46f5773cfbf605e860582
+Current design head: 99ef1e2e730bd8e592a7bc5d7cc2564a3726f83b
 Base: main @ 3c0f26402513d708e3c55a0367cc6abd2c205c04
 
 ## Assessment status
 
-**PRE-REVIEW RESULT: CLEAR WITH MINOR FINDINGS**
+**PRE-REVIEW RESULT: CLEAR WITH MINOR FINDINGS — REQUIRED FINDINGS CLOSED**
 
-This is an internal architectural adversarial pass, not the required independent red-team sign-off. Implementation remains unauthorized until the independent review gate is satisfied.
+This record is paired with the independent Hermes/GLM-style red-team review supplied for PR #119. That review returned CLEAR WITH MINOR FINDINGS and allowed deterministic implementation once the §5 ordering finding was closed. The required findings are now incorporated; implementation is authorized only for the deterministic bridge phase, subject to the promotion gates.
 
 ## Checks performed
 
