@@ -152,6 +152,10 @@ def parse_temporal_observation(value: Mapping[str, Any]) -> TemporalObservation:
         snapshot_to_scene(parsed_snapshot)
     except CanonicalValueError as exc:
         _reject(AdmissionReasonCode.INVALID_CANONICAL_VALUE_DOMAIN, str(exc))
+    except TemporalValidationError as exc:
+        if "snapshot" in str(exc) or "canonical" in str(exc):
+            _reject(AdmissionReasonCode.INVALID_CANONICAL_VALUE_DOMAIN, str(exc))
+        _reject(AdmissionReasonCode.MALFORMED_IDENTITY, str(exc))
 
     state_digest = value.get("state_digest")
     if type(state_digest) is not str:
