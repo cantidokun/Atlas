@@ -331,8 +331,8 @@ def test_live_temporal_correction_transaction_is_end_to_end(live_bridge_results)
         assert observation_a["continuity_id"] == observation_b["continuity_id"] == transaction["continuity_id"], case
         assert observation_a["source_time"]["domain"] == "FRAME_INDEX", case
         assert observation_b["source_time"]["domain"] == "FRAME_INDEX", case
-        assert observation_a["source_time"]["rate_num"] == observation_b["source_time"]["rate_num"] == 1, case
-        assert observation_a["source_time"]["rate_den"] == observation_b["source_time"]["rate_den"] == 1, case
+        assert observation_a["source_time"]["rate"]["num"] == observation_b["source_time"]["rate"]["num"] == 1, case
+        assert observation_a["source_time"]["rate"]["den"] == observation_b["source_time"]["rate"]["den"] == 1, case
         assert observation_a["source_time"]["ordering_epoch"] == observation_b["source_time"]["ordering_epoch"] == 0, case
 
         assert observation_a["producer"]["engine_version"] == "4.4.3", case
