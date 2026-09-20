@@ -362,6 +362,12 @@ def run_embedded_request(request_json: str) -> None:
         receipt = out["receipt"]
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
         mark_post_extraction_ambiguity(engine_evidence, receipt)
+        if (
+            engine_evidence["mutator_invocations"] > 0
+            and isinstance(receipt, Mapping)
+            and receipt.get("failure_code") in {"MUTATION_FAILED", "POST_EXTRACTION_FAILED", "INTERNAL_ERROR"}
+        ):
+            engine_evidence["ambiguous_result"] = True
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
