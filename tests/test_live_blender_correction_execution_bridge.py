@@ -150,7 +150,10 @@ scene_input = dict(payload)
 scene_input.pop("schema_version", None)
 
 if OPERATION_VALUE == "REPAIR_MERGE_VERTEX":
-    plan = plan_merge_vertex_correction(report_payload, scene_input, profile=PROFILE_VALUE)
+    outcome = plan_merge_vertex_correction(report_payload, scene_input, profile=PROFILE_VALUE)
+    if outcome.refusal_code is not None:
+        raise RuntimeError("merge planner refused: " + repr(outcome.refusal_code))
+    plan = outcome.plan
 else:
     plan = plan_scene_report(report_payload, profile=PROFILE_VALUE)
 
