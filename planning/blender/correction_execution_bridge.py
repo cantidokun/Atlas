@@ -366,7 +366,7 @@ class CorrectionExecutionBridge:
                 operation=request.operation,
                 correction_id=request.correction_id,
                 correction_result=None,
-                engine_evidence={"process_disposed": True},
+                engine_evidence={"process_disposed": True, "ambiguous_result": True},
                 stdout_tail=str(exc),
             )
         except OSError as exc:
