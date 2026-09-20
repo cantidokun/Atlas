@@ -140,7 +140,7 @@ def test_observation_identity_digest_can_be_recomputed_from_transport(monkeypatc
 def test_post_rejection_does_not_commit_observation_b(monkeypatch):
     session = _session(monkeypatch)
     # A valid same-stream B is accepted; force the rejection seam with a different scene scope.
-    with pytest.raises(RuntimeError, match="post-correction Temporal admission failed"):
+    with pytest.raises(RuntimeError, match="post extraction changed scene scope"):
         session.capture(scene=SceneModel(
             scene_id="different-scene",
             unit_system="METERS",
@@ -198,6 +198,7 @@ def test_state_delta_contains_from_identity_binding(monkeypatch):
 
 def test_stream_finalization_matches_direct_frozen_contract(monkeypatch):
     session = _session(monkeypatch)
+    session.capture(scene=_scene(x=1.0), report=_Report("report-b"), ordinal=2)
     expected = session.delta_record
     stream = ObservationStream(session.stream_id)
     step_a = stream.step(session.observation_a)
@@ -236,7 +237,7 @@ def test_caught_post_extraction_failure_marks_transport_ambiguous():
 
 def test_pre_mutation_failure_does_not_mark_post_extraction_ambiguity():
     evidence = {"mutator_invocations": 0, "ambiguous_result": False}
-    _mark_post_extraction_ambiguity(
+    mark_post_extraction_ambiguity(
         evidence,
         {"result": "MUTATION_FAILED", "failure_code": "POST_EXTRACTION_FAILED"},
     )
