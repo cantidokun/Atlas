@@ -240,12 +240,19 @@ class TemporalCorrectionSession:
             ordinal["value"] += 1
             scene, report = extractor(engine_state)
             representation_state = getattr(extractor, "temporal_representation_state", ())
-            return self.capture(
-                scene=scene,
-                report=report,
-                ordinal=ordinal["value"],
-                representation_state=representation_state,
-            )
+            try:
+                return self.capture(
+                    scene=scene,
+                    report=report,
+                    ordinal=ordinal["value"],
+                    representation_state=representation_state,
+                )
+            except TemporalCaptureError:
+                raise
+            except Exception as exc:
+                raise TemporalCaptureError(
+                    f"Temporal capture failed at ordinal {ordinal['value']}: {exc}"
+                ) from exc
 
         return captured
 
