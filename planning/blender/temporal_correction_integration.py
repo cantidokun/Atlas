@@ -150,10 +150,11 @@ class TemporalCorrectionSession:
         scene: Any,
         report: Any,
         ordinal: int,
-        representation_state: Tuple[str, ...] = (),
+        representation_state: Optional[Tuple[str, ...]] = None,
     ) -> Tuple[Any, Any]:
         """Capture the exact executor extraction result before it is returned to the executor."""
-        self._representation_state = tuple(sorted(representation_state))
+        if representation_state is not None:
+            self._representation_state = tuple(sorted(representation_state))
         snapshot = _scene_to_canonical(scene)
         evidence = TemporalExtractionEvidence(
             ordinal=ordinal,
