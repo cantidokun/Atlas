@@ -1,32 +1,35 @@
 """Read-only non-manifold evidence boundary v1: deterministic offline contract gate.
 
 This gate deliberately exercises the existing finding kernel, independent topology intelligence,
-and correction planner without changing any production contract or adding a correction.
+correction planner, and frozen correction boundaries without changing any production contract.
 """
 
 import hashlib
 import json
 
 from planning.blender.correction_codes import PlannerState
+from planning.blender.correction_executor import _EXECUTABLE_TYPES
+from planning.blender.correction_mapping import _TABLE
 from planning.blender.correction_planner import plan_scene_report
 from planning.blender.finding_codes import FindingCode, FindingSeverity
+from planning.blender.kernel import run_scene_health
 from planning.blender.mesh_health import check_mesh
-from planning.blender.scene_model import MeshModel
+from planning.blender.scene_model import MeshModel, ObjectModel, SceneModel
 from planning.blender.scene_report import REPORT_FORMAT_VERSION, Finding, build_report
+from planning.blender.soccer_field_profile import soccer_field_profile
 from planning.blender.topology_intelligence import analyze_topology
 
 
-def _mesh(name, faces, vertex_count):
-    vertices = tuple((float(i), float((i * 7) % 11), float((i * 13) % 17)) for i in range(vertex_count))
-    # Replace generated coordinates with deterministic non-collinear fixtures below.
-    return MeshModel(mesh_id=name, vertices=vertices, faces=tuple(tuple(f) for f in faces))
+EXPECTED_EXECUTOR_TYPES = {
+    "REMOVE_DUPLICATE_FACE",
+    "REMOVE_DEGENERATE_FACE",
+    "REPAIR_FACE_WINDING",
+    "REPAIR_MERGE_VERTEX",
+}
 
 
 def _valence_mesh(valence):
-    faces = []
-    for i in range(valence):
-        # All triangles share edge (0,1), with a distinct third vertex.
-        faces.append((0, 1, 2 + i))
+    faces = [(0, 1, 2 + i) for i in range(valence)]
     vertices = (
         (0.0, 0.0, 0.0),
         (1.0, 0.0, 0.0),
@@ -47,16 +50,16 @@ def _non_manifold_two_edge_mesh():
     return MeshModel(mesh_id="two_nm", vertices=vertices, faces=faces)
 
 
-def _report_payload(findings):
+def _report_payload(findings, input_digest=None):
     report = build_report(
         scene_id="nm-discovery",
         validation_state="needs_review",
         findings=findings,
         scene_metrics={},
         profile_name="soccer-field",
+        input_digest=input_digest,
     )
     body = report.to_json_compatible()
-    body["report_format_version"] = REPORT_FORMAT_VERSION
     body.pop("digest", None)
     digest = hashlib.sha256(
         json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -65,8 +68,6 @@ def _report_payload(findings):
 
 
 def test_valence_matrix_1_2_3_4():
-    # Boundary valence 1 is not a finding; manifold valence 2 is not a finding;
-    # non-manifold begins strictly above 2.
     for valence in (1, 2, 3, 4):
         mesh = _valence_mesh(valence)
         findings = [f for f in check_mesh(mesh) if f.code is FindingCode.MESH_NON_MANIFOLD_EDGE]
@@ -168,7 +169,32 @@ def test_positive_planner_control_is_human_review_gated():
     )
 
 
-def test_deterministic_digest_repeats():
+def test_scene_report_and_input_digests_repeat():
+    mesh = _non_manifold_two_edge_mesh()
+    obj = ObjectModel(
+        object_id="nm_two_nm_edges",
+        name="nm_two_nm_edges",
+        collection="Field",
+        mesh=mesh,
+    )
+    scene = SceneModel(scene_id="nm-discovery", unit_system="METERS", objects=(obj,))
+    profile = soccer_field_profile(required_object_roles=())
+    report_a = run_scene_health(scene, profile)
+    report_b = run_scene_health(scene, profile)
+    assert report_a.digest() == report_b.digest()
+    assert report_a.input_digest is not None
+    assert report_a.input_digest == report_b.input_digest
+
+
+def test_correction_mapping_and_executor_allowlist_are_frozen():
+    row = _TABLE[FindingCode.MESH_NON_MANIFOLD_EDGE]
+    assert row.determinism.value == "REQUIRES_REVIEW"
+    assert row.correction_type == "FLAG_NON_MANIFOLD_FOR_REVIEW"
+    assert row.auto_propose is False
+    assert set(_EXECUTABLE_TYPES) == EXPECTED_EXECUTOR_TYPES
+
+
+def test_deterministic_snapshot_and_topology_repeats():
     mesh = _non_manifold_two_edge_mesh()
     findings_a = check_mesh(mesh)
     findings_b = check_mesh(mesh)
