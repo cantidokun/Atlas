@@ -49,6 +49,22 @@ class LiveEngine:
     bpy: Any
 
 
+def _build_transport_payload(
+    *,
+    request_digest: str,
+    receipt: Mapping[str, Any],
+    engine_evidence: Mapping[str, Any],
+    temporal_session: TemporalCorrectionSession,
+) -> dict[str, Any]:
+    """Build the bridge transport with measured Temporal evidence kept separate from the receipt."""
+    return {
+        "request_digest": request_digest,
+        "correction_result": receipt,
+        "engine_evidence": engine_evidence,
+        **temporal_session.result_payload(),
+    }
+
+
 def _reconstruct_plan(raw_plan: Mapping[str, Any]) -> CorrectionPlan:
     if type(raw_plan) is not dict:
         raise BridgeRuntimeError("plan must be an exact object")
@@ -380,12 +396,12 @@ def run_embedded_request(request_json: str) -> None:
         )
         engine_evidence["save_detected"] = not engine_evidence["persistence_unchanged"]
 
-        payload = {
-            "request_digest": hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
-            "correction_result": receipt,
-            "engine_evidence": engine_evidence,
-            **temporal_session.result_payload(),
-        }
+        payload = _build_transport_payload(
+            request_digest=hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
+            receipt=receipt,
+            engine_evidence=engine_evidence,
+            temporal_session=temporal_session,
+        )
     except Exception as exc:
         if engine_evidence.get("mutator_invocations", 0) > 0:
             engine_evidence["ambiguous_result"] = True
@@ -403,7 +419,16 @@ def run_embedded_request(request_json: str) -> None:
         session_obj = locals().get("temporal_session")
         if session_obj is not None:
             temporal_payload = session_obj.result_payload()
-        payload = {
+        payload = _build_transport_payload(
+            request_digest=request_digest or hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
+            receipt={
+                "result": ExecutionOutcome.MUTATION_FAILED,
+                "failure_code": "BRIDGE_RUNTIME_ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+            engine_evidence=engine_evidence,
+            temporal_session=session_obj,
+        ) if session_obj is not None else {
             "request_digest": request_digest or hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
             "correction_result": {
                 "result": ExecutionOutcome.MUTATION_FAILED,
