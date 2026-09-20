@@ -45,6 +45,10 @@ _UNOBSERVABLE_FIELDS = (
 )
 
 
+class TemporalCaptureError(RuntimeError):
+    """Failure in the Temporal capture/admission boundary, distinct from source extraction."""
+
+
 @dataclass(frozen=True)
 class TemporalExtractionEvidence:
     ordinal: int
@@ -201,24 +205,24 @@ class TemporalCorrectionSession:
 
         if ordinal == 2:
             if self.observation_a is None or self.pre is None:
-                raise RuntimeError("post extraction occurred without admitted A")
+                raise TemporalCaptureError("post extraction occurred without admitted A")
             if str(snapshot["scene_id"]) != self.stream_id:
-                raise RuntimeError("post extraction changed scene scope")
-            self.post = evidence
+                raise TemporalCaptureError("post extraction changed scene scope")
             observation = self._observation(
                 snapshot=snapshot,
                 sequence=1,
                 frame_index=frame_index,
             )
             if self._stream is None:
-                raise RuntimeError("post extraction occurred without an initialized ObservationStream")
+                raise TemporalCaptureError("post extraction occurred without an initialized ObservationStream")
             step = self._stream.step(observation, predecessor=self.observation_a)
             decision = step.admission
             if not decision.accepted or decision.outcome != AdmissionOutcome.ACCEPTED:
-                raise RuntimeError(
+                raise TemporalCaptureError(
                     "post-correction Temporal admission failed: "
                     + ",".join(code.value for code in decision.reason_codes)
                 )
+            self.post = evidence
             self.observation_b = observation
             self.admission_b = self._decision_json(decision)
             self.delta_record = step.record
@@ -316,5 +320,5 @@ def mark_post_extraction_ambiguity(engine_evidence: Dict[str, Any], receipt: Any
     if not isinstance(receipt, Mapping):
         return
     failure_code = receipt.get("failure_code")
-    if failure_code in {"MUTATION_FAILED", "POST_EXTRACTION_FAILED"}:
+    if failure_code in {"MUTATION_FAILED", "POST_EXTRACTION_FAILED", "INTERNAL_ERROR"}:
         engine_evidence["ambiguous_result"] = True
