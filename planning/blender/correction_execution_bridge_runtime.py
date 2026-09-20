@@ -27,6 +27,7 @@ from planning.blender.correction_executor import (
     execute_repair_face_winding,
 )
 from planning.blender.extraction_payload import payload_to_scene_model
+from planning.blender.correction_values import thaw_jsonable
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
 
 
