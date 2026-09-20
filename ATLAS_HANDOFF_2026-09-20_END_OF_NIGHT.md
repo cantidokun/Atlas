@@ -4,7 +4,8 @@
 
 - Active branch: `design/temporal-correction-integration-v3`
 - PR #122: **OPEN / MERGEABLE / NOT MERGED**
-- PR #122 HEAD at pause: `2d30e6b20a6a6886713097ee41eb36ba005b85be`
+- Implementation candidate at pause: `2d30e6b20a6a6886713097ee41eb36ba005b85be`
+- Documentation checkpoint HEAD: `430f543e55967cfea8704133b665cb4379f7c208`
 - Base `main`: `321a9ca6ecbc58f52e9c66e1d1116387edcae60d`
 - No merge decision was made.
 
@@ -51,7 +52,7 @@ Do not:
 
 ## Next session
 
-1. Verify the exact PR #122 HEAD.
+1. Verify the exact PR #122 HEAD and distinguish the documentation-only checkpoint from the implementation candidate.
 2. Reproduce the three GitHub failures in an equivalent environment.
 3. Correct only the proven causes.
 4. Re-run focused and full deterministic gates.
