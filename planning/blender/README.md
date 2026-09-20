@@ -1,12 +1,8 @@
 # Blender Development README
 
-> **Current authoritative checkpoint — September 19, 2026.**
+> **Current authoritative checkpoint — September 20, 2026.**
 >
-> Main includes the Wave 14 merge 0d6cf88b2b7d0a72501bd20e5b42aa091be890bf (PR #111) plus the post-Wave14 roadmap refresh in the current documentation checkpoint.
-> Extraction Fidelity v1 is frozen and merged. Temporal Observation + State Delta v1 core is
-> implemented and merged. Blender correction waves through Wave 14 are either live-validated and
-> merged or explicitly retained as deterministic-only capabilities awaiting a dedicated live
-> boundary milestone.
+> Blender Extraction Fidelity v1, correction closure, Temporal integration, evidence boundaries, and the final Blender discovery/determinism gates are closed on current main. The Blender track is now a maintained/frozen execution capability rather than the next active engineering milestone.
 
 ## Architectural position
 
@@ -153,72 +149,29 @@ Those cases either require additional representation semantics, human review, or
 contract. They should not be forced into an implementation wave merely to keep the wave number
 moving.
 
-## Next Blender milestone — read-only discovery / design
+## Current Blender status — CLOSED
 
-**Wave 15 is complete.** The three previously deterministic-only correction capabilities are now live-validated, independently red-teamed, and merged:
+The current declared Blender capability track is closed.
 
-1. REMOVE_DUPLICATE_FACE — PR #115, merge dcb04f704644b7814bd9fd7eae314423dd528860;
-2. REMOVE_DEGENERATE_FACE — PR #115, same merge;
-3. REPAIR_FACE_WINDING — PR #116, merge 4a27af868c418181c3363b939d585944599ac400.
+Final closure records merged into main:
+- PR #125 — next-capability discovery;
+- PR #126 — scene/profile compliance evidence design;
+- PR #128 — post-scene-profile capability discovery;
+- PR #129 — hierarchy-cycle determinism defect.
 
-There is **no implementation-authorized Wave 16 correction family at this checkpoint**.
+The discovery record concluded **no immediate Blender extension is justified**. The remaining finding surface is review-only, unsafe, contract-blocked, or not representable under the frozen canonical producer. The hierarchy-cycle issue was handled separately as a concrete determinism defect and is now closed.
 
-The next Blender milestone therefore begins as a **read-only discovery/design gate** against current main. Its purpose is to determine whether the next meaningful bounded capability is:
+There is therefore no implementation-authorized Wave 16 at this checkpoint.
 
-- a new live evidence/verification boundary for an already-defined review-only finding;
-- a narrowly bounded correction family backed by an existing contract and real engine capability;
-- a representation-fidelity closure that is genuinely missing from the current frozen contract;
-- or no immediate correction extension is justified.
+### Next engineering focus
 
-The discovery gate must inventory the remaining finding/correction mappings, deterministic test coverage, existing live gates, canonical representation limits, and Blender-engine feasibility. It must not change production semantics or invent a correction policy merely to continue the wave sequence.
+The next active engineering track is the separately maintained Unreal work, including the Unreal-Aider development surface. Do not mix Unreal implementation into Blender correction/extraction contracts.
 
-### Explicitly not pre-approved
-
-Do not assume the next milestone is an implementation for:
-
-- MESH_INVALID_INDEX;
-- MESH_NON_MANIFOLD_EDGE;
-- MESH_SCALE_OUT_OF_RANGE;
-- MESH_NORMAL_INCONSISTENT;
-- SCENE_ORIGIN_INVALID;
-- OBJECT_BOUNDS_OVERLAP;
-- OBJECT_COLLECTION_INVALID;
-- OBJECT_ID_DUPLICATE;
-- OBJECT_TRANSFORM_INVALID.
-
-Those findings are currently classified as review-only, unsafe, or otherwise non-automatable. Any future change would require its own contract and safety evidence.
-
-### Discovery promotion gate
-
-Before any implementation task is issued, the next design package must establish:
-
-- the exact current contract authority in code/tests;
-- why the candidate belongs in the next milestone;
-- real Blender representability of the intended primitive;
-- authorization model;
-- target-selection identity;
-- canonical vs raw evidence boundaries;
-- adversarial refusal matrix;
-- persistence/no-save boundary;
-- frozen-file audit;
-- independent red-team clearance;
-- explicit non-claims and out-of-scope cases.
-
-No "Wave 16" implementation label should be used until that design/discovery gate is independently cleared.
+The Blender track should now be treated as a stable execution/observation capability. Future Blender changes require a concrete defect or a separately approved contract/design gate.
 
 ## Repository-state hygiene
 
-The following older documents are historical/archival and must not be treated as current status
-without reconciliation against main:
-
-- ATLAS_HANDOFF_2026-09-15_END_OF_NIGHT.md
-- ATLAS_HANDOFF_2026-09-16_END_OF_NIGHT.md
-- ATLAS_HANDOFF_2026-09-18_END_OF_NIGHT.md
-- older Wave 12 review handoffs that describe independent review as still pending
-- any pre-revision-9 Temporal handoff that describes the implementation as unauthorized
-
-The authoritative source for the current Blender track is this README plus the current design and
-test artifacts on main.
+Historical dated handoffs may contain superseded status. Reconcile them against current main before using them as operational instructions.
 
 ## Frozen boundaries
 
