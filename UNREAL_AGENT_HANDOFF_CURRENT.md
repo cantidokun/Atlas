@@ -1,3 +1,47 @@
+# Unreal Agent Handoff — Current State
+
+> **Authoritative current checkpoint — September 20, 2026.**
+>
+> The Blender track is closed for the current contract. The active engineering focus is now the separately maintained Unreal track. This section supersedes stale historical checkpoint statements below; those records remain archival.
+
+## Current Unreal position
+
+- Unreal cross-process recovery remains the next major closure gate.
+- M7 live UE 5.6 Scenarios 1–8 are still the required live boundary and require explicit human authorization.
+- Current main already contains substantial Unreal infrastructure, including the UE 5.6 harness, state extraction, M7 hardening, M8–M10 work, Unreal execution boundary, and autonomous executor.
+- Do **not** blanket-merge the long-lived Unreal PR stack. Several PRs are based on old/non-main branches and contain overlapping historical controller/runtime work.
+
+## Immediate next gate — read-only reconciliation
+
+Reconcile the existing Unreal work before implementation:
+
+1. establish current main as the reference tree;
+2. map PR/branch ancestry and identify which capabilities are already present on main;
+3. inspect PR #103 as the explicit “reconciled Unreal” candidate, but treat it as a candidate only because its base is itself a long-lived branch;
+4. compare the useful deltas in PRs #41, #58, #50, #40, and #47 against current main;
+5. identify the smallest coherent exact tree that contains the required M7 production boundary without reviving dead/historical authority paths;
+6. run deterministic validation on that exact tree;
+7. only after reconciliation, prepare the operator-gated M7 live run.
+
+Known stack:
+- #103: reconciled Unreal branch, based on `integrate-origin-main-with-render-receipt`;
+- #41: heterogeneous production transaction recovery, based directly on an old main;
+- #58: Unreal autonomy/controller runtime, based directly on an old main;
+- #50: controller host/render receipt integration, itself a long-lived base;
+- #40: shot-production orchestration, stacked on #41;
+- #47: UE 5.6 world/save boundary test, stacked on #41;
+- #42 is Blender-side and is not part of the Unreal reconciliation.
+
+## Non-negotiable boundary
+
+Do not revive historical Unreal autonomous loops or create a second authorization authority. The existing Atlas authority chain remains authoritative. Any selective integration must preserve fail-closed execution, provenance, evidence, receipt, and recovery semantics.
+
+## Live-gate rule
+
+Deterministic tests, UBT compilation, and historical live evidence do not substitute for the current exact-tree M7 live scenarios. Do not claim cross-process Unreal recovery is production-capable until the required live evidence and independent review are complete.
+
+---
+
 # Atlas Unreal Agent — Current Handoff
 
 > **Unreal-track checkpoint — September 18, 2026.** M10 live Unreal Scenarios S1–S8 are COMPLETE — all PASSED live against the real UE 5.6 boundary. M11 is FROZEN/paused. M12.1–M12.4 are implemented. **M12.5 is intentionally deferred and is not the current development target.**
