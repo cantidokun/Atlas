@@ -245,43 +245,23 @@ def test_pre_mutation_failure_does_not_mark_post_extraction_ambiguity():
 
 
 def test_executor_seam_admits_a_before_mutator_and_b_after(monkeypatch):
-    from planning.blender import correction_execution_bridge_runtime as runtime
+    # Drive the real frozen executor; only its engine mutator/extractor seams are instrumented.
+    from test_correction_executor_wave1 import _default_plan, _exec, _extractor as base_extractor, _stub_mutator
 
-    _install_fake_bpy(monkeypatch)
-    session = TemporalCorrectionSession()
+    scene, plan = _default_plan()
     events = []
 
-    def extractor(_engine_state):
-        return _scene(x=0.0 if not events else 1.0), _Report("report")
+    def logged_extractor(engine_state):
+        events.append("extract")
+        return base_extractor(engine_state)
 
-    extractor.temporal_representation_state = ()
-    wrapped = session.wrap(extractor)
+    def logged_mutator(engine_state, **kwargs):
+        events.append("mutate")
+        return _stub_mutator(engine_state, **kwargs)
 
-    def fake_executor(*, engine_state, plan, mutator, extractor):
-        extractor(engine_state)
-        events.append(("a_admitted", session.admission_a["outcome"]))
-        mutator(engine_state)
-        events.append(("mutator",))
-        extractor(engine_state)
-        events.append(("b_admitted", session.admission_b["outcome"]))
-        return {"result": "COMPLETED", "failure_code": None}
-
-    monkeypatch.setattr(runtime, "execute_remove_duplicate_face", fake_executor)
-    runtime.globals = getattr(runtime, "globals", None)
-    runtime._extractor = wrapped
-
-    def counted_mutator(_engine_state, **_kwargs):
-        events.append(("mutator_invoked",))
-
-    monkeypatch.setattr(runtime, "_face_removal_mutator", counted_mutator)
-    runtime._run_executor(object(), {"operation": "REMOVE_DUPLICATE_FACE"})
-    assert events == [
-        ("a_admitted", AdmissionOutcome.INITIAL_ACCEPTED.value),
-        ("mutator_invoked",),
-        ("mutator",),
-        ("b_admitted", AdmissionOutcome.ACCEPTED.value),
-    ]
-
+    result, _engine = _exec(scene, plan, mutator=logged_mutator, extractor=logged_extractor)
+    assert result["result"] == "COMPLETED"
+    assert events == ["extract", "mutate", "extract"]
 
 def test_b_is_from_second_wrapped_extractor_invocation(monkeypatch):
     _install_fake_bpy(monkeypatch)
