@@ -29,7 +29,7 @@ from planning.blender.correction_executor import (
 from planning.blender.extraction_payload import payload_representation_state, payload_to_scene_model
 from planning.blender.correction_values import thaw_jsonable
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
-from planning.blender.temporal_correction_integration import TemporalCorrectionSession
+from planning.blender.temporal_correction_integration import TemporalCorrectionSession, mark_post_extraction_ambiguity
 
 
 BRIDGE_START = "ATLAS_CORRECTION_BRIDGE_START"
@@ -236,16 +236,6 @@ def _run_executor(plan: CorrectionPlan, request: Mapping[str, Any]) -> dict[str,
     }
 
 
-def _mark_post_extraction_ambiguity(engine_evidence: dict[str, Any], receipt: Any) -> None:
-    """Mark a caught executor post-extraction failure ambiguous after mutation."""
-    if (
-        engine_evidence.get("mutator_invocations", 0) > 0
-        and isinstance(receipt, Mapping)
-        and receipt.get("failure_code") == "POST_EXTRACTION_FAILED"
-    ):
-        engine_evidence["ambiguous_result"] = True
-
-
 def _load_source(path: Optional[str]) -> None:
     if path is None:
         return
@@ -354,7 +344,7 @@ def run_embedded_request(request_json: str) -> None:
         out = _run_executor(plan, request)
         receipt = out["receipt"]
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
-        _mark_post_extraction_ambiguity(engine_evidence, receipt)
+        mark_post_extraction_ambiguity(engine_evidence, receipt)
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
