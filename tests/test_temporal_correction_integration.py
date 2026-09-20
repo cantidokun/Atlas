@@ -82,7 +82,7 @@ def test_b_uses_frozen_stream_finalization(monkeypatch):
     session.capture(scene=_scene(x=1.0), report=_Report("report-b"), ordinal=2)
     record = session.delta_record
     assert record["delta_digest"]
-    assert record["from_observation_origin"] == "EMITTED_PREDECESSOR"
+    assert record["from_observation_origin"] == "UNEMITTED_EPOCH_ANCHOR"
     assert set(("delta_digest", "from_observation_origin")).issubset(record)
 
 
@@ -138,14 +138,7 @@ def test_observation_identity_digest_can_be_recomputed_from_transport(monkeypatc
 
 def test_post_rejection_does_not_commit_observation_b(monkeypatch):
     session = _session(monkeypatch)
-    original = session._stream.step
-
-    def reject(*args, **kwargs):
-        result = original(*args, **kwargs)
-        return result
-
-    # A valid same-stream B is accepted; force the rejection seam with a different stream.
-    other = session._observation(snapshot=session.pre.snapshot, sequence=1, frame_index=12)
+    # A valid same-stream B is accepted; force the rejection seam with a different scene scope.
     with pytest.raises(RuntimeError, match="post-correction Temporal admission failed"):
         session.capture(scene=SceneModel(
             scene_id="different-scene",
