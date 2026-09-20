@@ -98,7 +98,9 @@ def test_unchanged_canonical_state_is_accepted_not_duplicate(monkeypatch):
     assert session.observation_b.sequence == 1
     assert session.observation_a.state_digest == session.observation_b.state_digest
     assert session.delta_record["state_digest_changed"] is False
-    assert session.delta_record["entity_deltas"] == []
+    assert session.delta_record["entity_deltas"] == [
+        {"object_id": "probe", "kind": "NO_CHANGE", "field_changes": []}
+    ]
 
 
 def test_b_is_independent_of_receipt_content(monkeypatch):
