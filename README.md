@@ -8,7 +8,7 @@
 The current active work is **PR #122 — Temporal Observation ↔ Blender Correction Integration v3**.
 
 - Branch: `design/temporal-correction-integration-v3`
-- HEAD at the September 20 pause: `2d30e6b20a6a6886713097ee41eb36ba005b85be`
+- Implementation candidate at the September 20 pause: `2d30e6b20a6a6886713097ee41eb36ba005b85be`; documentation-only checkpoint HEAD: `430f543e55967cfea8704133b665cb4379f7c208`
 - PR #122: **OPEN / MERGEABLE / NOT MERGED**
 - Base `main`: `321a9ca6ecbc58f52e9c66e1d1116387edcae60d`
 - The v3 design is session-scoped: canonical A → admission → one bounded correction → fresh canonical B from the same disposable Blender producer session → admission → StateDelta.
