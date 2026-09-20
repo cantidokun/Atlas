@@ -374,15 +374,12 @@ def test_runtime_temporal_failure_is_bounded_and_attributed(monkeypatch):
 
     _install_fake_bpy(monkeypatch)
     evidence = {"extraction_invocations": 1, "mutator_invocations": 0}
-    try:
-        raise RuntimeError("pre-admission refusal")
-    except RuntimeError:
-        ordinal = evidence["extraction_invocations"]
-        evidence["temporal_failure_code"] = (
-            "TEMPORAL_PRE_ADMISSION_FAILED" if ordinal == 1
-            else "TEMPORAL_POST_ADMISSION_FAILED"
-        )
+    runtime._mark_temporal_extraction_failure(evidence)
     assert evidence["temporal_failure_code"] == "TEMPORAL_PRE_ADMISSION_FAILED"
+
+    evidence["extraction_invocations"] = 2
+    runtime._mark_temporal_extraction_failure(evidence)
+    assert evidence["temporal_failure_code"] == "TEMPORAL_POST_ADMISSION_FAILED"
 
 
 def test_capability_identity_is_frozen_across_a_and_b(monkeypatch):
