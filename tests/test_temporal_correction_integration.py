@@ -102,13 +102,16 @@ def test_unchanged_state_is_accepted_not_duplicate(monkeypatch):
 def test_b_snapshot_is_independent_of_receipt_content(monkeypatch):
     session = _session(monkeypatch)
     session.capture(scene=_scene(x=2.0), report=_Report("report-b"), ordinal=2)
-    fake_receipt = {"result": "COMPLETED", "target": {"location": [999.0, 999.0, 999.0]}}
     before = session.result_payload()["temporal_transaction"]["post_snapshot"]
-    after = session.result_payload(fake_receipt)["temporal_transaction"]["post_snapshot"]
+    after = session.result_payload()["temporal_transaction"]["post_snapshot"]
     assert after == before
     assert after["objects"][0]["location"] == [2.0, 0.0, 0.0]
-    assert fake_receipt["target"]["location"] != after["objects"][0]["location"]
 
+
+def test_receipt_input_is_not_accepted_by_measured_state_payload(monkeypatch):
+    session = _session(monkeypatch)
+    with pytest.raises(TypeError):
+        session.result_payload({"result": "COMPLETED"})
 
 def test_capability_representation_state_is_derived_from_extraction_boundary(monkeypatch):
     session = _session(monkeypatch, representation_state=("materials:omitted",))
@@ -328,7 +331,7 @@ def test_mutation_failure_before_post_extraction_produces_no_b(monkeypatch):
     wrapped(None)
     events.append("mutate")
     receipt = {"result": "MUTATION_FAILED", "failure_code": "MUTATION_FAILED"}
-    payload = session.result_payload(receipt)["temporal_transaction"]
+    payload = session.result_payload()["temporal_transaction"]
     assert session.observation_b is None
     assert payload["post_snapshot"] is None
     assert payload["delta_record"] is None
@@ -339,14 +342,6 @@ def test_receipt_injection_cannot_change_measured_b_or_delta(monkeypatch):
     session = _session(monkeypatch)
     session.capture(scene=_scene(x=3.0), report=_Report("report-b"), ordinal=2)
     good = session.result_payload()["temporal_transaction"]
-    stolen = session.result_payload({
-        "result": "COMPLETED",
-        "target": {"location": [999.0, 999.0, 999.0]},
-        "post_state": {"objects": [{"location": [999.0, 999.0, 999.0]}]},
-    })["temporal_transaction"]
-    assert stolen["post_snapshot"] == good["post_snapshot"]
-    assert stolen["post_state_digest"] == good["post_state_digest"]
-    assert stolen["delta_record"] == good["delta_record"]
 
 
 def test_runtime_temporal_failure_is_bounded_and_attributed(monkeypatch):
