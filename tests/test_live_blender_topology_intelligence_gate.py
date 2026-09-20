@@ -29,6 +29,7 @@ EXPECTED_CHECK_NAMES = {
     "no_post_validation_mutation",
     "no_save",
     "fixture_count_stable",
+    "scene_report_input_digest_matches_model",
 }
 for _name in (
     "nm_v1_boundary",
