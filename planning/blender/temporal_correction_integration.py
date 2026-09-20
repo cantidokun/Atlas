@@ -153,8 +153,16 @@ class TemporalCorrectionSession:
         representation_state: Optional[Tuple[str, ...]] = None,
     ) -> Tuple[Any, Any]:
         """Capture the exact executor extraction result before it is returned to the executor."""
-        if representation_state is not None:
-            self._representation_state = tuple(sorted(representation_state))
+        normalized_representation_state = (
+            None if representation_state is None else tuple(sorted(representation_state))
+        )
+        if ordinal == 1 and normalized_representation_state is not None:
+            self._representation_state = normalized_representation_state
+        elif ordinal == 2 and normalized_representation_state is not None:
+            if normalized_representation_state != self._representation_state:
+                raise RuntimeError(
+                    "post extraction changed capability representation_state"
+                )
         snapshot = _scene_to_canonical(scene)
         evidence = TemporalExtractionEvidence(
             ordinal=ordinal,
@@ -206,13 +214,13 @@ class TemporalCorrectionSession:
                 raise RuntimeError("post extraction occurred without an initialized ObservationStream")
             step = self._stream.step(observation, predecessor=self.observation_a)
             decision = step.admission
-            self.admission_b = self._decision_json(decision)
             if not decision.accepted or decision.outcome != AdmissionOutcome.ACCEPTED:
                 raise RuntimeError(
                     "post-correction Temporal admission failed: "
                     + ",".join(code.value for code in decision.reason_codes)
                 )
             self.observation_b = observation
+            self.admission_b = self._decision_json(decision)
             self.delta_record = step.record
             return scene, report
 
@@ -237,7 +245,8 @@ class TemporalCorrectionSession:
 
         return captured
 
-    def result_payload(self) -> Dict[str, Any]:
+    def result_payload(self, correction_result: Any = None) -> Dict[str, Any]:
+        """Return measured Temporal evidence; correction_result is intentionally ignored."""
         return {
             "temporal_transaction": {
                 "producer_session_id": self.producer_session_id,
@@ -301,10 +310,11 @@ def _observation_json(observation: Optional[TemporalObservation]) -> Optional[Di
 
 
 def mark_post_extraction_ambiguity(engine_evidence: Dict[str, Any], receipt: Any) -> None:
-    """Mark a caught executor post-extraction failure ambiguous after mutation."""
-    if (
-        engine_evidence.get("mutator_invocations", 0) > 0
-        and isinstance(receipt, Mapping)
-        and receipt.get("failure_code") == "POST_EXTRACTION_FAILED"
-    ):
+    """Mark uncertain post-mutation executor failures ambiguous."""
+    if engine_evidence.get("mutator_invocations", 0) <= 0:
+        return
+    if not isinstance(receipt, Mapping):
+        return
+    failure_code = receipt.get("failure_code")
+    if failure_code in {"MUTATION_FAILED", "POST_EXTRACTION_FAILED"}:
         engine_evidence["ambiguous_result"] = True
