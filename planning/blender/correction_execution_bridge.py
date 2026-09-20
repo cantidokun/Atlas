@@ -329,8 +329,10 @@ class CorrectionExecutionBridge:
             source_blend_path=source_blend_path,
         )
         encoded = base64.b64encode(request.canonical_json().encode("utf-8")).decode("ascii")
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         expression = (
-            "import base64; "
+            "import base64,sys; "
+            f"sys.path.insert(0,{repo_root!r}); "
             "from planning.blender.correction_execution_bridge_runtime import run_embedded_request; "
             f"run_embedded_request(base64.b64decode('{encoded}').decode('utf-8'))"
         )
@@ -338,11 +340,12 @@ class CorrectionExecutionBridge:
             self._blender_command,
             "--background",
             "--factory-startup",
+            "--python-exit-code",
+            "1",
             "--python-expr",
             expression,
         ]
         env = dict(os.environ)
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         pythonpath = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = repo_root if not pythonpath else repo_root + os.pathsep + pythonpath
         try:
