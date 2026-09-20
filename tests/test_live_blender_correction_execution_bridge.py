@@ -67,14 +67,14 @@ def _run_blender_script(script, blend_path=None):
             command.append("--factory-startup")
         else:
             command.append(str(blend_path))
-        command.extend(["--python", script_path])
+        command.extend(["--python-exit-code", "1", "--python", script_path])
         return subprocess.run(
             command,
             capture_output=True,
             text=True,
             timeout=240,
             cwd=REPO,
-            env=dict(os.environ, PYTHONPATH=str(REPO)),
+            env={**os.environ, "ATLAS_REPO_ROOT": str(REPO), "PYTHONPATH": str(REPO) + os.pathsep + os.environ.get("PYTHONPATH", "")},
             check=False,
         )
     finally:
@@ -140,11 +140,13 @@ def _plan_from_fixture(path, operation):
 import json
 import sys
 import bpy
+print("ATLAS_PLAN_SCRIPT_STARTED", flush=True)
 sys.path.insert(0, REPO_PATH_VALUE)
 from planning.blender.bpy_extraction import extract_scene
 from planning.blender.extraction_payload import payload_to_scene_model
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
 from planning.blender.correction_planner import plan_scene_report, plan_merge_vertex_correction
+print("ATLAS_PLAN_IMPORTS_READY", flush=True)
 
 payload = extract_scene(bpy)
 scene = payload_to_scene_model(payload)
@@ -162,7 +164,7 @@ else:
 if outcome.plan is None:
     raise RuntimeError("planner returned no plan: " + repr(getattr(outcome, "refusal_code", None)))
 
-print("ATLAS_PLAN_START")
+print("ATLAS_PLAN_START", flush=True)
 print(json.dumps(outcome.plan.to_json_compatible(), sort_keys=True, separators=(",",":")))
 print("ATLAS_PLAN_END")
 """.replace("REPO_PATH_VALUE", repr(str(REPO))).replace("OPERATION_VALUE", repr(operation)).replace("PROFILE_VALUE", repr(profile))
@@ -170,7 +172,7 @@ print("ATLAS_PLAN_END")
     assert proc.returncode == 0, proc.stderr[-5000:]
     start = proc.stdout.find("ATLAS_PLAN_START")
     end = proc.stdout.find("ATLAS_PLAN_END", start + 1)
-    assert start >= 0 and end >= 0, proc.stdout[-5000:]
+    assert start >= 0 and end >= 0, f"stdout={proc.stdout[-5000:]} stderr={proc.stderr[-5000:]}";
     raw = json.loads(proc.stdout[start + len("ATLAS_PLAN_START"):end].strip())
     return raw
 
