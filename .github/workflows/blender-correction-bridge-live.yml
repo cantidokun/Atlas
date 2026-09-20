@@ -1,6 +1,9 @@
 name: Atlas Correction Execution Bridge Live Blender Gate
 
 on:
+  push:
+    branches:
+      - feat/blender-correction-execution-bridge
   pull_request:
     branches:
       - main
