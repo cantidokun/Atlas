@@ -119,7 +119,7 @@ The producer deliberately omits:
 - UVs;
 - local-frame data.
 
-Material-slot representation was separately closed by Wave 14 within the existing extraction contract. The merged PR #111 live evidence is in `tests/test_live_blender_merge_vertex_gate.py` with `tests/merge_vertex_live_script.py`; the retained Wave 14 design artifact is documentation evidence, not the current status authority. Blender unit mapping prefers precise `length_unit` over coarse `system`, so a real Imperial scene can canonically yield `FEET` when that precise token is present; the coarse `IMPERIAL -> INCHES` mapping is only the fallback.
+Material-slot representation was separately closed by merged PR #111. Its live evidence is in `tests/test_live_blender_merge_vertex_gate.py` with `tests/merge_vertex_live_script.py`; the retained Wave 14 design artifact is documentation evidence, not the current status authority. Blender unit mapping prefers precise `length_unit` over coarse `system`, so a real Imperial scene can canonically yield `FEET` when that precise token is present; the coarse `IMPERIAL -> INCHES` mapping is only the fallback.
 
 Conclusion:
 
@@ -170,7 +170,7 @@ The discovery must distinguish a canonical finding predicate from a state that B
 
 | FindingCode | Current producer / predicate | Blender 4.4.3 representability | Existing live evidence | Candidate-A treatment |
 |---|---|---|---|---|
-| MESH_INVALID_INDEX | `planning/blender/mesh_health.py::_collect_coordinate_validity` and `_collect_polygon_index_validity` | Canonical-only for malformed face indices; Blender mesh construction rejects/normalizes malformed references before extraction | Deterministic only | Out of scope |
+| MESH_INVALID_INDEX | `planning/blender/mesh_health.py::_collect_coordinate_validity` and `_collect_polygon_index_validity` | **Live-representable for out-of-range/negative face indices**; repeated indices are refused by the canonical parser and non-integer indices by Blender's mesh API | Deterministic tests plus real Blender probe; not Candidate-A evidence | Out of scope: mesh-topology scope + no justified correction policy |
 | MESH_DUPLICATE_VERTEX | `mesh_health.py::_collect_duplicate_vertices` | Live-representable | PR #124 topology gate exercises topology boundary; correction family separately live-validated | Out of scope |
 | MESH_DUPLICATE_FACE | `mesh_health.py::_collect_duplicate_faces` | Live-representable | Correction/live family coverage exists | Out of scope |
 | MESH_DEGENERATE_FACE | `mesh_health.py::_collect_degenerate_faces` | Live-representable | Correction/live family coverage exists | Out of scope |
@@ -223,7 +223,7 @@ Those are already covered by the existing real-.blend gate and other live/determ
 | Existing evidence | What it already proves | Candidate-A relation |
 |---|---|---|
 | `tests/test_live_blender_real_asset_gate.py` | Real frozen .blend → production extraction → SceneModel → `run_scene_health`; exact object set, units, topology, world-space transforms, hierarchy chain, empty findings, `production_ready`, digest reproducibility, host-side no-save hash and state digest | **PARTIAL/DUPLICATE** for clean positive path; do not duplicate |
-| Existing operator-gated live scene-health probes (`tests/test_live_blender_scene_health_*.py` / 16 operator-gated scene-health gates) | Real Blender can create invalid name, disallowed collection, invalid unit, dangling-parent/cycle attempts and other fixture states | **PARTIAL**: fixture truth exists, but production FindingCode/report assertions are missing |
+| Existing operator-gated live Blender suite (`tests/test_live_blender_*_gate.py`, including `tests/test_live_blender_extraction_gate.py`, `tests/test_live_blender_real_asset_gate.py`, and correction-family gates) | Real Blender can create invalid name, disallowed collection, invalid unit, dangling-parent/cycle attempts and other fixture states | **PARTIAL**: fixture truth exists, but production FindingCode/report assertions are missing |
 | Deterministic scene-health tests | Naming, duplicate IDs, units, collections, zero-scale, hierarchy, overlap/containment predicates | **PARTIAL**: canonical semantics exist; live representation is the missing boundary |
 | PR #124 topology gate | Real Blender non-manifold production finding and topology coherence | **DUPLICATE** for topology; excluded |
 | Temporal and correction live workflows | Their own bounded live contracts | **DUPLICATE / out of scope** |
