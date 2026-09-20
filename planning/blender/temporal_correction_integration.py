@@ -13,15 +13,12 @@ from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from planning.temporal import (
     AdmissionOutcome,
-    AdmissionState,
     CapabilityContract,
     ProducerProvenance,
     SourceTime,
     TemporalObservation,
-    evaluate,
 )
-from planning.temporal.admission import AdmissionEngine
-from planning.temporal.evaluator import ComparisonInput
+from planning.temporal.stream import ObservationStream
 from planning.temporal.model import _scene_to_canonical, temporal_state_digest
 
 
@@ -74,6 +71,8 @@ class TemporalCorrectionSession:
     admission_a: Optional[Mapping[str, Any]] = None
     admission_b: Optional[Mapping[str, Any]] = None
     delta_record: Optional[Mapping[str, Any]] = None
+    _representation_state: Tuple[str, ...] = ()
+    _stream: Optional[ObservationStream] = None
 
     def start(self, *, scene_id: str, engine_version: str, engine_build: str) -> None:
         if self.producer_session_id is not None:
@@ -91,7 +90,7 @@ class TemporalCorrectionSession:
             contract_id="extraction_fidelity_v1",
             observable_fields=tuple(sorted(_COMPARISON_FIELDS)),
             unobservable_fields=tuple(sorted(_UNOBSERVABLE_FIELDS)),
-            representation_state=(),
+            representation_state=self._representation_state,
         )
 
     def _observation(
@@ -151,8 +150,10 @@ class TemporalCorrectionSession:
         scene: Any,
         report: Any,
         ordinal: int,
+        representation_state: Tuple[str, ...] = (),
     ) -> Tuple[Any, Any]:
         """Capture the exact executor extraction result before it is returned to the executor."""
+        self._representation_state = tuple(sorted(representation_state))
         snapshot = _scene_to_canonical(scene)
         evidence = TemporalExtractionEvidence(
             ordinal=ordinal,
@@ -160,7 +161,10 @@ class TemporalCorrectionSession:
             state_digest=temporal_state_digest(snapshot),
             snapshot=snapshot,
         )
-        frame_index = int(__import__("bpy").context.scene.frame_current)
+        raw_frame_index = __import__("bpy").context.scene.frame_current
+        if type(raw_frame_index) is not int or isinstance(raw_frame_index, bool):
+            raise RuntimeError("FRAME_INDEX source_time requires Blender scene.frame_current to be an exact int")
+        frame_index = raw_frame_index
 
         if ordinal == 1:
             self.start(
@@ -174,19 +178,16 @@ class TemporalCorrectionSession:
                 sequence=0,
                 frame_index=frame_index,
             )
-            state = AdmissionState(stream_id=self.stream_id)
-            engine = AdmissionEngine()
-            decision = engine.prepare(state, observation)
+            self._stream = ObservationStream(self.stream_id)
+            step = self._stream.step(observation)
+            decision = step.admission
             if not decision.accepted or decision.outcome != AdmissionOutcome.INITIAL_ACCEPTED:
                 raise RuntimeError(
                     "pre-correction Temporal admission failed: "
                     + ",".join(code.value for code in decision.reason_codes)
                 )
-            engine.commit(state, decision)
             self.observation_a = observation
             self.admission_a = self._decision_json(decision)
-            self._state = state
-            self._engine = engine
             return scene, report
 
         if ordinal == 2:
@@ -200,21 +201,18 @@ class TemporalCorrectionSession:
                 sequence=1,
                 frame_index=frame_index,
             )
-            decision = self._engine.prepare(self._state, observation)
+            if self._stream is None:
+                raise RuntimeError("post extraction occurred without an initialized ObservationStream")
+            step = self._stream.step(observation, predecessor=self.observation_a)
+            decision = step.admission
             self.admission_b = self._decision_json(decision)
-            self.observation_b = observation
             if not decision.accepted or decision.outcome != AdmissionOutcome.ACCEPTED:
                 raise RuntimeError(
                     "post-correction Temporal admission failed: "
                     + ",".join(code.value for code in decision.reason_codes)
                 )
-            self._engine.commit(self._state, decision)
-            comparison = ComparisonInput(
-                a=self.observation_a,
-                b=self.observation_b,
-                from_identity=decision.from_identity,
-            )
-            self.delta_record = evaluate(comparison)
+            self.observation_b = observation
+            self.delta_record = step.record
             return scene, report
 
         raise RuntimeError(f"unexpected extraction ordinal: {ordinal}")
@@ -228,7 +226,13 @@ class TemporalCorrectionSession:
         def captured(engine_state):
             ordinal["value"] += 1
             scene, report = extractor(engine_state)
-            return self.capture(scene=scene, report=report, ordinal=ordinal["value"])
+            representation_state = getattr(extractor, "temporal_representation_state", ())
+            return self.capture(
+                scene=scene,
+                report=report,
+                ordinal=ordinal["value"],
+                representation_state=representation_state,
+            )
 
         return captured
 
@@ -278,6 +282,12 @@ def _observation_json(observation: Optional[TemporalObservation]) -> Optional[Di
         "continuity_id": observation.continuity_id,
         "sequence": observation.sequence,
         "source_time": observation.source_time.canonical(),
+        "capability": {
+            "contract_id": observation.capability.contract_id,
+            "observable_fields": list(observation.capability.observable_fields),
+            "unobservable_fields": list(observation.capability.unobservable_fields),
+            "representation_state": list(observation.capability.representation_state),
+        },
         "producer": {
             "producer_source": observation.producer.producer_source,
             "producer_contract": observation.producer.producer_contract,
