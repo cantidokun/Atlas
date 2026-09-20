@@ -4,11 +4,11 @@
 
 - Base branch: `main`
 - Exact base commit: `1e546727dc590dcfca1cda84eccc0be138f85442`
-- Trigger: PR #127 merged the Scene/Profile Compliance Evidence Boundary v1.
-- Scope: inventory the remaining Blender capability surface and determine whether another bounded milestone is justified.
+- Discovery head under review: `fa73570aacb568a73dfca5b18d733549a7ae7b7b` (prior revision)
+- Scope: close the remaining Blender capability surface after PR #127 and determine whether another bounded milestone is justified.
 - This document does not authorize a correction, schema, extraction, Temporal, Unreal, persistence, recovery, workflow, or action-runner change.
 
-## 1. Current checkpoint
+## 1. Current checkpoint and traceability
 
 PR #127 is merged into `main` at merge commit `1e546727dc590dcfca1cda84eccc0be138f85442`.
 
@@ -25,7 +25,14 @@ The merged Scene/Profile Compliance Evidence Boundary v1 provides operator-gated
 - exact/ULP envelope behavior
 - no-save/no-mutation and exact engine/build identity evidence
 
-The existing non-manifold evidence boundary is already merged in PR #124. The earlier discovery documents that proposed non-manifold as the next capability are therefore historical and must not be reused as the current roadmap.
+The existing non-manifold evidence boundary is merged in PR #124 at `6e400378e4175661877575d522033c0b29f3173c`. Earlier discovery material that proposed non-manifold as the next capability is historical and is not reused here.
+
+Two governing discovery/design records remain on open branches rather than `main`:
+
+- PR #125, discovery: cleared head `9e30e46d4244c6a9af38662681583c7168328ed7`.
+- PR #126, design: head `b35acec7c962a6e9f7b875fed7e9874402c02694`.
+
+Their established facts are restated below where needed so this closing discovery remains traceable even though those records are not ancestors of the current base.
 
 ## 2. Frozen authority boundaries
 
@@ -41,137 +48,199 @@ This discovery must not reopen or silently alter:
 - workflow/action-runner authority
 - Unreal integration
 
-A concrete correctness defect can justify a separate boundary-reopening design, but that is outside this discovery.
+A concrete correctness defect may justify a separately named bounded defect gate, but that is outside this capability discovery.
 
-## 3. Remaining finding/correction surface
+## 3. Authoritative finding/correction inventory
 
-The current authoritative mapping in `planning/blender/correction_mapping.py` classifies the remaining findings as follows.
+The current correction mapping contains 18 finding codes. The inventory below is complete; OBJECT_HIERARCHY_INVALID is split into its two relevant semantic cases.
 
-| Finding | Current classification | Current correction/proposal | Discovery disposition |
+| Finding | Current classification | Current correction/proposal | Current disposition |
 |---|---|---|---|
-| MESH_INVALID_INDEX | REQUIRES_REVIEW | none | Investigate only whether a useful live evidence boundary exists without changing canonical representation |
-| MESH_DUPLICATE_VERTEX | REQUIRES_REVIEW | REPAIR_MERGE_VERTEX | Already has a live correction boundary; no new family implied |
-| MESH_NON_MANIFOLD_EDGE | REQUIRES_REVIEW | FLAG_NON_MANIFOLD_FOR_REVIEW | Already closed by PR #124; no repeat |
-| MESH_SCALE_OUT_OF_RANGE | REQUIRES_REVIEW | FLAG_SCALE_FOR_REVIEW | Evidence boundary closed by PR #127 |
-| MESH_NORMAL_INCONSISTENT | REQUIRES_REVIEW | REPAIR_NORMAL_CONSISTENCY | Likely blocked by frozen normal representation; investigate only |
-| SCENE_ORIGIN_INVALID | REQUIRES_REVIEW | FLAG_ORIGIN_FOR_REVIEW | Already exercised by the Scene/Profile compliance scope or adjacent profile semantics; verify exact coverage before proposing anything |
-| SCENE_BOUNDS_EMPTY | REQUIRES_REVIEW | none | Determine whether an evidence-only boundary adds information beyond existing readiness/scene-health state |
-| OBJECT_HIERARCHY_INVALID (dangling) | REQUIRES_REVIEW | REPAIR_PARENT_REFERENCE | Evidence boundary closed for dangling-parent case; cycle remains unsafe |
-| OBJECT_HIERARCHY_INVALID (cycle) | UNSAFE_TO_AUTOMATE | none | No correction implementation candidate without a separate safety contract |
-| OBJECT_BOUNDS_OVERLAP | REQUIRES_REVIEW | FLAG_BOUNDS_OVERLAP_FOR_REVIEW | Evidence boundary closed by PR #127 |
-| OBJECT_COLLECTION_INVALID | REQUIRES_REVIEW | RESTRUCTURE_COLLECTION | Evidence boundary closed by PR #127; correction remains ambiguous |
-| OBJECT_ID_DUPLICATE | UNSAFE_TO_AUTOMATE | none | Investigate only if a deterministic, engine-representable identity defect can be evidenced without changing identity authority |
-| OBJECT_TRANSFORM_INVALID | UNSAFE_TO_AUTOMATE | none | Zero-scale evidence is closed; no generic transform repair candidate |
-| DIGITAL_TWIN_READINESS_FAILED | OUT_OF_SCOPE | none | Not a produced finding; readiness is represented by validation state/reason |
+| MESH_INVALID_INDEX | REQUIRES_REVIEW | none | Live-representable for negative/out-of-range authored indices; no correction target; no immediate extension |
+| MESH_DUPLICATE_FACE | DETERMINISTIC | REMOVE_DUPLICATE_FACE; auto-propose true | Already closed by live correction gate; no new family |
+| MESH_DEGENERATE_FACE | DETERMINISTIC | REMOVE_DEGENERATE_FACE; auto-propose true | Already closed by live correction gate; no new family |
+| MESH_DUPLICATE_VERTEX | REQUIRES_REVIEW | REPAIR_MERGE_VERTEX; auto-propose false | Correction live-validated; no new family |
+| MESH_WINDING_INCONSISTENT | HEURISTIC | REPAIR_FACE_WINDING; auto-propose true | Already closed by W2 live gate; no new family |
+| MESH_NON_MANIFOLD_EDGE | REQUIRES_REVIEW | FLAG_NON_MANIFOLD_FOR_REVIEW | Closed by PR #124; no repeat |
+| MESH_SCALE_OUT_OF_RANGE | REQUIRES_REVIEW | FLAG_SCALE_FOR_REVIEW | Evidence closed by PR #127; no repeat |
+| MESH_NORMAL_INCONSISTENT | REQUIRES_REVIEW | REPAIR_NORMAL_CONSISTENCY; auto-propose false | Contract-blocked by frozen producer representation |
+| SCENE_UNIT_INVALID | HEURISTIC | NORMALIZE_UNIT_METADATA; auto-propose true | Evidence closed by #127; correction live-validated by Wave 8; no new family |
+| SCENE_ORIGIN_INVALID | REQUIRES_REVIEW | FLAG_ORIGIN_FOR_REVIEW | Not live-representable from frozen producer; not a capability candidate |
+| SCENE_BOUNDS_EMPTY | REQUIRES_REVIEW | none | Unproduced vocabulary; no independent evidence boundary to add |
+| OBJECT_NAME_INVALID | HEURISTIC | RENAME_OBJECT; auto-propose true | Evidence closed by #127; correction live-validated by Wave 9; no new family |
+| OBJECT_HIERARCHY_INVALID (dangling) | REQUIRES_REVIEW | REPAIR_PARENT_REFERENCE | Evidence closed by #127; correction already bounded |
+| OBJECT_HIERARCHY_INVALID (cycle) | UNSAFE_TO_AUTOMATE | none | Not live-representable; separate determinism defect routing required |
+| OBJECT_BOUNDS_OVERLAP | REQUIRES_REVIEW | FLAG_BOUNDS_OVERLAP_FOR_REVIEW | Evidence closed by #127; no repeat |
+| OBJECT_COLLECTION_INVALID | REQUIRES_REVIEW | RESTRUCTURE_COLLECTION; auto-propose false | Evidence closed by #127; correction remains ambiguous; no new family |
+| OBJECT_ID_DUPLICATE | UNSAFE_TO_AUTOMATE | none | Not live-representable under current Blender identity authority |
+| OBJECT_TRANSFORM_INVALID | UNSAFE_TO_AUTOMATE | none | Zero-scale evidence closed by #127; no generic repair candidate |
+| DIGITAL_TWIN_READINESS_FAILED | source-row ambiguity | none | Not a produced finding; readiness is validation state/reason |
 
-## 4. Candidate evaluation rules
+Note: `DIGITAL_TWIN_READINESS_FAILED` is grouped as OUT_OF_SCOPE by the correction-mapping module docstring, while its actual mapping row carries `REQUIRES_REVIEW`, no correction type, and auto-propose false. This pre-existing source ambiguity is recorded rather than silently normalized.
 
-A candidate may advance only if all of the following can be established without weakening a frozen boundary:
+## 4. Existing deterministic and live-gate coverage
 
-1. **Concrete value** — it exposes information materially useful to Atlas beyond existing evidence.
-2. **Real Blender representability** — the intended defect can be constructed and observed in Blender 4.4.3, not merely fabricated in Python.
-3. **Canonical compatibility** — evidence can be expressed using the current canonical model, or the need for representation change is explicitly identified as a separate design problem.
-4. **Independent truth source** — the live gate can compare engine-derived evidence against an independent fixture truth or deterministic invariant.
-5. **No mutation required** — discovery candidates should default to read-only evidence unless a later design proves a bounded correction is justified.
-6. **Deterministic refusal** — malformed, ambiguous, unsupported, or unsafe cases have explicit refusal behavior.
-7. **No authority expansion** — the candidate does not create planning, authorization, persistence, retry, rollback, scheduling, or workflow authority.
-8. **Non-duplication** — the capability is not already closed by PR #124 or PR #127.
-9. **Evidence identity** — engine version/build, repository head, payload/report identity, and artifact integrity are captured where applicable.
-10. **Independent red-teamability** — the candidate can be reviewed against an exact immutable design head before implementation.
+The following existing correction/evidence families are already closed and must not be rediscovered as new capability:
 
-## 5. Candidate-specific discovery questions
+- `MESH_DUPLICATE_FACE` — `tests/test_live_blender_w1_w1b_face_removal_gate.py`
+- `MESH_DEGENERATE_FACE` — `tests/test_live_blender_w1_w1b_face_removal_gate.py`
+- `MESH_WINDING_INCONSISTENT` — W2 live gate
+- `MESH_DUPLICATE_VERTEX` — Wave 7 / merge-vertex live validation
+- `MESH_NON_MANIFOLD_EDGE` — PR #124 live evidence boundary
+- `SCENE_UNIT_INVALID` — Wave 8 correction gate and PR #127 evidence
+- `OBJECT_NAME_INVALID` — Wave 9 correction gate and PR #127 evidence
+- zero-scale `OBJECT_TRANSFORM_INVALID` — PR #127 evidence
+- dangling-parent `OBJECT_HIERARCHY_INVALID` — PR #127 evidence
+- `MESH_SCALE_OUT_OF_RANGE` — PR #127 evidence
+- `OBJECT_BOUNDS_OVERLAP` — PR #127 evidence
+- `OBJECT_COLLECTION_INVALID` — PR #127 evidence
 
-### A. MESH_INVALID_INDEX
+PR #127's merged live gate covers A01-A17 with exact finding-code/readiness assertions, measured payloads, effective profile identity, canonical input/report digests, raw-state no-mutation checks, and exact Blender 4.4.3 build identity.
 
-Determine the exact split between:
+## 5. Canonical representation constraints
 
-- live-representable negative/out-of-range indices;
-- repeated vertex indices or otherwise parser-refused topology;
-- malformed/non-integer/non-finite data that Blender itself cannot preserve.
+The current producer contract intentionally omits unsupported normal/UV/local-frame semantics. In particular, normals, UVs, and `local_frame_id` are not emitted by the frozen v1 producer.
 
-The key question is whether a real Blender evidence gate can add meaningful coverage without changing the frozen extraction/parser contract.
+Therefore:
 
-**Do not authorize repair.** An evidence-only candidate is the maximum scope unless a separate contract is approved.
+- A capability requiring canonical normal semantics is a contract-reopen problem, not a Blender milestone.
+- Identity cannot be fabricated by mutating extracted evidence: current object identity is derived from the Blender object name, and Blender enforces unique names by suffixing duplicates.
+- Scene-origin validity depends on producer fields not emitted by the frozen extractor.
+- Scene bounds-empty is not a produced canonical finding; readiness state/reason is the observable for geometry-free/readiness conditions.
+- No candidate may introduce repair authority, scheduler/retry/recovery authority, persistence, or workflow authority.
 
-### B. MESH_NORMAL_INCONSISTENT
+## 6. Blender 4.4.3 representability findings
 
-The current correction mapping references normal consistency, while the frozen extraction contract intentionally omits unsupported normal semantics.
+The following determinations are based on the merged production code at this base and Blender 4.4.3 behavior.
 
-Determine whether there is any non-invasive evidence boundary that is both meaningful and compatible with the frozen canonical representation.
+### MESH_INVALID_INDEX
 
-If proving the capability requires introducing canonical normal semantics, this candidate is a **contract-reopen candidate**, not a next Blender milestone.
+Negative and out-of-range indices are live-representable: Blender `from_pydata` accepts authored faces such as `(0,1,9)` and `(-1,0,1)`; extraction preserves the authored face and the kernel can emit `MESH_INVALID_INDEX` alongside `MESH_DEGENERATE_FACE`.
 
-### C. OBJECT_ID_DUPLICATE
+Repeated indices are refused by the canonical parser as `SceneReportInputError`, and non-integer indices are rejected by Blender's mesh API. There is no correction policy. This is evidence-only at most, and the current evidence shows no operational need that justifies a new milestone.
 
-Determine how canonical object identity is constructed and whether Blender can produce a genuinely ambiguous identity condition under the current producer semantics.
+**Disposition: NO IMMEDIATE EXTENSION JUSTIFIED.**
 
-Do not invent duplicate IDs by mutating evidence after extraction. If the condition cannot occur under the current identity authority, record it as non-live-representable rather than manufacturing a test.
+### MESH_NORMAL_INCONSISTENT
 
-### D. SCENE_BOUNDS_EMPTY
+The producer omits normals by contract, and the correction mapping explicitly defers normal consistency because the kernel does not own per-face normal semantics.
 
-Determine whether an empty scene/empty geometry condition produces a useful independently verifiable evidence boundary that is not already adequately represented by scene readiness and existing extraction semantics.
+**Disposition: CONTRACT-BLOCKED; no Blender capability milestone.**
 
-If there is no additional operational value, classify as no-action/no-extension.
+### OBJECT_ID_DUPLICATE
 
-### E. OBJECT_HIERARCHY_INVALID cycle
+Under current producer semantics, `object_id` is the source object name. Blender prevents two objects from retaining the same name in the same namespace by suffixing duplicates (for example, `.001`).
 
-Keep the current safety classification. Blender's live construction constraints must be checked, but the discovery must not force a cycle fixture or invent repair semantics merely to obtain a test case.
+**Disposition: NOT LIVE-REPRESENTABLE; no action.**
 
-### F. Existing review-only findings already covered
+### SCENE_BOUNDS_EMPTY
 
-For OBJECT_COLLECTION_INVALID, MESH_SCALE_OUT_OF_RANGE, OBJECT_BOUNDS_OVERLAP, zero-scale OBJECT_TRANSFORM_INVALID, and dangling-parent hierarchy, verify the merged PR #127 evidence is sufficient and do not propose duplicate gates.
+No producer in `planning/` emits this finding as an observed scene condition; it exists in the vocabulary/mapping but not as a producer-backed evidence path. Geometry-free scenes instead expose readiness/validation state and reason.
 
-## 6. Required discovery evidence
+**Disposition: UNPRODUCED CONTRACT/INTERFACE GAP; no capability milestone.**
 
-Before recommending any implementation design, the discovery package must contain:
+### OBJECT_HIERARCHY_INVALID (cycle)
 
-- current main SHA and exact source inventory;
-- complete finding-to-correction classification;
-- existing deterministic test coverage;
-- existing live-gate coverage and exact PR/commit references;
-- canonical representation constraints;
-- Blender 4.4.3 representability findings;
-- candidate value/duplication analysis;
-- adversarial/refusal matrix;
-- no-save/no-mutation implications;
-- authority/frozen-boundary audit;
-- explicit non-claims;
-- a final disposition for every remaining candidate.
+Blender's live parent assignment does not form the requested parent cycle; the attempted cycle assignment reads back as no cycle in the tested 2- and 3-cycle cases. The condition is therefore not live-representable through normal Blender construction and remains unsafe to automate.
 
-A live probe may be added only if it is itself bounded as discovery evidence and does not become an implementation by implication.
+A separate determinism defect is recorded in §7.
 
-## 7. Promotion gate
+**Disposition: UNSAFE + NOT LIVE-REPRESENTABLE; no correction capability.**
 
-This discovery is **not implementation authorization**.
+### OBJECT_TRANSFORM_INVALID beyond zero scale
 
-Promotion requires:
+NaN is retained by RNA but refused by the frozen extractor. Infinity is clamped by RNA to a finite envelope and surfaces as evidence rather than preserving the authored infinity. The mapping classifies this family as unsafe to automate.
 
-1. independent architectural/red-team review of this exact discovery head;
-2. a CLEAR verdict;
-3. if a candidate survives, a separate implementation design PR;
-4. independent review of that design;
-5. only then may implementation begin.
+**Disposition: NO GENERIC REPAIR CANDIDATE.**
 
-If every candidate is closed, duplicated, unsafe, or contract-blocked, the correct outcome is **NO IMMEDIATE BLENDER EXTENSION**. That is a valid discovery result.
+### SCENE_ORIGIN_INVALID
 
-## 8. Non-claims
+The predicate requires scene fields such as coordinate frame/world bounds that the frozen producer does not emit. The merged #127 A01-A17 gate therefore does not exercise this finding.
+
+**Disposition: NOT LIVE-REPRESENTABLE FROM THE FROZEN PRODUCER; no capability milestone.**
+
+## 7. Separate named hierarchy-cycle determinism defect
+
+The previous discovery work identified a correctness defect that must not be lost merely because it is not a capability.
+
+`scene_health._collect_hierarchy_validity` iterates an unordered object-ID set before DFS. For synthetic cyclic inputs, this can make the resulting cycle findings and report digests depend on `PYTHONHASHSEED`.
+
+This is a deterministic correctness defect in shipped code, not a new Blender capability and not a correction-authority request. It is outside this discovery's implementation scope.
+
+**Required routing:** create a separately named bounded defect decision/gate that either:
+1. applies an ordering fix and adds a `PYTHONHASHSEED` determinism test, with exact-head verification; or
+2. records an explicit, reviewable deferral.
+
+No repair semantics, authority expansion, or capability milestone is implied by this routing.
+
+## 8. Candidate disposition / adversarial refusal matrix
+
+| Candidate | Live truth | Canonical fit | Safety/authority | Terminal disposition |
+|---|---|---|---|---|
+| MESH_INVALID_INDEX | Yes, negative/out-of-range only | Existing representation | Read-only; no correction target | NO IMMEDIATE EXTENSION |
+| MESH_NORMAL_INCONSISTENT | Not observable under frozen producer | Requires normal semantics | Contract reopen required | CONTRACT-BLOCKED |
+| OBJECT_ID_DUPLICATE | No under Blender identity semantics | Existing identity authority prevents condition | Unsafe to manufacture | NOT LIVE-REPRESENTABLE |
+| SCENE_BOUNDS_EMPTY | No producer-backed finding | Existing readiness state is the observable | No added operational value | UNPRODUCED / NO ACTION |
+| hierarchy cycle | No live Blender construction path | Existing model can contain synthetic canonical data | Unsafe; no repair | NOT LIVE-REPRESENTABLE + separate defect gate |
+| SCENE_ORIGIN_INVALID | No producer-backed predicate inputs | Frozen extractor omits required fields | Contract reopen would be required | NOT LIVE-REPRESENTABLE |
+| already-closed #124/#127 findings | Yes | Already evidenced | Duplicate gate adds no authority/value | CLOSED / NO REPEAT |
+
+Adversarial cases that must refuse rather than fabricate evidence include parser-refused repeated indices, non-integer indices, manufactured duplicate identities, forced hierarchy cycles, and unsupported normal semantics.
+
+## 9. No-save / no-mutation implications
+
+Discovery remains read-only. A valid future live probe may create disposable in-memory fixture state, observe it, and dispose without saving. It must not mutate persistent scene data, authorize correction, or imply a production mutation path.
+
+No candidate in this discovery justifies reopening the correction executor or introducing a new correction family.
+
+## 10. Authority and frozen-boundary audit
+
+The change remains documentation-only. No production, test, workflow, Temporal, Unreal, authorization, receipt, persistence/recovery, or action-runner file is modified by this discovery.
+
+The discovery proposes no:
+
+- new correction family;
+- automatic repair;
+- planner/scheduler;
+- retry or rollback;
+- persistence/recovery authority;
+- workflow/action-runner authority;
+- Temporal schema or representation change;
+- Unreal integration;
+- extraction contract expansion.
+
+Anything requiring new canonical representation semantics is explicitly routed as a contract-reopen question rather than smuggled into a capability milestone.
+
+## 11. Final capability decision
+
+The complete inventory and representability analysis leave no bounded, non-duplicative, live-representable Blender capability with demonstrated operational value that survives the frozen boundaries.
+
+Therefore:
+
+**OUTCOME B — NO IMMEDIATE BLENDER EXTENSION.**
+
+This closes the Blender extension track at this checkpoint. It does **not** mean Blender support is abandoned; it means the current evidence does not justify another capability milestone without reopening a frozen contract or introducing unsafe/ambiguous authority.
+
+The hierarchy-cycle determinism defect in §7 remains separately routed and must not be silently closed by this outcome.
+
+## 12. Promotion gate and non-claims
+
+This document is still **DISCOVERY ONLY — NO IMPLEMENTATION AUTHORIZED**.
+
+Promotion of this discovery requires:
+
+1. independent architectural/red-team review of the exact corrected discovery head;
+2. a CLEAR verdict that the record is complete and traceable.
+
+Because no candidate survives, a follow-on implementation design is **not** justified. A CLEAR result closes the capability discovery; it does not authorize implementation.
 
 This document does not claim:
 
 - that any remaining finding should be corrected automatically;
-- that any remaining finding is live-representable;
-- that Blender extraction should be expanded;
-- that normal/UV semantics should be added;
+- that unsupported normal/UV semantics should be added;
 - that another correction wave is required;
-- that a Wave 16 implementation is authorized;
-- that Blender work must continue if the discovery closes the remaining useful surface.
+- that Wave 16 implementation is authorized;
+- that the hierarchy-cycle determinism defect is resolved;
+- that Blender development as a whole must stop.
 
-## 9. Expected next decision
-
-The next decision is deliberately binary at the capability level:
-
-**A. A bounded, non-duplicative Blender capability survives discovery** → produce a separate design package.
-
-**B. No bounded capability survives without reopening a frozen contract or adding unsafe authority** → close the Blender extension track at this checkpoint and move the engineering focus to the next Atlas layer.
-
-No implementation should be started between this discovery and that decision.
+**Expected next engineering decision:** route the hierarchy-cycle determinism defect separately, then move the primary engineering focus to the next Atlas layer unless a new, independently justified Blender requirement appears.
