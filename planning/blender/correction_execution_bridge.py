@@ -115,6 +115,7 @@ class CorrectionBridgeResult:
     correction_result: Optional[Mapping[str, Any]]
     engine_evidence: Mapping[str, Any]
     stdout_tail: str = ""
+    temporal_transaction: Optional[Mapping[str, Any]] = None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -127,6 +128,9 @@ class CorrectionBridgeResult:
                 "correction_result": self.correction_result,
                 "engine_evidence": dict(self.engine_evidence),
                 "stdout_tail": self.stdout_tail,
+                "temporal_transaction": None
+                if self.temporal_transaction is None
+                else dict(self.temporal_transaction),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -456,4 +460,5 @@ class CorrectionExecutionBridge:
             correction_result=decoded.get("correction_result"),
             engine_evidence=decoded.get("engine_evidence", {}),
             stdout_tail=stdout[-4000:],
+            temporal_transaction=decoded.get("temporal_transaction"),
         )
