@@ -102,7 +102,7 @@ def test_b_snapshot_is_independent_of_receipt_content(monkeypatch):
     session = _session(monkeypatch)
     session.capture(scene=_scene(x=2.0), report=_Report("report-b"), ordinal=2)
     fake_receipt = {"result": "COMPLETED", "target": {"location": [999.0, 999.0, 999.0]}}
-    before = session.result_payload(fake_receipt)["temporal_transaction"]["post_snapshot"]
+    before = session.result_payload()["temporal_transaction"]["post_snapshot"]
     after = session.result_payload(fake_receipt)["temporal_transaction"]["post_snapshot"]
     assert after == before
     assert after["objects"][0]["location"] == [2.0, 0.0, 0.0]
@@ -215,16 +215,15 @@ def test_no_raw_evaluator_draft_is_emitted(monkeypatch):
 
 
 def test_post_candidate_is_not_exposed_as_accepted_b_on_failure(monkeypatch):
-    session = _session(monkeypatch)
-    with pytest.raises(RuntimeError):
-        session.capture(
-            scene=SceneModel(scene_id="different-scene", unit_system="METERS", objects=()),
-            report=_Report("report-b"),
-            ordinal=2,
-        )
+    session = _session(monkeypatch, frame_current=12)
+    _install_fake_bpy(monkeypatch, frame_current=11)
+    with pytest.raises(RuntimeError, match="post-correction Temporal admission failed"):
+        session.capture(scene=_scene(x=1.0), report=_Report("report-b"), ordinal=2)
+    payload = session.result_payload()["temporal_transaction"]
     assert session.observation_b is None
-    assert session.delta_record is None
-
+    assert session.post is None
+    assert payload["post_snapshot"] is None
+    assert payload["delta_record"] is None
 
 def test_caught_post_extraction_failure_marks_transport_ambiguous():
     evidence = {"mutator_invocations": 1, "ambiguous_result": False}
@@ -308,7 +307,7 @@ def test_postcondition_failure_still_exposes_measured_b(monkeypatch):
     session = _session(monkeypatch)
     session.capture(scene=_scene(x=2.0), report=_Report("report-b"), ordinal=2)
     receipt = {"result": "POSTCONDITION_FAILED", "failure_code": "POSTCONDITION_FAILED"}
-    payload = session.result_payload(receipt)["temporal_transaction"]
+    payload = session.result_payload()["temporal_transaction"]
     assert payload["observation_b"] is not None
     assert payload["post_snapshot"]["objects"][0]["location"] == [2.0, 0.0, 0.0]
     assert payload["delta_record"]["to_state_digest"] == payload["post_state_digest"]
@@ -338,7 +337,7 @@ def test_mutation_failure_before_post_extraction_produces_no_b(monkeypatch):
 def test_receipt_injection_cannot_change_measured_b_or_delta(monkeypatch):
     session = _session(monkeypatch)
     session.capture(scene=_scene(x=3.0), report=_Report("report-b"), ordinal=2)
-    good = session.result_payload({"result": "COMPLETED"})["temporal_transaction"]
+    good = session.result_payload()["temporal_transaction"]
     stolen = session.result_payload({
         "result": "COMPLETED",
         "target": {"location": [999.0, 999.0, 999.0]},
@@ -351,16 +350,13 @@ def test_receipt_injection_cannot_change_measured_b_or_delta(monkeypatch):
 
 def test_runtime_temporal_failure_is_bounded_and_attributed(monkeypatch):
     from planning.blender import correction_execution_bridge_runtime as runtime
-
     _install_fake_bpy(monkeypatch)
     evidence = {"extraction_invocations": 1, "mutator_invocations": 0}
     runtime._mark_temporal_extraction_failure(evidence)
     assert evidence["temporal_failure_code"] == "TEMPORAL_PRE_ADMISSION_FAILED"
-
     evidence["extraction_invocations"] = 2
     runtime._mark_temporal_extraction_failure(evidence)
     assert evidence["temporal_failure_code"] == "TEMPORAL_POST_ADMISSION_FAILED"
-
 
 def test_capability_identity_is_frozen_across_a_and_b(monkeypatch):
     session = _session(monkeypatch, representation_state=("materials:omitted",))
@@ -375,6 +371,15 @@ def test_capability_identity_is_frozen_across_a_and_b(monkeypatch):
     assert session.delta_record is None
 
 
+def test_internal_error_after_mutation_is_ambiguous():
+    evidence = {"mutator_invocations": 1, "ambiguous_result": False}
+    mark_post_extraction_ambiguity(
+        evidence,
+        {"result": "MUTATION_FAILED", "failure_code": "INTERNAL_ERROR"},
+    )
+    assert evidence["ambiguous_result"] is True
+
+
 def test_mutation_failure_after_invocation_is_ambiguous():
     evidence = {"mutator_invocations": 1, "ambiguous_result": False}
     mark_post_extraction_ambiguity(
@@ -384,13 +389,19 @@ def test_mutation_failure_after_invocation_is_ambiguous():
     assert evidence["ambiguous_result"] is True
 
 
+def test_receipt_only_cannot_fabricate_b(monkeypatch):
+    session = _session(monkeypatch)
+    payload = session.result_payload()["temporal_transaction"]
+    assert payload["observation_b"] is None
+    assert payload["post_snapshot"] is None
+    assert payload["delta_record"] is None
+
+
 def test_canonical_snapshot_digest_is_reproducible(monkeypatch):
     session = _session(monkeypatch)
-    snapshot_a = session.pre.snapshot
-    snapshot_b = dict(snapshot_a)
+    snapshot = session.pre.snapshot
     from planning.temporal.model import temporal_state_digest
-    assert temporal_state_digest(snapshot_a) == temporal_state_digest(snapshot_b)
-
+    assert temporal_state_digest(snapshot) == "2a3542fd79050d73f9cdde6bdc51504ffeea4f2cd2d2ff82f10e05534622ce7c"
 
 def test_existing_correction_allowlist_remains_frozen():
     from planning.blender.correction_executor import _EXECUTABLE_TYPES
