@@ -204,6 +204,8 @@ def _polygon_disjoint_2d(poly_a, poly_b):
 
 
 def _world_xy(ob):
+    # Force Blender to evaluate pending object transforms before fixture inspection.
+    bpy.context.view_layer.update()
     return [[
         float((ob.matrix_world @ v.co).x),
         float((ob.matrix_world @ v.co).y),
