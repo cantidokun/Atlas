@@ -18,6 +18,17 @@
 - Implementation design: `planning/blender/TEMPORAL_CORRECTION_INTEGRATION_V3_IMPLEMENTATION_DESIGN.md`
 - Temporal schema, correction receipt, evaluator, and extraction contracts remain intentionally frozen.
 
+### Validation state after resumed gate work
+
+Current PR #122 head:
+- `4d68d29d901c9400ca2c06acf8976bd4c9789d13`.
+- Atlas Tests exact-head run **#2162** / run ID `35519463820`: **SUCCESS** on the current head.
+- A CI-only infrastructure change was added to `.github/workflows/blender-correction-bridge-live.yml` on `main` so the existing main-branch workflow recognizes PR #122's branch and executes the Temporal Correction Integration live test on the self-hosted Windows runner.
+- The newly introduced standalone live workflow on the PR branch remains uncredited because its push runs have zero jobs.
+- The next required event is therefore a fresh PR synchronization/run so the existing main-branch workflow can execute the live gate against the PR head.
+
+Do not credit the live gate until a real self-hosted job exists, completes, and its evidence artifact/log is inspected.
+
 ### Validation state at pause
 
 Local evidence reported before the pause:
