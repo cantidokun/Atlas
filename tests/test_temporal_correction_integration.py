@@ -316,9 +316,12 @@ def test_caller_cannot_supply_producer_session_identity(monkeypatch):
 def test_foreign_a_substitution_is_refused_by_identity_binding(monkeypatch):
     first = _session(monkeypatch)
     second = _session(monkeypatch)
-    stream = first._stream
-    with pytest.raises(AssertionError):
-        assert stream.step(second.observation_a, predecessor=first.observation_a).admission.accepted is False
+    decision = first._stream.step(
+        second.observation_a,
+        predecessor=first.observation_a,
+    ).admission
+    assert decision.accepted is False
+    assert decision.reason_codes
 
 
 def test_postcondition_failure_still_exposes_measured_b(monkeypatch):
@@ -402,3 +405,21 @@ def test_mutation_failure_after_invocation_is_ambiguous():
         {"result": "MUTATION_FAILED", "failure_code": "MUTATION_FAILED"},
     )
     assert evidence["ambiguous_result"] is True
+
+
+def test_canonical_snapshot_digest_is_reproducible(monkeypatch):
+    session = _session(monkeypatch)
+    snapshot_a = session.pre.snapshot
+    snapshot_b = dict(snapshot_a)
+    from planning.temporal.model import temporal_state_digest
+    assert temporal_state_digest(snapshot_a) == temporal_state_digest(snapshot_b)
+
+
+def test_existing_correction_allowlist_remains_frozen():
+    from planning.blender.correction_executor import _EXECUTABLE_TYPES
+    assert set(_EXECUTABLE_TYPES) == {
+        "REMOVE_DUPLICATE_FACE",
+        "REMOVE_DEGENERATE_FACE",
+        "REPAIR_FACE_WINDING",
+        "REPAIR_MERGE_VERTEX",
+    }
