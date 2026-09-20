@@ -31,8 +31,8 @@ Exact-head GitHub Actions for `2d30e6b20a6a6886713097ee41eb36ba005b85be`:
 - Python 3.11 job: same three failures.
 - Failures are in `tests/test_temporal_correction_integration.py`:
   1. `test_runtime_temporal_failure_is_bounded_and_attributed` — imports `bpy` before the fake module is installed in CI.
-  2. `test_run_embedded_request_internal_error_is_ambiguous_and_has_no_b` — expected `ambiguous_result=True), observed `False`.
-  3. `test_run_embedded_request_preserves_persistence_invariant` — expected `persistence_unchanged=True), observed `False`.
+  2. `test_run_embedded_request_internal_error_is_ambiguous_and_has_no_b` — expected `ambiguous_result=True`, observed `False`.
+  3. `test_run_embedded_request_preserves_persistence_invariant` — expected `persistence_unchanged=True`, observed `False`.
 - Therefore the exact-head deterministic CI gate is **RED**.
 - The dedicated v3 end-to-end Blender live gate has **not been credited as an exact-head GitHub artifact**.
 - Do not describe PR #122 as CI-green, live-gate-green, or promotion-ready.
