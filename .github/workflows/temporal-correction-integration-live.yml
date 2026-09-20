@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   temporal-correction-live-blender:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'design/temporal-correction-integration-v3'
     runs-on: [self-hosted, windows, local-win]
     environment: local-testing
     timeout-minutes: 25
