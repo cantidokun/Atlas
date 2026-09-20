@@ -182,6 +182,34 @@ def effective_profile():
         "tolerance_bounds_metres": p.tolerance_bounds_metres,
     }
 
+def _polygon_disjoint_2d(poly_a, poly_b):
+    """Independent fixture-truth check; intentionally not the production AABB predicate."""
+    def axes(poly):
+        for i, point in enumerate(poly):
+            other = poly[(i + 1) % len(poly)]
+            edge_x = other[0] - point[0]
+            edge_y = other[1] - point[1]
+            yield (-edge_y, edge_x)
+
+    def project(poly, axis):
+        values = [point[0] * axis[0] + point[1] * axis[1] for point in poly]
+        return min(values), max(values)
+
+    for axis in list(axes(poly_a)) + list(axes(poly_b)):
+        min_a, max_a = project(poly_a, axis)
+        min_b, max_b = project(poly_b, axis)
+        if max_a < min_b or max_b < min_a:
+            return True
+    return False
+
+
+def _world_xy(ob):
+    return [[
+        float((ob.matrix_world @ v.co).x),
+        float((ob.matrix_world @ v.co).y),
+    ] for v in ob.data.vertices]
+
+
 def evaluate(case_id):
     reset_scene()
     field = collection("Field")
@@ -237,11 +265,15 @@ def evaluate(case_id):
             mesh_object("a", [(0,0,1),(2,0,1),(2,1,1),(0,1,1)], [(0,1,2,3)], field)
             mesh_object("b", [(0,1,1),(2,1,1),(2,2,1),(0,2,1)], [(0,1,2,3)], field)
         else:
+            # Deliberately disjoint oriented geometry whose axis-aligned bounds overlap.
+            # The rotated square is centered at (1.6, 1.6), so its nearest vertex is
+            # approximately (0.893, 1.6): outside the anchor [0,1] x [0,1].
             a = [(0,0,1),(1,0,1),(1,1,1),(0,1,1)]
-            b = [(1,0.3,1),(2,0.3,1),(2,1.3,1),(1,1.3,1)]
-            ob = mesh_object("rotated", b, [(0,1,2,3)], field)
-            ob.rotation_euler[2] = math.radians(45)
+            b = [(-0.5,-0.5,0),(0.5,-0.5,0),(0.5,0.5,0),(-0.5,0.5,0)]
             mesh_object("anchor", a, [(0,1,2,3)], field)
+            ob = mesh_object("rotated", b, [(0,1,2,3)], field)
+            ob.location = (1.6, 1.6, 1.0)
+            ob.rotation_euler[2] = math.radians(45)
 
     before = snapshot()
     payload = extract_scene(bpy)
@@ -252,7 +284,7 @@ def evaluate(case_id):
 
     findings = [f.snapshot() for f in report.findings]
     codes = sorted({f.code.value for f in report.findings})
-    return {
+    result = {
         "case": case_id,
         "finding_codes": codes,
         "findings": findings,
@@ -264,6 +296,18 @@ def evaluate(case_id):
         "profile": effective_profile(),
         "read_only_equal": before == after,
     }
+    if case_id == "A17_rotated_aabb":
+        anchor = bpy.data.objects["anchor"]
+        rotated = bpy.data.objects["rotated"]
+        anchor_xy = _world_xy(anchor)
+        rotated_xy = _world_xy(rotated)
+        result["fixture_truth"] = {
+            "oriented_geometry_disjoint": _polygon_disjoint_2d(anchor_xy, rotated_xy),
+            "aabb_overlap_expected": True,
+            "anchor_world_xy": anchor_xy,
+            "rotated_world_xy": rotated_xy,
+        }
+    return result
 
 def main():
     cases = []
@@ -290,14 +334,28 @@ def main():
         "report_format_version": REPORT_FORMAT_VERSION,
         "cases": cases,
     }
-    evidence = json.dumps(out, sort_keys=True, separators=(",", ":"))
-    out["evidence_sha256"] = hashlib.sha256(evidence.encode()).hexdigest()
     print(json.dumps(out, sort_keys=True))
     print(MARKER + "_PASS")
 
 if __name__ == "__main__":
     main()
 '''
+
+
+def _blend_artifact_inventory(repo, temp_dir):
+    roots = {
+        "repo": repo,
+        "temp": temp_dir,
+    }
+    inventory = {}
+    for label, root in roots.items():
+        paths = []
+        for suffix in ("*.blend", "*.blend1"):
+            for path in root.rglob(suffix):
+                if path.is_file():
+                    paths.append(str(path.resolve()))
+        inventory[label] = sorted(set(paths))
+    return inventory
 
 
 def test_live_scene_profile_compliance_boundary():
@@ -318,6 +376,9 @@ def test_live_scene_profile_compliance_boundary():
     env["ATLAS_REPO_ROOT"] = str(repo)
     env["ATLAS_GIT_SHA"] = sha
 
+    temp_dir = Path(tempfile.gettempdir())
+    artifacts_before = _blend_artifact_inventory(repo, temp_dir)
+
     completed = subprocess.run(
         [
             executable,
@@ -335,7 +396,12 @@ def test_live_scene_profile_compliance_boundary():
         check=False,
     )
     combined = completed.stdout + "\n" + completed.stderr
+    artifacts_after = _blend_artifact_inventory(repo, temp_dir)
     assert completed.returncode == 0, combined
+    assert artifacts_after == artifacts_before, {
+        "before": artifacts_before,
+        "after": artifacts_after,
+    }
 
     payload = None
     for line in completed.stdout.splitlines():
@@ -375,6 +441,8 @@ def test_live_scene_profile_compliance_boundary():
     assert by_case["A15_x_flush"]["finding_codes"] == []
     assert by_case["A16_yz_flush"]["finding_codes"] == ["OBJECT_BOUNDS_OVERLAP"]
     assert by_case["A17_rotated_aabb"]["finding_codes"] == ["OBJECT_BOUNDS_OVERLAP"]
+    assert by_case["A17_rotated_aabb"]["fixture_truth"]["oriented_geometry_disjoint"] is True
+    assert by_case["A17_rotated_aabb"]["fixture_truth"]["aabb_overlap_expected"] is True
 
     # Exact measured evidence for the primary NEW findings.
     assert by_case["A02_collection"]["findings"][0]["measured"]["collection"] == "Misc"
@@ -399,12 +467,38 @@ def test_live_scene_profile_compliance_boundary():
     assert profile["required_object_roles"] == ["pitch", "goal_left", "goal_right"]
     assert profile["tolerance_bounds_metres"] == 0.05
 
-    # Persist the complete evidence outside the repository.
-    evidence_json = json.dumps(payload, sort_keys=True, indent=2)
+    # Complete final evidence on the host side, including the no-artifact inventory.
+    payload["artifact_inventory"] = {
+        "before": artifacts_before,
+        "after": artifacts_after,
+        "no_new_blend_or_blend1": artifacts_before == artifacts_after,
+    }
+    evidence_bytes = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    evidence_sha256 = hashlib.sha256(evidence_bytes).hexdigest()
+
     evidence_path = Path(tempfile.gettempdir()) / f"atlas_scene_profile_compliance_v1_{sha[:12]}.json"
-    evidence_path.write_text(evidence_json, encoding="utf-8")
-    assert evidence_path.exists()
+    evidence_path.write_bytes(evidence_bytes)
+    assert evidence_path.read_bytes() == evidence_bytes
+    assert hashlib.sha256(evidence_path.read_bytes()).hexdigest() == evidence_sha256
+
+    manifest = {
+        "evidence_file": str(evidence_path),
+        "evidence_sha256": evidence_sha256,
+        "hash_recipe": {
+            "encoding": "utf-8",
+            "serialization": "json.dumps(payload, sort_keys=True, separators=(',', ':'))",
+            "hashed_bytes_are_persisted_exactly": True,
+            "self_field_excluded": True,
+        },
+    }
+    manifest_path = evidence_path.with_suffix(".manifest.json")
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2), encoding="utf-8"
+    )
 
     print("ATLAS_SCENE_PROFILE_EVIDENCE=" + str(evidence_path))
-    print("ATLAS_SCENE_PROFILE_EVIDENCE_SHA256=" + payload["evidence_sha256"])
+    print("ATLAS_SCENE_PROFILE_EVIDENCE_SHA256=" + evidence_sha256)
+    print("ATLAS_SCENE_PROFILE_EVIDENCE_MANIFEST=" + str(manifest_path))
     print(MARKER + "_PASS")
