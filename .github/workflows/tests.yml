@@ -47,7 +47,7 @@ jobs:
           PY
 
   temporal-correction-live-blender:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'design/temporal-correction-integration-v3'
+    if: github.event_name == 'pull_request' && github.head_ref == 'design/temporal-correction-integration-v3'
     runs-on: [self-hosted, windows, local-win]
     environment: local-testing
     timeout-minutes: 25
