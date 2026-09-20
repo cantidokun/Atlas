@@ -11,7 +11,8 @@
 - Active branch: `design/temporal-correction-integration-v3`
 - PR #122: **OPEN / MERGEABLE / NOT MERGED**
 - PR title: `feat(blender): integrate Temporal A/B with correction bridge v3`
-- Current branch HEAD: `430f543e55967cfea8704133b665cb4379f7c208` (documentation-only checkpoint commit; implementation candidate remains `2d30e6b20a6a6886713097ee41eb36ba005b85be`)
+- Implementation candidate under test: `2d30e6b20a6a6886713097ee41eb36ba005b85be`
+- Documentation updates after the pause are documentation-only; verify the branch HEAD on resume rather than relying on a recorded documentation SHA.
 - Base: `main` at `321a9ca6ecbc58f52e9c66e1d1116387edcae60d`
 - PR #122 is the current development target. Do **not** merge it yet.
 - Implementation design: `planning/blender/TEMPORAL_CORRECTION_INTEGRATION_V3_IMPLEMENTATION_DESIGN.md`
