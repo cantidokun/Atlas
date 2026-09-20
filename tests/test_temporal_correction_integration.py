@@ -345,8 +345,8 @@ def test_receipt_injection_cannot_change_measured_b_or_delta(monkeypatch):
 
 
 def test_runtime_temporal_failure_is_bounded_and_attributed(monkeypatch):
-    from planning.blender import correction_execution_bridge_runtime as runtime
     _install_fake_bpy(monkeypatch)
+    from planning.blender import correction_execution_bridge_runtime as runtime
     evidence = {"extraction_invocations": 1, "mutator_invocations": 0}
     runtime._mark_temporal_extraction_failure(evidence)
     assert evidence["temporal_failure_code"] == "TEMPORAL_PRE_ADMISSION_FAILED"
@@ -463,6 +463,8 @@ def test_run_embedded_request_preserves_persistence_invariant(monkeypatch, capsy
     monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: object())
     monkeypatch.setattr(runtime, "_canonical_postcondition_binding", lambda plan, operation: ("ref", "digest"))
     monkeypatch.setattr(runtime, "_load_source", lambda path: None)
+    monkeypatch.setattr(runtime, "_blend_inventory", lambda root: {})
+    monkeypatch.setattr(runtime, "_file_fingerprint", lambda path: None)
     monkeypatch.setattr(
         runtime,
         "_run_executor",
