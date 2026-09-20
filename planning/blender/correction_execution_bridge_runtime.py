@@ -236,6 +236,15 @@ def _run_executor(plan: CorrectionPlan, request: Mapping[str, Any]) -> dict[str,
     }
 
 
+def _mark_temporal_extraction_failure(engine_evidence: dict[str, Any]) -> None:
+    ordinal = engine_evidence.get("extraction_invocations", 0)
+    engine_evidence["temporal_failure_code"] = (
+        "TEMPORAL_PRE_ADMISSION_FAILED"
+        if ordinal == 1
+        else "TEMPORAL_POST_ADMISSION_FAILED"
+    )
+
+
 def _load_source(path: Optional[str]) -> None:
     if path is None:
         return
@@ -340,12 +349,7 @@ def run_embedded_request(request_json: str) -> None:
             try:
                 return captured_extractor(engine_state)
             except Exception:
-                ordinal = engine_evidence["extraction_invocations"]
-                engine_evidence["temporal_failure_code"] = (
-                    "TEMPORAL_PRE_ADMISSION_FAILED"
-                    if ordinal == 1
-                    else "TEMPORAL_POST_ADMISSION_FAILED"
-                )
+                _mark_temporal_extraction_failure(engine_evidence)
                 raise
 
         globals()["_extractor"] = counted_extractor
