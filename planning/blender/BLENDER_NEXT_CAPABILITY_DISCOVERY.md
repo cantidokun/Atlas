@@ -163,69 +163,150 @@ The following remain intentionally non-automated:
 
 No finding in this group has a uniquely justified generic correction based on the current contract.
 
+
+## 4.5 Finding-code producer / representability classification
+
+The discovery must distinguish a canonical finding predicate from a state that Blender 4.4.3 can actually produce at the live boundary. The following table is the authoritative classification for this discovery pass. “Live” means the production Blender extraction path can produce the canonical state without relying on direct mutation of the canonical model. “Canonical-only” means deterministic tests can construct the state, but the Blender boundary does not currently provide a faithful producer. “Unproduced” means the vocabulary exists but no current producer emits it.
+
+| FindingCode | Current producer / predicate | Blender 4.4.3 representability | Existing live evidence | Candidate-A treatment |
+|---|---|---|---|---|
+| MESH_INVALID_INDEX | `planning/blender/mesh_health.py::_collect_coordinate_validity` and `_collect_polygon_index_validity` | Canonical-only for malformed face indices; Blender mesh construction rejects/normalizes malformed references before extraction | Deterministic only | Out of scope |
+| MESH_DUPLICATE_VERTEX | `mesh_health.py::_collect_duplicate_vertices` | Live-representable | PR #124 topology gate exercises topology boundary; correction family separately live-validated | Out of scope |
+| MESH_DUPLICATE_FACE | `mesh_health.py::_collect_duplicate_faces` | Live-representable | Correction/live family coverage exists | Out of scope |
+| MESH_DEGENERATE_FACE | `mesh_health.py::_collect_degenerate_faces` | Live-representable | Correction/live family coverage exists | Out of scope |
+| MESH_NON_MANIFOLD_EDGE | `mesh_health.py::_collect_non_manifold_edges` | Live-representable | PR #124 closed | Closed |
+| MESH_WINDING_INCONSISTENT | `mesh_health.py::_collect_winding_consistency` | Live-representable | Correction/live family coverage exists | Out of scope |
+| MESH_NORMAL_INCONSISTENT | `mesh_health.py::_collect_normal_consistency` | Canonical-only for the frozen Blender v1 extraction path because normals are omitted | Deterministic canonical tests only | Out of scope / representation boundary |
+| MESH_SCALE_OUT_OF_RANGE | `mesh_health.py::check_mesh_in_envelope`; per-world-vertex envelope predicate with profile tolerance | Live-representable | Existing real asset proves positive path; no adversarial negative boundary yet | **NEW** negative/boundary evidence |
+| SCENE_UNIT_INVALID | `scene_health.py::_collect_unit_validity` | Live-representable, subject to Blender unit-token mapping | Existing live probes create invalid-unit state but do not assert this production finding | **NEW/PARTIAL** |
+| SCENE_ORIGIN_INVALID | `scene_health.py::_collect_origin_validity` | Non-finite world-bounds branch is not a normal live Blender producer; treat as canonical-only for this gate | Deterministic only | Out of scope |
+| SCENE_BOUNDS_EMPTY | No current producer in the scene-health kernel | **Unproduced** | None | Remove from matrix; track as vocabulary/contract gap |
+| OBJECT_ID_DUPLICATE | `scene_health.py::_collect_duplicate_object_ids` | Not faithfully live-producible through Blender object names because Blender enforces unique names (e.g. duplicate “pitch” becomes “pitch.001”) | Deterministic only | Out of scope |
+| OBJECT_NAME_INVALID | `scene_health.py::_collect_object_name` | Live-representable | Existing live probe can create invalid name but did not assert kernel finding | **NEW/PARTIAL** |
+| OBJECT_HIERARCHY_INVALID | `scene_health.py::_collect_hierarchy_validity` | Dangling parent is live-representable; a persistent Blender parent cycle is not representable through the normal RNA path because Blender clears/normalizes the attempted assignment | Existing live probe for hierarchy states; kernel finding assertion is missing | **NEW** dangling-parent only |
+| OBJECT_BOUNDS_OVERLAP | `scene_health.py::_collect_bounds_overlap` using world-space AABBs | Live-representable, but semantics are deliberately conservative | Deterministic geometry tests; clean real asset intentionally uses disjoint probes | **NEW/PARTIAL** only for live overlap/contact boundary evidence |
+| OBJECT_TRANSFORM_INVALID | `scene_health.py::_collect_transform_validity` | Zero-scale branch is live-representable. Non-finite location/scale is not a reliable Blender live fixture: NaN is rejected and infinity may be clamped/normalized at the RNA boundary | Deterministic non-finite/zero-scale tests; existing live transform probes are valid-state evidence | **NEW** zero-scale only |
+| OBJECT_COLLECTION_INVALID | `scene_health.py::_collect_object_collection` | Live-representable | Existing live probe creates disallowed collection but does not assert kernel finding | **NEW/PARTIAL** |
+| DIGITAL_TWIN_READINESS_FAILED | `planning/blender/digital_twin_readiness.py::evaluate_readiness` derives state/reason from findings/profile | Live-representable as a derived state when a live finding/readiness condition is produced | Existing real asset proves positive readiness; negative readiness cases are not systematically asserted | **NEW** missing-required-role/readiness reason |
+
 ## 5. Candidate discovery
 
 ### Candidate A — Read-Only Scene/Profile Compliance Evidence Boundary
 
-This candidate is not a new correction. It is a real-Blender evidence boundary for the existing scene-health/profile semantics.
+This candidate survives the independent review, but the scope is narrower than the original discovery draft. The implementation target is **finding-side evidence for live-representable profile/scene predicates**, not a generic replay of the existing clean real-asset gate.
 
-The current profile already defines:
+The genuinely new evidence targets are:
 
-- dimensional envelope: X [-50,50], Y [-40,40], Z [0,12] metres;
-- accepted units;
-- naming convention;
+- `OBJECT_COLLECTION_INVALID` from a real extracted Blender object;
+- `OBJECT_NAME_INVALID` from a real extracted Blender object;
+- `SCENE_UNIT_INVALID` from the real Blender unit mapping;
+- zero-scale `OBJECT_TRANSFORM_INVALID`;
+- dangling-parent `OBJECT_HIERARCHY_INVALID`;
+- negative `MESH_SCALE_OUT_OF_RANGE` envelope evidence;
+- `DIGITAL_TWIN_READINESS_FAILED` for a missing required role, including the readiness reason;
+- envelope tolerance acceptance/rejection at the exact inclusive boundary;
+- non-containment AABB overlap plus explicit contact/coincidence/containment controls.
+
+The following are **not** new value and must not be presented as such:
+
+- clean positive extraction;
+- ordinary world-space transform fidelity;
+- no-save proof;
+- digest reproducibility;
+- valid role presence;
+- valid naming/collection/unit examples.
+
+Those are already covered by the existing real-.blend gate and other live/deterministic coverage. The new gate must add negative or boundary evidence and assert the production kernel's actual FindingCodes/ValidationState.
+
+#### 5.1 Existing-live evidence inventory
+
+| Existing evidence | What it already proves | Candidate-A relation |
+|---|---|---|
+| `tests/test_live_blender_real_asset_gate.py` | Real frozen .blend → production extraction → SceneModel → `run_scene_health`; exact object set, units, topology, world-space transforms, hierarchy chain, empty findings, `production_ready`, digest reproducibility, host-side no-save hash and state digest | **PARTIAL/DUPLICATE** for clean positive path; do not duplicate |
+| Existing operator-gated live scene-health probes | Real Blender can create invalid name, disallowed collection, invalid unit, dangling-parent/cycle attempts and other fixture states | **PARTIAL**: fixture truth exists, but production FindingCode/report assertions are missing |
+| Deterministic scene-health tests | Naming, duplicate IDs, units, collections, zero-scale, hierarchy, overlap/containment predicates | **PARTIAL**: canonical semantics exist; live representation is the missing boundary |
+| PR #124 topology gate | Real Blender non-manifold production finding and topology coherence | **DUPLICATE** for topology; excluded |
+| Temporal and correction live workflows | Their own bounded live contracts | **DUPLICATE / out of scope** |
+
+Matrix items shall be explicitly tagged **NEW**, **PARTIAL**, or **DUPLICATE** in the implementation design.
+
+#### 5.2 Exact profile and policy identity
+
+The evidence run shall record the complete profile policy, not merely `profile.name`. The current report identity binds `profile_name` and the validator/report version, while the profile factory permits overrides. Therefore the gate must freeze and record:
+
+- profile name;
+- exact envelope min/max;
+- allowed units;
+- naming pattern;
 - allowed collections;
-- required semantic roles;
-- hierarchy depth;
-- readiness-blocking finding set;
-- envelope tolerance.
+- required roles;
+- ready-blocking codes;
+- envelope tolerance;
+- any other profile fields consumed by the selected predicates.
 
-The scene-health kernel already evaluates:
+The declared `permitted_hierarchy_depth`, `expected_up_axis`, and `expected_ground_level` are currently inert in the evaluated production path and are **not** evidence claims for this gate. Their declared presence must not be confused with enforcement.
 
-- unit validity;
-- origin/world-bounds validity;
-- object naming;
-- collection membership;
-- transform validity;
-- hierarchy validity;
-- AABB overlap;
-- mesh envelope compliance.
+#### 5.3 Exact transform and envelope predicates
 
-The kernel then derives a deterministic SceneReport and readiness state.
+For `OBJECT_TRANSFORM_INVALID`, the live fixture is limited to the production predicate `abs(scale) < 1e-9) (zero scale). Non-finite transform cases remain canonical-only for this evidence boundary because Blender 4.4.3 does not reliably preserve the intended malformed state through RNA.
 
-What is missing is a dedicated, adversarial real-Blender boundary proving that these existing profile semantics remain faithful when fed by actual Blender extraction.
+For `MESH_SCALE_OUT_OF_RANGE`, the live fixture must be defined in world space. The production predicate accepts each coordinate when:
 
-Potential evidence matrix:
+`min - tolerance <= coordinate <= max + tolerance`
 
-1. clean compliant scene;
-2. one object outside envelope;
-3. one disallowed collection;
-4. invalid object naming;
-5. invalid unit system;
-6. invalid transform;
-7. dangling parent;
-8. hierarchy cycle where representable by Blender;
-9. non-containment AABB overlap;
-10. required-role omission;
-11. boundary-tolerance case;
-12. negative controls demonstrating that valid containment, boundary geometry, and compliant objects are not falsely reported.
+with the default tolerance of **0.05 m**, inclusive. The gate must test:
 
-The gate would use the existing extraction and kernel paths. It would not change them.
+- a point exactly at the lower/upper tolerated boundary: accepted;
+- a point just beyond the tolerated boundary: rejected;
+- a clearly outside point: rejected.
 
-Potential value:
+The finding's measured payload is mesh/vertex-oriented: the current producer records `mesh_id` and vertex index/world coordinate rather than an `object_id`. The design must assert this exact identity convention.
 
-- closes the gap between deterministic scene-health semantics and real Blender representation;
-- provides a more complete real-engine evidence layer for the digital-twin readiness gate;
-- exercises world-space transform/envelope behavior at the actual Blender boundary;
-- strengthens future asset-ingestion confidence without granting mutation authority.
+#### 5.4 Exact AABB overlap semantics
 
-Important limitation:
+The production overlap predicate is world-space AABB based. The implementation design must explicitly test and document:
 
-The existing operator-gated real-.blend validation already proves a clean, frozen asset path. Therefore this candidate must add meaningful negative/boundary evidence rather than simply duplicate the existing clean-asset gate.
+- non-containment overlap: finding expected;
+- pure containment: no finding;
+- coincident/equal AABBs: no finding because mutual containment suppresses the signal;
+- exact face/edge/point contact: the current sweep excludes exact min-x contact because the sweep condition is strict `min_x < max_x`; therefore a flush contact can be a deliberate false-negative class and must not be silently described as overlap evidence;
+- rotated geometry: overlap is against the transformed world-space AABB, so AABB inflation relative to oriented geometry is expected and must be documented as a limitation, not treated as exact geometric intersection.
 
-Disposition:
+The gate must use independently known fixture geometry and must not reimplement the production overlap algorithm as a second authority.
 
-**STRONG CANDIDATE FOR A DEDICATED READ-ONLY DESIGN GATE.**
+#### 5.5 Hierarchy cycle removed from Candidate A
+
+A persistent hierarchy cycle is **not** a live Candidate-A case. Blender 4.4.3's normal RNA parent assignment normalizes/clears the attempted cycle, so the intended canonical cycle never reaches the extraction boundary.
+
+Separately, the canonical hierarchy-cycle evaluator currently iterates a set of object IDs. That makes cycle finding order/digest behavior sensitive to `PYTHONHASHSEED` for synthetic cyclic scenes. This is a **determinism defect to record and gate separately**, not a defect to repair inside the read-only evidence milestone.
+
+Candidate A must not claim to validate hierarchy-cycle live behavior.
+
+#### 5.6 Unproduced and declared-but-inert profile semantics
+
+`SCENE_BOUNDS_EMPTY` currently has no producer in the planning code and therefore must be removed from the live evidence matrix and tracked as a vocabulary/contract gap.
+
+Likewise, `permitted_hierarchy_depth`, `expected_up_axis`, and `expected_ground_level` are declared profile fields without a current consumer in the evaluated scene-health path. They are recorded as **declared but unenforced**, not tested as if they were active policy.
+
+#### 5.7 Evidence mechanism and authorization
+
+The live evidence gate is operator-authorized and is not assumed to run in ordinary deterministic CI. The implementation design must choose one explicit mechanism:
+
+1. run the pinned SHA manually with the existing operator-gated harness and persist the complete evidence artifact; or
+2. add an explicitly authorized workflow invocation, which is a separate workflow-authority change and therefore outside the read-only implementation unless separately approved.
+
+No claim of exact-head live validation may be made merely because deterministic CI is green or because a live test exists but was skipped.
+
+#### 5.8 Standard no-save / no-mutation proof
+
+The gate shall adopt the existing standard rather than invent another:
+
+- host-side SHA-256 of the frozen .blend before and after;
+- raw Blender-state snapshot equality across the extraction/report operation;
+- explicit absence of newly created `.blend` or `.blend1` artifacts in the authorized working location;
+- subprocess failure on unexpected mutation rather than accommodation.
+
+The PR #124 topology gate and `tests/test_live_blender_real_asset_gate.py` are precedents for this evidence pattern.
 
 ### Candidate B — MESH_NORMAL_INCONSISTENT / normal fidelity
 
@@ -253,15 +334,13 @@ A future investigation can be justified if malformed imported assets become an o
 
 ### Candidate D — OBJECT_BOUNDS_OVERLAP evidence
 
-The existing kernel computes world-space AABB overlap and deliberately excludes pure containment.
+This is not a separate next milestone. The independent review established that the useful uncovered portion of D is the live boundary/contact evidence, which is now folded into Candidate A.
 
-This is semantically useful and deterministic, but overlap is not inherently an error. There is no generic correction target: choosing which object moves would be scene-authoring policy.
-
-A real-Blender read-only evidence gate could prove transform-aware overlap detection, but the current deterministic tests already exercise the central geometry semantics and the existing real asset gate intentionally uses disjoint probe bounds.
+The production semantics remain policy-dependent: overlap is not inherently an error, pure containment is suppressed, and no generic correction target exists.
 
 Disposition:
 
-**POSSIBLE FUTURE EVIDENCE EXTENSION, BUT NOT AS STRONG AS CANDIDATE A.**
+**FOLDED INTO CANDIDATE A AS A NARROW LIVE-EVIDENCE CASE; NO SEPARATE CORRECTION DESIGN.**
 
 ### Candidate E — SCENE_ORIGIN_INVALID / MESH_SCALE_OUT_OF_RANGE correction
 
@@ -366,7 +445,43 @@ This discovery does not claim:
 - that Temporal should participate in this gate;
 - that a new correction executor is required.
 
-## 10. Promotion criteria
+
+## 10. Separate determinism defect record
+
+The discovery review identified a pre-existing canonical-only determinism defect in hierarchy-cycle handling:
+
+- `planning/blender/scene_health.py::_collect_hierarchy_validity` iterates the object-ID set without a stable ordering before DFS;
+- synthetic cyclic scenes can therefore produce different finding order/content and report digests under different `PYTHONHASHSEED` values;
+- Blender cannot currently represent the intended persistent cycle at the live boundary, so Candidate A cannot use the live gate to conceal or repair this issue.
+
+This defect is **not part of Candidate A implementation scope**. It must receive a separately named deterministic test/gate decision before any production fix is proposed. The evidence milestone must preserve the existing production code and report the defect rather than patching it opportunistically.
+
+## 11. Exact implementation-gate evidence inventory
+
+A future implementation design must provide, for every proposed fixture:
+
+| Case | Predicate / production path | Expected code/state | Evidence status |
+|---|---|---|---|
+| Clean positive | frozen extraction + `run_scene_health` | no new findings / `production_ready` | DUPLICATE — already covered |
+| Disallowed collection | `_collect_object_collection` | `OBJECT_COLLECTION_INVALID` | NEW/PARTIAL |
+| Invalid name | `_collect_object_name` | `OBJECT_NAME_INVALID` | NEW/PARTIAL |
+| Invalid unit | `_collect_unit_validity` | `SCENE_UNIT_INVALID` | NEW/PARTIAL |
+| Zero scale | `_collect_transform_validity` | `OBJECT_TRANSFORM_INVALID` | NEW |
+| Dangling parent | `_collect_hierarchy_validity` | `OBJECT_HIERARCHY_INVALID` | NEW |
+| Envelope exact tolerated boundary | `check_mesh_in_envelope` | no `MESH_SCALE_OUT_OF_RANGE` | NEW |
+| Envelope just outside tolerance | `check_mesh_in_envelope` | `MESH_SCALE_OUT_OF_RANGE` | NEW |
+| Missing required role | readiness evaluator | `DIGITAL_TWIN_READINESS_FAILED` + reason | NEW |
+| Non-containment overlap | `_collect_bounds_overlap` | `OBJECT_BOUNDS_OVERLAP` | NEW/PARTIAL |
+| Pure containment | `_collect_bounds_overlap` | no overlap finding | NEW negative control |
+| Coincident AABB | `_collect_bounds_overlap` | no overlap finding | NEW negative control |
+| Exact contact | sweep + AABB predicate | no finding under current strict sweep | NEW boundary/false-negative control |
+| Rotated AABB inflation | world-space transform → AABB | documented AABB result | NEW boundary limitation |
+| Hierarchy cycle | canonical evaluator only | **NOT A LIVE CASE**; separate determinism defect | REMOVED |
+| Duplicate object ID | canonical `_collect_duplicate_object_ids` | **NOT A LIVE CASE** | REMOVED |
+| Non-finite transform | canonical `_collect_transform_validity` | **NOT A LIVE CASE** | REMOVED |
+| Scene bounds empty | no current producer | **UNPRODUCED** | REMOVED / gap record |
+
+## 12. Promotion criteria
 
 A future implementation design is justified only if an independent review establishes:
 
@@ -386,14 +501,14 @@ A future implementation design is justified only if an independent review establ
 
 If those conditions cannot be met without changing the frozen extraction or profile semantics, the candidate must be stopped and converted into a separate representation/contract investigation.
 
-## 11. Discovery conclusion
+## 13. Discovery conclusion
 
 At main @ 6e400378e4175661877575d522033c0b29f3173c:
 
-**Candidate A — Read-Only Scene/Profile Compliance Evidence Boundary v1 — is the strongest next discovery candidate.**
+**Candidate A — Read-Only Scene/Profile Compliance Evidence Boundary v1 — remains the strongest next discovery candidate, with the scope narrowed to genuinely new live finding/readiness evidence.**
 
-It does not require inventing a correction policy, it builds on existing production semantics, and it addresses a real remaining evidence gap: systematic proof that the existing scene-health/profile/readiness path remains faithful at the real Blender boundary.
+The independent review does not justify another correction wave or a new authority. It justifies a bounded read-only evidence milestone covering live-representable scene/profile predicates while explicitly excluding canonical-only, unproduced, already-closed, and non-deterministic cases.
 
-This document does **not** authorize implementation.
+This document does **not** authorize implementation. The separate hierarchy-cycle determinism defect is recorded as an independent issue and must not be repaired opportunistically inside Candidate A.
 
-The next step is an independent architectural/red-team review of this discovery conclusion. If that review clears the candidate, a separate implementation design package should be written. If it does not, the candidate should be revised or rejected rather than forcing a Wave 16 implementation.
+The next step is a **second independent architectural/red-team review of this revised discovery document**. The review must verify R-1 through R-10 from the first review, especially the per-code representability table, existing-live inventory, exact AABB semantics, profile identity binding, no-save standard, and separation of the hierarchy-cycle determinism defect. If cleared, a separate implementation design package may be written. Until then, implementation remains unauthorized.
