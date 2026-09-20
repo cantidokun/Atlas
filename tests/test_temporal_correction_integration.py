@@ -428,7 +428,7 @@ def test_run_embedded_request_internal_error_is_ambiguous_and_has_no_b(monkeypat
     _install_fake_bpy(monkeypatch)
     from planning.blender import correction_execution_bridge_runtime as runtime
 
-    monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: SimpleNamespace(plan_id="p")
+    monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: SimpleNamespace(plan_id="p"))
     monkeypatch.setattr(runtime, "_canonical_postcondition_binding", lambda plan, operation: ("ref", "digest"))
     monkeypatch.setattr(runtime, "_load_source", lambda path: None)
     monkeypatch.setattr(runtime, "_file_fingerprint", lambda path: None)
@@ -460,7 +460,7 @@ def test_run_embedded_request_preserves_persistence_invariant(monkeypatch, capsy
     _install_fake_bpy(monkeypatch)
     from planning.blender import correction_execution_bridge_runtime as runtime
 
-    monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: object())
+    monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: SimpleNamespace(plan_id="p"))
     monkeypatch.setattr(runtime, "_canonical_postcondition_binding", lambda plan, operation: ("ref", "digest"))
     monkeypatch.setattr(runtime, "_load_source", lambda path: None)
     monkeypatch.setattr(runtime, "_blend_inventory", lambda root: {})
