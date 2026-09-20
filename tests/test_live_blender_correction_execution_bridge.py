@@ -138,7 +138,9 @@ def _plan_from_fixture(path, operation):
     profile = {"name": "soccer-field", "version": "1"}
     script = """
 import json
+import sys
 import bpy
+sys.path.insert(0, REPO_PATH_VALUE)
 from planning.blender.bpy_extraction import extract_scene
 from planning.blender.extraction_payload import payload_to_scene_model
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
@@ -163,7 +165,7 @@ if outcome.plan is None:
 print("ATLAS_PLAN_START")
 print(json.dumps(outcome.plan.to_json_compatible(), sort_keys=True, separators=(",",":")))
 print("ATLAS_PLAN_END")
-""".replace("PATH_VALUE", repr(str(path))).replace("OPERATION_VALUE", repr(operation)).replace("PROFILE_VALUE", repr(profile))
+""".replace("REPO_PATH_VALUE", repr(str(REPO))).replace("OPERATION_VALUE", repr(operation)).replace("PROFILE_VALUE", repr(profile))
     proc = _run_blender_script(script, blend_path=path)
     assert proc.returncode == 0, proc.stderr[-5000:]
     start = proc.stdout.find("ATLAS_PLAN_START")
