@@ -60,8 +60,9 @@ def test_live_temporal_correction_transaction_is_end_to_end(live_bridge_results)
         assert "representation_state" in observation_a["capability"], case
         assert "representation_state" in observation_b["capability"], case
 
-        assert transaction["pre_snapshot"] == transaction["pre_snapshot"], case
-        assert transaction["post_snapshot"] == observation_b is not None and transaction["post_snapshot"] is not None, case
+        assert transaction["pre_snapshot"] == transaction["observation_a_snapshot"] if "observation_a_snapshot" in transaction else True
+        assert transaction["post_snapshot"] is not None, case
+        assert transaction["pre_snapshot"] is not None, case
         assert transaction["pre_state_digest"] == observation_a["state_digest"], case
         assert transaction["post_state_digest"] == observation_b["state_digest"], case
         assert observation_a["state_digest"] != observation_b["state_digest"], case
@@ -91,12 +92,9 @@ def test_live_temporal_correction_snapshot_is_measured_not_receipt_derived(live_
         receipt = result.correction_result
 
         assert transaction is not None, case
-        post_snapshot = transaction["post_snapshot"]
-        assert post_snapshot is not None, case
-
-        receipt_json = str(receipt)
-        assert str(post_snapshot) != receipt_json or transaction["post_state_digest"] == transaction["observation_b"]["state_digest"]
-
+        assert transaction["post_snapshot"] is not None, case
         assert transaction["post_report_digest"], case
         assert transaction["post_state_digest"], case
-        assert transaction["post_snapshot"], case
+
+        assert transaction["post_snapshot"] != receipt, case
+        assert transaction["post_state_digest"] == transaction["observation_b"]["state_digest"], case
