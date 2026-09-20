@@ -236,6 +236,16 @@ def _run_executor(plan: CorrectionPlan, request: Mapping[str, Any]) -> dict[str,
     }
 
 
+def _mark_post_extraction_ambiguity(engine_evidence: dict[str, Any], receipt: Any) -> None:
+    """Mark a caught executor post-extraction failure ambiguous after mutation."""
+    if (
+        engine_evidence.get("mutator_invocations", 0) > 0
+        and isinstance(receipt, Mapping)
+        and receipt.get("failure_code") == "POST_EXTRACTION_FAILED"
+    ):
+        engine_evidence["ambiguous_result"] = True
+
+
 def _load_source(path: Optional[str]) -> None:
     if path is None:
         return
@@ -344,12 +354,7 @@ def run_embedded_request(request_json: str) -> None:
         out = _run_executor(plan, request)
         receipt = out["receipt"]
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
-        if (
-            engine_evidence["mutator_invocations"] > 0
-            and isinstance(receipt, Mapping)
-            and receipt.get("failure_code") == "POST_EXTRACTION_FAILED"
-        ):
-            engine_evidence["ambiguous_result"] = True
+        _mark_post_extraction_ambiguity(engine_evidence, receipt)
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
