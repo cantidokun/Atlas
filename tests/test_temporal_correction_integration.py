@@ -403,6 +403,65 @@ def test_canonical_snapshot_digest_is_reproducible(monkeypatch):
     from planning.temporal.model import temporal_state_digest
     assert temporal_state_digest(snapshot) == "2a3542fd79050d73f9cdde6bdc51504ffeea4f2cd2d2ff82f10e05534622ce7c"
 
+def test_run_embedded_request_internal_error_is_ambiguous_and_has_no_b(monkeypatch, capsys):
+    _install_fake_bpy(monkeypatch)
+    from planning.blender import correction_execution_bridge_runtime as runtime
+
+    monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: object())
+    monkeypatch.setattr(runtime, "_canonical_postcondition_binding", lambda plan, operation: ("ref", "digest"))
+    monkeypatch.setattr(runtime, "_load_source", lambda path: None)
+    monkeypatch.setattr(
+        runtime,
+        "_run_executor",
+        lambda plan, request: {
+            "receipt": {"result": "MUTATION_FAILED", "failure_code": "INTERNAL_ERROR"},
+            "mutator_invocations": 1,
+        },
+    )
+    request = {
+        "plan": {},
+        "plan_id": "p",
+        "operation": "REMOVE_DUPLICATE_FACE",
+        "expected_postcondition_ref": "ref",
+        "expected_postcondition_digest": "digest",
+    }
+    runtime.run_embedded_request(__import__("json").dumps(request))
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    payload = __import__("json").loads(lines[0])
+    assert payload["engine_evidence"]["ambiguous_result"] is True
+    assert payload["temporal_transaction"]["observation_b"] is None
+    assert payload["temporal_transaction"]["delta_record"] is None
+
+
+def test_run_embedded_request_preserves_persistence_invariant(monkeypatch, capsys):
+    _install_fake_bpy(monkeypatch)
+    from planning.blender import correction_execution_bridge_runtime as runtime
+
+    monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: object())
+    monkeypatch.setattr(runtime, "_canonical_postcondition_binding", lambda plan, operation: ("ref", "digest"))
+    monkeypatch.setattr(runtime, "_load_source", lambda path: None)
+    monkeypatch.setattr(
+        runtime,
+        "_run_executor",
+        lambda plan, request: {
+            "receipt": {"result": "COMPLETED", "failure_code": None},
+            "mutator_invocations": 0,
+        },
+    )
+    request = {
+        "plan": {},
+        "plan_id": "p",
+        "operation": "REMOVE_DUPLICATE_FACE",
+        "expected_postcondition_ref": "ref",
+        "expected_postcondition_digest": "digest",
+    }
+    runtime.run_embedded_request(__import__("json").dumps(request))
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    payload = __import__("json").loads(lines[0])
+    assert payload["engine_evidence"]["persistence_unchanged"] is True
+    assert payload["engine_evidence"]["save_detected"] is False
+
+
 def test_existing_correction_allowlist_remains_frozen():
     from planning.blender.correction_executor import _EXECUTABLE_TYPES
     assert set(_EXECUTABLE_TYPES) == {
