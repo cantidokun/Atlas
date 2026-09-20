@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from planning.temporal import (
-    AdmissionEngine,
     AdmissionOutcome,
     AdmissionState,
     CapabilityContract,
@@ -21,6 +20,7 @@ from planning.temporal import (
     TemporalObservation,
     evaluate,
 )
+from planning.temporal.admission import AdmissionEngine
 from planning.temporal.evaluator import ComparisonInput
 from planning.temporal.model import _scene_to_canonical, temporal_state_digest
 
