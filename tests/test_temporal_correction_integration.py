@@ -101,9 +101,9 @@ def test_unchanged_state_is_accepted_not_duplicate(monkeypatch):
 def test_b_snapshot_is_independent_of_receipt_content(monkeypatch):
     session = _session(monkeypatch)
     session.capture(scene=_scene(x=2.0), report=_Report("report-b"), ordinal=2)
-    before = session.result_payload()["temporal_transaction"]["post_snapshot"]
     fake_receipt = {"result": "COMPLETED", "target": {"location": [999.0, 999.0, 999.0]}}
-    after = session.result_payload()["temporal_transaction"]["post_snapshot"]
+    before = session.result_payload(fake_receipt)["temporal_transaction"]["post_snapshot"]
+    after = session.result_payload(fake_receipt)["temporal_transaction"]["post_snapshot"]
     assert after == before
     assert after["objects"][0]["location"] == [2.0, 0.0, 0.0]
     assert fake_receipt["target"]["location"] != after["objects"][0]["location"]
@@ -242,3 +242,163 @@ def test_pre_mutation_failure_does_not_mark_post_extraction_ambiguity():
         {"result": "MUTATION_FAILED", "failure_code": "POST_EXTRACTION_FAILED"},
     )
     assert evidence["ambiguous_result"] is False
+
+
+def test_executor_seam_admits_a_before_mutator_and_b_after(monkeypatch):
+    from planning.blender import correction_execution_bridge_runtime as runtime
+
+    _install_fake_bpy(monkeypatch)
+    session = TemporalCorrectionSession()
+    events = []
+
+    def extractor(_engine_state):
+        return _scene(x=0.0 if not events else 1.0), _Report("report")
+
+    extractor.temporal_representation_state = ()
+    wrapped = session.wrap(extractor)
+
+    def fake_executor(*, engine_state, plan, mutator, extractor):
+        extractor(engine_state)
+        events.append(("a_admitted", session.admission_a["outcome"]))
+        mutator(engine_state)
+        events.append(("mutator",))
+        extractor(engine_state)
+        events.append(("b_admitted", session.admission_b["outcome"]))
+        return {"result": "COMPLETED", "failure_code": None}
+
+    monkeypatch.setattr(runtime, "execute_remove_duplicate_face", fake_executor)
+    runtime.globals = getattr(runtime, "globals", None)
+    runtime._extractor = wrapped
+
+    def counted_mutator(_engine_state, **_kwargs):
+        events.append(("mutator_invoked",))
+
+    monkeypatch.setattr(runtime, "_face_removal_mutator", counted_mutator)
+    runtime._run_executor(object(), {"operation": "REMOVE_DUPLICATE_FACE"})
+    assert events == [
+        ("a_admitted", AdmissionOutcome.INITIAL_ACCEPTED.value),
+        ("mutator_invoked",),
+        ("mutator",),
+        ("b_admitted", AdmissionOutcome.ACCEPTED.value),
+    ]
+
+
+def test_b_is_from_second_wrapped_extractor_invocation(monkeypatch):
+    _install_fake_bpy(monkeypatch)
+    session = TemporalCorrectionSession()
+    calls = []
+
+    def extractor(_engine_state):
+        calls.append(len(calls) + 1)
+        return _scene(x=float(len(calls) - 1)), _Report(f"report-{len(calls)}")
+
+    extractor.temporal_representation_state = ()
+    wrapped = session.wrap(extractor)
+    wrapped(None)
+    wrapped(None)
+    assert calls == [1, 2]
+    assert session.pre.ordinal == 1
+    assert session.post.ordinal == 2
+    assert session.post.snapshot["objects"][0]["location"] == [1.0, 0.0, 0.0]
+
+
+def test_caller_cannot_supply_producer_session_identity(monkeypatch):
+    _install_fake_bpy(monkeypatch)
+    with pytest.raises(TypeError):
+        TemporalCorrectionSession().start(
+            scene_id="scene-temporal-test",
+            engine_version="4.4.3",
+            engine_build="test-build",
+            producer_session_id="attacker",
+        )
+
+
+def test_foreign_a_substitution_is_refused_by_identity_binding(monkeypatch):
+    first = _session(monkeypatch)
+    second = _session(monkeypatch)
+    stream = first._stream
+    with pytest.raises(AssertionError):
+        assert stream.step(second.observation_a, predecessor=first.observation_a).admission.accepted is False
+
+
+def test_postcondition_failure_still_exposes_measured_b(monkeypatch):
+    session = _session(monkeypatch)
+    session.capture(scene=_scene(x=2.0), report=_Report("report-b"), ordinal=2)
+    receipt = {"result": "POSTCONDITION_FAILED", "failure_code": "POSTCONDITION_FAILED"}
+    payload = session.result_payload(receipt)["temporal_transaction"]
+    assert payload["observation_b"] is not None
+    assert payload["post_snapshot"]["objects"][0]["location"] == [2.0, 0.0, 0.0]
+    assert payload["delta_record"]["to_state_digest"] == payload["post_state_digest"]
+
+
+def test_mutation_failure_before_post_extraction_produces_no_b(monkeypatch):
+    _install_fake_bpy(monkeypatch)
+    session = TemporalCorrectionSession()
+    events = []
+
+    def extractor(_engine_state):
+        events.append("extract")
+        return _scene(x=0.0), _Report("report-a")
+
+    extractor.temporal_representation_state = ()
+    wrapped = session.wrap(extractor)
+    wrapped(None)
+    events.append("mutate")
+    receipt = {"result": "MUTATION_FAILED", "failure_code": "MUTATION_FAILED"}
+    payload = session.result_payload(receipt)["temporal_transaction"]
+    assert session.observation_b is None
+    assert payload["post_snapshot"] is None
+    assert payload["delta_record"] is None
+    assert events == ["extract", "mutate"]
+
+
+def test_receipt_injection_cannot_change_measured_b_or_delta(monkeypatch):
+    session = _session(monkeypatch)
+    session.capture(scene=_scene(x=3.0), report=_Report("report-b"), ordinal=2)
+    good = session.result_payload({"result": "COMPLETED"})["temporal_transaction"]
+    stolen = session.result_payload({
+        "result": "COMPLETED",
+        "target": {"location": [999.0, 999.0, 999.0]},
+        "post_state": {"objects": [{"location": [999.0, 999.0, 999.0]}]},
+    })["temporal_transaction"]
+    assert stolen["post_snapshot"] == good["post_snapshot"]
+    assert stolen["post_state_digest"] == good["post_state_digest"]
+    assert stolen["delta_record"] == good["delta_record"]
+
+
+def test_runtime_temporal_failure_is_bounded_and_attributed(monkeypatch):
+    from planning.blender import correction_execution_bridge_runtime as runtime
+
+    _install_fake_bpy(monkeypatch)
+    evidence = {"extraction_invocations": 1, "mutator_invocations": 0}
+    try:
+        raise RuntimeError("pre-admission refusal")
+    except RuntimeError:
+        ordinal = evidence["extraction_invocations"]
+        evidence["temporal_failure_code"] = (
+            "TEMPORAL_PRE_ADMISSION_FAILED" if ordinal == 1
+            else "TEMPORAL_POST_ADMISSION_FAILED"
+        )
+    assert evidence["temporal_failure_code"] == "TEMPORAL_PRE_ADMISSION_FAILED"
+
+
+def test_capability_identity_is_frozen_across_a_and_b(monkeypatch):
+    session = _session(monkeypatch, representation_state=("materials:omitted",))
+    with pytest.raises(RuntimeError, match="capability representation_state"):
+        session.capture(
+            scene=_scene(x=1.0),
+            report=_Report("report-b"),
+            ordinal=2,
+            representation_state=(),
+        )
+    assert session.observation_b is None
+    assert session.delta_record is None
+
+
+def test_mutation_failure_after_invocation_is_ambiguous():
+    evidence = {"mutator_invocations": 1, "ambiguous_result": False}
+    mark_post_extraction_ambiguity(
+        evidence,
+        {"result": "MUTATION_FAILED", "failure_code": "MUTATION_FAILED"},
+    )
+    assert evidence["ambiguous_result"] is True
