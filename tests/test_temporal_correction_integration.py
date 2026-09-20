@@ -46,6 +46,7 @@ def _install_fake_bpy(monkeypatch, frame_current=12) -> None:
     fake = SimpleNamespace(
         context=SimpleNamespace(scene=SimpleNamespace(frame_current=frame_current)),
         app=SimpleNamespace(version_string="4.4.3", build_hash="test-build"),
+        data=SimpleNamespace(filepath="", is_dirty=False),
     )
     monkeypatch.setitem(sys.modules, "bpy", fake)
 
