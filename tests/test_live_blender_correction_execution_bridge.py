@@ -57,31 +57,24 @@ def _blend_inventory(root):
 def _run_blender_script(script, blend_path=None):
     from tools.blender import BLENDER
 
-    fd, script_path = tempfile.mkstemp(prefix="atlas_bridge_live_", suffix=".py", dir=str(REPO), text=True)
-    os.close(fd)
-    try:
-        with open(script_path, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(script)
-        command = [BLENDER, "--background"]
-        if blend_path is None:
-            command.append("--factory-startup")
-        else:
-            command.append(str(blend_path))
-        command.extend(["--python-exit-code", "1", "--python", script_path])
-        return subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=240,
-            cwd=REPO,
-            env={**os.environ, "ATLAS_REPO_ROOT": str(REPO), "PYTHONPATH": str(REPO) + os.pathsep + os.environ.get("PYTHONPATH", "")},
-            check=False,
-        )
-    finally:
-        try:
-            os.remove(script_path)
-        except FileNotFoundError:
-            pass
+    command = [BLENDER, "--background"]
+    if blend_path is None:
+        command.append("--factory-startup")
+    else:
+        command.append(str(blend_path))
+    command.extend(["--python-exit-code", "1", "--python-expr", script])
+    env = dict(os.environ)
+    env["ATLAS_REPO_ROOT"] = str(REPO)
+    env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=240,
+        cwd=REPO,
+        env=env,
+        check=False,
+    )
 
 
 def _create_fixture(path, operation):
