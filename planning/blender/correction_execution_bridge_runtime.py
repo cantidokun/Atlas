@@ -91,7 +91,7 @@ def _canonical_postcondition_binding(plan: CorrectionPlan, operation: str) -> tu
     body = {
         "reference": reference,
         "correction_type": correction.correction_type,
-        "expected_postcondition": correction.expected_postcondition,
+        "expected_postcondition": thaw_jsonable(correction.expected_postcondition),
     }
     digest = hashlib.sha256(
         json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode(
