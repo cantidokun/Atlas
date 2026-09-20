@@ -29,7 +29,11 @@ from planning.blender.correction_executor import (
 from planning.blender.extraction_payload import payload_representation_state, payload_to_scene_model
 from planning.blender.correction_values import thaw_jsonable
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
-from planning.blender.temporal_correction_integration import TemporalCorrectionSession, mark_post_extraction_ambiguity
+from planning.blender.temporal_correction_integration import (
+    TemporalCaptureError,
+    TemporalCorrectionSession,
+    mark_post_extraction_ambiguity,
+)
 
 
 BRIDGE_START = "ATLAS_CORRECTION_BRIDGE_START"
@@ -348,7 +352,7 @@ def run_embedded_request(request_json: str) -> None:
             engine_evidence["extraction_invocations"] += 1
             try:
                 return captured_extractor(engine_state)
-            except Exception:
+            except TemporalCaptureError:
                 _mark_temporal_extraction_failure(engine_evidence)
                 raise
 
