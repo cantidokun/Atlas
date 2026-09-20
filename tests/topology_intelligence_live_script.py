@@ -230,7 +230,7 @@ def main():
     payload = {
         "marker": MARKER,
         "blender_version": tuple(bpy.app.version),
-        "blender_build_hash": getattr(bpy.app, "build_hash", ""),
+        "blender_build_hash": (getattr(bpy.app, "build_hash", "") or b"").decode("ascii", errors="replace") if isinstance(getattr(bpy.app, "build_hash", ""), bytes) else getattr(bpy.app, "build_hash", ""),
         "required_assertions": len(checks),
         "passed": passed,
         "failed": failed,
