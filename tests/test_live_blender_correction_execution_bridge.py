@@ -150,15 +150,12 @@ scene_input = dict(payload)
 scene_input.pop("schema_version", None)
 
 if OPERATION_VALUE == "REPAIR_MERGE_VERTEX":
-    outcome = plan_merge_vertex_correction(report_payload, scene_input, profile=PROFILE_VALUE)
+    plan = plan_merge_vertex_correction(report_payload, scene_input, profile=PROFILE_VALUE)
 else:
-    outcome = plan_scene_report(report_payload, profile=PROFILE_VALUE)
-
-if outcome.plan is None:
-    raise RuntimeError("planner returned no plan: " + repr(getattr(outcome, "refusal_code", None)))
+    plan = plan_scene_report(report_payload, profile=PROFILE_VALUE)
 
 print("ATLAS_PLAN_START", flush=True)
-print(json.dumps(outcome.plan.to_json_compatible(), sort_keys=True, separators=(",",":")))
+print(json.dumps(plan.to_json_compatible(), sort_keys=True, separators=(",",":")))
 print("ATLAS_PLAN_END")
 """.replace("REPO_PATH_VALUE", repr(str(REPO))).replace("OPERATION_VALUE", repr(operation)).replace("PROFILE_VALUE", repr(profile))
     proc = _run_blender_script(script, blend_path=path)
