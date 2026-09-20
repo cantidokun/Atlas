@@ -338,10 +338,60 @@ def test_mutation_failure_before_post_extraction_produces_no_b(monkeypatch):
     assert events == ["extract", "mutate"]
 
 
-def test_receipt_injection_cannot_change_measured_b_or_delta(monkeypatch):
-    session = _session(monkeypatch)
-    session.capture(scene=_scene(x=3.0), report=_Report("report-b"), ordinal=2)
-    good = session.result_payload()["temporal_transaction"]
+def test_receipt_injection_cannot_change_measured_b_or_delta(monkeypatch, capsys):
+    _install_fake_bpy(monkeypatch)
+    from planning.blender import correction_execution_bridge_runtime as runtime
+    import planning.blender.temporal_correction_integration as integration
+
+    monkeypatch.setattr(integration.secrets, "token_hex", lambda _n: "fixed-session-token")
+    monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: SimpleNamespace(plan_id="p"))
+    monkeypatch.setattr(runtime, "_canonical_postcondition_binding", lambda plan, operation: ("ref", "digest"))
+    monkeypatch.setattr(runtime, "_load_source", lambda path: None)
+    monkeypatch.setattr(runtime, "_file_fingerprint", lambda path: None)
+    monkeypatch.setattr(runtime, "_blend_inventory", lambda root: {})
+    monkeypatch.setattr(runtime, "extract_scene", lambda bpy: {})
+    monkeypatch.setattr(runtime, "payload_representation_state", lambda payload: ())
+    monkeypatch.setattr(runtime, "payload_to_scene_model", lambda payload: _scene(x=0.0))
+    monkeypatch.setattr(runtime, "run_scene_health", lambda scene, profile: _Report("health"))
+    request = {
+        "plan": {},
+        "plan_id": "p",
+        "operation": "REMOVE_DUPLICATE_FACE",
+        "expected_postcondition_ref": "ref",
+        "expected_postcondition_digest": "digest",
+    }
+
+    def run_with_receipt(receipt):
+        calls = {"count": 0}
+
+        def fake_executor(plan, raw_request):
+            calls["count"] += 1
+            runtime._extractor(None)
+            calls["count"] += 1
+            runtime._extractor(None)
+            return {"receipt": receipt, "mutator_invocations": 1}
+
+        monkeypatch.setattr(runtime, "_run_executor", fake_executor)
+        runtime.run_embedded_request(__import__("json").dumps(request))
+        lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+        return __import__("json").loads(lines[0])["temporal_transaction"]
+
+    clean = run_with_receipt({"result": "COMPLETED", "failure_code": None})
+    tampered = run_with_receipt({
+        "result": "COMPLETED",
+        "failure_code": None,
+        "post_state": {"objects": [{"location": [999.0, 0.0, 0.0]}]},
+        "post_snapshot": {"objects": [{"location": [999.0, 0.0, 0.0]}]},
+        "state_digest": "forged-state-digest",
+        "delta_record": {"entity_deltas": [{"object_id": "probe", "kind": "FORGED"}]},
+        "temporal_transaction": {"post_snapshot": {"objects": [{"location": [999.0, 0.0, 0.0]}]}},
+    })
+
+    for key in ("observation_b", "post_snapshot", "post_state_digest", "delta_record"):
+        assert tampered[key] == clean[key]
+    assert tampered["post_snapshot"]["objects"][0]["location"] == [0.0, 0.0, 0.0]
+    assert tampered["post_state_digest"] == clean["post_state_digest"]
+    assert tampered["delta_record"] == clean["delta_record"]
 
 
 def test_runtime_temporal_failure_is_bounded_and_attributed(monkeypatch):
