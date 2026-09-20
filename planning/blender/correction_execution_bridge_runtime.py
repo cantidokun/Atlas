@@ -26,7 +26,7 @@ from planning.blender.correction_executor import (
     execute_remove_duplicate_face,
     execute_repair_face_winding,
 )
-from planning.blender.extraction_payload import payload_to_scene_model
+from planning.blender.extraction_payload import payload_representation_state, payload_to_scene_model
 from planning.blender.correction_values import thaw_jsonable
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
 from planning.blender.temporal_correction_integration import TemporalCorrectionSession
@@ -323,9 +323,17 @@ def run_embedded_request(request_json: str) -> None:
         engine_evidence["source_loaded"] = source_path is not None
         engine_evidence["filepath_after_load"] = bpy.data.filepath
 
-        original_extractor = _extractor
         temporal_session = TemporalCorrectionSession()
-        captured_extractor = temporal_session.wrap(original_extractor)
+
+        def temporal_source_extractor(engine_state):
+            payload = extract_scene(engine_state.bpy)
+            representation_state = payload_representation_state(payload)
+            scene = payload_to_scene_model(payload)
+            report = run_scene_health(scene, soccer_field_profile_default())
+            temporal_source_extractor.temporal_representation_state = representation_state
+            return scene, report
+
+        captured_extractor = temporal_session.wrap(temporal_source_extractor)
 
         def counted_extractor(engine_state):
             engine_evidence["extraction_invocations"] += 1
@@ -336,6 +344,12 @@ def run_embedded_request(request_json: str) -> None:
         out = _run_executor(plan, request)
         receipt = out["receipt"]
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
+        if (
+            engine_evidence["mutator_invocations"] > 0
+            and isinstance(receipt, Mapping)
+            and receipt.get("failure_code") == "POST_EXTRACTION_FAILED"
+        ):
+            engine_evidence["ambiguous_result"] = True
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
