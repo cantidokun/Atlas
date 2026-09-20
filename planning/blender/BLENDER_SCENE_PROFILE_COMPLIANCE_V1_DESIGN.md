@@ -93,8 +93,8 @@ For the default soccer profile, the evidence must pin:
 - envelope Y: [-40, 40] m
 - envelope Z: [0, 12] m
 - tolerance: 0.05 m
-- allowed unit: METERS
-- allowed collections: Field, Sidelines, Goals, Players, Structure
+- allowed units: {METERS, m, meters}
+- allowed collections: {Field, Sidelines, Goals, Players, Structure}
 - required roles: pitch, goal_left, goal_right
 
 Declared-but-inert fields `permitted_hierarchy_depth`, `expected_up_axis`, and `expected_ground_level` must not be represented as enforced evidence.
@@ -119,7 +119,7 @@ Declared-but-inert fields `permitted_hierarchy_depth`, `expected_up_axis`, and `
 | A14 | coincident AABBs | `_collect_bounds_overlap` | no overlap finding | NEW negative control |
 | A15 | exact x-flush contact | sweep + AABB predicate | no overlap finding | NEW boundary control |
 | A16 | exact y/z-flush contact | sweep + AABB predicate | overlap finding when sweep-axis overlap remains | NEW boundary control |
-| A17 | rotated AABB inflation | world transform -> AABB | overlap finding may occur despite disjoint oriented geometry | NEW limitation control |
+| A17 | rotated AABB inflation | world transform -> AABB | chosen verified pair must produce OBJECT_BOUNDS_OVERLAP despite disjoint oriented geometry | NEW limitation control |
 
 ## 6. Fixture construction requirements
 
@@ -137,17 +137,17 @@ Each fixture must state:
 
 ### 6.2 Collection
 
-Place a mesh object in a collection outside the profile allowlist. The extracted object must retain that collection identity and the production kernel must emit `OBJECT_COLLECTION_INVALID`.
+Place a mesh object only in a disallowed non-master collection. The production extractor chooses the code-point lexical minimum among the object's directly containing non-master collections; therefore the fixture must ensure that this representative collection is disallowed. Do not additionally link the object to an allowed collection or leave it only in the master collection. A nested object under a disallowed collection must likewise be constructed so its representative collection is the intended disallowed collection. Assert the canonical `measured.collection` value, not merely raw Blender membership.
 
 ### 6.3 Name
 
-Use an object name that violates the profile naming regex. Do not assert a name that Blender silently normalizes.
+Use an object name that violates the profile naming regex. Do not assert a name that Blender silently normalizes. Keep the required role-named objects separate from the offending object so the invalid name does not also remove a required role and confound readiness evidence.
 
 ### 6.4 Unit
 
 Use a unit configuration that maps through the existing unit mapper to a canonical value outside the allowed profile set. The gate must assert the canonical `SCENE_UNIT_INVALID` measured/expected fields, not raw Blender UI state alone.
 
-A separate unit-token control must not assume `IMPERIAL -> INCHES` when a precise `length_unit` is present; precise `length_unit` takes precedence.
+A separate unit-token control must not assume `IMPERIAL -> INCHES` when a precise `length_unit` is present; precise `length_unit` takes precedence. Pin the measured canonical tokens from the live mapper: Blender 4.4.3 default IMPERIAL produces `FEET`; explicit IMPERIAL+`length_unit=INCHES` produces `INCHES`; NONE produces `ADAPTIVE`; METRIC+`length_unit=CENTIMETERS` produces `CENTIMETERS`.
 
 ### 6.5 Zero scale
 
@@ -157,9 +157,15 @@ Do not use NaN or Infinity as Candidate-A fixtures.
 
 ### 6.6 Dangling parent
 
-Construct an extracted object whose parent reference resolves to an unknown parent at the canonical boundary without relying on a persistent Blender cycle. If normal Blender RNA cannot produce the desired dangling state directly, the implementation design must use only an already-supported live fixture mechanism; it must not mutate the canonical SceneModel to synthesize the finding after extraction.
+Use the verified live recipe: create an unlinked Blender object (for example `ghost = bpy.data.objects.new("ghost", None)`) and assign it as the child's parent without linking the ghost into the scene collection. The child remains scene-reachable while extraction ignores the unlinked parent because membership is derived from the scene collection graph, producing canonical `OBJECT_HIERARCHY_INVALID` with the parent name.
 
-If no faithful live producer exists for a dangling parent, the case must be reported as blocked rather than converted into a synthetic canonical-only test.
+An equivalent verified recipe is to unlink a parent from every scene collection while preserving the child's parent pointer. Prefer the first recipe for simplicity.
+
+Do **not** use `bpy.data.objects.remove(parent)`: Blender clears the child's parent pointer and silently converts the fixture into a valid no-parent state.
+
+Do not synthesize the finding after extraction and do not mutate the canonical `SceneModel`.
+
+A dangling-parent fixture has an unresolved pose, so the production kernel skips envelope evaluation for that mesh. Keep its geometry in-profile anyway and assert the exact expected finding set: `OBJECT_HIERARCHY_INVALID` only.
 
 ### 6.7 Envelope boundaries
 
@@ -217,7 +223,7 @@ Every case must capture:
 - Blender version/build;
 - payload schema version;
 - effective profile identity;
-- input payload digest;
+- report `input_digest` (the canonical scene-input digest produced by the report/kernel);
 - report digest;
 - exact FindingCode set;
 - exact measured/expected fields for the targeted finding;
@@ -241,7 +247,7 @@ The gate must not use "any report passes" logic.
 
 ## 8. No-save / no-mutation contract
 
-The implementation must adopt the established live-gate standard.
+The implementation must adopt the established live-gate standard. The raw-state snapshot should cover at minimum object names/ids, location/rotation/scale, parent references, mesh vertex/face tables, and relevant datablock inventory so equality proves the fixture was not altered. The exact snapshot schema may be kept harness-local and deterministic.
 
 For any frozen source asset:
 1. compute host-side SHA-256 before;
@@ -266,6 +272,8 @@ The gate is **operator-authorized**, not ordinary deterministic CI.
 Required invocation pattern:
 
 `ATLAS_RUN_LIVE_BLENDER=1 python -m pytest <new-live-gate> -s`
+
+The Blender subprocess must be invoked with `--python-exit-code 1` so script failures cannot return a false zero exit status. Captured stderr must be included in failure evidence.
 
 The test must:
 - skip when authorization is absent;
