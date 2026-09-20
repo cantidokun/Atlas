@@ -1,5 +1,7 @@
 import json
 
+import subprocess
+
 import pytest
 
 from planning.blender.correction_authorization import mapping_digest
@@ -205,3 +207,27 @@ def test_no_arbitrary_python_is_present_in_bridge_request():
     text = req.canonical_json()
     assert "python_expr" not in text
     assert "bpy.ops" not in text
+
+
+def test_bridge_timeout_is_fail_closed_and_ambiguous(monkeypatch):
+    from planning.blender.correction_execution_bridge import (
+        CorrectionExecutionBridge,
+    )
+
+    plan = _plan(
+        W1,
+        {"mesh_id": "m", "face_ids": [0, 1], "duplicate_relationship": "exact_duplicate"},
+    )
+
+    def _timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd="blender", timeout=1)
+
+    monkeypatch.setattr(subprocess, "run", _timeout)
+
+    result = CorrectionExecutionBridge(blender_command="blender", timeout=1).execute(plan)
+
+    assert result.transport_ok is False
+    assert result.transport_failure_code == "BLENDER_PROCESS_TIMEOUT"
+    assert result.engine_evidence["process_disposed"] is True
+    assert result.engine_evidence["ambiguous_result"] is True
+    assert result.correction_result is None
