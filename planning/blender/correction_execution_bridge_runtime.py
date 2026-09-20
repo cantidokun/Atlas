@@ -26,9 +26,14 @@ from planning.blender.correction_executor import (
     execute_remove_duplicate_face,
     execute_repair_face_winding,
 )
-from planning.blender.extraction_payload import payload_to_scene_model
+from planning.blender.extraction_payload import payload_representation_state, payload_to_scene_model
 from planning.blender.correction_values import thaw_jsonable
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
+from planning.blender.temporal_correction_integration import (
+    TemporalCaptureError,
+    TemporalCorrectionSession,
+    mark_post_extraction_ambiguity,
+)
 
 
 BRIDGE_START = "ATLAS_CORRECTION_BRIDGE_START"
@@ -42,6 +47,22 @@ class BridgeRuntimeError(RuntimeError):
 @dataclass
 class LiveEngine:
     bpy: Any
+
+
+def _build_transport_payload(
+    *,
+    request_digest: str,
+    receipt: Mapping[str, Any],
+    engine_evidence: Mapping[str, Any],
+    temporal_session: TemporalCorrectionSession,
+) -> dict[str, Any]:
+    """Build the bridge transport with measured Temporal evidence kept separate from the receipt."""
+    return {
+        "request_digest": request_digest,
+        "correction_result": receipt,
+        "engine_evidence": engine_evidence,
+        **temporal_session.result_payload(),
+    }
 
 
 def _reconstruct_plan(raw_plan: Mapping[str, Any]) -> CorrectionPlan:
@@ -235,6 +256,15 @@ def _run_executor(plan: CorrectionPlan, request: Mapping[str, Any]) -> dict[str,
     }
 
 
+def _mark_temporal_extraction_failure(engine_evidence: dict[str, Any]) -> None:
+    ordinal = engine_evidence.get("extraction_invocations", 0)
+    engine_evidence["temporal_failure_code"] = (
+        "TEMPORAL_PRE_ADMISSION_FAILED"
+        if ordinal == 1
+        else "TEMPORAL_POST_ADMISSION_FAILED"
+    )
+
+
 def _load_source(path: Optional[str]) -> None:
     if path is None:
         return
@@ -322,17 +352,38 @@ def run_embedded_request(request_json: str) -> None:
         engine_evidence["source_loaded"] = source_path is not None
         engine_evidence["filepath_after_load"] = bpy.data.filepath
 
-        original_extractor = _extractor
+        temporal_session = TemporalCorrectionSession()
+
+        def temporal_source_extractor(engine_state):
+            payload = extract_scene(engine_state.bpy)
+            representation_state = payload_representation_state(payload)
+            scene = payload_to_scene_model(payload)
+            report = run_scene_health(scene, soccer_field_profile_default())
+            temporal_source_extractor.temporal_representation_state = representation_state
+            return scene, report
+
+        captured_extractor = temporal_session.wrap(temporal_source_extractor)
 
         def counted_extractor(engine_state):
             engine_evidence["extraction_invocations"] += 1
-            return original_extractor(engine_state)
+            try:
+                return captured_extractor(engine_state)
+            except TemporalCaptureError:
+                _mark_temporal_extraction_failure(engine_evidence)
+                raise
 
         globals()["_extractor"] = counted_extractor
 
         out = _run_executor(plan, request)
         receipt = out["receipt"]
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
+        mark_post_extraction_ambiguity(engine_evidence, receipt)
+        if (
+            engine_evidence["mutator_invocations"] > 0
+            and isinstance(receipt, Mapping)
+            and receipt.get("failure_code") in {"MUTATION_FAILED", "POST_EXTRACTION_FAILED", "INTERNAL_ERROR"}
+        ):
+            engine_evidence["ambiguous_result"] = True
         engine_evidence["filepath_at_end"] = bpy.data.filepath
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
         engine_evidence["mutator_invocations"] = out["mutator_invocations"]
@@ -345,11 +396,12 @@ def run_embedded_request(request_json: str) -> None:
         )
         engine_evidence["save_detected"] = not engine_evidence["persistence_unchanged"]
 
-        payload = {
-            "request_digest": hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
-            "correction_result": receipt,
-            "engine_evidence": engine_evidence,
-        }
+        payload = _build_transport_payload(
+            request_digest=hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
+            receipt=receipt,
+            engine_evidence=engine_evidence,
+            temporal_session=temporal_session,
+        )
     except Exception as exc:
         if engine_evidence.get("mutator_invocations", 0) > 0:
             engine_evidence["ambiguous_result"] = True
@@ -363,7 +415,20 @@ def run_embedded_request(request_json: str) -> None:
         )
         engine_evidence["save_detected"] = not engine_evidence["persistence_unchanged"]
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
-        payload = {
+        temporal_payload = {}
+        session_obj = locals().get("temporal_session")
+        if session_obj is not None:
+            temporal_payload = session_obj.result_payload()
+        payload = _build_transport_payload(
+            request_digest=request_digest or hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
+            receipt={
+                "result": ExecutionOutcome.MUTATION_FAILED,
+                "failure_code": "BRIDGE_RUNTIME_ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+            engine_evidence=engine_evidence,
+            temporal_session=session_obj,
+        ) if session_obj is not None else {
             "request_digest": request_digest or hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
             "correction_result": {
                 "result": ExecutionOutcome.MUTATION_FAILED,
@@ -371,6 +436,7 @@ def run_embedded_request(request_json: str) -> None:
                 "error": f"{type(exc).__name__}: {exc}",
             },
             "engine_evidence": engine_evidence,
+            **temporal_payload,
         }
 
     print(BRIDGE_START)

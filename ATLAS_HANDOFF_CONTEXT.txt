@@ -1,30 +1,40 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 19, 2026 END-OF-NIGHT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 20, 2026 END-OF-NIGHT CHECKPOINT
 
 Active repository baseline:
-- mainline documentation checkpoint: September 19, 2026
-- Temporal branch: feat/temporal-observation-state-delta-v1-core-implementation
-- Temporal candidate HEAD: 1a055eecab1a335309834be9bc3aafa356ab589f
-- PR #109: OPEN / MERGEABLE / NOT MERGED
-- latest Temporal O-1/O-2 corrections: uncommitted, not pushed
-- live Blender 4.4.3 Temporal L-1–L-5: PASS
-- latest full non-integration regression: 4173 passed, 40 skipped, 0 failed
-- independent red-team: CLEAR WITH MINOR FINDINGS (NON-BLOCKING)
-- development paused for the night
+- main baseline: 321a9ca6ecbc58f52e9c66e1d1116387edcae60d
+- active branch: design/temporal-correction-integration-v3
+- PR #122: OPEN / MERGEABLE / NOT MERGED
+- PR #122 HEAD at pause: 2d30e6b20a6a6886713097ee41eb36ba005b85be
+- PR #122 is the current development target and is NOT merge-ready.
+- v3 implementation design: planning/blender/TEMPORAL_CORRECTION_INTEGRATION_V3_IMPLEMENTATION_DESIGN.md
+- Temporal contracts remain frozen.
 
+Validation at pause:
+- local full non-integration: 4,225 passed / 129 skipped
+- local focused Temporal v3: 20/20 passed
+- existing Temporal Blender live L-1–L-5: 8/8 passed
+- exact-head GitHub Atlas Tests run #2150 / 35492194463: FAILED
+- GitHub failures: runtime test imports bpy before fake installation; internal-error ambiguity expectation false; persistence invariant expectation false
+- GitHub counts: 4,236 passed / 135 skipped / 3 failed on both Python 3.9 and 3.11
+- dedicated v3 end-to-end live gate: not credited as exact-head GitHub evidence
+- development paused; no further fixes authorized tonight
 
-Read:
-- ATLAS_HANDOFF_CURRENT.md
-- README.md
-- UNREAL_AGENT_HANDOFF_CURRENT.md
-- docs/ATLAS_ARCHITECTURE_CONTRACT.md
+Resume:
+1. Read ATLAS_HANDOFF_CURRENT.md, ATLAS_HANDOFF_2026-09-20_END_OF_NIGHT.md, README.md.
+2. Verify exact PR #122 HEAD.
+3. Reproduce and fix only the three exact-head CI failures.
+4. Re-run focused and full deterministic suites.
+5. Verify exact-head GitHub CI.
+6. Verify exact-head dedicated Blender v3 live gate on C:\actions-runner.
+7. Obtain independent Hermes/DeepSeek red-team review.
+8. Human merge decision only after all required gates and independent review are clear.
 
-Then:
-1. Pull latest main.
-2. Treat M4 and M5 as completed baseline work; reopen only if a concrete regression is demonstrated.
-3. Continue from the next unresolved milestone in the architecture contract.
-4. For Hermes, compare Gemini vs DeepSeek V4 Flash while retaining Astra/Claude 5 as red-team evaluators.
-5. Keep implementation, deterministic validation, independent verification, red-team review, and human merge authority distinct.
-
-Do not run workflow/action-runner tests unless explicitly authorized.
+Do not:
+- merge PR #122;
+- reopen frozen Temporal contracts;
+- reopen Blender Extraction Fidelity v1 without a concrete defect;
+- advance Unreal M12.5;
+- resume M13.8/token optimization;
+- run workflow/action-runner tests tonight.
 
 Historical dated handoff snapshots are archival records and should not be rewritten.
