@@ -238,7 +238,7 @@ def evaluate(case_id):
             mesh_object("b", [(0,1,1),(2,1,1),(2,2,1),(0,2,1)], [(0,1,2,3)], field)
         else:
             a = [(0,0,1),(1,0,1),(1,1,1),(0,1,1)]
-            b = [(1.2,1.1,1),(2.2,1.1,1),(2.2,2.1,1),(1.2,2.1,1)]
+            b = [(1,0.3,1),(2,0.3,1),(2,1.3,1),(1,1.3,1)]
             ob = mesh_object("rotated", b, [(0,1,2,3)], field)
             ob.rotation_euler[2] = math.radians(45)
             mesh_object("anchor", a, [(0,1,2,3)], field)
