@@ -3,6 +3,25 @@
 > **Current-state reconciliation — September 19, 2026.** Temporal Observation + State Delta v1 is merged to `main` (PR #109 → `7c63c3190c4adacfddb8d8b6a35721234876669b`). Blender Wave 15 live boundary closure is now complete: W1/W1b merged in PR #115 → `dcb04f704644b7814bd9fd7eae314423dd528860`, and W2 merged in PR #116 → `4a27af868c418181c3363b939d585944599ac400`. The Wave 15 live gates were independently red-teamed and cleared with minor non-blocking findings. Historical dated handoffs remain archival and are not rewritten.
 
 
+## Active development checkpoint — September 20, 2026
+
+The current active work is **PR #122 — Temporal Observation ↔ Blender Correction Integration v3**.
+
+- Branch: `design/temporal-correction-integration-v3`
+- HEAD at the September 20 pause: `2d30e6b20a6a6886713097ee41eb36ba005b85be`
+- PR #122: **OPEN / MERGEABLE / NOT MERGED**
+- Base `main`: `321a9ca6ecbc58f52e9c66e1d1116387edcae60d`
+- The v3 design is session-scoped: canonical A → admission → one bounded correction → fresh canonical B from the same disposable Blender producer session → admission → StateDelta.
+- Temporal/correction/extraction/evaluator contracts are frozen for this implementation pass.
+
+### Pause state
+
+Local evidence before the pause was green (4,225 passed / 129 skipped; focused v3 20/20; existing Temporal Blender L-1–L-5 8/8). However, exact-head GitHub Actions run #2150 (`35492194463`) is **RED** on both Python 3.9 and 3.11: 4,236 passed / 135 skipped / 3 failed.
+
+The three exact-head failures are recorded in `ATLAS_HANDOFF_CURRENT.md` and `ATLAS_HANDOFF_2026-09-20_END_OF_NIGHT.md`. PR #122 is **not merge-ready**, and the dedicated v3 end-to-end live gate has not been credited as exact-head GitHub evidence.
+
+Resume from the handoff rather than assuming local green results close the gate.
+
 ## What Atlas is
 
 Atlas is an **AI-assisted sports virtual-production and digital-twin platform** focused exclusively on soccer-field-related digital twins and production workflows.
