@@ -88,8 +88,7 @@ def test_live_blender_topology_gate():
         text=True,
         check=False,
     )
-    combined = completed.stdout + "
-" + completed.stderr
+    combined = completed.stdout + "\n" + completed.stderr
     assert completed.returncode == 0, combined
 
     payload = None
