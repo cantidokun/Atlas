@@ -337,7 +337,16 @@ def run_embedded_request(request_json: str) -> None:
 
         def counted_extractor(engine_state):
             engine_evidence["extraction_invocations"] += 1
-            return captured_extractor(engine_state)
+            try:
+                return captured_extractor(engine_state)
+            except Exception:
+                ordinal = engine_evidence["extraction_invocations"]
+                engine_evidence["temporal_failure_code"] = (
+                    "TEMPORAL_PRE_ADMISSION_FAILED"
+                    if ordinal == 1
+                    else "TEMPORAL_POST_ADMISSION_FAILED"
+                )
+                raise
 
         globals()["_extractor"] = counted_extractor
 
