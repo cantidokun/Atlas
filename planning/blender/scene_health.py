@@ -175,16 +175,19 @@ def _collect_hierarchy_validity(scene: SceneModel, findings: List[Finding]) -> N
     # Detect cycles by iterative DFS on the (possible) parent graph.
     visiting: set = set()
     visited: set = set()
-    cycle_nodes: List[str] = []
+    # Use a set so each cycle participant is emitted exactly once; the previous list
+    # accumulation could depend on unordered object-ID traversal and change report digests.
+    cycle_nodes: set[str] = set()
 
     def visit(node: str, stack: List[str]) -> None:
-        if node in visited or node in cycle_nodes:
+        if node in visited:
             return
         if node in visiting:
-            cycle_nodes.append(node)
-            # record full cycle from stack
+            # Record every participant in the detected cycle exactly once.
             if node in stack:
-                cycle_nodes.extend(stack[stack.index(node):])
+                cycle_nodes.update(stack[stack.index(node):])
+            else:
+                cycle_nodes.add(node)
             return
         visiting.add(node)
         stack.append(node)
@@ -194,9 +197,9 @@ def _collect_hierarchy_validity(scene: SceneModel, findings: List[Finding]) -> N
         visiting.remove(node)
         visited.add(node)
 
-    for oid in ids:
+    for oid in sorted(ids):
         visit(oid, [])
-    for node in cycle_nodes:
+    for node in sorted(cycle_nodes):
         findings.append(Finding(
             code=FindingCode.OBJECT_HIERARCHY_INVALID,
             object_id=node,
