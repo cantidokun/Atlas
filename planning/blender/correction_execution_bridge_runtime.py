@@ -29,6 +29,7 @@ from planning.blender.correction_executor import (
 from planning.blender.extraction_payload import payload_to_scene_model
 from planning.blender.correction_values import thaw_jsonable
 from planning.blender.kernel import run_scene_health, soccer_field_profile_default
+from planning.blender.temporal_correction_integration import TemporalCorrectionSession
 
 
 BRIDGE_START = "ATLAS_CORRECTION_BRIDGE_START"
@@ -323,10 +324,12 @@ def run_embedded_request(request_json: str) -> None:
         engine_evidence["filepath_after_load"] = bpy.data.filepath
 
         original_extractor = _extractor
+        temporal_session = TemporalCorrectionSession()
+        captured_extractor = temporal_session.wrap(original_extractor)
 
         def counted_extractor(engine_state):
             engine_evidence["extraction_invocations"] += 1
-            return original_extractor(engine_state)
+            return captured_extractor(engine_state)
 
         globals()["_extractor"] = counted_extractor
 
@@ -349,6 +352,7 @@ def run_embedded_request(request_json: str) -> None:
             "request_digest": hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
             "correction_result": receipt,
             "engine_evidence": engine_evidence,
+            **temporal_session.result_payload(),
         }
     except Exception as exc:
         if engine_evidence.get("mutator_invocations", 0) > 0:
@@ -363,6 +367,10 @@ def run_embedded_request(request_json: str) -> None:
         )
         engine_evidence["save_detected"] = not engine_evidence["persistence_unchanged"]
         engine_evidence["is_dirty_at_end"] = bool(bpy.data.is_dirty)
+        temporal_payload = {}
+        session_obj = locals().get("temporal_session")
+        if session_obj is not None:
+            temporal_payload = session_obj.result_payload()
         payload = {
             "request_digest": request_digest or hashlib.sha256(request_json.encode("utf-8")).hexdigest(),
             "correction_result": {
@@ -371,6 +379,7 @@ def run_embedded_request(request_json: str) -> None:
                 "error": f"{type(exc).__name__}: {exc}",
             },
             "engine_evidence": engine_evidence,
+            **temporal_payload,
         }
 
     print(BRIDGE_START)
