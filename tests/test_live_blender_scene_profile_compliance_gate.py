@@ -211,7 +211,7 @@ def evaluate(case_id):
             x = -50.05
         else:
             x = -50.05000305175781
-        mesh_object("envelope_probe", [(x,0,1),(x,0.1,1),(x,0.2,1)], [(0,1,2)], field)
+        mesh_object("envelope_probe", [(x,0,1),(x,0.1,1),(x,0,1.1)], [(0,1,2)], field)
     elif case_id == "A11_missing_role":
         # Deliberately omit goal_right.
         for ob in list(bpy.data.objects):
