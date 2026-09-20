@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from planning.blender.scene_model import MeshModel, ObjectModel, SceneModel
-from planning.blender.correction_execution_bridge_runtime import _mark_post_extraction_ambiguity
+from planning.blender.temporal_correction_integration import mark_post_extraction_ambiguity
 from planning.blender.temporal_correction_integration import TemporalCorrectionSession
 from planning.temporal import AdmissionOutcome
 from planning.temporal.model import TEMPORAL_FIELD_UNIVERSE
@@ -227,7 +227,7 @@ def test_post_candidate_is_not_exposed_as_accepted_b_on_failure(monkeypatch):
 
 def test_caught_post_extraction_failure_marks_transport_ambiguous():
     evidence = {"mutator_invocations": 1, "ambiguous_result": False}
-    _mark_post_extraction_ambiguity(
+    mark_post_extraction_ambiguity(
         evidence,
         {"result": "MUTATION_FAILED", "failure_code": "POST_EXTRACTION_FAILED"},
     )
