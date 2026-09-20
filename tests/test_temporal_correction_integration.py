@@ -249,7 +249,7 @@ def test_pre_mutation_failure_does_not_mark_post_extraction_ambiguity():
 
 def test_executor_seam_admits_a_before_mutator_and_b_after(monkeypatch):
     # Drive the real frozen executor; only its engine mutator/extractor seams are instrumented.
-    from test_correction_executor_wave1 import _default_plan, _exec, _extractor as base_extractor, _stub_mutator
+    from tests.test_correction_executor_wave1 import _default_plan, _exec, _extractor as base_extractor, _stub_mutator
 
     scene, plan = _default_plan()
     events = []
@@ -431,6 +431,8 @@ def test_run_embedded_request_internal_error_is_ambiguous_and_has_no_b(monkeypat
     monkeypatch.setattr(runtime, "_reconstruct_plan", lambda raw: object())
     monkeypatch.setattr(runtime, "_canonical_postcondition_binding", lambda plan, operation: ("ref", "digest"))
     monkeypatch.setattr(runtime, "_load_source", lambda path: None)
+    monkeypatch.setattr(runtime, "_file_fingerprint", lambda path: None)
+    monkeypatch.setattr(runtime, "_blend_inventory", lambda root: {})
     monkeypatch.setattr(
         runtime,
         "_run_executor",
