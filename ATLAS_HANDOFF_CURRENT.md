@@ -11,7 +11,7 @@
 - Active branch: `design/temporal-correction-integration-v3`
 - PR #122: **OPEN / MERGEABLE / NOT MERGED**
 - PR title: `feat(blender): integrate Temporal A/B with correction bridge v3`
-- Current branch HEAD: `2d30e6b20a6a6886713097ee41eb36ba005b85be`
+- Current branch HEAD: `430f543e55967cfea8704133b665cb4379f7c208` (documentation-only checkpoint commit; implementation candidate remains `2d30e6b20a6a6886713097ee41eb36ba005b85be`)
 - Base: `main` at `321a9ca6ecbc58f52e9c66e1d1116387edcae60d`
 - PR #122 is the current development target. Do **not** merge it yet.
 - Implementation design: `planning/blender/TEMPORAL_CORRECTION_INTEGRATION_V3_IMPLEMENTATION_DESIGN.md`
@@ -56,7 +56,7 @@ The current red CI state is intentionally recorded rather than repaired before t
 ## Resume sequence
 
 1. Re-read this file, `ATLAS_HANDOFF_2026-09-20_END_OF_NIGHT.md`, and `README.md`.
-2. Verify branch HEAD and PR #122 status; use the exact current SHA rather than assuming it remains `2d30e6b2`.
+2. Verify branch HEAD and PR #122 status; the documentation checkpoint is `430f543e55967cfea8704133b665cb4379f7c208`, while the implementation candidate under test is `2d30e6b20a6a6886713097ee41eb36ba005b85be`.
 3. Reproduce the three CI failures locally in an environment matching the GitHub import path.
 4. Fix only the proven causes; preserve the v3 architectural boundaries and frozen contracts.
 5. Run the focused deterministic suite and full non-integration suite.
