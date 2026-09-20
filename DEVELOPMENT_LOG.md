@@ -705,3 +705,15 @@ Cross-process Unreal render-job recovery is implemented and merged via Milestone
 - Remaining review work: signed-zero semantic/digest consistency and two specification-precision clarifications. A separate declaration/payload consistency residual remains a contract-level open point.
 - Latest corrections remain uncommitted/not pushed. Development paused for the night; no merge/commit decision was made.
 - D4 correction-file drift remains unrelated and untouched.
+
+
+## September 20, 2026 — Temporal v3 end-of-night checkpoint
+
+- PR #122 `feat(blender): integrate Temporal A/B with correction bridge v3` remains OPEN / MERGEABLE / NOT MERGED.
+- Active branch HEAD at pause: `2d30e6b20a6a6886713097ee41eb36ba005b85be`.
+- Local evidence reported before pause: full non-integration 4,225 passed / 129 skipped; focused Temporal v3 20/20; existing Temporal Blender L-1–L-5 8/8.
+- Exact-head GitHub Actions run #2150 (`35492194463`) is RED on Python 3.9 and 3.11 with 4,236 passed / 135 skipped / 3 failed.
+- Failures: CI import of `bpy` before fake-module installation; internal-error ambiguity flag false; persistence invariant false.
+- Dedicated v3 end-to-end live gate is not credited as exact-head GitHub evidence.
+- Development paused intentionally. No merge decision was made.
+- Resume sequence is recorded in `ATLAS_HANDOFF_CURRENT.md` and `ATLAS_HANDOFF_2026-09-20_END_OF_NIGHT.md`.
