@@ -249,8 +249,8 @@ class TemporalCorrectionSession:
 
         return captured
 
-    def result_payload(self, correction_result: Any = None) -> Dict[str, Any]:
-        """Return measured Temporal evidence; correction_result is intentionally ignored."""
+    def result_payload(self) -> Dict[str, Any]:
+        """Return measured Temporal evidence without accepting correction-receipt input."""
         return {
             "temporal_transaction": {
                 "producer_session_id": self.producer_session_id,
