@@ -119,7 +119,7 @@ The producer deliberately omits:
 - UVs;
 - local-frame data.
 
-Material-slot representation was separately closed by Wave 14 within the existing extraction contract.
+Material-slot representation was separately closed by Wave 14 within the existing extraction contract. The merged PR #111 live evidence is in `tests/test_live_blender_merge_vertex_gate.py` with `tests/merge_vertex_live_script.py`; the retained Wave 14 design artifact is documentation evidence, not the current status authority. Blender unit mapping prefers precise `length_unit` over coarse `system`, so a real Imperial scene can canonically yield `FEET` when that precise token is present; the coarse `IMPERIAL -> INCHES` mapping is only the fallback.
 
 Conclusion:
 
@@ -185,9 +185,9 @@ The discovery must distinguish a canonical finding predicate from a state that B
 | OBJECT_NAME_INVALID | `scene_health.py::_collect_object_name` | Live-representable | Existing live probe can create invalid name but did not assert kernel finding | **NEW/PARTIAL** |
 | OBJECT_HIERARCHY_INVALID | `scene_health.py::_collect_hierarchy_validity` | Dangling parent is live-representable; a persistent Blender parent cycle is not representable through the normal RNA path because Blender clears/normalizes the attempted assignment | Existing live probe for hierarchy states; kernel finding assertion is missing | **NEW** dangling-parent only |
 | OBJECT_BOUNDS_OVERLAP | `scene_health.py::_collect_bounds_overlap` using world-space AABBs | Live-representable, but semantics are deliberately conservative | Deterministic geometry tests; clean real asset intentionally uses disjoint probes | **NEW/PARTIAL** only for live overlap/contact boundary evidence |
-| OBJECT_TRANSFORM_INVALID | `scene_health.py::_collect_transform_validity` | Zero-scale branch is live-representable. Non-finite location/scale is not a reliable Blender live fixture: NaN is rejected and infinity may be clamped/normalized at the RNA boundary | Deterministic non-finite/zero-scale tests; existing live transform probes are valid-state evidence | **NEW** zero-scale only |
+| OBJECT_TRANSFORM_INVALID | `scene_health.py::_collect_transform_validity` | Zero-scale branch is live-representable. NaN is preserved by Blender but rejected by the frozen extraction contract; ±inf is clamped by RNA and can surface as `MESH_SCALE_OUT_OF_RANGE` instead | Deterministic non-finite/zero-scale tests; existing live transform probes are valid-state evidence | **NEW** zero-scale only |
 | OBJECT_COLLECTION_INVALID | `scene_health.py::_collect_object_collection` | Live-representable | Existing live probe creates disallowed collection but does not assert kernel finding | **NEW/PARTIAL** |
-| DIGITAL_TWIN_READINESS_FAILED | `planning/blender/digital_twin_readiness.py::evaluate_readiness` derives state/reason from findings/profile | Live-representable as a derived state when a live finding/readiness condition is produced | Existing real asset proves positive readiness; negative readiness cases are not systematically asserted | **NEW** missing-required-role/readiness reason |
+| DIGITAL_TWIN_READINESS_FAILED | No producer in the current `planning/` code; enum/mapping vocabulary only, with correction mapping `OUT_OF_SCOPE` and no correction | **Unproduced as a FindingCode**. The live production path instead exposes readiness as `validation_state` plus `scene_metrics["readiness_reason"]` | Existing real asset proves positive readiness; missing-role readiness state is not systematically asserted | **Keep only as readiness-state evidence; never expect this FindingCode** |
 
 ## 5. Candidate discovery
 
@@ -203,7 +203,7 @@ The genuinely new evidence targets are:
 - zero-scale `OBJECT_TRANSFORM_INVALID`;
 - dangling-parent `OBJECT_HIERARCHY_INVALID`;
 - negative `MESH_SCALE_OUT_OF_RANGE` envelope evidence;
-- `DIGITAL_TWIN_READINESS_FAILED` for a missing required role, including the readiness reason;
+- missing-required-role readiness state (`validation_state` + `readiness_reason`), including the ready-blocking composition where applicable; **do not expect `DIGITAL_TWIN_READINESS_FAILED` as a produced FindingCode**;
 - envelope tolerance acceptance/rejection at the exact inclusive boundary;
 - non-containment AABB overlap plus explicit contact/coincidence/containment controls.
 
@@ -216,14 +216,14 @@ The following are **not** new value and must not be presented as such:
 - valid role presence;
 - valid naming/collection/unit examples.
 
-Those are already covered by the existing real-.blend gate and other live/deterministic coverage. The new gate must add negative or boundary evidence and assert the production kernel's actual FindingCodes/ValidationState.
+Those are already covered by the existing real-.blend gate and other live/deterministic coverage. The new gate must add negative or boundary evidence and assert the production kernel's actual FindingCodes plus the actual readiness `validation_state`/`readiness_reason` fields. A readiness failure must never be represented as a fabricated `DIGITAL_TWIN_READINESS_FAILED` finding.
 
 #### 5.1 Existing-live evidence inventory
 
 | Existing evidence | What it already proves | Candidate-A relation |
 |---|---|---|
 | `tests/test_live_blender_real_asset_gate.py` | Real frozen .blend → production extraction → SceneModel → `run_scene_health`; exact object set, units, topology, world-space transforms, hierarchy chain, empty findings, `production_ready`, digest reproducibility, host-side no-save hash and state digest | **PARTIAL/DUPLICATE** for clean positive path; do not duplicate |
-| Existing operator-gated live scene-health probes | Real Blender can create invalid name, disallowed collection, invalid unit, dangling-parent/cycle attempts and other fixture states | **PARTIAL**: fixture truth exists, but production FindingCode/report assertions are missing |
+| Existing operator-gated live scene-health probes (`tests/test_live_blender_scene_health_*.py` / 16 operator-gated scene-health gates) | Real Blender can create invalid name, disallowed collection, invalid unit, dangling-parent/cycle attempts and other fixture states | **PARTIAL**: fixture truth exists, but production FindingCode/report assertions are missing |
 | Deterministic scene-health tests | Naming, duplicate IDs, units, collections, zero-scale, hierarchy, overlap/containment predicates | **PARTIAL**: canonical semantics exist; live representation is the missing boundary |
 | PR #124 topology gate | Real Blender non-manifold production finding and topology coherence | **DUPLICATE** for topology; excluded |
 | Temporal and correction live workflows | Their own bounded live contracts | **DUPLICATE / out of scope** |
@@ -242,25 +242,43 @@ The evidence run shall record the complete profile policy, not merely `profile.n
 - required roles;
 - ready-blocking codes;
 - envelope tolerance;
-- any other profile fields consumed by the selected predicates.
+- any other profile fields consumed by the selected predicates;
+- Blender engine/build identity;
+- canonical payload schema version.
 
 The declared `permitted_hierarchy_depth`, `expected_up_axis`, and `expected_ground_level` are currently inert in the evaluated production path and are **not** evidence claims for this gate. Their declared presence must not be confused with enforcement.
 
+`SCENE_BOUNDS_EMPTY` currently has no producer in the planning code and is a vocabulary/contract gap. `DIGITAL_TWIN_READINESS_FAILED` is likewise unproduced as a FindingCode; the live readiness evidence is derived `validation_state` + `readiness_reason` and must be treated as such.
+
 #### 5.3 Exact transform and envelope predicates
 
-For `OBJECT_TRANSFORM_INVALID`, the live fixture is limited to the production predicate `abs(scale) < 1e-9) (zero scale). Non-finite transform cases remain canonical-only for this evidence boundary because Blender 4.4.3 does not reliably preserve the intended malformed state through RNA.
+For `OBJECT_TRANSFORM_INVALID`, the live fixture is limited to the production predicate `any(abs(c) < 1e-9 for c in obj.scale)` (zero-scale branch). Non-finite transform cases are not Candidate-A live fixtures, but the reason must be stated precisely: Blender 4.4.3 preserves NaN at the RNA boundary, while the frozen extraction contract rejects non-finite transform values fail-closed; ±infinity is clamped by Blender RNA to the float32 maximum and can surface through the envelope check as `MESH_SCALE_OUT_OF_RANGE`, not as `OBJECT_TRANSFORM_INVALID`.
 
 For `MESH_SCALE_OUT_OF_RANGE`, the live fixture must be defined in world space. The production predicate accepts each coordinate when:
 
 `min - tolerance <= coordinate <= max + tolerance`
 
-with the default tolerance of **0.05 m**, inclusive. The gate must test:
+with the default tolerance of **0.05 m**, inclusive.
 
-- a point exactly at the lower/upper tolerated boundary: accepted;
-- a point just beyond the tolerated boundary: rejected;
+The fixture construction must be **quantisation-aware**. Blender stores vertex coordinates as float32 and the extractor rounds canonical coordinates to 6 decimals. At the default soccer-field upper X boundary (50.0 m) and 0.05 m tolerance (50.05 m tolerated limit), the rejected case must be at least approximately **1e-5 m beyond the tolerated limit** (at least one float32 ULP at that magnitude), rather than using a sub-ULP offset such as 1e-6 m. The same rule applies symmetrically at the lower X boundary and must be re-derived from the actual float32 spacing if a different boundary is used.
+
+The gate must test:
+
+- a point exactly at the tolerated boundary: accepted;
+- a point at least one float32 ULP beyond the tolerated boundary: rejected;
 - a clearly outside point: rejected.
 
-The finding's measured payload is mesh/vertex-oriented: the current producer records `mesh_id` and vertex index/world coordinate rather than an `object_id`. The design must assert this exact identity convention.
+The assertion must use the canonical finding code/predicate and authoritative payload fields, **not the 4-decimal `measured.world` display value as the source of truth for boundary classification**.
+
+The finding's identity and cardinality semantics are:
+
+- `object_id` is `None`;
+- `mesh_id` identifies the affected mesh;
+- `measured` contains `vertex` and a 4-decimal-rounded `world` coordinate;
+- `expected` contains the envelope bounds and tolerance;
+- the producer emits **at most one finding per mesh**, selecting the first offending vertex because the production loop breaks after the first violation.
+
+Therefore a future gate must count expected findings by **affected mesh**, not by offending vertex, and must not compare the rounded 4-decimal `measured.world` field to prove a sub-centimetre boundary margin.
 
 #### 5.4 Exact AABB overlap semantics
 
@@ -269,7 +287,7 @@ The production overlap predicate is world-space AABB based. The implementation d
 - non-containment overlap: finding expected;
 - pure containment: no finding;
 - coincident/equal AABBs: no finding because mutual containment suppresses the signal;
-- exact face/edge/point contact: the current sweep excludes exact min-x contact because the sweep condition is strict `min_x < max_x`; therefore a flush contact can be a deliberate false-negative class and must not be silently described as overlap evidence;
+- exact contact must be tested **per axis**: x-flush contact is skipped by the strict sweep condition `min_x < max_x` and therefore produces no finding; y- or z-flush contact can still produce `OBJECT_BOUNDS_OVERLAP` when the pair overlaps on the sweep axis. The design must pin both the x-flush false-negative case and the y/z-flush reported case rather than generalizing all flush contact to one outcome;
 - rotated geometry: overlap is against the transformed world-space AABB, so AABB inflation relative to oriented geometry is expected and must be documented as a limitation, not treated as exact geometric intersection.
 
 The gate must use independently known fixture geometry and must not reimplement the production overlap algorithm as a second authority.
@@ -322,15 +340,15 @@ Any future work belongs in a dedicated representation-fidelity discovery, not a 
 
 ### Candidate C — MESH_INVALID_INDEX raw-engine investigation
 
-The canonical model can carry range-invalid indices sufficiently for the kernel finding, while Blender's native mesh construction may reject or normalize some malformed states before extraction.
+The live boundary can represent **out-of-range and negative face indices**: Blender 4.4.3 preserves them through `from_pydata`, the production extraction preserves the authored face, and the kernel emits `MESH_INVALID_INDEX`. Repeated indices are rejected by the canonical parser, while non-integer indices are rejected by Blender's mesh API, so those subcases remain canonical/engine refusal cases rather than live canonical findings.
 
-This makes raw-engine malformed-index evidence interesting, but it does not provide a correction policy. A correction would require deciding what an invalid reference should become.
+This does not provide a correction policy. Even where the malformed index is observable, deciding what the invalid reference should become would require a separate semantic target.
 
 Disposition:
 
 **LOW-VALUE FOR THE NEXT MILESTONE; REVIEW-ONLY.**
 
-A future investigation can be justified if malformed imported assets become an observed production problem.
+The reason for exclusion is **scope plus absence of a justified correction policy**, not lack of Blender representability. A future investigation can be justified if malformed imported assets become an observed production problem.
 
 ### Candidate D — OBJECT_BOUNDS_OVERLAP evidence
 
@@ -470,11 +488,12 @@ A future implementation design must provide, for every proposed fixture:
 | Dangling parent | `_collect_hierarchy_validity` | `OBJECT_HIERARCHY_INVALID` | NEW |
 | Envelope exact tolerated boundary | `check_mesh_in_envelope` | no `MESH_SCALE_OUT_OF_RANGE` | NEW |
 | Envelope just outside tolerance | `check_mesh_in_envelope` | `MESH_SCALE_OUT_OF_RANGE` | NEW |
-| Missing required role | readiness evaluator | `DIGITAL_TWIN_READINESS_FAILED` + reason | NEW |
+| Missing required role | readiness evaluator / `kernel.py` readiness composition | `validation_state == "needs_review"` + `scene_metrics["readiness_reason"]` containing missing required roles; **no FindingCode expected** | NEW |
 | Non-containment overlap | `_collect_bounds_overlap` | `OBJECT_BOUNDS_OVERLAP` | NEW/PARTIAL |
 | Pure containment | `_collect_bounds_overlap` | no overlap finding | NEW negative control |
 | Coincident AABB | `_collect_bounds_overlap` | no overlap finding | NEW negative control |
-| Exact contact | sweep + AABB predicate | no finding under current strict sweep | NEW boundary/false-negative control |
+| Exact x-flush contact | sweep + AABB predicate | no finding: pair is skipped at `min_x == max_x` | NEW boundary/false-negative control |
+| Exact y/z-flush contact | sweep + AABB predicate | `OBJECT_BOUNDS_OVERLAP` when overlap remains on the sweep axis | NEW boundary control |
 | Rotated AABB inflation | world-space transform → AABB | documented AABB result | NEW boundary limitation |
 | Hierarchy cycle | canonical evaluator only | **NOT A LIVE CASE**; separate determinism defect | REMOVED |
 | Duplicate object ID | canonical `_collect_duplicate_object_ids` | **NOT A LIVE CASE** | REMOVED |
@@ -511,4 +530,4 @@ The independent review does not justify another correction wave or a new authori
 
 This document does **not** authorize implementation. The separate hierarchy-cycle determinism defect is recorded as an independent issue and must not be repaired opportunistically inside Candidate A.
 
-The next step is a **second independent architectural/red-team review of this revised discovery document**. The review must verify R-1 through R-10 from the first review, especially the per-code representability table, existing-live inventory, exact AABB semantics, profile identity binding, no-save standard, and separation of the hierarchy-cycle determinism defect. If cleared, a separate implementation design package may be written. Until then, implementation remains unauthorized.
+The next step is a **separate independent architectural/red-team review of this corrected discovery document**. The review must verify C-1 through C-9, especially readiness as derived state rather than a finding, live invalid-index representability, quantisation-safe envelope fixtures, one-finding-per-mesh/rounded-world semantics, per-axis contact behavior, Wave 14 closure citation, gate naming, engine/schema identity, and precise NaN/Infinity attribution. If cleared, a separate implementation design package may be written. Until then, implementation remains unauthorized.
