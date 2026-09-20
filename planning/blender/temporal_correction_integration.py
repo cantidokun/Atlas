@@ -298,3 +298,13 @@ def _observation_json(observation: Optional[TemporalObservation]) -> Optional[Di
             "producer_instance_ordinal": observation.producer.producer_instance_ordinal,
         },
     }
+
+
+def mark_post_extraction_ambiguity(engine_evidence: Dict[str, Any], receipt: Any) -> None:
+    """Mark a caught executor post-extraction failure ambiguous after mutation."""
+    if (
+        engine_evidence.get("mutator_invocations", 0) > 0
+        and isinstance(receipt, Mapping)
+        and receipt.get("failure_code") == "POST_EXTRACTION_FAILED"
+    ):
+        engine_evidence["ambiguous_result"] = True
