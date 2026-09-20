@@ -60,6 +60,7 @@ def independent_incidence(polygons):
 
 
 def main():
+    initial_filepath = bpy.data.filepath
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
 
@@ -235,7 +236,7 @@ def main():
         "failed": failed,
         "checks": checks,
         "save_attempted": bpy.data.filepath != "",
-        "opened_frozen_asset": False,
+        "opened_frozen_asset": bool(initial_filepath),
     }
     print(json.dumps(payload, sort_keys=True))
     if failed:
