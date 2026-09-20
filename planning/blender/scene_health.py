@@ -197,9 +197,9 @@ def _collect_hierarchy_validity(scene: SceneModel, findings: List[Finding]) -> N
         visiting.remove(node)
         visited.add(node)
 
-    for oid in ids:
+    for oid in sorted(ids):
         visit(oid, [])
-    for node in cycle_nodes:
+    for node in sorted(cycle_nodes):
         findings.append(Finding(
             code=FindingCode.OBJECT_HIERARCHY_INVALID,
             object_id=node,
