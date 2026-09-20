@@ -81,6 +81,9 @@ from planning.blender.scene_report import REPORT_FORMAT_VERSION, VALIDATOR_VERSI
 MARKER = "ATLAS_SCENE_PROFILE_COMPLIANCE_V1"
 
 def reset_scene():
+    # Each case is independent; restore scene policy state after unit-policy cases.
+    bpy.context.scene.unit_settings.system = "METRIC"
+    bpy.context.scene.unit_settings.length_unit = "METERS"
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
     for datablocks in (
