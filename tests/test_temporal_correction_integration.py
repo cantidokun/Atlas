@@ -354,6 +354,31 @@ def test_runtime_temporal_failure_is_bounded_and_attributed(monkeypatch):
     runtime._mark_temporal_extraction_failure(evidence)
     assert evidence["temporal_failure_code"] == "TEMPORAL_POST_ADMISSION_FAILED"
 
+def test_temporal_capture_failure_is_distinct_from_source_extraction_failure(monkeypatch):
+    from planning.blender.temporal_correction_integration import TemporalCaptureError
+
+    _install_fake_bpy(monkeypatch, frame_current=12.5)
+    session = TemporalCorrectionSession()
+
+    def valid_extractor(_engine_state):
+        return _scene(), _Report("report-a")
+
+    valid_extractor.temporal_representation_state = ()
+    wrapped = session.wrap(valid_extractor)
+    with pytest.raises(TemporalCaptureError):
+        wrapped(None)
+
+    session2 = TemporalCorrectionSession()
+
+    def failing_extractor(_engine_state):
+        raise RuntimeError("source extraction failed")
+
+    failing_extractor.temporal_representation_state = ()
+    wrapped2 = session2.wrap(failing_extractor)
+    with pytest.raises(RuntimeError, match="source extraction failed"):
+        wrapped2(None)
+
+
 def test_capability_identity_is_frozen_across_a_and_b(monkeypatch):
     session = _session(monkeypatch, representation_state=("materials:omitted",))
     with pytest.raises(RuntimeError, match="capability representation_state"):
