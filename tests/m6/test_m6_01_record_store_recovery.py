@@ -229,6 +229,9 @@ def test_m6_item16_case_b_full_recovery_issues_receipt(tmp_path):
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path, data = ff.write_valid_render_artifact(rec)
     manifest = ff.make_manifest_for(rec, [path])
     cand = ff.build_finished_candidate(rec, artifact_paths=[path], artifact_manifest=manifest)

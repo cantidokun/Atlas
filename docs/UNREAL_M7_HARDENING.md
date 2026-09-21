@@ -336,7 +336,168 @@ evidence that can adopt that run and forces it onto the deadline-exhaustion fail
 `docs/LIVE_EXECUTION_CHECKLIST.md` §7 carries the operator rule; there is no supported
 automatic journal-deletion policy.
 
-Not solved here (separate future rungs, explicitly out of scope): supervisor
-reattachment / `OpenJobObjectW` recovery of a valid quiescent handle after the launcher
-exits (Q4/Q8), and mandatory agreement between a live catalog candidate and a durable
-witness when both exist (Q5).
+Not solved here (separate future rungs, explicitly out of scope): mandatory agreement
+between a live catalog candidate and a durable witness when both exist (Q5).
+
+---
+
+## E. Containment keeper — executable containment authority (F-DG-1 / F-DG-2 closure)
+
+### E.1 What is now repository-owned
+
+`scripts/run_unreal_containment_keeper.py` is the executable containment authority. Before
+this rung, containment was an operator convention (the runbook told a human to start the
+engine "via the supervisor") and the quiescence predicate trusted any handle it was handed —
+including a freshly created, never-used Job Object (F-DG-1), which reports
+`ActiveProcesses == 0` and therefore looked quiescent while a *different* object still held
+live processes.
+
+The keeper's intrinsic authority is exactly: create/manage the Job Object, assign the engine
+tree, launch, retain the handle, record the launch identity, observe `ActiveProcesses`, and
+trigger recovery when it observes 0. It does NOT own submission authority, receipt
+publication, authorization decisions, evidence verification, job-state policy, or case
+classification; it invokes the composition root at the drain edge and decides nothing
+(`tests/m7/test_m7_keeper_authority_isolation.py`).
+
+### E.2 Launch order (Contract V1 §9 / §10)
+
+```text
+CreateJobObjectW
+  -> JobObjectExtendedLimitInformation: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (breakaway disabled)
+  -> CreateProcessW(..., CREATE_SUSPENDED)          # CREATE_BREAKAWAY_FROM_JOB is never set
+  -> AssignProcessToJobObject                       # assigning an already-running process is refused
+  -> durable containment launch record              # BEFORE the engine can run
+  -> ResumeThread
+```
+
+`CREATE_SUSPENDED` is not stylistic: Windows refuses `AssignProcessToJobObject` on an
+already-running spawned process (`WinError 5`), and the suspended window also removes the
+race in which the engine spawns descendants before the tree is contained.
+
+### E.3 Containment launch record (Contract V1 §10)
+
+```text
+<store root>/containment/<atlas_job_id>__<attempt_ordinal>.json
+```
+
+Written before `ResumeThread`, keyed by the attempt identity, never overwritten (a second
+keeper claiming one attempt fails closed). Fields: `record_schema_version`, `atlas_job_id`,
+`attempt_ordinal`, `deployment_mode`, `job_identity_descriptor` (Job Object name — lookup
+metadata only, never proof), `engine_pid`, `process_creation_time_utc` (kernel-reported, read
+while the process is still suspended), `launch_composition_processes` (kernel
+`TotalProcesses` observed at the launch boundary), `project_identity`, `uproject_digest`,
+`keeper_identity`, `editor_session_id` (null before resume — never fabricated),
+`written_at_utc`, `launch_record_digest`.
+
+```text
+launch_record_digest = HMAC-SHA256(key = UTF8(attempt_nonce), message = canonical payload)
+```
+
+The launch record is identity evidence, never an authority: it cannot authorize execution,
+cannot satisfy quiescence by itself, and cannot produce a receipt. It lives beside the durable
+store and never inside the witness journal directory.
+
+### E.4 §9 quiescence with launch-object provenance (F-DG-1)
+
+`planning/unreal_containment_quiescence.py` evaluates the predicate the coordinator uses.
+`is_quiescent` requires ALL of:
+
+1. the attempt's durable launch record exists and its digest verifies against the durable
+   render record's persisted nonce;
+2. the queried handle is the keeper's retained handle (recovery never creates a Job Object of
+   its own — `scripts/run_unreal_recovery.py` refuses to compose without one);
+3. the object reports `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` with breakaway disabled, read back
+   from the object;
+4. `TotalProcesses >= recorded launch composition >= 1` — a fresh/never-used object reports
+   `TotalProcesses == 0` and is refused **even at `ActiveProcesses == 0`**;
+5. `ActiveProcesses == 0`.
+
+A provable disagreement between the launch record's engine incarnation and the adopted
+witness's engine-witnessed process identity fails closed with Case E/F semantics.
+`TotalTerminatedProcesses` is exposed for diagnostics only and is never used as a
+death/quiescence signal. The attempt-unbound predicate
+(`scripts/run_unreal_supervisor.py::evaluate_process_quiescence`) is retained for
+harness/diagnostic callers and is documented as provenance-free; the deciding control is that
+a fresh empty object FAILS the bound predicate (`tests/m7/test_m7_containment_provenance.py`).
+
+### E.5 Attempt-nonce custody (MF-3)
+
+The `attempt_nonce` is per attempt, created by the authorized launcher/submitter, and reaches
+the keeper only through the authorized in-process launch boundary (never argv, environment,
+file, log or transport). The keeper uses it strictly as the launch record's HMAC key: it is
+never serialized, never logged, never reused, and never replaced (a keeper-invented nonce
+produces a digest that cannot verify against the durable record). A missing, empty or
+record-mismatched nonce means no authenticated launch record can be produced, so the keeper
+fails closed: the suspended engine is terminated and the Job Object closed before the engine
+ever runs.
+
+### E.6 Journal root derivation (MF-2)
+
+The production journal root is derived, not configured: `resolve_project_containment_context`
+takes the configured `.uproject`, canonicalises it (refusing any symlink/junction component),
+rejects a project or journal root placed under a disposable `Saved/` tree, binds
+`<ProjectDir>/AtlasWitnessJournal`, and hashes the `.uproject` bytes. The recovery invocation
+records the canonical journal root, the uproject digest, the store root and the launch-record
+digest, and refuses to reconcile a record whose project association cannot be proven.
+`scripts/run_unreal_recovery.py` has no `journal_root` parameter at all.
+
+### E.7 Fail-closed matrix (kernel level)
+
+| Event | Job Object | Handle | Outcome | Receipt |
+|---|---|---|---|---|
+| Render completes, engine exits, keeper alive | drained, intact | retained | Case B → `FINALIZED` | exactly 1 |
+| Keeper crash before quiescence | destroyed (last close reaps the tree) | gone | fail closed: `WAITING_FOR_ENGINE_QUIESCENCE`, then deadline `EXHAUSTED`/`RECOVERY_FAILED` | 0 |
+| Atlas restart while the keeper survives | intact | retained by the keeper | render continues; adoption still happens at the drain edge | 1 |
+| OS crash / reboot | destroyed | none | fail closed; no durable attestation is substituted for the lost object | 0 |
+| Handle accidentally closed | destroyed | lost | fail closed (documented, tested) | 0 |
+| Fresh/foreign/synthetic Job Object offered | — | not the attempt's | refused by §9 conjunct 4 (`TotalProcesses == 0`), Case K hold | 0 |
+| Second keeper claims the same attempt | new object | new handle | refused: the launch record already exists and is never overwritten | 0 |
+| Stale keeper (previous attempt/revision) | — | — | refused by the attempt-ordinal binding | 0 |
+| Engine crash mid-render | intact | retained | non-terminal journal → Case J `RECOVERY_PENDING` | 0 |
+| Engine alive with a terminal journal | non-empty | retained | Case K hold; no inspection, no adoption | 0 |
+| Keeper dies AFTER quiescence is proven but BEFORE the recovery trigger completes | drained, intact until the last handle closes | gone with the keeper | fail closed: whatever the pass did not finish stays unfinished; the job holds to its execution deadline and closes as `EXHAUSTED` / `RECOVERY_FAILED` | 0, unless a receipt was already published (then repair-from-receipt on the next pass) | **expected design residual**, not an implementation anomaly - see E.9 |
+
+None of these is converted into a synthetic success: there is no path that mints a receipt
+without a durable terminal attested witness, verified bytes, and a satisfied §9 predicate.
+
+### E.8 Still open after this rung
+
+* **No live execution.** This rung is deterministic only: no UE 5.6 launch, no render, no
+  authorization, no live receipt. The kernel-level Job Object behaviour is exercised by
+  `tests/m7/test_m7_win32_containment_kernel.py` against real Win32 objects with a short-lived
+  Python child (never the engine).
+* **A production Case-B receipt requires a NEW authorized live render** under the keeper
+  architecture; the frozen S1 evidence cannot produce one (Contract V1 §9/§21, and the §12/§13
+  correction in `docs/design/M7_S1_ADOPTION_CASE_B_DESIGN.md`).
+* **Named residual:** Windows exposes no kernel-level Job Object instance identity, so
+  provenance is an *attribution* proof (authenticated launch record + retained handle + kernel
+  counter consistency), not a cryptographic one. The keeper therefore must stay
+  repository-owned and expose no capability beyond E.1.
+* **Deferred primitives:** `OpenJobObjectW` open-by-name is implemented as a query-only
+  transport primitive (`AtlasProcessSupervisor.open_existing_job`) but is deliberately NOT
+  used as an identity proof, and no `TerminateJobObject`/terminate-and-wait autonomy primitive
+  is added in this rung (the keeper reaches quiescence by observing the tree exit, and
+  `KILL_ON_JOB_CLOSE` remains the only termination mechanism).
+
+### E.9 Expected residual: keeper failure after quiescence, before the trigger completes
+
+If the keeper process dies **after** the §9 predicate has been satisfied (the retained object
+reported `ActiveProcesses == 0`) but **before** the recovery invocation completes, the outcome
+is intentionally fail-closed and MUST NOT be "repaired":
+
+* the last handle close destroys the Job Object, so the attempt's containment provenance is
+  gone; a later pass has no retained handle, no launch object and no way to prove §9;
+* the job therefore stays non-terminal and holds to its execution deadline, closing as
+  `EXHAUSTED` / `RECOVERY_FAILED` with no receipt - unless the interrupted pass had **already**
+  published a receipt, in which case the receipt-first probe repairs the record from the
+  receipt on the next pass and still publishes nothing further (exactly-once is unchanged);
+* re-running recovery with a freshly created Job Object, or accepting a durable "quiescence"
+  attestation in place of the lost object, is FORBIDDEN (Contract V1 §9/§21) - both would
+  convert a lost provenance into an adoption, which is the F-DG-1 attack in its purest form;
+* this is an **expected design residual of the keeper architecture** (the keeper is a link in
+  the §9 trust chain and its lifetime bounds adoption), not an implementation anomaly, a bug
+  to work around, or a reason to widen any budget, timeout or retry.
+
+Operator consequence: a keeper killed at the wrong instant can cost a completed render its
+receipt. The render's artifacts and journal remain valid render evidence; they become
+production lineage only through a new authorized contained render.

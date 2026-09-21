@@ -64,6 +64,9 @@ def test_m6_item08_session_identity_mismatch_fails_closed(tmp_path):
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path, data = ff.write_valid_render_artifact(rec)
     manifest = ff.make_manifest_for(rec, [path])
     # Candidate claims a DIFFERENT editor session than the durable record
@@ -138,6 +141,9 @@ def test_m6_item09_process_creation_time_mismatch_fails_closed(tmp_path):
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path, data = ff.write_valid_render_artifact(rec)
     manifest = ff.make_manifest_for(rec, [path])
     cand = ff.build_finished_candidate(
@@ -181,6 +187,9 @@ def test_m6_item11_terminal_requires_finished_journal_attestation(tmp_path):
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path, data = ff.write_valid_render_artifact(rec)
     manifest = ff.make_manifest_for(rec, [path])
     # Candidate claims completion but its HMAC does not authenticate a FINISHED

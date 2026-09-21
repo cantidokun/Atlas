@@ -52,7 +52,7 @@ from planning.unreal_live_scenario_harness import (
     SCENARIO_EXPECTED_IMPACT,
 )
 from planning.unreal_witness_journal import JOURNAL_DIRECTORY_NAME
-from scripts.run_unreal_supervisor import AtlasProcessSupervisor
+from scripts.run_unreal_supervisor import AtlasProcessSupervisor, JobObjectContainmentState
 
 import tests.m6.fault_fixtures as ff
 
@@ -164,6 +164,19 @@ def _supervisor(containment: ContainmentState):
     else:
         sv.job_handle = None
     sv.query_active_processes.return_value = containment.job_active_processes
+    # F-DG-1: a modelled contained launch reports the real kernel-state surface of an
+    # object that HAS contained the engine tree (TotalProcesses >= 1). Modelled with the
+    # same fields the live keeper reads, so the §9 provenance conjuncts are exercised
+    # rather than assumed.
+    sv.query_containment_state.return_value = JobObjectContainmentState(
+        active_processes=containment.job_active_processes,
+        total_processes=1 + containment.job_active_processes,
+        total_terminated_processes=0,
+        limit_flags=0x00002000,
+        kill_on_job_close=True,
+        silent_breakaway_ok=False,
+        breakaway_ok=False,
+    )
     return sv
 
 
@@ -255,6 +268,13 @@ def _run_scenario(spec, tmp_path):
         adapter = _make_down_adapter()
 
     receipt_store = UnrealRenderReceiptStore(tmp_path / "rcpt.json")
+    # F-DG-1: a scenario that models the contained deployment carries the attempt's real
+    # authenticated launch record; an UNCONTAINED_ATTACHED scenario carries none and can
+    # therefore never satisfy §9 quiescence (it fails closed by construction).
+    launch_record = (
+        ff.make_launch_record(record)
+        if spec.containment.deployment_mode == "CONTAINED_JOB_OBJECT" else None
+    )
     coord = UnrealRenderRecoveryCoordinator(
         store=store,
         adapter=adapter,
@@ -262,6 +282,7 @@ def _run_scenario(spec, tmp_path):
         supervisor=_supervisor(spec.containment),
         deployment_mode=spec.containment.deployment_mode,
         journal_root=str(journal_root),
+        containment_launch_record=launch_record,
     )
     result = coord.reconcile_single_job(record.atlas_job_id)
     return result, record, store, frame, adapter

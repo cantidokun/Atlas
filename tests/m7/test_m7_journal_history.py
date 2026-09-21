@@ -235,6 +235,9 @@ def test_m7_jh_reconcile_retained_history_preserves_downstream_fields(tmp_path):
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path, data = ff.write_valid_render_artifact(rec)
     manifest = ff.make_manifest_for(rec, [path])
 
@@ -268,6 +271,9 @@ def test_m7_jh_reconcile_engine_derived_minimal_candidate_binds_record_identity(
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path, data = ff.write_valid_render_artifact(rec)
     manifest = ff.make_manifest_for(rec, [path])
 
@@ -320,6 +326,9 @@ def test_m7_jh_history_reconcile_does_not_discard_manifest_or_files(tmp_path):
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path, data = ff.write_valid_render_artifact(rec)
     manifest = ff.make_manifest_for(rec, [path])
 

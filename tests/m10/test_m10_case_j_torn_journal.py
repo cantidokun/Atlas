@@ -127,13 +127,13 @@ def _coord(store, record, candidate, tmp_path, quiescent=True):
         observed_state={"journal_status": "COMPLETE", "known_jobs": [candidate]},
         source="unreal", verified=True,
     )
-    sv = MagicMock(spec=AtlasProcessSupervisor)
-    sv.job_handle = 4321
-    sv.query_active_processes.return_value = 0 if quiescent else 2
+    # F-DG-1: quiescence is established over the attempt's own retained launch object.
+    sv = ff.contained_supervisor(active=0 if quiescent else 2)
     return UnrealRenderRecoveryCoordinator(
         store=store, adapter=adapter,
         receipt_store=UnrealRenderReceiptStore(tmp_path / "rcpt.json"),
         supervisor=sv, deployment_mode="CONTAINED_JOB_OBJECT",
+        containment_launch_record=ff.make_launch_record(record),
     )
 
 

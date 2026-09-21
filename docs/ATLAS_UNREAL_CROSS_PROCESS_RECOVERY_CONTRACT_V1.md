@@ -277,6 +277,29 @@ Atlas therefore establishes two explicit deployment modes:
      JobObjectHandleValid == TRUE AND QueryInformationJobObject(BasicAccounting).ActiveProcesses == 0
      ```
    - Only when `ActiveProcesses == 0` is confirmed may recovery inspect or adopt terminal disk artifacts.
+   - `JobObjectHandleValid` is defined as follows. It is TRUE only for a **retained handle to the
+     containment Job Object created for THIS attempt**, and all of the following MUST hold:
+     1. **Launch provenance.** The handle belongs to the Job Object created for attempt
+        `(atlas_job_id, attempt_ordinal)` of the durable render record, as declared by the durable,
+        HMAC-authenticated **containment launch record** written by the repository-owned containment
+        keeper *before the engine was resumed* (§10 *Containment Launch Record*). A freshly created,
+        synthetic, re-created, or otherwise unattributable Job Object is not this attempt's launch
+        object, so `JobObjectHandleValid` is FALSE for it **even when it reports
+        `ActiveProcesses == 0`**.
+     2. **Retention, not reattachment.** The handle is the handle the keeper created and retained for
+        the whole execution. Recovery MUST query the keeper's retained handle and MUST NEVER create a
+        Job Object of its own to stand in for the launch object.
+     3. **Kernel containment configuration.** `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` is set and breakaway
+        is disabled, read back from the object itself
+        (`JobObjectExtendedLimitInformation.BasicLimitInformation.LimitFlags`).
+     4. **Kernel counter consistency.** `QueryInformationJobObject(BasicAccounting).TotalProcesses >=
+        recorded launch composition >= 1`, i.e. the object has actually contained this attempt's process
+        tree. A never-used object reports `TotalProcesses == 0` and therefore fails.
+
+     If any of (1)-(4) cannot be established, the predicate MUST evaluate to FALSE (fail closed):
+     recovery MUST NOT inspect or adopt terminal disk artifacts and the job holds in
+     `WAITING_FOR_ENGINE_QUIESCENCE`. `TotalTerminatedProcesses` MUST NOT be used as a death or
+     quiescence signal: it counts processes reaped through the object, not externally terminated ones.
 
 2. `UNCONTAINED_ATTACHED` (Interactive Development Mode):
    - Atlas connects over the named pipe to an already-running, externally launched Unreal process without Job Object containment.
@@ -312,6 +335,14 @@ To prevent replayed, restored, or cross-attempt witness journals from being acce
 - The `attempt_nonce` is transmitted to Unreal in `submit_render` arguments (`arguments.attempt_nonce`).
 - Unreal consumes the nonce strictly as the secret key for witness HMAC calculation; Unreal NEVER creates or authorizes the nonce.
 - **Secret Handling Invariant:** The secret `attempt_nonce` itself MUST NEVER be serialized as plaintext into journal files, receipts, manifests, or normal diagnostic logs.
+- **Custody rule.** The `attempt_nonce` is created once per attempt by the authorized
+  launcher/submitter and is handed to the containment keeper ONLY through the authorized in-process
+  launch boundary. It MUST NOT be supplied on a command line, in an environment variable, or through
+  any file, log, or transport. The keeper consumes it strictly as an HMAC key (see *Containment Launch
+  Record* below) and MUST NOT log it, persist it in plaintext, reuse it for another attempt, or create
+  a replacement when one is missing. A missing, empty, or durable-record-mismatched nonce means no
+  authenticated launch record can be produced: the keeper MUST fail closed (no engine resume) and
+  recovery MUST NOT treat the attempt's containment as provable.
 
 ### Canonical Journal Attestation
 
@@ -380,6 +411,66 @@ If `ACCEPTED` cannot be durably recorded, no MRQ job may be allocated.
 `FINISHED` MUST be written only from the authoritative terminalization path after the engine has completed production of the declared output set.
 
 A missing, malformed, partial, or unreadable journal is **unknown state**, not evidence of absence. Any journal failing HMAC validation or phase sequence checks MUST be classified as `UNTRUSTED_WITNESS` and fail closed to `RECOVERY_FAILED`.
+
+### Containment Launch Record
+
+The repository-owned containment keeper MUST durably record the attempt-bound launch identity of the
+Job Object it created, and MUST do so **before the engine process is resumed**, so that a later
+recovery pass can attribute the §9 quiescence proof to *this* attempt's containment object.
+
+```text
+<store root>/containment/<atlas_job_id>__<attempt_ordinal>.json
+```
+
+The record MUST live beside the durable Atlas record/store and MUST NOT be placed inside the engine
+journal directory: the launch record is Atlas-side identity evidence for the containment object,
+while the journal is the engine's witness.
+
+Fields (`record_schema_version` = 1):
+
+```text
+record_schema_version
+atlas_job_id
+attempt_ordinal
+deployment_mode                # CONTAINED_JOB_OBJECT
+job_identity_descriptor        # Job Object name when one was used: transport/lookup metadata ONLY
+engine_pid
+process_creation_time_utc      # kernel-reported creation time of the suspended engine process
+launch_composition_processes   # kernel TotalProcesses observed at the launch boundary (>= 1)
+project_identity               # canonical project directory (the configured .uproject's directory)
+uproject_digest                # SHA-256 of the configured .uproject bytes
+keeper_identity                # repository-owned keeper identity (source identity + instance)
+editor_session_id              # only when known before resume; otherwise null (never fabricated)
+written_at_utc
+launch_record_digest           # HMAC-SHA256 over the canonical launch payload
+```
+
+```text
+launch_record_digest = HMAC-SHA256(
+    key = UTF8(attempt_nonce),
+    message = UTF8(canonical_launch_payload)
+)
+```
+
+The canonical launch payload is the compact (no whitespace), key-sorted, ASCII-escaped JSON encoding
+of every field above except `launch_record_digest`. The `attempt_nonce` is never serialized.
+
+Rules:
+
+- The record MUST be written before `ResumeThread` on the suspended engine process. A launch that
+  cannot produce it MUST fail closed: terminate the suspended process and close the Job Object (which
+  reaps the tree under `KILL_ON_JOB_CLOSE`).
+- `launch_record_digest` MUST be verified against the durable render record's persisted
+  `attempt_nonce` before the record is used as provenance. A record whose digest does not verify, or
+  whose `atlas_job_id` / `attempt_ordinal` / `deployment_mode` disagree with the durable render record,
+  MUST be refused.
+- The record is **identity evidence, never an authority**: it cannot authorize execution, cannot by
+  itself satisfy quiescence, cannot produce a receipt, and cannot stand in for the durable journal.
+- Fields that cannot be known before resume (`editor_session_id`, engine-minted `unreal_job_id`) MUST
+  be null/absent rather than fabricated; engine-witnessed values arrive later through the journal.
+- A `job_identity_descriptor` (Job Object name) is transport/lookup metadata only and MUST NOT be
+  treated as proof of object identity. Windows exposes no Job Object instance GUID; identity is
+  established by provenance plus kernel counter consistency (§9).
 
 ---
 
@@ -717,6 +808,18 @@ Proceed with normal inspection and verification.
 
 Use `ENGINE_JOURNAL_ATTESTED` evidence, verify hashes against the recorded output manifest, then continue normal receipt/provenance verification.
 
+**Retained launch-object requirement.** Case B additionally requires the retained launch-object
+provenance of §9: the quiescence predicate MUST have been satisfied over the Job Object created for
+*this* attempt, as declared by that attempt's authenticated containment launch record. Case B CANNOT
+be satisfied by a synthetic, freshly created, or re-attached Job Object. A fresh/empty object reports
+`TotalProcesses == 0`, so `JobObjectHandleValid` is FALSE, quiescence is FALSE, and a terminal journal
+plus verified artifacts MUST resolve to Case K (`WAITING_FOR_ENGINE_QUIESCENCE`) instead of Case B.
+When the attempt's launch object, or the handle that proves it, no longer exists (keeper crash, OS
+reboot, last handle closed, handle lost), Case B is unreachable for that attempt: recovery MUST fail
+closed (`WAITING_FOR_ENGINE`, then deadline `EXHAUSTED` / `RECOVERY_FAILED`). A durable attestation
+MUST NOT be substituted for the lost launch object, and a fresh Job Object MUST NOT be synthesized to
+stand in for it.
+
 ### Case C — No engine execution evidence; no attributable artifacts
 
 Terminate safely as `ORPHANED` or `RECOVERY_FAILED` according to the authoritative state machine.
@@ -1028,6 +1131,19 @@ Before live restart validation, implement deterministic tests covering at least:
 23. execution deadline expiry;
 24. catalog→disk→catalog stability race;
 25. incompatible wire/capability version rejection.
+26. containment launch-record authentication: missing, tampered, replayed-from-another-attempt, and
+    record-mismatched launch records are refused;
+27. Job Object provenance: a fresh/empty Job Object (and any object reporting `TotalProcesses` below
+    the recorded launch composition) fails the §9 predicate even with `ActiveProcesses == 0`, while
+    the attempt's own drained launch object passes it (positive case) - the deciding evidence is that
+    the fresh-object control FAILS;
+28. kernel containment configuration: a Job Object created without `KILL_ON_JOB_CLOSE`, or with
+    breakaway enabled, fails the predicate;
+29. keeper authority isolation: the keeper module does not import or invoke submission authority,
+    receipt publication authority, historical execution authority, or unrelated controller authority;
+30. keeper-triggered adoption: drain observed on the retained handle -> recovery pass -> Case B with
+    exactly one receipt, and zero engine transport sends on the adoption path.
+
 
 Action-runner/workflow tests remain out of scope unless explicitly authorized.
 

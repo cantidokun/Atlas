@@ -44,11 +44,18 @@ from planning.unreal_render_job_store import (
 )
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
+from planning.unreal_containment_launch_record import (
+    DEPLOYMENT_MODE_CONTAINED_JOB_OBJECT,
+    ContainmentLaunchRecord,
+    build_launch_record,
+    containment_dir_for_store,
+    write_launch_record,
+)
 from planning.unreal_render_recovery_coordinator import (
     UnrealRenderRecoveryCoordinator,
     compute_journal_hmac,
 )
-from scripts.run_unreal_supervisor import AtlasProcessSupervisor
+from scripts.run_unreal_supervisor import AtlasProcessSupervisor, JobObjectContainmentState
 
 
 def make_valid_png(path: Path, width: int = 1, height: int = 1) -> bytes:
@@ -289,18 +296,111 @@ class ScriptedCoordinatorAdapter:
         return self._reconcile_evidence(op)
 
 
-def quiescent_supervisor() -> MagicMock:
+#: Test project binding used by the launch-record helpers (never a live path).
+TEST_PROJECT_IDENTITY = r"C:\AtlasTestProject"
+TEST_UPROJECT_DIGEST = hashlib.sha256(b"atlas-test-project").hexdigest()
+TEST_LAUNCH_COMPOSITION = 1
+
+
+def make_launch_record(
+    record: AtlasRenderJobRecord,
+    *,
+    launch_composition_processes: int = TEST_LAUNCH_COMPOSITION,
+    deployment_mode: str = DEPLOYMENT_MODE_CONTAINED_JOB_OBJECT,
+    project_identity: str = TEST_PROJECT_IDENTITY,
+    uproject_digest: str = TEST_UPROJECT_DIGEST,
+    keeper_identity: str = "tests/m6/fault_fixtures containment keeper (fixture)",
+    job_identity_descriptor: Optional[str] = "AtlasTestContainmentJob",
+    engine_pid: Optional[int] = None,
+    process_creation_time_utc: Optional[str] = None,
+    written_at_utc: str = "2026-09-06T00:00:00+00:00",
+    attempt_nonce: Optional[str] = None,
+) -> ContainmentLaunchRecord:
+    """Build a REAL authenticated launch record for ``record`` (never a hand-made dict).
+
+    Uses the production writer with the render record's own attempt nonce, so the fixture
+    supplies exactly what the reviewed containment architecture requires - an attempt-bound,
+    HMAC-authenticated launch identity - and nothing that reality cannot produce.
+    """
+    return build_launch_record(
+        atlas_job_id=record.atlas_job_id,
+        attempt_ordinal=record.attempt_ordinal,
+        attempt_nonce=attempt_nonce or record.attempt_nonce,
+        engine_pid=engine_pid if engine_pid is not None else (record.origin_process_id or 4242),
+        process_creation_time_utc=(
+            process_creation_time_utc
+            or record.origin_process_creation_time
+            or "2026-09-06T00:00:00+00:00"
+        ),
+        launch_composition_processes=launch_composition_processes,
+        project_identity=project_identity,
+        uproject_digest=uproject_digest,
+        keeper_identity=keeper_identity,
+        job_identity_descriptor=job_identity_descriptor,
+        written_at_utc=written_at_utc,
+        deployment_mode=deployment_mode,
+    )
+
+
+def write_launch_record_for(
+    store: AtlasRenderJobStore,
+    record: AtlasRenderJobRecord,
+    **overrides: Any,
+) -> Path:
+    """Persist ``record``'s launch record into its store's containment directory.
+
+    This is the durable provenance the recovery coordinator resolves by default
+    (``<store root>/containment/<atlas_job_id>__<attempt_ordinal>.json``).
+    """
+    launch_record = make_launch_record(record, **overrides)
+    return write_launch_record(
+        containment_dir_for_store(store.root),
+        launch_record,
+        attempt_nonce=record.attempt_nonce,
+    )
+
+
+def contained_supervisor(
+    active: int = 0,
+    *,
+    launch_composition_processes: int = TEST_LAUNCH_COMPOSITION,
+    total_processes: Optional[int] = None,
+    job_handle: int = 1234,
+    kill_on_job_close: bool = True,
+    breakaway_disabled: bool = True,
+) -> MagicMock:
+    """Quiescence source exposing the REAL kernel-state surface of a contained launch.
+
+    ``kill_on_job_close``/``breakaway_disabled``/``total_processes`` are overridable so the
+    negative controls can model a mis-configured or foreign object.
+    """
     sup = MagicMock(spec=AtlasProcessSupervisor)
-    sup.job_handle = 1234
-    sup.query_active_processes.return_value = 0
+    sup.job_name = "AtlasTestContainmentJob"
+    sup.job_handle = job_handle
+    sup.query_active_processes.return_value = active
+    sup.query_containment_state.return_value = JobObjectContainmentState(
+        active_processes=active,
+        total_processes=(
+            total_processes if total_processes is not None
+            else launch_composition_processes + active
+        ),
+        total_terminated_processes=0,
+        limit_flags=(
+            (0x00002000 if kill_on_job_close else 0) | (0 if breakaway_disabled else 0x00001000)
+        ),
+        kill_on_job_close=kill_on_job_close,
+        silent_breakaway_ok=not breakaway_disabled,
+        breakaway_ok=False,
+    )
     return sup
+
+
+def quiescent_supervisor() -> MagicMock:
+    return contained_supervisor(active=0)
 
 
 def non_quiescent_supervisor(active: int = 2) -> MagicMock:
-    sup = MagicMock(spec=AtlasProcessSupervisor)
-    sup.job_handle = 1234
-    sup.query_active_processes.return_value = active
-    return sup
+    return contained_supervisor(active=active)
 
 
 def make_coordinator(
@@ -309,6 +409,7 @@ def make_coordinator(
     receipt_store: Optional[UnrealRenderReceiptStore] = None,
     supervisor: Any = None,
     deployment_mode: str = "CONTAINED_JOB_OBJECT",
+    containment_launch_record: Any = None,
 ) -> UnrealRenderRecoveryCoordinator:
     return UnrealRenderRecoveryCoordinator(
         store=store,
@@ -316,6 +417,7 @@ def make_coordinator(
         receipt_store=receipt_store or make_receipt_store(Path(store.root) / ".." / "receipts_m6" / "rcpt.json"),
         supervisor=supervisor,
         deployment_mode=deployment_mode,
+        containment_launch_record=containment_launch_record,
     )
 
 

@@ -63,6 +63,10 @@ def _store_and_record(tmp_path, **overrides):
     record = ff.make_submitted_record(
         tmp_path, attempt_nonce="m7-caseb-nonce-0123456789abcdef", **overrides)
     store.create(record)
+    # F-DG-1: the attempt's containment provenance must exist for §9 quiescence to be
+    # satisfiable at all. Written by the real launch-record writer, into the store's own
+    # containment directory, keyed by (atlas_job_id, attempt_ordinal).
+    ff.write_launch_record_for(store, record)
     return store, record
 
 

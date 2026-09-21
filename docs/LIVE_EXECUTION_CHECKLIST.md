@@ -111,10 +111,17 @@ exists. Do not bypass, waive, or manually satisfy a gate.
    Do not proceed if it is non-empty.
 2. **Capture baseline evidence:** `git rev-parse HEAD`, exact UE binary hash,
    journal dir listing, store listing (must be empty), receipt store listing.
-3. **Start Unreal in CONTAINED_JOB_OBJECT** via the supervisor (human operation).
-   Verify process presence (`tasklist | grep -i unreal`), the named pipe
-   `\\.\pipe\AtlasUnrealTransport`, and the live supervisor Job Object handle;
-   this confirms the Phase A `live_only` gates (A6–A8, A11).
+3. **Launch the engine under the containment keeper** (repository-owned executable
+   authority, Contract V1 §9/§10) — not by hand:
+   `python scripts/run_unreal_containment_keeper.py --uproject <Project.uproject>
+   --store-root <store> --atlas-job-id <id> --attempt-ordinal <n>
+   --engine-command "UnrealEditor-Cmd.exe <Project.uproject> -log -unattended -nosplash -nop4"`.
+   The keeper creates the `KILL_ON_JOB_CLOSE` Job Object, launches the engine
+   create-suspended → assigns → writes the attempt's durable launch record → resumes, and
+   retains the handle. Verify process presence (`tasklist | grep -i unreal`), the named pipe
+   `\\.\pipe\AtlasUnrealTransport`, and the keeper's live Job Object handle; this confirms
+   the Phase A `live_only` gates (A6–A8, A11). The attempt nonce is read from the durable
+   record by the keeper — never passed on the command line.
 4. **Confirm live capability negotiation / recovery capability (Phase B):** run
    `all_pass(POST_ENGINE)` with the operator-declared authorization id. Do not
    proceed on failure.
@@ -137,8 +144,26 @@ exists. Do not bypass, waive, or manually satisfy a gate.
    `submit_render` response envelope immediately (job id/atlas job id) before any
    diagnostic output.
 8. **Per-scenario step** (Scenario 1–8 as authorized) — see §3.
-9. **Run reconciliation** via `UnrealRenderRecoveryCoordinator.reconcile_single_job`
-   (single job) and capture the `RecoveryDecisionResult`.
+9. **Reconciliation happens at the keeper's drain edge**, not as a separate human step:
+   once the keeper observes `ActiveProcesses == 0` on its retained handle it invokes
+   `scripts/run_unreal_recovery.py`, which assembles the store, the derived journal root
+   (`<ProjectDir>/AtlasWitnessJournal`), the receipt store, the production adapter and the
+   coordinator with the keeper's own handle, runs `reconcile_single_job`, and writes the
+   recovery invocation evidence beside the containment provenance. Capture the
+   `RecoveryDecisionResult` and the invocation record. Do not drive the coordinator by hand
+   with a locally created Job Object: a fresh/empty object is refused by §9 (F-DG-1) and the
+   composition root will not compose without the keeper's retained handle.
+
+**Expected residual — keeper failure after quiescence but before the trigger completes.** If
+the keeper process dies once `ActiveProcesses == 0` has been observed but before the recovery
+invocation finishes, the run is **intentionally fail-closed**: the last handle close destroys
+the Job Object, the attempt's containment provenance is gone, and the job holds to its
+execution deadline as `EXHAUSTED` / `RECOVERY_FAILED` with no receipt (if a receipt had already
+been published, the next pass repairs from it and publishes nothing else). Do NOT re-run
+recovery against a freshly created Job Object and do NOT accept a stored quiescence claim as a
+substitute — both are refused by §9. This is an expected design residual of the keeper
+architecture, not an implementation anomaly, and it is never a reason to widen a timeout,
+budget or retry.
 10. **Capture evidence at every gate** (see §4).
 11. **Cleanup** (see §7).
 

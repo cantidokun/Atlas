@@ -26,6 +26,9 @@ def test_m6_item19_receipt_create_if_absent_is_atomic(tmp_path):
     store = ff.make_store(tmp_path)
     rec = ff.make_submitted_record(tmp_path)
     store.create(rec)
+    # F-DG-1: supply the attempt's REAL authenticated launch record - §9 quiescence
+    # must not be satisfiable by a bare ActiveProcesses == 0 handle.
+    ff.write_launch_record_for(store, rec)
     path = ff.Path(rec.output_directory) / "AtlasRender_0000.png"
     png = ff.make_valid_png(path)
     manifest = ff.make_manifest_for(rec, [path])

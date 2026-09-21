@@ -1,5 +1,15 @@
 # M7 S1 — Case B Adoption Contract (Design Brief)
 
+> **Revision note (M7 containment-provenance rung).** §12, §13 and the closing recommendation of this
+> document previously implied that the **frozen S1 evidence could later be adopted** without another
+> render. That is **withdrawn as not implementable**, because the frozen attempt's launch Job Object no
+> longer exists and a fresh one cannot stand in for it. The corrected statements are §12 and §13 below.
+> The authoritative target architecture is now
+> `docs/design/M7_CASEB_PRODUCTION_WIRING_AND_QUIESCENCE_DESIGN.md` (Option 4 —
+> containment-keeper-as-recovery-trigger), and Contract V1 §9 now defines `JobObjectHandleValid` to
+> include the attempt's retained launch-object provenance (Contract V1 §9, §10 *Containment Launch
+> Record*, §21 Case B).
+
 Status: DESIGN GATE OUTPUT — no implementation performed, no PR, no merge, no second submission.
 Pinned revision: `origin/main` = `748982713fb6042d875890cbd9999a3bbcbfb3aa`, tree `b851438bdc1d7a03507b72776fa2116b94b5092e`
 Evidence baseline: the single authorized M7 S1 live submission of 2026-09-21 (see §3).
@@ -485,10 +495,32 @@ New/updated tests (deterministic, no engine):
 
 ## 12. Required exact-live evidence
 
-Recommended minimal path (operator decision; **no second render is required or authorized by this
-document**): the adoption step can be re-gated on the *existing* frozen S1 evidence, because the
-durable record is non-terminal, the witness is terminal/attested, and the artifacts are verified —
-i.e. exactly the state §20's algorithm is written for.
+**CORRECTION — frozen S1 evidence (withdrawn recommendation).** An earlier revision of this section
+recommended re-gating the adoption step on the *existing* frozen S1 evidence, "no second render
+required". That recommendation is **revoked**: it is not implementable under §9 as written. The frozen
+S1 evidence:
+
+* **remains valid render/rehearsal evidence** — the 24 PNGs, the schema-2 HMAC-attested journal, the
+  24/24 manifest re-hash and the read-only adoption dry-run (S1-S11) stay sound and are retained as
+  exactly that: render/rehearsal evidence, and the harness's ground truth for shape and hashing;
+* **cannot satisfy future live §9 provenance** — §9's predicate is a live observation over a valid
+  retained handle to the Job Object Unreal was launched in. That object was destroyed when its last
+  handle closed (`KILL_ON_JOB_CLOSE` reaped the tree; the object, its counters and its name are gone),
+  and its identity was never durably recorded. A synthetic/fresh Job Object reports
+  `TotalProcesses == 0`, so the revised §9 `JobObjectHandleValid` refuses it even at
+  `ActiveProcesses == 0`; the historical ad-hoc observation is also inadmissible as an attestation
+  (that would be the refused durable-attestation substitution);
+* **cannot produce a production Case-B receipt** — receipt identity binds to its own attempt, attempt
+  binding requires the attempt's authenticated launch record, and that record cannot be reconstructed
+  after the fact. The frozen 24 artifacts can never become production lineage;
+* **a new authorized execution is required for live proof** — a receipt for this scene needs a new
+  render launched under the containment keeper (Option 4) with the launch record written before engine
+  resume, adopted at the drain edge, and captured with the negative controls below. This document
+  authorizes none of that; the frozen record is expected to close fail-closed
+  (`EXHAUSTED` / `RECOVERY_FAILED`, no receipt) or be adjudicated by explicit operator decision.
+
+The table below is therefore the evidence package for that **future authorized live run**, not for a
+re-gate of the frozen record.
 
 | Item | Capture |
 |---|---|
@@ -510,9 +542,12 @@ record-only red-team review runs against the durable records, not the narrative.
 ## 13. Migration / recovery implications
 
 * **Stuck records:** records parked in `WAITING_FOR_ENGINE` with a durable terminal attested witness
-  and artifacts verified on disk become adoptable by the next reconcile, with the same checks and
-  exactly one receipt. S1's record is the first such record; without this change it can never reach
-  `FINALIZED`.
+  and artifacts verified on disk have an offline adoption path — but only once the attempt's own
+  containment provenance exists (durable launch record + retained handle, Contract V1 §9/§10). The
+  frozen S1 record does **not** have it: it is expected to close fail-closed at its execution deadline
+  (`EXHAUSTED` / `RECOVERY_FAILED`, no receipt, artifacts untouched as render evidence). Deadlines and
+  terminal states stay terminal: `RECOVERY_FAILED`, `EXHAUSTED`, `ORPHANED_ARTIFACTS_PRESENT`,
+  `RECORD_CORRUPT` are never resurrected by the durable path.
 * **No re-execution:** adoption never submits; the nonce is not reused; the authorization remains
   bound to the original attempt.
 * **Idempotence:** the receipt-first probe runs before adoption, so re-running reconcile after a
@@ -590,8 +625,10 @@ and when granted it may touch only:
   pair; the corrected containment-derived model is specified in §8.
 
 **Recommended next exact implementation task (do not start without authorization):**
-Implement Option B as one bounded rung — add the durable witness reader, reorder the quiescence gate
-ahead of witness acquisition, add the live-catalog/durable-witness split with candidate
-normalization, correct the M9 scenario model per §8, and add exactly the tests in §11 — then, under a
-separate live authorization, re-gate S1's *adoption* step on the frozen evidence (no second render)
-and capture the §12 evidence with its negative control.
+Implement the target architecture as one bounded rung — the repository-owned containment keeper
+(create-suspended launch, attempt-bound durable launch record written before resume, retained handle,
+drain-edge recovery trigger, `KILL_ON_JOB_CLOSE` fail-closed semantics), the §9 provenance conjuncts
+over the retained object, the derived `<ProjectDir>/AtlasWitnessJournal` binding and the thin
+composition root — then, under a **separate live authorization**, perform a NEW contained render whose
+adoption is gated end-to-end and capture the §12/§8 evidence package with its negative controls. The
+frozen S1 evidence is **not** adoptable: no re-gate of it can produce a receipt.

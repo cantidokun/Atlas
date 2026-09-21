@@ -38,6 +38,8 @@ from planning.unreal_render_recovery_coordinator import (
 from planning.unreal_journal_attestation import compute_journal_attestation_digest
 from scripts.run_unreal_supervisor import AtlasProcessSupervisor, ProcessQuiescenceResult
 
+import tests.m6.fault_fixtures as ff
+
 
 def _create_minimal_valid_png(path: Path) -> None:
     """Create a minimal valid 1x1 PNG file with valid signature, IHDR, IDAT, and IEND."""
@@ -302,10 +304,11 @@ def test_case_b_finished_quiescent_hmac_verified(tmp_path):
     )
     receipt_store = UnrealRenderReceiptStore(tmp_path / "receipts" / "rcpt.json")
 
-    # Mock supervisor: exactly 0 active processes in Job Object
-    mock_supervisor = MagicMock(spec=AtlasProcessSupervisor)
-    mock_supervisor.job_handle = 1234
-    mock_supervisor.query_active_processes.return_value = 0
+    # F-DG-1: §9 quiescence must be attributable to THIS attempt's containment object, so
+    # the fixture supplies the real authenticated launch record plus the launch object's
+    # kernel-state surface - never a bare ActiveProcesses == 0 mock.
+    ff.write_launch_record_for(store, record)
+    mock_supervisor = ff.contained_supervisor()
 
     coord = UnrealRenderRecoveryCoordinator(
         store=store,
@@ -528,9 +531,9 @@ def test_hmac_mismatch_classified_untrusted_witness(tmp_path):
     )
     receipt_store = UnrealRenderReceiptStore(tmp_path / "receipts" / "rcpt.json")
 
-    mock_supervisor = MagicMock()
-    mock_supervisor.job_handle = 1234
-    mock_supervisor.query_active_processes.return_value = 0
+    # F-DG-1: same containment provenance requirement as the positive Case-B test above.
+    ff.write_launch_record_for(store, record)
+    mock_supervisor = ff.contained_supervisor()
 
     coord = UnrealRenderRecoveryCoordinator(
         store=store,
