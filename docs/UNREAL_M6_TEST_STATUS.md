@@ -17,7 +17,13 @@ earlier wording that over-claimed contract coverage. It distinguishes, per item:
 
 M6 is a **test-correctness/status-honesty pass**: it does not modify production behavior
 (git diff contains only `tests/m6/`, two C++ test-scope files + header, and docs). No
-workflow/action-runner tests; no live Unreal/Blender execution; M7 live Scenarios 1–8 not run.
+workflow/action-runner tests; no live Unreal/Blender execution; M7 live Scenarios 1–8 not run at
+the time of this M6 pass.
+
+> **Correction — September 21, 2026:** M7 **S1 has since been executed exactly once** (render
+> succeeded; adoption blocked by F-S1-1 with no receipt), while Scenarios 2–8 remain unrun. This
+> document's "not run" statement is accurate only for its M6 scope. Current M7 status:
+> `ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md`.
 
 ---
 

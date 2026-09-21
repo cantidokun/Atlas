@@ -164,14 +164,41 @@ the harness's declared expectation (`planning/unreal_live_scenario_harness.py`).
 - **S8 Duplicate/stale identity:** two journals for one atlas_job_id → expect Case H
   → `RECOVERY_FAILED` → NO adoption.
 
-Note on S1/S5 quiescence: the coordinator's Case K gate runs before any evidence
-processing, and S1 carries `quiescent=True`, so the live ordering is
-render-finishes → engine shut down → `query_active_processes() == 0` → reconcile.
+Note on S1/S5 quiescence and witness sources (CORRECTED — supersedes the earlier text
+that modelled `quiescent=True` for a contained engine): a contained engine makes
+`engine_capable=True` **and** `quiescent=True` impossible. Unreal runs *inside* the Atlas
+Job Object (§9), so `ActiveProcesses == 0` means the engine process — and therefore the
+named-pipe server it hosts — has exited. The real live ordering is:
 
-The deterministic harness already asserts each declared expectation against the
-coordinator (tests/m9). The live run is the ONLY thing that additionally proves the
-REAL UE 5.6 process produces the expected journal bytes / session identity / file
-bytes.
+```text
+render finishes -> engine writes the durable terminal journal (§10)
+                -> engine shut down -> query_active_processes() == 0
+                -> reconcile -> Case B adoption from the DURABLE witness (zero engine RPCs)
+```
+
+The two witness sources are distinct and are not interchangeable:
+
+* **live engine witness** — the transport/catalog served by a running engine. Serves
+  Case A (in-flight re-attach) and the live terminal path. It is *never* required for
+  Case B, and it cannot be present while quiescence holds.
+* **durable journal witness** — the §10 prior-session record, HMAC-keyed by the Atlas
+  attempt nonce. Serves Case B when the engine is gone (§21 Case B: "**prior session**
+  journal … for a bound `unreal_job_id`").
+
+The deterministic harness asserts each declared expectation against the coordinator
+(tests/m9), and the containment model now *rejects* the impossible contained state rather
+than declaring it. The live run is the ONLY thing that additionally proves the REAL UE
+5.6 process produces the expected journal bytes / session identity / file bytes.
+
+### S1 adoption evidence — what each artifact proves (and does not)
+
+| Evidence | Proves | Does NOT prove |
+| --- | --- | --- |
+| live engine evidence (pipe/catalog, `assert_recovery_capable`) | the engine session is alive, reachable and compatible; Case A re-attach for an in-flight execution | that the artifact set is final, or that nothing is still writing |
+| durable journal witness (§10, HMAC-attested with the attempt nonce) | a prior session's engine-witnessed terminal execution, bound to `(atlas_job_id, unreal_job_id)`, attempt ordinal and manifest | that no engine/descendant is still alive |
+| quiescence proof (valid Job Object handle + `ActiveProcesses == 0`) | the §9 precondition for inspecting/adopting terminal disk artifacts: the whole contained tree is gone | that the artifacts are authentic (verification does that) |
+| independent evidence verification (`ENGINE_JOURNAL_ATTESTED`) | artifact bytes on disk match the engine-attested manifest (hashes/sizes/PNG completeness) | — |
+| Case B adoption → `publish_verified_receipt` | exactly one immutable receipt with the 8 bound identity fields | — |
 
 ## 4. Evidence to capture at every gate
 
@@ -213,11 +240,26 @@ reflects the terminal/held state exactly once.
 
 ## 7. Cleanup requirements
 
-- Delete/archive all transient job state, journal files, receipt files, artifacts
-  created by the run (or move to a designated archive root).
-- Restore `AtlasRenderJobStore` to the empty pre-run baseline for the next scenario.
+- **Retain the durable witness journal.** `<ProjectDir>/AtlasWitnessJournal/` holds the
+  Contract V1 §10 durable witness that Case-B prior-session adoption reads *after* the
+  engine has exited. It is recovery evidence, not transient state.
+  - **NEVER delete, truncate, rename, or archive a journal while its Atlas job is
+    non-terminal** (no receipt published). Doing so destroys the only evidence that can
+    adopt the run and forces the job onto the deadline-exhaustion failure path.
+  - The directory is shared by every Atlas job and retains execution history (§10: it
+    MUST NOT overwrite a previous execution identity). A journal for another job, or
+    unrelated/badly named JSON in it, is ignored by the reader — it is never evidence for
+    the job being reconciled — but it must not be deleted either.
+  - Journals MAY be archived or deleted only for jobs whose record is terminal (adopted
+    with a published receipt, or terminally failed / orphaned), and only under explicit
+    operator authorization.
+- Transient job state, receipt files and the disposable `.bat` build wrapper may be
+  archived as before. **Archive artifacts only after adoption is recorded**: evidence
+  verification re-reads artifact bytes from disk, so moving them invalidates any later
+  verification for that job.
+- Restore `AtlasRenderJobStore` to the empty pre-run baseline for the next scenario
+  (this does not affect the durable journal directory).
 - Remove the Job Object handle(s); confirm `query_active_processes() == 0`.
-- Delete the disposable `.bat` build wrapper if any was created.
 - Do NOT leave a `persisted_job_id.txt`-style ad-hoc file; route everything through
   `UnrealRenderSubmissionService` / `AtlasRenderJobStore`.
 

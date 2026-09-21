@@ -265,3 +265,78 @@ No other production, engine, or test file was modified.
   artifact-only, missing artifact, ambiguous duplicate/stale identity) are **NOT
   executed** and require explicit human authorization.
 - No `UnrealEditor` launch; no process kill/restart; no workflow/action-runner tests.
+
+## Durable-witness adoption (Case B) — witness sources, ordering, retention
+
+Added by the M7 Case-B durable-witness rung (`fix/unreal-m7-case-b-durable-witness`,
+base `748982713fb6042d875890cbd9999a3bbcbfb3aa`). This section is the operator-facing
+statement of what the recovery coordinator reads, and when.
+
+### Witness sources
+
+| Source | Where | Used for | Engine RPCs |
+| --- | --- | --- | --- |
+| **Live engine witness** | Unreal transport `inspect_render_job` catalog served by a running editor | Case A re-attach; live terminal adjudication | yes (by design) |
+| **Durable journal witness** | `<ProjectDir>/AtlasWitnessJournal/` (Contract V1 §10), read via `planning/unreal_witness_journal.py` | **Case B** prior-session adoption; offline adjudication of a durable terminal FAILED witness (Case G) | **none** — the reader never touches the adapter |
+
+`journal_root` is an **optional** coordinator constructor parameter. When it is not
+supplied, behaviour is byte-for-byte the pre-existing live path (verified by a
+base-vs-branch differential over 12 live-path scenarios: 0 deltas). It is currently
+**not wired by any production caller**; supplying it is a prerequisite for live Case-B
+adoption and is explicitly out of scope for this rung.
+
+### Ordering (§9 quiescence first)
+
+1. Quiescence is established (`ActiveProcesses == 0` on the valid Job Object handle)
+   **before** any witness is acquired or any terminal disk artifact is inspected.
+2. Only then is the durable witness read (read-only, no RPC), validated, and — for a
+   bound terminal witness with quiescence — adopted through the existing receipt path.
+
+A contained engine makes `engine_capable=True` + `quiescent=True` impossible: the engine
+lives inside the quiescence Job Object, so a quiescent job means the engine has exited.
+Terminal artifacts therefore exist only in the "engine gone" state — which is exactly the
+state Case B was defined for (§21 Case B: prior-session journal). The M9 scenario harness
+now models one declared `ContainmentState` and rejects that impossible combination
+instead of declaring it.
+
+### Reader contract (fail-closed rules)
+
+* **Attribution.** Only files attributable to the Atlas job under reconciliation are
+  evidence: §10-logical-key filenames whose `atlas_job_id` component matches, or (for
+  misnamed files) content whose `atlas_job_id` matches — the latter fails closed as
+  `PARTIAL`. A journal for a different `atlas_job_id`, unparseable junk, or a retained
+  legacy-schema file for another job is **ignored**, never evidence: a healthy
+  engine-attached job keeps its live classification (Case A) even with such files
+  present.
+* **Identity.** The engine execution identity must be single, present and consistent.
+  `unreal_job_id` is authoritative for a journal, `job_id` for the live catalog; both
+  present and different → `PARTIAL` (never adopted); neither present → `PARTIAL`. There
+  is no "pick one and continue".
+* **Statuses.** `ABSENT` (no attributable witness → live path) · `COMPLETE` (attributable
+  witness; `is_terminal` distinguishes a finished/failed execution from one still in
+  flight) · `PARTIAL` (attributable but unreadable, unparseable, truncated, unsupported
+  schema, misnamed, or with contradictory/absent identity → Case J, no adoption) ·
+  `CONFLICT` (multiple materially different terminal executions for one `atlas_job_id`
+  → Case H, `RECOVERY_FAILED`).
+* **Never fatal.** Any filesystem or parse failure on an attributable journal is
+  classified inside the state machine. A bad journal can no longer abort
+  `reconcile_single_job` or a whole `reconcile_all_non_terminal_jobs` pass.
+* **Duplicate executions.** Two terminal journals for the same `atlas_job_id` with
+  different engine executions is Case H by contract — journal retention does **not** make
+  a duplicate benign (§26/§37: no retry).
+* **In-flight witness.** A well-formed but non-terminal journal does not preempt the live
+  path: with the engine up the job is Case A; with the engine unreachable it is Case J.
+
+### Journal lifecycle assumption
+
+The durable witness **must remain available on disk until the recovery contract no longer
+needs it** — i.e. until the job's record is terminal (receipt published, or terminally
+failed/orphaned). Deleting or archiving a journal for a non-terminal job destroys the only
+evidence that can adopt that run and forces it onto the deadline-exhaustion failure path.
+`docs/LIVE_EXECUTION_CHECKLIST.md` §7 carries the operator rule; there is no supported
+automatic journal-deletion policy.
+
+Not solved here (separate future rungs, explicitly out of scope): supervisor
+reattachment / `OpenJobObjectW` recovery of a valid quiescent handle after the launcher
+exits (Q4/Q8), and mandatory agreement between a live catalog candidate and a durable
+witness when both exist (Q5).
