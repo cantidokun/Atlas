@@ -10,48 +10,137 @@ explicitly authorizes the live run. Deterministic pre-flight checks come from
 `planning/unreal_live_preflight.py` (`LivePreflight`); scenario expectations come
 from `planning/unreal_live_scenario_harness.py` (`SCENARIOS`).
 
+**Revision note (phased arming).** The former single "P1–P14, all before launch"
+sequence was internally inconsistent: three gates (authorization_id,
+attempt_nonce, attempt_ordinal) describe the durable `AtlasRenderJobRecord`, which
+does not exist until the human authorization step creates the render intent, and
+the capability gate attempted a live capability RPC before an engine existed.
+Arming is therefore explicitly phased. Gate keys are unchanged; the former
+P1–P14 map as: P1→A1, P2→A2 (structural seam) + B1 (live negotiation), P3→A3,
+P4→A4, P5→A5, P6→A6, P7→A7, P8→A8, P9→C1, P10→C2, P11→C3, P12→A9, P13→A10,
+P14→A11.
+
 ---
 
-## 1. Setup prerequisites (ALL must be TRUE before arming)
+## 1. Phased arming prerequisites
 
-| # | Prerequisite | How to verify | Stop if |
-|---|--------------|---------------|---------|
-| P1 | UE 5.6 project/binary present | `AtlasUnrealHarness.uproject` exists; `UnrealEditor-Cmd.exe` in `UE_5.6/Engine/Binaries/Win64/` | Missing binary |
-| P2 | AtlasTransportServer capability schema advertised | capability RPC returns render/recovery caps | Capability query fails |
-| P3 | Durable journal location exists | `<ProjectDir>/AtlasWitnessJournal/` exists (outside `Saved/`) | Missing/unwritable |
-| P4 | Output isolation root configured | authorized output parent + `<atlas_job_id>/` namespace | Root missing |
-| P5 | Receipt store path configured | receipt store dir writable | Missing/unwritable |
-| P6 | Process/session identity available | Windows `GetProcessTimes` path (process_creation_time_utc) | Unavailable |
-| P7 | Contained Job Object mode available | `deployment_mode == CONTAINED_JOB_OBJECT`, supervisor Job Object handle | Only UNCONTAINED available |
-| P8 | Supervisor / quiescence capability | supervisor can `query_active_processes()` | No supervisor |
-| P9 | Authorization continuity | durable record has non-empty `authorization_id` | Missing |
-| P10 | attempt_nonce handling | record has non-empty `attempt_nonce` (HMAC key) | Missing |
-| P11 | attempt_ordinal propagation | record has int `attempt_ordinal` | Missing/non-int |
-| P12 | HMAC witness verification | canonical HMAC module importable and keyed by nonce | Import/digest fails |
-| P13 | Artifact hashing / PNG verification | sha256 + `verify_png_completeness` available | Import fails |
-| P14 | Clean recovery-store state | `AtlasRenderJobStore.list_job_ids() == []` before arming | Pre-existing records |
+Gates are grouped by the phase in which their inputs genuinely exist. Evaluated
+with `LivePreflight.run_phase(<phase>)`; the union view remains
+`run()` / `all_pass()` / `blockers()`.
 
-`LivePreflight.all_pass()` must return True for every non-`live_only` gate, and the
-operator must confirm the `live_only` gates at run time. Any hard blocker
-(`blockers()` non-empty) STOPS the run.
+### Phase A — PRE-ENGINE ARM (`PreflightPhase.PRE_ENGINE`)
+
+Evaluable before Unreal is launched. Performs **no** engine RPC (no engine exists
+yet) and requires **no** durable record. Stop the run if
+`LivePreflight.blockers(PreflightPhase.PRE_ENGINE)` is non-empty; the `live_only`
+Phase A gates are confirmed by the operator in Phase B, when the engine and
+supervisor actually exist.
+
+| # | Gate key | Prerequisite | How to verify | Stop if |
+|---|----------|--------------|---------------|---------|
+| A1 | `ue56_project` | UE 5.6 project/binary present | `AtlasUnrealHarness.uproject` exists; `UnrealEditor-Cmd.exe` in `UE_5.6/Engine/Binaries/Win64/` | Missing binary |
+| A2 | `capability_schema` | Capability-query **SEAM** available (no live RPC) | the production adapter exposes callable `query_capabilities` + `assert_recovery_capable` | Seam absent (policy is never re-implemented in pre-flight) |
+| A3 | `journal_location` | Durable journal location configured | `<ProjectDir>/AtlasWitnessJournal/` (outside `Saved/`) | Missing/unwritable |
+| A4 | `output_isolation` | Output isolation root configured | authorized output parent + `<atlas_job_id>/` namespace | Root missing |
+| A5 | `receipt_store` | Receipt store path configured | receipt store dir writable | Missing/unwritable |
+| A6 | `session_identity` *(live_only)* | Process/session identity capability | Windows `GetProcessTimes` path (process_creation_time_utc) | Unavailable |
+| A7 | `contained_job_object` *(live_only)* | Contained Job Object mode available | `deployment_mode == CONTAINED_JOB_OBJECT`, supervisor Job Object handle | Only UNCONTAINED available |
+| A8 | `supervisor_quiescence` *(live_only)* | Supervisor / quiescence capability | supervisor can `query_active_processes()` | No supervisor |
+| A9 | `hmac_verification` | HMAC witness verification availability | canonical HMAC module importable and keyed by nonce | Import/digest fails |
+| A10 | `artifact_hash_png` | Artifact hashing / PNG verification availability | sha256 + `verify_png_completeness` available | Import fails |
+| A11 | `clean_store` *(live_only)* | Clean recovery-store state | `AtlasRenderJobStore.list_job_ids() == []` before arming | Pre-existing records |
+
+### Phase B — POST-ENGINE / PRE-SUBMISSION CHECK (`PreflightPhase.POST_ENGINE`)
+
+Evaluable only after Unreal is running and the named-pipe transport is reachable.
+Stop the run unless `LivePreflight.all_pass(PreflightPhase.POST_ENGINE)` is True
+(live conditions are in scope here, so a live-only failure is a hard stop).
+
+| # | Gate key | Prerequisite | How to verify | Stop if |
+|---|----------|--------------|---------------|---------|
+| B1 | `capability_negotiation` | Live capability negotiation through the production seam | `LivePreflight(..., authorization_id=<operator-declared id>)` delegates to `adapter.assert_recovery_capable(authorization_id)` | Negotiation fails, seam absent, or no authorization context is declared |
+| B2 | operator confirmation of Phase A `live_only` gates | Real engine process, named pipe `\\.\pipe\AtlasUnrealTransport`, real Job Object handle with `query_active_processes()`, real journal dir | `tasklist` + pipe probe + supervisor query | Any of them absent |
+
+B1 **delegates** capability policy: `assert_recovery_capable` is the existing
+production recovery authority (also invoked inside
+`UnrealRenderSubmissionService.submit_render` step 8 and by the recovery
+coordinator). The pre-flight never re-implements capability policy, never invents
+an authorization id, and a B1 pass does **not** replace the authoritative,
+record-bound assertion performed at submission time.
+
+### Phase C — SUBMISSION-IDENTITY INVARIANT (`PreflightPhase.POST_INTENT`)
+
+The invariant (`authorization_id`, `attempt_nonce`, `attempt_ordinal`) is
+**enforced inside the authorized submission transaction**, not by an external
+pause: `UnrealRenderSubmissionService.submit_render` creates and persists the
+durable intent, then validates the record-owned invariant
+(`AtlasRenderJobRecord.submission_identity_errors()`) **before any engine
+interaction** — i.e. before the capability assertion and before the transport
+dispatch. A violation moves the job to `FAILED` and transmits nothing. The policy
+lives only in `AtlasRenderJobRecord`; the pre-flight delegates to it.
+
+The pre-flight gates below remain the evidence view for a **persisted** durable
+record (resume / re-attach scenarios S3/S5, or an operator pre-submission
+rehearsal on an existing intent). Stop the run unless
+`LivePreflight.all_pass(PreflightPhase.POST_INTENT)` is True whenever these gates
+are evaluated. No identity value is ever fabricated.
+
+There is no intent-only API: an external caller **cannot** create the intent
+through `submit_render()`, pause, run these gates independently, and then call
+`submit_render()` again. The transaction boundary is: durable intent → identity
+invariant → capability assertion → exactly one transport dispatch.
+
+| # | Gate key | Prerequisite | How to verify | Stop if |
+|---|----------|--------------|---------------|---------|
+| C1 | `authorization_continuity` | durable record carries non-empty `authorization_id` | `LivePreflight(record=<persisted record>)` → delegates to the record policy | Missing/invalid |
+| C2 | `attempt_nonce` | durable record carries non-empty `attempt_nonce` (M8 HMAC witness key) | as above | Missing/invalid |
+| C3 | `attempt_ordinal` | durable record carries int `attempt_ordinal` ≥ 1 | as above | Missing/invalid |
+
+### Global rules
+
+Hard blockers stop execution: any non-`live_only` failure in Phase A
+(`blockers(PRE_ENGINE)`), any failure at all in Phase B
+(`all_pass(POST_ENGINE) == False`), or any failure in Phase C
+(`all_pass(POST_INTENT) == False`) STOPS the run. The operator must additionally
+confirm the `live_only` gates at the moment the corresponding live condition first
+exists. Do not bypass, waive, or manually satisfy a gate.
 
 ## 2. Exact order of operations
 
-1. **Arm gate:** confirm P1–P14. Do not proceed past any FAIL.
+1. **Pre-engine arm (Phase A):** run `LivePreflight(...).blockers(PRE_ENGINE)`.
+   Do not proceed if it is non-empty.
 2. **Capture baseline evidence:** `git rev-parse HEAD`, exact UE binary hash,
    journal dir listing, store listing (must be empty), receipt store listing.
 3. **Start Unreal in CONTAINED_JOB_OBJECT** via the supervisor (human operation).
-   Verify process presence (`tasklist | grep -i unreal` and the named pipe
-   `\\.\pipe\AtlasUnrealTransport`).
-4. **Authorize submission** (human): create the durable intent record (PENDING →
-   SUBMITTED) with nonce + ordinal, then submit ONE render through
-   `UnrealRenderSubmissionService`. Persist the raw `submit_render` response
-   envelope immediately (job id/atlas job id) before any diagnostic output.
-5. **Per-scenario step** (Scenario 1–8 as authorized) — see §3.
-6. **Run reconciliation** via `UnrealRenderRecoveryCoordinator.reconcile_single_job`
+   Verify process presence (`tasklist | grep -i unreal`), the named pipe
+   `\\.\pipe\AtlasUnrealTransport`, and the live supervisor Job Object handle;
+   this confirms the Phase A `live_only` gates (A6–A8, A11).
+4. **Confirm live capability negotiation / recovery capability (Phase B):** run
+   `all_pass(POST_ENGINE)` with the operator-declared authorization id. Do not
+   proceed on failure.
+5. **Human authorization + durable intent creation (inside the submission
+   transaction):** authorize exactly ONE render and invoke
+   `UnrealRenderSubmissionService.submit_render(...)`. That single call creates and
+   persists the durable intent — with its nonce and ordinal — and is the ONLY path
+   permitted to transmit. There is no intent-only API, so an intent cannot be
+   created, paused, and submitted as two separate external steps.
+6. **Identity invariant enforced in-transaction (Phase C):** immediately after the
+   durable intent is persisted, and before any engine interaction, submission
+   validates the record-owned invariant (`authorization_id`, `attempt_nonce`,
+   `attempt_ordinal`). A violation fails the job closed to `FAILED` and nothing is
+   transmitted. Independently, `all_pass(POST_INTENT)` may be evaluated against any
+   persisted durable record (resume / re-attach / pre-submission rehearsal) for
+   evidence; it delegates to the same record policy and never fabricates values.
+7. **Capability assertion, then exactly one render transmitted:** submission then
+   asserts recovery capability (`assert_recovery_capable`) through the production
+   seam and, only on success, transmits `submit_render`. Persist the raw
+   `submit_render` response envelope immediately (job id/atlas job id) before any
+   diagnostic output.
+8. **Per-scenario step** (Scenario 1–8 as authorized) — see §3.
+9. **Run reconciliation** via `UnrealRenderRecoveryCoordinator.reconcile_single_job`
    (single job) and capture the `RecoveryDecisionResult`.
-7. **Capture evidence at every gate** (see §4).
-8. **Cleanup** (see §7).
+10. **Capture evidence at every gate** (see §4).
+11. **Cleanup** (see §7).
 
 ## 3. Scenario operations (authorized live steps)
 
@@ -75,6 +164,10 @@ the harness's declared expectation (`planning/unreal_live_scenario_harness.py`).
 - **S8 Duplicate/stale identity:** two journals for one atlas_job_id → expect Case H
   → `RECOVERY_FAILED` → NO adoption.
 
+Note on S1/S5 quiescence: the coordinator's Case K gate runs before any evidence
+processing, and S1 carries `quiescent=True`, so the live ordering is
+render-finishes → engine shut down → `query_active_processes() == 0` → reconcile.
+
 The deterministic harness already asserts each declared expectation against the
 coordinator (tests/m9). The live run is the ONLY thing that additionally proves the
 REAL UE 5.6 process produces the expected journal bytes / session identity / file
@@ -95,6 +188,8 @@ At each decision point, capture and archive:
 - Process/session identity observed vs the record's origin (editor session id,
   process id, process_creation_time_utc).
 - Quiescence result: `ProcessQuiescenceResult` (is_quiescent, active_count, mode).
+- The phase-scoped pre-flight results (`to_dict(include_phase=True)`) for Phases
+  A, B and C.
 
 ## 5. What constitutes PASS
 
@@ -112,6 +207,8 @@ reflects the terminal/held state exactly once.
 - A bad HMAC treated as ordinary evidence.
 - Any workflow/action-runner test, live launch, or Blender run that was not
   explicitly authorized.
+- Any attempt to bypass, waive, or manually satisfy a pre-flight gate, or to
+  fabricate an authorization id / nonce / ordinal to make a phase pass.
 - **STOP IMMEDIATELY and do not proceed** to the next scenario on any of the above.
 
 ## 7. Cleanup requirements

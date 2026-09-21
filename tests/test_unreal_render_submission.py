@@ -24,10 +24,17 @@ Coverage:
 21. Authoritative fields remain unchanged after observed identity binding
 22. Session identity persisted exactly as observed
 23. Transport called exactly once on acceptance-unknown
+24. Phase-C: a valid durable intent carries authorization_id / attempt_nonce / attempt_ordinal
+25. Phase-C: the durable record owns the identity policy (blank/absent => violation)
+26. Phase-C: an identity violation fails closed before the capability assertion and
+    before any transport dispatch (nothing is transmitted)
+27. Phase-C: the engine capability assertion remains authoritative with a valid identity
+28. Phase-C: the submission surface stays singular (no intent-only/duplicate authority)
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -826,6 +833,157 @@ def test_authoritative_fields_remain_unchanged_after_submission(tmp_path):
     assert rec.authorization_id == "auth-invariant-test"
     assert rec.canonical_digital_twin_id == "twin-test"
     assert rec.output_directory == f"C:/Renders/{rec.atlas_job_id}"
+
+
+# ── Phase-C submission-identity invariant (F-M7-2 follow-up) ──────────────────
+
+
+def _identity_submission_kwargs() -> dict:
+    return dict(
+        authorization_id="auth-phase-c-test",
+        canonical_digital_twin_id="twin-test",
+        sequence_asset_path="/Game/Test.Test",
+        output_parent_directory="C:/Renders",
+        render_config=_default_render_config(),
+    )
+
+
+def _submit_once_for_identity(tmp_path):
+    store = AtlasRenderJobStore(tmp_path / "atlas_store")
+    transport = MockUnrealTransport()
+    adapter = UnrealAdapterProduction(transport)
+    service = UnrealRenderSubmissionService(store=store, adapter=adapter)
+    result = service.submit_render(**_identity_submission_kwargs())
+    return store, transport, service, store.load(result.record.atlas_job_id)
+
+
+def test_valid_durable_intent_carries_required_submission_identity(tmp_path):
+    """(1) A valid durable intent carries non-empty authorization_id, non-empty
+    attempt_nonce and a valid attempt_ordinal, per the record's own policy."""
+    _store, _transport, _service, rec = _submit_once_for_identity(tmp_path)
+
+    assert isinstance(rec.authorization_id, str) and rec.authorization_id.strip()
+    assert isinstance(rec.attempt_nonce, str) and rec.attempt_nonce.strip()
+    assert isinstance(rec.attempt_ordinal, int) and rec.attempt_ordinal >= 1
+    assert rec.submission_identity_errors() == ()
+    rec.validate_submission_identity()  # must not raise
+
+
+def test_record_owns_the_submission_identity_policy(tmp_path):
+    """(2) Absent/blank identity values are violations in the record-owned policy."""
+    _store, _transport, _service, rec = _submit_once_for_identity(tmp_path)
+
+    assert rec.submission_identity_errors() == ()
+    assert dataclasses.replace(rec, attempt_nonce=None).submission_identity_errors() == ("attempt_nonce",)
+    assert dataclasses.replace(rec, attempt_nonce="   ").submission_identity_errors() == ("attempt_nonce",)
+
+    with pytest.raises(AtlasRenderJobRecordError) as exc_info:
+        dataclasses.replace(rec, attempt_nonce=None).validate_submission_identity()
+    assert "attempt_nonce" in str(exc_info.value)
+
+
+def test_identity_violation_fails_closed_before_capability_and_dispatch(tmp_path):
+    """(3)(4) A durable intent lacking required identity is never transmitted: the
+    submission transaction fails closed BEFORE the capability assertion and before
+    any transport dispatch, and the job is marked FAILED."""
+    def timeout_handler(request):
+        if request.operation_name == "get_capabilities":
+            return MockUnrealTransport().default_handler(request)
+        if request.operation_name == "submit_render":
+            raise NamedPipeTransportTimeoutError("Named pipe read timed out")
+        raise RuntimeError("Unexpected operation")
+
+    store = AtlasRenderJobStore(tmp_path / "atlas_store")
+    transport = MockUnrealTransport(handler=timeout_handler)
+    adapter = UnrealAdapterProduction(transport)
+    service = UnrealRenderSubmissionService(store=store, adapter=adapter)
+    kwargs = _identity_submission_kwargs()
+
+    # An authorized submission whose acceptance is unknown leaves a durable
+    # PENDING_SUBMISSION intent carrying the full identity.
+    first = service.submit_render(**kwargs)
+    assert first.acceptance_unknown is True
+    atlas_id = first.record.atlas_job_id
+    record = store.load(atlas_id)
+    assert record.submission_identity_errors() == ()
+
+    # Model a legacy/repair-materialized intent: durable record without the M8 nonce.
+    stripped = dataclasses.replace(record, attempt_nonce=None)
+    store.update(stripped, expected_revision=record.last_observed_revision)
+
+    sends_before = transport.send_call_count
+    with pytest.raises(UnrealRenderSubmissionError) as exc_info:
+        service.submit_render(**kwargs, existing_atlas_job_id=atlas_id)
+
+    assert "identity gate" in str(exc_info.value)
+    assert "attempt_nonce" in str(exc_info.value)
+
+    # Ordering proof: neither the capability RPC nor the render dispatch occurred.
+    assert transport.send_call_count == sends_before
+    assert transport.sent_requests[sends_before:] == []
+    submit_ops = [r for r in transport.sent_requests if r.operation_name == "submit_render"]
+    assert len(submit_ops) == 1  # only the first, accepted-unknown attempt
+
+    failed = store.load(atlas_id)
+    assert failed.lifecycle_state == RenderJobLifecycleState.FAILED
+    assert "identity invariant failed" in (failed.failure_reason or "")
+
+
+def test_capability_assertion_remains_authoritative_with_valid_identity(tmp_path):
+    """(5) The engine capability assertion is unchanged and still blocks dispatch."""
+    def degraded_capability_handler(request):
+        if request.operation_name == "get_capabilities":
+            return UnrealTransportResponse(
+                request_id=request.request_id,
+                operation_name=request.operation_name,
+                entity_ids=request.entity_ids,
+                success=True,
+                observed_state={"capabilities": ["render"]},
+                error="",
+                source="unreal-editor-5.6",
+                schema_version=1,
+                error_code="",
+                session_identity={},
+            )
+        if request.operation_name == "submit_render":
+            raise AssertionError("submit_render must not dispatch when the capability gate fails")
+        raise RuntimeError("Unexpected operation")
+
+    store = AtlasRenderJobStore(tmp_path / "atlas_store")
+    transport = MockUnrealTransport(handler=degraded_capability_handler)
+    adapter = UnrealAdapterProduction(transport)
+    service = UnrealRenderSubmissionService(store=store, adapter=adapter)
+
+    with pytest.raises(UnrealRenderSubmissionError) as exc_info:
+        service.submit_render(**_identity_submission_kwargs())
+    assert "capability gate" in str(exc_info.value)
+    assert not [r for r in transport.sent_requests if r.operation_name == "submit_render"]
+
+    record = next(iter(store.list_job_ids()))
+    assert store.load(record).lifecycle_state == RenderJobLifecycleState.FAILED
+
+
+def test_submission_surface_stays_singular_with_record_owned_identity_policy():
+    """(6) No duplicate submission API and no new authorization authority: the
+    identity policy lives on the existing durable record."""
+    public_methods = {name for name in dir(UnrealRenderSubmissionService) if not name.startswith("_")}
+    assert public_methods == {"submit_render"}  # no separate intent-only API
+
+    assert callable(getattr(AtlasRenderJobRecord, "submission_identity_errors", None))
+    assert callable(getattr(AtlasRenderJobRecord, "validate_submission_identity", None))
+
+    import planning.unreal_render_submission as submission_module
+    src = Path(submission_module.__file__).read_text(encoding="utf-8")
+    for forbidden in (
+        "unreal_production_controller_bridge",
+        "unreal_autonomous_execution_loop",
+        "unreal_authorized_execution_gate",
+        "unreal_production_autonomous_loop",
+        "unreal_plan_authorization",
+        "unreal_recovery_authority",
+        "unreal_plan_executor",
+    ):
+        assert forbidden not in src
 
 
 

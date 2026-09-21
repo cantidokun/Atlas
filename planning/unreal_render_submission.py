@@ -72,11 +72,18 @@ class UnrealRenderSubmissionService:
     4. Receipt-first probe (repair if valid receipt already exists)
     5. Persist durable intent as PENDING_SUBMISSION
     6. Acquire exclusive per-job execution claim
-    7. Capability-gate Unreal engine session
-    8. Transmit submit_render over transport
-    9. On success: bind observed Unreal identity, persist SUBMITTED state
-    10. On timeout/disconnect: record RECOVERY_PENDING (acceptance-unknown), do NOT resubmit
-    11. On rejection: record FAILED or RECOVERY_FAILED
+    7. Enforce the submission-identity invariant (Phase C) on the persisted
+       durable intent - record-owned policy, no fabricated values
+    8. Capability-gate Unreal engine session
+    9. Transmit submit_render over transport
+    10. On success: bind observed Unreal identity, persist SUBMITTED state
+    11. On timeout/disconnect: record RECOVERY_PENDING (acceptance-unknown), do NOT resubmit
+    12. On rejection: record FAILED or RECOVERY_FAILED
+
+    The submission transaction is the single authorized path: there is no separate
+    intent-only API, so the Phase-C identity invariant is enforced here - after the
+    durable intent exists and before any engine interaction - rather than by an
+    external caller pausing between intent creation and transport dispatch.
     """
 
     def __init__(
@@ -258,11 +265,34 @@ class UnrealRenderSubmissionService:
             )
             self._store.create(record)
 
-        # 7. Acquire exclusive per-job execution claim
+        # 6. Acquire exclusive per-job execution claim
         with self._store.acquire_job_claim(atlas_job_id, self._worker_id):
             # Refresh record under lock to catch any concurrent modification
             record = self._store.load(atlas_job_id)
             expected_rev = record.last_observed_revision
+
+            # 7. Submission-identity invariant (Phase C).
+            # Enforced inside the authorized submission transaction: the durable
+            # intent already exists and has been persisted, and NO engine
+            # interaction has happened yet (the capability assertion and the
+            # transport dispatch below have not run). Policy is owned by
+            # AtlasRenderJobRecord.validate_submission_identity(); no identity value
+            # is ever fabricated, and a record that cannot satisfy the invariant can
+            # never be transmitted.
+            try:
+                record.validate_submission_identity()
+            except AtlasRenderJobRecordError as exc:
+                identity_failed_record = record.transition(
+                    lifecycle_state=RenderJobLifecycleState.FAILED,
+                    failure_reason=f"Submission identity invariant failed: {exc}",
+                )
+                self._store.update(
+                    identity_failed_record, expected_revision=record.last_observed_revision
+                )
+                raise UnrealRenderSubmissionError(
+                    f"Submission rejected by identity gate: {exc}"
+                ) from exc
+
             # 8. Capability negotiation
             try:
                 self._adapter.assert_recovery_capable(authorization_id)
