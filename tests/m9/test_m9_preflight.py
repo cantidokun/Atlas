@@ -334,3 +334,84 @@ def test_m9_preflight_introduces_no_historical_authority_dependency():
         "capability_admission",
     )
     assert not any(name in src for name in forbidden)
+
+
+# ---------------------------------------------------------------------------
+# Phase C is enforced inside the submission transaction; these gates delegate to
+# the record-owned policy (F-M7-2 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def _durable_record(**overrides):
+    """A real durable record (the Phase-C policy owner)."""
+    from planning.unreal_render_job_record import AtlasRenderJobRecord
+
+    job_id = overrides.pop("atlas_job_id", "atlas-render-job-11111111-1111-1111-1111-111111111111")
+    fields = dict(
+        atlas_job_id=job_id,
+        attempt_ordinal=1,
+        authorization_id="auth-m7-s1",
+        canonical_digital_twin_id="twin-1",
+        sequence_asset_path="/Game/AtlasTest/AtlasSequencerFixtureSequence",
+        request_digest="a" * 64,
+        config_digest="b" * 64,
+        output_parent_directory="C:/renders",
+        output_directory=f"C:/renders/{job_id}",
+        expected_output_spec={
+            "format": "png",
+            "width": 1280,
+            "height": 720,
+            "start_frame": 1,
+            "end_frame": 24,
+        },
+        created_at="2026-09-20T00:00:00+00:00",
+        attempt_nonce="c" * 64,
+    )
+    fields.update(overrides)
+    return AtlasRenderJobRecord.create_intent(**fields)
+
+
+def test_m9_phase_c_delegates_to_the_record_owned_identity_policy():
+    import dataclasses
+
+    record = _durable_record()
+    assert record.submission_identity_errors() == ()
+    passing = {r.key: r for r in _preflight(record=record).run_phase(PreflightPhase.POST_INTENT)}
+    assert all(r.passed for r in passing.values())
+    assert "record-owned policy" in passing["attempt_nonce"].detail
+
+    stripped = dataclasses.replace(record, attempt_nonce=None)
+    assert stripped.submission_identity_errors() == ("attempt_nonce",)
+    failing = {r.key: r for r in _preflight(record=stripped).run_phase(PreflightPhase.POST_INTENT)}
+    assert failing["attempt_nonce"].passed is False
+    # unaffected fields keep passing (per-field reporting from a single policy)
+    assert failing["authorization_continuity"].passed is True
+    assert failing["attempt_ordinal"].passed is True
+
+
+def test_m9_identity_violations_for_other_fields_are_blocked_at_construction():
+    # authorization_id / attempt_ordinal cannot be made invalid through the record
+    # constructor, so the transaction-level re-check is defence in depth.
+    with pytest.raises(Exception):
+        _durable_record(authorization_id="")
+    with pytest.raises(Exception):
+        _durable_record(attempt_ordinal=0)
+
+
+def test_m9_transaction_is_the_only_submission_boundary_and_order_is_identity_first():
+    import inspect
+
+    from planning.unreal_render_submission import UnrealRenderSubmissionService
+
+    public = {n for n in dir(UnrealRenderSubmissionService) if not n.startswith("_")}
+    assert public == {"submit_render"}  # no separate intent-only API
+
+    src = inspect.getsource(UnrealRenderSubmissionService.submit_render)
+    assert "validate_submission_identity" in src
+    # Enforced ordering inside the single authorized transaction:
+    # identity invariant -> capability assertion -> transport dispatch
+    assert (
+        src.index("validate_submission_identity")
+        < src.index("assert_recovery_capable")
+        < src.index("apply_authorized")
+    )

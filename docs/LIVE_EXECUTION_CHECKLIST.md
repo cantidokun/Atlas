@@ -68,19 +68,33 @@ coordinator). The pre-flight never re-implements capability policy, never invent
 an authorization id, and a B1 pass does **not** replace the authoritative,
 record-bound assertion performed at submission time.
 
-### Phase C — INTENT / IDENTITY CHECK (`PreflightPhase.POST_INTENT`)
+### Phase C — SUBMISSION-IDENTITY INVARIANT (`PreflightPhase.POST_INTENT`)
 
-Evaluated only after the human authorization step has created the durable
-`AtlasRenderJobRecord`. Stop the run unless
-`LivePreflight.all_pass(PreflightPhase.POST_INTENT)` is True. These three remain
-hard requirements before submission; the values are **never fabricated** to
-satisfy pre-flight.
+The invariant (`authorization_id`, `attempt_nonce`, `attempt_ordinal`) is
+**enforced inside the authorized submission transaction**, not by an external
+pause: `UnrealRenderSubmissionService.submit_render` creates and persists the
+durable intent, then validates the record-owned invariant
+(`AtlasRenderJobRecord.submission_identity_errors()`) **before any engine
+interaction** — i.e. before the capability assertion and before the transport
+dispatch. A violation moves the job to `FAILED` and transmits nothing. The policy
+lives only in `AtlasRenderJobRecord`; the pre-flight delegates to it.
+
+The pre-flight gates below remain the evidence view for a **persisted** durable
+record (resume / re-attach scenarios S3/S5, or an operator pre-submission
+rehearsal on an existing intent). Stop the run unless
+`LivePreflight.all_pass(PreflightPhase.POST_INTENT)` is True whenever these gates
+are evaluated. No identity value is ever fabricated.
+
+There is no intent-only API: an external caller **cannot** create the intent
+through `submit_render()`, pause, run these gates independently, and then call
+`submit_render()` again. The transaction boundary is: durable intent → identity
+invariant → capability assertion → exactly one transport dispatch.
 
 | # | Gate key | Prerequisite | How to verify | Stop if |
 |---|----------|--------------|---------------|---------|
-| C1 | `authorization_continuity` | Durable record has non-empty `authorization_id` | load the durable record | Missing |
-| C2 | `attempt_nonce` | record has non-empty `attempt_nonce` (HMAC key) | load the durable record | Missing |
-| C3 | `attempt_ordinal` | record has int `attempt_ordinal` | load the durable record | Missing/non-int |
+| C1 | `authorization_continuity` | durable record carries non-empty `authorization_id` | `LivePreflight(record=<persisted record>)` → delegates to the record policy | Missing/invalid |
+| C2 | `attempt_nonce` | durable record carries non-empty `attempt_nonce` (M8 HMAC witness key) | as above | Missing/invalid |
+| C3 | `attempt_ordinal` | durable record carries int `attempt_ordinal` ≥ 1 | as above | Missing/invalid |
 
 ### Global rules
 
@@ -104,15 +118,24 @@ exists. Do not bypass, waive, or manually satisfy a gate.
 4. **Confirm live capability negotiation / recovery capability (Phase B):** run
    `all_pass(POST_ENGINE)` with the operator-declared authorization id. Do not
    proceed on failure.
-5. **Human authorization + durable intent creation:** authorize ONE render and
-   create the durable intent record (PENDING → SUBMITTED) with its nonce and
-   ordinal through `UnrealRenderSubmissionService`'s existing persistence path.
-6. **Validate authorization/attempt identity (Phase C):** run
-   `all_pass(POST_INTENT)` against the durable record. Do not fabricate values.
-7. **Submit exactly one render** through `UnrealRenderSubmissionService`. Persist
-   the raw `submit_render` response envelope immediately (job id/atlas job id)
-   before any diagnostic output. (Submission performs the authoritative
-   capability assertion and is the only path permitted to transmit.)
+5. **Human authorization + durable intent creation (inside the submission
+   transaction):** authorize exactly ONE render and invoke
+   `UnrealRenderSubmissionService.submit_render(...)`. That single call creates and
+   persists the durable intent — with its nonce and ordinal — and is the ONLY path
+   permitted to transmit. There is no intent-only API, so an intent cannot be
+   created, paused, and submitted as two separate external steps.
+6. **Identity invariant enforced in-transaction (Phase C):** immediately after the
+   durable intent is persisted, and before any engine interaction, submission
+   validates the record-owned invariant (`authorization_id`, `attempt_nonce`,
+   `attempt_ordinal`). A violation fails the job closed to `FAILED` and nothing is
+   transmitted. Independently, `all_pass(POST_INTENT)` may be evaluated against any
+   persisted durable record (resume / re-attach / pre-submission rehearsal) for
+   evidence; it delegates to the same record policy and never fabricates values.
+7. **Capability assertion, then exactly one render transmitted:** submission then
+   asserts recovery capability (`assert_recovery_capable`) through the production
+   seam and, only on success, transmits `submit_render`. Persist the raw
+   `submit_render` response envelope immediately (job id/atlas job id) before any
+   diagnostic output.
 8. **Per-scenario step** (Scenario 1–8 as authorized) — see §3.
 9. **Run reconciliation** via `UnrealRenderRecoveryCoordinator.reconcile_single_job`
    (single job) and capture the `RecoveryDecisionResult`.

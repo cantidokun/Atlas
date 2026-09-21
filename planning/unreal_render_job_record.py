@@ -28,6 +28,12 @@ _CANONICAL_ID_PATTERN = re.compile(
     r"^(?:atlas-render-job-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 
+# Phase-C submission-identity requirements: the exact fields a durable record must
+# carry before any render may be dispatched over the transport. Order defines the
+# violation reporting order; the predicates live in
+# AtlasRenderJobRecord.submission_identity_errors().
+SUBMISSION_IDENTITY_FIELDS: tuple = ("authorization_id", "attempt_nonce", "attempt_ordinal")
+
 
 def validate_canonical_atlas_job_id(job_id: str) -> str:
     """Validate atlas_job_id format against canonical pattern without path traversal."""
@@ -211,6 +217,46 @@ class AtlasRenderJobRecord:
         if self.authoritative_digest != expected_digest:
             raise AtlasRenderJobRecordError(
                 f"authoritative_digest mismatch: expected {expected_digest}, got {self.authoritative_digest}"
+            )
+
+    def submission_identity_errors(self) -> "tuple[str, ...]":
+        """Phase-C submission-identity violations for THIS durable record.
+
+        Single policy owner for the three identity requirements
+        (``SUBMISSION_IDENTITY_FIELDS``): non-empty ``authorization_id``, non-empty
+        ``attempt_nonce`` (the M8 HMAC witness key) and a positive integer
+        ``attempt_ordinal``. Callers — the authorized submission transaction and the
+        live pre-flight Phase C gates — must delegate here instead of re-implementing
+        the predicates.
+
+        ``__post_init__`` already rejects an empty ``authorization_id`` and an
+        invalid ``attempt_ordinal`` at construction; ``attempt_nonce`` is
+        intentionally optional at construction because the receipt-repair path
+        materializes a record it never transmits. This method therefore defines the
+        stricter *submission* invariant for any record that is about to be
+        dispatched or resumed.
+        """
+        satisfied = {
+            "authorization_id": (
+                isinstance(self.authorization_id, str) and bool(self.authorization_id.strip())
+            ),
+            "attempt_nonce": (
+                isinstance(self.attempt_nonce, str) and bool(self.attempt_nonce.strip())
+            ),
+            "attempt_ordinal": (
+                isinstance(self.attempt_ordinal, int)
+                and not isinstance(self.attempt_ordinal, bool)
+                and self.attempt_ordinal >= 1
+            ),
+        }
+        return tuple(field for field in SUBMISSION_IDENTITY_FIELDS if not satisfied[field])
+
+    def validate_submission_identity(self) -> None:
+        """Fail closed unless this record satisfies the submission-identity invariant."""
+        errors = self.submission_identity_errors()
+        if errors:
+            raise AtlasRenderJobRecordError(
+                f"record {self.atlas_job_id} lacks required submission identity: {', '.join(errors)}"
             )
 
     @classmethod

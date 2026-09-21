@@ -25,10 +25,20 @@ three phases that mirror the real execution order:
                    invoked inside submission and by the recovery coordinator. The
                    pre-flight does not re-implement capability policy, and a pass
                    here never replaces the authoritative in-submission assertion.
-``POST_INTENT``  — evaluable only after the human authorization step has created
-                   the durable render-intent record. Requires ``authorization_id``,
-                   ``attempt_nonce`` and ``attempt_ordinal`` to be present. These
-                   values are never fabricated to satisfy pre-flight.
+``POST_INTENT``  — the submission-identity invariant
+                   (``authorization_id`` / ``attempt_nonce`` / ``attempt_ordinal``).
+                   The invariant is ENFORCED inside the authorized submission
+                   transaction (``UnrealRenderSubmissionService.submit_render``),
+                   after the durable render-intent record has been created and
+                   persisted and before any engine interaction or transport
+                   dispatch; the policy itself is owned by
+                   ``AtlasRenderJobRecord.submission_identity_errors()``. These
+                   pre-flight gates therefore evaluate a *persisted* durable record
+                   (resume / re-attach / pre-submission rehearsal) and delegate to
+                   that same policy rather than re-implementing it. There is no
+                   external intent-only API: a caller cannot create the intent,
+                   pause, run these gates separately, and then submit. No identity
+                   value is ever fabricated to satisfy a gate.
 
 Stopping rules per phase (see docs/LIVE_EXECUTION_CHECKLIST.md §1-§2):
 
@@ -54,6 +64,8 @@ import dataclasses
 import enum
 import pathlib
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from planning.unreal_render_job_record import SUBMISSION_IDENTITY_FIELDS
 
 
 class PreflightPhase(str, enum.Enum):
@@ -259,28 +271,70 @@ def _check_supervisor_quiescence(supervisor) -> PreflightResult:
                            live_only=True)
 
 
+def _identity_fallback_violations(record) -> frozenset:
+    """Duck-typed fallback predicates, used only for doubles without the policy method.
+
+    Production ``AtlasRenderJobRecord`` instances always carry
+    ``submission_identity_errors()``; test doubles legitimately may not.
+    """
+    def _non_empty_str(value) -> bool:
+        return isinstance(value, str) and bool(value.strip())
+
+    ordinal = getattr(record, "attempt_ordinal", None)
+    satisfied = {
+        "authorization_id": _non_empty_str(getattr(record, "authorization_id", None)),
+        "attempt_nonce": _non_empty_str(getattr(record, "attempt_nonce", None)),
+        "attempt_ordinal": (
+            isinstance(ordinal, int) and not isinstance(ordinal, bool) and ordinal >= 1
+        ),
+    }
+    return frozenset(field for field, ok in satisfied.items() if not ok)
+
+
+def _submission_identity_violations(record) -> frozenset:
+    """Phase-C identity violations, delegated to the durable record's own policy.
+
+    The predicates live in ``AtlasRenderJobRecord.submission_identity_errors()`` so
+    the pre-flight cannot drift from the invariant the submission transaction
+    enforces. If a record cannot be evaluated the result is fail-closed (every
+    field reported as violated).
+    """
+    if record is None:
+        return frozenset(SUBMISSION_IDENTITY_FIELDS)
+    validator = getattr(record, "submission_identity_errors", None)
+    if callable(validator):
+        try:
+            return frozenset(validator())
+        except Exception:
+            return frozenset(SUBMISSION_IDENTITY_FIELDS)
+    return _identity_fallback_violations(record)
+
+
+def _identity_gate(key: str, field: str, desc: str, record) -> PreflightResult:
+    violations = _submission_identity_violations(record)
+    if record is None:
+        detail = "missing (no durable record yet)"
+    elif field in violations:
+        detail = f"missing/invalid {field}"
+    else:
+        detail = f"{field} present and valid (record-owned policy)"
+    return PreflightResult(key, desc, field not in violations, detail,
+                           phase=PreflightPhase.POST_INTENT)
+
+
 def _check_authorization_continuity(record) -> PreflightResult:
     desc = "Required authorization continuity (authorization_id present)"
-    ok = record is not None and bool(getattr(record, "authorization_id", ""))
-    return PreflightResult("authorization_continuity", desc, ok,
-                           getattr(record, "authorization_id", "") or "missing",
-                           phase=PreflightPhase.POST_INTENT)
+    return _identity_gate("authorization_continuity", "authorization_id", desc, record)
 
 
 def _check_attempt_nonce(record) -> PreflightResult:
     desc = "Required attempt_nonce handling (persisted nonce for HMAC verification)"
-    ok = record is not None and bool(getattr(record, "attempt_nonce", ""))
-    return PreflightResult("attempt_nonce", desc, ok,
-                           "nonce present" if ok else "missing nonce",
-                           phase=PreflightPhase.POST_INTENT)
+    return _identity_gate("attempt_nonce", "attempt_nonce", desc, record)
 
 
 def _check_attempt_ordinal(record) -> PreflightResult:
     desc = "attempt_ordinal propagation (durable ordinal set)"
-    ok = record is not None and isinstance(getattr(record, "attempt_ordinal", None), int)
-    return PreflightResult("attempt_ordinal", desc, ok,
-                           str(getattr(record, "attempt_ordinal", None)),
-                           phase=PreflightPhase.POST_INTENT)
+    return _identity_gate("attempt_ordinal", "attempt_ordinal", desc, record)
 
 
 def _check_hmac_verification() -> PreflightResult:
