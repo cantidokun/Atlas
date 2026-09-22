@@ -428,7 +428,7 @@ RENDER_EVIDENCE_MISSING
 OVERALL_TASK_COMPLETION = NOT_ESTABLISHED
 ```
 
-### 9. Render verified, semantic target not verified
+### 9.2 Render verified, semantic target not verified
 
 Existing M5+ evidence proves the render artifact, but one or more semantic target-state invariants fail or remain unknown.
 
