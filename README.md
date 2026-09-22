@@ -29,9 +29,15 @@ State Extraction Fidelity v1 is already implemented and merged:
 
 The extraction layer is now the factual, read-only Unreal-state source that M12 can consume. It remains distinct from semantic verification and does not itself produce a semantic success claim.
 
-### Next Unreal architecture gate — M12.5 semantic verification
+### M12.5 — ACTIVE ARCHITECTURE GATE / NIGHT PAUSE
 
-The next Unreal milestone is **M12.5 — Unreal Semantic Evidence Verification v1**, currently at fresh architecture/design reconciliation.
+M12.5 is the active Unreal architecture/reconciliation gate. The work is **paused for the night** at PR #137; implementation remains unauthorized.
+
+Current PR #137 head: `73e1b5d8c159122f14ec93a5a00e8996cd46c169` (draft, documentation/design only).
+
+The independent-review sequence is: GLM exact-head review → final architecture CLEAR → implementation authorization → deterministic implementation. Hermes's latest review found two blockers and two major findings at an earlier remediated head; those design issues were incorporated into the current head. Hermes disclosed that this was not a third-party gate because it was the same agent family that authored related work.
+
+At the pause point, GitHub Actions `Atlas Tests` run **#2236** was still **IN PROGRESS**; no CI pass is claimed.
 
 M12.5 will consume the frozen semantic task/plan contracts plus authoritative Unreal state extraction and existing verified render evidence where applicable. It will evaluate target-state invariants fail-closed, bind the result to task/plan/source digests and observation identities, and produce a deterministic semantic verification result.
 
@@ -42,7 +48,7 @@ M12.5 will **not** create a second executor, authorization authority, scheduler,
 - Blender: **CLOSED** for the current declared contract.
 - M11: **FROZEN**.
 - M12.1-M12.4: **implemented**.
-- M12.5: **design/reconciliation gate in progress; implementation not authorized**.
+- M12.5: **architecture/reconciliation gate paused at PR #137; final independent review pending; implementation not authorized**.
 - M13.8/token optimization: **paused**.
 - Older Unreal PR stack: **do not blanket-merge**; retain selective-integration discipline.
 
