@@ -756,3 +756,16 @@ Cross-process Unreal render-job recovery is implemented and merged via Milestone
 - Open live blockers (not commit-gate implementation defects): no production caller supplies `journal_root` (live Case B is inert in production), and no `OpenJobObjectW` / Job Object reattachment / terminate-and-wait recovery API exists (Q4/Q8 not implemented), so real quiescence cannot be re-established after the original launcher exits.
 - **STATUS: IMPLEMENTATION REMEDIATION COMPLETE — AWAITING INDEPENDENT THIRD-PARTY REVIEW. NEXT ACTION: AUTHOR-INDEPENDENT THIRD-PARTY REVIEW OF THE UNCOMMITTED DIFF.** No commit, no push, no PR, no merge, no live Unreal run, no second S1 render, no new authorization/nonce/ordinal. The frozen S1 evidence must not be regenerated or replaced. Blender remains CLOSED; Temporal remains frozen/closed.
 - Resume sequence is recorded in `ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md`, `ATLAS_HANDOFF_CURRENT.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `UNREAL_AGENT_HANDOFF_CURRENT.md`.
+
+
+## 2026-09-22 — M12.5 architecture gate paused for the night
+
+- Reconciled the current Unreal state after PR #136. Main remains `89ca71180cebd00619d7f839819549cf4ede4be9`; State Extraction Fidelity v1 is already complete, merged, independently reviewed CLEAR, and live-gated.
+- PR #137 `docs/m12-5-architecture-reconciliation` remains **OPEN / DRAFT / NOT MERGED** and is documentation/design only. Current exact head at pause: `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.
+- The fresh M12.5 design remains **implementation unauthorized**. No production verifier, transport, Unreal extraction change, render authority, receipt authority, scheduler, recovery path, or persistence authority was added.
+- GLM's first independent review returned **CLEAR WITH MINOR FINDINGS**. The four required design clarifications were incorporated: TargetStateEvaluator is evaluation-model-only; invariant matching is a closed exact-name registry; observation envelope identity metadata stays outside `canonical_state`; and recursive authority/provenance validation is explicitly required.
+- Hermes then performed a remediated exact-head re-review and returned **BLOCKED** with two blockers and two major findings: empty invariant-set vacuous success, caller-settable `verified=True` render evidence, authority-key tiering ambiguity, and insufficient structural isolation testing. Those issues were remediated in the M12.5 design; the contradiction rule was also made explicit and the stale PR #105 handoff claim was corrected.
+- Hermes disclosed that this re-review was performed by the same agent family that authored related M12.5/M7 work and therefore does **not** substitute for the required independent third-party gate.
+- Current required next review: fresh independent **GLM review of exact head `73e1b5d8c159122f14ec93a5a00e8996cd46c169`**. Do not begin implementation unless that review returns **CLEAR**.
+- GitHub Actions `Atlas Tests` run **#2236** was **IN PROGRESS** at the pause. No CI pass/fail conclusion is claimed for that run. Blender/Temporal legacy workflows are unrelated to PR #137 and are not a reason to reopen those tracks.
+- No merge decision was made. No live Unreal/Blender run was started for M12.5. The night ends at the architecture/reconciliation gate.
