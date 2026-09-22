@@ -4,7 +4,7 @@
 >
 > M7 containment-keeper is complete, merged, and live-proven. Dated checkpoint text below the separator is archival provenance and is not rewritten.
 
-## Current Unreal position — M7 CLOSED / State Extraction COMPLETE / M12.5 next
+## Current Unreal position — M7 CLOSED / State Extraction COMPLETE / M12.5 ARCHITECTURE GATE PAUSED
 
 - Current main: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge).
 - M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
@@ -28,13 +28,15 @@
 
 ## Immediate next action
 
-**M12.5 — Unreal Semantic Evidence Verification v1 architecture / reconciliation gate.**
+**Resume the M12.5 architecture gate at PR #137 exact head `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.**
 
 The clean boundary is:
 
 `resolved semantic task → M12.3 immutable execution plan → M12.4 mapping → State Extraction / existing verified render evidence → M12.5 target-state verification`.
 
-M12.5 implementation is **not authorized yet**. Required sequence: current-main reconciliation → independent architecture/red-team review → implementation authorization → deterministic implementation gates → separately authorized live evidence.
+M12.5 implementation is **not authorized**. At pause, PR #137 is OPEN / DRAFT / NOT MERGED. Required resume sequence: final independent GLM review of the exact head → if CLEAR, explicit implementation authorization → deterministic implementation gates → separately authorized live evidence.
+
+At pause, `Atlas Tests` run #2236 was IN PROGRESS. No conclusion is claimed.
 
 M12.5 must remain verification-only: no second executor, authorization authority, scheduler, recovery coordinator, render-artifact verifier, or receipt issuer.
 
@@ -42,7 +44,7 @@ M12.5 must remain verification-only: no second executor, authorization authority
 
 - Do not blanket-merge PRs #103/#41/#58/#50/#42/#40/#47; retain selective-integration discipline.
 - PR #105 is superseded by PR #136, which is merged on current main.
-- M11 remains frozen; M12.1-M12.4 are complete; M12.5 is the active architecture/reconciliation gate; M13.8/token optimization remains paused.
+- M11 remains frozen; M12.1-M12.4 are complete; M12.5 is the active but paused architecture/reconciliation gate; M13.8/token optimization remains paused.
 - Do not revive historical Unreal autonomous loops or introduce a second authorization/recovery/receipt authority.
 
 ---
