@@ -34,7 +34,12 @@ CURRENT ENGINEERING TRACK:
 - PR #107: Revision 3.3 implementation merged; independent review CLEAR
 - UE 5.6.1 build succeeded; fixture automation 8/8; live transport gate PASS
 - positive baseline digest: 5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a
-- NEXT GATE: M12.5 Unreal Semantic Evidence Verification v1 architecture/reconciliation; implementation not authorized
+- ACTIVE / PAUSED GATE: M12.5 Unreal Semantic Evidence Verification v1 architecture/reconciliation; implementation not authorized
+- PR #137 current head: 73e1b5d8c159122f14ec93a5a00e8996cd46c169
+- PR #137 status: OPEN / DRAFT / NOT MERGED; documentation/design only
+- Hermes re-review identified two blockers and two major findings at an earlier remediated head; those findings were incorporated into the current design, but Hermes disclosed that its review was not a third-party gate because it was the same agent family that authored related work
+- NEXT REVIEW: fresh independent GLM review of the exact current PR #137 head; implementation remains blocked pending CLEAR
+- PAUSE: GitHub Actions Atlas Tests run #2236 was IN PROGRESS at pause; no pass/fail conclusion is claimed
 
 OTHER TRACKS:
 - Blender: CLOSED for current declared contract
