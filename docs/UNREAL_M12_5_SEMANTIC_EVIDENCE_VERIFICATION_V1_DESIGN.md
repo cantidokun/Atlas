@@ -316,7 +316,19 @@ M12.5 invariant evaluation must use a closed, exact-name-matched registry of imp
 
 The verifier evaluates **all required invariants**.
 
-Observation contradiction rule: if two or more observations share the same semantic task identity, observation scope identity, and request identity but carry unequal canonical-state digests or otherwise divergent authoritative facts, the input set is **CONTRADICTORY** and must fail closed. The verifier must never choose a best-case observation, newest observation, or first observation to manufacture a satisfied result. A duplicate request with equivalent authoritative content may be treated as a duplicate only when the canonical observation identities are equal.
+Observation contradiction rule: if two or more observations share the same semantic task identity, observation scope identity, and request identity and their **canonical-state digests differ**, the input set is **CONTRADICTORY** and must fail closed. Digest inequality alone is sufficient to establish contradiction; no secondary "fact divergence" heuristic is required to make the refusal decision. The verifier must never choose a best-case observation, newest observation, or first observation to manufacture a satisfied result.
+
+For M12.5 v1, the canonical observation-identity tuple is exactly:
+```
+(contract_revision,
+ extractor_identity,
+ engine_identity,
+ session_identity,
+ scope_identity,
+ request_identity,
+ canonical_state_digest)
+```
+Two observations may be treated as equivalent duplicates only when every element of this tuple is equal. If all tuple elements are equal, repeated instances are the same observation identity for verification purposes; otherwise they are distinct observations and any duplicate request with equal task/scope/request identity but unequal canonical-state digest is contradictory.
 
 Success requires:
 
@@ -544,7 +556,44 @@ Required refusal/failure classes include:
 - malformed provenance;
 - unsupported future State Extraction fields.
 
-For provenance and authority-material checks, M12.5 must define its own closed typed provenance schema and reuse the repository's existing authority-key predicates. The broad `is_forbidden_authority_key` predicate is mandatory for untrusted caller-supplied or unknown metadata surfaces. For M12.5's own declared envelope/binding/provenance fields, the implementation must use an explicit closed allowlist or the repository's high-confidence `_is_high_confidence_forbidden_key` tier because legitimate M12 metadata includes `session_identity`, `scope_identity`, and `attempt_id`. Each tier must have an adversarial test. Unknown provenance keys are rejected structurally, and caller-supplied metadata must not be accepted into the result's canonical digest merely because it is syntactically JSON-compatible.
+For provenance and authority-material checks, M12.5 must define its own closed typed provenance schema and reuse the repository's existing authority-key predicates.
+
+The declared M12.5 envelope allowlist is exactly:
+```
+contract_revision
+extractor_identity
+engine_identity
+session_identity
+scope_identity
+request_identity
+canonical_state
+canonical_state_digest
+source_provenance
+```
+
+The declared M12.5 verification/result identity allowlist is exactly:
+```
+verifier_revision
+task_identity
+task_version
+digital_twin_id
+plan_id
+source_content_digest
+runtime_mapping_digest
+observation_digests
+render_evidence_identity
+invariant_results
+semantic_state
+render_state
+overall_state
+failure_codes
+provenance
+canonical_digest
+```
+
+Only these explicitly declared fields may use the M12.5 high-confidence/allowlist tier. Any other caller-supplied or unknown metadata surface must use the broad `is_forbidden_authority_key` predicate and the closed typed-schema check. Unknown keys are rejected structurally. In particular, a surface must not be routed to the declared-field tier merely because its name resembles an allowed field.
+
+Each tier must have an adversarial test, including attempts to smuggle authority-shaped keys through nested mappings, aliases/separator/casing variants, and otherwise undeclared fields. Caller-supplied metadata must not be accepted into the canonical result digest merely because it is syntactically JSON-compatible.
 
 No failure class may downgrade to a pass.
 
