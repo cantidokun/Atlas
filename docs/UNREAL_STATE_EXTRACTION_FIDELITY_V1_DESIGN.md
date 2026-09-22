@@ -1,3 +1,5 @@
+> **Current-state reconciliation — September 22, 2026:** Revision 3.3 is the frozen normative contract. PR #106 is merged, PR #107's implementation is merged, and the implementation was independently reviewed CLEAR with UE 5.6.1 build/live-gate evidence recorded. The historical design-gate/HOLD wording below is preserved as provenance and is not the current implementation status.
+
 # Unreal State Extraction Fidelity v1 — Design Gate
 
 **Status:** DESIGN — IMPLEMENTATION NOT AUTHORIZED
