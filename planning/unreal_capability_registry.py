@@ -34,9 +34,9 @@ DEFAULT_UNREAL_CAPABILITIES = (
     ),
     UnrealCapabilitySpec(
         UnrealCapability.MODIFY_ACTOR,
-        frozenset({UnrealOperationKind.WRITE}),
+        frozenset({UnrealOperationKind.WRITE, UnrealOperationKind.VERIFY}),
         ("actor_state",),
-        "Modify an already-authorized Unreal Actor representation.",
+        "Modify or verify an already-authorized Unreal Actor representation.",
     ),
     UnrealCapabilitySpec(
         UnrealCapability.INSPECT_ASSET,
