@@ -19,8 +19,7 @@ Authoritative spec: `docs/ATLAS_UNREAL_CROSS_PROCESS_RECOVERY_CONTRACT_V1.md`
 - **Python/C++ canonicalization conformance verified:** a fixed conformance vector
   produces identical canonical bytes and the same HMAC-SHA256 digest in both
   languages (Python stdlib `hmac` == C++ RFC-2104 manual implementation).
-- **Live M7 Scenarios 1–8 have NOT been run.** No `UnrealEditor` launch, no
-  workflow/action-runner tests, no Blender. Live restart/recovery remains pending.
+- **Full live M7 Scenarios 1–8 have NOT been run.** This deterministic M8 document does not claim the full §33 matrix. The separate M7 keeper-controlled UE 5.6.1 live rung has since executed and closed as Case B with exactly one receipt and zero adoption-path engine RPCs; the frozen S1 rehearsal evidence remains non-production evidence.
 
 ## Authority boundary (unchanged)
 
