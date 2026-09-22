@@ -1,9 +1,10 @@
 # Unreal State Extraction Fidelity v1 — Live Gate Evidence (Phase E)
 
 **Status:** LIVE GATE PASSED — one extractor, one live UE 5.6.1 editor session.
-**Contract:** `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md`, Revision 3.1
-(design branch PR #106, design head `54697e501a917f20a815c187337044938385e81c`).
-**Implementation:** branch `feat/unreal-state-extraction-fidelity-v1-implementation`.
+> **Current-state reconciliation — September 22, 2026:** the frozen contract is Revision 3.3 and PR #107's implementation is merged. The detailed Phase E session below is historical evidence; later fixture/review-hardening evidence in this same document records the current rung.
+
+**Contract:** `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md`, Revision 3.3.
+**Implementation:** merged by PR #107 at implementation head `805ab3cd5243386af93c0893a7e457b50fa1ea95`.
 
 This document records what was actually executed, with the exact commands, and — equally
 important — what the gate does **not** cover yet. Nothing here is a claim about code that
