@@ -4,9 +4,9 @@
 >
 > M7 containment-keeper is complete, merged, and live-proven. Dated checkpoint text below the separator is archival provenance and is not rewritten.
 
-## Current Unreal position — M7 CLOSED / State Extraction next
+## Current Unreal position — M7 CLOSED / State Extraction COMPLETE / M12.5 next
 
-- Current main: `d237dbf686b666a745177a53ab782db60cd21c0f` (post-housekeeping docs commit).
+- Current main: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge).
 - M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 - PR #131 was an ancestor of the merged M7 branch and was marked merged by GitHub as part of that ancestry; there is no separate implementation merge outstanding.
 - M7 Case-B durable-witness + containment-keeper is **COMPLETE**.
@@ -17,27 +17,39 @@
 - Frozen S1 rehearsal evidence is not the production receipt source; no second render is required for M7 architectural closure.
 - This does not claim full Contract V1 §33 S1-S8 live completion; the broader matrix remains a separate evidence obligation.
 
+## State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
+
+- PR #106 froze Revision 3.3 of the read-only extraction contract.
+- PR #107 implemented Revision 3.3 and merged the implementation.
+- Independent implementation review: **CLEAR**.
+- UE 5.6.1 build: **Succeeded**; fixture automation: **8/8 Success**; live transport gate: **PASS**.
+- Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
+- Remaining live gaps are explicitly classified rather than promoted to false coverage.
+
 ## Immediate next action
 
-**Unreal State Extraction Fidelity v1 — read-only design/reconciliation gate.**
+**M12.5 — Unreal Semantic Evidence Verification v1 architecture / reconciliation gate.**
 
-- Design branch: `feat/unreal-state-extraction-fidelity-v1-design`.
-- Scope: bounded, deterministic, read-only C++→Python extraction of factual Unreal world/actor/material/Sequencer state.
-- Implementation: **not authorized yet**.
-- Required sequence: current-main reconciliation → design review → independent architectural review → implementation authorization only after the design gate clears.
+The clean boundary is:
+
+`resolved semantic task → M12.3 immutable execution plan → M12.4 mapping → State Extraction / existing verified render evidence → M12.5 target-state verification`.
+
+M12.5 implementation is **not authorized yet**. Required sequence: current-main reconciliation → independent architecture/red-team review → implementation authorization → deterministic implementation gates → separately authorized live evidence.
+
+M12.5 must remain verification-only: no second executor, authorization authority, scheduler, recovery coordinator, render-artifact verifier, or receipt issuer.
 
 ## Other current constraints
 
 - Do not blanket-merge PRs #103/#41/#58/#50/#42/#40/#47; retain selective-integration discipline.
-- PR #105 remains a separate open draft for the `verify_actor_*` WRITE-vs-VERIFY classification defect and is not promoted into this milestone.
-- M11 remains frozen; M12.1-M12.4 are complete; M12.5 remains deferred; M13.8/token optimization remains paused.
+- PR #105 is superseded by PR #136, which is merged on current main.
+- M11 remains frozen; M12.1-M12.4 are complete; M12.5 is the active architecture/reconciliation gate; M13.8/token optimization remains paused.
 - Do not revive historical Unreal autonomous loops or introduce a second authorization/recovery/receipt authority.
 
 ---
 
 # Atlas Unreal Agent — Current Handoff
 
-> **Unreal-track checkpoint — September 18, 2026.** M10 live Unreal Scenarios S1–S8 are COMPLETE — all PASSED live against the real UE 5.6 boundary. M11 is FROZEN/paused. M12.1–M12.4 are implemented. **M12.5 is intentionally deferred and is not the current development target.**
+> **Unreal-track checkpoint — September 22, 2026.** M10 live Unreal Scenarios S1–S8 are COMPLETE — all PASSED live against the real UE 5.6 boundary. M11 is FROZEN/paused. M12.1–M12.4 are implemented. **M12.5 is now the current architecture/design target; implementation remains unauthorized.**
 >
 > **Global Atlas architecture checkpoint — September 18, 2026:** Blender Extraction Fidelity v1 is CLEAR. Temporal Observation + State Delta v1 is at **Design Revision 7 — HOLD** after independent architectural review. No temporal implementation is authorized; the next global architecture step is a narrow Revision 8 design-only correction followed by independent review. The current major development target is **Unreal State Extraction Fidelity v1**: a bounded, deterministic, read-only C++→Python extraction contract for factual Unreal world/actor/material/Sequencer state. M12.5 remains untouched.
 >
@@ -46,9 +58,9 @@
 
 ## Current development focus
 
-- **Primary:** Unreal State Extraction Fidelity v1 — design branch `feat/unreal-state-extraction-fidelity-v1-design`; implementation not yet authorized.
-- **Immediate repair:** draft PR #105 fixes a concrete authority-boundary defect where `verify_actor_location`, `verify_actor_rotation`, and `verify_actor_scale` were classified as WRITE instead of VERIFY. CI/local execution has not yet been established in this environment; do not merge until the focused regression and normal suite gates are observed.
-- **Deferred:** M12.5 semantic evidence verification. Do not modify or advance it unless explicitly re-opened.
+- **Primary:** M12.5 Unreal Semantic Evidence Verification v1 — fresh architecture/reconciliation gate.
+- **Completed immediately before this gate:** State Extraction Fidelity v1 (PRs #106/#107) is merged and live-gated; PR #136 corrected the actor VERIFY boundary and the post-merge Atlas Tests run passed.
+- **Deferred:** M13.8/token optimization and unrelated historical Unreal PR stack.
 - **Unreal authority invariants:** unchanged.
 
 ## Architectural position
