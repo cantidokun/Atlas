@@ -37,7 +37,7 @@ Current PR #137 head: `73e1b5d8c159122f14ec93a5a00e8996cd46c169` (draft, documen
 
 The independent-review sequence is: GLM exact-head review → final architecture CLEAR → implementation authorization → deterministic implementation. Hermes's latest review found two blockers and two major findings at an earlier remediated head; those design issues were incorporated into the current head. Hermes disclosed that this was not a third-party gate because it was the same agent family that authored related work.
 
-At the pause point, GitHub Actions `Atlas Tests` run **#2236** was still **IN PROGRESS**; no CI pass is claimed.
+After the final handoff commits, GitHub Actions `Atlas Tests` run **#2242** is still **IN PROGRESS** on the current documentation head; no CI pass is claimed.
 
 M12.5 will consume the frozen semantic task/plan contracts plus authoritative Unreal state extraction and existing verified render evidence where applicable. It will evaluate target-state invariants fail-closed, bind the result to task/plan/source digests and observation identities, and produce a deterministic semantic verification result.
 
