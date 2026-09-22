@@ -1,79 +1,36 @@
 # Unreal Agent Handoff — Current State
 
-> **Authoritative current checkpoint — September 21, 2026.**
+> **Authoritative current checkpoint — September 22, 2026.**
 >
-> The Blender track is closed for the current contract. The active engineering focus is the separately maintained Unreal track. This section supersedes stale historical checkpoint statements below; those records remain archival.
->
-> **STATUS: IMPLEMENTATION REMEDIATION COMPLETE — AWAITING INDEPENDENT THIRD-PARTY REVIEW**
-> **NEXT ACTION: AUTHOR-INDEPENDENT THIRD-PARTY REVIEW OF THE UNCOMMITTED DIFF**
-> Restart point: `ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md`.
+> M7 containment-keeper is complete, merged, and live-proven. Dated checkpoint text below the separator is archival provenance and is not rewritten.
 
-## Current Unreal position — M7 Case-B adoption
+## Current Unreal position — M7 CLOSED / State Extraction next
 
-- The Unreal track's active unfinished workstream is **M7 Case-B adoption**, not a fresh live
-  scenario run.
-- Exact-main arm gate on `748982713fb6042d875890cbd9999a3bbcbfb3aa` (tree
-  `b851438bdc1d7a03507b72776fa2116b94b5092e`): **CLEAR** — 10/10 fail-closed SHA/tree checkpoints,
-  Phase A 11 gates with zero engine RPC, Phase B capability negotiation, UE 5.6 build up to date.
-- **S1 was submitted exactly once and the render succeeded** — engine-accepted submission, durable
-  engine journal, terminal `FINISHED`, `success=true`, 24 PNGs, 24/24 manifest hash/size
-  verification, production-path verification `verified = true`.
-- **Adoption was blocked (F-S1-1)**: the engine is simultaneously the liveness bearer and a member
-  of the Job Object whose quiescence the adoption requires. Reconcile therefore returned Case K
-  (`WAITING_FOR_ENGINE_QUIESCENCE`) while the engine lived and `WAITING_FOR_ENGINE` after it
-  drained. **No receipt exists for the S1 job.** F-S1-2 (the M9 harness modelled the impossible
-  `engine_capable=True` + `quiescent=True` contained state) was confirmed and corrected.
-- Design gate verdict `DESIGN GATE CLEAR — CASE B CONTRACT DEFINED`: **OPTION B — durable /
-  journal-attested Case-B adoption** is the target contract; **OPTION A (worker-scoped quiescence)
-  is REJECTED**. §9 is not weakened: `ActiveProcesses == 0` is established before any witness
-  acquisition or terminal-artifact inspection.
-- The Case-B implementation plus the third-party-blocker remediation (B1–B4, E3) exist only as
-  **UNCOMMITTED, UNPUSHED** working-tree changes on `fix/unreal-m7-case-b-durable-witness`
-  (5 modified + 4 new paths).
-- **No independent third-party review of the remediated diff has happened yet** (another
-  independent model was unavailable). Two earlier independent-context rounds of the
-  *pre-remediation* revision both returned **THIRD-PARTY BLOCKED** (B1–B4, E3); that verdict stands
-  for that revision and the author's verdicts on the remediation are not independent evidence.
-- Open live blockers (not commit-gate implementation defects): **no production `journal_root`
-  wiring** (Case B is inert in production) and **no `OpenJobObjectW` / Job Object reattachment /
-  terminate-and-wait recovery API** (Q4/Q8 not implemented), so real quiescence cannot be
-  re-established after the original launcher/handle is gone.
-- The frozen S1 evidence must **not** be regenerated, replaced or moved. **No second S1 render is
-  authorized or needed.**
+- Current main: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132 merged).
+- PR #131 was an ancestor of the merged M7 branch and was marked merged by GitHub as part of that ancestry; there is no separate implementation merge outstanding.
+- M7 Case-B durable-witness + containment-keeper is **COMPLETE**.
+- First real UE 5.6.1 keeper-controlled rung: **Case B, exactly 1 production receipt, 0 adoption-path engine RPCs**.
+- **24/24 artifacts** were independently verified; **4/4 negative controls** refused.
+- Exact-head CI for the M7 documentation follow-up was green on Python 3.9 and 3.11.
+- Independent post-live review: **CLEAR / READY FOR INTEGRATION**.
+- Frozen S1 rehearsal evidence is not the production receipt source; no second render is required for M7 architectural closure.
+- This does not claim full Contract V1 §33 S1-S8 live completion; the broader matrix remains a separate evidence obligation.
 
 ## Immediate next action
 
-**AUTHOR-INDEPENDENT THIRD-PARTY REVIEW OF THE UNCOMMITTED DIFF** (tree
-`b851438bdc1d7a03507b72776fa2116b94b5092e`), including
-`tests/m9/test_m9_durable_witness_remediation.py` and a re-run of the base-vs-branch live-path
-differential (`%LOCALAPPDATA%\Temp\rt_diff_livepath.py`). Commit only after that review returns
-CLEAR; then CI on the committed revision, then production `journal_root` wiring, then the real
-quiescence/Job Object recovery mechanism, then a separate live adoption gate against the frozen S1
-evidence.
+**Unreal State Extraction Fidelity v1 — read-only design/reconciliation gate.**
 
-### Historical reconciliation result (retained for provenance)
+- Design branch: `feat/unreal-state-extraction-fidelity-v1-design`.
+- Scope: bounded, deterministic, read-only C++→Python extraction of factual Unreal world/actor/material/Sequencer state.
+- Implementation: **not authorized yet**.
+- Required sequence: current-main reconciliation → design review → independent architectural review → implementation authorization only after the design gate clears.
 
-The read-only reconciliation that preceded the live work is **COMPLETE**: all six inspected
-long-lived Unreal branches share one fork and are ~1455 commits behind main; main's modules are
-strict supersets; **no blanket merge** of #103/#41/#58/#50/#40/#47 is warranted. Current main is
-the reference tree. PR #105 is a separate open draft and was not touched.
+## Other current constraints
 
-Known stack:
-- #103: reconciled Unreal branch, based on `integrate-origin-main-with-render-receipt`;
-- #41: heterogeneous production transaction recovery, based directly on an old main;
-- #58: Unreal autonomy/controller runtime, based directly on an old main;
-- #50: controller host/render receipt integration, itself a long-lived base;
-- #40: shot-production orchestration, stacked on #41;
-- #47: UE 5.6 world/save boundary test, stacked on #41;
-- #42 is Blender-side and is not part of the Unreal reconciliation.
-
-## Non-negotiable boundary
-
-Do not revive historical Unreal autonomous loops or create a second authorization authority. The existing Atlas authority chain remains authoritative. Any selective integration must preserve fail-closed execution, provenance, evidence, receipt, and recovery semantics.
-
-## Live-gate rule
-
-Deterministic tests, UBT compilation, and historical live evidence do not substitute for the current exact-tree M7 live scenarios. Do not claim cross-process Unreal recovery is production-capable until the required live evidence and independent review are complete.
+- Do not blanket-merge PRs #103/#41/#58/#50/#42/#40/#47; retain selective-integration discipline.
+- PR #105 remains a separate open draft for the `verify_actor_*` WRITE-vs-VERIFY classification defect and is not promoted into this milestone.
+- M11 remains frozen; M12.1-M12.4 are complete; M12.5 remains deferred; M13.8/token optimization remains paused.
+- Do not revive historical Unreal autonomous loops or introduce a second authorization/recovery/receipt authority.
 
 ---
 

@@ -1,3 +1,16 @@
+## 2026-09-22 - M7 containment keeper closure and current-state reconciliation
+
+- M7 Case-B durable-witness + containment-keeper is now **COMPLETE / MERGED / LIVE-PROVEN** on `main`.
+- PR #132 merged `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3`; PR #131 was an ancestor of that merged branch and was marked merged by GitHub as part of the ancestry.
+- The first real UE 5.6.1 keeper-controlled rung closed as **Case B with exactly 1 production receipt and 0 adoption-path engine RPCs**.
+- **24/24 artifacts** were verified; **4/4 negative controls** refused; the Job Object drained on the retained handle and the final handle release left no Unreal/helper process.
+- Exact-head CI for the M7 documentation follow-up was green on Python 3.9 and 3.11. Independent post-live review returned **CLEAR / READY FOR INTEGRATION**.
+- The frozen S1 rehearsal evidence remains rehearsal/render evidence only and is not the production receipt source.
+- M7 closure does not claim the full Contract V1 §33 S1-S8 matrix was live-executed.
+- Reconciled the authoritative current handoff surfaces without rewriting dated archival handoffs.
+- Next Unreal architecture track: **Unreal State Extraction Fidelity v1** design/reconciliation; implementation is not yet authorized.
+- M11 remains frozen, M12.5 deferred, and M13.8/token optimization paused.
+
 ## 2026-09-18 - Unreal development resumed on state extraction fidelity
 
 - M12.5 semantic evidence verification is intentionally **deferred** and untouched.

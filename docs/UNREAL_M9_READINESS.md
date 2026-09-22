@@ -1,25 +1,12 @@
 # Milestone 9 — Live Recovery Readiness & Scenario Harness (PRE-FLIGHT)
 
-> **STATUS CORRECTION — September 21, 2026 (supersedes the "Status" block below for current
-> purposes).** This document remains an accurate record of the M9 pre-flight *harness readiness*
-> state and is retained for provenance, but its `READY_FOR_LIVE` matrix is **no longer the current
-> live status**:
+> **STATUS CORRECTION — September 22, 2026.** This document remains the authoritative record of the M9 **pre-flight harness/readiness** milestone, but its original live-readiness wording is historical and must not be read as the current M7 closure state.
 >
-> * **S1 has since been executed exactly once** (engine-accepted submission, terminal `FINISHED`,
->   `success=true`, 24 PNGs with 24/24 manifest hash/size verification, production-path
->   verification `verified = true`). It is **not** adopted: **F-S1-1** blocked Case B under
->   contained-engine quiescence and **no receipt exists**. Scenarios 2–8 remain unrun.
-> * The containment model in the M9 spec has been corrected (**F-S1-2**): a contained engine makes
->   `engine_capable=True` and `quiescent=True` mutually exclusive, so the harness now derives its
->   flags from one declared `ContainmentState` and **rejects** that impossible combination instead
->   of declaring it.
-> * The corrected contract is **OPTION B — durable / journal-attested Case-B adoption** (design
->   gate `DESIGN GATE CLEAR — CASE B CONTRACT DEFINED`); the implementation plus the third-party
->   blocker remediation is **UNCOMMITTED / UNPUSHED** on `fix/unreal-m7-case-b-durable-witness`
->   and is **awaiting author-independent third-party review**. Live Case B is still **inert in
->   production** (no `journal_root` wiring), and real quiescence cannot be re-acquired after the
->   original launcher exits (no `OpenJobObjectW` / reattachment; Q4/Q8 not implemented).
-> * Authoritative restart point: `ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md`.
+> * The first real UE 5.6.1 keeper-controlled M7 rung has now executed and closed as **Case B**, with **exactly 1 production receipt**, **0 adoption-path engine RPCs**, and **24/24 artifact verification**.
+> * Four negative controls were exercised and refused. Independent post-live review returned **CLEAR / READY FOR INTEGRATION**.
+> * The frozen S1 rehearsal evidence is not the source of the production receipt, and no second render is required for the M7 architectural closure.
+> * The full Contract V1 §33 S1-S8 scenario matrix is **not** claimed as fully live-executed by this update. M9 remains useful as the deterministic scenario/pre-flight harness record and as provenance for the broader scenario matrix.
+> * Authoritative current handoff: `ATLAS_HANDOFF_CURRENT.md`.
 
 ## Status
 
