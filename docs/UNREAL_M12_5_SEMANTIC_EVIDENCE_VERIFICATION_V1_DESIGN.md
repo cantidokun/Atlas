@@ -226,6 +226,10 @@ An acceptable observation must be:
 - associated with an identifiable engine/session envelope where the source contract exposes it;
 - immutable for the duration of verification.
 
+The observation envelope is deliberately split from the canonical state tree. Identity and boundary metadata such as `contract_revision`, `extractor_identity`, `engine_identity`, `session_identity`, `scope_identity`, and `request_identity` live at the envelope/boundary level and **must never be inserted into or used to enrich `canonical_state`**. The frozen State Extraction contract rejects reserved session/timestamp-style keys in the payload tree; M12.5 must preserve that boundary rather than reopening it.
+
+`canonical_state_digest` is an observation identity derived from the canonical state payload under the frozen State Extraction canonicalization rules. Any caller-supplied digest is only a redundant assertion: M12.5 must recompute it and compare, never treat the supplied value as authoritative.
+
 ### 5.2 No trust in self-reported semantic status
 
 Fields such as:
@@ -306,7 +310,9 @@ M12.5 does not infer that a later or earlier state is equivalent merely because 
 
 ## 7. Target-state verification model
 
-M12.5 reuses the semantics of the existing Atlas `TargetStateEvaluator` concept but gives the Unreal side an authoritative input boundary.
+M12.5 reuses only the **evaluation model** of the existing Atlas `TargetStateEvaluator` concept: every required invariant is evaluated, all required invariants must pass, and an unevaluable condition fails closed. It does **not** reuse or promote the existing placeholder predicate bodies as authoritative semantic verification.
+
+M12.5 invariant evaluation must use a closed, exact-name-matched registry of implementation-reviewed invariant definitions. It must never use substring/fuzzy/alias matching or caller-supplied executable predicates. An unrecognized invariant name is `UNKNOWN` and therefore fails closed.
 
 The verifier evaluates **all required invariants**.
 
@@ -340,7 +346,9 @@ There is no best-effort success mode.
 
 ## 8. Invariant classes
 
-M12.5 should support a constrained invariant vocabulary rather than arbitrary executable predicates.
+M12.5 should support a **closed invariant registry** rather than arbitrary executable predicates. The v1 registry is fixed during implementation review. Matching is exact-name only; an unrecognized invariant name is `UNKNOWN` and fails closed. No generic, prefix, substring, alias, or caller-defined predicate may satisfy an invariant that is not explicitly registered.
+
+This registry constraint applies even when two invariant names appear semantically similar: a requested name is satisfied only by its exact reviewed definition.
 
 ### 8.1 Identity invariants
 
@@ -527,6 +535,8 @@ Required refusal/failure classes include:
 - malformed provenance;
 - unsupported future State Extraction fields.
 
+For provenance and authority-material checks, M12.5 must reuse the repository's existing recursive closed-provenance validation mechanism (including `is_forbidden_authority_key` and its separator/casing normalization and recursive traversal) rather than inventing a shallow or top-level-only check. Unknown provenance keys are rejected structurally, and caller-supplied metadata must not be accepted into the result's canonical digest merely because it is syntactically JSON-compatible.
+
 No failure class may downgrade to a pass.
 
 ---
@@ -572,6 +582,8 @@ Verification provenance should preserve:
 - deterministic failure codes.
 
 Provenance is explanatory and reproducibility-oriented.
+
+The provenance input/output surface is a closed typed structure. M12.5 must reject unknown provenance keys and recursively reject authority-shaped material using the repository's existing validation mechanism. Provenance values are accepted only from validated observation/result structures; arbitrary caller metadata must not be copied into the canonical result merely for traceability.
 
 It must never become a second authorization or recovery record.
 
@@ -760,10 +772,16 @@ At minimum:
 - mismatched semantic task identity;
 - mismatched source-content digest;
 - modified observation digest;
+- stale observation from another extractor/engine session;
+- conflicting observations carrying the same request identity;
 - render-bearing task without verified render evidence;
 - render evidence bound to wrong job/attempt identity.
 
 Each negative control must fail closed.
+
+A stale-observation/other-session control should be exercised with a second real extraction session when the live harness can provide one. If the fixture cannot safely provide a second live session, deterministic Phase-A coverage is an acceptable substitute, but the live-gate record must explicitly state that live stale-session coverage was not available rather than implying that it was proven.
+
+The live suite should also assert that session/engine/request metadata cannot be smuggled into `canonical_state`; the frozen extractor's reserved-key refusal remains a defense at the observation boundary.
 
 ### Phase D — render-bearing composition
 
@@ -842,9 +860,11 @@ The implementation should reuse existing:
 - State Extraction parsing/canonicalization;
 - source-content digest calculation;
 - plan identity calculation;
-- TargetStateEvaluator semantics;
+- the **evaluation model only** (all-required-invariants / fail-closed semantics) from `TargetStateEvaluator`, never its placeholder predicate bodies;
+- the exact-name closed invariant registry defined and reviewed for M12.5 v1;
 - render evidence verifier;
-- evidence/receipt identity models.
+- evidence/receipt identity models;
+- the existing recursive closed-provenance/forbidden-authority validator.
 
 It should not copy those authorities.
 
