@@ -1,7 +1,7 @@
 ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 22, 2026 CURRENT CHECKPOINT
 
 Current main:
-- commit: d237dbf686b666a745177a53ab782db60cd21c0f
+- commit: 89ca71180cebd00619d7f839819549cf4ede4be9 (PR #136 merge)
 - M7 implementation merge: 526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3 (PR #132)
 - M7 implementation: 12a900e2e07c52875c3a8e33ea8fdf4d304caf14
 - M7 live-rung docs: 2686330c02829be228e84ec6175215ffba4ba823
@@ -28,20 +28,21 @@ SCENARIO-SCOPE HONESTY:
 - The M7 keeper-controlled Case-B rung is the live architectural proof completed here.
 - M9 harness/readiness records remain valid provenance for the broader scenario matrix.
 
-NEXT ENGINEERING TRACK:
-- Unreal State Extraction Fidelity v1
-- design branch: feat/unreal-state-extraction-fidelity-v1-design
-- bounded, deterministic, read-only C++->Python extraction of factual Unreal world/actor/material/Sequencer state
-- implementation NOT authorized yet
-- next gate: current-main design/reconciliation review followed by independent architectural review
+CURRENT ENGINEERING TRACK:
+- Unreal State Extraction Fidelity v1: COMPLETE / MERGED / LIVE-GATED
+- PR #106: Revision 3.3 design frozen and merged
+- PR #107: Revision 3.3 implementation merged; independent review CLEAR
+- UE 5.6.1 build succeeded; fixture automation 8/8; live transport gate PASS
+- positive baseline digest: 5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a
+- NEXT GATE: M12.5 Unreal Semantic Evidence Verification v1 architecture/reconciliation; implementation not authorized
 
 OTHER TRACKS:
 - Blender: CLOSED for current declared contract
 - M11: FROZEN
 - M12.1-M12.4: implemented
-- M12.5: deferred
+- M12.5: active architecture/reconciliation gate; implementation not authorized
 - M13.8/token optimization: paused
-- PR #105: separate open draft; not promoted
+- PR #136: actor VERIFY boundary fix merged; PR #105 superseded
 - Older Unreal PR stack (#103/#41/#58/#50/#42/#40/#47): do not blanket-merge
 
 WORKING RULE:
