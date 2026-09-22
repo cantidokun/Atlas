@@ -82,7 +82,7 @@ The first Unreal gate was **read-only reconciliation**, and it is **COMPLETE**:
 
 Known open Unreal stack (still unreconciled, still not to be blanket-merged): PRs #103, #41, #58,
 #50, #42, #40, #47 — they do not all share the same base. PR #105 (VERIFY-vs-WRITE classification
-for `verify_actor_*`) remains a separate open draft and was not touched.
+for `verify_actor_*`) is superseded by PR #136, which merged the corrected boundary on current main; #105 is closed and must not be revived.
 
 ### Unreal State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
 
