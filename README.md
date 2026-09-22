@@ -33,11 +33,11 @@ The extraction layer is now the factual, read-only Unreal-state source that M12 
 
 M12.5 is the active Unreal architecture/reconciliation gate. The work is **paused for the night** at PR #137; implementation remains unauthorized.
 
-Current PR #137 head: `73e1b5d8c159122f14ec93a5a00e8996cd46c169` (draft, documentation/design only).
+PR #137 is **OPEN / DRAFT / NOT MERGED** and documentation/design only. Resolve the current PR head SHA immediately before the final independent review; `73e1b5d8` is the historical design-remediation baseline, not the permanent review target.
 
 The independent-review sequence is: GLM exact-head review → final architecture CLEAR → implementation authorization → deterministic implementation. Hermes's latest review found two blockers and two major findings at an earlier remediated head; those design issues were incorporated into the current head. Hermes disclosed that this was not a third-party gate because it was the same agent family that authored related work.
 
-Latest observed CI at pause: GitHub Actions `Atlas Tests` run **#2242** was **IN PROGRESS** on a preceding documentation-synchronization commit. The final handoff-only commits have no attached workflow result yet; no CI pass is claimed for the final head.
+Latest observed CI: GitHub Actions `Atlas Tests` run **#2246** passed on the preceding branch head. Subsequent documentation-only commits require a fresh CI check; no pass is claimed for a newer head until observed.
 
 M12.5 will consume the frozen semantic task/plan contracts plus authoritative Unreal state extraction and existing verified render evidence where applicable. It will evaluate target-state invariants fail-closed, bind the result to task/plan/source digests and observation identities, and produce a deterministic semantic verification result.
 
