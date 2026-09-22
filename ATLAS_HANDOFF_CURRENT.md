@@ -4,9 +4,9 @@
 >
 > This document is the authoritative current development handoff. Dated handoffs remain archival and are not rewritten.
 >
-> **STATUS: M7 CONTAINMENT-KEEPER RUNG COMPLETE — MERGED AND LIVE-PROVEN**
-> **NEXT ACTION: UNREAL STATE EXTRACTION FIDELITY V1 READ-ONLY DESIGN/RECONCILIATION GATE**
-> Current main: `d237dbf686b666a745177a53ab782db60cd21c0f` (post-housekeeping docs commit). M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
+> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 DESIGN GATE ACTIVE**
+> **NEXT ACTION: M12.5 UNREAL SEMANTIC EVIDENCE VERIFICATION V1 ARCHITECTURE / RECONCILIATION**
+> Current main: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge). M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 
 ## Current position
 
@@ -21,9 +21,10 @@ Main now includes the final Blender discovery/closure records:
 Current main after that cleanup (the Blender-closure baseline at the time of this section):
 - `e4ac4c11e562cee687b33c62a308813b1b309d08`
 
-Current `main` after M7 closure and housekeeping:
-- **`d237dbf686b666a745177a53ab782db60cd21c0f`**.
+Current `main` after M7 closure, housekeeping, and PR #136:
+- **`89ca71180cebd00619d7f839819549cf4ede4be9`** (PR #136).
 - M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
+- PR #136 corrected the `verify_actor_*` WRITE-vs-VERIFY classification and focused regression coverage; post-merge Atlas Tests passed.
 - M7 implementation: `12a900e2e07c52875c3a8e33ea8fdf4d304caf14`; live-rung documentation: `2686330c02829be228e84ec6175215ffba4ba823`.
 
 Independent audit status:
@@ -76,11 +77,33 @@ The first Unreal gate was **read-only reconciliation**, and it is **COMPLETE**:
 2. no blanket merge is warranted — PRs #103/#41/#58/#50/#42/#40/#47 remain a separate historical/open stack;
 3. current `main` is the authoritative reference tree: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3`;
 4. the M7 keeper-controlled live rung was executed from the merged M7 implementation and independently cleared;
-5. the next Unreal architecture gate is State Extraction Fidelity v1 design/reconciliation, not another M7 implementation pass.
+5. State Extraction Fidelity v1 is complete, merged, independently reviewed, and live-gated;
+6. the next Unreal architecture gate is the fresh M12.5 semantic-verification design/reconciliation gate.
 
 Known open Unreal stack (still unreconciled, still not to be blanket-merged): PRs #103, #41, #58,
 #50, #42, #40, #47 — they do not all share the same base. PR #105 (VERIFY-vs-WRITE classification
 for `verify_actor_*`) remains a separate open draft and was not touched.
+
+### Unreal State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
+
+State Extraction Fidelity v1 is no longer a future gate.
+
+- PR #106: Revision 3.3 design frozen and merged.
+- PR #107: Revision 3.3 implementation merged.
+- Independent implementation review: **CLEAR**.
+- UE 5.6.1 build: **Succeeded**.
+- Fixture automation: **8/8 Success**.
+- Live transport gate: **PASS**.
+- Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
+- Residual cases remain explicitly classified; none is promoted to a false live pass.
+
+### M12.5 — ACTIVE ARCHITECTURE GATE
+
+M12.5 — Unreal Semantic Evidence Verification v1 — is now the active design/reconciliation gate.
+
+It consumes the resolved semantic task, immutable M12.3 plan, M12.4 mapping, State Extraction Fidelity observations, and existing verified render evidence where applicable. It produces a deterministic semantic target-state verification result, bound to task/plan/source/observation identity.
+
+M12.5 is not an execution or authorization milestone. It cannot schedule, execute, retry, recover, create a second render verifier, mint render receipts, or replace the existing M4–M10 authorities. Implementation is not authorized until independent architectural/red-team review clears the fresh design.
 
 ### M7 status — COMPLETE / MERGED / LIVE-PROVEN
 
