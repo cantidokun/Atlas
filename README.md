@@ -1,26 +1,35 @@
 # Atlas
 
-> **Current-state reconciliation — September 19, 2026.** Temporal Observation + State Delta v1 is merged to `main` (PR #109 → `7c63c3190c4adacfddb8d8b6a35721234876669b`). Blender Wave 15 live boundary closure is now complete: W1/W1b merged in PR #115 → `dcb04f704644b7814bd9fd7eae314423dd528860`, and W2 merged in PR #116 → `4a27af868c418181c3363b939d585944599ac400`. The Wave 15 live gates were independently red-teamed and cleared with minor non-blocking findings. Historical dated handoffs remain archival and are not rewritten.
+> **Current-state reconciliation — September 22, 2026.** M7 Case-B durable-witness + containment-keeper is complete, merged, and live-proven. Current main is `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132). Historical dated handoffs remain archival and are not rewritten.
 
+## Active development checkpoint — September 22, 2026
 
-## Active development checkpoint — September 20, 2026
+The September 20-21 checkpoint is now superseded by the completed M7 live rung.
 
-The current active work is **PR #122 — Temporal Observation ↔ Blender Correction Integration v3**.
+### M7 — COMPLETE / MERGED / LIVE-PROVEN
 
-- Branch: `design/temporal-correction-integration-v3`
-- Implementation candidate at the September 20 pause: `2d30e6b20a6a6886713097ee41eb36ba005b85be`; documentation-only checkpoint HEAD: `430f543e55967cfea8704133b665cb4379f7c208`
-- PR #122: **OPEN / MERGEABLE / NOT MERGED**
-- Base `main`: `321a9ca6ecbc58f52e9c66e1d1116387edcae60d`
-- The v3 design is session-scoped: canonical A → admission → one bounded correction → fresh canonical B from the same disposable Blender producer session → admission → StateDelta.
-- Temporal/correction/extraction/evaluator contracts are frozen for this implementation pass.
+- PR #132 merged the repository-owned containment keeper and M7 provenance hardening.
+- The first real UE 5.6.1 keeper-controlled execution closed as **Case B with exactly 1 production receipt and 0 adoption-path engine RPCs**.
+- **24/24 artifacts** were independently verified and **4/4 negative controls** refused.
+- Exact-head CI for the M7 documentation follow-up was green on Python 3.9 and 3.11.
+- Independent post-live review returned **CLEAR / READY FOR INTEGRATION**.
+- The frozen S1 rehearsal evidence remains rehearsal/render evidence only; it is not the production receipt source.
+- M7 closure does **not** claim that the full Contract V1 §33 S1-S8 scenario matrix was live-executed.
 
-### Pause state
+### Next Unreal track — State Extraction Fidelity v1
 
-Local evidence before the pause was green (4,225 passed / 129 skipped; focused v3 20/20; existing Temporal Blender L-1–L-5 8/8). However, exact-head GitHub Actions run #2150 (`35492194463`) is **RED** on both Python 3.9 and 3.11: 4,236 passed / 135 skipped / 3 failed.
+The next Unreal architecture track is the design branch `feat/unreal-state-extraction-fidelity-v1-design`.
 
-The three exact-head failures are recorded in `ATLAS_HANDOFF_CURRENT.md` and `ATLAS_HANDOFF_2026-09-20_END_OF_NIGHT.md`. PR #122 is **not merge-ready**, and the dedicated v3 end-to-end live gate has not been credited as exact-head GitHub evidence.
+This is a **read-only design/reconciliation gate** for a bounded, deterministic C++→Python extraction contract covering factual Unreal world/actor/material/Sequencer state. Implementation is not yet authorized.
 
-Resume from the handoff rather than assuming local green results close the gate.
+### Other current tracks
+
+- Blender: **CLOSED** for the current declared contract.
+- M11: **FROZEN**.
+- M12.1-M12.4: **implemented**.
+- M12.5: **deferred**.
+- M13.8/token optimization: **paused**.
+- Older Unreal PR stack: **do not blanket-merge**; retain selective-integration discipline.
 
 ## What Atlas is
 
@@ -225,8 +234,7 @@ An M6 test suite under `tests/m6/` implements the Contract V1 §31 failure matri
 M6 suite: **79 tests green**; full deterministic repository suite at the M6 milestone: **1088 passed** (current counts are tracked in `ATLAS_HANDOFF_CURRENT.md`). C++ automation additions (malformed-journal handling, capability/schema reporting, and — via M7 hardening — journal append/history retention) in `AtlasUE56RenderJobBoundaryTest.cpp` are compile-verified via UnrealBuildTool (module build succeeded) but not executed under the editor (no live UE in M6).
 
 M7 **hardening/pre-flight** (see `docs/UNREAL_M7_HARDENING.md`) has repaired the three production gaps M6 surfaced and verified them deterministically: (1) framed-catalog integrity now deep-thaws and validates canonical `known_jobs` framing; (2) the C++ witness journal is append-only with monotonic `phase_sequence` per Contract §30/§37; (3) `execution_deadline`/`submission_deadline` expiry now transitions unresolved jobs to `RECOVERY_FAILED` + `EXHAUSTED`.
-
-M7 live status (September 21, 2026 checkpoint): the exact-main arm gate is **CLEAR** on `748982713fb6042d875890cbd9999a3bbcbfb3aa` (tree `b851438bdc1d7a03507b72776fa2116b94b5092e`), and **S1 was submitted exactly once** — the render succeeded (engine-accepted, terminal `FINISHED`, `success=true`, 24 PNGs, 24/24 manifest hash/size verification, production-path verification `verified = true`). **Adoption is blocked (F-S1-1)**: the engine is both the liveness bearer and a member of the Job Object whose quiescence adoption requires, so **no receipt exists** for the S1 job. The design gate resolved the contract (**OPTION B — durable / journal-attested Case-B adoption**; Option A worker-scoped quiescence rejected), and the implementation plus the third-party-blocker remediation (B1–B4, E3) exists as **UNCOMMITTED / UNPUSHED** changes on `fix/unreal-m7-case-b-durable-witness`, **awaiting author-independent third-party review**. Scenarios 2–8 remain unrun and require explicit human authorization, and the frozen S1 evidence must not be regenerated. Restart point: `ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md`.
+M7 live status (September 22, 2026): **COMPLETE / MERGED / LIVE-PROVEN**. The first real UE 5.6.1 keeper-controlled execution rendered successfully, verified 24/24 artifacts, drained on the retained Job Object handle, and closed as **Case B with exactly one production receipt and zero adoption-path engine RPCs**. Four negative controls were independently refused. Exact-head CI was green and the independent post-live review returned **CLEAR / READY FOR INTEGRATION**. The frozen S1 rehearsal evidence is not the receipt source. The full S1-S8 scenario matrix is not being represented as complete by this rung.
 
 ## Current development workflow and model strategy
 
