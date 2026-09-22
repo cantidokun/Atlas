@@ -1,12 +1,12 @@
 # Atlas Current Development Handoff
 
-> **Authoritative current-state reconciliation — September 21, 2026.**
+> **Authoritative current-state reconciliation — September 22, 2026.**
 >
-> This document is the authoritative current development handoff. Older dated handoffs remain archival and must be reconciled against current main before use.
+> This document is the authoritative current development handoff. Dated handoffs remain archival and are not rewritten.
 >
-> **STATUS: IMPLEMENTATION REMEDIATION COMPLETE — AWAITING INDEPENDENT THIRD-PARTY REVIEW**
-> **NEXT ACTION: AUTHOR-INDEPENDENT THIRD-PARTY REVIEW OF THE UNCOMMITTED DIFF**
-> Restart point and full detail: [`ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md`](ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md).
+> **STATUS: M7 CONTAINMENT-KEEPER RUNG COMPLETE — MERGED AND LIVE-PROVEN**
+> **NEXT ACTION: UNREAL STATE EXTRACTION FIDELITY V1 READ-ONLY DESIGN/RECONCILIATION GATE**
+> Current main: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 
 ## Current position
 
@@ -85,45 +85,26 @@ Known open Unreal stack (still unreconciled, still not to be blanket-merged): PR
 #50, #42, #40, #47 — they do not all share the same base. PR #105 (VERIFY-vs-WRITE classification
 for `verify_actor_*`) remains a separate open draft and was not touched.
 
-### M7 status — September 21, 2026 checkpoint (supersedes the readiness list below)
+### M7 status — COMPLETE / MERGED / LIVE-PROVEN
 
-The Unreal track's active unfinished workstream is **M7 Case-B adoption**, not a fresh live
-scenario. Status:
+The Unreal M7 Case-B durable-witness + containment-keeper rung is complete on current main.
 
-- exact-main arm gate **CLEAR** on `74898271…` (10/10 fail-closed SHA/tree checkpoints, Phase A 11
-  gates with zero engine RPC, Phase B capability negotiation, UE 5.6 build up to date);
-- **S1 was submitted exactly once**; the render succeeded (engine-accepted, `FINISHED`,
-  `success=true`, 24 PNGs, 24/24 hash/size verification, production-path verification
-  `verified = true`);
-- **adoption was blocked (F-S1-1)** — the engine is both the liveness bearer and a member of the
-  Job Object whose quiescence adoption requires — and **no receipt exists** for the S1 job;
-- design gate resolved this: **OPTION B — durable / journal-attested Case-B adoption** is the
-  target contract; Option A (worker-scoped quiescence) is **rejected**;
-- the Case-B implementation plus the third-party-blocker remediation (B1–B4, E3) exist as
-  **UNCOMMITTED, UNPUSHED** working-tree changes on `fix/unreal-m7-case-b-durable-witness`;
-- **no independent third-party review of that remediated diff has happened yet** (another
-  independent model was unavailable); the author's verdicts are not independent evidence;
-- live blockers still open: **no production `journal_root` wiring** (Case B is inert in
-  production) and **no Job Object reattachment / real quiescence recovery** (Q4/Q8 not
-  implemented);
-- the frozen S1 evidence must **not** be regenerated or replaced; no second S1 render is authorized
-  or needed.
+- Current main merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
+- M7 implementation: `12a900e2e07c52875c3a8e33ea8fdf4d304caf14`.
+- M7 live-rung documentation: `2686330c02829be228e84ec6175215ffba4ba823`.
+- PR #131 was an ancestor of the merged M7 branch and was marked merged by GitHub when PR #132 landed; no separate implementation merge is outstanding.
+- First real UE 5.6.1 keeper-controlled rung: **Case B**, **exactly 1 production receipt**, **0 adoption-path engine RPCs**.
+- **24/24 artifacts** were independently verified.
+- **4/4 negative controls** refused with zero receipt and zero adoption-path engine RPCs.
+- The Job Object drained on the retained handle; final handle release destroyed the object and left no Unreal/helper process.
+- Exact-head CI for the M7 documentation follow-up was green on Python 3.9 and 3.11.
+- Independent post-live review returned **CLEAR / READY FOR INTEGRATION**.
+- The frozen S1 rehearsal evidence remains render/rehearsal evidence only and is not the production receipt source.
+- The full Contract V1 §33 S1-S8 scenario matrix is **not** claimed as fully live-executed by this rung.
 
-Historical scenario-readiness list from the earlier independent audit (retained for provenance;
-superseded by the status above):
-- S1 normal render — was listed as harness-verified with only the real UE runtime outstanding; since
-  executed once (see above);
-- S5 render finishes while Atlas is down — listed as harness-verified with only the real UE runtime
-  outstanding;
-- S6 orphaned artifacts — listed as harness-verified with only the real UE runtime outstanding;
-- S7 missing artifact after terminal claim — listed as harness-verified with only the real UE runtime
-  outstanding;
-- S2 Unreal restart — blocked/not yet live-proven;
-- S4 both restart — blocked/not yet live-proven;
-- S8 duplicate execution identity — blocked/not yet live-proven;
-- S3 Atlas restart — not yet proven.
+Accepted residuals remain explicit: Windows exposes no cryptographic Job Object instance identity, so containment provenance is attribution evidence rather than object-instance cryptographic proof; a keeper failure after quiescence but before recovery completion is intentionally fail-closed; the keeper does not own authorization, receipt publication, evidence verification, or case-classification authority.
 
-No live scenario should be credited without exact-tree evidence.
+Historical M7/M8/M9 dated readiness statements remain archival provenance and must not override this current status.
 
 ## Validation discipline
 
