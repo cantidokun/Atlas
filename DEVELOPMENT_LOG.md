@@ -769,3 +769,17 @@ Cross-process Unreal render-job recovery is implemented and merged via Milestone
 - Current required next review: fresh independent **GLM review of exact head `73e1b5d8c159122f14ec93a5a00e8996cd46c169`**. Do not begin implementation unless that review returns **CLEAR**.
 - GitHub Actions `Atlas Tests` run **#2236** was **IN PROGRESS** at the pause. No CI pass/fail conclusion is claimed for that run. Blender/Temporal legacy workflows are unrelated to PR #137 and are not a reason to reopen those tracks.
 - No merge decision was made. No live Unreal/Blender run was started for M12.5. The night ends at the architecture/reconciliation gate.
+
+## 2026-09-22 — M12.5 final minor-finding reconciliation
+
+- Fresh GLM review at PR #137 head 4ae9ff579bf54a11617123deba079f3bafc3ff77 returned CLEAR WITH MINOR FINDINGS.
+- The prior M12.5 blockers and major findings were confirmed closed. Remaining findings were: stale resume SHA in UNREAL_AGENT_HANDOFF_CURRENT.md, under-specified contradiction identity/divergence semantics, and incomplete enumeration of the declared-field vs untrusted provenance surfaces.
+- Design remediation applied:
+  - contradiction is now operationally exact: same task/scope/request identity plus unequal canonical-state digests is immediately CONTRADICTORY; digest inequality alone suffices;
+  - the canonical observation-identity tuple is frozen explicitly;
+  - the exact declared M12.5 envelope and result identity allowlists are enumerated;
+  - all non-declared/caller-supplied metadata remains subject to the broad authority-key predicate plus closed-schema rejection.
+- No production code was added. M12.5 remains implementation-unauthorized.
+- Resume documentation was corrected so future sessions resolve the live PR #137 head rather than reusing the historical 73e1b5d8 remediation SHA.
+- Atlas Tests #2246 was PASS on the preceding branch head. Any newer documentation-only head must receive a fresh exact-head CI check.
+- NEXT GATE: fresh exact-head independent review returning an unqualified CLEAR. Only then may implementation authorization be considered.
