@@ -6,7 +6,8 @@
 
 ## Current Unreal position — M7 CLOSED / State Extraction next
 
-- Current main: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132 merged).
+- Current main: `d237dbf686b666a745177a53ab782db60cd21c0f` (post-housekeeping docs commit).
+- M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 - PR #131 was an ancestor of the merged M7 branch and was marked merged by GitHub as part of that ancestry; there is no separate implementation merge outstanding.
 - M7 Case-B durable-witness + containment-keeper is **COMPLETE**.
 - First real UE 5.6.1 keeper-controlled rung: **Case B, exactly 1 production receipt, 0 adoption-path engine RPCs**.

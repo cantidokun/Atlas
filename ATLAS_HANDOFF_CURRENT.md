@@ -6,7 +6,7 @@
 >
 > **STATUS: M7 CONTAINMENT-KEEPER RUNG COMPLETE — MERGED AND LIVE-PROVEN**
 > **NEXT ACTION: UNREAL STATE EXTRACTION FIDELITY V1 READ-ONLY DESIGN/RECONCILIATION GATE**
-> Current main: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
+> Current main: `d237dbf686b666a745177a53ab782db60cd21c0f` (post-housekeeping docs commit). M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 
 ## Current position
 
@@ -21,9 +21,10 @@ Main now includes the final Blender discovery/closure records:
 Current main after that cleanup (the Blender-closure baseline at the time of this section):
 - `e4ac4c11e562cee687b33c62a308813b1b309d08`
 
-Current `main` after M7 closure:
-- **`526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3`** (PR #132 merged).
-- The M7 implementation landed at `12a900e2e07c52875c3a8e33ea8fdf4d304caf14`; the live-rung documentation follow-up landed at `2686330c02829be228e84ec6175215ffba4ba823`.
+Current `main` after M7 closure and housekeeping:
+- **`d237dbf686b666a745177a53ab782db60cd21c0f`**.
+- M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
+- M7 implementation: `12a900e2e07c52875c3a8e33ea8fdf4d304caf14`; live-rung documentation: `2686330c02829be228e84ec6175215ffba4ba823`.
 
 Independent audit status:
 - Blender Extraction Fidelity v1: **CLEAR / frozen**.
