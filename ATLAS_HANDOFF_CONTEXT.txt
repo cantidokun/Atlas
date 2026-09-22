@@ -1,69 +1,49 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 21, 2026 END-OF-NIGHT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 22, 2026 CURRENT CHECKPOINT
 
-Active workstream: Unreal M7 Case-B durable-witness adoption.
-- worktree: C:\Users\Gavin's PC\AppData\Local\Temp\atlas_m7_caseb
-- branch: fix/unreal-m7-case-b-durable-witness
-- pinned main / base: 748982713fb6042d875890cbd9999a3bbcbfb3aa
-- pinned tree: b851438bdc1d7a03507b72776fa2116b94b5092e
-- implementation state: UNCOMMITTED and UNPUSHED (no commit, no push, no PR, no merge)
-- the previous (September 20, 2026) Temporal v3 checkpoint in this file is SUPERSEDED by this
-  checkpoint; its archival record remains in ATLAS_HANDOFF_2026-09-20_END_OF_NIGHT.md
+Current main:
+- commit: 526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3
+- merge: PR #132
+- M7 implementation: 12a900e2e07c52875c3a8e33ea8fdf4d304caf14
+- M7 live-rung docs: 2686330c02829be228e84ec6175215ffba4ba823
 
-STATUS: IMPLEMENTATION REMEDIATION COMPLETE — AWAITING INDEPENDENT THIRD-PARTY REVIEW
-NEXT ACTION: AUTHOR-INDEPENDENT THIRD-PARTY REVIEW OF THE UNCOMMITTED DIFF
+M7 CURRENT STATUS:
+- COMPLETE / MERGED / LIVE-PROVEN
+- first real UE 5.6.1 keeper-controlled rung: Case B
+- exactly 1 production receipt
+- 0 adoption-path engine RPCs
+- 24/24 artifacts verified
+- 4/4 negative controls refused
+- independent post-live review: CLEAR / READY FOR INTEGRATION
+- exact-head CI for the docs follow-up: green on Python 3.9 and 3.11
+- frozen S1 rehearsal evidence is not the production receipt source
+- no additional Unreal run is required for M7 architectural closure
 
-M7 status:
-- exact-main arm gate CLEAR (10/10 fail-closed SHA/tree checkpoints; Phase A 11 gates, zero engine
-  RPC; Phase B capability negotiation; UE 5.6 build up to date)
-- S1 submitted exactly once; render SUCCEEDED (engine-accepted, FINISHED, success=true, 24 PNGs,
-  24/24 hash+size match, production-path verification verified=true)
-- adoption BLOCKED at F-S1-1 (engine liveness vs Job Object quiescence) — no receipt exists
-- design gate CLEAR: OPTION B (durable / journal-attested Case-B adoption) is the target contract;
-  OPTION A (worker-scoped quiescence) is rejected
-- third-party review of the pre-remediation revision returned BLOCKED (B1-B4, E3); remediation of
-  B1/B2/B3/B4 + E3 is COMPLETE in the working tree but has NOT been independently re-reviewed
-- frozen S1 evidence must NOT be regenerated or replaced; no second S1 render is authorized or needed
+Accepted M7 residuals:
+- Windows Job Object instance identity is attribution evidence, not cryptographic object identity.
+- Keeper failure after quiescence but before recovery completion is intentionally fail-closed.
+- Keeper owns containment/liveness triggering only; authorization, receipt publication, evidence verification, and case classification remain elsewhere.
 
-Validation at pause (deterministic; no Blender-gated tests):
-- env -u ATLAS_RUN_LIVE_BLENDER pytest -q tests/m7 tests/m8 tests/m9 tests/m10
-  -> 266 passed / 0 failed / 0 skipped / 2.84 s
-- env -u ATLAS_RUN_LIVE_BLENDER pytest -q -m "not integration"
-  -> 4350 passed / 0 failed / 136 skipped / 13.07 s
-- live-path differential vs pinned base coordinator (rt_diff_livepath.py): journal_root UNSET
-  12 scenarios -> 0 decision-level deltas (incl. both accidental deltas restored to base behavior);
-  journal_root SET with no relevant witness -> identical to base (4 scenarios)
-- rehearsal on copies of the frozen S1 evidence -> Case B, exactly 1 receipt, frozen bytes unchanged
-- no live Unreal run occurred during remediation; no second render; no new authorization/nonce/ordinal
+SCENARIO-SCOPE HONESTY:
+- This closure does NOT claim full Contract V1 §33 S1-S8 live completion.
+- The M7 keeper-controlled Case-B rung is the live architectural proof completed here.
+- M9 harness/readiness records remain valid provenance for the broader scenario matrix.
 
-Open live blockers (not commit-gate implementation defects):
-- no production caller supplies journal_root -> live Case B is inert in production
-- no OpenJobObjectW / Job Object reattachment / terminate-and-wait recovery API -> real quiescence
-  after the original launcher exits cannot be re-established (Q4/Q8 not implemented)
+NEXT ENGINEERING TRACK:
+- Unreal State Extraction Fidelity v1
+- design branch: feat/unreal-state-extraction-fidelity-v1-design
+- bounded, deterministic, read-only C++->Python extraction of factual Unreal world/actor/material/Sequencer state
+- implementation NOT authorized yet
+- next gate: current-main design/reconciliation review followed by independent architectural review
 
-Resume:
-1. Read ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md, ATLAS_HANDOFF_CURRENT.md, README.md.
-2. Run the author-independent third-party review of the exact uncommitted diff (tree b851438b...),
-   including tests/m9/test_m9_durable_witness_remediation.py and a re-run of rt_diff_livepath.py.
-3. Commit ONLY after that review returns CLEAR.
-4. Run CI on the committed revision.
-5. Complete production journal_root wiring.
-6. Resolve/implement the required real quiescence / Job Object recovery mechanism.
-7. Perform a separate live adoption gate against the FROZEN S1 evidence.
+OTHER TRACKS:
+- Blender: CLOSED for current declared contract
+- M11: FROZEN
+- M12.1-M12.4: implemented
+- M12.5: deferred
+- M13.8/token optimization: paused
+- PR #105: separate open draft; not promoted
+- Older Unreal PR stack (#103/#41/#58/#50/#42/#40/#47): do not blanket-merge
 
-Do not:
-- modify implementation code or tests outside a new authorized rung;
-- commit, push, create a PR, or merge;
-- run live Unreal, submit another render, or run Blender-gated tests;
-- implement Q4/Q8 in this rung;
-- touch Temporal, PR #105, or historical Unreal authority paths;
-- delete, move or regenerate the frozen S1 journal/artifacts/record/receipt state;
-- weaken the §9 quiescence invariant, identity binding, HMAC checks, artifact verification,
-  duplicate protection, or receipt semantics.
-
-Track boundaries:
-- Blender track: CLOSED for the current declared contract (reopen only for a concrete defect).
-- Temporal: frozen/closed at its current approved boundary.
-- Unreal M11 frozen; M12.1-M12.4 implemented; M12.5 deferred; M13.8/token optimization paused.
-- Unreal M7 Case-B adoption is the active unfinished workstream.
-
-Historical dated handoff snapshots are archival records and should not be rewritten.
+WORKING RULE:
+- Dated handoff snapshots remain archival and should not be rewritten.
+- Authoritative current-state surfaces are ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, README.md, and this context file.
