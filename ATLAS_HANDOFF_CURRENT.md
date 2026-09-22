@@ -21,10 +21,9 @@ Main now includes the final Blender discovery/closure records:
 Current main after that cleanup (the Blender-closure baseline at the time of this section):
 - `e4ac4c11e562cee687b33c62a308813b1b309d08`
 
-Current `main` as of the September 21, 2026 checkpoint (supersedes the baseline above):
-- **`748982713fb6042d875890cbd9999a3bbcbfb3aa`** (tree `b851438bdc1d7a03507b72776fa2116b94b5092e`)
-- PR #129 was merged as `0b8b4ba6`; PR #130 (M7 live pre-flight arming) was merged and produced the
-  current main above.
+Current `main` after M7 closure:
+- **`526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3`** (PR #132 merged).
+- The M7 implementation landed at `12a900e2e07c52875c3a8e33ea8fdf4d304caf14`; the live-rung documentation follow-up landed at `2686330c02829be228e84ec6175215ffba4ba823`.
 
 Independent audit status:
 - Blender Extraction Fidelity v1: **CLEAR / frozen**.
@@ -72,14 +71,11 @@ This is **not** a request to mix Blender and Unreal implementation indiscriminat
 
 The first Unreal gate was **read-only reconciliation**, and it is **COMPLETE**:
 
-1. the open Unreal PR/branch stack was inventoried (all six inspected branches share one fork and
-   are ~1455 commits behind main; main's modules are strict supersets);
-2. no blanket merge is warranted — a blanket merge of #103/#41/#58/#50 or the rest is explicitly
-   rejected;
-3. one exact tree was established and used for live validation: current `main`
-   (`748982713fb6042d875890cbd9999a3bbcbfb3aa`, tree `b851438bdc1d7a03507b72776fa2116b94b5092e`);
-4. deterministic evidence on that exact tree was verified (see the M7 status below);
-5. the explicitly authorized UE 5.6 M7 live arm gate and the single S1 submission followed.
+1. the open Unreal PR/branch stack was inventoried and selective integration was retained as the rule;
+2. no blanket merge is warranted — PRs #103/#41/#58/#50/#42/#40/#47 remain a separate historical/open stack;
+3. current `main` is the authoritative reference tree: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3`;
+4. the M7 keeper-controlled live rung was executed from the merged M7 implementation and independently cleared;
+5. the next Unreal architecture gate is State Extraction Fidelity v1 design/reconciliation, not another M7 implementation pass.
 
 Known open Unreal stack (still unreconciled, still not to be blanket-merged): PRs #103, #41, #58,
 #50, #42, #40, #47 — they do not all share the same base. PR #105 (VERIFY-vs-WRITE classification
@@ -108,23 +104,21 @@ Historical M7/M8/M9 dated readiness statements remain archival provenance and mu
 
 ## Validation discipline
 
-Use the following sequence for Unreal:
+For the next Unreal track, preserve the same gate structure:
 
-    reconciliation
+    read-only reconciliation
         ↓
-    deterministic validation
+    deterministic design validation
         ↓
-    known exact head
+    independent architectural review
         ↓
-    explicit operator authorization
+    explicit implementation authorization
         ↓
-    UE 5.6 live M7 scenarios
+    exact-head deterministic validation
         ↓
-    independent red-team review
-        ↓
-    production-capability claim only if the evidence supports it
+    separately authorized live evidence when the contract requires it
 
-Deterministic tests do not substitute for live engine evidence.
+The completed M7 live evidence remains the current production-path evidence for the containment-keeper rung; it does not substitute for future State Extraction Fidelity evidence.
 
 ## Other tracks
 
