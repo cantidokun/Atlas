@@ -8,7 +8,7 @@
 - Base/current `main`: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge).
 - Active branch: `docs/m12-5-architecture-reconciliation`.
 - PR: **#137**, OPEN / DRAFT / NOT MERGED.
-- Exact PR #137 head at pause: `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.
+- M12.5 design-remediation head: `73e1b5d8c159122f14ec93a5a00e8996cd46c169`; subsequent branch commits are handoff/readme synchronization only. Use the current PR #137 head when resuming.
 - PR #137 remains documentation/design only; no production M12.5 implementation exists.
 - State Extraction Fidelity v1 is already COMPLETE / MERGED / INDEPENDENTLY REVIEWED CLEAR / LIVE-GATED.
 - PR #105 is closed and superseded by PR #136; do not revive it.
@@ -80,7 +80,7 @@ Hermes also disclosed that its remediated re-review was performed by the same ag
 
 The exact next review is:
 
-**Fresh independent GLM review of PR #137 at exact head `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.**
+**Fresh independent GLM review of the current PR #137 head.** The design-remediation baseline reviewed by Hermes is `73e1b5d8c159122f14ec93a5a00e8996cd46c169`; subsequent changes are documentation-only handoff synchronization.
 
 Required outcome before implementation:
 
