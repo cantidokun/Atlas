@@ -1,8 +1,30 @@
 # Milestone 9 — Live Recovery Readiness & Scenario Harness (PRE-FLIGHT)
 
+> **STATUS CORRECTION — September 21, 2026 (supersedes the "Status" block below for current
+> purposes).** This document remains an accurate record of the M9 pre-flight *harness readiness*
+> state and is retained for provenance, but its `READY_FOR_LIVE` matrix is **no longer the current
+> live status**:
+>
+> * **S1 has since been executed exactly once** (engine-accepted submission, terminal `FINISHED`,
+>   `success=true`, 24 PNGs with 24/24 manifest hash/size verification, production-path
+>   verification `verified = true`). It is **not** adopted: **F-S1-1** blocked Case B under
+>   contained-engine quiescence and **no receipt exists**. Scenarios 2–8 remain unrun.
+> * The containment model in the M9 spec has been corrected (**F-S1-2**): a contained engine makes
+>   `engine_capable=True` and `quiescent=True` mutually exclusive, so the harness now derives its
+>   flags from one declared `ContainmentState` and **rejects** that impossible combination instead
+>   of declaring it.
+> * The corrected contract is **OPTION B — durable / journal-attested Case-B adoption** (design
+>   gate `DESIGN GATE CLEAR — CASE B CONTRACT DEFINED`); the implementation plus the third-party
+>   blocker remediation is **UNCOMMITTED / UNPUSHED** on `fix/unreal-m7-case-b-durable-witness`
+>   and is **awaiting author-independent third-party review**. Live Case B is still **inert in
+>   production** (no `journal_root` wiring), and real quiescence cannot be re-acquired after the
+>   original launcher exits (no `OpenJobObjectW` / reattachment; Q4/Q8 not implemented).
+> * Authoritative restart point: `ATLAS_HANDOFF_2026-09-21_END_OF_NIGHT.md`.
+
 ## Status
 
-**PRE-FLIGHT ONLY. NO LIVE SCENARIO HAS BEEN EXECUTED.**
+**PRE-FLIGHT ONLY. NO LIVE SCENARIO HAS BEEN EXECUTED.** *(Historical M9-scope statement; see the
+status correction above for the current M7 live position.)*
 
 M9 prepares Atlas for the *first authorized* live execution of Contract V1 §33
 Scenarios 1–8 without running any live scenario. It does NOT launch UnrealEditor,

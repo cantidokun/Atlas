@@ -14,7 +14,7 @@ import os
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
 
 from planning.unreal_adapter_production import UnrealAdapterError, UnrealAdapterProduction
 from planning.unreal_evidence_contract import (
@@ -47,7 +47,21 @@ from planning.unreal_render_job_store import (
 )
 from planning.unreal_render_receipt import UnrealRenderReceipt
 from planning.unreal_render_receipt_store import UnrealRenderReceiptStore
-from scripts.run_unreal_supervisor import AtlasProcessSupervisor, evaluate_process_quiescence
+from planning.unreal_containment_launch_record import (
+    ContainmentLaunchRecord,
+    containment_dir_for_store,
+    verify_launch_record_for_job,
+)
+from planning.unreal_containment_quiescence import evaluate_containment_quiescence
+from planning.unreal_witness_journal import (
+    JOURNAL_STATUS_COMPLETE,
+    JOURNAL_STATUS_CONFLICT,
+    JOURNAL_STATUS_PARTIAL,
+    DurableWitness,
+    DurableWitnessJournalReader,
+    canonical_engine_job_id,
+)
+from scripts.run_unreal_supervisor import AtlasProcessSupervisor
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +162,9 @@ class UnrealRenderRecoveryCoordinator:
         coordinator_id: str = "atlas-recovery-coordinator-primary",
         supervisor: Optional[AtlasProcessSupervisor] = None,
         deployment_mode: str = "CONTAINED_JOB_OBJECT",
+        journal_root: Optional[str] = None,
+        containment_launch_record: Optional[Any] = None,
+        containment_dir: Optional[str] = None,
     ):
         self.store = store
         self.adapter = adapter
@@ -155,6 +172,93 @@ class UnrealRenderRecoveryCoordinator:
         self.coordinator_id = coordinator_id
         self.supervisor = supervisor
         self.deployment_mode = deployment_mode.upper().strip()
+        # Contract V1 §9 / F-DG-1: the attempt-bound launch identity of the Job Object the
+        # supervisor retains. Supplied by the containment keeper (Option 4: recovery runs
+        # in-process with the keeper's live handle). When it is not supplied, the launch
+        # record is resolved and authenticated from the durable containment store using
+        # ``containment_dir``; when neither is available the §9 predicate fails closed and
+        # no terminal artifact can ever be adopted.
+        self.containment_launch_record = containment_launch_record
+        # Default resolution root is the durable store's own containment directory
+        # (Contract V1 §10): a launch record is always defined relative to the store that
+        # holds the attempt's render record, so no caller can point recovery at an
+        # unrelated provenance directory.
+        self.containment_dir = (
+            str(containment_dir) if containment_dir is not None
+            else str(containment_dir_for_store(store.root))
+        )
+        # Durable witness journal root (Contract V1 §10). When configured, Case B can
+        # be served from the durable prior-session witness without any engine RPC --
+        # which is the only state in which Contract V1 §9.279 permits adoption
+        # (ActiveProcesses == 0 means the engine's pipe server is gone).
+        self.journal_root = str(journal_root) if journal_root is not None else None
+        self._witness_reader: Optional[DurableWitnessJournalReader] = (
+            DurableWitnessJournalReader(self.journal_root) if self.journal_root else None
+        )
+
+    def _resolve_containment_launch_record(
+        self,
+        record: Optional[AtlasRenderJobRecord],
+    ) -> Tuple[Optional[ContainmentLaunchRecord], str]:
+        """Resolve the attempt's authoritative containment launch record for this reconcile.
+
+        Two construction paths are supported and BOTH end in an authenticated, attempt-bound
+        launch record (or a refusal):
+
+        * the keeper supplies the record object it wrote (Option 4: recovery runs in-process
+          with the keeper's live handle);
+        * a caller supplies only ``containment_dir`` (the durable construction path) - then
+          the record is loaded and authenticated from the durable containment store here,
+          BEFORE any quiescence or engine-incarnation evaluation, so no check is silently
+          skipped on that path.
+
+        Returns ``(record, reason)``; ``reason`` is empty on success. Nothing is invented:
+        a missing, malformed or unauthenticated record yields ``(None, reason)`` and callers
+        must fail closed.
+        """
+        if self.containment_launch_record is not None:
+            return self.containment_launch_record, ""
+        if record is None:
+            return None, "no durable render record supplied to resolve the launch record against"
+        if not self.containment_dir:
+            return None, "no containment directory is configured for this coordinator"
+        return verify_launch_record_for_job(self.containment_dir, record)
+
+    def _establish_quiescence(
+        self,
+        record: Optional[AtlasRenderJobRecord] = None,
+        launch_record: Optional[ContainmentLaunchRecord] = None,
+    ):
+        """Evaluate the Contract V1 §9 quiescence predicate (single evaluation).
+
+        §9.279: "Only when ActiveProcesses == 0 is confirmed may recovery inspect or
+        adopt terminal disk artifacts." The predicate is therefore established BEFORE
+        any witness acquisition and before any engine interaction on the adoption
+        path.
+
+        F-DG-1: the predicate is evaluated over the attempt's OWN retained launch object
+        (``JobObjectHandleValid`` per Contract V1 §9). A handle to a fresh/synthetic Job
+        Object, a missing or tampered launch record, a launch record that does not bind to
+        this durable record, a missing ``KILL_ON_JOB_CLOSE``, enabled breakaway, or
+        ``TotalProcesses`` below the recorded launch composition ALL make quiescence
+        FALSE, so terminal artifacts stay uninspected and unadopted.
+        """
+        resolved = launch_record if launch_record is not None else self.containment_launch_record
+        return evaluate_containment_quiescence(
+            self.supervisor,
+            self.deployment_mode,
+            launch_record=resolved,
+            job_record=record,
+            # Only when no record was resolved do we let the predicate resolve it itself, so
+            # the refusal carries the precise authentication reason.
+            containment_dir=None if resolved is not None else self.containment_dir,
+        )
+
+    def _acquire_durable_witness(self, record: AtlasRenderJobRecord) -> Optional[DurableWitness]:
+        """Read the durable witness journal set (read-only, never an engine RPC)."""
+        if self._witness_reader is None:
+            return None
+        return self._witness_reader.read(record.atlas_job_id, record.unreal_job_id)
 
     def _expired_deadline(
         self,
@@ -294,10 +398,68 @@ class UnrealRenderRecoveryCoordinator:
             if expired_deadline is not None:
                 return self._deadline_exhausted_transition(record, expired_deadline)
 
-            # Step 2: Capability & Session discovery
+            # Step 2 (Contract V1 §9 / M7 Case B contract T1): establish process
+            # quiescence BEFORE acquiring any witness and before any engine
+            # interaction on the adoption path. §9.279: "Only when ActiveProcesses == 0
+            # is confirmed may recovery inspect or adopt terminal disk artifacts."
+            # With the engine inside this Job Object a satisfied predicate means the
+            # engine's pipe server is gone, so terminal adoption MUST be served from
+            # the durable witness rather than a live RPC.
+            # Red-team cleanup item 2: resolve the attempt's launch record BEFORE any
+            # quiescence or engine-incarnation evaluation, so the durable construction path
+            # (containment_launch_record=None + containment_dir supplied) performs the SAME
+            # identity checks as the keeper path instead of skipping them.
+            containment_launch_record, launch_resolution_reason = (
+                self._resolve_containment_launch_record(record)
+            )
+            if containment_launch_record is None:
+                self._last_launch_resolution_reason = launch_resolution_reason
+            quiescence = self._establish_quiescence(record, containment_launch_record)
+
+            # Step 3: Durable witness acquisition (Contract V1 §10 / §21 Case B).
+            # Read-only, no engine RPC, no receipt, no journal mutation.
+            durable_witness = self._acquire_durable_witness(record)
+            if durable_witness is not None:
+                if durable_witness.status == JOURNAL_STATUS_CONFLICT:
+                    # Case H: multiple materially different executions claim this job.
+                    return self._case_h_conflict_transition(record, valid_id, durable_witness.reason)
+                if durable_witness.status == JOURNAL_STATUS_PARTIAL:
+                    # Case J: durable witness is unparseable/torn/unbound.
+                    return self._case_j_pending_transition(record, valid_id, durable_witness.reason)
+                if durable_witness.is_terminal:
+                    # A durable TERMINAL witness (FINISHED or FAILED) is adjudicated
+                    # offline through the SAME adoption tail the live path uses: FINISHED
+                    # with successful verified evidence -> Case B; a terminal FAILED
+                    # claim fails closed to Case G. No engine RPC is needed to learn that
+                    # a durably attested terminal execution finished or failed (B4).
+                    if not quiescence.is_quiescent:
+                        # Terminal artifacts exist but quiescence is NOT established:
+                        # fail closed without inspecting or adopting them (§9.279).
+                        return self._case_k_quiescence_transition(record, valid_id, quiescence)
+                    return self._adopt_durable_witness(
+                        record, valid_id, lease_token, durable_witness,
+                        launch_record=containment_launch_record)
+                # COMPLETE but not terminal (execution in flight): neither adoptable nor
+                # a rejection - the live path owns the Case A / Case J decision there.
+
+            # Step 4: Capability & Session discovery (live engine witness)
             try:
                 self.adapter.assert_recovery_capable(record.authorization_id)
             except UnrealAdapterError as exc:
+                if (
+                    durable_witness is not None
+                    and durable_witness.status == JOURNAL_STATUS_COMPLETE
+                    and not durable_witness.is_terminal
+                ):
+                    # A relevant durable witness exists but never reached a terminal phase
+                    # and the engine is unreachable: the execution is unresolved
+                    # (torn/interrupted after a dual-process interruption). Classify Case J
+                    # exactly as the live path does for a non-terminal witness, instead of
+                    # silently holding (Contract V1 §19 / §21 Case J).
+                    return self._case_j_pending_transition(
+                        record, valid_id,
+                        "Durable witness is non-terminal and the engine is unreachable; "
+                        "execution unresolved, entered RECOVERY_PENDING")
                 # Engine down or unreachable -> transition to WAITING_FOR_ENGINE
                 waiting_record = record.transition(
                     recovery_status=RenderJobRecoveryStatus.WAITING_FOR_ENGINE,
@@ -314,25 +476,12 @@ class UnrealRenderRecoveryCoordinator:
                     failure_reason=f"Transport capability assertion failed: {exc}",
                 )
 
-            # Step 3: Query Reconcile Catalog
+            # Step 5: Query Reconcile Catalog (live engine witness)
             catalog_response = self._query_catalog(valid_id, record.authorization_id)
             if catalog_response is None or catalog_response.get("journal_status") in ("PARTIAL", "UNREADABLE"):
                 # Case J: Journal is partial / unreadable / corrupt
-                pending_record = record.transition(
-                    recovery_status=RenderJobRecoveryStatus.RECOVERY_PENDING,
-                    increment_ambiguity=True,
-                )
-                self.store.update(pending_record, expected_revision=record.last_observed_revision)
-                return RecoveryDecisionResult(
-                    atlas_job_id=valid_id,
-                    lifecycle_state_before=state_before,
-                    lifecycle_state_after=pending_record.lifecycle_state,
-                    recovery_status_before=status_before,
-                    recovery_status_after=pending_record.recovery_status,
-                    case_classified="Case J",
-                    repaired_from_receipt=False,
-                    failure_reason="Catalog response is partial or unreadable",
-                )
+                return self._case_j_pending_transition(
+                    record, valid_id, "Catalog response is partial or unreadable")
 
             # Case H (S8): journal_status=CONFLICT - the engine witness observed
             # materially different executions claiming the same atlas_job_id before
@@ -342,25 +491,10 @@ class UnrealRenderRecoveryCoordinator:
             # UNREADABLE (Case J -> RECOVERY_PENDING) and from the >1-candidate
             # (Case H) paths, so it cannot be merged with either.
             if catalog_response is not None and catalog_response.get("journal_status") == "CONFLICT":
-                conflict_failed = record.transition(
-                    lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
-                    recovery_status=RenderJobRecoveryStatus.NONE,
-                    failure_reason=(
-                        "Engine witness reports conflicting execution identities "
-                        "for atlas_job_id " + valid_id + " (journal_status=CONFLICT)"
-                    ),
-                )
-                self.store.update(conflict_failed, expected_revision=record.last_observed_revision)
-                return RecoveryDecisionResult(
-                    atlas_job_id=valid_id,
-                    lifecycle_state_before=state_before,
-                    lifecycle_state_after=conflict_failed.lifecycle_state,
-                    recovery_status_before=status_before,
-                    recovery_status_after=conflict_failed.recovery_status,
-                    case_classified="Case H",
-                    repaired_from_receipt=False,
-                    failure_reason=conflict_failed.failure_reason,
-                )
+                return self._case_h_conflict_transition(
+                    record, valid_id,
+                    "Engine witness reports conflicting execution identities "
+                    "for atlas_job_id " + valid_id + " (journal_status=CONFLICT)")
 
             known_jobs = catalog_response.get("known_jobs", [])
             # Find candidate engine jobs matching atlas_job_id
@@ -368,22 +502,9 @@ class UnrealRenderRecoveryCoordinator:
 
             # Case H: Multiple Unreal executions claim the same Atlas job
             if len(candidates) > 1:
-                failed_record = record.transition(
-                    lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
-                    recovery_status=RenderJobRecoveryStatus.NONE,
-                    failure_reason=f"Multiple Unreal executions claim atlas_job_id {valid_id}",
-                )
-                self.store.update(failed_record, expected_revision=record.last_observed_revision)
-                return RecoveryDecisionResult(
-                    atlas_job_id=valid_id,
-                    lifecycle_state_before=state_before,
-                    lifecycle_state_after=failed_record.lifecycle_state,
-                    recovery_status_before=status_before,
-                    recovery_status_after=failed_record.recovery_status,
-                    case_classified="Case H",
-                    repaired_from_receipt=False,
-                    failure_reason=failed_record.failure_reason,
-                )
+                return self._case_h_conflict_transition(
+                    record, valid_id,
+                    f"Multiple Unreal executions claim atlas_job_id {valid_id}")
 
             # Check if there is NO candidate in the engine catalog
             if len(candidates) == 0:
@@ -394,22 +515,7 @@ class UnrealRenderRecoveryCoordinator:
             # Case E & F: Identity, sequence, config binding validation
             binding_mismatch = self._check_candidate_bindings(record, candidate)
             if binding_mismatch:
-                failed_record = record.transition(
-                    lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
-                    recovery_status=RenderJobRecoveryStatus.NONE,
-                    failure_reason=binding_mismatch,
-                )
-                self.store.update(failed_record, expected_revision=record.last_observed_revision)
-                return RecoveryDecisionResult(
-                    atlas_job_id=valid_id,
-                    lifecycle_state_before=state_before,
-                    lifecycle_state_after=failed_record.lifecycle_state,
-                    recovery_status_before=status_before,
-                    recovery_status_after=failed_record.recovery_status,
-                    case_classified="Case E/F",
-                    repaired_from_receipt=False,
-                    failure_reason=binding_mismatch,
-                )
+                return self._case_e_f_transition(record, valid_id, binding_mismatch)
 
             # Check if candidate is live in the current session
             is_live = candidate.get("state_source") == "in_memory_registry" and not candidate.get("finished", False)
@@ -441,26 +547,14 @@ class UnrealRenderRecoveryCoordinator:
                 # NOT terminal FAILED, even when the recovered witness manifest is
                 # empty. A non-terminal witness is not a finished execution, so the
                 # empty-manifest/artifact Case G path must never capture it.
-                pending_record = record.transition(
-                    recovery_status=RenderJobRecoveryStatus.RECOVERY_PENDING,
-                    increment_ambiguity=True,
-                )
-                self.store.update(pending_record, expected_revision=record.last_observed_revision)
-                return RecoveryDecisionResult(
-                    atlas_job_id=valid_id,
-                    lifecycle_state_before=state_before,
-                    lifecycle_state_after=pending_record.lifecycle_state,
-                    recovery_status_before=status_before,
-                    recovery_status_after=pending_record.recovery_status,
-                    case_classified="Case J",
-                    repaired_from_receipt=False,
-                    failure_reason=(
-                        "Witness journal is non-terminal (torn/interrupted after "
-                        "dual-process interruption); execution unresolved, entered "
-                        "RECOVERY_PENDING"
-                    ),
-                )
-            return self._handle_finished_candidate(record, candidate, valid_id, lease_token)
+                return self._case_j_pending_transition(
+                    record, valid_id,
+                    "Witness journal is non-terminal (torn/interrupted after "
+                    "dual-process interruption); execution unresolved, entered "
+                    "RECOVERY_PENDING")
+            return self._handle_finished_candidate(
+                record, candidate, valid_id, lease_token, quiescence=quiescence,
+                launch_record=containment_launch_record)
 
     @staticmethod
     def _candidate_is_terminal(candidate: Mapping[str, Any]) -> bool:
@@ -592,7 +686,15 @@ class UnrealRenderRecoveryCoordinator:
             return None
 
     def _check_candidate_bindings(self, record: AtlasRenderJobRecord, candidate: Mapping[str, Any]) -> Optional[str]:
-        """Check whether candidate parameters match durable intent."""
+        """Check whether candidate parameters match durable intent.
+
+        This is the LIVE engine-catalog binding check and is intentionally identical to
+        the pre-durable-witness behaviour (the live catalog names the engine execution
+        ``job_id``); the durable witness has its own check
+        (:meth:`_check_durable_witness_bindings`) because a §10 journal names it
+        ``unreal_job_id``.  Keeping the two separate is what preserves the live path's
+        decision semantics exactly.
+        """
         if candidate.get("sequence_asset_path") != record.sequence_asset_path:
             return f"Sequence asset path mismatch: expected {record.sequence_asset_path}, got {candidate.get('sequence_asset_path')}"
         if candidate.get("config_digest") != record.config_digest:
@@ -601,6 +703,37 @@ class UnrealRenderRecoveryCoordinator:
             return f"Output directory mismatch: expected {record.output_directory}, got {candidate.get('output_directory')}"
         if record.unreal_job_id and candidate.get("job_id") != record.unreal_job_id:
             return f"Unreal job ID mismatch: expected {record.unreal_job_id}, got {candidate.get('job_id')}"
+        return None
+
+    def _check_durable_witness_bindings(
+        self, record: AtlasRenderJobRecord, candidate: Mapping[str, Any]
+    ) -> Optional[str]:
+        """Binding check for a DURABLE §10 witness candidate (Contract V1 §20 Step 6).
+
+        Differences from the live check, each grounded in the contract:
+
+        * the engine identity is resolved through
+          :func:`canonical_engine_job_id`, which returns ``None`` for a contradictory
+          witness and is therefore never resolved toward adoption;
+        * the record's bound ``unreal_job_id`` must equal the witness identity;
+        * an authorization id carried by the witness must match the record's (the durable
+          path has no live ``assert_recovery_capable`` authorization probe to rely on).
+        """
+        if candidate.get("sequence_asset_path") != record.sequence_asset_path:
+            return f"Sequence asset path mismatch: expected {record.sequence_asset_path}, got {candidate.get('sequence_asset_path')}"
+        if candidate.get("config_digest") != record.config_digest:
+            return f"Config digest mismatch: expected {record.config_digest}, got {candidate.get('config_digest')}"
+        if candidate.get("output_directory") != record.output_directory:
+            return f"Output directory mismatch: expected {record.output_directory}, got {candidate.get('output_directory')}"
+        observed_job_id = canonical_engine_job_id(candidate)
+        if record.unreal_job_id and observed_job_id != record.unreal_job_id:
+            return f"Unreal job ID mismatch: expected {record.unreal_job_id}, got {observed_job_id}"
+        observed_auth = candidate.get("authorization_id")
+        if isinstance(observed_auth, str) and observed_auth and observed_auth != record.authorization_id:
+            return (
+                f"Authorization mismatch: expected {record.authorization_id}, "
+                f"got {observed_auth}"
+            )
         return None
 
     def _bind_record_identity_to_observation(
@@ -624,10 +757,13 @@ class UnrealRenderRecoveryCoordinator:
         """
         bound = {k: v for k, v in candidate.items()}
 
-        # job_id / unreal_job_id: engine-witnessed; carry both names when present.
-        engine_unreal = candidate.get("unreal_job_id") or candidate.get("job_id")
-        bound.setdefault("job_id", engine_unreal)
-        bound.setdefault("unreal_job_id", engine_unreal)
+        # Engine execution identity: one canonical value carried under both names. A
+        # contradictory candidate has no canonical identity (the reader rejects those
+        # before adoption), and this never resolves a contradiction toward adoption.
+        engine_unreal = canonical_engine_job_id(candidate)
+        if engine_unreal is not None:
+            bound.setdefault("job_id", engine_unreal)
+            bound.setdefault("unreal_job_id", engine_unreal)
 
         # Atlas-authoritative identity the engine cannot witness:
         bound.setdefault("canonical_digital_twin_id", record.canonical_digital_twin_id)
@@ -693,35 +829,193 @@ class UnrealRenderRecoveryCoordinator:
                 repaired_from_receipt=False,
             )
 
+    # ---- shared case transitions (used by BOTH witness sources) -------------
+    def _case_h_conflict_transition(
+        self,
+        record: AtlasRenderJobRecord,
+        atlas_job_id: str,
+        reason: str,
+    ) -> RecoveryDecisionResult:
+        """Case H: multiple materially different executions claim one Atlas job."""
+        failed_record = record.transition(
+            lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
+            recovery_status=RenderJobRecoveryStatus.NONE,
+            failure_reason=reason,
+        )
+        self.store.update(failed_record, expected_revision=record.last_observed_revision)
+        return RecoveryDecisionResult(
+            atlas_job_id=atlas_job_id,
+            lifecycle_state_before=record.lifecycle_state,
+            lifecycle_state_after=failed_record.lifecycle_state,
+            recovery_status_before=record.recovery_status,
+            recovery_status_after=failed_record.recovery_status,
+            case_classified="Case H",
+            repaired_from_receipt=False,
+            failure_reason=failed_record.failure_reason,
+        )
+
+    def _case_j_pending_transition(
+        self,
+        record: AtlasRenderJobRecord,
+        atlas_job_id: str,
+        reason: str,
+    ) -> RecoveryDecisionResult:
+        """Case J: the witness is partial/unreadable/torn -> bounded RECOVERY_PENDING."""
+        pending_record = record.transition(
+            recovery_status=RenderJobRecoveryStatus.RECOVERY_PENDING,
+            increment_ambiguity=True,
+        )
+        self.store.update(pending_record, expected_revision=record.last_observed_revision)
+        return RecoveryDecisionResult(
+            atlas_job_id=atlas_job_id,
+            lifecycle_state_before=record.lifecycle_state,
+            lifecycle_state_after=pending_record.lifecycle_state,
+            recovery_status_before=record.recovery_status,
+            recovery_status_after=pending_record.recovery_status,
+            case_classified="Case J",
+            repaired_from_receipt=False,
+            failure_reason=reason,
+        )
+
+    def _case_e_f_transition(
+        self,
+        record: AtlasRenderJobRecord,
+        atlas_job_id: str,
+        reason: str,
+    ) -> RecoveryDecisionResult:
+        """Case E/F: the Atlas record and the witness disagree on bound identity."""
+        failed_record = record.transition(
+            lifecycle_state=RenderJobLifecycleState.RECOVERY_FAILED,
+            recovery_status=RenderJobRecoveryStatus.NONE,
+            failure_reason=reason,
+        )
+        self.store.update(failed_record, expected_revision=record.last_observed_revision)
+        return RecoveryDecisionResult(
+            atlas_job_id=atlas_job_id,
+            lifecycle_state_before=record.lifecycle_state,
+            lifecycle_state_after=failed_record.lifecycle_state,
+            recovery_status_before=record.recovery_status,
+            recovery_status_after=failed_record.recovery_status,
+            case_classified="Case E/F",
+            repaired_from_receipt=False,
+            failure_reason=reason,
+        )
+
+    def _case_k_quiescence_transition(
+        self,
+        record: AtlasRenderJobRecord,
+        atlas_job_id: str,
+        quiescence: Any,
+    ) -> RecoveryDecisionResult:
+        """Case K: quiescence not established -> NEVER inspect or adopt artifacts.
+
+        Contract V1 §9.279: terminal disk artifacts may only be inspected/adopted
+        once ``ActiveProcesses == 0`` is confirmed. The failure reason is taken from
+        the quiescence predicate itself.
+        """
+        waiting_record = record.transition(
+            recovery_status=RenderJobRecoveryStatus.WAITING_FOR_ENGINE_QUIESCENCE,
+            failure_reason=quiescence.reason,
+        )
+        self.store.update(waiting_record, expected_revision=record.last_observed_revision)
+        return RecoveryDecisionResult(
+            atlas_job_id=atlas_job_id,
+            lifecycle_state_before=record.lifecycle_state,
+            lifecycle_state_after=waiting_record.lifecycle_state,
+            recovery_status_before=record.recovery_status,
+            recovery_status_after=waiting_record.recovery_status,
+            case_classified="Case K (Quiescence Blocked)",
+            repaired_from_receipt=False,
+            failure_reason=quiescence.reason,
+        )
+
+    def _adopt_durable_witness(
+        self,
+        record: AtlasRenderJobRecord,
+        atlas_job_id: str,
+        lease_token: int,
+        witness: DurableWitness,
+        launch_record: Optional[ContainmentLaunchRecord] = None,
+    ) -> RecoveryDecisionResult:
+        """Contract V1 §21 Case B: adopt a PRIOR-SESSION durable witness.
+
+        Preconditions (established by the caller): §9 quiescence is satisfied, and a bound
+        terminal witness exists. Serves BOTH terminal outcomes through the same tail the
+        live path uses, so no failure taxonomy is invented: a terminal FINISHED claim with
+        successful verified evidence adopts (Case B), while a terminal FAILED claim fails
+        closed to Case G. This runs the SAME binding + adoption tail as the live engine
+        witness: the change is the witness SOURCE, never the evidence strength. No engine
+        RPC is performed on this path.
+
+        Contract V1 §20 Step 7 (catalog -> disk -> catalog stability) is preserved by
+        fingerprinting the witness journal before and after artifact verification: any
+        material change abandons the pass and returns the job to RECOVERY_PENDING.
+        """
+        candidate = witness.candidate or {}
+        binding_mismatch = self._check_durable_witness_bindings(record, candidate)
+        if binding_mismatch:
+            return self._case_e_f_transition(record, atlas_job_id, binding_mismatch)
+
+        reader = self._witness_reader
+        journal_path = witness.journal_path
+        snapshot_before = witness.snapshot
+        before_identity = snapshot_before.identity() if snapshot_before is not None else None
+
+        def _witness_stability() -> Optional[str]:
+            if reader is None or journal_path is None:
+                return None
+            after = reader.snapshot(journal_path)
+            after_identity = after.identity() if after is not None else None
+            if before_identity != after_identity:
+                return (
+                    "Durable witness journal changed materially during adoption "
+                    f"({journal_path}); pass invalidated"
+                )
+            return None
+
+        return self._adopt_terminal_candidate(
+            record, candidate, atlas_job_id, lease_token, stability_check=_witness_stability,
+            launch_record=launch_record)
+
     def _handle_finished_candidate(
         self,
         record: AtlasRenderJobRecord,
         candidate: Mapping[str, Any],
         atlas_job_id: str,
         lease_token: int,
+        quiescence: Any = None,
+        launch_record: Optional[ContainmentLaunchRecord] = None,
     ) -> RecoveryDecisionResult:
         """Process terminal candidate requiring quiescence, HMAC validation, and artifact inspection."""
+        # 1. Process Quiescence Check (Case K) -- quiescence is established once per
+        # reconcile (before any witness acquisition) and reused here.
+        if launch_record is None and self.containment_launch_record is None:
+            launch_record, _reason = self._resolve_containment_launch_record(record)
+        if quiescence is None:
+            quiescence = self._establish_quiescence(record, launch_record)
+        if not quiescence.is_quiescent:
+            return self._case_k_quiescence_transition(record, atlas_job_id, quiescence)
+        return self._adopt_terminal_candidate(
+            record, candidate, atlas_job_id, lease_token, launch_record=launch_record)
+
+    def _adopt_terminal_candidate(
+        self,
+        record: AtlasRenderJobRecord,
+        candidate: Mapping[str, Any],
+        atlas_job_id: str,
+        lease_token: int,
+        stability_check: Optional[Callable[[], Optional[str]]] = None,
+        launch_record: Optional[ContainmentLaunchRecord] = None,
+    ) -> RecoveryDecisionResult:
+        """Shared adoption tail (Contract V1 §20 Steps 6-10).
+
+        Order: attempt-ordinal binding -> witness HMAC -> manifest -> artifact
+        hashes/sizes/PNG completeness -> optional witness stability re-check ->
+        observation binding -> store-gated receipt publication. Identical for the live
+        engine witness and the durable prior-session witness.
+        """
         state_before = record.lifecycle_state
         status_before = record.recovery_status
-
-        # 1. Process Quiescence Check (Case K)
-        quiescence = evaluate_process_quiescence(self.supervisor, self.deployment_mode)
-        if not quiescence.is_quiescent:
-            waiting_record = record.transition(
-                recovery_status=RenderJobRecoveryStatus.WAITING_FOR_ENGINE_QUIESCENCE,
-                failure_reason=quiescence.reason,
-            )
-            self.store.update(waiting_record, expected_revision=record.last_observed_revision)
-            return RecoveryDecisionResult(
-                atlas_job_id=atlas_job_id,
-                lifecycle_state_before=state_before,
-                lifecycle_state_after=waiting_record.lifecycle_state,
-                recovery_status_before=status_before,
-                recovery_status_after=waiting_record.recovery_status,
-                case_classified="Case K (Quiescence Blocked)",
-                repaired_from_receipt=False,
-                failure_reason=quiescence.reason,
-            )
 
         # 2. Attempt-ordinal identity binding (Contract V1 §4.2 / M8).
         # Atlas compares the engine-observed attempt_ordinal against the durable
@@ -786,6 +1080,20 @@ class UnrealRenderRecoveryCoordinator:
                 record, state_before, status_before, atlas_job_id,
                 "Witness journal HMAC authentication failed (UNTRUSTED_WITNESS)")
 
+        # 2b. Containment engine-incarnation binding (M7 keeper rung).
+        # The witness may be perfectly authenticated while naming a DIFFERENT engine
+        # incarnation than the one the retained Job Object contained: the launch record's
+        # kernel-reported engine identity must agree with the engine-witnessed process
+        # identity of the journal being adopted. A provable disagreement fails closed with
+        # the case E/F identity-mismatch semantics; a creation-time difference is refused
+        # when both sides parse and differ by more than the documented tolerance (the two
+        # are separate Windows API reads of the same process start, so a second-level
+        # tolerance is generous). An unparseable timestamp is not treated as agreement.
+        incarnation_mismatch = self._check_engine_incarnation_binding(
+            record, candidate, launch_record)
+        if incarnation_mismatch:
+            return self._case_e_f_transition(record, atlas_job_id, incarnation_mismatch)
+
         # 3. Artifact Validation & Stability Check
         manifest = candidate.get("output_manifest", [])
         output_files = candidate.get("output_files", [])
@@ -793,7 +1101,11 @@ class UnrealRenderRecoveryCoordinator:
             failed_record = record.transition(
                 lifecycle_state=RenderJobLifecycleState.FAILED,
                 recovery_status=RenderJobRecoveryStatus.NONE,
-                failure_reason="Engine claims FINISHED but manifest and output_files are empty",
+                failure_reason=(
+                    "Engine witness reports terminal phase "
+                    f"{candidate.get('phase', 'FINISHED')!r} but manifest and output_files "
+                    "are empty"
+                ),
             )
             self.store.update(failed_record, expected_revision=record.last_observed_revision)
             return RecoveryDecisionResult(
@@ -832,6 +1144,14 @@ class UnrealRenderRecoveryCoordinator:
 
             if computed_file_sha != expected_sha:
                 return self._fail_case_g(record, f"Artifact SHA-256 mismatch for {path_str}")
+
+        # 3b. Witness stability re-check (Contract V1 §20 Step 7 applied without a
+        # live engine): a material change to the witness between acquisition and
+        # verification invalidates the pass (RECOVERY_PENDING).
+        if stability_check is not None:
+            instability = stability_check()
+            if instability:
+                return self._case_j_pending_transition(record, atlas_job_id, instability)
 
         # 4. Independent Evidence Verification
         # In recovery, the candidate comes from the engine journal/observation and
@@ -889,6 +1209,52 @@ class UnrealRenderRecoveryCoordinator:
             repaired_from_receipt=False,
             receipt_reference=final_record.receipt_reference,
         )
+
+    #: Tolerance for comparing two kernel/engine readings of one process start time.
+    ENGINE_INCARNATION_TIME_TOLERANCE_SECONDS = 5
+
+    def _check_engine_incarnation_binding(
+        self,
+        record: AtlasRenderJobRecord,
+        candidate: Mapping[str, Any],
+        launch_record: Optional[ContainmentLaunchRecord] = None,
+    ) -> Optional[str]:
+        """Return a refusal reason when the adopted witness names another engine incarnation.
+
+        Only *provable* disagreement is refused, so this cannot manufacture a failure from
+        formatting differences: the process identity comparison is integral, and the
+        creation-time comparison is bounded and tolerant.
+        """
+        launch = launch_record if launch_record is not None else self.containment_launch_record
+        if launch is None:
+            # Unreachable on an adoption path in CONTAINED_JOB_OBJECT: a satisfied §9
+            # predicate requires a resolved launch record, so the adoption tail cannot be
+            # entered without one. Kept explicit rather than silently assuming agreement.
+            return None
+
+        observed_pid = candidate.get("process_id")
+        if isinstance(observed_pid, int) and not isinstance(observed_pid, bool):
+            if int(getattr(launch, "engine_pid", 0) or 0) != observed_pid:
+                return (
+                    f"containment launch record engine_pid {getattr(launch, 'engine_pid', None)} "
+                    f"does not match the engine-witnessed process_id {observed_pid}: the retained "
+                    "Job Object did not contain this execution"
+                )
+
+        observed_created = candidate.get("process_creation_time_utc")
+        recorded_created = getattr(launch, "process_creation_time_utc", None)
+        observed_moment = _parse_iso8601_utc(observed_created if isinstance(observed_created, str) else None)
+        recorded_moment = _parse_iso8601_utc(recorded_created if isinstance(recorded_created, str) else None)
+        if observed_moment is not None and recorded_moment is not None:
+            delta = abs((observed_moment - recorded_moment).total_seconds())
+            if delta > self.ENGINE_INCARNATION_TIME_TOLERANCE_SECONDS:
+                return (
+                    "containment launch record process_creation_time_utc "
+                    f"{recorded_created!r} disagrees with the engine-witnessed "
+                    f"process_creation_time_utc {observed_created!r} by {delta:.0f}s "
+                    "(different process incarnation)"
+                )
+        return None
 
     def _untrusted_witness_transition(
         self,

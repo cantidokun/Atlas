@@ -136,15 +136,17 @@ def _coord(store, record, candidate, tmp_path, receipt_store=None):
     )
     if receipt_store is None:
         receipt_store = UnrealRenderReceiptStore(tmp_path / "rcpt.json")
-    mock_supervisor = MagicMock(spec=AtlasProcessSupervisor)
-    mock_supervisor.job_handle = 1234
-    mock_supervisor.query_active_processes.return_value = 0
+    # F-DG-1: §9 quiescence must be attributable to THIS attempt's containment object, so
+    # the fixture supplies the real, HMAC-authenticated launch record for the record's
+    # attempt plus the launch object's kernel-state surface - never a bare mock count.
+    mock_supervisor = ff.contained_supervisor()
     return UnrealRenderRecoveryCoordinator(
         store=store,
         adapter=adapter,
         receipt_store=receipt_store,
         supervisor=mock_supervisor,
         deployment_mode="CONTAINED_JOB_OBJECT",
+        containment_launch_record=ff.make_launch_record(record),
     )
 
 

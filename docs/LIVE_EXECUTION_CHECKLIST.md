@@ -111,37 +111,70 @@ exists. Do not bypass, waive, or manually satisfy a gate.
    Do not proceed if it is non-empty.
 2. **Capture baseline evidence:** `git rev-parse HEAD`, exact UE binary hash,
    journal dir listing, store listing (must be empty), receipt store listing.
-3. **Start Unreal in CONTAINED_JOB_OBJECT** via the supervisor (human operation).
-   Verify process presence (`tasklist | grep -i unreal`), the named pipe
-   `\\.\pipe\AtlasUnrealTransport`, and the live supervisor Job Object handle;
-   this confirms the Phase A `live_only` gates (A6–A8, A11).
-4. **Confirm live capability negotiation / recovery capability (Phase B):** run
-   `all_pass(POST_ENGINE)` with the operator-declared authorization id. Do not
-   proceed on failure.
-5. **Human authorization + durable intent creation (inside the submission
-   transaction):** authorize exactly ONE render and invoke
-   `UnrealRenderSubmissionService.submit_render(...)`. That single call creates and
-   persists the durable intent — with its nonce and ordinal — and is the ONLY path
-   permitted to transmit. There is no intent-only API, so an intent cannot be
-   created, paused, and submitted as two separate external steps.
-6. **Identity invariant enforced in-transaction (Phase C):** immediately after the
-   durable intent is persisted, and before any engine interaction, submission
-   validates the record-owned invariant (`authorization_id`, `attempt_nonce`,
-   `attempt_ordinal`). A violation fails the job closed to `FAILED` and nothing is
-   transmitted. Independently, `all_pass(POST_INTENT)` may be evaluated against any
-   persisted durable record (resume / re-attach / pre-submission rehearsal) for
-   evidence; it delegates to the same record policy and never fabricates values.
-7. **Capability assertion, then exactly one render transmitted:** submission then
-   asserts recovery capability (`assert_recovery_capable`) through the production
-   seam and, only on success, transmits `submit_render`. Persist the raw
-   `submit_render` response envelope immediately (job id/atlas job id) before any
-   diagnostic output.
+3. **Establish the attempt's durable operational intent (human authorization):** create and persist the authorized durable
+   intent with the authorization id, attempt ordinal and CSPRNG attempt nonce, without engine interaction or transmission.
+   The nonce is never logged, passed on a command line, or persisted outside the authoritative durable record / authorized
+   in-process launch boundary required by the keeper's authenticated launch record.
+
+4. **Launch the engine under the containment keeper** (repository-owned executable authority, Contract V1 §9/§10), from the
+   repository root:
+   `python -m scripts.run_unreal_containment_keeper --uproject <Project.uproject> --store-root <store>
+   `--atlas-job-id <id> --attempt-ordinal <n> --keeper-instance-id <id> --engine-command "UnrealEditor-Cmd.exe
+   `<Project.uproject> -log -unattended -nosplash -nop4"`.
+   The keeper creates the `KILL_ON_JOB_CLOSE` Job Object, launches create-suspended → assigns → writes the attempt's
+   authenticated durable launch record → resumes, and retains the handle. Verify process presence, the named pipe and the
+   keeper's live Job Object handle; this confirms the Phase A live-only gates when those conditions first exist. The attempt
+   nonce is read through the authorized in-process boundary by the keeper — never passed on the command line.
+   The direct `python scripts/run_unreal_containment_keeper.py ...` file-form invocation is invalid from the repository
+   root because `scripts/` becomes `sys.path[0]`; `python -m scripts.run_unreal_containment_keeper ...` is the required
+   form (or an explicitly configured repo-root PYTHONPATH).
+
+5. **Confirm live capability negotiation / recovery capability (Phase B):** run
+   `all_pass(POST_ENGINE)` with the operator-declared authorization id. Do not proceed on failure.
+
+6. **Transmit exactly one render against the existing immutable attempt identity:** invoke
+   `submit_render(..., existing_atlas_job_id=<id>)` only after the durable intent and keeper launch identity exist.
+   The submission path validates the record-owned identity invariant before transmission, then performs the single authorized
+   transport dispatch. Capture `is_duplicate` and `acceptance_unknown`; both must be `False`.
+
+7. **Capture the submission-identity invariant:** retain evidence of the persisted authorization id, attempt ordinal and
+   nonce presence without exposing the nonce. Any invariant violation fails the job closed and transmits nothing.
 8. **Per-scenario step** (Scenario 1–8 as authorized) — see §3.
-9. **Run reconciliation** via `UnrealRenderRecoveryCoordinator.reconcile_single_job`
-   (single job) and capture the `RecoveryDecisionResult`.
+9. **Reconciliation happens at the keeper's drain edge**, not as a separate human step:
+   once the keeper observes `ActiveProcesses == 0` on its retained handle it invokes
+   `scripts/run_unreal_recovery.py`, which assembles the store, the derived journal root
+   (`<ProjectDir>/AtlasWitnessJournal`), the receipt store, the production adapter and the
+   coordinator with the keeper's own handle, runs `reconcile_single_job`, and writes the
+   recovery invocation evidence beside the containment provenance. Capture the
+   `RecoveryDecisionResult` and the invocation record. Do not drive the coordinator by hand
+   with a locally created Job Object: a fresh/empty object is refused by §9 (F-DG-1) and the
+   composition root will not compose without the keeper's retained handle.
+
+**Expected residual — keeper failure after quiescence but before the trigger completes.** If
+the keeper process dies once `ActiveProcesses == 0` has been observed but before the recovery
+invocation finishes, the run is **intentionally fail-closed**: the last handle close destroys
+the Job Object, the attempt's containment provenance is gone, and the job holds to its
+execution deadline as `EXHAUSTED` / `RECOVERY_FAILED` with no receipt (if a receipt had already
+been published, the next pass repairs from it and publishes nothing else). Do NOT re-run
+recovery against a freshly created Job Object and do NOT accept a stored quiescence claim as a
+substitute — both are refused by §9. This is an expected design residual of the keeper
+architecture, not an implementation anomaly, and it is never a reason to widen a timeout,
+budget or retry.
 10. **Capture evidence at every gate** (see §4).
 11. **Cleanup** (see §7).
 
+### Proven live order — first real UE 5.6.1 keeper-controlled rung (PASS, 2026-09-21)
+
+The first real UE 5.6.1 keeper-controlled rung has now been executed and independently adjudicated PASS. The executed
+order was: durable operational intent → keeper-owned containment → authenticated launch record written before
+`ResumeThread` → engine readiness → one authorized dispatch against the existing attempt identity → 24/24 artifacts
+verified → contained tree drained → recovery invoked at the drain edge on the same retained handle → invocation evidence
+persisted → Case B durable-witness adoption → exactly one receipt and zero adoption-path engine RPCs.
+
+The live rung also exercised the four mandatory negative controls on isolated pre-adoption snapshots: fresh empty
+Job Object, mismatched launch-record identity, wrong engine PID, and wrong process creation time; all four refused with
+zero receipts and zero adoption-path engine RPC attempts. Preserved evidence is under the live-rung evidence directory
+and summarized in `docs/UNREAL_M7_HARDENING.md` §E.10.
 ## 3. Scenario operations (authorized live steps)
 
 Each scenario runs the recovery path and compares the REAL coordinator decision to
@@ -164,14 +197,41 @@ the harness's declared expectation (`planning/unreal_live_scenario_harness.py`).
 - **S8 Duplicate/stale identity:** two journals for one atlas_job_id → expect Case H
   → `RECOVERY_FAILED` → NO adoption.
 
-Note on S1/S5 quiescence: the coordinator's Case K gate runs before any evidence
-processing, and S1 carries `quiescent=True`, so the live ordering is
-render-finishes → engine shut down → `query_active_processes() == 0` → reconcile.
+Note on S1/S5 quiescence and witness sources (CORRECTED — supersedes the earlier text
+that modelled `quiescent=True` for a contained engine): a contained engine makes
+`engine_capable=True` **and** `quiescent=True` impossible. Unreal runs *inside* the Atlas
+Job Object (§9), so `ActiveProcesses == 0` means the engine process — and therefore the
+named-pipe server it hosts — has exited. The real live ordering is:
 
-The deterministic harness already asserts each declared expectation against the
-coordinator (tests/m9). The live run is the ONLY thing that additionally proves the
-REAL UE 5.6 process produces the expected journal bytes / session identity / file
-bytes.
+```text
+render finishes -> engine writes the durable terminal journal (§10)
+                -> engine shut down -> query_active_processes() == 0
+                -> reconcile -> Case B adoption from the DURABLE witness (zero engine RPCs)
+```
+
+The two witness sources are distinct and are not interchangeable:
+
+* **live engine witness** — the transport/catalog served by a running engine. Serves
+  Case A (in-flight re-attach) and the live terminal path. It is *never* required for
+  Case B, and it cannot be present while quiescence holds.
+* **durable journal witness** — the §10 prior-session record, HMAC-keyed by the Atlas
+  attempt nonce. Serves Case B when the engine is gone (§21 Case B: "**prior session**
+  journal … for a bound `unreal_job_id`").
+
+The deterministic harness asserts each declared expectation against the coordinator
+(tests/m9), and the containment model now *rejects* the impossible contained state rather
+than declaring it. The live run is the ONLY thing that additionally proves the REAL UE
+5.6 process produces the expected journal bytes / session identity / file bytes.
+
+### S1 adoption evidence — what each artifact proves (and does not)
+
+| Evidence | Proves | Does NOT prove |
+| --- | --- | --- |
+| live engine evidence (pipe/catalog, `assert_recovery_capable`) | the engine session is alive, reachable and compatible; Case A re-attach for an in-flight execution | that the artifact set is final, or that nothing is still writing |
+| durable journal witness (§10, HMAC-attested with the attempt nonce) | a prior session's engine-witnessed terminal execution, bound to `(atlas_job_id, unreal_job_id)`, attempt ordinal and manifest | that no engine/descendant is still alive |
+| quiescence proof (valid Job Object handle + `ActiveProcesses == 0`) | the §9 precondition for inspecting/adopting terminal disk artifacts: the whole contained tree is gone | that the artifacts are authentic (verification does that) |
+| independent evidence verification (`ENGINE_JOURNAL_ATTESTED`) | artifact bytes on disk match the engine-attested manifest (hashes/sizes/PNG completeness) | — |
+| Case B adoption → `publish_verified_receipt` | exactly one immutable receipt with the 8 bound identity fields | — |
 
 ## 4. Evidence to capture at every gate
 
@@ -213,11 +273,26 @@ reflects the terminal/held state exactly once.
 
 ## 7. Cleanup requirements
 
-- Delete/archive all transient job state, journal files, receipt files, artifacts
-  created by the run (or move to a designated archive root).
-- Restore `AtlasRenderJobStore` to the empty pre-run baseline for the next scenario.
+- **Retain the durable witness journal.** `<ProjectDir>/AtlasWitnessJournal/` holds the
+  Contract V1 §10 durable witness that Case-B prior-session adoption reads *after* the
+  engine has exited. It is recovery evidence, not transient state.
+  - **NEVER delete, truncate, rename, or archive a journal while its Atlas job is
+    non-terminal** (no receipt published). Doing so destroys the only evidence that can
+    adopt the run and forces the job onto the deadline-exhaustion failure path.
+  - The directory is shared by every Atlas job and retains execution history (§10: it
+    MUST NOT overwrite a previous execution identity). A journal for another job, or
+    unrelated/badly named JSON in it, is ignored by the reader — it is never evidence for
+    the job being reconciled — but it must not be deleted either.
+  - Journals MAY be archived or deleted only for jobs whose record is terminal (adopted
+    with a published receipt, or terminally failed / orphaned), and only under explicit
+    operator authorization.
+- Transient job state, receipt files and the disposable `.bat` build wrapper may be
+  archived as before. **Archive artifacts only after adoption is recorded**: evidence
+  verification re-reads artifact bytes from disk, so moving them invalidates any later
+  verification for that job.
+- Restore `AtlasRenderJobStore` to the empty pre-run baseline for the next scenario
+  (this does not affect the durable journal directory).
 - Remove the Job Object handle(s); confirm `query_active_processes() == 0`.
-- Delete the disposable `.bat` build wrapper if any was created.
 - Do NOT leave a `persisted_job_id.txt`-style ad-hoc file; route everything through
   `UnrealRenderSubmissionService` / `AtlasRenderJobStore`.
 
