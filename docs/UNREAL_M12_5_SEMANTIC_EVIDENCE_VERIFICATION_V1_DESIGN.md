@@ -316,6 +316,8 @@ M12.5 invariant evaluation must use a closed, exact-name-matched registry of imp
 
 The verifier evaluates **all required invariants**.
 
+Observation contradiction rule: if two or more observations share the same semantic task identity, observation scope identity, and request identity but carry unequal canonical-state digests or otherwise divergent authoritative facts, the input set is **CONTRADICTORY** and must fail closed. The verifier must never choose a best-case observation, newest observation, or first observation to manufacture a satisfied result. A duplicate request with equivalent authoritative content may be treated as a duplicate only when the canonical observation identities are equal.
+
 Success requires:
 
 ```
@@ -761,6 +763,7 @@ Construct representative:
 - malformed provenance;
 - forbidden authority material;
 - empty required-invariant set with otherwise valid observation/bindings;
+- two observations with the same task/scope/request identity but divergent canonical-state digests;
 - directly constructed `UnrealEvidence(verified=True)` and equivalent persisted snapshot, both of which must be refused as render-verification authority.
 
 Prove exact result codes and canonical digests.
