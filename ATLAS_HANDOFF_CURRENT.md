@@ -108,7 +108,7 @@ M12.5 is not an execution or authorization milestone. It cannot schedule, execut
 Current pause head: `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.
 PR #137 is **OPEN / DRAFT / NOT MERGED** and contains documentation/design only.
 Hermes's final re-review at the prior remediated head identified two blockers and two major findings; those design issues have since been remediated on the current head. Hermes also disclosed that its re-review was not a third-party gate because it was the same agent family that authored related work. A fresh independent GLM review of the exact current head is therefore the next review action.
-After the final handoff commits, GitHub Actions `Atlas Tests` run **#2242** is **IN PROGRESS** on the current documentation head; no conclusion is being claimed. The earlier run #2236 is superseded. Blender/Temporal legacy workflows are unrelated to this PR.
+Latest observed CI at pause: GitHub Actions `Atlas Tests` run **#2242** was **IN PROGRESS** on the immediately preceding documentation-synchronization commit. The final handoff-only commits after that have no attached workflow result yet, so no CI conclusion is claimed for the final head. Blender/Temporal legacy workflows are unrelated to this PR.
 
 ### M7 status — COMPLETE / MERGED / LIVE-PROVEN
 
