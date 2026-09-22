@@ -111,38 +111,34 @@ exists. Do not bypass, waive, or manually satisfy a gate.
    Do not proceed if it is non-empty.
 2. **Capture baseline evidence:** `git rev-parse HEAD`, exact UE binary hash,
    journal dir listing, store listing (must be empty), receipt store listing.
-3. **Launch the engine under the containment keeper** (repository-owned executable
-   authority, Contract V1 §9/§10) — not by hand:
-   `python scripts/run_unreal_containment_keeper.py --uproject <Project.uproject>
-   --store-root <store> --atlas-job-id <id> --attempt-ordinal <n>
-   --engine-command "UnrealEditor-Cmd.exe <Project.uproject> -log -unattended -nosplash -nop4"`.
-   The keeper creates the `KILL_ON_JOB_CLOSE` Job Object, launches the engine
-   create-suspended → assigns → writes the attempt's durable launch record → resumes, and
-   retains the handle. Verify process presence (`tasklist | grep -i unreal`), the named pipe
-   `\\.\pipe\AtlasUnrealTransport`, and the keeper's live Job Object handle; this confirms
-   the Phase A `live_only` gates (A6–A8, A11). The attempt nonce is read from the durable
-   record by the keeper — never passed on the command line.
-4. **Confirm live capability negotiation / recovery capability (Phase B):** run
-   `all_pass(POST_ENGINE)` with the operator-declared authorization id. Do not
-   proceed on failure.
-5. **Human authorization + durable intent creation (inside the submission
-   transaction):** authorize exactly ONE render and invoke
-   `UnrealRenderSubmissionService.submit_render(...)`. That single call creates and
-   persists the durable intent — with its nonce and ordinal — and is the ONLY path
-   permitted to transmit. There is no intent-only API, so an intent cannot be
-   created, paused, and submitted as two separate external steps.
-6. **Identity invariant enforced in-transaction (Phase C):** immediately after the
-   durable intent is persisted, and before any engine interaction, submission
-   validates the record-owned invariant (`authorization_id`, `attempt_nonce`,
-   `attempt_ordinal`). A violation fails the job closed to `FAILED` and nothing is
-   transmitted. Independently, `all_pass(POST_INTENT)` may be evaluated against any
-   persisted durable record (resume / re-attach / pre-submission rehearsal) for
-   evidence; it delegates to the same record policy and never fabricates values.
-7. **Capability assertion, then exactly one render transmitted:** submission then
-   asserts recovery capability (`assert_recovery_capable`) through the production
-   seam and, only on success, transmits `submit_render`. Persist the raw
-   `submit_render` response envelope immediately (job id/atlas job id) before any
-   diagnostic output.
+3. **Establish the attempt's durable operational intent (human authorization):** create and persist the authorized durable
+   intent with the authorization id, attempt ordinal and CSPRNG attempt nonce, without engine interaction or transmission.
+   The nonce is never logged, passed on a command line, or persisted outside the authoritative durable record / authorized
+   in-process launch boundary required by the keeper's authenticated launch record.
+
+4. **Launch the engine under the containment keeper** (repository-owned executable authority, Contract V1 §9/§10), from the
+   repository root:
+   `python -m scripts.run_unreal_containment_keeper --uproject <Project.uproject> --store-root <store>
+   `--atlas-job-id <id> --attempt-ordinal <n> --keeper-instance-id <id> --engine-command "UnrealEditor-Cmd.exe
+   `<Project.uproject> -log -unattended -nosplash -nop4"`.
+   The keeper creates the `KILL_ON_JOB_CLOSE` Job Object, launches create-suspended → assigns → writes the attempt's
+   authenticated durable launch record → resumes, and retains the handle. Verify process presence, the named pipe and the
+   keeper's live Job Object handle; this confirms the Phase A live-only gates when those conditions first exist. The attempt
+   nonce is read through the authorized in-process boundary by the keeper — never passed on the command line.
+   The direct `python scripts/run_unreal_containment_keeper.py ...` file-form invocation is invalid from the repository
+   root because `scripts/` becomes `sys.path[0]`; `python -m scripts.run_unreal_containment_keeper ...` is the required
+   form (or an explicitly configured repo-root PYTHONPATH).
+
+5. **Confirm live capability negotiation / recovery capability (Phase B):** run
+   `all_pass(POST_ENGINE)` with the operator-declared authorization id. Do not proceed on failure.
+
+6. **Transmit exactly one render against the existing immutable attempt identity:** invoke
+   `submit_render(..., existing_atlas_job_id=<id>)` only after the durable intent and keeper launch identity exist.
+   The submission path validates the record-owned identity invariant before transmission, then performs the single authorized
+   transport dispatch. Capture `is_duplicate` and `acceptance_unknown`; both must be `False`.
+
+7. **Capture the submission-identity invariant:** retain evidence of the persisted authorization id, attempt ordinal and
+   nonce presence without exposing the nonce. Any invariant violation fails the job closed and transmits nothing.
 8. **Per-scenario step** (Scenario 1–8 as authorized) — see §3.
 9. **Reconciliation happens at the keeper's drain edge**, not as a separate human step:
    once the keeper observes `ActiveProcesses == 0` on its retained handle it invokes
@@ -167,6 +163,18 @@ budget or retry.
 10. **Capture evidence at every gate** (see §4).
 11. **Cleanup** (see §7).
 
+### Proven live order — first real UE 5.6.1 keeper-controlled rung (PASS, 2026-09-21)
+
+The first real UE 5.6.1 keeper-controlled rung has now been executed and independently adjudicated PASS. The executed
+order was: durable operational intent → keeper-owned containment → authenticated launch record written before
+`ResumeThread` → engine readiness → one authorized dispatch against the existing attempt identity → 24/24 artifacts
+verified → contained tree drained → recovery invoked at the drain edge on the same retained handle → invocation evidence
+persisted → Case B durable-witness adoption → exactly one receipt and zero adoption-path engine RPCs.
+
+The live rung also exercised the four mandatory negative controls on isolated pre-adoption snapshots: fresh empty
+Job Object, mismatched launch-record identity, wrong engine PID, and wrong process creation time; all four refused with
+zero receipts and zero adoption-path engine RPC attempts. Preserved evidence is under the live-rung evidence directory
+and summarized in `docs/UNREAL_M7_HARDENING.md` §E.10.
 ## 3. Scenario operations (authorized live steps)
 
 Each scenario runs the recovery path and compares the REAL coordinator decision to

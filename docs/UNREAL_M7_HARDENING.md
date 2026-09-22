@@ -460,25 +460,19 @@ digest, and refuses to reconcile a record whose project association cannot be pr
 None of these is converted into a synthetic success: there is no path that mints a receipt
 without a durable terminal attested witness, verified bytes, and a satisfied §9 predicate.
 
-### E.8 Still open after this rung
+### E.8 Live status after the first real keeper-controlled rung
 
-* **No live execution.** This rung is deterministic only: no UE 5.6 launch, no render, no
-  authorization, no live receipt. The kernel-level Job Object behaviour is exercised by
-  `tests/m7/test_m7_win32_containment_kernel.py` against real Win32 objects with a short-lived
-  Python child (never the engine).
-* **A production Case-B receipt requires a NEW authorized live render** under the keeper
-  architecture; the frozen S1 evidence cannot produce one (Contract V1 §9/§21, and the §12/§13
-  correction in `docs/design/M7_S1_ADOPTION_CASE_B_DESIGN.md`).
-* **Named residual:** Windows exposes no kernel-level Job Object instance identity, so
-  provenance is an *attribution* proof (authenticated launch record + retained handle + kernel
-  counter consistency), not a cryptographic one. The keeper therefore must stay
-  repository-owned and expose no capability beyond E.1.
-* **Deferred primitives:** `OpenJobObjectW` open-by-name is implemented as a query-only
-  transport primitive (`AtlasProcessSupervisor.open_existing_job`) but is deliberately NOT
-  used as an identity proof, and no `TerminateJobObject`/terminate-and-wait autonomy primitive
-  is added in this rung (the keeper reaches quiescence by observing the tree exit, and
-  `KILL_ON_JOB_CLOSE` remains the only termination mechanism).
-
+* **Live execution CLOSED for the first rung.** A new authorized UE 5.6.1 execution has now launched under the
+  repository-owned keeper, rendered successfully, drained under the retained Job Object handle, and was adopted as
+  **Case B** with exactly one production receipt and zero adoption-path engine RPCs.
+* The frozen S1 evidence remains **render/rehearsal evidence only** and is not the source of the production receipt.
+  A new authorized contained render was required and supplied the live provenance.
+* **Named residual:** Windows exposes no kernel-level Job Object instance identity, so provenance remains an attribution
+  proof (authenticated launch record + retained handle + kernel counter consistency), not a cryptographic object identity.
+  The keeper therefore remains repository-owned and exposes no capability beyond E.1.
+* **Deferred primitives:** `OpenJobObjectW` open-by-name is implemented as a query-only transport primitive
+  (`AtlasProcessSupervisor.open_existing_job`) but is deliberately NOT used as an identity proof, and no
+  `TerminateJobObject`/terminate-and-wait autonomy primitive is added in this rung.
 ### E.9 Expected residual: keeper failure after quiescence, before the trigger completes
 
 If the keeper process dies **after** the §9 predicate has been satisfied (the retained object
@@ -501,3 +495,26 @@ is intentionally fail-closed and MUST NOT be "repaired":
 Operator consequence: a keeper killed at the wrong instant can cost a completed render its
 receipt. The render's artifacts and journal remain valid render evidence; they become
 production lineage only through a new authorized contained render.
+
+### E.10 Live rung — first real UE 5.6.1 keeper-controlled execution (PASS, 2026-09-21)
+
+The first real UE 5.6.1 keeper-controlled execution completed successfully at code head
+`12a900e2e07c52875c3a8e33ea8fdf4d304caf14` before this documentation-only follow-up commit.
+
+* UE **5.6.1**, CL 44394996; `AtlasUnrealHarness.uproject` digest
+  `c96dcd7a93cdd9691ba4dd034c20fda2d1bbe563e4dad24b8578e0b32755f40b`; engine PID **19768**;
+  kernel creation time `2026-09-22T01:29:49.376591Z`.
+* Keeper launch order observed: `KILL_ON_JOB_CLOSE`, breakaway disabled, `CREATE_SUSPENDED` → assign → authenticated
+  launch record written before resume; launch record digest `a6aff2284fff36491ae89f1d0ae65db9bbfc7f14604677e2da1c50170146c09f`.
+* Real readiness observed; one authorized submission against the immutable attempt identity; MRQ completed in 4.367 s;
+  **24/24 artifacts verified**; durable journal entry HMAC independently re-verified.
+* Tree drained on the **same retained handle**; recovery invoked at the drain edge; **Case B**; **exactly 1 receipt**;
+  **0 adoption-path engine RPCs**; invocation evidence persisted.
+* Final handle release destroyed the Job Object; no Unreal/helper process remained.
+* Negative controls: **4/4 refused** with zero receipts and zero adoption-path RPCs: fresh empty Job Object (Case K),
+  mismatched launch record (Case K), wrong PID (Case E/F), wrong creation time (Case E/F).
+* Forensic adjudication: **PASS**.
+* Non-blocking observations: `project_association_corroboration = NOT_WITHIN_PROJECT_DIR` is informational rather
+  than a §9 gate; no independent external observer captured the exact final `ActiveProcesses == 0` instant because the
+  last handle destroys the object; the engine's attested output spec is narrower than the durable record but artifact
+  verification still passed 24/24.
