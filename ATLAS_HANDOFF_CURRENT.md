@@ -105,10 +105,10 @@ It consumes the resolved semantic task, immutable M12.3 plan, M12.4 mapping, Sta
 
 M12.5 is not an execution or authorization milestone. It cannot schedule, execute, retry, recover, create a second render verifier, mint render receipts, or replace the existing M4–M10 authorities. Implementation is not authorized until the exact remediated PR #137 head receives the final independent architectural/red-team CLEAR.
 
-Current pause head: `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.
+Current review target: the **current PR #137 head**. Always resolve and record the exact PR head SHA immediately before the final independent review; `73e1b5d8` is only the historical design-remediation baseline.
 PR #137 is **OPEN / DRAFT / NOT MERGED** and contains documentation/design only.
-Hermes's final re-review at the prior remediated head identified two blockers and two major findings; those design issues have since been remediated on the current head. Hermes also disclosed that its re-review was not a third-party gate because it was the same agent family that authored related work. A fresh independent GLM review of the exact current head is therefore the next review action.
-Latest observed CI at pause: GitHub Actions `Atlas Tests` run **#2242** was **IN PROGRESS** on the immediately preceding documentation-synchronization commit. The final handoff-only commits after that have no attached workflow result yet, so no CI conclusion is claimed for the final head. Blender/Temporal legacy workflows are unrelated to this PR.
+Hermes's final re-review at the prior remediated head identified two blockers and two major findings; those design issues have since been remediated on the current head. Hermes also disclosed that its re-review was not a third-party gate because it was the same agent family that authored related work. A fresh independent GLM review of the current PR #137 head is therefore the next review action.
+Latest observed successful CI: GitHub Actions `Atlas Tests` run **#2246** passed on the preceding branch head. Subsequent documentation-only commits must be checked again; no CI conclusion is claimed for a newer head until observed. Blender/Temporal legacy workflows are unrelated to this PR.
 
 ### M7 status — COMPLETE / MERGED / LIVE-PROVEN
 
