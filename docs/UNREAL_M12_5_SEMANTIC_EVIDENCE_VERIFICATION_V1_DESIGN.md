@@ -319,6 +319,8 @@ The verifier evaluates **all required invariants**.
 Success requires:
 
 ```
+required-invariant set is NON-EMPTY
+AND
 every required invariant = SATISFIED
 AND
 all required observations are valid
@@ -329,6 +331,8 @@ no required invariant is UNKNOWN
 AND
 no contradiction is present
 ```
+
+An empty required-invariant set is **not a successful verification state**. It is an invalid/unknown verification input and must fail closed. This mirrors M12.1's existing `__no_invariants__` fail-closed behavior. The verifier must never obtain `SATISFIED` merely because zero invariants were evaluated.
 
 Any one of:
 
@@ -440,6 +444,8 @@ OVERALL_TASK_COMPLETION = NOT_ESTABLISHED
 
 Only when both required evidence domains are independently valid may M12.5 report the semantic task as satisfied.
 
+For render-bearing verification, the phrase **verified render evidence** is normative and does not mean an `UnrealEvidence(verified=True)` instance, a snapshot carrying `"verified": true`, a transport-success flag, or any other caller-controlled boolean. Such a value is never sufficient authority.
+
 Even then:
 
 - M12.5 does not issue the render receipt;
@@ -527,6 +533,7 @@ Required refusal/failure classes include:
 - missing invariant input;
 - contradictory observation;
 - stale observation;
+- empty required-invariant set;
 - render evidence missing when required;
 - render evidence not independently verified;
 - render-job identity mismatch;
@@ -535,7 +542,7 @@ Required refusal/failure classes include:
 - malformed provenance;
 - unsupported future State Extraction fields.
 
-For provenance and authority-material checks, M12.5 must reuse the repository's existing recursive closed-provenance validation mechanism (including `is_forbidden_authority_key` and its separator/casing normalization and recursive traversal) rather than inventing a shallow or top-level-only check. Unknown provenance keys are rejected structurally, and caller-supplied metadata must not be accepted into the result's canonical digest merely because it is syntactically JSON-compatible.
+For provenance and authority-material checks, M12.5 must define its own closed typed provenance schema and reuse the repository's existing authority-key predicates. The broad `is_forbidden_authority_key` predicate is mandatory for untrusted caller-supplied or unknown metadata surfaces. For M12.5's own declared envelope/binding/provenance fields, the implementation must use an explicit closed allowlist or the repository's high-confidence `_is_high_confidence_forbidden_key` tier because legitimate M12 metadata includes `session_identity`, `scope_identity`, and `attempt_id`. Each tier must have an adversarial test. Unknown provenance keys are rejected structurally, and caller-supplied metadata must not be accepted into the result's canonical digest merely because it is syntactically JSON-compatible.
 
 No failure class may downgrade to a pass.
 
@@ -560,6 +567,8 @@ The verifier must not expose or import execution authority such as:
 A semantic verification result is downstream information, not authorization.
 
 The verifier may consume snapshots or immutable records created by those authorities, but it may not mutate or command them.
+
+The structural isolation mechanism is normative: the M12.5 authority-isolation test must inspect source ASTs using an explicit forbidden-module/import allowlist pattern, modelled on the existing M7 keeper authority-isolation test rather than the weaker package-walk mechanism in the existing M12 test. The gate must include a positive-control fixture containing a forbidden import and demonstrate that the AST scan detects it, including an aliased import and a deferred `importlib.import_module(...)` form. A green test that only proves forbidden modules are absent from the list of already-walked `planning.m12.*` names is insufficient.
 
 ---
 
@@ -610,6 +619,8 @@ Where a new result digest is required, the result must be:
 No caller-supplied digest is authoritative.
 
 Any supplied digest is a redundant assertion that must be recomputed and compared.
+
+Inputs must be parsed/validated into an immutable canonical value graph before evaluation. Verification must evaluate that canonical frozen representation rather than re-reading mutable caller-visible objects after validation. The deterministic suite must include a validate-then-mutate adversarial case and prove that the verification result is unchanged or the mutation is refused because the verifier no longer holds a valid immutable input.
 
 ---
 
@@ -682,6 +693,10 @@ Existing M5+ render evidence verification remains the sole authority for:
 
 M12.5 may require a verified render-evidence result, but it must not recreate these checks.
 
+**Normative consumption rule:** for M12.5 v1, render evidence is admissible only when it is demonstrably the output of the existing authoritative M5+ `verify_render_job_evidence()` call path, or when the exact same durable job-record / render-job-attempt identity can be independently revalidated through that authority. A bare `UnrealEvidence` object, a persisted snapshot, `verified=True`, `source="caller-supplied"`, or transport-success metadata is never sufficient proof of verification provenance.
+
+The implementation must therefore consume an authoritative verification result/identity, not a caller-settable verification flag. If the existing evidence object cannot carry that provenance without ambiguity, the v1 render-composition implementation must fail closed rather than invent a second render-verification authority.
+
 This is a hard anti-duplication boundary.
 
 ---
@@ -744,7 +759,9 @@ Construct representative:
 - plan identity mismatch;
 - contradictory observations;
 - malformed provenance;
-- forbidden authority material.
+- forbidden authority material;
+- empty required-invariant set with otherwise valid observation/bindings;
+- directly constructed `UnrealEvidence(verified=True)` and equivalent persisted snapshot, both of which must be refused as render-verification authority.
 
 Prove exact result codes and canonical digests.
 
@@ -775,7 +792,8 @@ At minimum:
 - stale observation from another extractor/engine session;
 - conflicting observations carrying the same request identity;
 - render-bearing task without verified render evidence;
-- render evidence bound to wrong job/attempt identity.
+- render evidence bound to wrong job/attempt identity;
+- caller-constructed `UnrealEvidence(verified=True)` or equivalent snapshot presented as if it were M5+ verified evidence.
 
 Each negative control must fail closed.
 
@@ -808,6 +826,7 @@ Before implementation can clear:
 - verification result canonical JSON is stable;
 - repeated identical verification produces byte-identical output;
 - no execution/recovery/authorization authority imports exist;
+- structural AST authority-isolation gate passes, including the forbidden-import positive control and deferred-import detection;
 - no M4–M10 production authority modules are modified;
 - no State Extraction v1 frozen contract is changed.
 
@@ -861,7 +880,7 @@ The implementation should reuse existing:
 - source-content digest calculation;
 - plan identity calculation;
 - the **evaluation model only** (all-required-invariants / fail-closed semantics) from `TargetStateEvaluator`, never its placeholder predicate bodies;
-- the exact-name closed invariant registry defined and reviewed for M12.5 v1;
+- the exact-name closed invariant registry defined and reviewed for M12.5 v1; each registered invariant must be justified against a field actually supported by the frozen State Extraction contract, an independently verified render-evidence identity, or an explicitly declared non-render semantic input; unsupported invariant requirements remain UNKNOWN and fail closed;
 - render evidence verifier;
 - evidence/receipt identity models;
 - the existing recursive closed-provenance/forbidden-authority validator.
@@ -921,13 +940,13 @@ This architecture must not claim:
 
 ## 26. Open design questions for the independent review
 
-These are intentionally left open for the red-team gate rather than silently decided in implementation:
+These are intentionally left open for the independent review/reconciliation gate rather than silently decided in implementation:
 
 1. Which exact target-state invariant names are sufficiently stable for M12.5 v1, and which belong to future task-specific extensions?
 2. Which State Extraction envelope/session fields are authoritative enough for observation binding without expanding the frozen extraction contract?
 3. Should the verification result store a full immutable invariant result tree, or only canonical result codes plus a separately recoverable evaluation trace?
 4. For non-render semantic tasks, is the M12.5 result itself sufficient as downstream provenance, or is a separate lightweight Atlas semantic-task record required later?
-5. What is the minimum safe render-evidence identity surface M12.5 should consume without depending on implementation-private verifier details?
+5. What is the minimum safe render-evidence identity surface M12.5 should consume without depending on implementation-private verifier details? The answer must not permit a bare caller-settable `verified` flag to become authority.
 6. Which semantic task classes can be live-validated in v1 without requiring new Unreal transport fields?
 7. What exact evidence proves that a live M12.5 verification run performed no mutation?
 
