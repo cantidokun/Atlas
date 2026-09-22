@@ -4,8 +4,8 @@
 >
 > This document is the authoritative current development handoff. Dated handoffs remain archival and are not rewritten.
 >
-> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 DESIGN GATE ACTIVE**
-> **NEXT ACTION: M12.5 UNREAL SEMANTIC EVIDENCE VERIFICATION V1 ARCHITECTURE / RECONCILIATION**
+> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 ARCHITECTURE GATE PAUSED**
+> **PAUSE POINT: PR #137 REMAINS DRAFT; M12.5 IMPLEMENTATION IS NOT AUTHORIZED**
 > Current main: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge). M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 
 ## Current position
@@ -75,10 +75,10 @@ The first Unreal gate was **read-only reconciliation**, and it is **COMPLETE**:
 
 1. the open Unreal PR/branch stack was inventoried and selective integration was retained as the rule;
 2. no blanket merge is warranted — PRs #103/#41/#58/#50/#42/#40/#47 remain a separate historical/open stack;
-3. current `main` is the authoritative reference tree: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3`;
+3. current `main` is the authoritative reference tree: `89ca71180cebd00619d7f839819549cf4ede4be9`;
 4. the M7 keeper-controlled live rung was executed from the merged M7 implementation and independently cleared;
 5. State Extraction Fidelity v1 is complete, merged, independently reviewed, and live-gated;
-6. the next Unreal architecture gate is the fresh M12.5 semantic-verification design/reconciliation gate.
+6. M12.5 is the active Unreal architecture gate; the reconciled design remains unmerged on PR #137 pending final independent CLEAR.
 
 Known open Unreal stack (still unreconciled, still not to be blanket-merged): PRs #103, #41, #58,
 #50, #42, #40, #47 — they do not all share the same base. PR #105 (VERIFY-vs-WRITE classification
@@ -103,7 +103,12 @@ M12.5 — Unreal Semantic Evidence Verification v1 — is now the active design/
 
 It consumes the resolved semantic task, immutable M12.3 plan, M12.4 mapping, State Extraction Fidelity observations, and existing verified render evidence where applicable. It produces a deterministic semantic target-state verification result, bound to task/plan/source/observation identity.
 
-M12.5 is not an execution or authorization milestone. It cannot schedule, execute, retry, recover, create a second render verifier, mint render receipts, or replace the existing M4–M10 authorities. Implementation is not authorized until independent architectural/red-team review clears the fresh design.
+M12.5 is not an execution or authorization milestone. It cannot schedule, execute, retry, recover, create a second render verifier, mint render receipts, or replace the existing M4–M10 authorities. Implementation is not authorized until the exact remediated PR #137 head receives the final independent architectural/red-team CLEAR.
+
+Current pause head: `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.
+PR #137 is **OPEN / DRAFT / NOT MERGED** and contains documentation/design only.
+Hermes's final re-review at the prior remediated head identified two blockers and two major findings; those design issues have since been remediated on the current head. Hermes also disclosed that its re-review was not a third-party gate because it was the same agent family that authored related work. A fresh independent GLM review of the exact current head is therefore the next review action.
+At pause, GitHub Actions `Atlas Tests` run **#2236** was **IN PROGRESS**; no conclusion is being claimed. Blender/Temporal legacy workflows are unrelated to this PR.
 
 ### M7 status — COMPLETE / MERGED / LIVE-PROVEN
 
@@ -147,7 +152,8 @@ The completed M7 live evidence remains the current production-path evidence for 
 ## Other tracks
 
 - M11 remains frozen.
-- M12.1–M12.4 are complete; M12.5 remains deferred.
+- M12.1–M12.4 are complete.
+- M12.5 is the active architecture gate but is **PAUSED at documentation/reconciliation pending final independent review; implementation remains unauthorized**.
 - M13.8/token optimization remains paused.
 - Digital Twin/controller/autonomy areas require separate assessment where not already covered by the current contract.
 
