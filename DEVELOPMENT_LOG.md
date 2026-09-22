@@ -1,3 +1,12 @@
+## 2026-09-22 - M12.5 architecture gate opened after State Extraction closure
+
+- Reconciled the authoritative current-state surfaces against the repository after PR #136.
+- Current main is `89ca71180cebd00619d7f839819549cf4ede4be9`; post-merge Atlas Tests run #2231 completed successfully.
+- Unreal State Extraction Fidelity v1 is COMPLETE / MERGED / LIVE-GATED: PR #106 frozen Revision 3.3 design; PR #107 implementation; UE 5.6.1 build success; fixture automation 8/8; live transport gate PASS; positive baseline digest `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a`.
+- Opened the fresh M12.5 Unreal Semantic Evidence Verification v1 architecture/reconciliation gate.
+- M12.5 is design-only at this stage. It consumes semantic task/plan contracts, State Extraction observations, and existing verified render evidence where applicable. It does not create a second executor, authorization authority, scheduler, recovery authority, render verifier, or receipt issuer.
+- Historical dated handoffs remain archival; only authoritative current-state surfaces are being reconciled.
+
 ## 2026-09-22 - M7 containment keeper closure and current-state reconciliation
 
 - M7 Case-B durable-witness + containment-keeper is now **COMPLETE / MERGED / LIVE-PROVEN** on `main`.
