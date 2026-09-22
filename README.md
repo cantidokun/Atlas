@@ -1,6 +1,6 @@
 # Atlas
 
-> **Current-state reconciliation — September 22, 2026.** M7 Case-B durable-witness + containment-keeper is complete, merged, and live-proven. Current main is `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132). Historical dated handoffs remain archival and are not rewritten.
+> **Current-state reconciliation — September 22, 2026.** M7 Case-B durable-witness + containment-keeper is complete, merged, and live-proven. Current main is `d237dbf686b666a745177a53ab782db60cd21c0f`; the M7 implementation merge is `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132). Historical dated handoffs remain archival and are not rewritten.
 
 ## Active development checkpoint — September 22, 2026
 
