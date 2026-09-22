@@ -28,15 +28,15 @@
 
 ## Immediate next action
 
-**Resume the M12.5 architecture gate at PR #137 exact head `73e1b5d8c159122f14ec93a5a00e8996cd46c169`.**
+**Resume the M12.5 architecture gate at the current PR #137 head.** Always resolve and record the PR head SHA immediately before the final independent review; do not reuse the historical `73e1b5d8` remediation SHA.
 
 The clean boundary is:
 
 `resolved semantic task → M12.3 immutable execution plan → M12.4 mapping → State Extraction / existing verified render evidence → M12.5 target-state verification`.
 
-M12.5 implementation is **not authorized**. At pause, PR #137 is OPEN / DRAFT / NOT MERGED. Required resume sequence: final independent GLM review of the exact head → if CLEAR, explicit implementation authorization → deterministic implementation gates → separately authorized live evidence.
+M12.5 implementation is **not authorized**. PR #137 remains OPEN / DRAFT / NOT MERGED. Required resume sequence: final independent GLM review of the current PR head → if CLEAR, explicit implementation authorization → deterministic implementation gates → separately authorized live evidence.
 
-At pause, `Atlas Tests` run #2236 was IN PROGRESS. No conclusion is claimed.
+Latest observed `Atlas Tests` run #2246 passed successfully on the preceding current branch head. Subsequent documentation-only commits may trigger a newer run; always resolve the latest exact PR head and CI before the final gate.
 
 M12.5 must remain verification-only: no second executor, authorization authority, scheduler, recovery coordinator, render-artifact verifier, or receipt issuer.
 
