@@ -1,6 +1,6 @@
 # Atlas M12 — Unreal Semantic Soccer Production Layer (Design & Implementation Plan)
 
-**Status:** DESIGN / INVESTIGATION ONLY. No M12 production code is implemented.
+**Status:** M12.1–M12.4 IMPLEMENTED. M12.5 is now a fresh ARCHITECTURE / RECONCILIATION GATE; no M12.5 production implementation is authorized yet.
 **Scope:** Design a semantic soccer-production task layer that sits ABOVE the
 proven M4–M10 Unreal execution/recovery/evidence architecture, WITHOUT bypassing
 or replacing any existing authority, recovery, evidence, or artifact-lineage
@@ -477,7 +477,7 @@ M12 does NOT:
 | M12.2 | `UnrealSoccerProductionCatalog` + constrained task classes + versioning | catalog layer |
 | M12.3 | fragments/composition + dependency + idempotence | composition layer |
 | M12.4 | `UnrealSemanticTaskAdapter` mapping to existing planner/submission/recovery | integration layer (no new authority) |
-| M12.5 | verification wiring (target-state + existing verifier) + provenance | verification/provenance |
+| M12.5 | fresh architecture/reconciliation gate, then independently reviewed implementation of target-state verification + provenance | semantic verification/provenance |
 | M12.6 | deterministic suite + live render-task validation through existing path | validated M12 |
 | Future | `effect_setup` fragment + cinematic/VFX task classes (post-M12) | extension |
 
@@ -518,34 +518,34 @@ M12 does NOT:
 
 ---
 
-## 25. Implementation-plan (what the next PR must contain)
+## 25. Current M12.5 architecture gate
 
-The next M12 implementation PR (M12.1) should contain, in minimal scope:
-- `planning/m12/__init__.py`, `semantic_task.py`
-  (`UnrealProductionTaskDefinition` + `compile`, `snapshot`),
-- `planning/m12/target_state.py`
-  (`UnrealTargetStateSpec` + `UnrealTargetStateEvaluator`),
-- `planning/m12/task_classes.py` (constrained taxonomy constants),
-- `tests/m12/test_m12_semantic_task.py`,
-  `tests/m12/test_m12_authority_isolation.py`
-  (authority-isolation: no auth/receipt/verifier minting; no second scheduler),
-- docs update `docs/UNREAL_M12_SEMANTIC_SOCCER_DESIGN.md` (this doc) with an
-  "implemented" status marker after review.
+M12.1–M12.4 are implemented and merged. The next step is **M12.5 Unreal Semantic Evidence Verification v1**, which is design/reconciliation only until an independent architectural/red-team review clears it.
 
-It must NOT touch M4–M10 modules or the render-job store, and must keep the full
-deterministic suite green.
+The fresh M12.5 architecture is documented separately in:
+`docs/UNREAL_M12_5_SEMANTIC_EVIDENCE_VERIFICATION_V1_DESIGN.md`.
+
+The M12.5 gate must preserve these invariants:
+
+- consume, not redefine, the frozen semantic task, M12.3 plan, M12.4 mapping, and State Extraction v1 contracts;
+- evaluate target-state invariants deterministically and fail closed;
+- treat State Extraction as factual observation input, not as a semantic success claim;
+- keep existing M5+ render evidence verification authoritative for render artifacts;
+- require the existing render-job/recovery/evidence/receipt path for any render-bearing completion claim;
+- introduce no second executor, authorization authority, scheduler, retry controller, recovery authority, persistence authority, render verifier, or receipt issuer;
+- add no C++ transport surface unless a later implementation gate proves a concrete leaf observation is necessary and separately clears review.
+
+Implementation status:
+
+- M12.1 — IMPLEMENTED
+- M12.2 — IMPLEMENTED
+- M12.3 — IMPLEMENTED
+- M12.4 — IMPLEMENTED
+- M12.5 — **DESIGN / RECONCILIATION GATE — IMPLEMENTATION NOT AUTHORIZED**
+- M12.6 — future validated end-to-end milestone
+
+No production code change is authorized by this documentation update.
 
 ---
 
-**Implementation status:** M12.1 (semantic task contract + normalize/compile),
-M12.2 (catalog + fragments + composition), M12.3 (semantic execution-plan
-boundary), and M12.4 (semantic → runtime adapter) are IMPLEMENTED
-(`planning/m12/`; `docs/UNREAL_M12_1_SEMANTIC_TASK_CONTRACT.md`,
-`docs/UNREAL_M12_2_CATALOG_FRAGMENTS_COMPOSITION.md`,
-`docs/UNREAL_M12_3_EXECUTION_PLAN.md`, `docs/UNREAL_M12_4_RUNTIME_ADAPTER.md`).
-Delivery order: M12.1 → M12.2 → M12.3 → M12.4 (adapter) → verification (M12.5).
-Render-bearing execution remains deferred until independently proven. M12.4 is an
-adapter, not a new authority: it maps non-render plans onto the existing
-`AtlasTaskDefinition` runtime and fails closed for render-bearing intent. See §25.
-
-*Design only — no M12 production code was implemented in this task.*
+**Implementation status:** M12.1–M12.4 are implemented. M12.5 is the active architecture gate. Render-bearing semantic execution remains deliberately bounded by the existing M4–M10 render authority path.
