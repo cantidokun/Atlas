@@ -1,3 +1,5 @@
+> **Current-state reconciliation — September 22, 2026:** the normative extraction contract is frozen at Revision 3.3 and the implementation is merged/live-gated through PR #107. The Revision 3.1 reference below identifies the historical fixture-design source used when this matrix was authored.
+
 # Unreal State Extraction Fidelity v1 — fixture / validation rung
 
 Design source: `docs/UNREAL_STATE_EXTRACTION_FIDELITY_V1_DESIGN.md` (Revision 3.1), frozen at
