@@ -104,9 +104,7 @@ Do **not** start `planning/m12/verification.py` or any other M12.5 production im
 
 ## CI state at pause
 
-GitHub Actions `Atlas Tests` run **#2236** was **IN PROGRESS** at the time of the pause.
-
-No CI pass/fail conclusion is claimed for that run.
+Latest observed GitHub Actions `Atlas Tests` run **#2242** was **IN PROGRESS** on the immediately preceding documentation-synchronization commit. The final handoff-only commits have no attached workflow result yet, so no CI pass/fail conclusion is claimed for the final head.
 
 The Blender/Temporal legacy workflows associated with the documentation branch are unrelated to this M12.5 architecture gate and must not be used as reasons to reopen closed/frozen tracks.
 
