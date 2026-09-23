@@ -36,11 +36,15 @@ class M12VerificationError(ValueError):
 REGISTERED_INVARIANTS: Mapping[str, Mapping[str, Any]] = {}
 
 
+def _mapping_item_key(item: Tuple[str, Any]) -> str:
+    return item[0]
+
+
 def _canonical_digest(value: Any) -> str:
     if isinstance(value, Mapping):
         value = {
             k: _canonical_digest_value(v)
-            for k, v in sorted(value.items(), key=lambda item: item[0])
+            for k, v in sorted(value.items(), key=_mapping_item_key)
         }
     else:
         value = _canonical_digest_value(value)
@@ -60,7 +64,7 @@ def _canonical_digest_value(value: Any) -> Any:
             raise M12VerificationError("canonical mapping keys must be strings")
         return {
             k: _canonical_digest_value(v)
-            for k, v in sorted(value.items(), key=lambda item: item[0])
+            for k, v in sorted(value.items(), key=_mapping_item_key)
         }
     if isinstance(value, (list, tuple)):
         return [_canonical_digest_value(v) for v in value]
