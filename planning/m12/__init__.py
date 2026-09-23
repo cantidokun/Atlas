@@ -11,6 +11,8 @@ Package layout:
 - target_state: reusable, data-only target-state descriptor.
 - semantic_task: immutable UnrealProductionTaskDefinition + normalization +
     compile boundary onto the existing AtlasTaskDefinition runtime.
+- verification: M12.5 fail-closed semantic evidence verification.
+- verification_result: producer-owned deterministic verification result contract.
 """
 
 from planning.m12.catalog import (
@@ -67,6 +69,17 @@ from planning.m12.target_state import (
     target_state_metadata,
     target_state_spec,
 )
+from planning.m12.verification import (
+    M12VerificationError,
+    REGISTERED_INVARIANTS,
+    verify_semantic_target,
+)
+from planning.m12.verification_result import (
+    EvidenceTrustBasis,
+    ObservationIdentity,
+    UnrealSemanticVerificationResult,
+    VERIFIER_REVISION,
+)
 
 __all__ = [
     # M12.1
@@ -111,4 +124,12 @@ __all__ = [
     "map_unreal_execution_plan",
     "is_forbidden_authority_key",
     "compute_source_task_digest",
+    # M12.5
+    "M12VerificationError",
+    "REGISTERED_INVARIANTS",
+    "verify_semantic_target",
+    "VERIFIER_REVISION",
+    "ObservationIdentity",
+    "EvidenceTrustBasis",
+    "UnrealSemanticVerificationResult",
 ]
