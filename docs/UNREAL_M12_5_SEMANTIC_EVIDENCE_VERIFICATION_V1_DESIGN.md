@@ -1,6 +1,6 @@
 # Atlas M12.5 — Unreal Semantic Evidence Verification v1
 
-**Status:** ARCHITECTURE / RECONCILIATION ONLY — implementation NOT authorized  
+**Status:** ARCHITECTURE FROZEN / V1 IMPLEMENTED AND MERGED — post-implementation promotion gates pending  
 
 **Revision:** v1.9 — architecture-remediation round 9: closes V18-1 (§23.1 no longer describes `.request_digest` as an "agreement field": the list is now "read-only record fields available for agreement checks", with each field's actual role stated — `.canonical_digital_twin_id` and `.config_digest` participate in authority-backed agreements, `.sequence_asset_path` is enforced record↔evidence by the authority while the task-side correspondence is `NOT_ESTABLISHED`, and `.request_digest` is readable on the durable record but establishes no agreement in v1 — plus the normative sentence "being readable does not make a field an agreement dimension"). Terminology-only; the architecture, all truth values and all prior closures are unchanged.
 
@@ -16,10 +16,11 @@
 
 **Prior revision (v1.3): architecture-remediation round 3: closes the two findings of the re-review of the v1.2 tree (MR4-1, MR2-1). A declared sequence/asset identity is now a **declared render identity dimension** with a normative fail-closed rule (`RENDER_TASK_CORRESPONDENCE_NOT_DECIDED` / `RENDER_TASK_CORRESPONDENCE_MISMATCH`), and §9.3 defines a render domain as independently valid only when every declared dimension is decided and every comparison succeeded; registry expectation authority may come only from the reviewed code-level canonical registry value bound by its reviewed constant digest, never from a caller-authorable `metadata.fragments` snapshot (`FRAGMENT_EXPECTATION_SOURCE_NOT_CANONICAL`). MR-1, MR-3, MR-5, the transport-rooted≠authenticated limitation, the disclosure-only trust basis and the no-declared-input-channel rule are unchanged and not weakened; this round only tightens.
 
-**Review status:** this revision must receive a fresh independent architectural/red-team review at its exact head; no gate verdict is claimed by this document.
+**Review status:** architecture v1.9 received the required fresh independent final GLM architectural/red-team review and returned **CLEAR**; implementation was then authorized. PR #137 is merged. This document remains the frozen architecture record; post-implementation promotion evidence is tracked separately.
 
-**Base:** current `main` @ `89ca71180cebd00619d7f839819549cf4ede4be9`  
-**Context:** PR #136 is merged; post-merge Atlas Tests run #2231 completed successfully.  
+**Base:** architecture was reconciled against `main` @ `89ca71180cebd00619d7f839819549cf4ede4be9`; PR #137 is now merged.  
+**Latest functional implementation merge:** `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). The architecture record is followed by this documentation-only operational synchronization.
+**Implementation status:** exact implementation head `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`; Atlas Tests #2260 passed on Python 3.9 and 3.11.  
 **Depends on:** M12.1–M12.4, Unreal State Extraction Fidelity v1 Revision 3.3, and the existing M4–M10 verification/recovery/receipt boundaries.
 
 ---
@@ -1893,4 +1894,4 @@ not:
 facts → new executor / new scheduler / new recovery / new receipt system
 ```
 
-**Implementation remains unauthorized until this document receives an independent architectural/red-team CLEAR.**
+**Implementation authorization is now satisfied for M12.5 v1. The v1 implementation is merged on `main`; the remaining work is the post-implementation promotion/live evidence described in §24. This status update does not alter the frozen architecture or authorize any upstream Q8/Q9/Q10/Q11 contract expansion.**
