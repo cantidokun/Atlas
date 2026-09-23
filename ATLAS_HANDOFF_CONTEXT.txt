@@ -1,7 +1,8 @@
 ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 23, 2026 CURRENT CHECKPOINT
 
-CURRENT MAIN:
-- commit: 9b644d09a434ca97c21a15552383ff1268935a1f (PR #138 merge)
+LATEST FUNCTIONAL MAIN MERGE:
+- 9b644d09a434ca97c21a15552383ff1268935a1f (PR #138 merge)
+- This file is part of the documentation-only end-of-night synchronization layered on top of that functional baseline.
 - M12.5 architecture merge: PR #137
 - M12.5 implementation merge: PR #138
 - M12.5 exact implementation head before merge: b1b29478a2fbe438d1a16d3212b2bc6781b12f11
