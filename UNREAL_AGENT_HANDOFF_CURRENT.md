@@ -6,7 +6,7 @@
 
 ## Current Unreal position — M7 CLOSED / State Extraction COMPLETE / M12.5 V1 IMPLEMENTED / PAUSED
 
-- Current main: `9b644d09a434ca97c21a15552383ff1268935a1f`.
+- Latest functional main merge: `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). This documentation-only synchronization is the current operational handoff layer.
 - M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 - PR #137 — M12.5 architecture — **MERGED**.
 - PR #138 — M12.5 v1 implementation — **MERGED**.
