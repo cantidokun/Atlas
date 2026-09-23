@@ -9,16 +9,20 @@ from tests.extraction_payload_fixtures import actor_state_tree, response as fixt
 
 
 def _task_plan(name="unreal.sequence-configure"):
-    params = (
-        {
+    if name == "unreal.sequence-configure":
+        params = {
             "twin_id": "twin-1",
             "sequence_name": "main",
             "frame_start": 1,
             "frame_end": 24,
         }
-        if name == "unreal.sequence-configure"
-        else {"twin_id": "twin-1", "sequence_name": "main"}
-    )
+    elif name == "unreal.artifact-validate":
+        params = {
+            "twin_id": "twin-1",
+            "artifact_ref": "/Game/forged",
+        }
+    else:
+        params = {"twin_id": "twin-1", "sequence_name": "main"}
     task = DEFAULT_UNREAL_CATALOG.resolve(name, params, digital_twin_id="twin-1")
     return task, generate_execution_plan(task)
 
@@ -78,10 +82,11 @@ def test_object_setattr_cannot_turn_result_into_a_positive_claim():
 
 
 def test_free_form_metadata_cannot_be_promoted_to_expectation():
-    task, plan = _task_plan()
+    task, _ = _task_plan()
     metadata = dict(task.metadata or {})
     metadata["expected_value"] = {"verified": True, "success": True}
     object.__setattr__(task, "metadata", metadata)
+    plan = generate_execution_plan(task)
     result = verify_semantic_target(
         source_task=task,
         plan=plan,
@@ -126,9 +131,6 @@ def test_noncanonical_or_future_observation_shape_never_upgrades_result():
 
 def test_render_artifact_validation_reference_does_not_create_identity_authority():
     task, plan = _task_plan("unreal.artifact-validate")
-    metadata = dict(task.metadata or {})
-    metadata["artifact_ref"] = "/Game/forged"
-    object.__setattr__(task, "metadata", metadata)
     result = verify_semantic_target(
         source_task=task,
         plan=plan,
