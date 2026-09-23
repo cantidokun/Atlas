@@ -1,10 +1,10 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 22, 2026 CURRENT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 23, 2026 CURRENT CHECKPOINT
 
-Current main:
-- commit: 89ca71180cebd00619d7f839819549cf4ede4be9 (PR #136 merge)
-- M7 implementation merge: 526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3 (PR #132)
-- M7 implementation: 12a900e2e07c52875c3a8e33ea8fdf4d304caf14
-- M7 live-rung docs: 2686330c02829be228e84ec6175215ffba4ba823
+CURRENT MAIN:
+- commit: 9b644d09a434ca97c21a15552383ff1268935a1f (PR #138 merge)
+- M12.5 architecture merge: PR #137
+- M12.5 implementation merge: PR #138
+- M12.5 exact implementation head before merge: b1b29478a2fbe438d1a16d3212b2bc6781b12f11
 
 M7 CURRENT STATUS:
 - COMPLETE / MERGED / LIVE-PROVEN
@@ -14,43 +14,71 @@ M7 CURRENT STATUS:
 - 24/24 artifacts verified
 - 4/4 negative controls refused
 - independent post-live review: CLEAR / READY FOR INTEGRATION
-- exact-head CI for the docs follow-up: green on Python 3.9 and 3.11
-- frozen S1 rehearsal evidence is not the production receipt source
-- no additional Unreal run is required for M7 architectural closure
+- this does NOT claim full Contract V1 §33 S1-S8 live completion
 
-Accepted M7 residuals:
-- Windows Job Object instance identity is attribution evidence, not cryptographic object identity.
-- Keeper failure after quiescence but before recovery completion is intentionally fail-closed.
-- Keeper owns containment/liveness triggering only; authorization, receipt publication, evidence verification, and case classification remain elsewhere.
-
-SCENARIO-SCOPE HONESTY:
-- This closure does NOT claim full Contract V1 §33 S1-S8 live completion.
-- The M7 keeper-controlled Case-B rung is the live architectural proof completed here.
-- M9 harness/readiness records remain valid provenance for the broader scenario matrix.
-
-CURRENT ENGINEERING TRACK:
-- Unreal State Extraction Fidelity v1: COMPLETE / MERGED / LIVE-GATED
-- PR #106: Revision 3.3 design frozen and merged
-- PR #107: Revision 3.3 implementation merged; independent review CLEAR
+STATE EXTRACTION FIDELITY V1:
+- COMPLETE / MERGED / INDEPENDENTLY REVIEWED CLEAR / LIVE-GATED
+- PR #106 design + PR #107 implementation merged
 - UE 5.6.1 build succeeded; fixture automation 8/8; live transport gate PASS
 - positive baseline digest: 5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a
-- ACTIVE GATE: M12.5 Unreal Semantic Evidence Verification v1 architecture/reconciliation; implementation not authorized
-- PR #137 M12.5 design-remediation baselines: 73e1b5d8c159122f14ec93a5a00e8996cd46c169 (historical); remediation commit 39633cdd4c55e9fcc3171ff5b590532bdf66f7d0 (docs-only, committed, NOT merged; supersedes 832ad0e0); current review target is always the live PR #137 head resolved immediately before review
-- PR #137 status: OPEN / DRAFT / NOT MERGED; documentation/design only
-- ARCHITECTURE-REMEDIATION ROUND — COMMITTED to the PR #137 branch at 39633cdd4c55e9fcc3171ff5b590532bdf66f7d0 (NOT MERGED; 832ad0e0 superseded); docs-only, no production code: required-invariant-set commitment + source binding and equality with the plan's per-step verification requirements; digest-bound authoritative expected values required for every evaluated invariant, with the v1 coverage limitation recorded (no non-render invariant is admissible today) and NO declared-input expectation channel; transport-rooted observation identity — transport-rooted is NOT authenticated — with the absent authenticated session identity recorded as an explicit limitation; render classification bound to the digest-bound source; closed producer-owned result-side identity/provenance structures plus a derived evidence trust basis (transport-correlated observation evidence is weaker than durable-record-backed render evidence); enumerated permitted read-only and forbidden authority surfaces; AST isolation-gate requirements with positive controls; immutability mechanism; Phase-D determinism criterion
-- REVIEW INDEPENDENCE: the remediation round was produced by the same agent family as earlier review rounds and is not a third-party gate; the next reviewer must re-derive every claim from the tree and must not reuse any earlier verdict
-- NEXT REVIEW: fresh exact-head independent architectural/red-team review at the live PR #137 head (resolve the exact SHA immediately before review; 832ad0e0 is superseded). Implementation remains blocked pending CLEAR
-- LATEST OBSERVED CI: Atlas Tests run #2246 passed successfully on the preceding branch head. Subsequent documentation-only commits require a fresh exact-head CI check; no CI conclusion is claimed for a newer head until observed. Blender/Temporal legacy workflows are unrelated to this PR
+
+M12.5 ARCHITECTURE:
+- v1.9 architecture design independently cleared by final GLM gate: CLEAR
+- PR #137: MERGED
+- implementation was explicitly authorized after that CLEAR
+- no upstream expectation, sequence/asset, catalog-resolution, or request-digest authority was invented
+
+M12.5 V1 IMPLEMENTATION:
+- PR #138: MERGED
+- implementation head: b1b29478a2fbe438d1a16d3212b2bc6781b12f11
+- merge commit: 9b644d09a434ca97c21a15552383ff1268935a1f
+- exact-head Atlas Tests #2260: SUCCESS on Python 3.9 and 3.11
+- generic Temporal Live Blender #112: SUCCESS
+- generic Temporal Correction Integration live gate: SUCCESS
+- those Temporal results are NOT M12.5 semantic-live evidence and must not be represented as such
+- Correction Execution Bridge live workflow: SKIPPED for this branch
+- production implementation files:
+  - planning/m12/verification.py
+  - planning/m12/verification_result.py
+  - planning/m12/__init__.py
+  - tests/m12/test_m12_5_verification.py
+  - tests/m12/test_m12_5_identity_binding.py
+  - tests/m12/test_m12_5_authority_isolation.py
+  - tests/m12/test_m12_5_adversarial.py
+
+M12.5 V1 SAFETY/BOUNDARY STATUS:
+- fail-closed semantic verification
+- no caller-supplied expectation authority
+- source-task ↔ execution-plan source-content binding
+- required invariant set must equal the plan verification-requirement union
+- transport-rooted observation identity; transport-rooted is explicitly NOT authenticated
+- no second State Extraction authority
+- no execution / authorization / scheduler / retry / recovery / receipt authority
+- render-bearing tasks remain non-verified in v1 where sequence/request correspondence is not established
+- NOT_PROVEN remains control-coverage vocabulary only
+
+NEXT RESUME GATE:
+- Do NOT redesign M12.5 v1 merely because implementation is now merged.
+- First establish/execute the dedicated post-implementation promotion gates from design §24:
+  1. focused deterministic M12.5 verifier tests
+  2. relevant M12/Unreal deterministic suite
+  3. full deterministic non-integration suite
+  4. authority-import/isolation gate
+  5. dedicated M12.5 live non-render gate
+  6. dedicated M12.5 render-composition gate
+- Existing Temporal/Blender live workflow success does not satisfy items 5–6.
+- Any future closure of Q8/Q9/Q10/Q11 is an upstream contract/design gate and must not be smuggled into M12.5 v1.
 
 OTHER TRACKS:
 - Blender: CLOSED for current declared contract
+- Temporal: merged/live-gated and frozen; do not reopen on the basis of M12.5
 - M11: FROZEN
-- M12.1-M12.4: implemented
-- M12.5: active architecture/reconciliation gate; implementation not authorized
-- M13.8/token optimization: paused
-- PR #136: actor VERIFY boundary fix merged; PR #105 superseded
-- Older Unreal PR stack (#103/#41/#58/#50/#42/#40/#47): do not blanket-merge
+- M12.1-M12.4: COMPLETE / IMPLEMENTED
+- M13.8/token optimization: PAUSED
+- older Unreal PR stack (#103/#41/#58/#50/#42/#40/#47): do not blanket-merge
+- PR #105 is superseded by merged PR #136
 
 WORKING RULE:
-- Dated handoff snapshots remain archival and should not be rewritten.
-- Authoritative current-state surfaces are ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, README.md, and this context file.
+- This file is an authoritative compact context surface.
+- Dated handoffs remain archival and are not rewritten.
+- The next session should begin by reading ATLAS_HANDOFF_CURRENT.md and UNREAL_AGENT_HANDOFF_CURRENT.md, then resolving the current main SHA and the exact M12.5 implementation contents from main before making any changes.
