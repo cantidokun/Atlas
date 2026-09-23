@@ -267,7 +267,7 @@ def run_non_render_gate() -> Dict[str, Any]:
         mismatched_task_result
     )
 
-    tampered_plan = plan
+    tampered_plan = copy.copy(plan)
     object.__setattr__(tampered_plan, "source_content_digest", "0" * 64)
     tampered_plan_result = verify_semantic_target(
         source_task=task,
@@ -493,10 +493,11 @@ def run_render_gate() -> Dict[str, Any]:
     task, plan = _render_job_task_inputs()
 
     repo_root = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd()))
+    import tempfile
     output_parent = Path(
         os.environ.get(
             "ATLAS_M12_5_RENDER_OUTPUT_PARENT",
-            str(repo_root / "unreal" / "AtlasUnrealHarness" / "Saved" / "M12_5_LiveGate"),
+            tempfile.mkdtemp(prefix="atlas-m12-5-render-output-"),
         )
     )
     output_parent.mkdir(parents=True, exist_ok=True)
@@ -504,7 +505,7 @@ def run_render_gate() -> Dict[str, Any]:
     store_root = Path(
         os.environ.get(
             "ATLAS_M12_5_RENDER_STORE_ROOT",
-            str(repo_root / ".atlas_m12_5_live_store"),
+            tempfile.mkdtemp(prefix="atlas-m12-5-render-store-"),
         )
     )
     store = AtlasRenderJobStore(store_root)
@@ -520,7 +521,8 @@ def run_render_gate() -> Dict[str, Any]:
     )
 
     receipt_probe = repo_root / "render_receipt.json"
-    receipt_before = receipt_probe.read_bytes() if receipt_probe.exists() else None
+    receipt_existed_before = receipt_probe.exists()
+    receipt_before = receipt_probe.read_bytes() if receipt_existed_before else None
 
     submission = adapter  # retain explicit adapter ownership in the gate
     from planning.unreal_render_submission import UnrealRenderSubmissionService
@@ -739,8 +741,11 @@ def run_render_gate() -> Dict[str, Any]:
         ],
     }
 
-    if receipt_probe.exists() and receipt_probe.read_bytes() != receipt_before:
-        raise AssertionError("live M12.5 render gate modified render_receipt.json")
+    if receipt_existed_before:
+        if not receipt_probe.exists() or receipt_probe.read_bytes() != receipt_before:
+            raise AssertionError("live M12.5 render gate modified render_receipt.json")
+    elif receipt_probe.exists():
+        raise AssertionError("live M12.5 render gate unexpectedly created render_receipt.json")
 
     return report
 
