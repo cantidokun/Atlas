@@ -57,7 +57,7 @@ def test_producer_owned_result_fields_are_not_verifier_inputs():
 def test_v1_invariant_registry_is_closed_and_has_no_caller_predicates():
     assert verification.REGISTERED_INVARIANTS == {}
     source = inspect.getsource(verification)
-    assert "lambda" not in source
+    assert "lambda" not in source.lower()
     assert "eval(" not in source
     assert "exec(" not in source
 
