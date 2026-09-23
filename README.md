@@ -1,6 +1,6 @@
 # Atlas
 
-> **Current-state reconciliation — September 22, 2026.** M7 Case-B durable-witness + containment-keeper is complete, merged, and live-proven. Current main is `d237dbf686b666a745177a53ab782db60cd21c0f`; the M7 implementation merge is `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132). Historical dated handoffs remain archival and are not rewritten.
+> **Current-state reconciliation — September 22, 2026.** M7 Case-B durable-witness + containment-keeper is complete, merged, and live-proven. Current main is `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge). The M7 implementation merge is `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132). Historical dated handoffs remain archival and are not rewritten.
 
 ## Active development checkpoint — September 22, 2026
 
@@ -16,18 +16,41 @@ The September 20-21 checkpoint is now superseded by the completed M7 live rung.
 - The frozen S1 rehearsal evidence remains rehearsal/render evidence only; it is not the production receipt source.
 - M7 closure does **not** claim that the full Contract V1 §33 S1-S8 scenario matrix was live-executed.
 
-### Next Unreal track — State Extraction Fidelity v1
+### Unreal State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
 
-The next Unreal architecture track is the design branch `feat/unreal-state-extraction-fidelity-v1-design`.
+State Extraction Fidelity v1 is already implemented and merged:
 
-This is a **read-only design/reconciliation gate** for a bounded, deterministic C++→Python extraction contract covering factual Unreal world/actor/material/Sequencer state. Implementation is not yet authorized.
+- PR #106 froze Revision 3.3 of the read-only extraction contract and merged the design.
+- PR #107 implemented Revision 3.3 and merged the implementation.
+- The implementation was independently reviewed **CLEAR**.
+- UE 5.6.1 build succeeded, fixture automation passed **8/8**, and the live transport gate passed.
+- Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
+- Residual cases remain explicitly classified as live-covered, refusal-verified, blocked by engine/API limitation, or not-yet-live-covered; no false live pass is claimed.
+
+The extraction layer is now the factual, read-only Unreal-state source that M12 can consume. It remains distinct from semantic verification and does not itself produce a semantic success claim.
+
+### M12.5 — ACTIVE ARCHITECTURE GATE — REMEDIATION COMMITTED (NOT MERGED), REVIEW PENDING
+
+M12.5 is the active Unreal architecture/reconciliation gate; implementation remains unauthorized.
+
+PR #137 is **OPEN / DRAFT / NOT MERGED** and documentation/design only. Resolve the current PR head SHA immediately before the next independent review; `832ad0e0`, `4ae9ff57` and `73e1b5d8` are superseded historical baselines, not the review target.
+
+An architecture-remediation round has been applied to the M12.5 design **and is committed to the PR #137 branch at `39633cdd4c55e9fcc3171ff5b590532bdf66f7d0`** (docs-only; no production code, no M12.1–M12.4 changes; PR #137 remains OPEN / DRAFT / NOT MERGED) — this is the remediated architecture head awaiting fresh independent review. It closes the identified design-rule gaps and explicitly bounds the remaining v1 capability limitations, subject to fresh independent exact-head review. It: defines and binds the required-invariant set (the resolved source task's declared target-state invariants, required to EQUAL the plan's per-step verification requirements, failing closed in both directions); requires a digest-bound authoritative expected value for every evaluated invariant, records the resulting v1 coverage limitation (no non-render invariant is admissible today) and admits no declared-input expectation channel; roots the observation identity in the correlated transport response envelope and records both that transport-rooted is not authenticated and the absence of authenticated session identity as an explicit limitation; binds render classification to the digest-bound source; closes the result-side identity/provenance structures and discloses a derived evidence trust basis so transport-correlated observation evidence is not read as durable-record-backed render evidence; enumerates permitted read-only and forbidden authority surfaces with the AST isolation-gate requirements; and fixes the immutability mechanism, the Phase-D determinism criterion, and the duplicate-observation wording.
+
+The independent-review sequence remains: exact-head independent architectural/red-team review → architecture CLEAR → explicit implementation authorization → deterministic implementation. Reviewers must re-derive every claim from the tree; these documents claim no verdict, and no prior review — including the reviewer's own earlier rounds, which were not third-party gates — may be reused as the current verdict. This head awaits that review; resolve the live PR #137 head immediately before running it.
+
+Latest observed CI: GitHub Actions `Atlas Tests` run **#2246** passed on the preceding branch head. Subsequent documentation-only commits require a fresh CI check; no pass is claimed for a newer head until observed.
+
+M12.5 will consume the frozen semantic task/plan contracts plus authoritative Unreal state extraction and existing verified render evidence where applicable. It evaluates target-state invariants fail-closed: any requirement whose authoritative expected value is unsupported or unbound — every non-render semantic invariant today — remains UNKNOWN and fails closed until the upstream expectation authority exists (§8.0.1), and no request-supplied expectation may substitute for it (§8.0). The result is bound to task/plan/source digests and observation identities, is deterministic, and discloses the evidence trust basis of each domain so transport-correlated observation evidence is not read as equivalent to durable-record-backed render evidence (§10.4).
+
+M12.5 will **not** create a second executor, authorization authority, scheduler, recovery authority, render verifier, or receipt issuer. Render-bearing completion remains dependent on the existing M4–M10 render submission/recovery/evidence/receipt path.
 
 ### Other current tracks
 
 - Blender: **CLOSED** for the current declared contract.
 - M11: **FROZEN**.
 - M12.1-M12.4: **implemented**.
-- M12.5: **deferred**.
+- M12.5: **architecture/reconciliation gate paused at PR #137; final independent review pending; implementation not authorized**.
 - M13.8/token optimization: **paused**.
 - Older Unreal PR stack: **do not blanket-merge**; retain selective-integration discipline.
 
