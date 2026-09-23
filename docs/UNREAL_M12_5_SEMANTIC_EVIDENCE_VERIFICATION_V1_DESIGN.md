@@ -19,7 +19,8 @@
 **Review status:** architecture v1.9 received the required fresh independent final GLM architectural/red-team review and returned **CLEAR**; implementation was then authorized. PR #137 is merged. This document remains the frozen architecture record; post-implementation promotion evidence is tracked separately.
 
 **Base:** architecture was reconciled against `main` @ `89ca71180cebd00619d7f839819549cf4ede4be9`; PR #137 is now merged.  
-**Implementation status:** PR #138 merged M12.5 v1 at exact head `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`, merge commit `9b644d09a434ca97c21a15552383ff1268935a1f`. Atlas Tests #2260 passed on Python 3.9 and 3.11.  
+**Latest functional implementation merge:** `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). The architecture record is followed by this documentation-only operational synchronization.
+**Implementation status:** exact implementation head `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`; Atlas Tests #2260 passed on Python 3.9 and 3.11.  
 **Depends on:** M12.1–M12.4, Unreal State Extraction Fidelity v1 Revision 3.3, and the existing M4–M10 verification/recovery/receipt boundaries.
 
 ---
