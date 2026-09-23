@@ -4,8 +4,8 @@
 >
 > This document is the authoritative current development handoff. Dated handoffs remain archival and are not rewritten.
 >
-> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 ARCHITECTURE GATE PAUSED**
-> **PAUSE POINT: PR #137 REMAINS DRAFT; M12.5 IMPLEMENTATION IS NOT AUTHORIZED**
+> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 ARCHITECTURE GATE: REMEDIATION APPLIED (UNCOMMITTED), REVIEW PENDING**
+> **PR #137 REMAINS DRAFT; M12.5 IMPLEMENTATION IS NOT AUTHORIZED**
 > Current main: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge). M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
 
 ## Current position
@@ -103,11 +103,13 @@ M12.5 — Unreal Semantic Evidence Verification v1 — is now the active design/
 
 It consumes the resolved semantic task, immutable M12.3 plan, M12.4 mapping, State Extraction Fidelity observations, and existing verified render evidence where applicable. It produces a deterministic semantic target-state verification result, bound to task/plan/source/observation identity.
 
-M12.5 is not an execution or authorization milestone. It cannot schedule, execute, retry, recover, create a second render verifier, mint render receipts, or replace the existing M4–M10 authorities. Implementation is not authorized until the exact remediated PR #137 head receives the final independent architectural/red-team CLEAR.
+M12.5 is not an execution or authorization milestone. It cannot schedule, execute, retry, recover, create a second render verifier, mint render receipts, or replace the existing M4–M10 authorities. Implementation is not authorized until the exact remediated PR #137 head receives an independent architectural/red-team CLEAR — and never on the strength of any wording inside this handoff.
 
-Current review target: the **current PR #137 head**. Always resolve and record the exact PR head SHA immediately before the final independent review; `73e1b5d8` is only the historical design-remediation baseline.
+Current review target: the **current PR #137 head**. Always resolve and record the exact PR head SHA immediately before the next independent review; `73e1b5d8` is only the historical design-remediation baseline.
 PR #137 is **OPEN / DRAFT / NOT MERGED** and contains documentation/design only.
-Hermes's final re-review at the prior remediated head identified two blockers and two major findings; those design issues have since been remediated on the current head. Hermes also disclosed that its re-review was not a third-party gate because it was the same agent family that authored related work. A fresh independent GLM review of the current PR #137 head is therefore the next review action.
+An architecture-remediation round has been applied to the M12.5 design **in the local worktree only — uncommitted; PR #137 still points at `832ad0e0`** (docs-only, no production code, no M12.1–M12.4 changes). It closes the identified **design-rule** gaps and explicitly bounds the remaining v1 capability limitations, subject to fresh independent exact-head review: the required-invariant set is defined, source-bound, and required to equal the plan's per-step verification requirements (failing closed in both directions); every evaluated invariant must be evaluated against a digest-bound authoritative expected value, with the resulting v1 coverage limitation recorded; observation identity is transport-rooted with the absence of authenticated session identity recorded as an explicit limitation; render classification is bound to the digest-bound source; the result-side identity/provenance structures are closed and producer-owned, including a derived evidence trust basis; permitted read-only and forbidden authority surfaces are enumerated together with the AST isolation-gate requirements; and immutability, Phase-D determinism, and duplicate-observation wording are made concrete.
+It does **not** create the missing expectation authority: every non-render semantic invariant remains inadmissible and fails closed (§8.0.1), no declared-input expectation channel exists (§8.0), and transport-correlated observation evidence is disclosed as weaker than durable-record-backed render evidence (§10.4). When the remediation is committed, this paragraph and the status banner must be updated to reflect the new PR head.
+The remediation was performed by the same agent family as earlier rounds and is therefore **not** a third-party gate: the next action is a fresh exact-head independent architectural/red-team review whose reviewer re-derives every claim from the tree. No verdict is claimed by this section, and no earlier review may be reused as the current verdict.
 Latest observed successful CI: GitHub Actions `Atlas Tests` run **#2246** passed on the preceding branch head. Subsequent documentation-only commits must be checked again; no CI conclusion is claimed for a newer head until observed. Blender/Temporal legacy workflows are unrelated to this PR.
 
 ### M7 status — COMPLETE / MERGED / LIVE-PROVEN
