@@ -1,6 +1,6 @@
 # Atlas
 
-> **Current-state reconciliation — September 23, 2026.** M7 is complete and live-proven; State Extraction Fidelity v1 is complete; M12.5 v1 architecture and implementation are both merged. Current `main` is `9b644d09a434ca97c21a15552383ff1268935a1f`. Historical dated handoffs remain archival and are not rewritten.
+> **Current-state reconciliation — September 23, 2026.** M7 is complete and live-proven; State Extraction Fidelity v1 is complete; M12.5 v1 architecture and implementation are both merged. **Latest functional main merge:** `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). This documentation-only synchronization is the current-state handoff layer. Historical dated handoffs remain archival and are not rewritten.
 
 ## Active development checkpoint — September 23, 2026
 
