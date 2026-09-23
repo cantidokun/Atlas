@@ -6,7 +6,7 @@
 >
 > **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 V1 IMPLEMENTED / MERGED / PAUSED FOR NIGHT**
 > **PR #137 architecture: MERGED. PR #138 implementation: MERGED. No M12.5 production expansion is authorized during the pause.**
-> Current main: `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). Architecture landed in PR #137; M12.5 v1 implementation landed in PR #138.
+> Latest functional main merge: `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). This documentation-only synchronization is the current handoff layer on top of that functional baseline.
 
 ## Current position
 
