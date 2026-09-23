@@ -8,8 +8,10 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 from planning.m12.execution_plan import (
     UnrealExecutionPlan,
+    _build_plan_id,
     compute_source_content_digest,
 )
+from planning.m12.runtime_adapter import UnrealRuntimeMapping
 from planning.m12.semantic_task import UnrealProductionTaskDefinition
 from planning.m12.task_classes import is_render_task_class
 from planning.m12.verification_result import (
@@ -34,6 +36,15 @@ class M12VerificationError(ValueError):
 # §8.0.1: no non-render invariant has an admissible typed expectation source in v1.
 # This is a closed registry: arbitrary/caller-supplied predicates are impossible.
 REGISTERED_INVARIANTS: Mapping[str, Mapping[str, Any]] = {}
+
+_SESSION_IDENTITY_KEYS = frozenset({
+    "editor_session_id",
+    "process_id",
+    "process_creation_time_utc",
+    "server_start_time_utc",
+    "engine_version",
+    "project_identity",
+})
 
 
 def _mapping_item_key(item: Tuple[str, Any]) -> str:
@@ -120,15 +131,23 @@ def _derive_observation(
         raise M12VerificationError("INVALID_OBSERVATION")
 
     session = dict(response.session_identity)
-    required = {
-        "editor_session_id",
-        "process_id",
-        "process_creation_time_utc",
-        "server_start_time_utc",
-        "engine_version",
-        "project_identity",
-    }
-    if not required.issubset(session):
+    if set(session) != set(_SESSION_IDENTITY_KEYS):
+        raise M12VerificationError("OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED")
+    if (
+        not isinstance(session["editor_session_id"], str)
+        or not session["editor_session_id"].strip()
+        or not isinstance(session["process_id"], int)
+        or isinstance(session["process_id"], bool)
+        or session["process_id"] < 1
+        or not isinstance(session["process_creation_time_utc"], str)
+        or not session["process_creation_time_utc"].strip()
+        or not isinstance(session["server_start_time_utc"], str)
+        or not session["server_start_time_utc"].strip()
+        or not isinstance(session["engine_version"], str)
+        or not session["engine_version"].strip()
+        or not isinstance(session["project_identity"], str)
+        or not session["project_identity"].strip()
+    ):
         raise M12VerificationError("OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED")
 
     engine_identity = session["engine_version"]
@@ -265,6 +284,15 @@ def _validate_plan_binding(
     if plan.digital_twin_id != task.digital_twin_id:
         return ("IDENTITY_MISMATCH",)
 
+    derived_plan_id = _build_plan_id(
+        task.canonical_task_id,
+        task.task_version,
+        tuple(step.semantic_operation for step in plan.steps),
+        digest,
+    )
+    if plan.plan_id != derived_plan_id:
+        return ("IDENTITY_MISMATCH",)
+
     required = frozenset(task.target_state.invariant_names)
     carried = frozenset(
         requirement
@@ -280,6 +308,28 @@ def _validate_plan_binding(
     if plan.render_plan != is_render_task_class(task.task_class):
         return ("PLAN_RENDER_CLASSIFICATION_MISMATCH",)
     return ()
+
+
+def _derive_runtime_mapping_digest(
+    mapping: Optional[UnrealRuntimeMapping],
+    plan: UnrealExecutionPlan,
+) -> Optional[str]:
+    if mapping is None:
+        return None
+    if type(mapping) is not UnrealRuntimeMapping:
+        raise M12VerificationError("RUNTIME_MAPPING_INVALID")
+    if (
+        mapping.plan_id != plan.plan_id
+        or mapping.source_task_id != plan.source_task_id
+        or mapping.source_task_version != plan.source_task_version
+        or mapping.digital_twin_id != plan.digital_twin_id
+        or mapping.source_task_digest != plan.source_content_digest
+        or mapping.render_plan != plan.render_plan
+    ):
+        raise M12VerificationError("RUNTIME_MAPPING_IDENTITY_MISMATCH")
+    return hashlib.sha256(
+        mapping.canonical_json().encode("utf-8")
+    ).hexdigest()
 
 
 def _observation_result(
@@ -316,7 +366,7 @@ def verify_semantic_target(
     observation_pairs: Sequence[
         Tuple[UnrealTransportRequest, UnrealTransportResponse]
     ],
-    runtime_mapping_digest: Optional[str] = None,
+    runtime_mapping: Optional[UnrealRuntimeMapping] = None,
     claimed_observation_digest: Optional[str] = None,
     render_job_record: Any = None,
     render_observed_state: Optional[Mapping[str, Any]] = None,
@@ -334,6 +384,16 @@ def verify_semantic_target(
         raise M12VerificationError("source_task must be an exact UnrealProductionTaskDefinition")
     if type(plan) is not UnrealExecutionPlan:
         raise M12VerificationError("plan must be an exact UnrealExecutionPlan")
+
+    try:
+        runtime_mapping_digest = _derive_runtime_mapping_digest(runtime_mapping, plan)
+    except M12VerificationError as exc:
+        return _observation_result(
+            source_task,
+            plan,
+            str(exc),
+            None,
+        )
 
     binding_errors = _validate_plan_binding(source_task, plan)
     if binding_errors:

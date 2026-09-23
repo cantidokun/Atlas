@@ -23,24 +23,62 @@ def _tree():
     return ast.parse(inspect.getsource(verification))
 
 
-def test_verifier_has_only_allowed_authority_imports():
-    tree = _tree()
+def _authority_violations(source):
+    tree = ast.parse(source)
+    violations = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                assert alias.name not in FORBIDDEN_MODULES
-                assert alias.name != "importlib"
+                if alias.name in FORBIDDEN_MODULES:
+                    violations.append(("import", alias.name))
         elif isinstance(node, ast.ImportFrom):
-            assert node.module not in FORBIDDEN_MODULES
-            assert node.module != "importlib"
+            if node.module in FORBIDDEN_MODULES:
+                violations.append(("from", node.module))
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "importlib"
+                and func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value in FORBIDDEN_MODULES
+            ):
+                violations.append(("deferred", node.args[0].value))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value in FORBIDDEN_MODULES:
+                violations.append(("string", node.value))
+    return violations
 
 
-def test_no_deferred_dynamic_authority_import_or_authority_string_path():
+def test_verifier_has_no_forbidden_authority_paths():
     source = inspect.getsource(verification)
-    assert "importlib.import_module" not in source
-    assert "unreal_render_submission" not in source
-    assert "unreal_render_receipt_store" not in source
-    assert "unreal_render_recovery_coordinator" not in source
+    assert _authority_violations(source) == []
+
+
+def test_forbidden_authority_detector_has_positive_controls():
+    samples = {
+        "ordinary": "import planning.unreal_render_submission",
+        "aliased": "import planning.unreal_render_submission as submission",
+        "deferred": (
+            "import importlib\n"
+            "importlib.import_module('planning.unreal_render_submission')"
+        ),
+        "string": "module_name = 'planning.unreal_render_submission'",
+    }
+    for kind, sample in samples.items():
+        violations = _authority_violations(sample)
+        assert violations, kind
+        assert any(item[1] == "planning.unreal_render_submission" for item in violations), (
+            kind,
+            violations,
+        )
+
+
+def test_no_deferred_importlib_authority_path_in_verifier():
+    source = inspect.getsource(verification)
+    assert "importlib" not in source
 
 
 def test_producer_owned_result_fields_are_not_verifier_inputs():

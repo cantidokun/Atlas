@@ -120,3 +120,14 @@ def test_render_flag_cannot_override_digest_bound_source_classification():
         observation_pairs=[_pair()],
     )
     assert result.failure_codes == ("PLAN_RENDER_CLASSIFICATION_MISMATCH",)
+
+
+def test_plan_identity_is_recomputed_against_source_and_steps():
+    task, plan = _task_plan()
+    object.__setattr__(plan, "plan_id", "forged-plan-id")
+    result = verify_semantic_target(
+        source_task=task,
+        plan=plan,
+        observation_pairs=[_pair()],
+    )
+    assert result.failure_codes == ("IDENTITY_MISMATCH",)

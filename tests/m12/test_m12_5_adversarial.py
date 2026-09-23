@@ -165,3 +165,67 @@ def test_stale_relabelled_payload_is_not_claimed_as_detected():
     assert "OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED" not in result.failure_codes
     assert result.semantic_state == "INVALID_OBSERVATION"
     assert result.overall_state == "UNKNOWN"
+
+
+def test_session_identity_is_closed_and_cannot_smuggle_authority():
+    task, plan = _task_plan()
+    request, response = _pair()
+    forged_session = dict(response.session_identity)
+    forged_session["authorization_id"] = "forged-authority"
+    forged = UnrealTransportResponse(
+        request_id=response.request_id,
+        operation_name=response.operation_name,
+        entity_ids=response.entity_ids,
+        success=response.success,
+        observed_state=response.observed_state,
+        error=response.error,
+        source=response.source,
+        schema_version=response.schema_version,
+        error_code=response.error_code,
+        session_identity=forged_session,
+    )
+    result = verify_semantic_target(
+        source_task=task,
+        plan=plan,
+        observation_pairs=[(request, forged)],
+    )
+    assert result.failure_codes == ("OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED",)
+
+
+def test_consistently_relabelled_stale_payload_is_not_claimed_detectable():
+    task, plan = _task_plan()
+    request, response = _pair()
+    stale_state = dict(response.observed_state)
+    extraction = dict(stale_state["unreal_state_extraction"])
+    actors = [dict(actor) for actor in extraction["actors"]]
+    actors[0]["actor_name"] = "StalePayloadRelabelled"
+    extraction["actors"] = actors
+    stale_state["unreal_state_extraction"] = extraction
+    relabelled = UnrealTransportResponse(
+        request_id=response.request_id,
+        operation_name=response.operation_name,
+        entity_ids=response.entity_ids,
+        success=response.success,
+        observed_state=stale_state,
+        error=response.error,
+        source=response.source,
+        schema_version=response.schema_version,
+        error_code=response.error_code,
+        session_identity=response.session_identity,
+    )
+    result = verify_semantic_target(
+        source_task=task,
+        plan=plan,
+        observation_pairs=[(request, relabelled)],
+    )
+    assert result.semantic_state == "UNKNOWN"
+    assert result.overall_state == "NOT_ESTABLISHED"
+    assert "OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED" not in result.failure_codes
+    assert "IDENTITY_MISMATCH" not in result.failure_codes
+
+
+def test_runtime_mapping_digest_is_not_a_caller_supplied_verdict_channel():
+    import inspect
+    parameters = inspect.signature(verify_semantic_target).parameters
+    assert "runtime_mapping_digest" not in parameters
+    assert "runtime_mapping" in parameters
