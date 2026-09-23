@@ -34,7 +34,7 @@ def _thaw(value: Any) -> Any:
     return value
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ObservationIdentity:
     contract_revision: int
     extractor_identity: str
@@ -49,7 +49,7 @@ class ObservationIdentity:
         object.__setattr__(self, "scope_identity", _freeze(dict(self.scope_identity)))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class EvidenceTrustBasis:
     semantic_observation: str
     render_evidence: str
@@ -61,7 +61,7 @@ class EvidenceTrustBasis:
             raise ValueError("unsupported render trust basis")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class UnrealSemanticVerificationResult:
     verifier_revision: str
     task_identity: str
