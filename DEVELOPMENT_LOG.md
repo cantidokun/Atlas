@@ -803,3 +803,20 @@ Design changes (`docs/UNREAL_M12_5_SEMANTIC_EVIDENCE_VERIFICATION_V1_DESIGN.md`,
 Current-state documentation reconciled: `ATLAS_HANDOFF_CURRENT.md`, `ATLAS_HANDOFF_CONTEXT.txt`, `UNREAL_AGENT_HANDOFF_CURRENT.md`, `README.md` (this log). All continue to state that PR #137 is OPEN / DRAFT / NOT MERGED and that **M12.5 implementation is not authorized**; no CI conclusion is claimed for any newer head until observed.
 
 NEXT GATE: a fresh exact-head independent architectural/red-team review of the remediation head, re-derived from the tree. Only an unqualified CLEAR may be followed by implementation authorization.
+
+
+## 2026-09-23 — M12.5 v1 implementation merged / end-of-night pause
+
+- PR #137 — M12.5 Unreal Semantic Evidence Verification v1 architecture/reconciliation — **MERGED**. Architecture revision v1.9 had received the required final independent GLM gate: **CLEAR**.
+- PR #138 — M12.5 v1 implementation — **MERGED**.
+- Exact implementation head before merge: `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`.
+- Main after merge: `9b644d09a434ca97c21a15552383ff1268935a1f`.
+- Exact-head repository CI: Atlas Tests #2260 **SUCCESS** on Python 3.9 and 3.11.
+- Generic Temporal Live Blender #112 and Temporal Correction Integration live gate both completed **SUCCESS** on the same M12.5 PR head. These workflows are unrelated to M12.5 semantic verification and are recorded as repository workflow evidence only.
+- Correction Execution Bridge live workflow was **SKIPPED** for the branch.
+- M12.5 implementation files landed: `planning/m12/verification.py`, `planning/m12/verification_result.py`, `planning/m12/__init__.py`, plus the four focused M12.5 test modules under `tests/m12/`.
+- The implementation preserves the cleared v1 boundary: fail-closed semantic verification, no caller expectation authority, source-task/plan commitment checks, transport-rooted observation identity, authority-isolation testing, and no execution/authorization/recovery/receipt authority.
+- Initial implementation CI found and fixed three classes of mechanical/test defects: Python 3.9 dataclass compatibility, two adversarial fixture mistakes, and an over-broad lambda detector in the authority-isolation test. The final exact-head CI passed after these fixes.
+- **Promotion status at pause:** implementation is merged and deterministic repository CI is green, but no dedicated M12.5 semantic live non-render or render-composition gate has yet been established or credited. The generic Temporal/Blender workflows are not substitutes.
+- Do not use this pause to introduce upstream Q8/Q9/Q10/Q11 contract changes. The next resume point is the dedicated post-implementation M12.5 promotion-gate work defined by design §24.
+- No Blender development was reopened; no Temporal redesign was started; no historical Unreal PR stack was blanket-merged.
