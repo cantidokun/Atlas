@@ -1,21 +1,18 @@
 # Unreal Agent Handoff — Current State
 
-> **Authoritative current checkpoint — September 22, 2026.**
+> **Authoritative current checkpoint — September 23, 2026.**
 >
-> M7 containment-keeper is complete, merged, and live-proven. Dated checkpoint text below the separator is archival provenance and is not rewritten.
+> PR #137 architecture and PR #138 M12.5 v1 implementation are both merged. This document is now the operational Unreal-track handoff for the post-implementation promotion pause. Dated checkpoint text below the separator remains archival provenance and is not rewritten.
 
-## Current Unreal position — M7 CLOSED / State Extraction COMPLETE / M12.5 ARCHITECTURE GATE PAUSED
+## Current Unreal position — M7 CLOSED / State Extraction COMPLETE / M12.5 V1 IMPLEMENTED / PAUSED
 
-- Current main: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge).
+- Current main: `9b644d09a434ca97c21a15552383ff1268935a1f`.
 - M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
-- PR #131 was an ancestor of the merged M7 branch and was marked merged by GitHub as part of that ancestry; there is no separate implementation merge outstanding.
-- M7 Case-B durable-witness + containment-keeper is **COMPLETE**.
-- First real UE 5.6.1 keeper-controlled rung: **Case B, exactly 1 production receipt, 0 adoption-path engine RPCs**.
-- **24/24 artifacts** were independently verified; **4/4 negative controls** refused.
-- Exact-head CI for the M7 documentation follow-up was green on Python 3.9 and 3.11.
-- Independent post-live review: **CLEAR / READY FOR INTEGRATION**.
-- Frozen S1 rehearsal evidence is not the production receipt source; no second render is required for M7 architectural closure.
-- This does not claim full Contract V1 §33 S1-S8 live completion; the broader matrix remains a separate evidence obligation.
+- PR #137 — M12.5 architecture — **MERGED**.
+- PR #138 — M12.5 v1 implementation — **MERGED**.
+- Exact implementation head before merge: `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`.
+- M12.5 architecture final revision: **v1.9**, final independent GLM gate: **CLEAR**.
+- Implementation files are now in `main`; no M12.5 production implementation remains unmerged.
 
 ## State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
 
@@ -24,30 +21,47 @@
 - Independent implementation review: **CLEAR**.
 - UE 5.6.1 build: **Succeeded**; fixture automation: **8/8 Success**; live transport gate: **PASS**.
 - Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
-- Remaining live gaps are explicitly classified rather than promoted to false coverage.
+
+## M12.5 V1 implementation status
+
+- Atlas Tests #2260: **SUCCESS** on Python 3.9 and 3.11 at the exact implementation head.
+- Generic Temporal Live Blender #112: **SUCCESS**.
+- Generic Temporal Correction Integration live gate: **SUCCESS**.
+- Correction Execution Bridge live workflow: **SKIPPED**.
+- The Temporal/Blender successes are repository workflow evidence only; they are **not** M12.5 semantic-live evidence.
+- No dedicated M12.5 semantic live non-render or render-composition gate has yet been established or credited.
+
+The v1 implementation preserves the cleared architecture:
+- fail-closed semantic evaluation;
+- no caller expectation authority;
+- exact source-content commitment and invariant-set reconciliation;
+- transport-rooted observation identity;
+- no new executor/authorization/scheduler/recovery/receipt authority;
+- render-bearing verification remains closed where v1 lacks reviewed sequence/request correspondence.
 
 ## Immediate next action
 
-**Resume the M12.5 architecture gate at the current PR #137 head.** Always resolve and record the PR head SHA immediately before the next independent review; do not reuse the historical `73e1b5d8` remediation SHA.
+**Resume at the post-implementation M12.5 promotion gate, not at a redesign gate.**
 
-The clean boundary is:
+The architecture's §24 sequence is:
 
-`resolved semantic task → M12.3 immutable execution plan → M12.4 mapping → State Extraction / existing verified render evidence → M12.5 target-state verification`.
+`focused deterministic M12.5 tests → relevant M12/Unreal deterministic suite → full deterministic non-integration → authority-import isolation → dedicated M12.5 live non-render gate → dedicated render-composition gate`
 
-M12.5 implementation is **not authorized**. PR #137 remains OPEN / DRAFT / NOT MERGED. Required resume sequence: fresh exact-head independent architectural/red-team review of the current PR head → if CLEAR, explicit implementation authorization → deterministic implementation gates → separately authorized live evidence.
+Do not count the generic Temporal/Blender workflow successes as substitutes for the dedicated M12.5 live gates.
 
-A docs-only architecture-remediation round is **committed to the PR #137 branch at `39633cdd4c55e9fcc3171ff5b590532bdf66f7d0`** (PR #137 remains OPEN / DRAFT / NOT MERGED; `832ad0e0` is superseded): required-invariant-set commitment and source binding; digest-bound authoritative expected values for every evaluated invariant, with the v1 coverage limitation recorded and no declared-input expectation channel; transport-rooted observation identity, recorded as transport-rooted but NOT authenticated; render classification bound to the digest-bound source; closed result-side identity/provenance structures plus a derived evidence trust basis; enumerated permitted/forbidden authority surfaces and AST isolation-gate requirements. It closes the identified design-rule gaps and bounds the remaining v1 capability limitations; it does not create the missing expectation authority. It is not a third-party gate: the next review must re-derive each claim from the tree rather than accept it, and must resolve the live PR #137 head immediately before reviewing.
+Do not reopen Q8/Q9/Q10/Q11 inside M12.5 v1. Any closure of those upstream questions requires its own reviewed contract/design gate.
 
-Latest observed `Atlas Tests` run #2246 passed successfully on the preceding current branch head. Subsequent documentation-only commits may trigger a newer run; always resolve the latest exact PR head and CI before the final gate.
+## Authority boundary
 
-M12.5 must remain verification-only: no second executor, authorization authority, scheduler, recovery coordinator, render-artifact verifier, or receipt issuer.
+M12.5 remains verification-only. It may consume resolved task/plan content, State Extraction observations, and existing authoritative render evidence where the v1 contract permits, but it must not authorize execution, schedule work, retry/recover, mint receipts, or become a second render/evidence authority.
 
-## Other current constraints
+## Historical Unreal PR discipline
 
-- Do not blanket-merge PRs #103/#41/#58/#50/#42/#40/#47; retain selective-integration discipline.
-- PR #105 is superseded by PR #136, which is merged on current main.
-- M11 remains frozen; M12.1-M12.4 are complete; M12.5 is the active but paused architecture/reconciliation gate; M13.8/token optimization remains paused.
-- Do not revive historical Unreal autonomous loops or introduce a second authorization/recovery/receipt authority.
+- Do not blanket-merge PRs #103/#41/#58/#50/#42/#40/#47.
+- PR #105 is superseded by PR #136 and must not be revived.
+- M11 remains frozen.
+- M12.1–M12.4 remain complete.
+- M13.8/token optimization remains paused.
 
 ---
 
