@@ -1,12 +1,12 @@
 # Atlas Current Development Handoff
 
-> **Authoritative current-state reconciliation — September 22, 2026.**
+> **Authoritative current-state reconciliation — September 23, 2026.**
 >
 > This document is the authoritative current development handoff. Dated handoffs remain archival and are not rewritten.
 >
-> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 ARCHITECTURE GATE: REMEDIATION COMMITTED (PR #137 DRAFT), REVIEW PENDING**
-> **PR #137 REMAINS DRAFT; M12.5 IMPLEMENTATION IS NOT AUTHORIZED**
-> Current main: `89ca71180cebd00619d7f839819549cf4ede4be9` (PR #136 merge). M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
+> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 V1 IMPLEMENTED / MERGED / PAUSED FOR NIGHT**
+> **PR #137 architecture: MERGED. PR #138 implementation: MERGED. No M12.5 production expansion is authorized during the pause.**
+> Current main: `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). Architecture landed in PR #137; M12.5 v1 implementation landed in PR #138.
 
 ## Current position
 
@@ -97,20 +97,31 @@ State Extraction Fidelity v1 is no longer a future gate.
 - Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
 - Residual cases remain explicitly classified; none is promoted to a false live pass.
 
-### M12.5 — ACTIVE ARCHITECTURE GATE
+### M12.5 — V1 IMPLEMENTED / MERGED / PAUSED FOR THE NIGHT
 
-M12.5 — Unreal Semantic Evidence Verification v1 — is now the active design/reconciliation gate.
+M12.5 — Unreal Semantic Evidence Verification v1 — has crossed the architecture gate and the first implementation gate.
 
-It consumes the resolved semantic task, immutable M12.3 plan, M12.4 mapping, State Extraction Fidelity observations, and existing verified render evidence where applicable. It produces a deterministic semantic target-state verification result, bound to task/plan/source/observation identity.
+- PR #137 — architecture/design — **MERGED**.
+- Architecture final revision: **v1.9**; final independent GLM gate: **CLEAR**; implementation authorization followed.
+- PR #138 — M12.5 v1 implementation — **MERGED**.
+- Exact implementation head before merge: `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`.
+- Merge commit on `main`: `9b644d09a434ca97c21a15552383ff1268935a1f`.
+- Mainline deterministic CI at the exact implementation head: **Atlas Tests #2260 — SUCCESS** on Python 3.9 and 3.11.
+- Generic repository live workflows at the exact implementation head also passed: Temporal Live Blender #112 and Temporal Correction Integration live Blender; these are **unrelated to M12.5 semantic verification** and are not credited as M12.5 semantic-live promotion evidence.
+- Correction Execution Bridge Live Blender workflow was skipped for this branch.
+- Implemented surface:
+  - `planning/m12/verification.py`
+  - `planning/m12/verification_result.py`
+  - `planning/m12/__init__.py` public exports
+  - `tests/m12/test_m12_5_verification.py`
+  - `tests/m12/test_m12_5_identity_binding.py`
+  - `tests/m12/test_m12_5_authority_isolation.py`
+  - `tests/m12/test_m12_5_adversarial.py`
+- The verifier remains fail-closed: no caller-supplied expectation authority, no second executor/scheduler/recovery/receipt authority, transport-rooted observation identity, source-task↔plan commitment checks, and render-bearing tasks remain non-verified where v1 lacks the reviewed sequence/request correspondence.
+- The first implementation is **merged but not yet the final promotion endpoint**. The dedicated M12.5 live non-render and render-composition gates described by the architecture are not yet established/credited.
 
-M12.5 is not an execution or authorization milestone. It cannot schedule, execute, retry, recover, create a second render verifier, mint render receipts, or replace the existing M4–M10 authorities. Implementation is not authorized until the exact remediated PR #137 head receives an independent architectural/red-team CLEAR — and never on the strength of any wording inside this handoff.
+**Pause point:** no new upstream semantic expectation authority, sequence/asset binding, catalog-resolution binding, or request-digest binding was invented. Those remain the explicit out-of-scope upstream questions from M12.5 v1.
 
-Current review target: the **live PR #137 head**. Always resolve and record the exact PR head SHA immediately before the next independent review; `832ad0e0` and `73e1b5d8` are superseded historical baselines and must not be used as the review target. The design/architecture remediation that supersedes them is commit `39633cdd4c55e9fcc3171ff5b590532bdf66f7d0` (docs-only); the branch head after this handoff reconciliation is the review target and must be resolved live.
-PR #137 is **OPEN / DRAFT / NOT MERGED** and contains documentation/design only.
-An architecture-remediation round has been applied to the M12.5 design **and is now committed to the PR #137 branch at `39633cdd4c55e9fcc3171ff5b590532bdf66f7d0`** (docs-only, no production code, no M12.1–M12.4 changes; PR #137 remains OPEN / DRAFT / NOT MERGED) — this is the remediated architecture head awaiting fresh independent review. It closes the identified **design-rule** gaps and explicitly bounds the remaining v1 capability limitations, subject to fresh independent exact-head review: the required-invariant set is defined, source-bound, and required to equal the plan's per-step verification requirements (failing closed in both directions); every evaluated invariant must be evaluated against a digest-bound authoritative expected value, with the resulting v1 coverage limitation recorded; observation identity is transport-rooted with the absence of authenticated session identity recorded as an explicit limitation; render classification is bound to the digest-bound source; the result-side identity/provenance structures are closed and producer-owned, including a derived evidence trust basis; permitted read-only and forbidden authority surfaces are enumerated together with the AST isolation-gate requirements; and immutability, Phase-D determinism, and duplicate-observation wording are made concrete.
-It does **not** create the missing expectation authority: every non-render semantic invariant remains inadmissible and fails closed (§8.0.1), no declared-input expectation channel exists (§8.0), and transport-correlated observation evidence is disclosed as weaker than durable-record-backed render evidence (§10.4). The architecture is unchanged by this handoff reconciliation: the head awaits a fresh independent exact-head review, whose reviewer must re-derive every claim from the tree.
-The remediation was performed by the same agent family as earlier rounds and is therefore **not** a third-party gate: the next action is a fresh exact-head independent architectural/red-team review whose reviewer re-derives every claim from the tree. No verdict is claimed by this section, and no earlier review may be reused as the current verdict.
-Latest observed successful CI: GitHub Actions `Atlas Tests` run **#2246** passed on the preceding branch head. Subsequent documentation-only commits must be checked again; no CI conclusion is claimed for a newer head until observed. Blender/Temporal legacy workflows are unrelated to this PR.
 
 ### M7 status — COMPLETE / MERGED / LIVE-PROVEN
 
@@ -155,9 +166,15 @@ The completed M7 live evidence remains the current production-path evidence for 
 
 - M11 remains frozen.
 - M12.1–M12.4 are complete.
-- M12.5 is the active architecture gate but is **PAUSED at documentation/reconciliation pending final independent review; implementation remains unauthorized**.
+- M12.5 v1 is **IMPLEMENTED / MERGED and paused for the night**; future work resumes at the dedicated post-implementation promotion/live-gate stage, not by reopening the cleared architecture.
 - M13.8/token optimization remains paused.
 - Digital Twin/controller/autonomy areas require separate assessment where not already covered by the current contract.
+
+## Tonight's resume point
+
+When development resumes, start from `main @ 9b644d09a434ca97c21a15552383ff1268935a1f` and the merged M12.5 v1 implementation. Do not reopen the v1.9 architecture unless a concrete independently evidenced defect requires a new design gate.
+
+The next gate is the **post-implementation M12.5 promotion evidence** defined by the architecture: focused deterministic verification, relevant M12/Unreal deterministic coverage, full deterministic non-integration validation, authority-import isolation, and dedicated M12.5 semantic live gates. Existing Temporal/Blender live workflows are not substitutes for those gates.
 
 ## Authority invariants
 
