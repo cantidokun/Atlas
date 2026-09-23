@@ -6,7 +6,9 @@
 
 ## Exact repository state
 
-- **Current `main`:** `9b644d09a434ca97c21a15552383ff1268935a1f`
+- **Latest functional main merge:** `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge).
+
+This dated handoff is documentation-only and records the post-merge functional checkpoint.
 - **PR #137:** merged — M12.5 v1.9 architecture/design.
 - **PR #138:** merged — M12.5 v1 implementation.
 - **Implementation head before merge:** `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`
