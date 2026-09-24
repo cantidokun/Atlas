@@ -94,7 +94,7 @@ class UnrealSemanticVerificationResult:
         if len(self.source_content_digest) != 64:
             raise ValueError("source_content_digest must be a SHA-256 digest")
         if self.semantic_state not in {
-            "SATISFIED", "NOT_SATISFIED", "UNKNOWN", "INVALID_OBSERVATION"
+            "SATISFIED", "NOT_SATISFIED", "UNKNOWN", "INVALID_OBSERVATION", "NOT_ESTABLISHED"
         }:
             raise ValueError("invalid semantic state")
         if self.render_state not in {
