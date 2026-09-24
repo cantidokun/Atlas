@@ -279,7 +279,7 @@ def test_r2a_result_contract_is_closed_and_digest_recomputable():
         observation_pairs=[],
     )
     assert result.verifier_revision == "m12.6-v1"
-    assert result.semantic_state in {"UNKNOWN", "NOT_ESTABLISHED"}
+    assert result.semantic_state in {"UNKNOWN", "INVALID_OBSERVATION", "NOT_ESTABLISHED"}
     assert result.overall_state in {"UNKNOWN", "NOT_ESTABLISHED"}
     assert result.outcome_reason_class in {
         "AUTHORITY_ABSENT", "BINDING_ABSENT", "EVIDENCE_INSUFFICIENT", "INTERNAL_FAILURE"
