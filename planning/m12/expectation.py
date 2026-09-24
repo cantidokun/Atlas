@@ -49,6 +49,7 @@ TOKEN_INCOMPLETE_REQUIRED_INVARIANT_SET = "INCOMPLETE_REQUIRED_INVARIANT_SET"
 TOKEN_EXTRA_PLAN_VERIFICATION_REQUIREMENT = "EXTRA_PLAN_VERIFICATION_REQUIREMENT"
 TOKEN_PLAN_STEP_NOT_CANONICAL = "PLAN_STEP_NOT_CANONICAL"
 TOKEN_PLAN_RENDER_CLASSIFICATION_MISMATCH = "PLAN_RENDER_CLASSIFICATION_MISMATCH"
+TOKEN_PLAN_CONTENT_UNSUPPORTED = "PLAN_CONTENT_UNSUPPORTED"
 TOKEN_REGISTRY_AUTHORITY_CLASS_NOT_ADMITTED = "REGISTRY_AUTHORITY_CLASS_NOT_ADMITTED"
 
 CLOSED_FAILURE_CODES = frozenset({
@@ -69,6 +70,7 @@ CLOSED_FAILURE_CODES = frozenset({
     TOKEN_EXTRA_PLAN_VERIFICATION_REQUIREMENT,
     TOKEN_PLAN_STEP_NOT_CANONICAL,
     TOKEN_PLAN_RENDER_CLASSIFICATION_MISMATCH,
+    TOKEN_PLAN_CONTENT_UNSUPPORTED,
     TOKEN_REGISTRY_AUTHORITY_CLASS_NOT_ADMITTED,
 })
 
@@ -287,6 +289,53 @@ def _domain_a_digest(value: Any) -> str:
 
 def _safe_int(value: Any) -> bool:
     return type(value) is int
+
+def _contains_finite_float(value: Any, *, seen: Optional[set[int]] = None) -> bool:
+    if seen is None:
+        seen = set()
+    if isinstance(value, float):
+        return True
+    if value is None or isinstance(value, (str, bool, int)):
+        return False
+    if is_dataclass(value):
+        object_id = id(value)
+        if object_id in seen:
+            return False
+        seen.add(object_id)
+        try:
+            return any(
+                _contains_finite_float(getattr(value, field.name), seen=seen)
+                for field in fields(value)
+            )
+        finally:
+            seen.remove(object_id)
+    if isinstance(value, Mapping):
+        object_id = id(value)
+        if object_id in seen:
+            return False
+        seen.add(object_id)
+        try:
+            return any(
+                _contains_finite_float(child, seen=seen)
+                for child in value.values()
+            )
+        finally:
+            seen.remove(object_id)
+    if isinstance(value, (list, tuple)):
+        return any(_contains_finite_float(child, seen=seen) for child in value)
+    return False
+
+
+def _aggregate_stage_rows(rows: Sequence[Tuple[int, str]]) -> Tuple[str, Tuple[str, ...]]:
+    if not rows:
+        raise ValueError("cannot aggregate an empty stage")
+    ordered = sorted(rows, key=lambda item: item[0])
+    primary = ordered[0][1]
+    codes = tuple(sorted({code for _, code in ordered}))
+    if primary not in codes:
+        raise AssertionError("primary code missing from aggregate")
+    return primary, codes
+
 
 
 def _preflight_value(
@@ -723,13 +772,24 @@ def resolve_semantic_expectation(
         )
 
     try:
+        # S2 authority revalidation precedes all supplied-artifact binding checks.
+        _authority_integrity()
+
+        # R2-A deliberately keeps all definitions DEFERRED, so S4 is always
+        # the final reachable stage for valid authority/input pairs.
         vocabulary = _lookup_vocabulary(source_task)
         _plan_identity_checks(source_task, plan)
         _validate_exact_set(source_task, plan, vocabulary)
 
-        _authority_integrity()
+        if _contains_finite_float(plan):
+            raise SemanticExpectationRefusal(
+                primary_code=TOKEN_PLAN_CONTENT_UNSUPPORTED,
+                stage=1,
+                reason_class=ReasonClass.BINDING_ABSENT,
+                failure_codes=(TOKEN_PLAN_CONTENT_UNSUPPORTED,),
+            )
 
-        # R2-A deliberately keeps all definitions DEFERRED, so S4 is always
+        # Continue with the R2-A coverage checks.
         # the deciding stage. We evaluate both coverage conditions, then apply
         # the R6 row precedence/aggregation rule.
         applicable = []
@@ -746,9 +806,7 @@ def resolve_semantic_expectation(
             target = None
 
         if applicable:
-            applicable.sort(key=lambda pair: pair[0])
-            primary = applicable[0][1]
-            codes = tuple(sorted({code for _, code in applicable}))
+            primary, codes = _aggregate_stage_rows(applicable)
             states = {name: InvariantState.UNKNOWN for name in required}
             raise SemanticExpectationRefusal(
                 primary_code=primary,
@@ -895,4 +953,6 @@ __all__ = [
     "compute_result_digest",
     "build_r2a_result_state",
     "structural_preflight",
+    "TOKEN_PLAN_CONTENT_UNSUPPORTED",
+    "_aggregate_stage_rows",
 ]
