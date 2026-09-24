@@ -1,16 +1,14 @@
 # Atlas Current Development Handoff
 
-> **Authoritative current-state reconciliation — September 23, 2026.**
+> **Authoritative current-state reconciliation — September 24, 2026.**
 >
-> This document is the authoritative current development handoff. Dated handoffs remain archival and are not rewritten.
+> **STATUS: M12.6 R2-A ARCHITECTURE FROZEN / INDEPENDENTLY GATED / IMPLEMENTATION NOT STARTED**
+> **Main:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge). **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
+> **M12.6 normative contract:** R1 Revision 8 / R8.1, frozen outside the repository pending one final blind artifact review.
 >
-> **STATUS: M7 COMPLETE — STATE EXTRACTION V1 COMPLETE — M12.5 V1 IMPLEMENTED / MERGED / PAUSED FOR NIGHT**
-> **PR #137 architecture: MERGED. PR #138 implementation: MERGED. No M12.5 production expansion is authorized during the pause.**
-> Latest functional main merge: `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). This documentation-only synchronization is the current handoff layer on top of that functional baseline.
+> This is a documentation/process pause. No M12.6 implementation, PR #142 modification, branch, commit, or CI change was made during the architecture cycle.
 
-## Current position
-
-### Blender track — CLOSED for the current declared contract
+## Blender track — CLOSED for the current declared contract
 
 Main now includes the final Blender discovery/closure records:
 - PR #125 — next-capability discovery — merged;
@@ -97,6 +95,47 @@ State Extraction Fidelity v1 is no longer a future gate.
 - Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
 - Residual cases remain explicitly classified; none is promoted to a false live pass.
 
+## M12.6 — R2-A ARCHITECTURE FROZEN / PAUSED FOR THE NIGHT
+
+M12.6 Semantic Expectation Resolution R2-A is now at a frozen architecture checkpoint.
+
+- **Normative artifact:** `M12.6-R1-R8 / R8.1`
+- **Artifact path:** `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`
+- **As-is SHA-256:** `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`
+- **Self-recorded SHA-256:** `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`
+- **Size:** 2,721 lines / 241,161 bytes.
+- **Repository status:** the R8.1 artifact is intentionally not landed in `main` yet; the external frozen artifact is the current implementation contract.
+- **R8.1 independent gate:** separate-process two-round document review completed; round 1 found two real textual blockers, both corrected; round 2 returned CLEAR.
+- **R8.2 Review-B delta:** all 16 supplied findings were adjudicated CLOSED; no textual change was required.
+- **Independence limitation:** the supplied Review-B set was later found 1:1 identical to Review A, so no second independent R7 finding set remains in that delta.
+- **PR #142:** head `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc`, draft/open, BLOCKED and unmerged; never use it as the implementation base.
+- **R2-A scope:** refusal-only; no production target values; no positive SATISFIED/NOT_SATISFIED path; M12.5 remains semantic-verdict owner; R2-B remains blocked.
+
+### R8.1 decisions to preserve
+
+- R2-A invariant state: `UNKNOWN` only; `MISSING` is not produced in R2-A.
+- Runtime mapping is outside the R2-A contract; rows 34/35 are retired.
+- Failure classification is row-keyed; no code-keyed classifier exists.
+- Resolver owns S1–S4; verifier owns S5–S6; first failing stage decides.
+- `deciding_stage` and `primary_failure_code` are canonical result members.
+- `semantic_state` and `overall_state` mappings are normative.
+- Closed digest/schema recipes are exact and independently reproducible.
+- Historical compatibility statements are quarantined in explicit records.
+- No M12.6 R2-B capability is authorized.
+
+### Final architecture resume gate
+
+Before implementation begins, perform **one genuinely blind independent review of the frozen R8.1 artifact itself**, using the exact as-is SHA above and supplying no prior review findings.
+
+Required outcome:
+
+`CLEAR` → authorize R2-A implementation from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+
+`BLOCKED` → architecture-only correction; no implementation.
+
+Once CLEAR, the implementation gate must run against R8.1 exactly: Part XXVI.3 row census, classifier totality, state-mapping totality, decisive-tuple coherence, runtime-mapping invariance, retirement censuses, exact 24-assertion compatibility set, digest reproduction, and landing/hash verification.
+
+
 ### M12.5 — V1 IMPLEMENTED / MERGED / PAUSED FOR THE NIGHT
 
 M12.5 — Unreal Semantic Evidence Verification v1 — has crossed the architecture gate and the first implementation gate.
@@ -172,10 +211,14 @@ The completed M7 live evidence remains the current production-path evidence for 
 
 ## Tonight's resume point
 
-When development resumes, start from `main @ 9b644d09a434ca97c21a15552383ff1268935a1f` and the merged M12.5 v1 implementation. Do not reopen the v1.9 architecture unless a concrete independently evidenced defect requires a new design gate.
+1. Read `ATLAS_HANDOFF_CURRENT.md`, `UNREAL_AGENT_HANDOFF_CURRENT.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `ATLAS_HANDOFF_2026-09-24_END_OF_NIGHT.md`.
+2. Use `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` as the repository base.
+3. Verify the frozen external R8.1 artifact at `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md` against as-is SHA `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`.
+4. Perform the final blind independent artifact review. Do not use PR #142 as the implementation base.
+5. Only after an unqualified `CLEAR` create a fresh M12.6 R2-A implementation branch from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+6. Run the complete R8.1 implementation gate before any merge decision.
 
-The next gate is the **post-implementation M12.5 promotion evidence** defined by the architecture: focused deterministic verification, relevant M12/Unreal deterministic coverage, full deterministic non-integration validation, authority-import isolation, and dedicated M12.5 semantic live gates. Existing Temporal/Blender live workflows are not substitutes for those gates.
-
+No Blender reopening, Temporal redesign, M11 work, token-optimization work, or blanket merge of historical Unreal PRs is part of the next session.
 ## Authority invariants
 
 Models and agent wrappers propose/reason. Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender and Unreal are controlled execution environments. Independent verification establishes what actually happened.
