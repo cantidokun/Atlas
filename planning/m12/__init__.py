@@ -88,6 +88,12 @@ from planning.m12.verification import (
     verify_semantic_target,
 )
 from planning.m12.verification_result import (
+    InvariantVerificationResult,
+    ObservationIdentity,
+    EvidenceTrustBasis,
+    UnrealSemanticVerificationResult,
+)
+from planning.m12.verification_result import (
     EvidenceTrustBasis,
     ObservationIdentity,
     UnrealSemanticVerificationResult,
