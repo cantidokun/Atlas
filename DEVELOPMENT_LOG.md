@@ -1,3 +1,21 @@
+## 2026-09-24 — M12.6 R2-A architecture freeze / end-of-night pause
+
+- M12.6 R2-A architecture reached a frozen contract: M12.6-R1-R8 / R8.1.
+- Frozen external artifact: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`.
+- As-is SHA-256: `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`; self-recorded SHA-256: `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`.
+- Repository main is `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` after PR #140. No M12.6 implementation has been merged or authorized.
+- PR #142 head `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc` remains OPEN / DRAFT / BLOCKED / NOT MERGED and must not be used as the implementation base.
+- Two independent model reviews of R7 both found architecture blockers. R8 corrected those defect classes through a surgical architecture pass.
+- R8.1 passed a separate-process two-round independent document gate: round 1 found two real textual blockers; both were corrected; round 2 returned CLEAR.
+- R8.2 adjudicated all 16 supplied Review-B findings as CLOSED with no textual change required.
+- Independence limitation: the supplied Review-B set was later found to be 1:1 identical to Review A, so it does not constitute a second independent R7 finding set.
+- R8.1 preserves refusal-only R2-A, no production target values, no positive SATISFIED/NOT_SATISFIED path, M12.5 as semantic-verdict owner, runtime-mapping exclusion, row-keyed classification, deterministic stage ownership, and R2-B blocked.
+- Development paused before implementation.
+- Next architecture-evidence gate: one genuinely blind independent review of the frozen R8.1 artifact itself, pinned to the exact SHA and supplied without prior review findings.
+- After an unqualified CLEAR, create a fresh R2-A implementation branch from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`; do not resume from PR #142.
+- Implementation must satisfy the R8.1 Part XXVI.3 gate before merge consideration: row census, classifier/state-mapping totality, decisive-tuple coherence, mapping invariance, retirement censuses, exact 24-assertion compatibility set, digest reproduction, and landing/hash verification.
+- No Blender, Temporal, M11, token-optimization, or historical-Unreal-PR development was reopened.
+
 ## 2026-09-22 - M12.5 architecture gate opened after State Extraction closure
 
 - Reconciled the authoritative current-state surfaces against the repository after PR #136.
