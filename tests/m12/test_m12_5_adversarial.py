@@ -1,3 +1,4 @@
+import pytest
 """Adversarial M12.5 v1 tests."""
 
 import inspect
