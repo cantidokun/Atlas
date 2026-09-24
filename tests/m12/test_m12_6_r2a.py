@@ -267,3 +267,45 @@ def test_render_classification_mismatch_is_s3_refusal():
     with pytest.raises(SemanticExpectationRefusal) as caught:
         resolve_semantic_expectation(source_task=task, plan=plan)
     assert caught.value.primary_code == "PLAN_RENDER_CLASSIFICATION_MISMATCH"
+
+
+def test_r2a_result_contract_is_closed_and_digest_recomputable():
+    from planning.m12.verification import verify_semantic_target
+
+    task, plan = _task_plan()
+    result = verify_semantic_target(
+        source_task=task,
+        plan=plan,
+        observation_pairs=[],
+    )
+    assert result.verifier_revision == "m12.6-v1"
+    assert result.semantic_state in {"UNKNOWN", "NOT_ESTABLISHED"}
+    assert result.overall_state in {"UNKNOWN", "NOT_ESTABLISHED"}
+    assert result.outcome_reason_class in {
+        "AUTHORITY_ABSENT", "BINDING_ABSENT", "EVIDENCE_INSUFFICIENT", "INTERNAL_FAILURE"
+    }
+    assert result.invariant_results
+    assert all(
+        type(entry).__name__ == "InvariantVerificationResult"
+        for entry in result.invariant_results
+    )
+    assert all(entry.invariant_state in {"UNKNOWN", "MISSING"} for entry in result.invariant_results)
+    assert result.result_digest == result.canonical_digest
+    assert len(result.result_digest) == 64
+    assert result.result_digest == result.canonical_digest
+    assert "runtime_mapping_digest" not in result.canonical_dict
+    assert "provenance" not in result.canonical_dict
+
+
+def test_r2a_result_digest_changes_when_closed_failure_code_changes():
+    from planning.m12.verification import verify_semantic_target
+
+    task, plan = _task_plan()
+    result = verify_semantic_target(
+        source_task=task,
+        plan=plan,
+        observation_pairs=[],
+    )
+    payload = dict(result.canonical_dict)
+    altered = dict(payload, failure_codes=["PRODUCTION_TARGET_NOT_ESTABLISHED"])
+    assert result.result_digest != compute_result_digest(altered)
