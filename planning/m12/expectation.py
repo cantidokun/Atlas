@@ -705,6 +705,22 @@ TARGET_TABLE_DIGEST = _domain_a_digest({
 })
 
 
+def compute_expected_value_identity(definition: SemanticInvariantDefinition) -> str:
+    """R6 value_digest recipe for an invariant expectation entry.
+
+    R2-A definitions are DEFERRED, so the entry carries a null expected value
+    while remaining deterministically identifiable. No positive authority is
+    created by this digest.
+    """
+    return _domain_a_digest([
+        definition.invariant_name,
+        definition.definition_revision,
+        definition.comparison,
+        definition.admissible_value_type,
+        definition.expected_value,
+    ])
+
+
 def compute_expectation_identity(
     *,
     vocabulary: EntryVocabulary,
@@ -1131,6 +1147,7 @@ __all__ = [
     "resolve_semantic_expectation",
     "compute_plan_content_digest",
     "compute_expectation_identity",
+    "compute_expected_value_identity",
     "compute_expectation_digest",
     "validate_expectation_identity",
     "compute_evidence_identity",
