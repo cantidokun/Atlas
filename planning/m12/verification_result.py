@@ -267,6 +267,25 @@ class UnrealSemanticVerificationResult:
         object.__setattr__(self, "failure_codes", tuple(sorted(set(self.failure_codes))))
         object.__setattr__(self, "provenance", _freeze(dict(self.provenance)))
 
+    def _validate_coherence(self) -> None:
+        if self.semantic_state == "SATISFIED":
+            if self.overall_state != "SATISFIED":
+                raise ValueError("semantic SATISFIED requires overall SATISFIED")
+            if not self.required_invariant_names:
+                raise ValueError("SATISFIED requires a non-empty invariant set")
+            if any(entry.invariant_state != "SATISFIED" for entry in self.invariant_results):
+                raise ValueError("SATISFIED requires every invariant result to be SATISFIED")
+        if self.overall_state == "SATISFIED" and self.semantic_state != "SATISFIED":
+            raise ValueError("overall SATISFIED requires semantic SATISFIED")
+        for entry in self.invariant_results:
+            expected = entry.canonical_member_dict()
+            from planning.m12.expectation import compute_invariant_result_digest
+            if compute_invariant_result_digest(expected) != entry.invariant_result_digest:
+                raise ValueError("invariant result digest is not coherent")
+        canonical = self._canonical_member_dict()
+        from planning.m12.expectation import compute_result_digest
+        compute_result_digest(canonical)
+
     def _canonical_member_dict(self) -> Mapping[str, Any]:
         identity = _thaw(self.expectation_identity)
         identity = dict(identity)
@@ -331,16 +350,19 @@ class UnrealSemanticVerificationResult:
 
     @property
     def canonical_dict(self) -> Mapping[str, Any]:
+        self._validate_coherence()
         return dict(self._canonical_member_dict())
 
     def canonical_json(self) -> str:
+        self._validate_coherence()
         from planning.unreal_state_extraction.jcs import canonicalize
-        return canonicalize(self.canonical_dict)
+        return canonicalize(self._canonical_member_dict())
 
     @property
     def result_digest(self) -> str:
+        self._validate_coherence()
         from planning.m12.expectation import compute_result_digest
-        return compute_result_digest(self.canonical_dict)
+        return compute_result_digest(self._canonical_member_dict())
 
     @property
     def canonical_digest(self) -> str:
