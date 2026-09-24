@@ -1,18 +1,79 @@
 # Unreal Agent Handoff — Current State
 
-> **Authoritative current checkpoint — September 23, 2026.**
->
-> PR #137 architecture and PR #138 M12.5 v1 implementation are both merged. This document is now the operational Unreal-track handoff for the post-implementation promotion pause. Dated checkpoint text below the separator remains archival provenance and is not rewritten.
+> **Authoritative current checkpoint — September 24, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is architecture-frozen and paused before implementation**.
+> This document is the operational Unreal-track handoff. Dated checkpoint text below remains archival provenance.
 
-## Current Unreal position — M7 CLOSED / State Extraction COMPLETE / M12.5 V1 IMPLEMENTED / PAUSED
+## Exact repository state
 
-- Latest functional main merge: `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). This documentation-only synchronization is the current operational handoff layer.
-- M7 implementation merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
-- PR #137 — M12.5 architecture — **MERGED**.
-- PR #138 — M12.5 v1 implementation — **MERGED**.
-- Exact implementation head before merge: `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`.
-- M12.5 architecture final revision: **v1.9**, final independent GLM gate: **CLEAR**.
-- Implementation files are now in `main`; no M12.5 production implementation remains unmerged.
+- **main:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge).
+- **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
+- **PR #142 head:** `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc`.
+- No M12.6 implementation has been merged or authorized.
+
+## M12.6 R2-A — ARCHITECTURE FROZEN / NEXT ACTION
+
+- Sole contract: **M12.6-R1-R8 / R8.1**.
+- Frozen artifact: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`.
+- As-is SHA-256: `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`.
+- Self-recorded SHA-256: `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`.
+- 2,721 lines / 241,161 bytes.
+- R8.1 passed a separate-process two-round independent document gate: round 1 found two real blockers; both were corrected; round 2 returned CLEAR.
+- R8.2 adjudicated all 16 supplied Review-B findings CLOSED with no textual change.
+- **Independence caveat:** the supplied Review-B set was later found 1:1 identical to Review A, so that delta does not add a distinct second independent R7 finding set.
+- **Final architecture-evidence gate:** one genuinely blind independent review of the frozen R8.1 artifact, pinned to the exact SHA and supplied without prior review findings.
+- **CLEAR** from that blind review authorizes a fresh implementation branch from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+- **BLOCKED** means architecture-only correction; no code work.
+
+### R2-A invariants to preserve
+
+- refusal-only;
+- no production target values;
+- no positive SATISFIED/NOT_SATISFIED path;
+- M12.5 remains semantic-verdict owner;
+- runtime mapping is outside the R2-A contract;
+- invariant_state UNKNOWN only; MISSING not produced;
+- row-keyed failure classifier;
+- resolver S1-S4 / verifier S5-S6 ownership;
+- first failing stage decides;
+- R2-B remains blocked.
+
+## Resume sequence
+
+```text
+frozen R8.1 artifact
+        ↓
+one blind independent artifact review
+        ↓
+CLEAR
+        ↓
+fresh R2-A implementation branch from main 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6
+        ↓
+R8.1 Part XXVI.3 implementation gate
+        ↓
+exact-head deterministic CI
+        ↓
+independent implementation red-team
+        ↓
+merge consideration
+```
+
+No live Unreal execution is part of the immediate next step.
+
+## M12.5 V1 — IMPLEMENTED / MERGED
+
+- PR #137 architecture: MERGED.
+- PR #138 implementation: MERGED.
+- Implementation head before merge: `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`.
+- Merge commit: `9b644d09a434ca97c21a15552383ff1268935a1f`.
+- Dedicated M12.5 semantic live promotion remains a separate later gate.
+- Generic Temporal/Blender workflow success is not M12.5 semantic-live evidence.
+
+## Historical discipline
+
+- Do not modify or merge PR #142 while paused.
+- Do not reopen M12.5 architecture.
+- Do not reopen Blender or Temporal.
+- Do not blanket-merge the older Unreal PR stack.
 
 ## State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
 
