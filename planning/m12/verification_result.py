@@ -9,8 +9,9 @@ from types import MappingProxyType
 from typing import Any, Mapping, Optional, Tuple
 
 
-VERIFIER_REVISION = "m12.5-v1"
+VERIFIER_REVISION = "m12.6-v1"
 TRUST_SEMANTIC = "TRANSPORT_CORRELATED"
+TRUST_SEMANTIC_UNESTABLISHED = "NOT_ESTABLISHED"
 TRUST_RENDER = frozenset({
     "DURABLE_RECORD_BACKED",
     "NOT_ESTABLISHED",
@@ -55,8 +56,10 @@ class EvidenceTrustBasis:
     render_evidence: str
 
     def __post_init__(self) -> None:
-        if self.semantic_observation != TRUST_SEMANTIC:
-            raise ValueError("semantic_observation must be TRANSPORT_CORRELATED")
+        if self.semantic_observation not in {
+            TRUST_SEMANTIC, TRUST_SEMANTIC_UNESTABLISHED
+        }:
+            raise ValueError("unsupported semantic observation trust basis")
         if self.render_evidence not in TRUST_RENDER:
             raise ValueError("unsupported render trust basis")
 
