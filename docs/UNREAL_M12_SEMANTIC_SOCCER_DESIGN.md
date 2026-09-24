@@ -1,6 +1,6 @@
 # Atlas M12 — Unreal Semantic Soccer Production Layer (Design & Implementation Plan)
 
-**Status:** M12.1–M12.4 IMPLEMENTED. M12.5 is now a fresh ARCHITECTURE / RECONCILIATION GATE; no M12.5 production implementation is authorized yet.
+**Status:** M12.1–M12.5 IMPLEMENTED / MERGED. M12.6 R2-A architecture is frozen as M12.6-R1-R8 / R8.1; implementation is paused pending one final blind artifact review.
 **Scope:** Design a semantic soccer-production task layer that sits ABOVE the
 proven M4–M10 Unreal execution/recovery/evidence architecture, WITHOUT bypassing
 or replacing any existing authority, recovery, evidence, or artifact-lineage
@@ -477,8 +477,8 @@ M12 does NOT:
 | M12.2 | `UnrealSoccerProductionCatalog` + constrained task classes + versioning | catalog layer |
 | M12.3 | fragments/composition + dependency + idempotence | composition layer |
 | M12.4 | `UnrealSemanticTaskAdapter` mapping to existing planner/submission/recovery | integration layer (no new authority) |
-| M12.5 | fresh architecture/reconciliation gate, then independently reviewed implementation of target-state verification + provenance | semantic verification/provenance |
-| M12.6 | deterministic suite + live render-task validation through existing path | validated M12 |
+| M12.5 | independently reviewed implementation of target-state verification + provenance | semantic verification/provenance |
+| M12.6 | normative semantic-expectation resolution / refusal infrastructure above M12.5 | R2-A architecture frozen; implementation next |
 | Future | `effect_setup` fragment + cinematic/VFX task classes (post-M12) | extension |
 
 ---
@@ -518,34 +518,40 @@ M12 does NOT:
 
 ---
 
-## 25. Current M12.5 architecture gate
+## 25. Current M12.5 / M12.6 architecture status
 
-M12.1–M12.4 are implemented and merged. The next step is **M12.5 Unreal Semantic Evidence Verification v1**, which is design/reconciliation only until an independent architectural/red-team review clears it.
+M12.1–M12.4 are implemented and merged. M12.5 v1 architecture and implementation are merged. The active Unreal architecture checkpoint is now M12.6 R2-A.
 
-The fresh M12.5 architecture is documented separately in:
-`docs/UNREAL_M12_5_SEMANTIC_EVIDENCE_VERIFICATION_V1_DESIGN.md`.
+### M12.5
 
-The M12.5 gate must preserve these invariants:
+- Architecture revision v1.9: independently cleared and merged.
+- Implementation: merged to `main`.
+- Dedicated M12.5 semantic live promotion remains a separate post-implementation gate.
+- Upstream questions Q8/Q9/Q10/Q11 remain separate reviewed-gate items and were not silently invented or closed by the implementation.
 
-- consume, not redefine, the frozen semantic task, M12.3 plan, M12.4 mapping, and State Extraction v1 contracts;
-- evaluate target-state invariants deterministically and fail closed;
-- treat State Extraction as factual observation input, not as a semantic success claim;
-- keep existing M5+ render evidence verification authoritative for render artifacts;
-- require the existing render-job/recovery/evidence/receipt path for any render-bearing completion claim;
-- introduce no second executor, authorization authority, scheduler, retry controller, recovery authority, persistence authority, render verifier, or receipt issuer;
-- add no C++ transport surface unless a later implementation gate proves a concrete leaf observation is necessary and separately clears review.
+### M12.6 R2-A
 
-Implementation status:
+The M12.6 Semantic Expectation Resolution layer is the next bounded validation capability above M12.5.
 
-- M12.1 — IMPLEMENTED
-- M12.2 — IMPLEMENTED
-- M12.3 — IMPLEMENTED
-- M12.4 — IMPLEMENTED
-- M12.5 — **DESIGN / RECONCILIATION GATE — IMPLEMENTATION NOT AUTHORIZED**
-- M12.6 — future validated end-to-end milestone
+- **Revision:** M12.6-R1-R8 / R8.1
+- **External artifact:** `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`
+- **As-is SHA-256:** `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`
+- **Self-recorded SHA-256:** `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`
+- **Size:** 2,721 lines / 241,161 bytes
+- **Repository status:** intentionally not landed in `main` yet.
 
-No production code change is authorized by this documentation update.
+R8.1 is refusal-only for R2-A, has no production target values, cannot reach SATISFIED/NOT_SATISFIED in R2-A, excludes runtime mapping, uses row-keyed failure classification, and preserves M12.5 as the sole semantic-verdict owner. R2-B remains blocked.
+
+R8.1 passed a separate-process two-round independent document gate. The first round found and corrected two real textual blockers; the corrected artifact passed round two. The subsequent R8.2 delta adjudicated all 16 supplied Review-B findings with no textual change required. The supplied Review-B set was later found to be 1:1 identical to Review A, so a final genuinely blind artifact review remains required before implementation authorization.
+
+### Implementation status
+
+M12.6 implementation is **not authorized yet**.
+
+After the final blind artifact review returns an unqualified `CLEAR`, implementation must begin from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` and satisfy the R8.1 Part XXVI.3 gate before any merge decision.
+
+No production M12.6 code change is authorized by this documentation update.
 
 ---
 
-**Implementation status:** M12.1–M12.4 are implemented. M12.5 is the active architecture gate. Render-bearing semantic execution remains deliberately bounded by the existing M4–M10 render authority path.
+**Implementation status:** M12.1–M12.5 are implemented/merged. M12.6 R2-A is architecture-frozen; render-bearing semantic execution remains bounded by the existing M4–M10 render authority path.
