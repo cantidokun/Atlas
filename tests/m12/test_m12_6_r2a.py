@@ -1,0 +1,175 @@
+"""Atlas M12.6 R2-A refusal-only machinery tests."""
+
+from dataclasses import replace
+
+import pytest
+
+from planning.m12 import DEFAULT_UNREAL_CATALOG, generate_execution_plan
+from planning.m12.expectation import (
+    DEFINITIONS_BY_NAME,
+    PRODUCTION_TARGET_BY_TASK,
+    TARGET_TABLE_DIGEST,
+    ReasonClass,
+    OverallState,
+    SemanticState,
+    SemanticExpectationRefusal,
+    compute_evidence_identity,
+    compute_invariant_result_digest,
+    compute_plan_content_digest,
+    compute_result_digest,
+    resolve_semantic_expectation,
+    structural_preflight,
+)
+from planning.unreal_state_extraction.jcs import canonical_bytes
+
+
+def _task_plan(name="unreal.sequence-configure"):
+    params = (
+        {
+            "twin_id": "twin-1",
+            "sequence_name": "main",
+            "frame_start": 1,
+            "frame_end": 24,
+        }
+        if name == "unreal.sequence-configure"
+        else {"twin_id": "twin-1", "sequence_name": "main"}
+    )
+    task = DEFAULT_UNREAL_CATALOG.resolve(
+        name, params, digital_twin_id="twin-1"
+    )
+    return task, generate_execution_plan(task)
+
+
+def test_r2a_empty_authority_state_is_single_deterministic_refusal():
+    task, plan = _task_plan()
+    with pytest.raises(SemanticExpectationRefusal) as caught:
+        resolve_semantic_expectation(source_task=task, plan=plan)
+
+    refusal = caught.value
+    assert refusal.primary_code == "EXPECTED_VALUE_UNAVAILABLE"
+    assert refusal.stage == 4
+    assert refusal.reason_class is ReasonClass.AUTHORITY_ABSENT
+    assert refusal.failure_codes == (
+        "EXPECTED_VALUE_UNAVAILABLE",
+        "PRODUCTION_TARGET_NOT_ESTABLISHED",
+    )
+    assert refusal.semantic_state is SemanticState.NOT_ESTABLISHED
+    assert refusal.overall_state is OverallState.NOT_ESTABLISHED
+    assert set(refusal.invariant_states.values()) == {
+        # R2-A must never report MISSING for an S4 refusal.
+        __import__("planning.m12.expectation", fromlist=["InvariantState"]).InvariantState.UNKNOWN
+    }
+
+
+def test_r2a_empty_target_table_is_not_a_target_value():
+    assert PRODUCTION_TARGET_BY_TASK == ()
+    assert TARGET_TABLE_DIGEST
+    assert not any(
+        getattr(row, "production_target_id", None)
+        for row in PRODUCTION_TARGET_BY_TASK
+    )
+
+
+def test_plan_digest_uses_m12_3_full_document_recipe():
+    _, plan = _task_plan()
+    assert compute_plan_content_digest(plan) == __import__(
+        "planning.m12.execution_plan", fromlist=["_canonical_sha256"]
+    )._canonical_sha256(plan.to_json_compatible(), "execution_plan")
+
+
+def test_structural_preflight_accepts_exact_valid_task_and_plan():
+    task, plan = _task_plan()
+    assert structural_preflight(task, plan) is None
+
+
+def test_structural_preflight_rejects_subclass_types():
+    task, plan = _task_plan()
+
+    class TaskSubclass(type(task)):
+        pass
+
+    class PlanSubclass(type(plan)):
+        pass
+
+    bad_task = object.__new__(TaskSubclass)
+    bad_plan = object.__new__(PlanSubclass)
+    assert structural_preflight(bad_task, plan) == "F1"
+    assert structural_preflight(task, bad_plan) == "F1"
+
+
+def test_evidence_identity_distinguishes_absent_from_present_null():
+    definition = next(iter(DEFINITIONS_BY_NAME.values()))
+    absent = compute_evidence_identity(
+        invariant_name=definition.invariant_name,
+        definition=definition,
+        resolved_observables=(),
+        value_state="ABSENT",
+        observation_bound=False,
+        observation_request_id=None,
+        observation_scope=None,
+        canonical_state_digest=None,
+    )
+    present_null = compute_evidence_identity(
+        invariant_name=definition.invariant_name,
+        definition=definition,
+        resolved_observables=(
+            __import__("planning.m12.expectation", fromlist=["ResolvedObservable"]).ResolvedObservable(
+                concrete_path="world.null_value", value=None
+            ),
+        ),
+        value_state="PRESENT_NULL",
+        observation_bound=True,
+        observation_request_id="req-1",
+        observation_scope=("FIELD_SURFACE",),
+        canonical_state_digest="0" * 64,
+    )
+    assert absent != present_null
+
+
+def test_invariant_result_digest_is_domain_separated_and_recomputable():
+    entry = {
+        "invariant_name": "scene_initialized",
+        "definition_id": "scene_initialized",
+        "definition_revision": 1,
+        "definition_digest": "0" * 64,
+        "authority_class": "CODE_CONSTANT",
+        "subject_scope": (),
+        "expected_value_identity": "1" * 64,
+        "comparison": "EQUALS",
+        "admissible_value_type": "STR",
+        "observed_path_patterns": (),
+        "value_state": "ABSENT",
+        "resolved_observables": (),
+        "observation_bound": False,
+        "observation_identity": None,
+        "invariant_state": "UNKNOWN",
+        "mismatch_reason": None,
+        "evidence_identity": "2" * 64,
+    }
+    first = compute_invariant_result_digest(entry)
+    second = compute_invariant_result_digest(dict(entry))
+    assert first == second
+    changed = dict(entry, invariant_state="MISSING")
+    assert first != compute_invariant_result_digest(changed)
+
+
+def test_result_digest_is_domain_separated():
+    payload = {
+        "verifier_revision": "m12.6-v1",
+        "expectation_contract_revision": "m12.6-expectation-v1",
+        "resolver_revision": "m12.6-resolver-v1",
+        "origin_status": "NOT_ESTABLISHED",
+        "failure_codes": ["EXPECTED_VALUE_UNAVAILABLE"],
+    }
+    digest = compute_result_digest(payload)
+    assert len(digest) == 64
+    assert digest == compute_result_digest(dict(payload))
+    assert digest != compute_result_digest(
+        dict(payload, failure_codes=["PRODUCTION_TARGET_NOT_ESTABLISHED"])
+    )
+
+
+def test_within_stage_order_is_deterministic():
+    first = tuple(sorted(("EXPECTED_VALUE_UNAVAILABLE", "PRODUCTION_TARGET_NOT_ESTABLISHED")))
+    second = tuple(sorted(("PRODUCTION_TARGET_NOT_ESTABLISHED", "EXPECTED_VALUE_UNAVAILABLE")))
+    assert first == second
