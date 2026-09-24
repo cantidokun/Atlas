@@ -173,3 +173,45 @@ def test_within_stage_order_is_deterministic():
     first = tuple(sorted(("EXPECTED_VALUE_UNAVAILABLE", "PRODUCTION_TARGET_NOT_ESTABLISHED")))
     second = tuple(sorted(("PRODUCTION_TARGET_NOT_ESTABLISHED", "EXPECTED_VALUE_UNAVAILABLE")))
     assert first == second
+
+def test_failure_classifier_is_closed_and_stage_homogeneous():
+    from planning.m12.expectation import FAILURE_CLASSIFIER, aggregate_stage_failures
+    assert FAILURE_CLASSIFIER["EXPECTED_VALUE_UNAVAILABLE"] == (4, ReasonClass.AUTHORITY_ABSENT)
+    assert FAILURE_CLASSIFIER["PRODUCTION_TARGET_NOT_ESTABLISHED"] == (4, ReasonClass.AUTHORITY_ABSENT)
+    primary, cls, codes = aggregate_stage_failures([
+        (22, "PRODUCTION_TARGET_NOT_ESTABLISHED"),
+        (6, "EXPECTED_VALUE_UNAVAILABLE"),
+    ])
+    assert primary == "EXPECTED_VALUE_UNAVAILABLE"
+    assert cls is ReasonClass.AUTHORITY_ABSENT
+    assert codes == (
+        "EXPECTED_VALUE_UNAVAILABLE",
+        "PRODUCTION_TARGET_NOT_ESTABLISHED",
+    )
+
+
+def test_finite_plan_float_uses_single_policy_token():
+    task, plan = _task_plan()
+    provenance = dict(plan.provenance)
+    provenance["float_policy_probe"] = 1.25
+    object.__setattr__(plan, "provenance", provenance)
+    with pytest.raises(SemanticExpectationRefusal) as caught:
+        resolve_semantic_expectation(source_task=task, plan=plan)
+    assert caught.value.primary_code == "PLAN_CONTENT_UNSUPPORTED"
+
+
+def test_noncanonical_fragment_refuses_before_s4():
+    task, plan = _task_plan()
+    step = plan.steps[0]
+    object.__setattr__(step, "semantic_operation", "not-a-canonical-fragment")
+    with pytest.raises(SemanticExpectationRefusal) as caught:
+        resolve_semantic_expectation(source_task=task, plan=plan)
+    assert caught.value.primary_code == "PLAN_STEP_NOT_CANONICAL"
+
+
+def test_render_classification_mismatch_is_s3_refusal():
+    task, plan = _task_plan("unreal.sequence-configure")
+    object.__setattr__(plan, "render_plan", True)
+    with pytest.raises(SemanticExpectationRefusal) as caught:
+        resolve_semantic_expectation(source_task=task, plan=plan)
+    assert caught.value.primary_code == "PLAN_RENDER_CLASSIFICATION_MISMATCH"
