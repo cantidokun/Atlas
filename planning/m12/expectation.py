@@ -510,6 +510,21 @@ def _validate_exact_set(
             reason_class=ReasonClass.BINDING_ABSENT,
             failure_codes=(TOKEN_EXTRA_PLAN_VERIFICATION_REQUIREMENT,),
         )
+    canonical_fragments = set(vocabulary.fragment_ids)
+    if any(step.semantic_operation not in canonical_fragments for step in plan.steps):
+        raise SemanticExpectationRefusal(
+            primary_code=TOKEN_PLAN_STEP_NOT_CANONICAL,
+            stage=3,
+            reason_class=ReasonClass.BINDING_ABSENT,
+            failure_codes=(TOKEN_PLAN_STEP_NOT_CANONICAL,),
+        )
+    if plan.render_plan != is_render_task_class(task.task_class):
+        raise SemanticExpectationRefusal(
+            primary_code=TOKEN_PLAN_RENDER_CLASSIFICATION_MISMATCH,
+            stage=3,
+            reason_class=ReasonClass.BINDING_ABSENT,
+            failure_codes=(TOKEN_PLAN_RENDER_CLASSIFICATION_MISMATCH,),
+        )
 
 
 def compute_plan_content_digest(plan: UnrealExecutionPlan) -> str:
@@ -517,7 +532,53 @@ def compute_plan_content_digest(plan: UnrealExecutionPlan) -> str:
     return _canonical_sha256(plan.to_json_compatible(), "execution_plan")
 
 
+def _recompute_registry_source_digest() -> str:
+    return _domain_a_digest({
+        "schema": "m12.6-registry-v1",
+        "definitions": [_canonical_definition_projection(d) for d in _DEFINITIONS],
+    })
+
+
+def _recompute_target_table_digest() -> str:
+    return _domain_a_digest({
+        "schema": "m12.6-target-table-v1",
+        "revision": TARGET_TABLE_REVISION,
+        "entries": [
+            {
+                "production_target_id": t.production_target_id,
+                "target_revision": t.target_revision,
+                "target_digest": t.target_digest,
+            }
+            for t in sorted(PRODUCTION_TARGETS, key=lambda x: domain_a_bytes(x.production_target_id))
+        ],
+        "mappings": [
+            [r.entry_name, r.entry_version, r.task_class, r.production_target_id]
+            for r in sorted(
+                PRODUCTION_TARGET_BY_TASK,
+                key=lambda x: domain_a_bytes(
+                    f"{x.entry_name}|{x.entry_version}|{x.task_class}|{x.production_target_id}"
+                ),
+            )
+        ],
+    })
+
+
 def _authority_integrity() -> None:
+    if _recompute_registry_source_digest() != REGISTRY_SOURCE_DIGEST:
+        raise SemanticExpectationRefusal(
+            primary_code=TOKEN_REGISTRY_SOURCE_NOT_CANONICAL,
+            stage=2,
+            reason_class=ReasonClass.AUTHORITY_ABSENT,
+            failure_codes=(TOKEN_REGISTRY_SOURCE_NOT_CANONICAL,),
+        )
+    if _recompute_target_table_digest() != TARGET_TABLE_DIGEST:
+        raise SemanticExpectationRefusal(
+            primary_code=TOKEN_PRODUCTION_TARGET_NOT_CANONICAL,
+            stage=2,
+            reason_class=ReasonClass.AUTHORITY_ABSENT,
+            failure_codes=(TOKEN_PRODUCTION_TARGET_NOT_CANONICAL,),
+        )
+
     names = [d.invariant_name for d in _DEFINITIONS]
     if len(names) != len(set(names)):
         raise SemanticExpectationRefusal(
@@ -754,6 +815,19 @@ def _plan_identity_checks(
             stage=3, reason_class=ReasonClass.BINDING_ABSENT,
             failure_codes=(TOKEN_EXPECTATION_IDENTITY_MISMATCH,),
         )
+    from planning.m12.execution_plan import _build_plan_id
+    expected_plan_id = _build_plan_id(
+        task.canonical_task_id,
+        task.task_version,
+        tuple(step.semantic_operation for step in plan.steps),
+        plan.source_content_digest,
+    )
+    if plan.plan_id != expected_plan_id:
+        raise SemanticExpectationRefusal(
+            primary_code=TOKEN_EXPECTATION_IDENTITY_MISMATCH,
+            stage=3, reason_class=ReasonClass.BINDING_ABSENT,
+            failure_codes=(TOKEN_EXPECTATION_IDENTITY_MISMATCH,),
+        )
 
 
 def resolve_semantic_expectation(
@@ -841,6 +915,66 @@ def resolve_semantic_expectation(
             semantic_state=SemanticState.UNKNOWN,
             overall_state=OverallState.UNKNOWN,
         ) from exc
+
+
+
+# R6 Part XV classifier: one stage, one reason class per row/token.
+FAILURE_CLASSIFIER = {
+    TOKEN_RESOLVER_INPUT_STRUCTURE_INVALID: (1, ReasonClass.BINDING_ABSENT),
+    TOKEN_RESOLVER_INTERNAL_FAILURE: (0, ReasonClass.INTERNAL_FAILURE),
+    TOKEN_EXPECTED_VALUE_UNAVAILABLE: (4, ReasonClass.AUTHORITY_ABSENT),
+    TOKEN_EXPECTATION_IDENTITY_MISMATCH: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_EXPECTATION_INCOMPLETE: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_REGISTRY_SOURCE_NOT_CANONICAL: (2, ReasonClass.AUTHORITY_ABSENT),
+    TOKEN_PRODUCTION_TARGET_NOT_CANONICAL: (2, ReasonClass.AUTHORITY_ABSENT),
+    TOKEN_EXPECTATION_DEFINITION_DUPLICATE: (2, ReasonClass.AUTHORITY_ABSENT),
+    TOKEN_PRODUCTION_TARGET_MAPPING_DUPLICATE: (2, ReasonClass.AUTHORITY_ABSENT),
+    TOKEN_EXPECTATION_VOCABULARY_MISMATCH: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_PLAN_STEP_NOT_CANONICAL: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_EMPTY_REQUIRED_INVARIANT_SET: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_INCOMPLETE_REQUIRED_INVARIANT_SET: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_EXTRA_PLAN_VERIFICATION_REQUIREMENT: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_PLAN_RENDER_CLASSIFICATION_MISMATCH: (3, ReasonClass.BINDING_ABSENT),
+    TOKEN_PRODUCTION_TARGET_NOT_ESTABLISHED: (4, ReasonClass.AUTHORITY_ABSENT),
+    TOKEN_PLAN_CONTENT_UNSUPPORTED: (1, ReasonClass.BINDING_ABSENT),
+    TOKEN_REGISTRY_AUTHORITY_CLASS_NOT_ADMITTED: (2, ReasonClass.AUTHORITY_ABSENT),
+    "IDENTITY_MISMATCH": (3, ReasonClass.BINDING_ABSENT),
+    "OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED": (5, ReasonClass.EVIDENCE_INSUFFICIENT),
+    "OBSERVATION_CORRELATION_MISMATCH": (5, ReasonClass.EVIDENCE_INSUFFICIENT),
+    "EXTRACTION_CONTRACT_REVISION_MISMATCH": (5, ReasonClass.EVIDENCE_INSUFFICIENT),
+    "OBSERVATION_SCOPE_DIVERGENCE": (5, ReasonClass.EVIDENCE_INSUFFICIENT),
+    "EXPECTATION_SCOPE_NOT_OBSERVED": (5, ReasonClass.EVIDENCE_INSUFFICIENT),
+    "CONTRADICTORY": (5, ReasonClass.EVIDENCE_INSUFFICIENT),
+    "EXPECTATION_CONTRADICTORY": (5, ReasonClass.EVIDENCE_INSUFFICIENT),
+    "RENDER_TASK_CORRESPONDENCE_NOT_DECIDED": (4, ReasonClass.AUTHORITY_ABSENT),
+    "REQUEST_DIGEST_AGREEMENT_NOT_ESTABLISHED": (4, ReasonClass.AUTHORITY_ABSENT),
+    "SEQUENCE_AGREEMENT_NOT_ESTABLISHED": (4, ReasonClass.AUTHORITY_ABSENT),
+    "RENDER_EVIDENCE_MISSING": (4, ReasonClass.AUTHORITY_ABSENT),
+}
+
+
+def classify_failure(code: str) -> Tuple[int, ReasonClass]:
+    try:
+        return FAILURE_CLASSIFIER[code]
+    except KeyError as exc:
+        raise ValueError(f"failure code is outside the closed R2-A classifier: {code!r}") from exc
+
+
+def aggregate_stage_failures(rows: Sequence[Tuple[int, str]]) -> Tuple[str, ReasonClass, Tuple[str, ...]]:
+    if not rows:
+        raise ValueError("cannot aggregate empty stage")
+    normalized = sorted(rows, key=lambda item: item[0])
+    stage, _ = classify_failure(normalized[0][1])
+    classes = {classify_failure(code)[1] for _, code in normalized}
+    for row, code in normalized:
+        row_stage, _row_class = classify_failure(code)
+        if row_stage != stage:
+            raise ValueError("rows from different stages cannot be aggregated")
+    if len(classes) != 1:
+        raise ValueError("reason class is not homogeneous within the stage")
+    primary = normalized[0][1]
+    codes = tuple(sorted({code for _, code in normalized}, key=lambda value: domain_a_bytes(value)))
+    return primary, next(iter(classes)), codes
 
 
 def build_r2a_result_state(
@@ -955,4 +1089,7 @@ __all__ = [
     "structural_preflight",
     "TOKEN_PLAN_CONTENT_UNSUPPORTED",
     "_aggregate_stage_rows",
+    "FAILURE_CLASSIFIER",
+    "classify_failure",
+    "aggregate_stage_failures",
 ]
