@@ -1,7 +1,7 @@
 # ATLAS M12.6 — AUTHORITATIVE SEMANTIC EXPECTATION RESOLUTION
-## R1 — NORMATIVE ARCHITECTURE FREEZE — **Revision 6**
+## R1 — NORMATIVE ARCHITECTURE FREEZE — **Revision 7**
 
-**Revision:** R6 of the R1 artifact. Supersedes Revision 5 (preserved at
+**Revision:** R7 of the R1 artifact. Supersedes Revision 6 and preserves all R6 material except the normative correction recorded below. Supersedes Revision 5 (preserved at
 `ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV5_superseded.md`), Revision 4
 (`ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV4_superseded.md`), Revision 3
 (`ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV3_superseded.md`) and Revision 2
@@ -17,6 +17,8 @@ five-decision adjudication (`ATLAS_M12_6_R1_REV3_ADJUDICATION.md`, still authori
 ambiguities) · current repository main.
 **Status vocabulary:** `MUST` / `MUST NOT` are normative. `DECIDED` · `DEFERRED` (normative refusal
 until a named upstream artifact exists) · `OPEN` (named for the reviewer) · `NOT CLAIMED` · `OUT OF SCOPE`.
+
+**Revision-7 correction record.** Independent code review of R2-A identified a contradiction in R6's measured-compatibility sentence for the S4 coverage-gap case. R6 simultaneously required `semantic_state = NOT_ESTABLISHED` for the canonical R2-A outcome and said the coverage-gap semantic state was unchanged. R7 resolves this by making the canonical R2-A outcome authoritative: the coverage-gap result is `NOT_ESTABLISHED / NOT_ESTABLISHED`. Existing compatibility prose is amended accordingly; no positive state becomes reachable.
 
 **Independence limitation (stated up front).** This artifact is authored by the same agent family as the
 prior M12.5/M12.6 rounds. It is **not** a gate. The next step is an independent review of *this* artifact by a
@@ -998,3 +1000,944 @@ non-canonical authority content, or a binding failure). `NOT_SATISFIED` is **nev
 > `INTERNAL_FAILURE` — an unexpected implementation/internal fault occurred (VII.5).
 
 Applying it: **`REGISTRY_SOURCE_NOT_CANONICAL` → `AUTHORITY_ABSENT`**, **`PRODUCTION_TARGET_NOT_CANONICAL` →
+`AUTHORITY_ABSENT`**, **`PRODUCTION_TARGET_MAPPING_DUPLICATE` → `AUTHORITY_ABSENT`** and
+**`EXPECTATION_DEFINITION_DUPLICATE` → `AUTHORITY_ABSENT`** — all four are failures of a **code-level authority
+table**, with no supplied artifact involved. The Revision-3 classification of `EXPECTATION_DEFINITION_DUPLICATE`
+as `BINDING_ABSENT` is **withdrawn** (Part 0.1, item 4). The corrected clause reads: *`BINDING_ABSENT` if a
+**supplied-artifact** identity, digest, or structural check failed.*
+
+**Authority-table integrity vs coverage (MUST, one split, used consistently):**
+
+| Kind of failure | Stage | Reason class | Examples |
+|---|---|---|---|
+| **authority-table integrity** — the table itself is malformed, ambiguous or not the reviewed content | **S2** | `AUTHORITY_ABSENT` | two definitions for one name (`EXPECTATION_DEFINITION_DUPLICATE`); two mapping rows for one triple (`PRODUCTION_TARGET_MAPPING_DUPLICATE`); registry/target content not matching its reviewed constant digest (`REGISTRY_SOURCE_NOT_CANONICAL`, `PRODUCTION_TARGET_NOT_CANONICAL`) |
+| **coverage for this input** — the table is intact but supplies nothing for this input | **S4** | `AUTHORITY_ABSENT` | canonical name with no `REGISTERED` definition (`EXPECTED_VALUE_UNAVAILABLE`); no target row for the derived triple (`PRODUCTION_TARGET_NOT_ESTABLISHED`); v1 render-dimension states |
+
+**Digest-comparison-side rule (MUST — the single classification for every digest failure).** A digest failure
+is classified by **which side of the comparison is a reviewed constant**:
+
+1. a **carried digest inside a supplied artifact** (the expectation's `expectation_digest`, an entry's
+   `value_digest`, or a `definition_digest` carried in the expectation) compared against a value recomputed from
+   `(task, plan, validated authority)` ⇒ **supplied-artifact failure** ⇒ **S3 / `BINDING_ABSENT`**
+   (`EXPECTATION_DIGEST_MISMATCH`);
+2. a **code-level authority's own content** compared against its **reviewed constant digest**
+   (`REGISTRY_SOURCE_DIGEST`, each definition's reviewed digest, `TARGET_TABLE_DIGEST`, each entry's
+   `target_digest`) ⇒ **authority failure** ⇒ **S2 / `AUTHORITY_ABSENT`** (`REGISTRY_SOURCE_NOT_CANONICAL`,
+   `PRODUCTION_TARGET_NOT_CANONICAL`).
+
+Both sides are validated, **S2 before S3**, so the two can never be conflated, the first failing stage decides,
+and no digest failure may be classified by any other rule. Part XV applies this rule to every row.
+
+**Stage precedence (normative, EXCEPTION-FREE):**
+
+```text
+S1 structural preflight                     -> BINDING_ABSENT        (VII.4; incl. the float policy boundary)
+S2 authority revalidation                   -> AUTHORITY_ABSENT      (table integrity: digests, duplicates)
+S3 binding                                  -> BINDING_ABSENT        (task<->plan; expectation<->resolution;
+                                                                      declared pair; plan content digest)
+S4 coverage                                 -> AUTHORITY_ABSENT      (no REGISTERED definition; no target row;
+                                                                      v1 render dims)
+S5 observation binding                      -> EVIDENCE_INSUFFICIENT (correlation, rooting, revision, scope,
+                                                                      contradiction, missing observable)
+S6 evaluation                               -> EVALUATED_MISMATCH | SATISFIED
+```
+
+**The first failing stage determines the outcome**, and **within a stage the rule of XIV.3.1 determines the
+outcome** (lowest-numbered applicable row wins; `failure_codes` is the sorted union of the stage's applicable
+tokens) — therefore no evaluation order, dict/set iteration or implementation choice can influence a result.
+`overall_state` follows the reason class:
+`SATISFIED → SATISFIED`; `EVALUATED_MISMATCH → NOT_SATISFIED`; `EVIDENCE_INSUFFICIENT → UNKNOWN`;
+`AUTHORITY_ABSENT`/`BINDING_ABSENT` → `NOT_ESTABLISHED`; `INTERNAL_FAILURE → UNKNOWN`.
+Declared many-to-one token mapping inside a stage: `EXPECTED_VALUE_UNAVAILABLE` is `AUTHORITY_ABSENT` for a
+coverage gap (S4) and `EVIDENCE_INSUFFICIENT` for a missing observable (S5); `EXPECTATION_VOCABULARY_MISMATCH`
+is `BINDING_ABSENT` (S3) because the failed check is over the supplied task's declared set.
+
+**R2-A / R2-B state rule (MUST — decision, not an implementation choice; four clauses, all normative).**
+
+1. **R2-A lands the full four enums and the classifier.** `invariant_state` (4), `semantic_state` (5, including
+   `NOT_ESTABLISHED`), `overall_state` (4, including `NOT_SATISFIED`) and `outcome_reason_class` (6) are
+   implemented **in full** in R2-A, together with the stage classifier, the mapper, the compatibility-table
+   change and the single affected assertion (`tests/m12/test_m12_5_verification.py:153`).
+2. **Only the specified reachable subset is reachable in R2-A** — exactly the subset fixed in XXIV.1:
+   `invariant_state ∈ {UNKNOWN, MISSING}`, `semantic_state ∈ {UNKNOWN, NOT_ESTABLISHED}`,
+   `overall_state ∈ {UNKNOWN, NOT_ESTABLISHED}`, `outcome_reason_class ∈ {BINDING_ABSENT, AUTHORITY_ABSENT,
+   INTERNAL_FAILURE}`, stages S1–S4.
+3. **`SATISFIED`, `NOT_SATISFIED` and every other R2-B-only state remain unreachable in R2-A** (no definition is
+   `REGISTERED` and the target table is empty, so the resolver refuses before evaluation). They MUST exist in the
+   vocabulary, MUST be exercised by the classifier tests on refusal paths, and MUST NOT be producible by any
+   path, flag, override or fixture.
+4. **R2-B later supplies the authority and witness conditions that make those paths reachable** — a `REGISTERED`
+   definition with positive/negative/lossy witnesses (Part XIX) and a populated reviewed target table (V.5) —
+   and nothing else. Deferring the *vocabulary* to R2-B is **not permitted**, because it would make the
+   classifier inconsistent with the result contract in R2-A.
+
+**Measured compatibility (old → new; no row becomes positive).** Coverage gap: UNKNOWN/NOT_ESTABLISHED →
+**NOT_ESTABLISHED/NOT_ESTABLISHED** (canonical R2-A S4 outcome; no longer described as unchanged). Task/plan binding failure, set-rule failure, render-classification mismatch, claimed-digest
+assertion: INVALID_OBSERVATION/UNKNOWN → **NOT_ESTABLISHED/NOT_ESTABLISHED** (changed 2 fields,
+`BINDING_ABSENT`). No-observation supplied, not-transport-rooted, correlation mismatch, contradictory
+duplicate, observation-shape/future-field: unchanged INVALID_OBSERVATION/UNKNOWN. Render-bearing v1: unchanged
+UNKNOWN/NOT_ESTABLISHED. **Affected existing assertions on the implementation base (exhaustive): exactly one** —
+`tests/m12/test_m12_5_verification.py:153`. All other state assertions in `tests/m12`
+(`test_m12_5_verification.py:87/103/121/262`, `test_m12_5_adversarial.py:95/128/129/166/167/221/222`) keep
+their values; `test_m12_5_identity_binding.py` asserts codes only; the live-gate state checks exist only on the
+unmerged live-promotion-gate branch.
+
+## XIV.3.1 Within-stage precedence and deterministic aggregation (MUST — decision, not a choice)
+
+**Rule (one rule, total, exception-free).** When more than one Part XV row applies inside the same stage, the
+outcome is determined by a fixed total order over rows plus fixed aggregation:
+
+1. **Winner (primary row).** The applicable row with the **lowest Part XV row number** wins. It supplies the
+   **primary failure code** (the row's first-listed token) and, through the stage, the reason class. The order is
+   the row number as printed in Part XV — never the order in which a check happens to run, never a set/dict
+   iteration order, never an exception's arrival order, never a lexicographic comparison of token names.
+2. **Class homogeneity (checked, not assumed).** Within every stage the applicable rows are reason-class
+   homogeneous — S1: rows 1, 28, 29 → `BINDING_ABSENT`; S2: rows 9–12, 33 → `AUTHORITY_ABSENT`; S3: rows 4, 5, 7, 8,
+   13, 14, 21, 26, 27, 30, 31 → `BINDING_ABSENT`; S4: rows 3, 6, 22, 32 → `AUTHORITY_ABSENT`; S5: rows 15–20,
+   23–25 → `EVIDENCE_INSUFFICIENT`; S6: rows none (evaluation outcomes are not refusals) — therefore
+   `outcome_reason_class` is the deciding stage's single class and can never depend on which row wins. A census
+   test MUST assert this homogeneity from the Part XV table itself, so a future row added with a foreign class in
+   the same stage fails the test rather than silently changing semantics.
+3. **Aggregation of `failure_codes` (MUST).** `failure_codes` is the **union of the tokens of every applicable row
+   in the deciding stage**, deduplicated and sorted ascending by Domain-A canonical bytes — not only the primary
+   row's token — so the code set is a total function of the inputs and never of evaluation order. The primary
+   code MUST be a member of that set. **No** token from a **later** stage may appear (those stages do not run) and
+   no token from a row that does not apply may appear. No placeholder, no exception text, no prose (XIV.5).
+4. **Order independence (MUST).** The complete result — stage, primary code, class, `failure_codes`,
+   `semantic_state`, `overall_state`, every per-entry state and both digests — MUST be invariant under any
+   permutation of the checks executed inside a stage. A test MUST run the same input with the in-stage checks
+   executed in at least two different orders and assert **byte-identical** serialized results and digests.
+5. **No other tie-break may exist.** No "first exception wins", no string comparison, no priority assigned by the
+   implementation, no caller-visible selection, no randomness. An implementation MAY record the primary row
+   internally for diagnostics, but **no field of the result may depend on it** beyond clauses 1–3.
+
+**R2-A demonstration (definitions all `DEFERRED`, target table empty) — one deterministic outcome.** Take a
+structurally valid task whose required set is within the Part IV.2 vocabulary and whose
+`(entry_name, entry_version)` is a declared pair, and a structurally valid expectation object (the variant with
+no expectation supplied is treated below). Then:
+
+- **S1 passes** — preflight over the supplied artifacts raises no F1–F9 condition.
+- **S2 passes** — both authority tables are the reviewed tables (the registry and an **empty** target table);
+  their reviewed-constant digests recompute and no duplicate row exists.
+- **S3 passes** — identity, task↔plan binding, the declared pair, the plan content digest and (when supplied) the
+  expectation's carried digests all agree.
+- **S4 applies two rows simultaneously** — row 6, because every canonical name has **no `REGISTERED`
+  definition** (`DEFERRED` behaves exactly as unregistered), and row 22, because the empty target table has **no
+  row** for the derived triple. **Winner = row 6** (lowest number) ⇒ primary code `EXPECTED_VALUE_UNAVAILABLE`.
+  The stage's class is `AUTHORITY_ABSENT` (rows 3, 6, 22, 32 are homogeneous).
+- **Aggregate:** `failure_codes = ["EXPECTED_VALUE_UNAVAILABLE", "PRODUCTION_TARGET_NOT_ESTABLISHED"]` — sorted,
+  deduplicated, both from S4, no S5/S6 token.
+- **Per-entry states** follow the total precedence rule of XIV.4.2: no entry reached S5, so **every required
+  invariant is `UNKNOWN`** with the not-evaluated shape (`value_state = ABSENT`, `observation_bound = false`,
+  `resolved_observables = ()`, `mismatch_reason = null`). `MISSING` is **not** produced here.
+- **Aggregate states:** `outcome_reason_class = AUTHORITY_ABSENT`, `semantic_state = NOT_ESTABLISHED`,
+  `overall_state = NOT_ESTABLISHED`, `render_state` per Part XVII, and `result_digest` recomputable by an
+  independent implementation (XIV.4.5/XIV.4.6).
+- **Uniqueness of the outcome.** The rule yields **exactly one** outcome for this input. In the variant with no
+  expectation supplied, S1–S3 still pass and S4 still applies the same two rows (the required set cannot be
+  covered either way), so the stage, primary code, class and aggregate are identical; only the
+  expectation-derived members of the digest differ. `SATISFIED` and `NOT_SATISFIED` are unreachable.
+
+## XIV.4 Invariant results, evidence identity, and the two result digests
+
+**Naming (MUST).** The **per-entry** digest is `invariant_result_digest`; the **whole-result** digest is
+`result_digest`. Revision 4 used `result_digest` for the per-entry digest; that collision is removed and the
+older name MUST NOT be used for the per-entry digest anywhere.
+
+### XIV.4.1 Closed invariant-result schema (one entry)
+
+```text
+InvariantVerificationResult
+  invariant_name          : str      # exact registry vocabulary item
+  definition_id           : str
+  definition_revision     : int      # >= 1
+  definition_digest       : str      # 64 hex — the definition's reviewed constant digest
+  authority_class         : str      # CODE_CONSTANT only in R2 (VIII.2); reserved class not admitted
+  subject_scope           : tuple[str, ...]        # sorted ascending
+  expected_value_identity : str      # value_digest of the expectation entry
+  comparison              : str      # EQUALS | SET_EQUALS | CONTAINS_ALL | EXACTLY_ONE | SUBSET_OF
+  admissible_value_type   : str      # STR | INT | BOOL | STR_SET
+  observed_path_patterns  : tuple[str, ...]        # the definition's declared patterns, sorted ascending
+  value_state             : str      # closed: PRESENT | PRESENT_NULL | ABSENT   (XIV.4.2)
+  resolved_observables    : tuple[ResolvedObservable, ...]   # empty iff value_state == ABSENT
+  observation_bound       : bool
+  observation_identity    : ObservationIdentity | null      # null iff observation_bound is false
+  invariant_state         : str      # closed: SATISFIED | NOT_SATISFIED | UNKNOWN | MISSING
+  mismatch_reason         : str | null     # closed code, non-null iff invariant_state == NOT_SATISFIED
+  evidence_identity       : str      # 64 hex (XIV.4.3)
+  invariant_result_digest : str      # 64 hex (XIV.4.4)
+
+ResolvedObservable (frozen, sealed, closed)
+  concrete_path : str                 # closed path grammar with explicit indices, e.g. actors[0].actor_class
+  value         : <Domain A value>    # a JSON null here is a VALUE reported by the engine, never an absence
+```
+
+**MUSTs.** No arbitrary mapping may masquerade as a verified invariant result (no `dict`, no `mappingproxy`, no
+open key set). Entries are in canonical order and individually digest-bound. `invariant_state == NOT_SATISFIED`
+requires a non-null `mismatch_reason` from the closed vocabulary; `invariant_state == SATISFIED` requires
+`observation_bound == true`, a non-empty `resolved_observables`, all identity fields non-null, and a non-empty
+`evidence_identity`; `UNKNOWN`/`MISSING` require a null `mismatch_reason` and are never counted as evaluated.
+`value_state == ABSENT` requires `resolved_observables == ()`; `value_state != ABSENT` requires it to be
+non-empty.
+
+### XIV.4.2 Observable resolution, disposition, and derivation (MUST — fully specified)
+
+**Path grammar (closed).** A pattern is a sequence of segments separated by `.`; a segment is an identifier from
+the frozen extraction schema's declared key set for that node, optionally followed by `[*]` (any index of an
+array). A **concrete path** replaces every `[*]` with a decimal index (`[0]`, `[1]`, …). Nothing else is legal:
+no other wildcard, no recursion, no JSONPath/XPath, no escaping, no case folding, no trailing separator. A
+pattern with no legal concrete instance yields no instances; a pattern that is not in the grammar is a
+registry-integrity failure (S2), never an evaluation outcome.
+
+**Resolution and ordering (MUST).** For each declared pattern, the evaluator enumerates the concrete paths
+present in the **reconstructed** tree (VII.4 / Part XII) and produces one `ResolvedObservable` per concrete path,
+where `value` is the tree's value at that path. The resulting tuple is sorted **ascending by the Domain-A
+canonical UTF-8 bytes of `concrete_path`**. No other ordering is permitted, and the evaluator MUST NOT reorder,
+filter, deduplicate or select among instances ("best", "first", "newest", "largest" are all forbidden).
+
+**Disposition `value_state` (closed, derived — MUST NOT be caller-supplied or implementation-chosen).**
+
+| `value_state` | Derived iff |
+|---|---|
+| `ABSENT` | **zero** concrete paths resolve for the declared patterns |
+| `PRESENT_NULL` | at least one resolves **and every** resolved `value` is JSON `null` |
+| `PRESENT` | at least one resolves **and at least one** resolved `value` is not JSON `null` |
+
+**Anti-collision rule (MUST).** `ABSENT` and `PRESENT_NULL` are distinguished **only** by `value_state`, which is
+a mandatory member of both the entry and the `evidence_identity` canonical input. M12.6 MUST NOT represent
+absence by a sentinel string (e.g. `"<absent>"`, `""`), by an omitted member, by an empty array standing in for a
+value, by a magic index, by a nullable-field convention, or by any other encoding. `resolved_observables` MUST be
+empty for `ABSENT` and non-empty otherwise, and a `ResolvedObservable` whose `value` is `null` is a **present
+value that happens to be null** — it is never rewritten to an absence.
+
+**No normalization (MUST).** Values MUST NOT be case-folded, trimmed, Unicode-normalized, numerically coerced,
+re-typed, rounded, or path-canonicalized; comparison is byte-exact on the Domain-A canonical bytes of the value.
+Domain A string escaping (XI.1) is the only encoding applied anywhere in this section.
+
+**Derivation table (closed — disposition to state and result-level reason).**
+
+| `value_state` | observation bound | value type admissible for the definition | `invariant_state` | result-level token (class, stage) |
+|---|---|---|---|---|
+| `ABSENT` | false | — | `MISSING` | `EXPECTED_VALUE_UNAVAILABLE` (`EVIDENCE_INSUFFICIENT`, S5) |
+| `ABSENT` | true | — | `MISSING` | `EXPECTED_VALUE_UNAVAILABLE` (`EVIDENCE_INSUFFICIENT`, S5) |
+| `PRESENT_NULL` | true | null admitted by the definition | evaluate | `SATISFIED` / `EVALUATED_MISMATCH` (S6) |
+| `PRESENT_NULL` | true | null not admitted | `UNKNOWN` | `EXPECTATION_CONTRADICTORY` (`EVIDENCE_INSUFFICIENT`, S5) |
+| `PRESENT` | true | all values admissible | evaluate | `SATISFIED` / `EVALUATED_MISMATCH` (S6) |
+| `PRESENT` | true | any value inadmissible | `UNKNOWN` | `EXPECTATION_CONTRADICTORY` (`EVIDENCE_INSUFFICIENT`, S5) |
+
+Rows with `observation_bound == false` and `value_state != ABSENT` are impossible by construction (values can only
+come from a bound observation). The `SATISFIED` / `EVALUATED_MISMATCH` outcomes are **unreachable in R2-A**
+(Part XXIV; XIV.3 clause 3).
+
+**Refusal-stage per-entry precedence (MUST — total, order-independent, no implementation choice).** For a result
+whose decisive stage is **S1–S4**, every required invariant is reported with `invariant_state = UNKNOWN`,
+`mismatch_reason = null`, `value_state = ABSENT`, `observation_bound = false`, `resolved_observables = ()` (the
+**not-evaluated shape**) — `MISSING` MUST NOT be produced, because no invariant reached observation binding. For
+a result whose decisive stage is **S5**, exactly one of three cases applies to each entry, in this order:
+(i) the entry has a bound observation and its declared patterns resolved to **zero** concrete paths ⇒
+`invariant_state = MISSING` (row 23, and its per-entry absence is what the aggregated
+`EXPECTED_VALUE_UNAVAILABLE` reports); (ii) the entry has a bound observation and a resolved value whose type is
+inadmissible for the definition ⇒ `invariant_state = UNKNOWN` (row 24); (iii) otherwise (no bound observation, or
+the failure is not attributable to this entry) ⇒ `invariant_state = UNKNOWN` with the not-evaluated shape. The
+same rule is applied to every entry of a result, the rule is a pure function of the entry and the decisive stage,
+and no entry may be reported in a state outside this table. Per-entry states are recorded individually and never
+aggregated into a single value.
+
+### XIV.4.3 `evidence_identity` — Domain A, new recipe (MUST)
+
+**Domain:** A (`EXTRACTION_JCS`, XI.1) — a new, explicitly defined Domain A recipe (not an M12.5 recipe).
+
+```text
+canonical input — a closed object with EXACTLY these members, no others, none omitted:
+  "schema"                  : "m12.6-evidence-identity-v1"
+  "invariant_name"          : <str>
+  "definition_id"           : <str>
+  "definition_revision"     : <int>
+  "definition_digest"       : <64 hex>
+  "authority_class"         : <str enum>
+  "comparison"              : <str enum>
+  "admissible_value_type"   : <str enum>
+  "subject_scope"           : [ <str>, ... ]        # sorted ascending, Domain-A order
+  "observed_path_patterns"  : [ <str>, ... ]        # sorted ascending
+  "value_state"             : "PRESENT" | "PRESENT_NULL" | "ABSENT"
+  "resolved_observables"    : [ {"concrete_path": <str>, "value": <Domain A value>}, ... ]
+                              # empty iff value_state == "ABSENT"; sorted ascending by the Domain-A canonical
+                              # UTF-8 bytes of "concrete_path"
+  "observation_bound"       : true | false
+  "observation_request_id"  : <str> | null          # null iff observation_bound == false
+  "observation_scope"       : [ <str>, ... ] | null # request-declared order preserved; null iff not bound
+  "canonical_state_digest"  : <64 hex> | null       # null iff not bound
+canonicalizer : planning.unreal_state_extraction.jcs.canonicalize   (Domain A)
+hash         : SHA-256 over the canonical UTF-8 bytes, lowercase hex
+implementation: ONE function, planning/m12/expectation.py::compute_evidence_identity(...) -> str
+```
+
+**Derivation of the observed value (MUST).** The observed value(s) of an entry are derived **only** by XIV.4.2's
+resolution: the definition's declared patterns are resolved against the reconstructed tree of the bound
+observation envelope, and each instance's value is taken **verbatim** from that tree. They are carried in the
+canonical input by the `resolved_observables` array plus `value_state`; `observed_value` is **not** a separate
+member, so a **present JSON null** is unambiguous (a `ResolvedObservable` with `value: null` and
+`value_state: "PRESENT_NULL"`) and an **absent path** is unambiguous (`[]` plus `value_state: "ABSENT"`). No
+value may be derived from any other source: not from the expectation, the task, the plan, the catalog, the
+target table, a caller-supplied field, or a second observation that is not bound to this entry.
+Every member is always present; the three observation members are `null` exactly when
+`observation_bound` is false. The recipe is computed for **every** entry, including refusal entries (using
+`value_state: "ABSENT"`, `observation_bound: false` and the declared definition members). Uniqueness: exactly one
+implementation and exactly one call site (AST-asserted). Reproducibility: an independent implementation
+recomputes it from the supplied observation envelope, the reconstructed tree, the definition, and the derived
+disposition alone — with no convention left to choose, since the grammar, ordering, encoding and null rules are
+all fixed above. Coherence: an entry whose `evidence_identity` does not recompute is a construction error.
+
+### XIV.4.4 `invariant_result_digest` — Domain A, new recipe (per entry, MUST)
+
+```text
+canonical input : the entry's FULL declared member set (XIV.4.1) MINUS the "invariant_result_digest" member,
+                  with "resolved_observables" rendered as its closed objects and "observation_identity"
+                  rendered as the nested member set of XIV.4.5
+canonicalizer   : Domain A (jcs.canonicalize)
+hash            : SHA-256 over the canonical UTF-8 bytes, lowercase hex
+implementation  : ONE function, planning/m12/expectation.py::compute_invariant_result_digest(entry) -> str
+```
+
+Uniqueness/coherence (MUST): one implementation, one call site; the digest commits **every** declared member,
+including `value_state`, `resolved_observables`, `evidence_identity`, `invariant_state` and `mismatch_reason`;
+it is recomputable from the entry alone by an independent implementation; and two entries differing in any
+declared member MUST have different `invariant_result_digest`s.
+
+### XIV.4.5 `result_digest` — the whole-result recipe (Domain A, MUST)
+
+**Canonical input: a closed object with EXACTLY the following members — no others, none omitted.**
+
+| Member | Type / value |
+|---|---|
+| `schema` | the constant `"m12.6-result-v1"` (domain separation) |
+| `verifier_revision` | the constant `"m12.6-v1"` (**pinned**; bumped from M12.5's `"m12.5-v1"` as part of R2-A and validated at construction) |
+| `expectation_contract_revision` | the constant `EXPECTATION_CONTRACT_REVISION = "m12.6-expectation-v1"` (VIII.1) |
+| `resolver_revision` | the constant `RESOLVER_REVISION = "m12.6-resolver-v1"` (VIII.1) |
+| `registry_revision` | int |
+| `registry_digest` | 64 hex |
+| `target_table_revision` | int |
+| `target_table_digest` | 64 hex |
+| `production_target_id` | str \| **null** (null iff no target row resolved) |
+| `target_revision` | int \| **null** (null iff no target row resolved) |
+| `target_digest` | 64 hex \| **null** (null iff no target row resolved) |
+| `task_identity` | str |
+| `task_version` | int ≥ 1 |
+| `digital_twin_id` | str (provenance; never a claim — Part XIII) |
+| `catalog_entry_name` | str |
+| `catalog_entry_version` | int ≥ 1 |
+| `vocabulary_digest` | 64 hex |
+| `plan_id` | str (provenance only — X.1) |
+| `source_content_digest` | 64 hex |
+| `plan_content_digest` | 64 hex |
+| `render_task` | bool |
+| `required_invariant_names` | array of str, **sorted ascending** |
+| `expectation_identity` | object — nested member set below |
+| `expectation_digest` | 64 hex |
+| `observation_identity` | object \| **null** (null iff no observation was bound) |
+| `observation_digests` | array of 64 hex, **sorted ascending**, unique; derivation and nullability per **XIV.4.6** |
+| `render_job_identity` | str \| **null**; derivation and nullability per **XIV.4.6** |
+| `render_attempt_identity` | int ≥ 1 \| **null**; derivation and nullability per **XIV.4.6** |
+| `render_evidence_identity` | 64 hex \| **null**; derivation and nullability per **XIV.4.6** |
+| `evidence_trust_basis` | object with exactly `semantic_observation` and `render_evidence`, each a closed-enum `str` (never `null`); values per **XIV.4.6** |
+| `invariant_results` | array of entry objects (XIV.4.1), **in canonical order** |
+| `semantic_state` | str (closed 5-value enum) |
+| `render_state` | str (closed enum) |
+| `overall_state` | str (closed 4-value enum) |
+| `outcome_reason_class` | str (closed 6-value enum) |
+| `failure_codes` | array of str, **sorted ascending, unique** |
+| `origin_status` | the constant `"NOT_ESTABLISHED"` (II.3) |
+
+**Nested `expectation_identity` (exact member set).** `expectation_contract_revision`, `resolver_revision`,
+`registry_revision`, `registry_digest`, `target_table_revision`, `target_table_digest`,
+`production_target_id` (str \| null), `target_revision` (int \| null), `target_digest` (64 hex \| null),
+`task_identity`, `task_version`, `digital_twin_id`, `catalog_entry_name`, `catalog_entry_version`,
+`vocabulary_digest`, `source_content_digest`, `plan_id`, `plan_content_digest`, `render_task`,
+`required_invariant_names` (sorted array), `invariant_expectations_digest` (64 hex), `expectation_digest` (64 hex).
+
+**Nested `observation_identity` (exact member set, when non-null).** `contract_revision` (int),
+`extractor_identity` (str), `engine_identity` (str), `session_identity` (object with **exactly** the six
+declared session keys, each rendered with its own declared type), `scope_identity` (object with exactly
+`operation_name` (str) and `entity_ids` (array of str **in the request's declared order**)),
+`request_identity` (str), `canonical_state_digest` (64 hex).
+**Every one of these seven members has exactly one derivation, one type and one nullability rule — XIV.4.6.1.
+None of them may be invented, defaulted, normalized or omitted.**
+
+**Ordering rules (MUST).** Object members are unordered — Domain A sorts them by UTF-16 code units, and no
+implementation may impose another order. The **only** ordered constructs are the arrays named as sorted above
+(sorted ascending by Domain-A canonical bytes) and `entity_ids` inside `scope_identity`, which **preserves the
+correlated request's declared order** because that order is part of the request identity. `invariant_results` is
+ordered by `invariant_name`, ascending, on the Domain-A canonical bytes of the name.
+
+**Presence / null rules (MUST).** Every declared member is present in every result. "Not applicable" is expressed
+as JSON `null` on the members listed as nullable, never by omitting the member, never by an empty string, and
+never by an empty array. Empty collections are `[]`, never `null`. A nullable member is `null` **only** under the
+stated condition, and every non-nullable member MUST be non-null.
+
+**Domain separation (MUST).** The four recipes carry four distinct `schema` constants —
+`"m12.6-expectation-v1"`, `"m12.6-evidence-identity-v1"`, `"m12.6-invariant-result-v1"`, `"m12.6-result-v1"` —
+so digests produced by different recipes can never be confused. A digest is never computed over another digest's
+byte string except where a digest is a declared member value.
+
+**Derivation, uniqueness and independent reproducibility (MUST).** The whole-result canonical form is derived at
+**serialization time** from the validated inputs and module constants — never read back from an assignable cache
+(XIV.1). Exactly one implementation and one call site compute it (AST-asserted). An independent implementation
+given `(source_task, plan, expectation, observation pairs, code constants)` reproduces the entry set, the
+`invariant_result_digest`s and the `result_digest` **byte-for-byte without choosing any encoding convention**,
+because every convention — member set, nested member sets, ordering, null representation, key ordering, escaping,
+hash — is fixed above and in XI.1.
+
+## XIV.4.6 Complete value derivation and nullability for the typed members (MUST — nothing may be invented)
+
+Every member of the whole-result canonical input (XIV.4.5) whose table entry is not already a literal has
+**exactly one** derivation below. No implementation may invent a value, a sentinel, a placeholder or empty
+string, an extra member or an unlisted state; `null` appears **only** under the stated condition; and a member
+absent from this subsection is a literal or a closed enum whose members are listed at its definition.
+
+**Constants (never derived).** `schema = "m12.6-result-v1"`; `verifier_revision = "m12.6-v1"`;
+`expectation_contract_revision = EXPECTATION_CONTRACT_REVISION = "m12.6-expectation-v1"`;
+`resolver_revision = RESOLVER_REVISION = "m12.6-resolver-v1"` (VIII.1). All four are validated at construction;
+a mismatch is a construction error, never a refusal path.
+
+**`render_task`** — the expectation's declared `render_task` boolean, verbatim (Part IX). Never `null`, never
+derived from the observed tree, the render inputs, the plan or the target table.
+
+**`render_job_identity`** (`str | null`) — non-null **iff**
+`evidence_trust_basis.render_evidence == "DURABLE_RECORD_BACKED"`, in which case it is the **`atlas_job_id`**
+attribute of the durable render record that the unchanged M5 function `verify_render_job_evidence()` validated;
+`null` in every other case. It MUST NOT be derived from the task, the plan, the expectation, the target table,
+`digital_twin_id`, the render observation's own fields, or any caller-supplied value.
+
+**`render_attempt_identity`** (`int ≥ 1 | null`) — the **same** condition, taking the **`attempt_ordinal`**
+attribute of the **same** record; `int ≥ 1` with `bool` excluded; `null` otherwise.
+
+**`render_evidence_identity`** (`64 hex | null`) — the **same** condition, taking the canonical digest of the
+independently verified render evidence, computed by the **existing M12.5 recipe** (`_canonical_digest` over
+exactly `{"operation_name", "entity_ids", "observed_state", "source"}` of the verified evidence object) —
+adopted verbatim, **not** re-implemented and **not** re-canonicalized in Domain A. The member's *value* is that
+digest string; the whole-result canonicalization hashes the string. `null` otherwise. This is a declared
+cross-domain member value, not a second verifier and not a competing authority (Part XVII).
+
+**Render-triple coherence (MUST).** The three members above are **simultaneously** non-null or **simultaneously**
+`null`. A partially populated triple is a construction error and MUST be rejected (XIV.2), never emitted.
+
+**`evidence_trust_basis.semantic_observation`** (closed 2-value enum; never `null`) — `"TRANSPORT_CORRELATED"`
+**iff** `observation_identity != null` (i.e. at least one observation identity was established by the S5
+transport-rooting checks); `"NOT_ESTABLISHED"` **iff** `observation_identity == null`. Measured pre-M12.6
+behaviour: M12.5 emits the constant `"TRANSPORT_CORRELATED"` **unconditionally**, including on results with no
+bound observation, which is a false basis claim; M12.6 **supersedes** it for M12.6 results. Verified impact: no
+existing assertion pins that value (`semantic_observation` appears in `tests/m12` only as a copied provenance
+member of the live-gate reporting path, and only `render_evidence` is asserted), so this change affects **no**
+existing assertion and does not alter the single-affected-assertion statement of XIV.3.
+
+**`evidence_trust_basis.render_evidence`** (closed 3-value enum; never `null`) — `"NOT_APPLICABLE"` **iff**
+`render_task == false`; `"NOT_ESTABLISHED"` **iff** `render_task == true` and the three render identity members
+are `null` (no render evidence was independently verified — whether none was supplied or the supplied evidence
+failed independent verification); `"DURABLE_RECORD_BACKED"` **iff** `render_task == true` and the three render
+identity members are non-null. There is **no fourth value** in v1, and `render_state = VERIFIED` remains
+unreachable (Part XVII).
+
+**`observation_digests`** (`array[64 hex]`, never `null`) — the **set** of `canonical_state_digest` values of all
+observations bound to the result, deduplicated and sorted ascending by Domain-A canonical bytes; `[]` **iff** no
+observation was bound. If `observation_identity != null`, the array MUST contain
+`observation_identity.canonical_state_digest`. It MUST NOT contain any other digest (no expectation digest, no
+render digest, no per-entry `evidence_identity`).
+
+**`observation_identity`** (`object | null`) — `null` **iff** no observation was bound to the result (a refusal at
+S1–S4, or an S5 refusal before any identity was established). When non-null, every nested member is non-null and
+derived exactly as in XIV.4.6.1; when `null`, the three expectation-side nulls
+(`production_target_id`/`target_revision`/`target_digest`) and the render nulls are **unaffected** — nullability
+is per member, never propagated.
+
+### XIV.4.6.1 `observation_identity` nested member derivations (MUST)
+
+| Member | Type | Exact derivation | Nullability |
+|---|---|---|---|
+| `contract_revision` | int | the extraction contract revision carried by the reconstructed tree; MUST equal the verifier's committed constant, else S5 `EXTRACTION_CONTRACT_REVISION_MISMATCH` | non-null whenever the parent is non-null |
+| `extractor_identity` | str | the reconstructed tree's `extraction_kind`, **verbatim** (no normalization, no case folding, no coercion, no default) | non-null whenever the parent is non-null |
+| `engine_identity` | str | `session_identity["engine_version"]`, **verbatim**, and MUST equal the reconstructed tree's `world.engine_version` (else S5 `OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED`); it is the **engine-reported** version string — never a client-asserted value and never a code constant | non-null whenever the parent is non-null |
+| `session_identity` | object | exactly the six keys below, copied **verbatim** from the transport response's `session_identity`; the key set MUST be **exactly** those six — a missing or extra key is S5 `OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED` and MUST NOT be ignored, trimmed or defaulted | non-null whenever the parent is non-null |
+| `scope_identity` | object | `operation_name`: the correlated request's `operation_name` verbatim; `entity_ids`: the correlated request's `entity_ids` **in declared order** (order is part of the request identity and MUST be preserved) | non-null whenever the parent is non-null |
+| `request_identity` | str | the correlated request's `request_id`, verbatim | non-null whenever the parent is non-null |
+| `canonical_state_digest` | 64 hex | the extraction module's canonical digest of the reconstructed tree (existing M12.5 recipe, unchanged) | non-null whenever the parent is non-null |
+
+**The six `session_identity` keys (closed set, verbatim from the transport response).**
+
+| Key | Type | Validity rule (any violation ⇒ S5 `OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED`) |
+|---|---|---|
+| `editor_session_id` | str | non-empty after `strip()` |
+| `process_id` | int | `int`, `bool` excluded, `>= 1` |
+| `process_creation_time_utc` | str | non-empty after `strip()` |
+| `server_start_time_utc` | str | non-empty after `strip()` |
+| `engine_version` | str | non-empty after `strip()`; equals the tree's `world.engine_version` |
+| `project_identity` | str | non-empty after `strip()` |
+
+No other key is permitted, none may be added by M12.6, and no key may be omitted. Values are rendered in the
+digest **verbatim** (Domain A escaping only). The two timestamp fields are carried as evidence and are **not**
+interpreted: no freshness, ordering, age or same-session claim is derived from them (Part XVI non-detection
+control), and no member of the result depends on their values beyond identity.
+
+## XIV.5 Closed code vocabulary, and the retirement of the expectation canonicalization token
+
+`failure_codes` MUST contain only tokens defined in Part XV. Measured defect: the verifier converts exception
+messages into "codes" (`str(exc).split(":", 1)[0]`), so a correlation failure puts the prose sentence
+`'response entity_ids do not match the originating request'` into `failure_codes`. M12.6 MUST map correlation
+failures to `OBSERVATION_CORRELATION_MISMATCH`, MUST derive every code from a closed table, and a census test
+MUST assert that no `failure_codes` entry contains whitespace, violates the token grammar, or is absent from the
+table. R2 MUST additionally audit every `except …: code = str(exc)…` site for further exception-derived codes.
+
+**Retirement (MUST, single-token policy).** Revision 3's `EXPECTATION_CANONICALIZATION_UNSUPPORTED` is
+**retired**; it was a near-synonym of the preflight token and produced a contradictory double path for
+expectation-side structural failures. The mapping is now exhaustive and single-tokened:
+
+| Expectation-side condition | Token | Reason class |
+|---|---|---|
+| closed-schema failure — declared member set, count/name correspondence, tuple ordering/uniqueness | `EXPECTATION_INCOMPLETE` | `BINDING_ABSENT` |
+| value-content structural failure — unsupported value type (F4), finite or non-finite float in a Domain-A position (F4/F5), depth or node budget (F6), lone surrogate (F7), digit limit (F8) | `RESOLVER_INPUT_STRUCTURE_INVALID` with the category | `BINDING_ABSENT` |
+
+No other expectation-side structural token may exist, and `EXPECTATION_CANONICALIZATION_UNSUPPORTED` MUST NOT
+appear in any implementation, test or record (a census test asserts its absence).
+
+# PART XV — FAIL-CLOSED MATRIX (one token per condition, one stage, one reason class per row)
+
+No refusal may become `SATISFIED`. Every refusal yields `overall_state ∈ {UNKNOWN, NOT_ESTABLISHED}` and no
+positive claim. Each row states its **stage** (S1–S6, or `—` for a non-stage fault) and its **reason class**, per
+the single discriminator and the digest-comparison-side rule of XIV.3. **The first failing stage decides, and
+when several rows apply inside that stage the rule of XIV.3.1 decides** (lowest-numbered applicable row supplies
+the primary code; `failure_codes` is the sorted deduplicated union of that stage's applicable tokens). Per-entry
+invariant states follow the total precedence rule of XIV.4.2: `UNKNOWN` for an S1–S4 refusal, and
+`MISSING`/`UNKNOWN` per its three cases for an S5 refusal.
+
+| # | Condition | Token | Stage | Reason class |
+|---|---|---|---|---|
+| 1 | malformed supplied content — any F1–F9, including hostile/uninspectable containers (F4), cycles or budget (F6), surrogates (F7), digit limit (F8) | `RESOLVER_INPUT_STRUCTURE_INVALID` (+ `detail_category` F1–F9) | S1 | `BINDING_ABSENT` |
+| 2 | residual internal fault (fault-injection reachable only) | `RESOLVER_INTERNAL_FAILURE` | — | `INTERNAL_FAILURE` |
+| 3 | no expectation supplied **and** the required set cannot be covered by a `REGISTERED` definition | `EXPECTED_VALUE_UNAVAILABLE` | S4 | `AUTHORITY_ABSENT` |
+| 4 | unknown expectation (identity does not recompute) | `EXPECTATION_IDENTITY_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 5 | incomplete expectation (declared member missing/undeclared, count/name mismatch, empty required set inside the object) | `EXPECTATION_INCOMPLETE` | S3 | `BINDING_ABSENT` |
+| 6 | unsupported invariant (canonical name, no `REGISTERED` definition) | `EXPECTED_VALUE_UNAVAILABLE` | S4 | `AUTHORITY_ABSENT` |
+| 7 | identity mismatch (task/version/twin/entry-pair/registry/target/resolver) | `EXPECTATION_IDENTITY_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 8 | **supplied-artifact** digest mismatch — `expectation_digest`, `value_digest`, or a `definition_digest` carried in the expectation, against a value recomputed from supplied artifacts + validated authority | `EXPECTATION_DIGEST_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 9 | **authority reviewed-constant** digest mismatch — registry content vs `REGISTRY_SOURCE_DIGEST` / a definition's reviewed digest | `REGISTRY_SOURCE_NOT_CANONICAL` | S2 | `AUTHORITY_ABSENT` |
+| 10 | **authority reviewed-constant** digest mismatch — target table/entry content vs `TARGET_TABLE_DIGEST` / `target_digest` | `PRODUCTION_TARGET_NOT_CANONICAL` | S2 | `AUTHORITY_ABSENT` |
+| 11 | two definitions for one invariant name (authority-table integrity) | `EXPECTATION_DEFINITION_DUPLICATE` | S2 | `AUTHORITY_ABSENT` |
+| 12 | two mapping rows for one `(entry_name, entry_version, task_class)` triple (authority-table integrity) | `PRODUCTION_TARGET_MAPPING_DUPLICATE` | S2 | `AUTHORITY_ABSENT` |
+| 13 | task mismatch (task↔plan identity or content) | `IDENTITY_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 14 | plan mismatch (plan content digest recomputation differs) | `EXPECTATION_IDENTITY_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 15 | observation not transport-rooted / identity mismatch | `OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED` | S5 | `EVIDENCE_INSUFFICIENT` |
+| 16 | correlation failure | `OBSERVATION_CORRELATION_MISMATCH` | S5 | `EVIDENCE_INSUFFICIENT` |
+| 17 | extraction contract revision mismatch | `EXTRACTION_CONTRACT_REVISION_MISMATCH` | S5 | `EVIDENCE_INSUFFICIENT` |
+| 18 | scope divergence between observations | `OBSERVATION_SCOPE_DIVERGENCE` | S5 | `EVIDENCE_INSUFFICIENT` |
+| 19 | declared `subject_scope` not observed | `EXPECTATION_SCOPE_NOT_OBSERVED` | S5 | `EVIDENCE_INSUFFICIENT` |
+| 20 | contradictory observation | `CONTRADICTORY` | S5 | `EVIDENCE_INSUFFICIENT` |
+| 21 | stale source (expectation no longer matches supplied task/plan) | `EXPECTATION_IDENTITY_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 22 | no target row for the derived triple (single-valued partial lookup miss) | `PRODUCTION_TARGET_NOT_ESTABLISHED` | S4 | `AUTHORITY_ABSENT` |
+| 23 | absent observable path — `value_state = ABSENT` | `EXPECTED_VALUE_UNAVAILABLE` (+ invariant `MISSING`) | S5 | `EVIDENCE_INSUFFICIENT` |
+| 24 | present value whose type is inadmissible for the definition, incl. `PRESENT_NULL` where null is not admitted | `EXPECTATION_CONTRADICTORY` (+ invariant `UNKNOWN`) | S5 | `EVIDENCE_INSUFFICIENT` |
+| 25 | partial evaluation (an invariant not evaluated while another is) | `EXPECTED_VALUE_UNAVAILABLE` (+ `MISSING`) | S5 | `EVIDENCE_INSUFFICIENT` |
+| 26 | vocabulary mismatch (name outside the declared pair's vocabulary) | `EXPECTATION_VOCABULARY_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 27 | plan step not a canonical fragment id | `PLAN_STEP_NOT_CANONICAL` | S3 | `BINDING_ABSENT` |
+| 28 | expectation value-content structurally invalid (unsupported type / float / depth / surrogate / digit limit) — see XIV.5; the Revision-3 token is retired | `RESOLVER_INPUT_STRUCTURE_INVALID` (+ F category) | S1 | `BINDING_ABSENT` |
+| 29 | **structurally valid** plan document bearing a float (sole condition, X.3); a structurally invalid plan is row 1 | `PLAN_CONTENT_UNSUPPORTED` | S1 | `BINDING_ABSENT` |
+| 30 | required set empty / incomplete / extra | `EMPTY_REQUIRED_INVARIANT_SET` / `INCOMPLETE_REQUIRED_INVARIANT_SET` / `EXTRA_PLAN_VERIFICATION_REQUIREMENT` | S3 | `BINDING_ABSENT` |
+| 31 | plan render classification ≠ digest-bound source class | `PLAN_RENDER_CLASSIFICATION_MISMATCH` | S3 | `BINDING_ABSENT` |
+| 32 | render-bearing task (v1 contract state — unchanged) | `RENDER_TASK_CORRESPONDENCE_NOT_DECIDED`, `REQUEST_DIGEST_AGREEMENT_NOT_ESTABLISHED`, `SEQUENCE_AGREEMENT_NOT_ESTABLISHED`, `RENDER_EVIDENCE_MISSING` | S4 | `AUTHORITY_ABSENT` |
+| 33 | a definition carries an authority class **not admitted in R2** (the reserved `FROZEN_CONTRACT_DERIVATION`) — a registry-integrity failure | `REGISTRY_AUTHORITY_CLASS_NOT_ADMITTED` | S2 | `AUTHORITY_ABSENT` |
+
+**Vocabulary census (MUST):** the table MUST contain **no token whose name implies detection of a stale or
+replayed observation** (no `STALE_OBSERVATION*`, no `REPLAY*`), and MUST NOT contain
+`EXPECTATION_CANONICALIZATION_UNSUPPORTED` (retired, XIV.5). The stage/class census of XIV.3.1 clause 2 MUST be
+computed **from this table** by test, and the within-stage rule of XIV.3.1 MUST be exercised with at least two
+in-stage check orders (clause 4). Row 33 is a **load-and-validate** failure of the registry: it is not producible
+from a conforming R2 registry (which admits `CODE_CONSTANT` only, VIII.2) and MUST be covered by a startup test
+that loads a deliberately non-conforming table. Each row MUST be reachable by at least one test —
+except rows whose reachability is fixed by Part XXIV (rows 15–20, 23–25 and, in R2-A, rows 3/6/22 only after the
+rung's own tests; the R2-A reachability subset is enumerated in XXIV). Rows 4/7/14/21 share one token by declared
+many-to-one mapping (all are supplied-artifact identity failures); row 1 and row 28 carry all nine F categories
+as values of one token; no further synonym may be added.
+
+**Scope note (MUST).** `RESOLVER_INPUT_STRUCTURE_INVALID` covers malformed content of **supplied artifacts**
+(task, plan, expectation). `EXPECTATION_INCOMPLETE` covers the **expectation object's** closed schema only
+(VII.4.4). `PLAN_CONTENT_UNSUPPORTED` covers the **single** float-policy condition (X.3). The three MUST NOT be
+used for one another's conditions. **Authority-table integrity** failures are S2 / `AUTHORITY_ABSENT` (rows 9–12, 33);
+**coverage** failures for a given input are S4 / `AUTHORITY_ABSENT` (rows 3, 6, 22, 32); **supplied-artifact**
+failures are S1/S3 / `BINDING_ABSENT`; **observation** failures are S5 / `EVIDENCE_INSUFFICIENT`.
+
+# PART XVI — REPLAY
+
+## XVI.1 Detectable — with the exact authoritative field
+
+| Case | Detected? | Field / mechanism |
+|---|---|---|
+| stale expectation (older task/plan/registry/target table) | **YES** | expectation identity recomputed from the supplied task+plan+code constants: `task_identity`, `task_version`, `source_content_digest`, `plan_content_digest`, `registry_revision`+`registry_digest`, `target_table_revision`+`target_table_digest`, `definition_digest`, `production_target_id`+`target_revision`+`target_digest` |
+| stale task | **YES** | `task_version` + `source_content_digest` |
+| stale plan | **YES** | `plan_content_digest` (X.2) |
+| stale definition | **YES** | `definition_digest` (+ registry digests) |
+| stale target | **YES** | `target_digest` (+ `target_table_digest`) |
+| cross-task expectation | **YES** | `task_identity` / `task_version` / `source_content_digest` |
+| cross-plan expectation | **YES** | `plan_content_digest` |
+| envelope relabelling that changes a correlated field | **YES — as a mismatch, not as staleness** | `validate_response_correlation` on `request_id`/`operation_name`/`entity_ids`/`schema_version` ⇒ `OBSERVATION_CORRELATION_MISMATCH`; session-envelope change ⇒ `OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED` |
+| two observations, same `(task, scope, request)` identity, different digests | **YES** | `canonical_state_digest` inequality ⇒ `CONTRADICTORY` |
+| repeated legitimate observation (identical identity tuple) | not a failure | collapses to one observation |
+| cached expectation presented with changed inputs | **YES** | identity recomputation; presented with byte-identical inputs it is indistinguishable from a fresh resolution **by design** (resolution is pure, so re-verification is idempotent, not an attack) |
+
+## XVI.2 NOT detectable — normative non-detection controls
+
+| Case | Status |
+|---|---|
+| **relabelled stale observation** (old bytes, consistently correlated new envelope) | **`NOT DETECTABLE`** — no authoritative record of "the true request" exists, so no field can compare against it. This is a **non-detection control**: no specific code is required, reserved, or permitted; the test MUST assert that the outcome is not a staleness refusal and that **no token in the vocabulary could name one**. |
+| replay of a legitimate expectation against a **later legitimate execution** of the same task/plan | **`NOT DETECTABLE`** — no execution identity exists and none may be invented |
+| cross-session staleness ordering with different request identities | **`NOT DETECTABLE`** |
+| observation freshness / recency | **`NOT CLAIMED`** (XVI.3) |
+
+## XVI.3 Non-claims (verbatim, to appear in the landed artifact and in each definition's `non_claim`)
+
+> **`SATISFIED` means only: the evaluated observation satisfies the production target specification selected by
+> the supplied task content and approved by the reviewed code target table.**
+> It does **not** mean: *this particular execution was authorized*; *the observed world is the requested digital
+> twin*; *the task originated from the canonical catalog authority*; *the selected target was appropriate,
+> intended, authorized, or requested by an authorized actor*; **or that the observation is fresh or recent.**
+
+---
+
+# PART XVII — M5 BOUNDARY
+
+M12.6 MUST NOT: replace M5; duplicate `verify_render_job_evidence()`; promote render evidence into semantic
+success; establish sequence agreement; establish request-digest agreement; establish artifact identity; mint
+receipts; authorize execution; establish execution identity.
+
+1. `render_state = VERIFIED` MUST remain unreachable; the existing render codes
+   (`RENDER_TASK_CORRESPONDENCE_NOT_DECIDED`, `RENDER_EVIDENCE_MISSING`,
+   `RENDER_EVIDENCE_NOT_INDEPENDENTLY_VERIFIED`, `RENDER_JOB_TWIN_MISMATCH`,
+   `REQUEST_DIGEST_AGREEMENT_NOT_ESTABLISHED`, `SEQUENCE_AGREEMENT_NOT_ESTABLISHED`) MUST NOT be substituted by a
+   new M12.6 code.
+2. Where M5 cannot establish a fact, M12.6 MUST preserve `UNKNOWN`/`NOT_ESTABLISHED` rather than infer it.
+3. `render_configured` MUST be `DEFERRED` in the registry.
+4. **No render evidence is an M12.6 expectation source**: `M5_RECORD_FIELD` is removed from R2 scope, and
+   `ProductionTargetSpec.planned_sequence_asset_path` is a design-intent constant only — it MUST NOT be compared
+   to any render record, MUST NOT populate `sequence_agreement`, and MUST NOT be surfaced as render evidence.
+5. M12.6 MUST NOT import `planning.unreal_evidence_contract`, `planning/unreal_render_*`,
+   `planning/unreal_journal_attestation`, or any M4–M10 authority module; the AST allowlist gate MUST extend to
+   the new modules with aliased/deferred/string positive controls.
+
+---
+
+# PART XVIII — FIRST ADMISSIBLE INVARIANT
+
+## XVIII.1 **NO FIRST POSITIVE INVARIANT IS CURRENTLY ADMISSIBLE**
+
+| Candidate | Value source | Exists today? | Verdict |
+|---|---|---|---|
+| `scene_initialized` via world identity | reviewed production target | **NO** — no repository artifact declares a *production* twin's world/level; the only in-repo world identities are harness-fixture ones | **NOT ADMISSIBLE** |
+| `cameras_configured` via `actors[*].actor_class` | reviewed production target | **NO** | **NOT ADMISSIBLE** |
+| `sequence_configured` via `sequences[*].sequence_asset_object_path` | reviewed production target | **NO** (and Q9-adjacent) | **NOT ADMISSIBLE** |
+| `environment_configured`, `lighting_configured` | — | caller parameters only | **NOT ADMISSIBLE** |
+| `render_configured` | — | M5-owned | **DEFERRED** |
+| `FROZEN_CONTRACT_DERIVATION` payload-consistency candidates | reviewed code rule | derivable today | **NOT ADMISSIBLE IN R2** — the class is not a legal `authority_class` value in R2 (V.1, VIII.2, XV row 33), in addition to being payload-fidelity and therefore not registrable (V.3) |
+| schema-forced candidates | — | yes | **VACUOUS — not registrable** |
+
+The fixture-constant shortcut is refused: the fixture module self-declares as test-only; the value is a
+*harness* identity, not a production target; the name-pinned vocabulary would force it under
+`scene_initialized`, making it read as production scene initialization; and the result contract has no field
+that could carry a harness-scoped qualifier.
+
+## XVIII.2 Blocking condition
+
+R2-B remains blocked until (i) the reviewed production-target artifact exists (V.5/V.6, with a
+`source_reference`, digests, and its own review gate) and (ii) the three witnesses of XVIII.3 are recorded.
+
+## XVIII.3 Witness protocol (designed; NOT executed)
+
+- **Positive witness** — must yield `invariant_state == SATISFIED` with no `EXPECTED_VALUE_UNAVAILABLE` in
+  `failure_codes`. Two grades, **both** required before any `SATISFIED` may be presented as semantic
+  verification: (i) contract-valid (deterministic, R2); (ii) independently valid (live, R3).
+- **Negative witness** — a **minimal-difference** partner varying only the asserted dimension, yielding
+  `NOT_SATISFIED` **from that definition** with its own `mismatch_reason` — proving the invariant was
+  *evaluated*, never skipped, never an ambient `UNKNOWN`.
+- **Lossy witness set** — wrong scope ⇒ `EXPECTATION_SCOPE_NOT_OBSERVED`; scope lacking `subject_scope` ⇒ same;
+  foreign world ⇒ `NOT_SATISFIED`; absent observable ⇒ `EXPECTED_VALUE_UNAVAILABLE`; contradiction ⇒
+  `CONTRADICTORY`; missing member ⇒ `EXPECTATION_INCOMPLETE`; unregistered name ⇒ `EXPECTED_VALUE_UNAVAILABLE`.
+  **The relabelled stale envelope is NOT in this set** — it is a non-detection control (XVI.2).
+- **Blocking:** until XVIII.2 holds, **no definition may be `REGISTERED`** and every resolution refuses.
+
+---
+
+# PART XIX — NON-VACUITY
+
+Every `REGISTERED` definition requires **positive, negative and refusal/lossy** witnesses, under six properties:
+(1) minimal-difference pair — positive and negative differ in exactly one labelled `dimension`; (2)
+discrimination — the negative witness yields `NOT_SATISFIED` under the same registry and target revisions as the
+positive; (3) no schema-forced observables; (4) every definition states a `non_claim`; (5) registry-level floor —
+zero `REGISTERED` definitions makes `SATISFIED` a validation error, with `REGISTERED_COUNT` participating in
+`registry_digest`; (6) result-level floor — one `DEFERRED` required invariant forces a non-`SATISFIED` outcome.
+**"Vacuous"** is decidable by construction (schema-forced observables) and falsifiable by witness (no recorded
+negative witness ⇒ treat as vacuous, do not register). **Non-detection controls are not witnesses**: they assert
+the *absence of a claim*, may not satisfy a witness obligation, and may not demonstrate discrimination.
+
+---
+
+# PART XX — REQUIRED TEST ARCHITECTURE
+
+**Design only.** Two transverse rules: every negative control asserts its **specific** code (never an ambient
+`UNKNOWN`), and every identity/tamper control additionally asserts the **absence** of a positive state.
+
+Required categories and their specific assertions: arbitrary task cannot become canonical by field matching
+(full identity equality; `origin_status` constant and digest-neutral); caller expected-value injection ⇒
+`EXPECTED_VALUE_UNAVAILABLE` with the injected value in no field and no digest input; caller invariant injection
+⇒ `EXPECTATION_VOCABULARY_MISMATCH`, **including after a live fragment-registry mutation**; caller predicate
+injection ⇒ signature + AST guards; caller target injection ⇒ no such parameter exists (F1); mutable/nested
+registry and target mutation ⇒ `REGISTRY_SOURCE_NOT_CANONICAL` / `PRODUCTION_TARGET_NOT_CANONICAL` plus the
+immutable-value-type structural test; catalog-object substitution ⇒ **non-detection / invariance control** (M12.6 reads no catalog object and has no
+admissible catalog-origin input): for byte-identical task/plan documents produced by the canonical catalog and by
+a custom catalog instance, the M12.6 output MUST be byte-identical and MUST contain **no refusal attributable to
+catalog origin, catalog identity or resolution**, and M12.6 MUST NOT refuse *because of* a substitution; where a
+substituted catalog yields *different* task content, the resulting refusal MUST be the content-level refusal
+(vocabulary/reconciliation against the declared pair) and a control MUST assert that code and assert the absence
+of any origin-shaped code — no catalog-origin channel may be introduced to make the control observable; and the
+**declared transitive channel** ⇒ changing `catalog_version` changes `plan_content_digest` and
+`source_content_digest` (variance asserted) while the code and reason class stay those of any other
+supplied-document content difference (semantic-invariance asserted, no distinguished path); task content mutation ⇒ `IDENTITY_MISMATCH`/`EXPECTATION_IDENTITY_MISMATCH`; plan content
+mutation ⇒ `EXPECTATION_IDENTITY_MISMATCH`; definition mutation ⇒ `EXPECTATION_DIGEST_MISMATCH`; expectation
+mutation (every field, incl. any internal cache) ⇒ serialization-derived digests unchanged or refusal; identity
+tampering element-by-element ⇒ each specific code; digest tampering ⇒ `EXPECTATION_DIGEST_MISMATCH`; zero
+invariants ⇒ `EMPTY_REQUIRED_INVARIANT_SET` with `SATISFIED` unconstructible; empty expectation ⇒
+`EXPECTATION_INCOMPLETE`; partial evaluation ⇒ `MISSING` + `EXPECTED_VALUE_UNAVAILABLE`; unsupported invariant ⇒
+`EXPECTED_VALUE_UNAVAILABLE` (`AUTHORITY_ABSENT`); contradictory observation ⇒ `CONTRADICTORY`; observation
+substitution ⇒ `EXPECTATION_SCOPE_NOT_OBSERVED` / genuine `NOT_SATISFIED`; stale expectation/definition/target ⇒
+`EXPECTATION_IDENTITY_MISMATCH` / `REGISTRY_SOURCE_NOT_CANONICAL` / `PRODUCTION_TARGET_NOT_CANONICAL`;
+**relabelled stale envelope ⇒ non-detection control (no staleness refusal; no such token exists)**;
+canonicalization and preflight edge cases (Domain A: UTF-16 ordering, ECMAScript escaping, surrogate refusal,
+`|n| > 2^53-1`, float refusal, depth, empty containers, null/bool; Domain B: non-string keys, depth, node budget,
+non-canonicalizable provenance; hostile containers whose inspection raises ⇒ F4; cycles caught by the bound ⇒ F6;
+lone surrogates ⇒ F7; integer digit limit ⇒ F8; and the single float-policy refusal `PLAN_CONTENT_UNSUPPORTED`
+for a structurally valid float-bearing plan); `evidence_identity`, `invariant_result_digest` and the whole-result `result_digest` uniqueness and independent
+recomputation (one implementation and one call site each; an independent reimplementation reproducing all three
+byte-for-byte; two entries differing in any declared member having different `invariant_result_digest`s; the
+whole-result digest changing when any declared member of XIV.4.5 changes, including a nested
+`expectation_identity` or `observation_identity` member); **absent-vs-present-null** controls (`value_state`
+`ABSENT` with an empty `resolved_observables` vs `PRESENT_NULL` with a `ResolvedObservable` whose `value` is
+`null` MUST produce different `evidence_identity`s and MUST NOT be conflated by any sentinel, omission or empty
+collection); **path-grammar and ordering** controls (concrete-path grammar, ascending sort, no
+select/reorder/dedupe, no normalization or case folding); **rung-ownership** controls (R2-A: lookup algorithm
+present with an empty table, every lookup refusing `PRODUCTION_TARGET_NOT_ESTABLISHED`; R2-B: no lookup value
+reachable); **R2-A reachability exhaustion** (no R2-A input yields `SATISFIED`, `NOT_SATISFIED`,
+`EVALUATED_MISMATCH`, `INVALID_OBSERVATION`, `EVIDENCE_INSUFFICIENT` or any R2-B-only member of Part XXIV); cross-process determinism
+(subprocesses with differing `PYTHONHASHSEED` ⇒ byte-identical digests, recording `sys.version` and the digit
+limit); resolver preflight categories F1–F9 each with its own case and **no uncaught exception**;
+`RESOLVER_INTERNAL_FAILURE` by fault injection only, plus a census asserting it appears in no gate/live record;
+positive/negative/lossy witnesses; the full result-state classifier table including the one changed assertion;
+closed-code census (token grammar, no whitespace, in-table); invariant-result schema closure; M5 non-promotion
+(`planned_sequence_asset_path` consumed by nothing); digital-twin non-claim.
+Property tests: totality (as defined in VII.7), purity, observation blindness, determinism, idempotence,
+fail-closed monotonicity, identity perturbation, exact-set completeness, attribution completeness, schema
+closure, `SATISFIED` structural coherence, plan-digest recipe uniqueness (one call site; `catalog_version`
+invariance plus any-other-field variance), `origin-status` constancy.
+
+---
+
+# PART XXI — EXPLICIT NON-GOALS
+
+M12.6 MUST NOT: create a second task authority without explicit review · create a mutable semantic catalog ·
+infer expectations from observations · infer expectations from the runtime mapping · create execution identity ·
+prove digital-twin observation binding without upstream evidence · authorize · execute · dispatch · persist ·
+recover · issue receipts · replace M5 · introduce render verification · introduce sequence verification ·
+introduce request-digest verification · introduce artifact verification · introduce caller predicates ·
+introduce environment overrides · introduce test bypasses · introduce trusted mode · modify frozen extraction
+semantics · weaken existing M12.5 refusals.
+**Enforcement rule:** each non-goal MUST have at least one test that fails if it is violated; a non-goal without
+a test is not a non-goal. Additionally declared for R2 and to be recorded in the landed artifact: preventing
+in-process monkey patching (VIII.5); detecting a relabelled stale observation (XVI.2); detecting cross-session
+staleness ordering; establishing canonical task origin (Part II); claiming observation freshness (XVI.3);
+claiming target appropriateness/authorization (V.4.5).
+**Preserved strengths (with enforcing controls):** caller-supplied predicate prohibition (signature + AST
+guards); caller-supplied expected-value prohibition (closed registry schema + allowlist + injection tests);
+M12.4 non-authority (Part VI + mapping-changes-nothing assertion); extraction non-verdict boundary (digest is
+identity only; no `verified` flag read; extraction untouched); M5 separation (Part XVII + non-promotion tests);
+execution-identity non-claim (XVI.2/XVI.3 + absence of any such field); digital-twin `NOT_ESTABLISHED` boundary
+(Part XIII + non-claim assertions); no-first-invariant-until-real-witness (Part XVIII + `DEFERRED` state).
+
+---
+
+# PART XXII — OPEN QUESTIONS
+
+1. **Canonical task origin** — `DECIDED` (Part II): content-indistinguishable; explicit `NOT_ESTABLISHED`
+   boundary; claim set fixed. `OPEN` only as reviewer judgement on the posture, provided the `non_claim` states it.
+2. **Catalog authority** — `DECIDED` (Part III).
+3. **Legitimate target-specification inputs** — `DECIDED`: `task_class` and `target_state.expects_render` (render
+   limb only); identity keys are not values; `digital_twin_id` is neither a value nor a selector. Previously-open
+   sub-item (need for a distinct target id) — **closed**: the id exists and is derived.
+4. **First positive/negative witness** — `DEFERRED` with the XVIII.2 blocking condition.
+5. **Canonical expectation value representation** — `DECIDED`: Domain A only; exact comparisons
+   (`EQUALS`/`SET_EQUALS`/`CONTAINS_ALL`/`EXACTLY_ONE`/`SUBSET_OF`); no epsilon/tolerance/normalization/case
+   folding; binary64 values, when they ever appear, are the extraction contract's own 16-hex-digit strings
+   compared byte-exactly. `OPEN`: whether a future transform expectation needs an ordering-only comparison.
+6. **Revalidation vs immutability** — `DECIDED`: the stated property is "revalidated against a reviewed constant
+   digest" plus "no caller-reachable runtime write path"; the word "immutable" MUST NOT be used for the tables.
+7. **Same-process mutation threat model** — `OUT OF SCOPE` as prevention; `DECIDED` as detection (VIII.5).
+8. **Contradictory observations across sessions** — `OPEN`: same `(task, scope, request)` identity contradictions
+   are detected; different request identities are two observations and cross-session ordering is `NOT CLAIMED`.
+   Reviewer input requested on whether a stricter same-session rule is desirable; position: no — it would invent
+   ordering semantics the contract does not carry.
+9. **Eventual M5 / request / sequence binding** — `DECIDED as upstream`: Q9/Q10/Q11 remain open, out of scope and
+   unapproximated; `render_state = VERIFIED` stays unreachable.
+10. **Authority classes and construction guard — `DECIDED` (no OPEN item remains here).**
+    (a) `FROZEN_CONTRACT_DERIVATION` is **NOT ADMITTED IN R2** (V.1, VIII.2, VIII.4, XVIII.1, XV row 33): the R2
+    `authority_class` domain is exactly `{CODE_CONSTANT}`, and a definition carrying the reserved value is refused
+    at S2 / `AUTHORITY_ABSENT` (`REGISTRY_AUTHORITY_CLASS_NOT_ADMITTED`) with a startup test. The earlier
+    "admitted by the architecture, empty at R2" recommendation is **withdrawn**; admission requires a future
+    design-gate revision stating the restricted form, the reviewed digest and the witnesses.
+    (b) The construction guard is a **module-private sentinel**, an accidental-construction guard only — never a
+    security boundary; the true invariant is result-coherence validation (XIV.1, XIV.2).
+    (c) Within-stage precedence and aggregation are **DECIDED** (XIV.3.1), and the whole-result members are fully
+    derived (XIV.4.6).
+    The two previously disclosed refinements (the `catalog_version` scoping and the two-condition
+    `PLAN_CONTENT_UNSUPPORTED`) remain **flagged for challenge** — they are disclosed, not open decisions.
+
+---
+
+# PART XXIII — IMPLEMENTATION GATE
+
+**R2-A** may proceed only when its **refusal and result schemas are fully defined**: the closed refusal
+vocabulary with stage and reason class for every row (Part XV) and the prose-code defect fixed; the six reason
+classes, the digest-comparison-side rule, the authority-table-integrity vs coverage split and the S1–S6 order
+(XIV.3); the closed `InvariantVerificationResult` schema with `value_state`, `resolved_observables`,
+`evidence_identity`, `invariant_result_digest` and the whole-result `result_digest` recipes (XIV.4); the
+expectation schema with rejection rules (Part IX, XIV.5); the single plan-content-digest recipe over the **full**
+canonical document (X.2); the two canonical domains with per-digest inputs and the pinned-runtime statement
+(Part XI); the registry and (empty) target tables with digests, integrity tokens, the **single-value R2
+`authority_class` domain** and the load-and-validate refusal for the reserved class (Part VIII, V.1, V.3, V.5);
+the bounded structural preflight with traversal, cycle, exception-attribution and budget rules (VII.4) and the
+attribution rule (VII.5); the totality definition (VII.7); and the **target lookup machinery against an empty
+reviewed table** (V.4.9, V.5.1).
+
+**R2-A MUST additionally implement** the four result-state enums, the mapper and the classifier in full, with the
+**fixed reachable subset**, the **fixed R2-B-only subset** and the exhaustion obligation (XIV.3 clauses 1–4,
+Part XXIV), the **within-stage precedence and aggregation rule** with its census and order-independence tests
+(XIV.3.1), and the **per-entry refusal-state precedence** (XIV.4.2), plus the compatibility-table change and its
+single affected assertion — all **decisions**, not implementation choices.
+
+**R2-B** MUST remain blocked until all of the following hold:
+
+1. an authoritative, reviewed **production target** exists (V.5/V.6) with `source_reference` and its digests, and
+   the table is populated in R2-B — never in R2-A (V.4.9, V.5.1);
+2. a **real positive witness** exists — independently valid, not merely contract-valid (XVIII.3 grade ii);
+3. a **real negative witness** exists — a minimal-difference partner evaluated to `NOT_SATISFIED` **from that
+   definition**, with its own `mismatch_reason`;
+4. the **target-selection semantics** (V.4) are adopted and implemented verbatim, including the single-valued
+   partial lookup and the excluded appropriation claim;
+5. **R2-A is implemented, independently reviewed and green** on the implementation base, with the classifier, the
+   digest recipes and the reachability exhaustion tests passing.
+
+Both rungs additionally require **a final independent blind review of this Revision-6 artifact returning CLEAR**
+(different model, separate process, frozen artifact copy, verdict quoted in the R2 handoff). This artifact does
+**not** authorize implementation.
+
+# PART XXIV — R2-A SCOPE (normative)
+
+**R2-A IS:** machinery · expectation resolution · authority/identity binding · **target lookup against an empty
+reviewed table** · refusal-only infrastructure · deterministic result/refusal machinery · the closed schemas,
+digests, tables (with **zero** target entries) and preflight · the four result-state enums, the mapper and the
+classifier · the tests and properties of Part XX.
+**R2-A IS NOT:** a positive semantic invariant · a production semantic verifier · a digital-twin authority · an
+execution authorization mechanism · a freshness authority · a render verifier · the owner of any production target
+value.
+
+**MUST:** no `SATISFIED` result is producible in R2-A (every required invariant is `DEFERRED`, and with an empty
+target table every lookup refuses, so every resolution refuses with the **single deterministic outcome** of
+XIV.3.1's R2-A demonstration: primary `EXPECTED_VALUE_UNAVAILABLE`, stage S4, class `AUTHORITY_ABSENT`,
+`failure_codes = ["EXPECTED_VALUE_UNAVAILABLE", "PRODUCTION_TARGET_NOT_ESTABLISHED"]`, every required invariant
+`UNKNOWN`, `semantic_state = NOT_ESTABLISHED`, `overall_state = NOT_ESTABLISHED`); no positive invariant is
+registered; no production target value is invented; **no definition may carry `FROZEN_CONTRACT_DERIVATION`**
+(V.1, VIII.2) and R2-A ships the single-value `authority_class` domain plus the S2 refusal for it (XV row 33);
+the within-stage rule (XIV.3.1) is implemented, not merely described; no document may describe R2-A as semantic
+verification; the R2-A output vocabulary is exercised only through refusal paths, with witness tests marked
+`NOT PROVEN` rather than passing.
+
+## XXIV.1 R2-A / R2-B state boundary (MUST — decided, not an implementation choice)
+
+| Vocabulary | R2-A lands | Reachable in R2-A | R2-B-only (MUST NOT be producible in R2-A) |
+|---|---|---|---|
+| `invariant_state` (4) | the whole enum | `UNKNOWN`, `MISSING` | `SATISFIED`, `NOT_SATISFIED` |
+| `semantic_state` (5) | the whole enum | `UNKNOWN`, `NOT_ESTABLISHED` | `SATISFIED`, `NOT_SATISFIED`, `INVALID_OBSERVATION` |
+| `overall_state` (4) | the whole enum | `UNKNOWN`, `NOT_ESTABLISHED` | `SATISFIED`, `NOT_SATISFIED` |
+| `outcome_reason_class` (6) | the whole enum | `BINDING_ABSENT`, `AUTHORITY_ABSENT`, `INTERNAL_FAILURE` | `SATISFIED`, `EVALUATED_MISMATCH`, `EVIDENCE_INSUFFICIENT` |
+| stages S1–S6 | the whole classifier | S1, S2, S3, S4 | S5, S6 |
+| refusal vocabulary | the whole closed table | every row **except** rows 15–20 and 23–25 (S5) and rows that require a resolved target; row 33 is reachable only through the load-and-validate startup test with a deliberately non-conforming table (a conforming R2 registry cannot contain it) | rows 15–20, 23–25 and any row that requires a resolved target or a `REGISTERED` definition |
+| within-stage rule (XIV.3.1) | the rule, its census test and its order-independence test | the S4 aggregate of the R2-A demonstration (rows 6 + 22) | in-stage aggregation over S5 rows and over rows that require a resolved target |
+
+Grounds (MUST be stated in the landed artifact): with **zero** `REGISTERED` definitions and an **empty** target
+table, stage S4 always fails before S5 and S6 can run, so observation binding, evaluation and every
+observation-level or evaluation reason class are **unreachable** in R2-A. That is a property of the empty
+authority state, not a scope restriction on the *code*: R2-A ships the S5/S6 paths, the enums and the mapper, and
+its tests MUST include an **exhaustion property** asserting that no R2-A input yields any R2-B-only member listed
+above (the property is falsified, by construction, the moment a definition is `REGISTERED` — which is exactly
+R2-B's opening condition).
+
+**Absolute prohibition (MUST).** `SATISFIED` and `NOT_SATISFIED` are unreachable and MUST NOT be producible in
+R2-A: no path, flag, override or test fixture may yield them, and the result-coherence validation (XIV.2) plus
+the rung's startup tests MUST reject any construction that claims them.
+
+# PART XXV — RELATIONSHIP TO M12.5 AND REPOSITORY BASE
+
+1. **M12.5 remains the sole semantic-verdict owner.** M12.6 extends the M12.5 architecture; it does not replace
+   it and does not create a second semantic-verdict authority. Only `verify_semantic_target` may produce a
+   semantic verdict; the resolver produces expectations or refusals.
+2. **M12.6 MUST NOT weaken existing M12.5 refusal semantics.** The required-set equality (both directions), the
+   non-empty requirement, the render-classification rule, the contradiction and scope rules, the closed failure
+   vocabulary, and every existing refusal token remain in force. The only permitted changes are (a) the declared
+   result-state expansion (XIV.3) — **implemented in R2-A, one affected assertion, with its measured
+   compatibility table**; (b) the Domain A migration of the M12.6 result canonical form (XIV.4.5); and (c) the
+   **`verifier_revision` constant bump** to `"m12.6-v1"` (XIV.4.5), validated at construction. None of the three
+   may alter an existing refusal's code or its non-positive outcome.
+3. **Implementation base:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` — current `main`, containing the M12.5
+   implementation and its post-implementation hardening (PR #140). Implementation instructions MUST NOT be based
+   on any other head, in particular not on the obsolete PR #127 head and not on the unmerged live-promotion-gate
+   branch head. Measured lineage: the live-promotion-gate head differs from this base **only** by
+   `.github/workflows/m12-5-live-promotion.yml`, `docs/M12_5_LIVE_PROMOTION_GATE.md` and two `tests/m12` files;
+   `planning/m12/**`, `planning/unreal_state_extraction/**`, `unreal_evidence_contract.py` and
+   `unreal_transport_contract.py` are identical, and `verification.py` (`4d20d868…`) and
+   `verification_result.py` (`ef518858…`) have byte-identical blobs on both. Every measurement in this artifact
+   therefore holds on the base unchanged.
+
+---
+
+# PART XXVI — DOCUMENT CONSISTENCY AUDIT (Revision 6)
+
+A full document-only consistency audit was performed over this Revision-6 text, searching the mandated term set
+(`stage precedence`, `first failing stage`, `failure_codes`, `outcome_reason_class`, `S1`–`S6`,
+`render_job_identity`, `render_attempt_identity`, `render_evidence_identity`, `evidence_trust_basis`,
+`observation_digests`, `session_identity`, `engine_identity`, `extractor_identity`,
+`FROZEN_CONTRACT_DERIVATION`, `R2-A`, `R2-B`, `NOT_ESTABLISHED`, `NOT_SATISFIED`, `SATISFIED`), and the complete
+reason-class/stage matrix was re-verified programmatically row by row, including the stage-homogeneity census of
+XIV.3.1. The audit's exact result (occurrence counts, per-row stage/class agreement, per-stage class homogeneity
+and the blocker-by-blocker closure evidence) is recorded in the change report accompanying this revision. The
+checks are: (1) within-stage precedence exists exactly once (XIV.3.1), the "no tie-resolution logic exists"
+claim is gone, and the R2-A state yields exactly one outcome; (2) every typed member of XIV.4.5 has a
+derivation and a nullability rule in XIV.4.6/XIV.4.6.1, the six `session_identity` keys are enumerated, and the
+render triple is coherence-bound; (3) `FROZEN_CONTRACT_DERIVATION` appears as a **reserved, not admitted** class
+in V.1, VIII.2, VIII.4, XVIII.1, XXII, XXIII and XXIV with no OPEN or recommendation wording remaining;
+(4) the state expansion is stated as an R2-A obligation with the reachable subset, the R2-B-only set and the
+R2-B authority/witness condition, in XIV.3, XXIII and XXIV.1 alike; (5) every `BINDING_ABSENT` row concerns a
+supplied artifact and every `AUTHORITY_ABSENT` row a code-level authority source, with authority-table integrity
+at S2, coverage at S4 and the digest-comparison-side rule applied to every digest row; (6) `NOT_ESTABLISHED` is
+never collapsed into `UNKNOWN`, `NOT_SATISFIED` is never collapsed into `UNKNOWN`, and every state mention agrees
+with XXIV.1; (7) the retired canonicalization token appears nowhere except as a retirement record;
+(8) `result_digest` is the whole-result digest with exactly one enumerated member set and
+`invariant_result_digest` the per-entry digest; (9) target-selection rung ownership is stated identically in
+V.4.9, V.5.1, XXIII and XXIV; (10) no statement claims cross-runtime determinism, canonical task origin, twin
+verification, execution identity, target appropriateness, or observation freshness.
+
+## R1 REVISION 6 VERDICT
+
+**R1 REVISION 6 COMPLETE — READY FOR INDEPENDENT BLIND REVIEW**
+
+All four blockers of the third independent review are closed normatively and mechanically at their locations
+(Part 0.1) — the within-stage precedence and aggregation rule with its R2-A demonstration, the complete
+derivation and nullability of every typed member of the whole-result canonical input, the decision that
+`FROZEN_CONTRACT_DERIVATION` is **not admitted in R2**, and the removal of the R2-B/R2-A state-wording
+contradiction. The full consistency audit found no remaining contradiction, the stage/class matrix is
+homogeneous by census, every vocabulary item is defined or withdrawn exactly once, and R2-B remains blocked on
+the production-target artifact, the two real witnesses, and a green R2-A rung. Implementation is **not** authorized by this artifact: the next step is an independent **blind**
+review, and R2-A may begin only after that review returns CLEAR. **Implementation-ready** is claimed only for
+R2-A's *decision set* — every listed decision is closed without requiring implementer interpretation — never for
+R2-B.
