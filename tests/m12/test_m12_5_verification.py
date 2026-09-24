@@ -201,30 +201,10 @@ def test_result_canonicalization_is_stable_and_excludes_authority_material():
     first_json = result.canonical_json()
     first_digest = result.canonical_digest
     parsed = json.loads(first_json)
-    assert set(parsed["provenance"]) == {
-        "verifier_revision",
-        "task_identity",
-        "task_version",
-        "digital_twin_id",
-        "plan_id",
-        "source_content_digest",
-        "runtime_mapping_digest",
-        "required_invariant_names",
-        "extraction_contract_revision",
-        "extractor_identity",
-        "engine_identity",
-        "observation_session_identity",
-        "observation_scope_identity",
-        "observation_request_identity",
-        "observation_digests",
-        "render_job_identity",
-        "render_attempt_identity",
-        "render_evidence_identity",
-        "evidence_trust_basis",
-        "outcome",
-        "invariant_outcomes",
-        "failure_codes",
-    }
+    from planning.m12.expectation import RESULT_DIGEST_KEYS
+    assert set(parsed) == set(RESULT_DIGEST_KEYS)
+    assert "provenance" not in parsed
+    assert "runtime_mapping_digest" not in parsed
     lowered = first_json.lower()
     for token in (
         "authorization_id",
