@@ -898,6 +898,7 @@ def resolve_semantic_expectation(
         identity = compute_expectation_identity(
             vocabulary=vocabulary, task=source_task, plan=plan, target=target
         )
+        validate_expectation_identity(identity)
         digest = compute_expectation_digest(identity)
         return {
             "expectation_contract_revision": EXPECTATION_CONTRACT_REVISION,
@@ -1005,6 +1006,41 @@ def build_r2a_result_state(
     }
 
 
+EVIDENCE_IDENTITY_KEYS = frozenset({
+    "schema", "invariant_name", "definition_id", "definition_revision",
+    "definition_digest", "authority_class", "comparison", "admissible_value_type",
+    "subject_scope", "observed_path_patterns", "value_state", "resolved_observables",
+    "observation_bound", "observation_request_id", "observation_scope",
+    "canonical_state_digest",
+})
+INVARIANT_RESULT_KEYS = frozenset({
+    "invariant_name", "definition_id", "definition_revision", "definition_digest",
+    "authority_class", "subject_scope", "expected_value_identity", "comparison",
+    "admissible_value_type", "observed_path_patterns", "value_state",
+    "resolved_observables", "observation_bound", "observation_identity",
+    "invariant_state", "mismatch_reason", "evidence_identity",
+})
+RESULT_DIGEST_KEYS = frozenset({
+    "schema", "verifier_revision", "expectation_contract_revision", "resolver_revision",
+    "registry_revision", "registry_digest", "target_table_revision", "target_table_digest",
+    "production_target_id", "target_revision", "target_digest", "task_identity", "task_version",
+    "digital_twin_id", "catalog_entry_name", "catalog_entry_version", "vocabulary_digest",
+    "plan_id", "source_content_digest", "plan_content_digest", "render_task",
+    "required_invariant_names", "expectation_identity", "expectation_digest",
+    "observation_identity", "observation_digests", "render_job_identity",
+    "render_attempt_identity", "render_evidence_identity", "evidence_trust_basis",
+    "invariant_results", "semantic_state", "render_state", "overall_state",
+    "outcome_reason_class", "failure_codes", "origin_status",
+})
+EXPECTATION_IDENTITY_KEYS = frozenset({
+    "expectation_contract_revision", "resolver_revision", "registry_revision", "registry_digest",
+    "target_table_revision", "target_table_digest", "production_target_id", "target_revision",
+    "target_digest", "task_identity", "task_version", "digital_twin_id", "catalog_entry_name",
+    "catalog_entry_version", "vocabulary_digest", "source_content_digest", "plan_id",
+    "plan_content_digest", "render_task", "required_invariant_names",
+    "invariant_expectations_digest", "expectation_digest",
+})
+
 def compute_evidence_identity(
     *,
     invariant_name: str,
@@ -1037,11 +1073,27 @@ def compute_evidence_identity(
         "observation_scope": None if observation_scope is None else list(observation_scope),
         "canonical_state_digest": canonical_state_digest,
     }
+    if frozenset(payload) != EVIDENCE_IDENTITY_KEYS:
+        raise ValueError("evidence_identity input does not match the closed R6 member set")
+    if value_state not in {"PRESENT", "PRESENT_NULL", "ABSENT"}:
+        raise ValueError("invalid evidence value_state")
+    if observation_bound:
+        if observation_request_id is None or observation_scope is None or canonical_state_digest is None:
+            raise ValueError("bound evidence must carry request, scope and state digest")
+    else:
+        if observation_request_id is not None or observation_scope is not None or canonical_state_digest is not None:
+            raise ValueError("unbound evidence must null request, scope and state digest")
+        if value_state != "ABSENT":
+            raise ValueError("unbound evidence must be ABSENT")
+    if value_state == "ABSENT" and resolved_observables:
+        raise ValueError("ABSENT evidence cannot carry resolved observables")
     return _domain_a_digest(payload)
 
 
 def compute_invariant_result_digest(entry: Mapping[str, Any]) -> str:
     payload = {k: v for k, v in dict(entry).items() if k != "invariant_result_digest"}
+    if frozenset(payload) != INVARIANT_RESULT_KEYS:
+        raise ValueError("invariant-result input does not match the closed R6 member set")
     return _domain_a_digest({
         "schema": "m12.6-invariant-result-v1",
         **payload,
@@ -1049,11 +1101,15 @@ def compute_invariant_result_digest(entry: Mapping[str, Any]) -> str:
 
 
 def compute_result_digest(payload: Mapping[str, Any]) -> str:
-    # The caller supplies the exact closed result member set from XIV.4.5.
-    return _domain_a_digest({
-        "schema": "m12.6-result-v1",
-        **dict(payload),
-    })
+    data = dict(payload)
+    if frozenset(data) != RESULT_DIGEST_KEYS:
+        raise ValueError("result-digest input does not match the closed R6 member set")
+    return _domain_a_digest(data)
+
+
+def validate_expectation_identity(identity: Mapping[str, Any]) -> None:
+    if frozenset(identity) != EXPECTATION_IDENTITY_KEYS:
+        raise ValueError("expectation identity does not match the closed R6 member set")
 
 
 __all__ = [
@@ -1085,6 +1141,7 @@ __all__ = [
     "compute_plan_content_digest",
     "compute_expectation_identity",
     "compute_expectation_digest",
+    "validate_expectation_identity",
     "compute_evidence_identity",
     "compute_invariant_result_digest",
     "compute_result_digest",
