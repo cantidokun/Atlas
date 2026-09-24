@@ -154,13 +154,53 @@ def test_invariant_result_digest_is_domain_separated_and_recomputable():
 
 
 def test_result_digest_is_domain_separated():
+    from planning.m12.expectation import RESULT_DIGEST_KEYS
+
     payload = {
+        key: None for key in RESULT_DIGEST_KEYS
+    }
+    payload.update({
+        "schema": "m12.6-result-v1",
         "verifier_revision": "m12.6-v1",
         "expectation_contract_revision": "m12.6-expectation-v1",
         "resolver_revision": "m12.6-resolver-v1",
-        "origin_status": "NOT_ESTABLISHED",
+        "registry_revision": 1,
+        "registry_digest": "0" * 64,
+        "target_table_revision": 1,
+        "target_table_digest": "1" * 64,
+        "task_identity": "unreal.sequence-configure",
+        "task_version": 1,
+        "digital_twin_id": "twin-1",
+        "catalog_entry_name": "unreal.sequence-configure",
+        "catalog_entry_version": 1,
+        "vocabulary_digest": "2" * 64,
+        "plan_id": "plan:test",
+        "source_content_digest": "3" * 64,
+        "plan_content_digest": "4" * 64,
+        "render_task": False,
+        "required_invariant_names": ["scene_initialized"],
+        "expectation_identity": {},
+        "expectation_digest": "5" * 64,
+        "observation_identity": None,
+        "observation_digests": [],
+        "render_job_identity": None,
+        "render_attempt_identity": None,
+        "render_evidence_identity": None,
+        "evidence_trust_basis": {
+            "semantic_observation": "NOT_ESTABLISHED",
+            "render_evidence": "NOT_APPLICABLE",
+        },
+        "invariant_results": [],
+        "semantic_state": "NOT_ESTABLISHED",
+        "render_state": "NOT_REQUIRED",
+        "overall_state": "NOT_ESTABLISHED",
+        "outcome_reason_class": "AUTHORITY_ABSENT",
         "failure_codes": ["EXPECTED_VALUE_UNAVAILABLE"],
-    }
+        "origin_status": "NOT_ESTABLISHED",
+        "production_target_id": None,
+        "target_revision": None,
+        "target_digest": None,
+    })
     digest = compute_result_digest(payload)
     assert len(digest) == 64
     assert digest == compute_result_digest(dict(payload))
@@ -201,9 +241,21 @@ def test_finite_plan_float_uses_single_policy_token():
 
 
 def test_noncanonical_fragment_refuses_before_s4():
+    from planning.m12.execution_plan import _build_plan_id
+
     task, plan = _task_plan()
     step = plan.steps[0]
     object.__setattr__(step, "semantic_operation", "not-a-canonical-fragment")
+    object.__setattr__(
+        plan,
+        "plan_id",
+        _build_plan_id(
+            task.canonical_task_id,
+            task.task_version,
+            tuple(s.semantic_operation for s in plan.steps),
+            plan.source_content_digest,
+        ),
+    )
     with pytest.raises(SemanticExpectationRefusal) as caught:
         resolve_semantic_expectation(source_task=task, plan=plan)
     assert caught.value.primary_code == "PLAN_STEP_NOT_CANONICAL"
