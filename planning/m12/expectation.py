@@ -410,13 +410,16 @@ def _preflight_value(
             seen.remove(obj_id)
         return None
 
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, (list, tuple, frozenset)):
         obj_id = id(value)
         if obj_id in seen:
             return "F6"
         seen.add(obj_id)
         try:
-            for index, child in enumerate(value):
+            children = value
+            if isinstance(value, frozenset):
+                children = tuple(sorted(value, key=repr))
+            for index, child in enumerate(children):
                 err = _preflight_value(
                     child, path=f"{path}[{index}]", depth=depth + 1,
                     budget=budget, seen=seen,
