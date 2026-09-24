@@ -332,6 +332,19 @@ def _derive_runtime_mapping_digest(
     ).hexdigest()
 
 
+_R2A_BINDING_FAILURE_CODES = frozenset({
+    "IDENTITY_MISMATCH",
+    "EMPTY_REQUIRED_INVARIANT_SET",
+    "INCOMPLETE_REQUIRED_INVARIANT_SET",
+    "EXTRA_PLAN_VERIFICATION_REQUIREMENT",
+    "PLAN_RENDER_CLASSIFICATION_MISMATCH",
+    "PLAN_STEP_NOT_CANONICAL",
+    "EXPECTATION_VOCABULARY_MISMATCH",
+    "EXPECTATION_IDENTITY_MISMATCH",
+    "EXPECTATION_DIGEST_MISMATCH",
+})
+
+
 def _observation_result(
     task: UnrealProductionTaskDefinition,
     plan: UnrealExecutionPlan,
@@ -341,6 +354,7 @@ def _observation_result(
     required = tuple(task.target_state.to_invariant_names())
     render = "NOT_VERIFIED" if task.render_task else "NOT_REQUIRED"
     trust = "NOT_ESTABLISHED" if task.render_task else "NOT_APPLICABLE"
+    binding_failure = code in _R2A_BINDING_FAILURE_CODES
     return _build_result(
         task=task,
         plan=plan,
@@ -352,9 +366,9 @@ def _observation_result(
         render_evidence_identity=None,
         render_trust=trust,
         invariant_results=_invariant_results(required, code),
-        semantic_state="INVALID_OBSERVATION",
+        semantic_state="NOT_ESTABLISHED" if binding_failure else "INVALID_OBSERVATION",
         render_state=render,
-        overall_state="UNKNOWN",
+        overall_state="NOT_ESTABLISHED" if binding_failure else "UNKNOWN",
         failure_codes=(code,),
     )
 
@@ -477,9 +491,9 @@ def verify_semantic_target(
             invariant_results=_invariant_results(
                 source_task.target_state.invariant_names, "IDENTITY_MISMATCH"
             ),
-            semantic_state="INVALID_OBSERVATION",
+            semantic_state="NOT_ESTABLISHED",
             render_state="NOT_VERIFIED" if source_task.render_task else "NOT_REQUIRED",
-            overall_state="UNKNOWN",
+            overall_state="NOT_ESTABLISHED",
             failure_codes=("IDENTITY_MISMATCH",),
         )
 
