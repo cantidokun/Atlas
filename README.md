@@ -1,44 +1,49 @@
 # Atlas
 
-> **Current-state reconciliation — September 23, 2026.** M7 is complete and live-proven; State Extraction Fidelity v1 is complete; M12.5 v1 architecture and implementation are both merged. **Latest functional main merge:** `9b644d09a434ca97c21a15552383ff1268935a1f` (PR #138 merge). This documentation-only synchronization is the current-state handoff layer. Historical dated handoffs remain archival and are not rewritten.
+> **Current-state reconciliation — September 24, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is architecture-frozen and paused immediately before implementation.**
+>
+> **Current functional main:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`. **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
+>
+> The current M12.6 normative artifact is intentionally outside the repository while the final blind artifact review is pending:
+> `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`
+>
+> **R8.1 as-is SHA-256:** `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`
+> **R8.1 self-recorded SHA-256:** `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`
+>
+> R8.1 passed a separate-process two-round independent document review. R8.2 adjudicated all 16 supplied Review-B findings as closed with no textual change. The supplied Review-B set was later found to be 1:1 identical to Review A, so the last architecture-evidence step is **one genuinely blind independent review of the frozen R8.1 artifact itself**.
+>
+> Historical dated handoffs are archival. The authoritative restart surfaces are the current handoff files listed below.
 
-## Active development checkpoint — September 23, 2026
+## Active development checkpoint — September 24, 2026
 
-### M12.5 — V1 IMPLEMENTED / MERGED / PAUSED FOR THE NIGHT
+### M12.6 — R2-A ARCHITECTURE FROZEN / IMPLEMENTATION PAUSED
 
-- PR #137 — architecture/design — **MERGED**; final architecture revision **v1.9**.
-- Final independent GLM architecture gate: **CLEAR**; implementation was then authorized.
-- PR #138 — M12.5 v1 implementation — **MERGED**.
-- Exact implementation head: `b1b29478a2fbe438d1a16d3212b2bc6781b12f11`; merge commit: `9b644d09a434ca97c21a15552383ff1268935a1f`.
-- Atlas Tests #2260 passed on Python 3.9 and 3.11 at the exact implementation head.
-- Generic Temporal Live Blender #112 and Temporal Correction Integration live gates passed, but those are **not M12.5 semantic-live evidence**.
-- The Correction Execution Bridge live workflow was skipped.
-- M12.5 implementation is fail-closed and verification-only: no new execution, authorization, scheduler, recovery, receipt, or second render-verification authority.
-- No dedicated M12.5 semantic live non-render or render-composition gate has yet been established or credited.
+- Normative contract: **M12.6-R1-R8 / R8.1**.
+- R2-A remains **refusal-only**.
+- No production target values are registered.
+- SATISFIED / NOT_SATISFIED are not reachable in R2-A.
+- Runtime mapping is outside the R2-A contract.
+- R2-A invariant state is UNKNOWN only; MISSING is not produced.
+- Failure classification is row-keyed; resolver owns S1–S4; verifier owns S5–S6.
+- The final blind artifact review is the only remaining architecture-evidence gate before implementation.
+- After CLEAR, implementation starts from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`, not PR #142.
+- R2-B remains blocked.
 
-### State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
+### M12.5 — V1 IMPLEMENTED / MERGED
 
-- PR #106 design and PR #107 implementation are merged.
-- Independent implementation review: **CLEAR**.
-- UE 5.6.1 build succeeded; fixture automation 8/8; live transport gate passed.
-- Positive baseline digest remains `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a`.
+- PR #137 architecture: **MERGED**.
+- PR #138 implementation: **MERGED**.
+- Merge commit: `9b644d09a434ca97c21a15552383ff1268935a1f`.
+- Dedicated M12.5 semantic live promotion remains separate from repository deterministic CI.
 
-### M7 — COMPLETE / MERGED / LIVE-PROVEN
-
-- PR #132 merged the containment keeper and M7 hardening.
-- First real UE 5.6.1 keeper-controlled rung: **Case B, exactly 1 production receipt, 0 adoption-path engine RPCs**.
-- 24/24 artifacts independently verified; 4/4 negative controls refused.
-- Independent post-live review: **CLEAR / READY FOR INTEGRATION**.
-- Full Contract V1 §33 S1-S8 live completion is **not** claimed.
-
-### Other current tracks
+### Closed / frozen tracks
 
 - Blender: **CLOSED** for the current declared contract.
-- Temporal: **MERGED / LIVE-GATED / FROZEN**; do not reopen because of M12.5.
+- Temporal: **MERGED / LIVE-GATED / FROZEN**.
 - M11: **FROZEN**.
 - M12.1–M12.4: **IMPLEMENTED**.
 - M13.8/token optimization: **PAUSED**.
-- Older Unreal PR stack: **do not blanket-merge**; retain selective-integration discipline.
+- Older Unreal PR stack: **selective integration only; no blanket merge**.
 
 ## What Atlas is
 
