@@ -554,15 +554,6 @@ def _recompute_target_table_digest() -> str:
             }
             for t in sorted(PRODUCTION_TARGETS, key=lambda x: domain_a_bytes(x.production_target_id))
         ],
-        "mappings": [
-            [r.entry_name, r.entry_version, r.task_class, r.production_target_id]
-            for r in sorted(
-                PRODUCTION_TARGET_BY_TASK,
-                key=lambda x: domain_a_bytes(
-                    f"{x.entry_name}|{x.entry_version}|{x.task_class}|{x.production_target_id}"
-                ),
-            )
-        ],
     })
 
 
