@@ -6,7 +6,7 @@ open-ended result containers with the closed R6 result contract.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
@@ -229,7 +229,7 @@ class UnrealSemanticVerificationResult:
     failure_codes: Tuple[str, ...]
     origin_status: str = "NOT_ESTABLISHED"
     runtime_mapping_digest: Optional[str] = None
-    provenance: Mapping[str, Any] = MappingProxyType({})
+    provenance: Mapping[str, Any] = field(default_factory=dict)
     
     def __post_init__(self) -> None:
         if self.verifier_revision != VERIFIER_REVISION:
