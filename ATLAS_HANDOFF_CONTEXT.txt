@@ -1,85 +1,55 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 23, 2026 CURRENT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 24, 2026 CURRENT CHECKPOINT
 
-LATEST FUNCTIONAL MAIN MERGE:
-- 9b644d09a434ca97c21a15552383ff1268935a1f (PR #138 merge)
-- This file is part of the documentation-only end-of-night synchronization layered on top of that functional baseline.
-- M12.5 architecture merge: PR #137
-- M12.5 implementation merge: PR #138
-- M12.5 exact implementation head before merge: b1b29478a2fbe438d1a16d3212b2bc6781b12f11
+CURRENT REPOSITORY:
+- main = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6 (PR #140 merge)
+- PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED
+- PR #142 head = 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc
+- No M12.6 implementation has been merged or authorized.
 
-M7 CURRENT STATUS:
-- COMPLETE / MERGED / LIVE-PROVEN
-- first real UE 5.6.1 keeper-controlled rung: Case B
-- exactly 1 production receipt
-- 0 adoption-path engine RPCs
-- 24/24 artifacts verified
-- 4/4 negative controls refused
-- independent post-live review: CLEAR / READY FOR INTEGRATION
-- this does NOT claim full Contract V1 §33 S1-S8 live completion
+M12.6 R2-A ARCHITECTURE:
+- Frozen contract: M12.6-R1-R8 / R8.1
+- External artifact: C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md
+- As-is SHA-256: 0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a
+- Self-recorded SHA-256: d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd
+- 2,721 lines / 241,161 bytes.
+- R8.1 passed a separate-process two-round independent document gate.
+- R8.2 delta found no textual change required; all 16 supplied Review-B findings were adjudicated CLOSED.
+- Important independence note: the supplied Review-B set was 1:1 identical to Review A, so it does not constitute a second independent R7 finding set.
+- R2-A is refusal-only. No production target values. No SATISFIED/NOT_SATISFIED path.
+- M12.5 remains the semantic-verdict owner. R2-B remains blocked.
+- Runtime mapping is outside R2-A.
+- R2-A invariant state is UNKNOWN only; MISSING is not produced.
+- Classifier is row-keyed; resolver owns S1-S4; verifier owns S5-S6.
 
-STATE EXTRACTION FIDELITY V1:
-- COMPLETE / MERGED / INDEPENDENTLY REVIEWED CLEAR / LIVE-GATED
-- PR #106 design + PR #107 implementation merged
-- UE 5.6.1 build succeeded; fixture automation 8/8; live transport gate PASS
-- positive baseline digest: 5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a
+LAST ARCHITECTURE GATE BEFORE IMPLEMENTATION:
+- One genuinely blind independent review of the frozen R8.1 artifact itself.
+- Reviewer must receive only the artifact and exact SHA, with no prior review findings.
+- CLEAR -> authorize R2-A implementation from main 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6.
+- BLOCKED -> architecture-only correction.
+- Do not use PR #142 as the implementation base.
 
-M12.5 ARCHITECTURE:
-- v1.9 architecture design independently cleared by final GLM gate: CLEAR
-- PR #137: MERGED
-- implementation was explicitly authorized after that CLEAR
-- no upstream expectation, sequence/asset, catalog-resolution, or request-digest authority was invented
-
-M12.5 V1 IMPLEMENTATION:
-- PR #138: MERGED
-- implementation head: b1b29478a2fbe438d1a16d3212b2bc6781b12f11
-- merge commit: 9b644d09a434ca97c21a15552383ff1268935a1f
-- exact-head Atlas Tests #2260: SUCCESS on Python 3.9 and 3.11
-- generic Temporal Live Blender #112: SUCCESS
-- generic Temporal Correction Integration live gate: SUCCESS
-- those Temporal results are NOT M12.5 semantic-live evidence and must not be represented as such
-- Correction Execution Bridge live workflow: SKIPPED for this branch
-- production implementation files:
-  - planning/m12/verification.py
-  - planning/m12/verification_result.py
-  - planning/m12/__init__.py
-  - tests/m12/test_m12_5_verification.py
-  - tests/m12/test_m12_5_identity_binding.py
-  - tests/m12/test_m12_5_authority_isolation.py
-  - tests/m12/test_m12_5_adversarial.py
-
-M12.5 V1 SAFETY/BOUNDARY STATUS:
-- fail-closed semantic verification
-- no caller-supplied expectation authority
-- source-task ↔ execution-plan source-content binding
-- required invariant set must equal the plan verification-requirement union
-- transport-rooted observation identity; transport-rooted is explicitly NOT authenticated
-- no second State Extraction authority
-- no execution / authorization / scheduler / retry / recovery / receipt authority
-- render-bearing tasks remain non-verified in v1 where sequence/request correspondence is not established
-- NOT_PROVEN remains control-coverage vocabulary only
-
-NEXT RESUME GATE:
-- Do NOT redesign M12.5 v1 merely because implementation is now merged.
-- First establish/execute the dedicated post-implementation promotion gates from design §24:
-  1. focused deterministic M12.5 verifier tests
-  2. relevant M12/Unreal deterministic suite
-  3. full deterministic non-integration suite
-  4. authority-import/isolation gate
-  5. dedicated M12.5 live non-render gate
-  6. dedicated M12.5 render-composition gate
-- Existing Temporal/Blender live workflow success does not satisfy items 5–6.
-- Any future closure of Q8/Q9/Q10/Q11 is an upstream contract/design gate and must not be smuggled into M12.5 v1.
+IMPLEMENTATION GATE AFTER CLEAR:
+- Part XXVI.3 row census
+- classifier totality
+- state-mapping totality
+- decisive-tuple coherence
+- runtime-mapping invariance
+- retirement censuses
+- exact 24-assertion compatibility set
+- independent digest reproduction
+- R8.1 landing/hash verification
+- exact-head CI before merge consideration
 
 OTHER TRACKS:
-- Blender: CLOSED for current declared contract
-- Temporal: merged/live-gated and frozen; do not reopen on the basis of M12.5
-- M11: FROZEN
-- M12.1-M12.4: COMPLETE / IMPLEMENTED
-- M13.8/token optimization: PAUSED
-- older Unreal PR stack (#103/#41/#58/#50/#42/#40/#47): do not blanket-merge
-- PR #105 is superseded by merged PR #136
+- Blender = CLOSED / frozen for current contract.
+- Temporal = merged/live-gated/frozen.
+- M11 = FROZEN.
+- M12.1-M12.4 = COMPLETE / IMPLEMENTED.
+- M12.5 = IMPLEMENTED / MERGED; dedicated promotion gates remain separate.
+- M13.8/token optimization = PAUSED.
+- Older Unreal PR stack = selective integration only; no blanket merge.
+- Historical dated handoffs remain archival.
 
 WORKING RULE:
-- This file is an authoritative compact context surface.
-- Dated handoffs remain archival and are not rewritten.
-- The next session should begin by reading ATLAS_HANDOFF_CURRENT.md and UNREAL_AGENT_HANDOFF_CURRENT.md, then resolving the current main SHA and the exact M12.5 implementation contents from main before making any changes.
+- Start the next session from this file plus ATLAS_HANDOFF_CURRENT.md and UNREAL_AGENT_HANDOFF_CURRENT.md.
+- Do not infer completion from prior M12.5 CI/live workflow results; M12.6 implementation has not started.
