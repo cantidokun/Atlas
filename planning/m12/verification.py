@@ -198,7 +198,11 @@ def _build_result(
 ) -> UnrealSemanticVerificationResult:
     failures = tuple(sorted(set(failure_codes)))
     trust = EvidenceTrustBasis(
-        semantic_observation="TRANSPORT_CORRELATED",
+        semantic_observation=(
+            "TRANSPORT_CORRELATED"
+            if observation_identity is not None
+            else "NOT_ESTABLISHED"
+        ),
         render_evidence=render_trust,
     )
     provenance = {
