@@ -32,7 +32,7 @@ NEXT ACTION:
 - Do not treat either review as dispositive without resolving the contradiction.
 
 ADJUDICATION OUTCOMES:
-- If R16-1 invalid: preserve R16 byte-identically -> human authorization -> fresh implementation branch from functional main 4897d9d...
+- If R16-1 invalid: preserve R16 byte-identically -> human authorization -> fresh implementation branch from functional main.
 - If R16-1 valid: R16 remains blocked -> minimal R17 gate correction -> fresh blind GLM + GPT-SOL-6 review.
 
 OTHER TRACKS:
