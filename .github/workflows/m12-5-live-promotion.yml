@@ -1,0 +1,130 @@
+name: Atlas M12.5 Live Promotion Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-m12-5-live-promotion-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  m12-5-live-promotion:
+    if: github.head_ref == 'm12-5-live-promotion-gate'
+    name: M12.5 UE 5.6.1 live promotion
+    runs-on: [self-hosted, windows, local-win]
+    environment: local-testing
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact head
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne "${{ github.event.pull_request.head.sha }}") {
+            throw "Checked-out SHA $head does not match PR head ${{ github.event.pull_request.head.sha }}"
+          }
+
+      - name: Verify UE 5.6.1 editor
+        shell: pwsh
+        run: |
+          $candidates = @(
+            $env:ATLAS_UE56_EDITOR,
+            "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe",
+            "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe"
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          if ($candidates.Count -eq 0) {
+            throw "UE 5.6 editor binary was not found."
+          }
+          $editor = $candidates[0]
+          & $editor -version
+          "editor=$editor" | Out-File -FilePath "$env:GITHUB_WORKSPACE\m12_5_ue_env.txt" -Encoding utf8
+          "EDITOR=$editor" >> $env:GITHUB_ENV
+
+      - name: Start approved State Extraction fixture session
+        shell: pwsh
+        run: |
+          $project = Join-Path $env:GITHUB_WORKSPACE "unreal\AtlasUnrealHarness\AtlasUnrealHarness.uproject"
+          $map = "/Game/AtlasTest/Generated/AtlasExtractionFixture"
+          $log = Join-Path $env:GITHUB_WORKSPACE "m12_5_unreal_live.log"
+          $err = Join-Path $env:GITHUB_WORKSPACE "m12_5_unreal_live.err"
+          $args = @(
+            "`"$project`"",
+            $map,
+            "-AtlasExtractionFixture",
+            "-unattended",
+            "-nosplash",
+            "-nop4",
+            "-nullrhi",
+            "-stdout",
+            "-FullStdOutLogOutput"
+          )
+          $proc = Start-Process -FilePath $env:EDITOR -ArgumentList $args -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
+          $proc.Id | Out-File -FilePath "$env:GITHUB_WORKSPACE\m12_5_ue_pid.txt" -Encoding ascii
+
+          $deadline = (Get-Date).AddSeconds(90)
+          do {
+            Start-Sleep -Seconds 2
+            $text = if (Test-Path $log) { Get-Content $log -Raw } else { "" }
+            if ($text -match "ATLAS_EXTRACTION_FIXTURE_STATUS: OK version=" -and $text -match "Atlas transport server started successfully") {
+              break
+            }
+            if ($proc.HasExited) {
+              throw "Unreal exited before live fixture preconditions were established."
+            }
+          } while ((Get-Date) -lt $deadline)
+
+          $text = Get-Content $log -Raw
+          if ($text -notmatch "ATLAS_EXTRACTION_FIXTURE_STATUS: OK version=") {
+            throw "Approved fixture status line was not observed."
+          }
+          if ($text -notmatch "Atlas transport server started successfully") {
+            throw "Named-pipe transport server was not observed."
+          }
+
+      - name: Verify live State Extraction fixture gate
+        shell: pwsh
+        run: |
+          python -m tests.unreal_state_extraction_live_gate             --json "$env:GITHUB_WORKSPACE\m12_5_extraction_live_report.json"             --automation-log "$env:GITHUB_WORKSPACE\m12_5_unreal_live.log"
+
+      - name: Run M12.5 non-render and render promotion gate
+        shell: pwsh
+        run: |
+          $env:GITHUB_SHA = (git rev-parse HEAD).Trim()
+          python -m tests.m12.m12_5_live_promotion_gate             --phase all             --report "$env:GITHUB_WORKSPACE\m12_5_live_promotion_report.json"
+
+      - name: Upload M12.5 live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m12-5-live-promotion-evidence
+          path: |
+            m12_5_live_promotion_report.json
+            m12_5_extraction_live_report.json
+            m12_5_unreal_live.log
+            m12_5_unreal_live.err
+            m12_5_ue_env.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop Unreal fixture session
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = "$env:GITHUB_WORKSPACE\m12_5_ue_pid.txt"
+          if (Test-Path $pidFile) {
+            $pid = [int](Get-Content $pidFile | Select-Object -First 1)
+            try {
+              Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            } catch {}
+          }
