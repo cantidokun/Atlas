@@ -236,7 +236,9 @@ def test_b1_f_category_matrix_per_object_class():
     # ---- declared-schema categories: F2/F3/F9 are task/plan only; the expectation owns row 5 instead
     assert ex.validate_declared_schema(dict(base, undeclared=1), "task") == "F2"
     assert ex.validate_declared_schema(dict(base, task_version=True), "task") == "F3"
-    assert ex.validate_declared_schema(dict(base, allowed_mutations=[]), "task") == "F9"
+    assert ex.validate_declared_schema(dict(base, allowed_mutations=[]), "task") is None      # empty permitted
+    assert ex.validate_declared_schema(dict(base, dependencies=[]), "task") is None           # empty permitted
+    assert ex.validate_declared_schema(dict(base, allowed_mutations=["a", "a"]), "task") == "F9"
     # the same document is not conformant as the other class (its member set is undeclared there)
     assert ex.validate_declared_schema(base, "plan") == "F2"
 
@@ -349,8 +351,8 @@ def test_b3_task_and_plan_s1_components_are_both_collected():
     _mutate(plan, provenance={"float_probe": 1.5})             # row 29 (single float-policy condition)
     resolution = ex.resolve(task, plan)
     assert resolution.applicable_rows == frozenset({1, 29}), resolution.applicable_rows
-    assert resolution.derived["preflight"]["category"] == "F4"
-    assert resolution.derived["float_policy"] == "PLAN_CONTENT_UNSUPPORTED"
+    assert resolution.derived["preflight"]["task"]["category"] == "F4"
+    assert resolution.derived["preflight"]["float_policy"] == "PLAN_CONTENT_UNSUPPORTED"
     result = ex.verify_semantic_target_r2a(task, plan)
     codes = result.members["failure_codes"]
     assert "RESOLVER_INPUT_STRUCTURE_INVALID" in codes and "PLAN_CONTENT_UNSUPPORTED" in codes
@@ -399,21 +401,21 @@ def test_b4_derived_fields_are_enforced_against_the_applicable_rows():
 
     fabricated = dict(members, primary_failure_code="PRODUCTION_TARGET_NOT_ESTABLISHED")
     with raises(ex.M126ContractError):
-        ex.M126Result(members=fabricated, applicable_rows=rows)           # row 22 is not the lowest applicable row
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=fabricated, applicable_rows=rows)           # row 22 is not the lowest applicable row
 
     wrong_stage = dict(members, deciding_stage="S3")
     with raises(ex.M126ContractError):
-        ex.M126Result(members=wrong_stage, applicable_rows=rows)
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=wrong_stage, applicable_rows=rows)
 
     wrong_class = dict(members, outcome_reason_class="EVIDENCE_INSUFFICIENT")
     with raises(ex.M126ContractError):
-        ex.M126Result(members=wrong_class, applicable_rows=rows)
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=wrong_class, applicable_rows=rows)
 
     wrong_states = dict(members, semantic_state="SATISFIED", overall_state="SATISFIED")
     with raises(ex.M126ContractError):
-        ex.M126Result(members=wrong_states, applicable_rows=rows)
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=wrong_states, applicable_rows=rows)
 
-    assert ex.M126Result(members=members, applicable_rows=rows).result_digest == result.result_digest
+    assert ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=members, applicable_rows=rows).result_digest == result.result_digest
 
 
 def test_b4_invalid_failure_code_unions_are_refused():
@@ -421,13 +423,13 @@ def test_b4_invalid_failure_code_unions_are_refused():
     members = dict(result.members)
     rows = result.applicable_rows
     with raises(ex.M126ContractError):
-        ex.M126Result(members=dict(members, failure_codes=tuple(reversed(members["failure_codes"]))),
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=dict(members, failure_codes=tuple(reversed(members["failure_codes"]))),
                       applicable_rows=rows)
     with raises(ex.M126ContractError):
-        ex.M126Result(members=dict(members, failure_codes=members["failure_codes"] + members["failure_codes"]),
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=dict(members, failure_codes=members["failure_codes"] + members["failure_codes"]),
                       applicable_rows=rows)
     with raises(ex.M126ContractError):
-        ex.M126Result(members=dict(members, failure_codes=("NOT_A_PART_XV_TOKEN",)), applicable_rows=rows)
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=dict(members, failure_codes=("NOT_A_PART_XV_TOKEN",)), applicable_rows=rows)
     assert all(code in ex.emittable_tokens() for code in members["failure_codes"])
 
 
@@ -435,17 +437,17 @@ def test_b4_a_row_set_is_required_and_r2a_reachability_is_enforced():
     result, _task, _plan = _base_result()
     members = dict(result.members)
     with raises(ex.M126ContractError):
-        ex.M126Result(members=members)                                     # no applicable rows: refused
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=members)                                     # no applicable rows: refused
     for member, value in (("semantic_state", "SATISFIED"), ("overall_state", "NOT_SATISFIED"),
                           ("render_state", "VERIFIED"), ("deciding_stage", "S5")):
         with raises(ex.M126ContractError):
-            ex.M126Result(members=dict(members, **{member: value}), applicable_rows=result.applicable_rows)
+            ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=dict(members, **{member: value}), applicable_rows=result.applicable_rows)
     fault = ex.express_fault_result(fault_injected=True)
     assert fault.members["deciding_stage"] is None
     assert fault.members["failure_codes"] == ("RESOLVER_INTERNAL_FAILURE",)
     assert fault.members["outcome_reason_class"] == "INTERNAL_FAILURE"
     with raises(ex.M126ContractError):
-        ex.M126Result(members=dict(members, failure_codes=("SATISFIED",)), applicable_rows=(2,))
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=dict(members, failure_codes=("SATISFIED",)), applicable_rows=(2,))
 
 
 def test_b4_post_construction_mutation_is_detected():
@@ -464,8 +466,8 @@ def test_b4_post_construction_mutation_is_detected():
     # a copy that has drifted since construction is refused at construction and again before serialization
     drifted = dict(result.members, semantic_state="SATISFIED", overall_state="SATISFIED")
     with raises(ex.M126ContractError):
-        ex.M126Result(members=drifted, applicable_rows=result.applicable_rows)
-    constructed = ex.M126Result(members=dict(result.members), applicable_rows=result.applicable_rows)
+        ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=drifted, applicable_rows=result.applicable_rows)
+    constructed = ex.M126Result(_construction_token=ex._RESULT_CONSTRUCTION_TOKEN, members=dict(result.members), applicable_rows=result.applicable_rows)
     object.__setattr__(constructed, "members", {**constructed.members, "primary_failure_code": None})
     with raises(ex.M126ContractError):
         constructed.canonical_dict()
@@ -484,58 +486,15 @@ class _VerifiedEvidence:
     attempt_ordinal = 2
 
 
-def test_b5_render_evidence_outcomes_follow_the_r18_rows():
+def test_b5_render_evidence_requires_the_real_m5_handoff_types():
+    """Part XVII.5/B8: a mapping or a shadow object cannot establish the render dimension (row 36)."""
     task, plan = _render_task_and_plan()
-    assert task.task_class.startswith("render") or "render" in task.task_class
-
-    # 1. missing evidence: row 44, no row 36, identities null and the basis NOT_ESTABLISHED
-    result = ex.verify_semantic_target_r2a(task, plan)
-    codes = result.members["failure_codes"]
-    assert "RENDER_EVIDENCE_REQUIRED" in codes or 44 in result.applicable_rows
-    assert 36 not in result.applicable_rows
-    assert result.members["render_job_identity"] is None
-    assert result.members["evidence_trust_basis"]["render_evidence"] == "NOT_ESTABLISHED"
-
-    # 2. supplied but refused by M5 (incomplete inputs / a None job record): row 36
-    refused = ex.verify_semantic_target_r2a(task, plan, render_evidence={
-        "operation_name": "inspect_render_job", "entity_ids": ("twin-1",), "observed_state": {},
-        "source": "engine", "job_record": None,
-    })
-    assert 36 in refused.applicable_rows and 44 not in refused.applicable_rows
-    assert refused.members["evidence_trust_basis"]["render_evidence"] == "NOT_ESTABLISHED"
-
-    # 3. M5-verified evidence with a twin mismatch: row 37 additionally applies, no row 36
-    import planning.unreal_evidence_contract as m5
-
-    original = m5.verify_render_job_evidence
-    recorded = {}
-
-    def _verified(**kwargs):
-        recorded.update(kwargs)
-        return _VerifiedEvidence()
-
-    m5.verify_render_job_evidence = _verified
-    try:
-        inputs = {"operation_name": "inspect_render_job", "entity_ids": ("twin-1",),
-                  "observed_state": {"status": "completed"}, "source": "engine",
-                  "job_record": {"atlas_job_id": "job-0001", "attempt_ordinal": 2}}
-        mismatched = ex.verify_semantic_target_r2a(task, plan, render_evidence=dict(inputs, job_record={
-            "atlas_job_id": "job-0001", "attempt_ordinal": 2, "digital_twin_id": "twin-OTHER"}))
-        # M5 is invoked with its declared keyword-only signature, never positionally
-        assert set(recorded) == {"operation_name", "entity_ids", "observed_state", "source", "job_record"}
-        assert 37 in mismatched.applicable_rows and 36 not in mismatched.applicable_rows
-
-        # 4. M5-verified evidence, twin agrees: neither 36 nor 44; the render identity members are established
-        verified = ex.verify_semantic_target_r2a(task, plan, render_evidence=dict(inputs, job_record={
-            "atlas_job_id": "job-0001", "attempt_ordinal": 2, "digital_twin_id": "twin-1"}))
-        assert 36 not in verified.applicable_rows and 44 not in verified.applicable_rows
-        assert verified.members["render_job_identity"] == "job-0001"
-        assert verified.members["render_attempt_identity"] == 2
-        assert verified.members["render_evidence_identity"] is not None
-        assert verified.members["evidence_trust_basis"]["render_evidence"] == "DURABLE_RECORD_BACKED"
-        assert verified.members["render_state"] == "NOT_VERIFIED"  # the v1 code-level render dimension
-    finally:
-        m5.verify_render_job_evidence = original
+    for supplied in ({"operation_name": "inspect_render_job", "entity_ids": ("twin-1",), "observed_state": {},
+                      "source": "engine", "job_record": {"atlas_job_id": "job-0001"}}, object()):
+        result = ex.verify_semantic_target_r2a(task, plan, render_evidence=supplied)
+        assert 36 in result.applicable_rows and 44 not in result.applicable_rows
+        assert result.members["render_job_identity"] is None
+        assert result.members["evidence_trust_basis"]["render_evidence"] == "NOT_ESTABLISHED"
 
 
 # --------------------------------------------------------------- B6: S2 target-table reference integrity
@@ -548,7 +507,7 @@ def test_b6_dangling_mapping_reference_is_an_s2_integrity_refusal():
     dangling = ex.TaskTargetMapping(entry_name=triple[0], entry_version=triple[1], task_class=triple[2],
                                     production_target_id="target-does-not-exist")
     assert ex.mapping_reference_status(triple, mappings=(dangling,), targets=()) == "dangling"
-    assert ex.revalidate_authority(targets=(), mappings=(dangling,)) == 10
+    assert 10 in ex.revalidate_authority(targets=(), mappings=(dangling,))
     duplicate = (dangling, replace(dangling, production_target_id="other"))
     assert ex.mapping_reference_status(triple, mappings=duplicate, targets=()) == "duplicate"
     assert ex.mapping_reference_status(("other-entry", 1, triple[2]), mappings=(dangling,), targets=()) == "none"
@@ -561,24 +520,24 @@ def test_b6_dangling_mapping_reference_is_an_s2_integrity_refusal():
 
 def test_b6_non_conforming_authority_tables_are_refused_at_their_rows():
     conforming = _definition()
-    assert ex.revalidate_authority(definitions=(conforming,), targets=()) in (9, 10)  # digest mismatch, not 11/33/38
+    assert ex.revalidate_authority(definitions=(conforming,), targets=()) == frozenset({9})
     # row 11: two REGISTERED definitions share one invariant name
     row_11 = (conforming, replace(conforming, definition_revision=2))
-    assert ex.revalidate_authority(definitions=row_11, targets=()) == 11
+    assert 11 in ex.revalidate_authority(definitions=row_11, targets=())
     # row 33: an authority class other than the single admitted one
     row_33 = (replace(conforming, authority_class="RUNTIME_PROBE"),)
-    assert ex.revalidate_authority(definitions=row_33, targets=()) == 33
+    assert 33 in ex.revalidate_authority(definitions=row_33, targets=())
     # row 38: an empty or unsorted observable path set / subject scope
-    assert ex.revalidate_authority(definitions=(replace(conforming, observable_paths=()),), targets=()) == 38
-    assert ex.revalidate_authority(definitions=(replace(conforming, subject_scope=("b", "a")),), targets=()) == 38
+    assert 38 in ex.revalidate_authority(definitions=(replace(conforming, observable_paths=()),), targets=())
+    assert 38 in ex.revalidate_authority(definitions=(replace(conforming, subject_scope=("b", "a")),), targets=())
     # row 12: two mappings share one selector triple
     specs = (ex.ProductionTargetSpec("t1", 1, "a", "b", (), (), None, "ref", "nonclaim"),
              ex.ProductionTargetSpec("t2", 1, "a", "b", (), (), None, "ref", "nonclaim"))
     conflicting = (ex.TaskTargetMapping("e", 1, "c", "t1"), ex.TaskTargetMapping("e", 1, "c", "t2"))
-    assert ex.revalidate_authority(targets=(), mappings=conflicting) == 10   # dangling first
-    assert ex.revalidate_authority(targets=specs, mappings=conflicting) == 12
+    assert 10 in ex.revalidate_authority(targets=(), mappings=conflicting)          # the dangling reference
+    assert 12 in ex.revalidate_authority(targets=specs, mappings=conflicting)       # the duplicate triple
     # the shipped R2-A tables conform to their reviewed constants (no integrity row applies)
-    assert ex.revalidate_authority() is None
+    assert ex.revalidate_authority() == frozenset()
 
 
 # --------------------------------------------------------------- B7: incomplete expectation members

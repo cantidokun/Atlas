@@ -381,7 +381,7 @@ def test_reviewed_authority_constants_recompute_from_the_same_objects():
     assert ex.PRODUCTION_TARGETS == () and ex.PRODUCTION_TARGET_BY_TASK == ()
     assert ex.registry_digest() == ex.REGISTRY_SOURCE_DIGEST
     assert ex.target_table_digest() == ex.TARGET_TABLE_DIGEST
-    assert ex.revalidate_authority() is None
+    assert ex.revalidate_authority() == frozenset()
     # the target table digest is a Domain-A digest of the empty reviewed table
     assert ex.TARGET_TABLE_DIGEST == ex.domain_a_digest({"schema": "m12.6-target-table-v1", "targets": []})
     status = ex.production_target_status()
