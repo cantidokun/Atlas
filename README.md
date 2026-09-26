@@ -12,7 +12,7 @@
 >
 > Historical dated handoffs are archival. The authoritative restart surfaces are the current handoff files listed below.
 
-## Active development checkpoint — September 24, 2026
+## Active development checkpoint — September 26, 2026
 
 ### M12.6 — R2-A / R16 IMPLEMENTATION GATE PAUSED
 
