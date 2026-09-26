@@ -32,7 +32,7 @@ import math
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Mapping, MutableMapping, MutableSequence, MutableSet, Optional, Sequence, Tuple
 
 from planning.m12.catalog import UnrealSoccerProductionCatalog
 from planning.m12.execution_plan import (
@@ -688,6 +688,207 @@ def preflight_document(document: Any, *, expectation_side: bool = False) -> Opti
     return StructuralRefusal(min(found, key=CATEGORY_ORDER.index), row)
 
 
+_DECLARED_SCHEMA_CACHE: Dict[str, Any] = {}
+
+
+def _declared_schema(kind: str) -> Any:
+    """The declared schema of a task/plan projection, captured from its own M12.1/M12.3 producer.
+
+    The schema is a code-level constant derived from the canonical producers (never from caller input):
+    for every declared member it records the declared value class and, for the closed nested containers,
+    the declared member sets of their elements. Built lazily to avoid an import cycle.
+    """
+    if kind not in _DECLARED_SCHEMA_CACHE:
+        from planning.m12 import DEFAULT_UNREAL_CATALOG, generate_execution_plan
+
+        task = DEFAULT_UNREAL_CATALOG.resolve(
+            "unreal.sequence-configure",
+            {"twin_id": "twin-1", "sequence_name": "main", "frame_start": 1, "frame_end": 24},
+            digital_twin_id="twin-1",
+        )
+        plan = generate_execution_plan(task)
+        document = task.to_json_compatible() if kind == "task" else plan.to_json_compatible()
+        _DECLARED_SCHEMA_CACHE[kind] = (tuple(sorted(document)), _shape_of(document))
+    return _DECLARED_SCHEMA_CACHE[kind]
+
+
+def _value_class(value: Any) -> str:
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, str):
+        return "hex64" if re.fullmatch(r"[0-9a-f]{64}", value) else "str"
+    if isinstance(value, Mapping):
+        return "mapping"
+    if isinstance(value, (list, tuple)):
+        return "sequence"
+    if value is None:
+        return "none"
+    if isinstance(value, float):
+        return "float"
+    return type(value).__name__
+
+
+def _shape_of(value: Any) -> Any:
+    """A recursive shape description: declared member classes, and the declared schema of closed containers."""
+    if isinstance(value, Mapping):
+        return {key: _shape_of(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        element_shapes = [_shape_of(item) for item in value]
+        if element_shapes and all(isinstance(shape, Mapping) for shape in element_shapes):
+            keys = set()
+            for shape in element_shapes:
+                keys |= set(shape)
+            required = set(element_shapes[0])
+            for shape in element_shapes[1:]:
+                required &= set(shape)
+            merged = {}
+            for key in sorted(keys):
+                merged[key] = next((shape[key] for shape in element_shapes if key in shape), "none")
+            return {"__element_schema__": merged, "__required__": sorted(required)}
+        return {"__element_classes__": sorted({_value_class(item) for item in value})}
+    return _value_class(value)
+
+
+_TYPE_CHECKS = {
+    "str": lambda v: isinstance(v, str),
+    "int": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "bool": lambda v: isinstance(v, bool),
+    "hex64": lambda v: isinstance(v, str) and bool(re.fullmatch(r"[0-9a-f]{64}", v)),
+}
+
+#: Declared members whose value is a free-form bag: their key sets are not part of the declared schema.
+_FREE_FORM_MEMBERS = {"metadata", "provenance", "arguments"}
+
+#: The declared closed nested containers: their elements' declared member sets are enforced (F2).
+_CLOSED_CONTAINERS = {"target_state", "steps", "actions", "evidence"}
+
+#: Where the declared schema requires a non-empty unique sequence (F9).
+_F9_NON_EMPTY_UNIQUE = {
+    ("task", "allowed_mutations"),
+    ("task", "dependencies"),
+    ("task", "allowed_action_tools"),
+    ("plan", "steps"),
+}
+
+
+def _class_matches(declared: str, value: Any) -> bool:
+    check = _TYPE_CHECKS.get(declared)
+    if check is not None:
+        return bool(check(value))
+    if declared == "none":
+        return value is None
+    if declared == "mapping":
+        return isinstance(value, Mapping)
+    if declared == "sequence":
+        return isinstance(value, (list, tuple))
+    if declared == "float":
+        return isinstance(value, float)
+    return True
+
+
+def _validate_document(value: Any, shape: Any, categories: set, member: Optional[str] = None) -> None:
+    """Recursively validate a projection against a declared shape (VII.4.1 checks 2 and 3).
+
+    A shape that is a plain Mapping declares a closed container: its member set must match exactly. A
+    free-form bag (metadata/provenance/arguments) and any other nested mapping is only required to be a
+    mapping; the declared members it does carry are still type-checked. A ``{"__element_schema__": ...}``
+    shape declares the member set of every element of a sequence.
+    """
+    if isinstance(shape, Mapping) and "__element_schema__" in shape:
+        element_schema = shape["__element_schema__"]
+        required = set(shape.get("__required__", element_schema))
+        if not isinstance(value, (list, tuple)):
+            categories.add("F3")
+            return
+        for element in value:
+            if not isinstance(element, Mapping):
+                categories.add("F3")
+                continue
+            if set(element) - set(element_schema) or required - set(element):
+                categories.add("F2")  # an undeclared member, or a member every element declares
+                continue
+            for nested_member, nested_shape in element_schema.items():
+                if nested_member not in element:
+                    continue
+                _validate_document(element[nested_member], nested_shape, categories, nested_member)
+        return
+    if isinstance(shape, Mapping) and "__element_classes__" in shape:
+        if not isinstance(value, (list, tuple)):
+            categories.add("F3")
+            return
+        declared_classes = shape["__element_classes__"]
+        if not declared_classes:
+            return  # the declared element set was empty: no element constraint is declared
+        for element in value:
+            if not any(_class_matches(declared, element) for declared in declared_classes):
+                categories.add("F3")
+        return
+    if isinstance(shape, Mapping):
+        if not isinstance(value, Mapping):
+            categories.add("F3")
+            return
+        if member in _CLOSED_CONTAINERS and set(value) != set(shape):
+            categories.add("F2")
+            return
+        for nested_member, nested_shape in shape.items():
+            if nested_member not in value:
+                continue
+            _validate_document(value[nested_member], nested_shape, categories, nested_member)
+        return
+    if not _class_matches(shape, value):
+        categories.add("F3")
+
+
+def validate_declared_schema(document: Mapping[str, Any], kind: str) -> Optional[str]:
+    """F2/F3/F9 against the declared task/plan schema (VII.4.1 checks 2, 3 and 9).
+
+    Returns the lowest-numbered applicable category, or ``None`` when the document satisfies the declared
+    schema. Nested closed containers are validated against their declared member sets (VII.4.1.1).
+    """
+    if kind not in {"task", "plan"}:
+        raise M126ContractError(f"undeclared object class: {kind!r}")
+    if not isinstance(document, Mapping):
+        return "F1"
+    declared_keys, shape = _declared_schema(kind)
+    categories: set = set()
+
+    # ---- F2: the declared member set equals the document's key set (no missing, no undeclared member)
+    if set(document) != set(declared_keys):
+        categories.add("F2")
+    for member, declared_shape in shape.items():
+        if member not in document:
+            continue
+        _validate_document(document[member], declared_shape, categories, member)
+
+    # ---- F9: non-empty / duplicate-element constraints where the declared schema requires them
+    for kind_member in _F9_NON_EMPTY_UNIQUE:
+        k, member = kind_member
+        if k != kind or member not in document:
+            continue
+        value = document[member]
+        if isinstance(value, (list, tuple)):
+            if not value or len(set(map(str, value))) != len(value):
+                categories.add("F9")
+    steps = document.get("steps")
+    if kind == "plan" and isinstance(steps, (list, tuple)):
+        for step in steps:
+            if isinstance(step, Mapping):
+                requirements = step.get("verification_requirements")
+                if isinstance(requirements, (list, tuple)) and len(set(map(str, requirements))) != len(requirements):
+                    categories.add("F9")
+    target_state = document.get("target_state")
+    if kind == "task" and isinstance(target_state, Mapping):
+        names = target_state.get("invariant_names")
+        if isinstance(names, (list, tuple)) and len(set(map(str, names))) != len(names):
+            categories.add("F9")
+
+    if not categories:
+        return None
+    return min(categories, key=CATEGORY_ORDER.index)
+
+
 def plan_contains_float(document: Any) -> bool:
     """X.3: a structurally valid plan document whose Domain-B projection contains a float."""
     stack = [document]
@@ -841,63 +1042,81 @@ def classify_supplied_expectation(
     keys = set(claim)
     missing = [name for name in EXPECTATION_MEMBERS if name not in keys]
     undeclared = sorted(keys - set(EXPECTATION_MEMBERS))
-    null_targets = sorted(name for name in TARGET_MEMBERS if claim.get(name, None) is None and name in keys)
-    if missing or undeclared:
-        rows.add(5)
-        detail["incomplete"] = {"missing": missing, "undeclared": undeclared}
-    if null_targets:
-        # A declared non-nullable member supplied as null is a presence violation; row 5 is its only row and
-        # rows 4/7 are not additionally applicable (Part IX exclusivity).
-        rows.add(5)
-        detail["null_target_members"] = null_targets
-    if not rows:
-        wrong_types = _declared_member_type_errors(claim)
-        if wrong_types:
-            rows.add(5)
-            detail["member_type_errors"] = wrong_types
-    if not rows:
-        names = claim.get("required_invariant_names")
-        entries = claim.get("invariant_expectations")
-        if isinstance(names, (list, tuple)) and isinstance(entries, (list, tuple)):
-            if len(names) == 0:
-                rows.add(30)
-                detail["empty_required_set"] = True
-            if len(names) != len(entries):
-                rows.add(5)
-                detail["count_mismatch"] = {"names": len(names), "entries": len(entries)}
-            name_set = [str(n) for n in names]
-            entry_names = [str(e.get("invariant_name")) for e in entries if isinstance(e, Mapping)]
-            if sorted(name_set) != name_set:
-                rows.add(5)
-            if sorted(entry_names) != entry_names:
-                rows.add(5)  # invariant_expectations must be sorted by name
-            if sorted(name_set) != sorted(entry_names) and name_set:
-                rows.add(5)
-                detail["name_mismatch"] = True
-        if claim.get("origin_status", ORIGIN_STATUS) != ORIGIN_STATUS:
-            rows.add(39)
-            detail["origin_status"] = claim.get("origin_status")
-        for member, allowed in _CLOSED_VOCAB.items():
-            if member in claim and claim[member] not in allowed:
-                rows.add(39)
-                detail[member] = claim[member]
+    wrong_types = _declared_member_type_errors(claim)
+    null_targets = sorted(name for name in TARGET_MEMBERS if name in keys and claim[name] is None)
 
-    if not rows:
-        # Schema-valid: identity recomputation decides. In R2-A the reviewed target table is empty, so no
-        # non-null target identity can be established and no expectation is admissible -> at least one of rows
-        # 4/7 applies (XXIV.1 (ii)); both carry the same token, so the committed tuple is identical.
-        rows.update({4, 7})
-        detail["identity"] = "not-recomputable-in-r2a"
-        if "expectation_digest" in claim and compute_expectation_digest(claim) != claim["expectation_digest"]:
+    # ---- limb 1 (row 5): the Part IX presence conditions. A declared non-nullable member supplied as null
+    #      (or absent, or of the wrong declared type) is a presence violation; rows 4/7 are not additionally
+    #      applicable to THAT condition (Part IX exclusivity, per XIV.3.1 clause 3).
+    schema_defect = bool(missing or undeclared or wrong_types or null_targets)
+    if schema_defect:
+        rows.add(5)
+        if missing or undeclared:
+            detail["incomplete"] = {"missing": missing, "undeclared": undeclared}
+        if wrong_types:
+            detail["member_type_errors"] = wrong_types
+        if null_targets:
+            detail["null_target_members"] = null_targets
+
+    # ---- limb 2 (rows 5/30): the required-set limbs, each on its own predicate. Never suppressed.
+    names = claim.get("required_invariant_names")
+    entries = claim.get("invariant_expectations")
+    if isinstance(names, (list, tuple)):
+        if len(names) == 0:
+            rows.add(30)  # expectation-side occurrence of row 30 (verifier-owned operand)
+            detail["empty_required_set"] = True
+        name_set = [str(n) for n in names]
+        if sorted(name_set) != name_set:
+            rows.add(5)
+            detail["required_names_unsorted"] = True
+    if isinstance(names, (list, tuple)) and isinstance(entries, (list, tuple)):
+        if len(names) != len(entries):
+            rows.add(5)
+            detail["count_mismatch"] = {"names": len(names), "entries": len(entries)}
+        entry_names = [str(e.get("invariant_name")) for e in entries if isinstance(e, Mapping)]
+        if sorted(entry_names) != entry_names:
+            rows.add(5)  # invariant_expectations is sorted by invariant_name
+        if names and sorted(str(n) for n in names) != sorted(entry_names):
+            rows.add(5)
+            detail["name_mismatch"] = True
+
+    # ---- limb 3 (row 39): the expectation object's own contradictions. Never suppressed.
+    if claim.get("origin_status", ORIGIN_STATUS) != ORIGIN_STATUS:
+        rows.add(39)
+        detail["origin_status"] = claim.get("origin_status")
+    for member, allowed in _CLOSED_VOCAB.items():
+        if member in claim and claim[member] not in allowed:
+            rows.add(39)
+            detail[member] = claim[member]
+
+    # ---- limb 4 (row 8): the supplied-artifact digest. Evaluated only when every declared member is present
+    #      with its declared type, so no comparison is ever fabricated against an absent member (B7).
+    type_errors = {name: kind for name, kind in wrong_types.items() if name not in null_targets}
+    complete = not missing and not undeclared and not type_errors
+    if complete and isinstance(claim.get("expectation_digest"), str):
+        if compute_expectation_digest(claim) != claim["expectation_digest"]:
             rows.add(8)
             detail["digest_mismatch"] = True
-        if task is not None and plan is not None:
-            if claim.get("source_content_digest") not in (None, compute_source_content_digest(task)):
-                rows.add(21)
-            derived_plan_digest = compute_plan_content_digest(plan)
-            if claim.get("plan_content_digest") not in (None, derived_plan_digest):
-                rows.update({14, 21})
-    return ExpectationClassification(frozenset(rows), not rows, bool(null_targets), MappingProxyType(detail))
+
+    # ---- limb 5 (rows 4/7): identity recomputation, demanded whenever the supplied expectation is
+    #      schema-valid (XXIV.1(ii)) and never added to a condition row 5 classifies.
+    if not schema_defect:
+        rows.update({4, 7})
+        detail["identity"] = "not-recomputable-in-r2a"
+
+    # ---- limb 6 (rows 14/21): stale-source checks, each gated on its own prerequisites being present (B7).
+    if complete and task is not None and plan is not None:
+        if isinstance(claim.get("source_content_digest"), str) and \
+                claim["source_content_digest"] != compute_source_content_digest(task):
+            rows.add(21)
+            detail["stale_source"] = True
+        if isinstance(claim.get("plan_content_digest"), str) and \
+                claim["plan_content_digest"] != compute_plan_content_digest(plan):
+            rows.update({14, 21})
+            detail["stale_plan"] = True
+
+    return ExpectationClassification(frozenset(rows), not schema_defect, bool(null_targets),
+                                     MappingProxyType(detail))
 
 
 # --------------------------------------------------------------------------- result contract (XIV.4.1 / XIV.4.5)
@@ -1053,6 +1272,7 @@ class M126Result:
     """The closed 39-member M12.6 result (XIV.4.5) plus its derived ``result_digest``."""
 
     members: Mapping[str, Any]
+    applicable_rows: Tuple[int, ...] = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         raise TypeError("M126Result is sealed")
@@ -1062,9 +1282,59 @@ class M126Result:
         extra = sorted(set(self.members) - set(RESULT_MEMBERS))
         if missing or extra:
             raise M126ContractError(f"result member set mismatch: missing={missing} extra={extra}")
-        object.__setattr__(self, "members", MappingProxyType(dict(self.members)))
+        if not self.applicable_rows:
+            raise M126ContractError(
+                "the applicable row set is required: every derived field is defined by the rows (XIV.2/XIV.3.1)"
+            )
+        # Nested canonical members are made immutable: a silently mutable nested structure could otherwise
+        # invalidate an already-constructed result or its digest (XIV.4.5/XIV.4.6).
+        frozen: Dict[str, Any] = dict(self.members)
+        for name in ("required_invariant_names", "observation_digests", "failure_codes", "invariant_results"):
+            frozen[name] = tuple(frozen[name])
+        basis = frozen.get("evidence_trust_basis")
+        if isinstance(basis, Mapping):
+            frozen["evidence_trust_basis"] = MappingProxyType(dict(basis))
+        object.__setattr__(self, "members", MappingProxyType(frozen))
+        object.__setattr__(self, "applicable_rows", tuple(sorted(set(self.applicable_rows))))
         self._validate_coherence()
+        self._enforce_derived_fields()
         validate_r2a_conformance(self.members)
+        self._assert_immutable()
+
+    def _enforce_derived_fields(self) -> None:
+        """XIV.2/XIV.3/XIV.3.1: the derived fields are functions of the applicable rows, never of the caller.
+
+        Recomputing them here rejects an inconsistent stage/class mapping, a primary code that is not the
+        lowest-numbered applicable row, a fabricated tuple and an invalid failure-code union.
+        """
+        rows = tuple(self.applicable_rows)
+        if set(rows) == {2}:
+            outcome = internal_fault_outcome()
+        else:
+            outcome = decisive_outcome(rows)
+        m = self.members
+        expected = {
+            "deciding_stage": outcome.deciding_stage,
+            "primary_failure_code": outcome.primary_code,
+            "failure_codes": outcome.failure_codes,
+            "outcome_reason_class": outcome.reason_class,
+        }
+        for name, value in expected.items():
+            if m[name] != value:
+                raise M126ContractError(
+                    f"{name} is defined by the applicable rows {list(rows)}: expected {value!r}, got {m[name]!r}"
+                )
+        semantic_state, overall_state = map_states(outcome.deciding_stage, outcome.reason_class)
+        if (m["semantic_state"], m["overall_state"]) != (semantic_state, overall_state):
+            raise M126ContractError(
+                "semantic_state/overall_state must equal the mapping of the deciding stage and reason class"
+            )
+
+    def _assert_immutable(self) -> None:
+        """Every canonical member is an immutable structure: no post-construction mutation can slip through."""
+        for name, value in self.members.items():
+            if isinstance(value, (MutableMapping, MutableSequence, MutableSet)):
+                raise M126ContractError(f"canonical member {name!r} is a mutable structure")
 
     def _validate_coherence(self) -> None:
         """XIV.2/XIV.4.5 structural coherence, evaluated at construction."""
@@ -1106,10 +1376,22 @@ class M126Result:
             raise M126ContractError("an expectation identity is established only on an S4/S5/S6 outcome")
 
     def canonical_dict(self) -> Dict[str, Any]:
-        """XIV.4.5: the closed canonical object; array members serialize as JSON arrays."""
+        """XIV.4.5: the closed canonical object; array members serialize as JSON arrays.
+
+        Coherence is enforced again here, on the members as they stand now: serialization and the digest
+        derived from it must never be taken from a result that has drifted since construction.
+        """
+        self._assert_immutable()
+        self._validate_coherence()
+        self._enforce_derived_fields()
+        validate_r2a_conformance(self.members)
         arrays = {"required_invariant_names", "observation_digests", "failure_codes"}
         return {
-            **{name: (list(self.members[name]) if name in arrays else self.members[name])
+            # nested mappings are materialized as plain JSON objects for serialization while the result's
+            # own members stay immutable (no post-construction mutation can reach the serialized form)
+            **{name: (list(self.members[name]) if name in arrays
+                      else (dict(self.members[name]) if isinstance(self.members[name], Mapping)
+                            else self.members[name]))
                for name in RESULT_MEMBERS if name != "invariant_results"},
             "invariant_results": [entry.canonical_input() | {"invariant_result_digest": entry.invariant_result_digest}
                                   for entry in self.members["invariant_results"]],
@@ -1156,7 +1438,13 @@ class Resolution:
 
 
 def _selector_triple(task: UnrealProductionTaskDefinition) -> Tuple[str, int, str]:
-    """V.4: ``(entry_name, entry_version, task_class)`` derived from the task's closed selector."""
+    """V.4: ``(entry_name, entry_version, task_class)`` derived from the task's closed selector.
+
+    An object of the wrong class has no closed selector: no triple can be derived from it, and the refusal
+    that applies is the structural one (row 1).
+    """
+    if type(task) is not UnrealProductionTaskDefinition:
+        return ("", 0, "")
     return (task.canonical_task_id, task.task_version, task.task_class)
 
 
@@ -1177,6 +1465,27 @@ def lookup_production_target(
     return None
 
 
+def mapping_reference_status(
+    triple: Tuple[str, int, str],
+    mappings: Sequence[TaskTargetMapping] = PRODUCTION_TARGET_BY_TASK,
+    targets: Sequence[ProductionTargetSpec] = PRODUCTION_TARGETS,
+) -> str:
+    """V.4 clause 3 / VIII.3: the selector's mapping-reference integrity (an S2 condition).
+
+    Returns ``"none"`` (no mapping row matches the triple: a coverage question for S4), ``"ok"``,
+    ``"duplicate"`` (two or more rows match) or ``"dangling"`` (the matching row references a target that
+    does not exist). A dangling reference is an authority-integrity refusal, never a coverage miss.
+    """
+    matches = [m for m in mappings if (m.entry_name, m.entry_version, m.task_class) == triple]
+    if not matches:
+        return "none"
+    if len(matches) > 1:
+        return "duplicate"
+    if matches[0].production_target_id not in {t.production_target_id for t in targets}:
+        return "dangling"
+    return "ok"
+
+
 def _declared_pair_vocabulary(task: UnrealProductionTaskDefinition) -> Optional[EntryVocabulary]:
     for entry in EXPECTATION_VOCABULARY:
         if entry.entry_name == task.canonical_task_id and entry.entry_version == task.task_version:
@@ -1184,9 +1493,26 @@ def _declared_pair_vocabulary(task: UnrealProductionTaskDefinition) -> Optional[
     return None
 
 
+def _domain_a_representable(compute: Any) -> Optional[str]:
+    """XIV.4.6.2 clause 6: a member is non-null only if its value is representable in Domain A.
+
+    A malformed projection that Domain A cannot canonicalize leaves the member null; the fault that would
+    otherwise surface is attributed to the supplied input, which keeps its own S1 row (VII.4.2).
+    """
+    try:
+        value = compute()
+    except Exception:
+        return None
+    return value if isinstance(value, str) else None
+
+
 def _task_derived_members(task: UnrealProductionTaskDefinition) -> Dict[str, Any]:
     """P1-P6 and the plan-side of the pair: per-member establishment predicates (XIV.4.6.2)."""
     members: Dict[str, Any] = {}
+    if type(task) is not UnrealProductionTaskDefinition:
+        # an object of the wrong class derives nothing: the refusal is the structural one (row 1, F1)
+        return {name: None for name in ("task_identity", "task_version", "digital_twin_id",
+                                       "catalog_entry_name", "catalog_entry_version", "vocabulary_digest")}
     members["task_identity"] = task.canonical_task_id if isinstance(task.canonical_task_id, str) and task.canonical_task_id.strip() else None
     version = task.task_version
     members["task_version"] = version if (isinstance(version, int) and not isinstance(version, bool)
@@ -1202,6 +1528,8 @@ def _task_derived_members(task: UnrealProductionTaskDefinition) -> Dict[str, Any
 
 def _plan_derived_members(plan: UnrealExecutionPlan) -> Dict[str, Any]:
     members: Dict[str, Any] = {}
+    if type(plan) is not UnrealExecutionPlan:
+        return {"plan_id": None}
     members["plan_id"] = plan.plan_id if isinstance(plan.plan_id, str) and plan.plan_id.strip() else None
     return members
 
@@ -1217,31 +1545,46 @@ def resolve(
     rows = set()
     derived: Dict[str, Any] = {}
 
-    # ---- S1: structural preflight of the supplied task/plan artifacts
+    # ---- S1: structural preflight of the supplied task/plan artifacts and the float policy.
+    #      XIV.3.1 clause 3: every independently applicable S1 component is evaluated and unioned; no
+    #      component short-circuits another, and the primary code is the lowest-numbered applicable row.
     if type(task) is not UnrealProductionTaskDefinition or type(plan) is not UnrealExecutionPlan:
         rows.add(1)
         derived["preflight"] = {"category": "F1"}
     else:
         task_document = task.to_json_compatible()
         plan_document = plan.to_json_compatible()
-        refusal = preflight_document(task_document)
-        if refusal is not None:
-            rows.add(refusal.row)
-            derived["preflight"] = {"category": refusal.category}
-        else:
-            plan_refusal = preflight_document(plan_document)
-            if plan_refusal is not None:
-                rows.add(plan_refusal.row)
+        task_refusal = preflight_document(task_document)
+        if task_refusal is None:
+            category = validate_declared_schema(task_document, "task")
+            task_refusal = StructuralRefusal(category, 1) if category is not None else None
+        if task_refusal is not None:
+            rows.add(task_refusal.row)
+            derived["preflight"] = {"category": task_refusal.category}
+        plan_refusal = preflight_document(plan_document)
+        if plan_refusal is None:
+            category = validate_declared_schema(plan_document, "plan")
+            plan_refusal = StructuralRefusal(category, 1) if category is not None else None
+        if plan_refusal is not None:
+            rows.add(plan_refusal.row)
+            if derived.get("preflight") is None:
                 derived["preflight"] = {"category": plan_refusal.category}
-            elif plan_contains_float(plan_document):
-                rows.add(29)  # X.3: the single float-policy condition
-                derived["float_policy"] = "PLAN_CONTENT_UNSUPPORTED"
+            else:
+                derived["plan_preflight"] = {"category": plan_refusal.category}
+        if plan_contains_float(plan_document):
+            rows.add(29)  # X.3: the single float-policy condition, independent of the preflight limbs
+            derived["float_policy"] = "PLAN_CONTENT_UNSUPPORTED"
 
-    # ---- S2: authority-table integrity (in-call revalidation of the same objects)
+    # ---- S2: authority-table integrity (in-call revalidation of the same objects) and the reference
+    #      integrity of this selector's mapping (VIII.3).
     if not rows:
         integrity_row = revalidate_authority()
         if integrity_row is not None:
             rows.add(integrity_row)
+        reference_status = mapping_reference_status(_selector_triple(task))
+        if reference_status in {"dangling", "duplicate"}:
+            rows.add(10)  # a mapping that references a nonexistent/duplicate target is an integrity refusal
+            derived["mapping_reference"] = reference_status
 
     members = _task_derived_members(task)
     members.update(_plan_derived_members(plan))
@@ -1299,12 +1642,18 @@ def resolve(
             rows.add(22)  # V.4 clause 3: no target row for the derived triple
         if is_render_task_class(task.task_class):
             rows.update({32, 42, 43})  # the v1 code-level render dimension applies to every render-bearing input
-            verification = _verify_render_evidence(render_evidence, task)
-            if verification is None:
-                rows.add(44)
+            render_outcome = _verify_render_evidence(render_evidence, task)
+            if render_outcome.verified:
+                # independently verified evidence: neither row 36 nor row 44, and the three render identity
+                # members are established (XIV.4.6), so the render trust basis becomes DURABLE_RECORD_BACKED.
+                members["render_job_identity"] = render_outcome.render_job_identity
+                members["render_attempt_identity"] = render_outcome.render_attempt_identity
+                members["render_evidence_identity"] = render_outcome.render_evidence_identity
+            elif render_outcome.supplied:
+                rows.add(36)  # M5 refused or failed to verify the supplied evidence
             else:
-                rows.add(36)
-            if verification == "twin-mismatch":
+                rows.add(44)  # no render evidence is available for a render-bearing task
+            if render_outcome.twin_mismatch:
                 rows.add(37)
 
     derived.update(members)
@@ -1313,31 +1662,100 @@ def resolve(
     return Resolution(frozenset(rows), target, triple, MappingProxyType(derived))
 
 
-def _verify_render_evidence(render_evidence: Any, task: UnrealProductionTaskDefinition) -> Optional[str]:
-    """Part XVII / XIV.3.1: evidence-dependent render rows.
+@dataclass(frozen=True)
+class RenderEvidenceOutcome:
+    """Render-evidence disposition: which evidence rows apply and the verified identity members."""
 
-    Returns ``None`` when no evidence was supplied (row 44), ``"not-verified"`` when supplied evidence could not
-    be independently verified (row 36) and ``"twin-mismatch"`` when the record's twin differs (row 37).
-    R2-A implements no render verification of its own; independent verification is delegated to the unchanged
-    M5 entry point, and any failure to verify is a refusal.
+    verified: bool
+    twin_mismatch: bool
+    supplied: bool
+    render_job_identity: Optional[str] = None
+    render_attempt_identity: Optional[int] = None
+    render_evidence_identity: Optional[str] = None
+
+
+def _verify_render_evidence(render_evidence: Any, task: UnrealProductionTaskDefinition) -> RenderEvidenceOutcome:
+    """Part XVII / XIV.3.1 / XIV.4.6: the evidence-dependent render rows and the verified identity members.
+
+    Independent verification is delegated to the unchanged M5 entry point, invoked with its declared
+    keyword-only signature; M12.6 duplicates none of M5's logic. Outcomes:
+      * no evidence supplied             -> row 44 applicable, neither row 36 nor 37
+      * supplied and M5 verified         -> neither row 36 nor 44; the three render identity members are
+                                            non-null and the render trust basis is DURABLE_RECORD_BACKED
+      * supplied and not verified        -> row 36 applicable
+      * record twin differs from task's  -> row 37 additionally applicable
+    Every failure to verify is a refusal (fail-closed).
     """
     if render_evidence is None:
-        return None
-    try:
-        from planning.unreal_evidence_contract import verify_render_job_evidence
+        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=False)
 
-        record = render_evidence
-        record_twin = None
-        for attribute in ("digital_twin_id", "twin_id"):
-            record_twin = getattr(record, attribute, None)
-            if record_twin is not None:
-                break
-        verify_render_job_evidence(record)
-        if record_twin is not None and record_twin != task.digital_twin_id:
-            return "twin-mismatch"
+    inputs = render_evidence
+    if not isinstance(inputs, Mapping):
+        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
+
+    operation_name = inputs.get("operation_name")
+    entity_ids = inputs.get("entity_ids")
+    observed_state = inputs.get("observed_state")
+    source = inputs.get("source")
+    job_record = inputs.get("job_record")
+    if operation_name is None or entity_ids is None or observed_state is None or source is None:
+        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
+    if job_record is None:
+        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
+
+    from planning.unreal_evidence_contract import verify_render_job_evidence
+
+    try:
+        evidence = verify_render_job_evidence(
+            operation_name=operation_name,
+            entity_ids=tuple(entity_ids),
+            observed_state=observed_state,
+            source=source,
+            job_record=job_record,
+        )
     except Exception:
-        return "not-verified"
-    return "verified"
+        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
+
+    record_twin = None
+    for attribute in ("digital_twin_id", "canonical_digital_twin_id", "twin_id"):
+        if isinstance(job_record, Mapping) and job_record.get(attribute) is not None:
+            record_twin = job_record[attribute]      # the durable render record is the authority (row 37)
+            break
+        if getattr(evidence, attribute, None) is not None:
+            record_twin = getattr(evidence, attribute)
+            break
+
+    job_identity = getattr(evidence, "atlas_job_id", None)
+    if job_identity is None and isinstance(job_record, Mapping):
+        job_identity = job_record.get("atlas_job_id") or job_record.get("job_id")
+    attempt_identity = getattr(evidence, "attempt_ordinal", None)
+    if attempt_identity is None and isinstance(job_record, Mapping):
+        attempt_identity = job_record.get("attempt_ordinal")
+    if not isinstance(attempt_identity, int) or isinstance(attempt_identity, bool) or attempt_identity < 1:
+        attempt_identity = None
+
+    evidence_identity = None
+    try:  # the M12.5 evidence recipe, adopted verbatim (XIV.4.6)
+        from planning.m12.verification import _canonical_digest
+
+        evidence_identity = _canonical_digest({
+            "operation_name": operation_name,
+            "entity_ids": tuple(entity_ids),
+            "observed_state": observed_state,
+            "source": source,
+        })
+    except Exception:
+        evidence_identity = None
+
+    triple_complete = bool(job_identity) and attempt_identity is not None and bool(evidence_identity)
+    return RenderEvidenceOutcome(
+        verified=bool(triple_complete),
+        twin_mismatch=bool(record_twin is not None and record_twin != task.digital_twin_id),
+        supplied=True,
+        render_job_identity=(str(job_identity) if triple_complete else None),
+        render_attempt_identity=(attempt_identity if triple_complete else None),
+        render_evidence_identity=(evidence_identity if triple_complete else None),
+    )
 
 
 # --------------------------------------------------------------------------- verifier + result construction
@@ -1358,6 +1776,27 @@ def verify_semantic_target_r2a(
     if REGISTRY_SOURCE_DIGEST is None or TARGET_TABLE_DIGEST is None:
         raise M126UnreadableAuthorityError("authority constants are unreadable")
 
+    try:
+        return _verify_semantic_target_r2a_impl(
+            task, plan, expectation,
+            render_evidence=render_evidence, runtime_mapping_digest=runtime_mapping_digest,
+        )
+    except (M126UnreadableAuthorityError, M126ContractError):
+        raise
+    except Exception:
+        # A fault that cannot be classified is the representable internal failure (row 2, VII.5): malformed
+        # required input never escapes this boundary as an uncaught exception.
+        return express_fault_result(fault_injected=True)
+
+
+def _verify_semantic_target_r2a_impl(
+    task: UnrealProductionTaskDefinition,
+    plan: UnrealExecutionPlan,
+    expectation: Any = None,
+    *,
+    render_evidence: Any = None,
+    runtime_mapping_digest: Optional[str] = None,
+) -> M126Result:
     resolution = resolve(task, plan, expectation, render_evidence=render_evidence)
     rows = set(resolution.applicable_rows)
 
@@ -1370,8 +1809,14 @@ def verify_semantic_target_r2a(
     members: Dict[str, Any] = {}
 
     derived = resolution.derived
-    required_names = tuple(sorted(task.target_state.to_invariant_names()))
-    render_task = is_render_task_class(task.task_class)
+    try:
+        required_names = tuple(sorted(task.target_state.to_invariant_names()))
+    except Exception:
+        required_names = ()
+    if type(task) is not UnrealProductionTaskDefinition:
+        render_task = None  # the task class is unreadable: the render dimension is not decided
+    else:
+        render_task = is_render_task_class(task.task_class)
 
     members["schema"] = RESULT_SCHEMA_CONSTANT
     members["verifier_revision"] = VERIFIER_REVISION
@@ -1391,25 +1836,34 @@ def verify_semantic_target_r2a(
     members["catalog_entry_version"] = derived.get("catalog_entry_version")
     members["vocabulary_digest"] = derived.get("vocabulary_digest")
     members["plan_id"] = derived.get("plan_id")
-    members["source_content_digest"] = compute_source_content_digest(task)
-    members["plan_content_digest"] = compute_plan_content_digest(plan)
+    members["source_content_digest"] = _domain_a_representable(lambda: compute_source_content_digest(task))
+    members["plan_content_digest"] = _domain_a_representable(lambda: compute_plan_content_digest(plan))
     members["render_task"] = render_task
     members["required_invariant_names"] = required_names
     members["expectation_identity"] = None   # no expectation identity is established in R2-A (Part IX)
     members["expectation_digest"] = None
     members["observation_identity"] = None
     members["observation_digests"] = ()
-    members["render_job_identity"] = None
-    members["render_attempt_identity"] = None
-    members["render_evidence_identity"] = None
+    members["render_job_identity"] = derived.get("render_job_identity")
+    members["render_attempt_identity"] = derived.get("render_attempt_identity")
+    members["render_evidence_identity"] = derived.get("render_evidence_identity")
+    render_evidentiary_basis = (
+        members["render_job_identity"] is not None
+        and members["render_attempt_identity"] is not None
+        and members["render_evidence_identity"] is not None
+    )
     members["evidence_trust_basis"] = {
         "semantic_observation": "NOT_ESTABLISHED",
-        "render_evidence": "NOT_APPLICABLE" if not render_task else "NOT_ESTABLISHED",
+        "render_evidence": (
+            "NOT_APPLICABLE" if render_task is False
+            else ("DURABLE_RECORD_BACKED" if render_evidentiary_basis else "NOT_ESTABLISHED")
+        ),
     }
     members["invariant_results"] = tuple(unresolved_entry(name) for name in required_names)
     semantic_state, overall_state = map_states(outcome.deciding_stage, outcome.reason_class)
     members["semantic_state"] = semantic_state
-    members["render_state"] = "NOT_REQUIRED" if not render_task else "NOT_VERIFIED"
+    members["render_state"] = ("NOT_DECIDED" if render_task is None
+                               else ("NOT_REQUIRED" if render_task is False else "NOT_VERIFIED"))
     members["overall_state"] = overall_state
     members["outcome_reason_class"] = outcome.reason_class
     members["failure_codes"] = outcome.failure_codes
@@ -1417,7 +1871,7 @@ def verify_semantic_target_r2a(
     members["deciding_stage"] = outcome.deciding_stage
     members["primary_failure_code"] = outcome.primary_code
 
-    return M126Result(members=members)
+    return M126Result(members=members, applicable_rows=tuple(sorted(rows)))
 
 
 def express_fault_result(*, fault_injected: bool = False) -> M126Result:
@@ -1469,4 +1923,4 @@ def express_fault_result(*, fault_injected: bool = False) -> M126Result:
         "deciding_stage": None,
         "primary_failure_code": outcome.primary_code,
     }
-    return M126Result(members=members)
+    return M126Result(members=members, applicable_rows=(2,))

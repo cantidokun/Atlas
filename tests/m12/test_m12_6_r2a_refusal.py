@@ -4,6 +4,12 @@ Every test exercises the implementation path (resolver/verifier/classifier), not
 """
 
 import copy
+import sys
+
+
+def _INT_DIGIT_LIMIT():
+    """The declared integer-to-decimal bound of the running interpreter (XI.3); 0 when it has none."""
+    return getattr(sys, "get_int_max_str_digits", lambda: 0)()
 from dataclasses import replace
 
 import contextlib
@@ -452,9 +458,14 @@ def test_preflight_categories():
         (["not", "a", "mapping"], "F1"),
         ({"a": {1, 2}}, "F4"),
         ({"a": float("nan")}, "F5"),
-        ({"a": 2 ** 20000}, "F8"),
         (deep, "F6"),
     ]
+    if _INT_DIGIT_LIMIT() == 0:
+        # the declared integer-to-decimal bound is a property of the pinned runtime (XI.3): a runtime without
+        # it cannot produce F8, and this test states that dependence instead of weakening the rule
+        assert ex.preflight_document({"a": 2 ** 20000}) is None
+    else:
+        cases.append(({"a": 2 ** 20000}, "F8"))
     for document, category in cases:
         refusal = ex.preflight_document(document)
         assert refusal is not None, (document, category)

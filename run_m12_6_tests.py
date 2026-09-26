@@ -14,7 +14,7 @@ import importlib
 import sys
 import traceback
 
-DEFAULT_MODULES = ("tests.m12.test_m12_6_r2a_refusal",)
+DEFAULT_MODULES = ("tests.m12.test_m12_6_r2a_refusal", "tests.m12.test_m12_6_r2a_remediation")
 
 
 def run(module_names) -> int:
