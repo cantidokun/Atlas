@@ -14,11 +14,21 @@ from planning.m12.execution_plan import (
 from planning.m12.runtime_adapter import UnrealRuntimeMapping
 from planning.m12.semantic_task import UnrealProductionTaskDefinition
 from planning.m12.task_classes import is_render_task_class
+from planning.m12.expectation import (
+    DEFINITIONS_BY_NAME,
+    EXPECTATION_VOCABULARY_BY_KEY,
+    compute_evidence_identity,
+    compute_expectation_digest,
+    compute_expectation_identity,
+    compute_expected_value_identity,
+    compute_invariant_result_digest,
+)
 from planning.m12.verification_result import (
     EvidenceTrustBasis,
     ObservationIdentity,
     UnrealSemanticVerificationResult,
     VERIFIER_REVISION,
+    InvariantVerificationResult,
 )
 from planning.unreal_evidence_contract import verify_render_job_evidence
 from planning.unreal_state_extraction import EXTRACTION_SCHEMA_VERSION, extract
@@ -167,16 +177,109 @@ def _derive_observation(
 
 
 def _invariant_results(
-    names: Iterable[str], code: str
-) -> Tuple[Mapping[str, Any], ...]:
-    return tuple(
-        {
-            "name": name,
-            "status": "UNKNOWN",
-            "failure_code": code,
+    names: Iterable[str],
+    *,
+    observation_identity: Optional[ObservationIdentity],
+    code: str,
+) -> Tuple[InvariantVerificationResult, ...]:
+    results = []
+    for name in sorted(names):
+        definition = DEFINITIONS_BY_NAME[name]
+        expected_value_identity = compute_expected_value_identity(definition)
+        evidence_identity = compute_evidence_identity(
+            invariant_name=name,
+            definition=definition,
+            resolved_observables=(),
+            value_state="ABSENT",
+            observation_bound=False,
+            observation_request_id=None,
+            observation_scope=None,
+            canonical_state_digest=None,
+        )
+        entry = {
+            "invariant_name": name,
+            "definition_id": name,
+            "definition_revision": definition.definition_revision,
+            "definition_digest": definition.definition_digest,
+            "authority_class": definition.authority_class,
+            "subject_scope": list(sorted(definition.subject_scope)),
+            "expected_value_identity": expected_value_identity,
+            "comparison": definition.comparison,
+            "admissible_value_type": definition.admissible_value_type,
+            "observed_path_patterns": list(sorted(definition.observable_paths)),
+            "value_state": "ABSENT",
+            "resolved_observables": [],
+            "observation_bound": False,
+            "observation_identity": None,
+            "invariant_state": "UNKNOWN",
+            "mismatch_reason": None,
+            "evidence_identity": evidence_identity,
         }
-        for name in sorted(names)
-    )
+        digest = compute_invariant_result_digest(entry)
+        results.append(
+            InvariantVerificationResult(
+                invariant_name=name,
+                definition_id=name,
+                definition_revision=definition.definition_revision,
+                definition_digest=definition.definition_digest,
+                authority_class=definition.authority_class,
+                subject_scope=tuple(sorted(definition.subject_scope)),
+                expected_value_identity=expected_value_identity,
+                comparison=definition.comparison,
+                admissible_value_type=definition.admissible_value_type,
+                observed_path_patterns=tuple(sorted(definition.observable_paths)),
+                value_state="ABSENT",
+                resolved_observables=(),
+                observation_bound=False,
+                observation_identity=None,
+                invariant_state="UNKNOWN",
+                mismatch_reason=None,
+                evidence_identity=evidence_identity,
+                invariant_result_digest=digest,
+            )
+        )
+    return tuple(results)
+
+
+def _classify_result_reason(
+    failure_codes: Sequence[str],
+    *,
+    semantic_state: str,
+) -> str:
+    if semantic_state == "SATISFIED":
+        return "SATISFIED"
+    if semantic_state == "NOT_SATISFIED":
+        return "EVALUATED_MISMATCH"
+    if "RESOLVER_INTERNAL_FAILURE" in failure_codes:
+        return "INTERNAL_FAILURE"
+    if any(
+        code in {
+            "OBSERVATION_IDENTITY_NOT_TRANSPORT_ROOTED",
+            "OBSERVATION_CORRELATION_MISMATCH",
+            "EXTRACTION_CONTRACT_REVISION_MISMATCH",
+            "OBSERVATION_SCOPE_DIVERGENCE",
+            "EXPECTATION_SCOPE_NOT_OBSERVED",
+            "CONTRADICTORY",
+            "EXPECTATION_CONTRADICTORY",
+            "MISSING_INVARIANT_INPUT",
+        }
+        for code in failure_codes
+    ):
+        return "EVIDENCE_INSUFFICIENT"
+    if any(
+        code in {
+            "EXPECTED_VALUE_UNAVAILABLE",
+            "PRODUCTION_TARGET_NOT_ESTABLISHED",
+            "PRODUCTION_TARGET_NOT_CANONICAL",
+            "RENDER_TASK_CORRESPONDENCE_NOT_DECIDED",
+            "REQUEST_DIGEST_AGREEMENT_NOT_ESTABLISHED",
+            "SEQUENCE_AGREEMENT_NOT_ESTABLISHED",
+            "RENDER_EVIDENCE_MISSING",
+        }
+        for code in failure_codes
+    ):
+        return "AUTHORITY_ABSENT"
+    return "BINDING_ABSENT"
 
 
 def _build_result(
@@ -190,7 +293,7 @@ def _build_result(
     render_attempt_identity: Optional[int],
     render_evidence_identity: Optional[str],
     render_trust: str,
-    invariant_results: Sequence[Mapping[str, Any]],
+    invariant_results: Sequence[InvariantVerificationResult],
     semantic_state: str,
     render_state: str,
     overall_state: str,
@@ -198,65 +301,50 @@ def _build_result(
 ) -> UnrealSemanticVerificationResult:
     failures = tuple(sorted(set(failure_codes)))
     trust = EvidenceTrustBasis(
-        semantic_observation="TRANSPORT_CORRELATED",
+        semantic_observation=(
+            "TRANSPORT_CORRELATED"
+            if observation_identity is not None
+            else "NOT_ESTABLISHED"
+        ),
         render_evidence=render_trust,
     )
+    vocabulary = EXPECTATION_VOCABULARY_BY_KEY.get(
+        (task.canonical_task_id, task.task_version)
+    )
+    if vocabulary is None:
+        raise M12VerificationError("EXPECTATION_VOCABULARY_MISMATCH")
+    identity = compute_expectation_identity(
+        vocabulary=vocabulary,
+        task=task,
+        plan=plan,
+        target=None,
+    )
+    expectation_digest = compute_expectation_digest(identity)
+    identity = {**identity, "expectation_digest": expectation_digest}
+    reason_class = _classify_result_reason(
+        failures, semantic_state=semantic_state
+    )
     provenance = {
-        "verifier_revision": VERIFIER_REVISION,
-        "task_identity": task.canonical_task_id,
-        "task_version": task.task_version,
-        "digital_twin_id": task.digital_twin_id,
-        "plan_id": plan.plan_id,
-        "source_content_digest": plan.source_content_digest,
         "runtime_mapping_digest": runtime_mapping_digest,
-        "required_invariant_names": list(task.target_state.to_invariant_names()),
-        "extraction_contract_revision": (
-            None if observation_identity is None
-            else observation_identity.contract_revision
-        ),
-        "extractor_identity": (
-            None if observation_identity is None
-            else observation_identity.extractor_identity
-        ),
-        "engine_identity": (
-            None if observation_identity is None
-            else observation_identity.engine_identity
-        ),
-        "observation_session_identity": (
-            None if observation_identity is None
-            else dict(observation_identity.session_identity)
-        ),
-        "observation_scope_identity": (
-            None if observation_identity is None
-            else dict(observation_identity.scope_identity)
-        ),
-        "observation_request_identity": (
-            None if observation_identity is None
-            else observation_identity.request_identity
-        ),
-        "observation_digests": list(observation_digests),
-        "render_job_identity": render_job_identity,
-        "render_attempt_identity": render_attempt_identity,
-        "render_evidence_identity": render_evidence_identity,
-        "evidence_trust_basis": {
-            "semantic_observation": trust.semantic_observation,
-            "render_evidence": trust.render_evidence,
-        },
-        "outcome": overall_state,
-        "invariant_outcomes": list(invariant_results),
-        "failure_codes": list(failures),
+        "legacy_result_contract": "M12.5-compatibility-metadata",
     }
     return UnrealSemanticVerificationResult(
         verifier_revision=VERIFIER_REVISION,
+        expectation_identity=identity,
+        expectation_digest=expectation_digest,
         task_identity=task.canonical_task_id,
         task_version=task.task_version,
         digital_twin_id=task.digital_twin_id,
+        catalog_entry_name=vocabulary.entry_name,
+        catalog_entry_version=vocabulary.entry_version,
+        vocabulary_digest=vocabulary.vocabulary_digest,
         plan_id=plan.plan_id,
         source_content_digest=plan.source_content_digest,
-        runtime_mapping_digest=runtime_mapping_digest,
-        required_invariant_names=tuple(task.target_state.to_invariant_names()),
+        plan_content_digest=identity["plan_content_digest"],
+        render_task=is_render_task_class(task.task_class),
+        required_invariant_names=tuple(sorted(task.target_state.to_invariant_names())),
         observation_identity=observation_identity,
-        observation_digests=tuple(observation_digests),
+        observation_digests=tuple(sorted(set(observation_digests))),
         render_job_identity=render_job_identity,
         render_attempt_identity=render_attempt_identity,
         render_evidence_identity=render_evidence_identity,
@@ -265,11 +353,11 @@ def _build_result(
         semantic_state=semantic_state,
         render_state=render_state,
         overall_state=overall_state,
+        outcome_reason_class=reason_class,
         failure_codes=failures,
         provenance=provenance,
+        runtime_mapping_digest=runtime_mapping_digest,
     )
-
-
 def _validate_plan_binding(
     task: UnrealProductionTaskDefinition,
     plan: UnrealExecutionPlan,
@@ -332,6 +420,19 @@ def _derive_runtime_mapping_digest(
     ).hexdigest()
 
 
+_R2A_BINDING_FAILURE_CODES = frozenset({
+    "IDENTITY_MISMATCH",
+    "EMPTY_REQUIRED_INVARIANT_SET",
+    "INCOMPLETE_REQUIRED_INVARIANT_SET",
+    "EXTRA_PLAN_VERIFICATION_REQUIREMENT",
+    "PLAN_RENDER_CLASSIFICATION_MISMATCH",
+    "PLAN_STEP_NOT_CANONICAL",
+    "EXPECTATION_VOCABULARY_MISMATCH",
+    "EXPECTATION_IDENTITY_MISMATCH",
+    "EXPECTATION_DIGEST_MISMATCH",
+})
+
+
 def _observation_result(
     task: UnrealProductionTaskDefinition,
     plan: UnrealExecutionPlan,
@@ -341,6 +442,7 @@ def _observation_result(
     required = tuple(task.target_state.to_invariant_names())
     render = "NOT_VERIFIED" if task.render_task else "NOT_REQUIRED"
     trust = "NOT_ESTABLISHED" if task.render_task else "NOT_APPLICABLE"
+    binding_failure = code in _R2A_BINDING_FAILURE_CODES
     return _build_result(
         task=task,
         plan=plan,
@@ -351,10 +453,12 @@ def _observation_result(
         render_attempt_identity=None,
         render_evidence_identity=None,
         render_trust=trust,
-        invariant_results=_invariant_results(required, code),
-        semantic_state="INVALID_OBSERVATION",
+        invariant_results=_invariant_results(
+            required, observation_identity=None, code=code
+        ),
+        semantic_state="NOT_ESTABLISHED" if binding_failure else "INVALID_OBSERVATION",
         render_state=render,
-        overall_state="UNKNOWN",
+        overall_state="NOT_ESTABLISHED" if binding_failure else "UNKNOWN",
         failure_codes=(code,),
     )
 
@@ -475,11 +579,13 @@ def verify_semantic_target(
                 "NOT_ESTABLISHED" if source_task.render_task else "NOT_APPLICABLE"
             ),
             invariant_results=_invariant_results(
-                source_task.target_state.invariant_names, "IDENTITY_MISMATCH"
+                source_task.target_state.invariant_names,
+                observation_identity=observation_identity,
+                code="IDENTITY_MISMATCH",
             ),
-            semantic_state="INVALID_OBSERVATION",
+            semantic_state="NOT_ESTABLISHED",
             render_state="NOT_VERIFIED" if source_task.render_task else "NOT_REQUIRED",
-            overall_state="UNKNOWN",
+            overall_state="NOT_ESTABLISHED",
             failure_codes=("IDENTITY_MISMATCH",),
         )
 
@@ -488,7 +594,8 @@ def verify_semantic_target(
     }
     invariant_results = _invariant_results(
         source_task.target_state.invariant_names,
-        "EXPECTED_VALUE_UNAVAILABLE",
+        observation_identity=observation_identity,
+        code="EXPECTED_VALUE_UNAVAILABLE",
     )
 
     render_job_identity = None

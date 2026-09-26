@@ -69,10 +69,29 @@ from planning.m12.target_state import (
     target_state_metadata,
     target_state_spec,
 )
+from planning.m12.expectation import (
+    DEFINITIONS_BY_NAME,
+    EXPECTATION_CONTRACT_REVISION,
+    EXPECTATION_VOCABULARY,
+    PRODUCTION_TARGET_BY_TASK,
+    PRODUCTION_TARGETS,
+    ReasonClass,
+    InvariantState,
+    SemanticState,
+    OverallState,
+    SemanticExpectationRefusal,
+    resolve_semantic_expectation,
+)
 from planning.m12.verification import (
     M12VerificationError,
     REGISTERED_INVARIANTS,
     verify_semantic_target,
+)
+from planning.m12.verification_result import (
+    InvariantVerificationResult,
+    ObservationIdentity,
+    EvidenceTrustBasis,
+    UnrealSemanticVerificationResult,
 )
 from planning.m12.verification_result import (
     EvidenceTrustBasis,
@@ -132,4 +151,16 @@ __all__ = [
     "ObservationIdentity",
     "EvidenceTrustBasis",
     "UnrealSemanticVerificationResult",
+    "EXPECTATION_CONTRACT_REVISION",
+    "EXPECTATION_VOCABULARY",
+    "DEFINITIONS_BY_NAME",
+    "PRODUCTION_TARGETS",
+    "PRODUCTION_TARGET_BY_TASK",
+    "ReasonClass",
+    "InvariantState",
+    "SemanticState",
+    "OverallState",
+    "SemanticExpectationRefusal",
+    "resolve_semantic_expectation",
 ]
+

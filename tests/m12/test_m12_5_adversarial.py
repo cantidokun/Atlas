@@ -1,3 +1,4 @@
+import pytest
 """Adversarial M12.5 v1 tests."""
 
 import inspect
@@ -72,13 +73,12 @@ def test_object_setattr_cannot_turn_result_into_a_positive_claim():
         plan=plan,
         observation_pairs=[_pair()],
     )
-    before_json = result.canonical_json()
-    before_digest = result.canonical_digest
     object.__setattr__(result, "semantic_state", "SATISFIED")
     object.__setattr__(result, "overall_state", "SATISFIED")
-    assert result.canonical_json() == before_json
-    assert result.canonical_digest == before_digest
-    assert result.canonical_dict["semantic_state"] == "UNKNOWN"
+    with pytest.raises(ValueError, match="SATISFIED"):
+        result.canonical_json()
+    with pytest.raises(ValueError):
+        _ = result.canonical_digest
 
 
 def test_free_form_metadata_cannot_be_promoted_to_expectation():
