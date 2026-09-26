@@ -1,33 +1,33 @@
 # Atlas
 
-> **Current-state reconciliation — September 24, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is architecture-frozen and paused immediately before implementation.**
+> **Current-state reconciliation — September 26, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is paused at the R16 implementation-gate adjudication point.**
 >
-> **Current functional main:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`. **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
+> **Functional implementation baseline:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`. **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
 >
-> The current M12.6 normative artifact is intentionally outside the repository while the final blind artifact review is pending:
-> `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`
+> **R16 artifact:** `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`
 >
-> **R8.1 as-is SHA-256:** `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`
-> **R8.1 self-recorded SHA-256:** `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`
+> **R16 exact SHA-256:** `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`
 >
-> R8.1 passed a separate-process two-round independent document review. R8.2 adjudicated all 16 supplied Review-B findings as closed with no textual change. The supplied Review-B set was later found to be 1:1 identical to Review A, so the last architecture-evidence step is **one genuinely blind independent review of the frozen R8.1 artifact itself**.
+> GLM returned **CLEAR** on fresh inspection of the exact R16 artifact. GPT-SOL-6 returned **BLOCKED** on one implementation-gate finding, **R16-1**, concerning Part XX case 8. The dispute is intentionally unresolved at this pause.
 >
 > Historical dated handoffs are archival. The authoritative restart surfaces are the current handoff files listed below.
 
 ## Active development checkpoint — September 24, 2026
 
-### M12.6 — R2-A ARCHITECTURE FROZEN / IMPLEMENTATION PAUSED
+### M12.6 — R2-A / R16 IMPLEMENTATION GATE PAUSED
 
-- Normative contract: **M12.6-R1-R8 / R8.1**.
-- R2-A remains **refusal-only**.
-- No production target values are registered.
-- SATISFIED / NOT_SATISFIED are not reachable in R2-A.
-- Runtime mapping is outside the R2-A contract.
-- R2-A invariant state is UNKNOWN only; MISSING is not produced.
-- Failure classification is row-keyed; resolver owns S1–S4; verifier owns S5–S6.
-- The final blind artifact review is the only remaining architecture-evidence gate before implementation.
-- After CLEAR, implementation starts from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`, not PR #142.
-- R2-B remains blocked.
+- Normative artifact: **M12.6-R1-R16**.
+- Exact external path: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`.
+- Exact SHA-256: `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`.
+- R16 closes the two R15 implementation-gate blockers: the full nine-case Part XX matrix and the self-locating `ARTIFACT_DIGEST_RULE`.
+- Artifact-local validation: **35 PASS / 0 FAIL**.
+- **GLM: CLEAR.**
+- **GPT-SOL-6: BLOCKED — R16-1.**
+- R16-1 concerns whether Part XX case 8 can actually reach S4 with the mandated consumer-facing tuple when the matrix common base requires a supplied expectation and S3 validation precedes S4 lookup.
+- Current status: **implementation paused pending targeted adjudication**.
+- No R17 artifact exists; no production code has been changed; PR #142 remains historical blocked evidence only.
+- Required next gate: literal case-8 execution-path adjudication. If invalid → preserve R16 byte-identically and proceed to human authorization. If valid → minimal R17 gate correction and fresh blind GLM + GPT-SOL-6 review.
+- After the contract reaches the required CLEAR + human authorization state, implementation starts from a fresh branch on the functional main baseline `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`, never from PR #142.
 
 ### M12.5 — V1 IMPLEMENTED / MERGED
 
