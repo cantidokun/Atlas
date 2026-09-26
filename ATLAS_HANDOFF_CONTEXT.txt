@@ -1,55 +1,50 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 24, 2026 CURRENT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 26, 2026 CURRENT CHECKPOINT
 
 CURRENT REPOSITORY:
-- main = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6 (PR #140 merge)
-- PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED
-- PR #142 head = 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc
+- Functional implementation baseline = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6 (PR #140 merge).
+- Current main may be ahead only by documentation-only checkpoints.
+- PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED.
+- PR #142 head = 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc.
 - No M12.6 implementation has been merged or authorized.
 
-M12.6 R2-A ARCHITECTURE:
-- Frozen contract: M12.6-R1-R8 / R8.1
-- External artifact: C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md
-- As-is SHA-256: 0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a
-- Self-recorded SHA-256: d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd
-- 2,721 lines / 241,161 bytes.
-- R8.1 passed a separate-process two-round independent document gate.
-- R8.2 delta found no textual change required; all 16 supplied Review-B findings were adjudicated CLOSED.
-- Important independence note: the supplied Review-B set was 1:1 identical to Review A, so it does not constitute a second independent R7 finding set.
-- R2-A is refusal-only. No production target values. No SATISFIED/NOT_SATISFIED path.
-- M12.5 remains the semantic-verdict owner. R2-B remains blocked.
-- Runtime mapping is outside R2-A.
-- R2-A invariant state is UNKNOWN only; MISSING is not produced.
-- Classifier is row-keyed; resolver owns S1-S4; verifier owns S5-S6.
+M12.6 R2-A — R16 GATE DISPUTE:
+- Exact artifact = C:UsersGavin's PCDesktopATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md
+- Revision = M12.6-R1-R16
+- Exact SHA-256 = 6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff
+- Size = 393,092 bytes / 3,696 lines
+- Self-recorded declaration digest = ddbe9dd056f77627eb1196fdad20969e1105c54e9a35d484af9617c29c8ea7c3
+- R16 remediates R15 implementation-gate blockers:
+  1. nine-case Part XX null-target matrix
+  2. self-locating ARTIFACT_DIGEST_RULE using the unique Artifact SHA-256 declaration field
+- Artifact-local validation reported 35 PASS / 0 FAIL.
 
-LAST ARCHITECTURE GATE BEFORE IMPLEMENTATION:
-- One genuinely blind independent review of the frozen R8.1 artifact itself.
-- Reviewer must receive only the artifact and exact SHA, with no prior review findings.
-- CLEAR -> authorize R2-A implementation from main 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6.
-- BLOCKED -> architecture-only correction.
-- Do not use PR #142 as the implementation base.
+INDEPENDENT REVIEW STATE:
+- GLM = CLEAR.
+- GPT-SOL-6 = BLOCKED on R16-1.
+- R16-1 concerns Part XX case 8: common-base supplied-expectation requirements versus S3-before-S4 stage precedence.
+- Current state = DISPUTED / IMPLEMENTATION PAUSED.
+- No adjudication has yet been accepted as authoritative.
 
-IMPLEMENTATION GATE AFTER CLEAR:
-- Part XXVI.3 row census
-- classifier totality
-- state-mapping totality
-- decisive-tuple coherence
-- runtime-mapping invariance
-- retirement censuses
-- exact 24-assertion compatibility set
-- independent digest reproduction
-- R8.1 landing/hash verification
-- exact-head CI before merge consideration
+NEXT ACTION:
+- Targeted adjudication of R16-1 using the literal R16 execution path.
+- Do not implement production code.
+- Do not modify PR #142.
+- Do not treat either review as dispositive without resolving the contradiction.
+
+ADJUDICATION OUTCOMES:
+- If R16-1 invalid: preserve R16 byte-identically -> human authorization -> fresh implementation branch from functional main 4897d9d...
+- If R16-1 valid: R16 remains blocked -> minimal R17 gate correction -> fresh blind GLM + GPT-SOL-6 review.
 
 OTHER TRACKS:
 - Blender = CLOSED / frozen for current contract.
-- Temporal = merged/live-gated/frozen.
+- Temporal = MERGED / LIVE-GATED / FROZEN.
 - M11 = FROZEN.
 - M12.1-M12.4 = COMPLETE / IMPLEMENTED.
 - M12.5 = IMPLEMENTED / MERGED; dedicated promotion gates remain separate.
 - M13.8/token optimization = PAUSED.
 - Older Unreal PR stack = selective integration only; no blanket merge.
-- Historical dated handoffs remain archival.
 
 WORKING RULE:
-- Start the next session from this file plus ATLAS_HANDOFF_CURRENT.md and UNREAL_AGENT_HANDOFF_CURRENT.md.
-- Do not infer completion from prior M12.5 CI/live workflow results; M12.6 implementation has not started.
+- Start the next session from ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, ATLAS_HANDOFF_CONTEXT.txt, and ATLAS_HANDOFF_2026-09-26_END_OF_NIGHT.md.
+- R16 remains an external artifact; its exact SHA is the review target.
+- No implementation starts until the review dispute is adjudicated and the appropriate human authorization gate is satisfied.
