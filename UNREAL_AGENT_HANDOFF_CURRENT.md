@@ -14,7 +14,7 @@
 
 ## M12.6 R2-A — R16 GATE DISPUTE / PAUSED
 
-- Exact contract artifact under review: **M12.6-R1-R16**.
+- Sole contract under review: **M12.6-R1-R16**.
 - Path: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`.
 - Exact SHA-256: `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`.
 - Size: **393,092 bytes / 3,696 lines**.
