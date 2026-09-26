@@ -1,3 +1,18 @@
+## 2026-09-26 — M12.6 R16 dual-review dispute / end-of-night pause
+
+- R16 was independently inspected at the exact artifact SHA `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`.
+- Artifact: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`; **3,696 lines / 393,092 bytes**.
+- R16 remediates the two R15 implementation-gate blockers: (1) the complete nine-case Part XX null-target matrix and (2) the self-locating `ARTIFACT_DIGEST_RULE` using the unique `Artifact SHA-256:` declaration field.
+- Artifact-local validation reported **35 PASS / 0 FAIL**.
+- Fresh **GLM** review: **CLEAR**; no architecture-semantic or implementation-gate blocker identified.
+- Fresh **GPT-SOL-6** review: **BLOCKED** on one implementation-gate finding, **R16-1**.
+- R16-1 targets **Part XX case 8**: GPT-SOL-6 found a potential execution-order contradiction between the matrix common base requiring a supplied expectation, S3 expectation validation, and the S4 target-table lookup required for the case-8 outcome.
+- No adjudication has been completed. The night ends at the exact R16 dispute, not at an implementation-ready state.
+- No M12.6 production implementation, PR #142 modification, implementation branch, or implementation commit was made.
+- Functional implementation baseline remains `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+- Next session: targeted literal adjudication of case 8. If the blocker is invalid, preserve R16 byte-identically and seek human authorization; if valid, produce the smallest R17 gate correction and repeat fresh GLM + GPT-SOL-6 review.
+- No Blender, Temporal, M11, M12.5, token-optimization, or historical-Unreal-PR development was reopened.
+
 ## 2026-09-24 — M12.6 R2-A architecture freeze / end-of-night pause
 
 - M12.6 R2-A architecture reached a frozen contract: M12.6-R1-R8 / R8.1.
