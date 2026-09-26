@@ -1,63 +1,49 @@
 # Unreal Agent Handoff — Current State
 
-> **Authoritative current checkpoint — September 24, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is architecture-frozen and paused before implementation**.
+> **Authoritative current checkpoint — September 26, 2026.**
+> M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged. **M12.6 R2-A is paused at the R16 implementation-gate adjudication point.**
 > This document is the operational Unreal-track handoff. Dated checkpoint text below remains archival provenance.
 
 ## Exact repository state
 
-- **main:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge).
+- Functional implementation baseline: `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge).
+- Current repository `main` after documentation-only checkpoints is newer than that functional baseline.
 - **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
 - **PR #142 head:** `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc`.
 - No M12.6 implementation has been merged or authorized.
 
-## M12.6 R2-A — ARCHITECTURE FROZEN / NEXT ACTION
+## M12.6 R2-A — R16 GATE DISPUTE / PAUSED
 
-- Sole contract: **M12.6-R1-R8 / R8.1**.
-- Frozen artifact: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`.
-- As-is SHA-256: `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`.
-- Self-recorded SHA-256: `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`.
-- 2,721 lines / 241,161 bytes.
-- R8.1 passed a separate-process two-round independent document gate: round 1 found two real blockers; both were corrected; round 2 returned CLEAR.
-- R8.2 adjudicated all 16 supplied Review-B findings CLOSED with no textual change.
-- **Independence caveat:** the supplied Review-B set was later found 1:1 identical to Review A, so that delta does not add a distinct second independent R7 finding set.
-- **Final architecture-evidence gate:** one genuinely blind independent review of the frozen R8.1 artifact, pinned to the exact SHA and supplied without prior review findings.
-- **CLEAR** from that blind review authorizes a fresh implementation branch from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
-- **BLOCKED** means architecture-only correction; no code work.
+- Exact contract artifact under review: **M12.6-R1-R16**.
+- Path: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`.
+- Exact SHA-256: `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`.
+- Size: **393,092 bytes / 3,696 lines**.
+- R16 self-recorded declaration digest: `ddbe9dd056f77627eb1196fdad20969e1105c54e9a35d484af9617c29c8ea7c3`.
+- R16 closes R15's two gate blockers: nine-case Part XX matrix and self-locating `ARTIFACT_DIGEST_RULE`.
+- Artifact-local validation: **35 PASS / 0 FAIL**.
 
-### R2-A invariants to preserve
+### Dual-review state
 
-- refusal-only;
-- no production target values;
-- no positive SATISFIED/NOT_SATISFIED path;
-- M12.5 remains semantic-verdict owner;
-- runtime mapping is outside the R2-A contract;
-- invariant_state UNKNOWN only; MISSING not produced;
-- row-keyed failure classifier;
-- resolver S1-S4 / verifier S5-S6 ownership;
-- first failing stage decides;
-- R2-B remains blocked.
+- **GLM: CLEAR.**
+- **GPT-SOL-6: BLOCKED — R16-1.**
 
-## Resume sequence
+R16-1 targets Part XX case 8. GPT-SOL-6's claim is that the matrix common base requires a supplied expectation, while the normative S3 expectation-validation path can decide/fail before the S4 target-table lookup required to produce case 8's `PRODUCTION_TARGET_NOT_ESTABLISHED` tuple.
 
-```text
-frozen R8.1 artifact
-        ↓
-one blind independent artifact review
-        ↓
-CLEAR
-        ↓
-fresh R2-A implementation branch from main 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6
-        ↓
-R8.1 Part XXVI.3 implementation gate
-        ↓
-exact-head deterministic CI
-        ↓
-independent implementation red-team
-        ↓
-merge consideration
-```
+This dispute is the sole current blocker. Do not implement, patch PR #142, or generate production code until the execution path is adjudicated from the literal R16 contract.
 
-No live Unreal execution is part of the immediate next step.
+### Required next gate
+
+Perform a **targeted case-8 adjudication** against the exact R16 bytes. The adjudication must establish whether the case can actually construct the mandated consumer-facing tuple under all stated preconditions and stage-precedence rules.
+
+- If the blocker is **invalid**: preserve R16 byte-identically and proceed to human authorization of the exact R16 SHA.
+- If the blocker is **valid**: keep R16 blocked, make the smallest gate-only correction as R17, then repeat fresh blind GLM + GPT-SOL-6 review.
+
+### Implementation boundary
+
+When and only when the architecture contract reaches the required CLEAR + human authorization state, create the implementation branch from the functional main baseline `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+
+**Never use PR #142 as the implementation base.**
+**No live Unreal execution is part of the current adjudication step.**
 
 ## M12.5 V1 — IMPLEMENTED / MERGED
 
