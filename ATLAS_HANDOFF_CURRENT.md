@@ -1,14 +1,15 @@
 # Atlas Current Development Handoff
 
-> **Authoritative current-state reconciliation — September 24, 2026.**
+> **Authoritative current-state reconciliation — September 26, 2026.**
 >
-> **STATUS: M12.6 R2-A ARCHITECTURE FROZEN / INDEPENDENTLY GATED / IMPLEMENTATION NOT STARTED**
-> **Main:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge). **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
-> **M12.6 normative contract:** R1 Revision 8 / R8.1, frozen outside the repository pending one final blind artifact review.
+> **STATUS: M12.6 R1 R16 IMPLEMENTATION-GATE REVIEW DISPUTE — PAUSED FOR NIGHT**
+> **Functional implementation baseline:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge). **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
+> **M12.6 R16 artifact:** reviewed on exact SHA, but not yet authorized for implementation because GLM returned CLEAR while GPT-SOL-6 identified one implementation-gate blocker (R16-1). Targeted adjudication is pending.
 >
-> This is a documentation/process pause. No M12.6 implementation, PR #142 modification, branch, commit, or CI change was made during the architecture cycle.
+> This is a documentation/process pause. No M12.6 production implementation, PR #142 modification, implementation branch, or implementation commit was made during this checkpoint.
 
 ## Blender track — CLOSED for the current declared contract
+
 
 Main now includes the final Blender discovery/closure records:
 - PR #125 — next-capability discovery — merged;
@@ -95,48 +96,73 @@ State Extraction Fidelity v1 is no longer a future gate.
 - Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
 - Residual cases remain explicitly classified; none is promoted to a false live pass.
 
-## M12.6 — R2-A ARCHITECTURE FROZEN / PAUSED FOR THE NIGHT
+## M12.6 — R2-A / R16 IMPLEMENTATION GATE PAUSED
 
-M12.6 Semantic Expectation Resolution R2-A is now at a frozen architecture checkpoint.
+### Exact artifact under review
 
-- **Normative artifact:** `M12.6-R1-R8 / R8.1`
-- **Artifact path:** `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md`
-- **As-is SHA-256:** `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`
-- **Self-recorded SHA-256:** `d5ea5d537a574212c61cf910af99936f444a9f2b68316fbe14a16a072215b0dd`
-- **Size:** 2,721 lines / 241,161 bytes.
-- **Repository status:** the R8.1 artifact is intentionally not landed in `main` yet; the external frozen artifact is the current implementation contract.
-- **R8.1 independent gate:** separate-process two-round document review completed; round 1 found two real textual blockers, both corrected; round 2 returned CLEAR.
-- **R8.2 Review-B delta:** all 16 supplied findings were adjudicated CLOSED; no textual change was required.
-- **Independence limitation:** the supplied Review-B set was later found 1:1 identical to Review A, so no second independent R7 finding set remains in that delta.
-- **PR #142:** head `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc`, draft/open, BLOCKED and unmerged; never use it as the implementation base.
-- **R2-A scope:** refusal-only; no production target values; no positive SATISFIED/NOT_SATISFIED path; M12.5 remains semantic-verdict owner; R2-B remains blocked.
+- Revision: **M12.6-R1-R16**
+- Artifact: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`
+- Exact SHA-256: `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`
+- Size: **393,092 bytes / 3,696 lines**
+- Self-recorded declaration digest: `ddbe9dd056f77627eb1196fdad20969e1105c54e9a35d484af9617c29c8ea7c3`
+- Functional implementation base remains **main @ `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`**.
+- PR #142 remains historical blocked evidence only and is **not** an implementation base.
 
-### R8.1 decisions to preserve
+### R16 remediation status
 
-- R2-A invariant state: `UNKNOWN` only; `MISSING` is not produced in R2-A.
-- Runtime mapping is outside the R2-A contract; rows 34/35 are retired.
-- Failure classification is row-keyed; no code-keyed classifier exists.
-- Resolver owns S1–S4; verifier owns S5–S6; first failing stage decides.
-- `deciding_stage` and `primary_failure_code` are canonical result members.
-- `semantic_state` and `overall_state` mappings are normative.
-- Closed digest/schema recipes are exact and independently reproducible.
-- Historical compatibility statements are quarantined in explicit records.
-- No M12.6 R2-B capability is authorized.
+R16 was produced specifically to close the two R15 implementation-gate blockers:
 
-### Final architecture resume gate
+1. **Nine-case null-target matrix** added to Part XX, including the full input/boundary/owner/stage/code/state/constructibility tuples and the R2-A/R2-B controls.
+2. **ARTIFACT_DIGEST_RULE** changed to a self-locating declaration-field rule using the unique `Artifact SHA-256:` field, excluding predecessor/historical SHA values.
 
-Before implementation begins, perform **one genuinely blind independent review of the frozen R8.1 artifact itself**, using the exact as-is SHA above and supplying no prior review findings.
+Artifact-local validation reported **35 PASS / 0 FAIL**, including declaration-field digest reproduction and two-independent-implementation agreement.
 
-Required outcome:
+### Independent review state
 
-`CLEAR` → authorize R2-A implementation from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+Two review inputs exist for the exact R16 SHA:
 
-`BLOCKED` → architecture-only correction; no implementation.
+- **GLM:** **CLEAR**. Fresh inspection of the 3,696-line artifact; no architecture-semantic or implementation-gate blocker found.
+- **GPT-SOL-6:** **BLOCKED** on one implementation-gate finding: **R16-1**.
 
-Once CLEAR, the implementation gate must run against R8.1 exactly: Part XXVI.3 row census, classifier totality, state-mapping totality, decisive-tuple coherence, runtime-mapping invariance, retirement censuses, exact 24-assertion compatibility set, digest reproduction, and landing/hash verification.
+The GPT-SOL-6 finding is specifically about **Part XX case 8** of the nine-case null-target matrix. The finding says the case requires a supplied expectation under the matrix common base, but the normative S3 expectation-validation path can fail before the S4 resolver target-table lookup that case 8 says should produce `PRODUCTION_TARGET_NOT_ESTABLISHED`. Therefore GPT-SOL-6 judged the mandated case-8 consumer-facing tuple unreachable as written.
 
+GLM did not identify this as a blocker. **No adjudication has yet been accepted as authoritative.**
 
-### M12.5 — V1 IMPLEMENTED / MERGED / PAUSED FOR THE NIGHT
+### Exact pause point
+
+The next action is **targeted adjudication of R16-1**, not implementation.
+
+Adjudication must determine whether:
+
+- case 8 is genuinely constructible under all of its stated preconditions and stage-precedence rules; or
+- case 8 is internally unreachable and requires the smallest gate-only R17 correction.
+
+No R17 artifact exists yet. No implementation is authorized.
+
+### Resume gate
+
+**A. If R16-1 is invalid:**
+1. record the adjudication;
+2. preserve R16 byte-identically;
+3. proceed to human authorization of the exact R16 SHA;
+4. only then create a fresh M12.6 R2-A implementation branch from the functional main baseline.
+
+**B. If R16-1 is valid:**
+1. keep R16 blocked;
+2. make only the minimal architecture/gate correction needed for case 8;
+3. produce a new exact artifact (R17);
+4. send R17 through fresh blind GLM + GPT-SOL-6 review;
+5. do not implement before both required independent reviews are clear.
+
+### Explicit prohibitions
+
+- Do **not** resume implementation from PR #142.
+- Do **not** patch production code while case 8 is unresolved.
+- Do **not** treat the GLM CLEAR as sufficient to override GPT-SOL-6 without adjudication.
+- Do **not** change the R16 artifact merely to make the reviewer dispute disappear without first establishing the normative execution path.
+- Do **not** reopen Blender, Temporal, M11, M12.5, or token-optimization work as part of this gate.
+
+## M12.5 — V1 IMPLEMENTED / MERGED / PAUSED FOR THE NIGHT
 
 M12.5 — Unreal Semantic Evidence Verification v1 — has crossed the architecture gate and the first implementation gate.
 
