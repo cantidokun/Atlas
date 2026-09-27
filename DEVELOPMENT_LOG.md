@@ -1,3 +1,22 @@
+## 2026-09-27 — M12.6 R2-B REV4 end-of-night pause
+
+- R2-A remains **LANDED / INDEPENDENTLY REVIEWED / CI-GREEN** under the frozen R25 contract. Its implementation SHA is 7b591445d1a11e0ae181330fafaf0956d6cebdbb; PR #143 merge commit is e9a572c2104153285b1139d7dc09d1e9acd479ac.
+- Current main for the documentation checkpoint is 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144 documentation-only merge).
+- R2-B REV3 was reviewed independently: **GLM CLEAR / GPT-SOL-6 BLOCKED**. GPT identified three surgical blockers: the SATISFIED deciding-stage contradiction, the mutation+recomputed-digest closure gap, and the evidence_source_class authority/input ambiguity.
+- Hermes authored REV4 to close those three findings:
+  1. SATISFIED now requires deciding_stage = null; only S6 evaluated mismatch requires S6.
+  2. Positive render serialization/digest requires a live, non-transferable in-process **positive-claim authority (PCA)** that re-establishes the complete H1-H5 chain from trusted inputs. A mutated/re-digested object cannot substitute for PCA.
+  3. evidence_source_class is derived internally from H3, not accepted as an authority-bearing caller label, and must equal M5's validated class.
+- REV4 artifact: C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md.
+- REV4 SHA-256: 6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d.
+- REV4 declaration self-digest: 7e2a2012b019300ef58e8514ebf2f67bb064b21aa1b003930a3e3c1798158581.
+- REV4 size: **126,805 bytes / 1,410 lines**, LF-only, no trailing newline.
+- Hermes reports its seven mandated REV4 self-audits as PASS and expanded the adversarial matrix from 34 to **41** cases.
+- **No production code, tests, implementation branches, or PR #142 changes were made.**
+- Implementation remains **NOT AUTHORIZED**.
+- Required next gate: fresh blind GLM + GPT-SOL-6 review of the exact REV4 SHA, with primary scrutiny of PCA authority under mutation/re-digestion, cloning/transfer, detached reconstruction, and stale-provenance cases.
+- Unresolved human-gate items remain U1/U6/U7 plus explicit disposition of the four cited rider decisions (U5, two-value verifier_revision set, PCA revalidation cost, ENGINE_LIVE-positive policy).
+- No Blender, Temporal, M11, M12.5, or unrelated Unreal PR work was reopened.
 ## 2026-09-27 — M12.6-R2-A refusal-only machinery: reviewed head landed (PR #143)
 
 - **Landed implementation:** commit `7b591445d1a11e0ae181330fafaf0956d6cebdbb` (tree `4f84f832b5e59d1fa8f47eecc382122a631faeb1`) via PR **#143**; merge commit
