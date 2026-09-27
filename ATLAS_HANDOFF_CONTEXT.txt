@@ -1,55 +1,50 @@
 ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 27, 2026 CURRENT CHECKPOINT
 
 CURRENT REPOSITORY:
-- main = e9a572c2104153285b1139d7dc09d1e9acd479ac (PR #143 merge, 2026-09-27).
-- Functional implementation baseline before this landing = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6 (PR #140 merge).
-- M12.6-R2-A is LANDED: implementation commit 7b591445d1a11e0ae181330fafaf0956d6cebdbb (tree 4f84f832b5e59d1fa8f47eecc382122a631faeb1).
-- PR #143 = MERGED (merge commit e9a572c2104153285b1139d7dc09d1e9acd479ac); PR head was never amended/rebased/squashed.
-- PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED (head 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc) — historical, untouched.
+- main = 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144 documentation-only merge, 2026-09-27).
+- Functional implementation baseline before M12.6 R2-A = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6.
+- M12.6-R2-A is LANDED: 7b591445d1a11e0ae181330fafaf0956d6cebdbb (tree 4f84f832b5e59d1fa8f47eecc382122a631faeb1), via PR #143 merge e9a572c2104153285b1139d7dc09d1e9acd479ac.
+- PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED, head 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc — historical, untouched.
+- No R2-B implementation has been merged or authorized.
 
-M12.6-R2-A — LANDED STATE:
-- Contract = C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md
-- Contract SHA-256 = 8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8
-- Declaration-field self-digest = e80a4398db4816310720139e61b9772d6fa92615e25a23f017a4a0311b5ec5fa
-- Independent implementation gate = GLM CLEAR + GPT-SOL-6 CLEAR (human attestation, not author-verified)
-- CI = Atlas Tests (3.9 + 3.11) green on the exact landed head; live Blender live-engine jobs skipped/queued
-  because the self-hosted engine runner atlas-local is offline (environment-only).
-- Evidence = focused R2-A 96 PASS / 0 FAIL; tests/m12 486 passed; full deterministic suite 4442 passed,
-  132 skipped, 0 failed.
-- Landed behaviour = no render-evidence input; rows 32/42/43/44 unconditional; rows 36/37 unreachable; no M5
-  provenance consumption; DURABLE_RECORD_BACKED R2-B-only; render identities null; render_state NOT_VERIFIED.
-- Deferred and NOT started (R2-B) = render-evidence provenance and the M5→M12 provenance gate, target
-  population/registration, positive semantic verification, receipts.
-- Landed implementation commit now in main: 7b591445d1a11e0ae181330fafaf0956d6cebdbb
+M12.6-R2-A — LANDED / FROZEN:
+- Sole contract = R25; SHA-256 = 8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8.
+- Independent implementation review = GLM CLEAR + GPT-SOL-6 CLEAR.
+- Evidence = focused R2-A 96 PASS / 0 FAIL; tests/m12 486 passed; full deterministic suite 4442 passed / 132 skipped / 0 failed.
+- R2-A remains refusal-only: no render-evidence input; rows 32/42/43/44 unconditional for render-bearing inputs; rows 36/37 unreachable; no M5 provenance consumption; DURABLE_RECORD_BACKED R2-B-only; render identities null; render_state NOT_VERIFIED.
 
-M12.6 R2-A — R16 GATE DISPUTE:
-- Exact artifact = C:\\Users\\Gavin's PC\\Desktop\\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md
-- Revision = M12.6-R1-R16
-- Exact SHA-256 = 6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff
-- Size = 393,092 bytes / 3,696 lines
-- Self-recorded declaration digest = ddbe9dd056f77627eb1196fdad20969e1105c54e9a35d484af9617c29c8ea7c3
-- R16 remediates R15 implementation-gate blockers:
-  1. nine-case Part XX null-target matrix
-  2. self-locating ARTIFACT_DIGEST_RULE using the unique Artifact SHA-256 declaration field
-- Artifact-local validation reported 35 PASS / 0 FAIL.
+M12.6-R2-B — REV4 CURRENT PAUSE:
+- External artifact = C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md
+- Revision = M12.6-R2B-REV4
+- Exact SHA-256 = 6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d
+- Declaration self-digest = 7e2a2012b019300ef58e8514ebf2f67bb064b21aa1b003930a3e3c1798158581
+- Size = 126,805 bytes / 1,410 lines; LF-only; no trailing newline.
+- REV1/REV2/REV3 are historical, superseded, and byte-identical predecessors.
+- REV4 is not yet implementation-authorized.
+- Hermes self-audit = seven mandated checks PASS.
+- REV3 historical independent review = GLM CLEAR / GPT-SOL-6 BLOCKED; REV4 was authored to close all three GPT blockers.
+- Fresh REV4 GLM review = PENDING.
+- Fresh REV4 GPT-SOL-6 review = PENDING.
 
-INDEPENDENT REVIEW STATE:
-- GLM = CLEAR.
-- GPT-SOL-6 = BLOCKED on R16-1.
-- R16-1 concerns Part XX case 8: common-base supplied-expectation requirements versus S3-before-S4 stage precedence.
-- Current state = DISPUTED / IMPLEMENTATION PAUSED.
-- No adjudication has yet been accepted as authoritative.
+REV4 CLOSED THE THREE REV3 BLOCKERS:
+1. SATISFIED => deciding_stage null; S6 evaluated mismatch => deciding_stage S6; both rowless.
+2. Positive render serialization/digest requires a live, non-transferable in-process positive-claim authority (PCA) that re-establishes H1-H5 from trusted source inputs; mutation plus recomputed result_digest is insufficient.
+3. evidence_source_class is derived internally from H3, compared to M5's validated class, and is not a caller authority input.
 
-NEXT ACTION:
-- Targeted adjudication of R16-1 using the literal R16 execution path.
-- Do not implement production code.
-- Do not modify PR #142.
-- Do not treat either review as dispositive without resolving the contradiction.
+REV4 ADDITIONS:
+- adversarial matrix expanded 34 -> 41 attacks;
+- route discriminator retained: R2-A m12.6-v1 / R2-B m12.6-r2b-v1;
+- exact render-evidence identity recipe remains non-circular;
+- ten-field journal-HMAC boundary preserved;
+- H1 remains genuinely read-only; durable-record digest is explicitly recomputed on reconstruction;
+- U1/U6/U7 remain unresolved gate items.
 
-ADJUDICATION OUTCOMES:
-- If R16-1 invalid: preserve R16 byte-identically -> human authorization -> fresh implementation branch from functional main.
-- If R16-1 valid: R16 remains blocked -> minimal R17 gate correction -> fresh blind GLM + GPT-SOL-6 review.
-
+NEXT SESSION:
+- Run fresh blind GLM + GPT-SOL-6 reviews of exact REV4 SHA.
+- Make the PCA mutation/copy/transfer/detached-reconstruction attack the primary test.
+- Do not implement R2-B until both reviews are CLEAR and the required human-gate/rider items are explicitly dispositioned.
+- Do not modify PR #142, R25, or the landed R2-A implementation.
+- Read current-state surfaces first: ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, ATLAS_HANDOFF_CONTEXT.txt, and ATLAS_HANDOFF_2026-09-27_END_OF_NIGHT.md.
 OTHER TRACKS:
 - Blender = CLOSED / frozen for current contract.
 - Temporal = MERGED / LIVE-GATED / FROZEN.
