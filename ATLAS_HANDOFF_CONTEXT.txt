@@ -55,6 +55,8 @@ OTHER TRACKS:
 - Older Unreal PR stack = selective integration only; no blanket merge.
 
 WORKING RULE:
-- Start the next session from ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, ATLAS_HANDOFF_CONTEXT.txt, and ATLAS_HANDOFF_2026-09-26_END_OF_NIGHT.md.
-- R16 remains an external artifact; its exact SHA is the review target.
-- No implementation starts until the review dispute is adjudicated and the appropriate human authorization gate is satisfied.
+- Start the next session from ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, ATLAS_HANDOFF_CONTEXT.txt, and ATLAS_HANDOFF_2026-09-27_END_OF_NIGHT.md.
+- REV4 is the current external R2-B design candidate; its exact SHA is 6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d.
+- Fresh blind GLM + GPT-SOL-6 review is the next gate. Primary adversarial target is PCA authority under mutation/re-digestion, copying/transfer, detached reconstruction, and stale-provenance reuse.
+- No R2-B implementation starts until both fresh reviews are CLEAR and the required human-gate/rider items are explicitly dispositioned.
+- Do not modify PR #142, R25, or the landed R2-A implementation during this gate.
