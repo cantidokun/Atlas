@@ -6,7 +6,7 @@
 
 ## Exact repository state
 
-- Current main: 2b39acb005e406f4f992531257b6ff3d82852ee8 (documentation-only merge after PR #144).
+- Documentation checkpoint base: main @ 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144); this pause adds documentation only.
 - Functional implementation baseline before M12.6 R2-A: 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6.
 - M12.6 R2-A landed implementation: 7b591445d1a11e0ae181330fafaf0956d6cebdbb; PR #143; merge commit e9a572c2104153285b1139d7dc09d1e9acd479ac.
 - **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED; head 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc; historical and untouched.
