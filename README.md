@@ -2,7 +2,7 @@
 
 > **Current-state reconciliation — September 27, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is landed and M12.6 R2-B is now paused at the REV4 independent-review gate.**
 >
-> **Current main:** 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144 documentation-only merge).
+> **Documentation checkpoint base:** main @ 2b39acb005e406f4f992531257b6ff3d82852ee8. This pause adds documentation only; production implementation state is unchanged.
 >
 > **Landed M12.6 R2-A:** 7b591445d1a11e0ae181330fafaf0956d6cebdbb via PR #143; merge commit e9a572c2104153285b1139d7dc09d1e9acd479ac.
 >
