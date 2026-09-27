@@ -1365,6 +1365,10 @@ R2A_UNREACHABLE_STATES = {
 #: two sets are the whole render decision.
 R2A_RENDER_ROWS = frozenset({32, 42, 43, 44})
 R2A_UNREACHABLE_RENDER_ROWS = frozenset({36, 37})
+#: The S4-stage row set, derived from the frozen Part XV table so that the R2 coherence rule tests stage
+#: MEMBERSHIP rather than numeric row order (XIV.3.1). One authoritative source: no hand-listed row numbers and
+#: no second stage map.
+R2A_S4_STAGE_ROWS = frozenset(row[0] for row in PART_XV_ROWS if row[2] == "S4")
 R2A_UNREACHABLE_RENDER_TOKENS = frozenset({
     "RENDER_EVIDENCE_NOT_INDEPENDENTLY_VERIFIED",   # row 36
     "RENDER_JOB_TWIN_MISMATCH",                     # row 37
@@ -1426,17 +1430,19 @@ def validate_render_derivations(members: Mapping[str, Any], applicable_rows: Seq
             "render_task contradicts the applicable render rows (XIV.4.6, Part XVII item 6): "
             f"rows {sorted(R2A_RENDER_ROWS & rows)} require render_task=True, got {render_task!r}"
         )
-    # R2 (XIV.3.1 stage semantics): when the decision is made at S4 - the stage of the lowest-numbered applicable
-    # row - a render-bearing input carries the render rows unconditionally; an S1/S2/S3 preemption carries none,
-    # which is why the rule is not applied there.
-    if render_task is True and not R2A_RENDER_ROWS <= rows:
-        stages = {row[0]: row[2] for row in PART_XV_ROWS}
-        applicable = sorted(row for row in rows if row in stages)
-        if applicable and stages[applicable[0]] == "S4":
-            raise M126ContractError(
-                "an S4 decision for a render-bearing input requires rows 32/42/43/44 (XIV.3.1, "
-                f"Part XVII item 6): missing {sorted(R2A_RENDER_ROWS - rows)}"
-            )
+    # R2 (XIV.3.1, Part XVII item 6): rows 3/6/22 are S4-stage rows and the resolver evaluates them in the same
+    # stage in which it adds the render rows, so a render-bearing result that carries ANY S4-stage row proves the
+    # S4 dimension was evaluated and therefore requires rows 32/42/43/44. The test is stage MEMBERSHIP in the
+    # frozen Part XV table - never numeric row ordering - so a pure S1/S2/S3 preemption (which carries no S4-stage
+    # row) is deliberately unconstrained, while a mixture such as (1, 3) or (13, 3) is refused even though an
+    # earlier stage decides it. The wording names the authoritative deciding stage.
+    if render_task is True and (R2A_S4_STAGE_ROWS & rows) and not R2A_RENDER_ROWS <= rows:
+        deciding_stage = decisive_outcome(tuple(sorted(rows))).deciding_stage
+        raise M126ContractError(
+            "an S4-stage row is present for a render-bearing input, which requires rows 32/42/43/44 "
+            f"(XIV.3.1, Part XVII item 6): deciding stage {deciding_stage!r}, S4-stage rows "
+            f"{sorted(R2A_S4_STAGE_ROWS & rows)}, missing {sorted(R2A_RENDER_ROWS - rows)}"
+        )
 
 
 R2A_UNREACHABLE_TOKENS = frozenset(

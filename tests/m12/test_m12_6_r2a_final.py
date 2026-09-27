@@ -803,6 +803,120 @@ def test_r25_r1_r2_hold_at_serialization_after_mutation_and_under_bypass_init():
         bypass.canonical_dict()
 
 
+# --------------------------------------------------------------- R25 R2 stage membership (not numeric order)
+
+
+def _r2_rejection_text(members, rows):
+    """Return the R2 refusal text for `rows`, or '' when the rule accepts (isolates R2 from other layers)."""
+    try:
+        ex.validate_render_derivations(members, rows)
+    except ex.M126ContractError as exc:
+        return str(exc)
+    return ""
+
+
+def _members_for(rows, base):
+    """Members made coherent with `rows` through the module's own derived-field machinery.
+
+    The nested trust basis is an immutable mapping because the result object refuses a mutable canonical
+    member - a plain dict here would mask the rule under test with the immutability rule instead.
+    """
+    from types import MappingProxyType
+
+    outcome = ex.decisive_outcome(tuple(sorted(rows)))
+    semantic_state, overall_state = ex.map_states(outcome.deciding_stage, outcome.reason_class)
+    return dict(base, render_task=True, render_state="NOT_VERIFIED",
+                evidence_trust_basis=MappingProxyType({"semantic_observation": "NOT_ESTABLISHED",
+                                                      "render_evidence": "NOT_ESTABLISHED"}),
+                deciding_stage=outcome.deciding_stage, primary_failure_code=outcome.primary_code,
+                failure_codes=outcome.failure_codes, outcome_reason_class=outcome.reason_class,
+                semantic_state=semantic_state, overall_state=overall_state)
+
+
+def test_r25_r2_rejects_any_s4_stage_row_without_the_render_rows():
+    """R2 is decided by Part XV stage membership, so an S4-stage row mixed with an earlier-stage row is
+    rejected regardless of where the row numbers happen to sort."""
+    base = _plain_members()[0]
+    cases = ((1, 3), (3, 1), (1, 22), (22, 1), (13, 3), (3, 13), (9, 22), (22, 9),
+             (3, 6, 22, 28), (28, 22, 6, 3), (1, 6), (13, 22))
+    for rows in cases:
+        text = _r2_rejection_text(_members_for(rows, base), rows)
+        assert text, f"{rows} must be refused"
+        assert "32/42/43/44" in text, (rows, text)
+        assert "deciding stage" in text, (rows, text)     # the wording uses the authoritative stage mechanism
+        with raises(ex.M126ContractError):
+            _trusted(_members_for(rows, base), rows)
+    # the diagnostic must name the authoritative deciding stage, not a numeric-order accident
+    text = _r2_rejection_text(_members_for((3, 6, 22, 28), base), (3, 6, 22, 28))
+    assert "deciding stage 'S1'" in text, text
+    assert "deciding stage 'S4'" in _r2_rejection_text(_members_for((3, 6, 22), base), (3, 6, 22))
+
+
+def test_r25_r2_accepts_pure_preemption_and_valid_render_row_sets():
+    """Only the presence of an S4-stage row triggers R2: pure S1/S2/S3 preemptions and valid render sets pass."""
+    base = _plain_members()[0]
+    for rows in ((1,), (13,), (28,), (9,), (1, 13), (1, 28), (13, 28), (9, 13, 28)):
+        assert not _r2_rejection_text(_members_for(rows, base), rows), rows
+        assert _trusted(_members_for(rows, base), rows).canonical_dict()
+    render_base = _render_members()[0]
+    for rows in ((3, 6, 22, 32, 42, 43, 44), (32, 42, 43, 44)):
+        assert not _r2_rejection_text(_members_for(rows, render_base), rows), rows
+        assert _trusted(_members_for(rows, render_base), rows).canonical_dict()
+
+
+def test_r25_r1_still_refuses_render_rows_with_a_non_render_classification():
+    """The R1 companion rule is unchanged by the stage-order remediation."""
+    base = _plain_members()[0]
+    for rows in ((3, 6, 22, 32, 42, 43, 44), (32,), (44,), (3, 32)):
+        members = dict(_members_for(rows, base), render_task=False, render_state="NOT_REQUIRED",
+                       evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                             "render_evidence": "NOT_APPLICABLE"})
+        text = _r2_rejection_text(members, rows)
+        assert "require render_task=True" in text, (rows, text)
+    # an S4-only render-bearing set without the render rows is refused by R2, not by the ordering accident
+    with raises(ex.M126ContractError):
+        _trusted(_members_for((3, 6, 22), base), (3, 6, 22))
+
+
+def test_r25_r2_adversarial_row_sets_are_semantic_not_positional():
+    """Reordering, duplication and malformed identifiers must not change the verdict."""
+    base = _plain_members()[0]
+    for rows in ((3, 3, 1, 1), (1, 1, 3, 3), (22, 1, 22, 1)):
+        assert _r2_rejection_text(_members_for(rows, base), rows), rows
+    for rows in ((32, 32, 42, 42, 43, 43, 44, 44), (44, 43, 42, 32)):
+        assert not _r2_rejection_text(_members_for(rows, _render_members()[0]), rows), rows
+    for rows in ((99,), (1, 99), (0,)):                    # undeclared identifiers die in the authoritative lookup
+        with raises(ex.M126ContractError):
+            _trusted(dict(base, render_task=True, render_state="NOT_VERIFIED",
+                          evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                                "render_evidence": "NOT_ESTABLISHED"}), rows)
+    with raises(ex.M126ContractError):                     # an empty row set is never a result
+        _trusted(base, ())
+
+
+def test_r25_r2_stage_membership_is_revalidated_at_serialization_after_mutation():
+    """Mutation of the row set (with coherent derived members) is refused at serialization for every
+    S4-stage mixture, while the pure preemption sets survive serialization."""
+    from types import MappingProxyType
+
+    render_base = _render_members()[0]
+    for rows in ((1, 3), (1, 22), (13, 3), (3, 6, 22, 28), (9, 22)):
+        result = ex.verify_semantic_target_r2a(*_render_task_and_plan())
+        assert result.canonical_dict()
+        object.__setattr__(result, "applicable_rows", tuple(sorted(set(rows))))
+        object.__setattr__(result, "members", MappingProxyType(_members_for(rows, render_base)))
+        with raises(ex.M126ContractError):
+            result.canonical_dict()
+        with raises(ex.M126ContractError):
+            result.result_digest
+    for rows in ((1,), (13,), (28,)):
+        result = ex.verify_semantic_target_r2a(*_render_task_and_plan())
+        object.__setattr__(result, "applicable_rows", tuple(sorted(set(rows))))
+        object.__setattr__(result, "members", MappingProxyType(_members_for(rows, render_base)))
+        assert result.canonical_dict()
+        assert result.result_digest
+
+
 # --------------------------------------------------------------- B9: structural assertions
 
 
