@@ -1,3 +1,30 @@
+## 2026-09-27 — M12.6-R2-A refusal-only machinery: reviewed head landed (PR #143)
+
+- **Landed implementation:** commit `7b591445d1a11e0ae181330fafaf0956d6cebdbb` (tree `4f84f832b5e59d1fa8f47eecc382122a631faeb1`) via PR **#143**; merge commit
+  `e9a572c2104153285b1139d7dc09d1e9acd479ac`; resulting `main` is the merge commit. The PR head was not amended, rebased or squashed, so the
+  landed commit is byte-for-byte the reviewed commit.
+- **Normative authority:** `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md`, SHA-256
+  `8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8`; declaration-field self-digest `e80a4398db4816310720139e61b9772d6fa92615e25a23f017a4a0311b5ec5fa`. R25 was not modified by this landing.
+- **Independent implementation gate:** GLM **CLEAR** and GPT-SOL-6 **CLEAR** on the exact implementation SHA
+  (the human gate's attestation; not author-verified here).
+- **Evidence at the landed SHA:** focused R2-A suite **96 PASS / 0 FAIL** (pinned CPython 3.11.16, pytest-free
+  runner); `tests/m12` **486 passed**; full deterministic suite **4442 passed / 132 skipped / 0 failed**;
+  deterministic CI (Atlas Tests 3.9 + 3.11) **green** on that exact head.
+- **CI detail:** the live Blender live-engine jobs were skipped or left queued — the only self-hosted engine
+  runner (`atlas-local`) is **offline**. Environment-only; no implementation-regression failure.
+- **Design chain:** R16 → R17 → R18 → R19 (Option C) → R20 → R21 → R22 → R23 → R24 → R25; every step the
+  smallest normative-document-only correction, all frozen artifacts retained as history.
+- **Implementation-gate adjudications closed before landing:** the M5 render-evidence forgery boundary; the
+  `render_state` / `evidence_trust_basis` derivations and the closed four-member vocabulary; the `render_task`
+  ↔ render-row coherence rule (R1); the S4-stage row-membership rule (R2). Each was demonstrated red against the
+  frozen predecessor commit and green on the remediated commit before the next review round.
+- **Landed behaviour:** no render-evidence input; rows 32/42/43/44 unconditional for render-bearing inputs;
+  rows 36/37 unreachable; no M5 provenance consumption; `DURABLE_RECORD_BACKED` R2-B-only; render identities
+  null; `render_state` `NOT_VERIFIED`; refusal-only outcomes.
+- **Not started:** R2-B render-evidence provenance and the M5→M12 provenance gate, target population, positive
+  semantic verification, S5/S6 evaluation, receipts.
+- **PR #142** (head `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc`) remains OPEN / DRAFT / BLOCKED / NOT MERGED and was not modified.
+
 ## 2026-09-26 — M12.6 R16 dual-review dispute / end-of-night pause
 
 - R16 was independently inspected at the exact artifact SHA `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`.
