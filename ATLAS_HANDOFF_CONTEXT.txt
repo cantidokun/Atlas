@@ -1,7 +1,7 @@
 ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 27, 2026 CURRENT CHECKPOINT
 
 CURRENT REPOSITORY:
-- main = 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144 documentation-only merge, 2026-09-27).
+- Documentation checkpoint base = main @ 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144, 2026-09-27); this pause adds documentation only.
 - Functional implementation baseline before M12.6 R2-A = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6.
 - M12.6-R2-A is LANDED: 7b591445d1a11e0ae181330fafaf0956d6cebdbb (tree 4f84f832b5e59d1fa8f47eecc382122a631faeb1), via PR #143 merge e9a572c2104153285b1139d7dc09d1e9acd479ac.
 - PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED, head 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc — historical, untouched.
