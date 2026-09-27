@@ -4,7 +4,7 @@
 >
 > **STATUS: M12.6-R2-A — LANDED; M12.6-R2-B — REV4 INDEPENDENT-REVIEW GATE PAUSED**
 > **Functional implementation baseline (before this landing):** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge).
-> **Current `main`:** `2b39acb005e406f4f992531257b6ff3d82852ee8` (PR #144 documentation-only merge, 2026-09-27).
+> **Documentation checkpoint base:** `main @ 2b39acb005e406f4f992531257b6ff3d82852ee8` (PR #144 merge, 2026-09-27). This pause adds documentation only.
 > **Landed M12.6-R2-A implementation:** `7b591445d1a11e0ae181330fafaf0956d6cebdbb` (tree `4f84f832b5e59d1fa8f47eecc382122a631faeb1`), landed by **PR #143** — merge commit
 > `e9a572c2104153285b1139d7dc09d1e9acd479ac`. The PR head was never amended, rebased or squashed: the landed commit is the reviewed commit.
 > **Contract:** `ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md`, SHA-256 `8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8` (declaration-field self-digest
