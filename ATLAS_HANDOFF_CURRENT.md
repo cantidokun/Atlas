@@ -2,9 +2,9 @@
 
 > **Authoritative current-state reconciliation — September 27, 2026.**
 >
-> **STATUS: M12.6-R2-A — IMPLEMENTED, INDEPENDENTLY REVIEWED, CI-GREEN, LANDED**
+> **STATUS: M12.6-R2-A — LANDED; M12.6-R2-B — REV4 INDEPENDENT-REVIEW GATE PAUSED**
 > **Functional implementation baseline (before this landing):** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge).
-> **Current `main`:** `e9a572c2104153285b1139d7dc09d1e9acd479ac` (PR #143 merge, 2026-09-27).
+> **Current `main`:** `2b39acb005e406f4f992531257b6ff3d82852ee8` (PR #144 documentation-only merge, 2026-09-27).
 > **Landed M12.6-R2-A implementation:** `7b591445d1a11e0ae181330fafaf0956d6cebdbb` (tree `4f84f832b5e59d1fa8f47eecc382122a631faeb1`), landed by **PR #143** — merge commit
 > `e9a572c2104153285b1139d7dc09d1e9acd479ac`. The PR head was never amended, rebased or squashed: the landed commit is the reviewed commit.
 > **Contract:** `ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md`, SHA-256 `8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8` (declaration-field self-digest
@@ -215,6 +215,128 @@ M12.5 — Unreal Semantic Evidence Verification v1 — has crossed the architect
 - The first implementation is **merged but not yet the final promotion endpoint**. The dedicated M12.5 live non-render and render-composition gates described by the architecture are not yet established/credited.
 
 **Pause point:** no new upstream semantic expectation authority, sequence/asset binding, catalog-resolution binding, or request-digest binding was invented. Those remain the explicit out-of-scope upstream questions from M12.5 v1.
+
+
+### M7 status — COMPLETE / MERGED / LIVE-PROVEN
+
+The Unreal M7 Case-B durable-witness + containment-keeper rung is complete on current main.
+
+- Current main merge: `526b267d1b30b7c0547d2ee0bbd9e936a7c4dff3` (PR #132).
+- M7 implementation: `12a900e2e07c52875c3a8e33ea8fdf4d304caf14`.
+- M7 live-rung documentation: `2686330c02829be228e84ec6175215ffba4ba823`.
+- PR #131 was an ancestor of the merged M7 branch and was marked merged by GitHub when PR #132 landed; no separate implementation merge is outstanding.
+- First real UE 5.6.1 keeper-controlled rung: **Case B**, **exactly 1 production receipt**, **0 adoption-path engine RPCs**.
+- **24/24 artifacts** were independently verified.
+- **4/4 negative controls** refused with zero receipt and zero adoption-path engine RPCs.
+- The Job Object drained on the retained handle; final handle release destroyed the object and left no Unreal/helper process.
+- Exact-head CI for the M7 documentation follow-up was green on Python 3.9 and 3.11.
+- Independent post-live review returned **CLEAR / READY FOR INTEGRATION**.
+- The frozen S1 rehearsal evidence remains render/rehearsal evidence only and is not the production receipt source.
+- The full Contract V1 §33 S1-S8 scenario matrix is **not** claimed as fully live-executed by this rung.
+
+Accepted residuals remain explicit: Windows exposes no cryptographic Job Object instance identity, so containment provenance is attribution evidence rather than object-instance cryptographic proof; a keeper failure after quiescence but before recovery completion is intentionally fail-closed; the keeper does not own authorization, receipt publication, evidence verification, or case-classification authority.
+
+Historical M7/M8/M9 dated readiness statements remain archival provenance and must not override this current status.
+
+## Validation discipline
+
+For the next Unreal track, preserve the same gate structure:
+
+    read-only reconciliation
+        ↓
+    deterministic design validation
+        ↓
+    independent architectural review
+        ↓
+    explicit implementation authorization
+        ↓
+    exact-head deterministic validation
+        ↓
+    separately authorized live evidence when the contract requires it
+
+The completed M7 live evidence remains the current production-path evidence for the containment-keeper rung; it does not substitute for future State Extraction Fidelity evidence.
+
+## Other tracks
+
+- M11 remains frozen.
+- M12.1–M12.4 are complete.
+- M12.5 v1 is **IMPLEMENTED / MERGED and paused for the night**; future work resumes at the dedicated post-implementation promotion/live-gate stage, not by reopening the cleared architecture.
+- M13.8/token optimization remains paused.
+- Digital Twin/controller/autonomy areas require separate assessment where not already covered by the current contract.
+
+## Tonight's resume point
+
+1. Read `ATLAS_HANDOFF_CURRENT.md`, `UNREAL_AGENT_HANDOFF_CURRENT.md`, `ATLAS_HANDOFF_CONTEXT.txt`, and `ATLAS_HANDOFF_2026-09-24_END_OF_NIGHT.md`.
+2. Use `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` as the repository base.
+3. Verify the frozen external R8.1 artifact at `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV8.md` against as-is SHA `0e133df596b7cd1bcdf82c48d6d178893bb10ca7e7a584fa0e5e4a7001d98f2a`.
+4. Perform the final blind independent artifact review. Do not use PR #142 as the implementation base.
+5. Only after an unqualified `CLEAR` create a fresh M12.6 R2-A implementation branch from `main @ 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+6. Run the complete R8.1 implementation gate before any merge decision.
+
+No Blender reopening, Temporal redesign, M11 work, token-optimization work, or blanket merge of historical Unreal PRs is part of the next session.
+## Authority invariants
+
+Models and agent wrappers propose/reason. Atlas validates, authorizes, executes, tracks, verifies, and recovers. Blender and Unreal are controlled execution environments. Independent verification establishes what actually happened.
+## M12.6 — R2-B normative design: REV4 REVIEW GATE PAUSED
+
+**Current pause point — September 27, 2026**
+
+- R2-A is already landed and frozen under R25. Its implementation and review state are unchanged.
+- R2-B has **not** been implemented. No production files, tests, implementation branches, or PR #142 changes were made for R2-B.
+- Current external design candidate:
+  - C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md
+  - Revision: **M12.6-R2B-REV4**
+  - SHA-256: **6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d**
+  - Declaration self-digest: **7e2a2012b019300ef58e8514ebf2f67bb064b21aa1b003930a3e3c1798158581**
+  - 126,805 bytes / 1,410 lines; LF-only; no trailing newline.
+- REV4 preserves REV1/REV2/REV3 as byte-identical historical predecessors.
+
+### REV4 corrections from the REV3 blockers
+
+1. SATISFIED now has deciding_stage = null; only the S6 evaluated-mismatch state has deciding_stage = S6.
+2. Positive R2-B render serialization/digest requires a live, non-transferable in-process positive-claim authority (PCA) that re-establishes the complete H1-H5 chain from trusted source inputs. Mutation and recomputed result_digest are explicitly insufficient.
+3. evidence_source_class is no longer an entry-point authority input. It is derived internally from the H3 outcome, compared exactly with M5's validated class, and disagreements refuse closed.
+
+The adversarial matrix was expanded from 34 to **41** attacks, including mutation/re-digestion, route mutation with coherent tuple replacement, hand-built positive results, detached reconstruction, serialization after trusted construction, and serialization after provenance invalidation.
+
+### Review state
+
+- REV4 Hermes self-audit: **PASS** on all seven mandated checks.
+- REV3 historical review: **GLM CLEAR / GPT-SOL-6 BLOCKED**; REV4 is the surgical correction.
+- **Fresh REV4 GLM review: pending.**
+- **Fresh REV4 GPT-SOL-6 review: pending.**
+- Therefore the architecture is **NOT YET IMPLEMENTATION-AUTHORIZED**.
+
+### Mandatory next gate
+
+Run fresh blind reviews against the exact REV4 SHA. The primary adversarial question is whether the PCA is a genuine trusted authority boundary that cannot be manufactured, copied, transferred, or recreated from a mutated/re-digested result.
+
+Secondary checks must preserve:
+- the landed R2-A/R25 contract;
+- the R2-A verifier_revision value m12.6-v1;
+- the R2-B route discriminator m12.6-r2b-v1;
+- rowless positive S6 semantics;
+- exact non-circular render identity digest;
+- the ten-field HMAC journal boundary;
+- genuinely read-only H1 loading;
+- authoritative durable-record digest recomputation;
+- U1 fail-closed population behaviour;
+- U4/U5 constraints and the Case A custody model.
+
+### Unresolved / human-gate items carried by REV4
+
+- **U1:** reviewed registry/expectation population remains an implementation prerequisite.
+- **U6:** attestation-contract boundary remains limited to the existing ten signed fields.
+- **U7:** deployment attestation of store custody is required for positive render claims.
+- Review/rider decisions still to be dispositioned explicitly: U5 four-member nonsemantic delta, the already-permitted two-value verifier_revision set, PCA cost/revalidation, and the stated ENGINE_LIVE-positive policy.
+
+### Explicit prohibitions
+
+- Do not implement R2-B yet.
+- Do not modify PR #142.
+- Do not use PR #142 as an implementation base.
+- Do not modify R25 or the landed R2-A implementation.
+- Do not reopen Blender, Temporal, M11, M12.5, or unrelated Unreal PR history as part of this gate.
 
 
 ### M7 status — COMPLETE / MERGED / LIVE-PROVEN
