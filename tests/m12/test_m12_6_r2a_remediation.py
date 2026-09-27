@@ -486,15 +486,18 @@ class _VerifiedEvidence:
     attempt_ordinal = 2
 
 
-def test_b5_render_evidence_requires_the_real_m5_handoff_types():
-    """Part XVII.5/B8: a mapping or a shadow object cannot establish the render dimension (row 36)."""
+def test_b5_render_evidence_is_not_admitted_by_r2a_at_all():
+    """Part XVII item 6 (supersedes B8/XVII.5): the R2-A boundary accepts no render evidence, so a mapping, a
+    shadow object and a real M5 handoff are all refused by the signature itself."""
     task, plan = _render_task_and_plan()
-    for supplied in ({"operation_name": "inspect_render_job", "entity_ids": ("twin-1",), "observed_state": {},
-                      "source": "engine", "job_record": {"atlas_job_id": "job-0001"}}, object()):
-        result = ex.verify_semantic_target_r2a(task, plan, render_evidence=supplied)
-        assert 36 in result.applicable_rows and 44 not in result.applicable_rows
-        assert result.members["render_job_identity"] is None
-        assert result.members["evidence_trust_basis"]["render_evidence"] == "NOT_ESTABLISHED"
+    for supplied in ({"operation_name": "inspect_render_job", "entity_ids": ("twin-1",), "observed_state": {}},
+                     object(), None):
+        with raises(TypeError):
+            ex.verify_semantic_target_r2a(task, plan, render_evidence=supplied)
+    result = ex.verify_semantic_target_r2a(task, plan)
+    assert 44 in result.applicable_rows and 36 not in result.applicable_rows and 37 not in result.applicable_rows
+    assert result.members["render_job_identity"] is None
+    assert result.members["evidence_trust_basis"]["render_evidence"] == "NOT_ESTABLISHED"
 
 
 # --------------------------------------------------------------- B6: S2 target-table reference integrity

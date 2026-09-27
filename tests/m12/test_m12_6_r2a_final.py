@@ -1,14 +1,15 @@
-"""M12.6 R2-A final remediation tests (normative input: ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV18.md,
-SHA ec5eab43a4dbd3dc8e7c376133aff954a6c25a4283c3eb0d2bed31081ae2b41d).
+"""M12.6 R2-A tests (normative input: ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md,
+SHA 8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8).
 
-Covers the final pass: B1 object-side closed-attribute schema, B2 exact F3 domains with catalog_version
+Covers: B1 object-side closed-attribute schema, B2 exact F3 domains with catalog_version
 opacity (III.2), B3 producer-derived F9, B4 row-29 gating, B5 pre-serialization preflight, B6 compound S2
-aggregation, B7 trusted construction, B8 the real M5/durable-record handoff (Part XVII.5) and B9 structural
-assertions (X.2/XIV.7.4 single call site, XVII.5 import allowlist, XXVIII.2 dataset, VIII.3 same-object
-revalidation).
+aggregation, B7 trusted construction, R25 the evidence-free render dimension (Part XVII item 6 / XXIV.1),
+R2-A input prohibition and the forged-evidence battery, and B9 structural assertions (X.2/XIV.7.4 single call
+site, XVII.5 import allowlist, XXVIII.2 dataset, VIII.3 same-object revalidation).
 
-Real frozen M5/record types are imported by THIS TEST FILE only: M12.6 itself imports no M4-M10 authority
-module (Part XVII.5), which the allowlist test below asserts.
+Real frozen M5/record types are imported by THIS TEST FILE only, to prove that **even a genuine M5 object cannot
+be supplied to R2-A**: M12.6 itself imports no M4-M10 authority module (Part XVII.5), which the allowlist test
+asserts.
 """
 
 import ast
@@ -37,7 +38,8 @@ def raises(expected):
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-R18_PATH = pathlib.Path(r"C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV18.md")
+R25_PATH = pathlib.Path(r"C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md")
+R25_SHA = "8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8"
 _JOB_ID = "atlas-render-job-11111111-2222-3333-4444-555555555555"
 MODULE_PATH = REPO_ROOT / "planning" / "m12" / "expectation.py"
 
@@ -339,29 +341,24 @@ def test_b7_invalid_state_primary_and_mutation_are_refused():
         ex.M126Result(members=dict(members), applicable_rows=rows)     # untrusted construction refused
 
 
-# --------------------------------------------------------------- B8: the real M5 handoff (XVII.5)
+# --------------------------------------------------------------- R25: no render evidence in R2-A (Part XVII item 6)
 
 
 class _Handoff:
-    """The permitted M5-to-M12.6 handoff carrier: the real evidence object and the real durable record."""
+    """An M5-style handoff carrier: R2-A must not accept it through any entry point."""
 
     def __init__(self, evidence, record):
         self.evidence = evidence
         self.record = record
 
 
-def _real_record(twin="twin-1", job_id="atlas-render-job-11111111-2222-3333-4444-555555555555", attempt_ordinal=2):
+def _real_record(twin="twin-1", job_id=_JOB_ID, attempt_ordinal=2):
     from planning.unreal_render_job_record import AtlasRenderJobRecord
 
     return AtlasRenderJobRecord.create_intent(
-        atlas_job_id=job_id,
-        attempt_ordinal=attempt_ordinal,
-        authorization_id="authz-0001",
-        canonical_digital_twin_id=twin,
-        sequence_asset_path="/Game/Atlas/Sequence/Main",
-        request_digest="a" * 64,
-        config_digest="b" * 64,
-        output_parent_directory="/srv/atlas/renders",
+        atlas_job_id=job_id, attempt_ordinal=attempt_ordinal, authorization_id="authz-0001",
+        canonical_digital_twin_id=twin, sequence_asset_path="/Game/Atlas/Sequence/Main",
+        request_digest="a" * 64, config_digest="b" * 64, output_parent_directory="/srv/atlas/renders",
         output_directory="/srv/atlas/renders/" + job_id,
         expected_output_spec={"format": "png", "frame_count": 24, "width": 1920, "height": 1080},
         created_at="2026-09-26T12:00:00Z",
@@ -376,48 +373,189 @@ def _real_evidence(verified=True):
                           verified=verified)
 
 
-def test_b8_real_m5_verified_evidence_populates_the_render_identity():
+def _forged_evidence(**overrides):
+    """A fresh shadow object carrying the M5 evidence shape, name and MRO names (B: forged evidence)."""
+    attrs = {"verified": True, "operation_name": "inspect_render_job", "entity_ids": ("twin-1",),
+             "observed_state": {"status": "completed"}, "source": "engine", "verified_at": "2026-09-26T12:00:00Z"}
+    attrs.update(overrides)
+    return type("UnrealEvidence", (), attrs)()
+
+
+def _forged_record(**overrides):
+    attrs = {"atlas_job_id": _JOB_ID, "attempt_ordinal": 2, "canonical_digital_twin_id": "twin-1",
+             "request_digest": "a" * 64, "config_digest": "b" * 64, "authorization_id": "authz-0001"}
+    attrs.update(overrides)
+    return type("AtlasRenderJobRecord", (), attrs)()
+
+
+def _shadow_of(cls, **overrides):
+    """A subclass named exactly like a real M5 type: name- and MRO-based recognition must not exist."""
+    attrs = {"verified": True, "operation_name": "inspect_render_job", "entity_ids": ("twin-1",),
+             "observed_state": {}, "source": "engine", "canonical_digital_twin_id": "twin-1",
+             "atlas_job_id": _JOB_ID, "attempt_ordinal": 2}
+    attrs.update(overrides)
+    shadow_cls = type("UnrealEvidence", (cls,), attrs)
+    return shadow_cls.__new__(shadow_cls)       # a genuine subclass carrying the M5 name: still not admitted
+
+
+def _render_carriers():
+    """Every plausible carrier a caller might try to hand R2-A: all of them must be refused."""
+    return {
+        "real M5 evidence + real record": _Handoff(_real_evidence(True), _real_record()),
+        "real M5 evidence (verified=False) + real record": _Handoff(_real_evidence(False), _real_record()),
+        "real M5 evidence, twin mismatch": _Handoff(_real_evidence(True), _real_record(twin="twin-OTHER")),
+        "real M5 evidence without record": _Handoff(_real_evidence(True), None),
+        "forged evidence + forged record": _Handoff(_forged_evidence(), _forged_record()),
+        "shadow subclass of the real evidence type": _Handoff(_shadow_of(_real_evidence(True).__class__),
+                                                             _forged_record()),
+        "mapping carrier": {"evidence": _real_evidence(True), "record": _real_record()},
+        "bare evidence object": _real_evidence(True),
+        "bare mapping": {"verified": True, "record": {"atlas_job_id": _JOB_ID}},
+        "arbitrary object": object(),
+        "None": None,
+    }
+
+
+def test_r25_r2a_entry_points_have_no_render_evidence_parameter():
+    """Part XVII item 6: the R2-A verifier's render-evidence parameter is REMOVED, not defaulted."""
+    import inspect
+
+    for function in (ex.verify_semantic_target_r2a, ex._verify_semantic_target_r2a_impl, ex.resolve):
+        names = list(inspect.signature(function).parameters)
+        assert names == [n for n in names if n != "render_evidence"], (function.__name__, names)
+        assert not [n for n in names if "evidence" in n or "record" in n or "provenance" in n],             (function.__name__, names)
+    assert not hasattr(ex, "_verify_render_evidence")
+    assert not hasattr(ex, "RenderEvidenceOutcome")
+    assert not hasattr(ex, "compute_evidence_identity_from_evidence")
+
+
+def test_r25_every_plausible_render_evidence_carrier_is_refused_by_type_error():
+    """A: input prohibition — no entry point accepts render evidence, and none of them can ignore it silently."""
     task, plan = _render_task_and_plan()
-    handoff = _Handoff(_real_evidence(verified=True), _real_record())
-    result = ex.verify_semantic_target_r2a(task, plan, render_evidence=handoff)
-    assert 36 not in result.applicable_rows and 44 not in result.applicable_rows
-    assert result.members["render_job_identity"] == _JOB_ID
-    assert result.members["render_attempt_identity"] == 2
-    assert result.members["render_evidence_identity"] is not None
-    assert result.members["evidence_trust_basis"]["render_evidence"] == "DURABLE_RECORD_BACKED"
-    assert result.members["render_state"] == "NOT_VERIFIED"      # VERIFIED stays unreachable (XVII.1)
+    for label, carrier in _render_carriers().items():
+        for function in (ex.verify_semantic_target_r2a, ex._verify_semantic_target_r2a_impl, ex.resolve):
+            with raises(TypeError):
+                function(task, plan, render_evidence=carrier)
 
 
-def test_b8_real_durable_record_twin_mismatch_is_row_37():
+def test_r25_forged_or_real_evidence_cannot_alter_the_r2a_result():
+    """B: a forged object that merely resembles M5 evidence behaves exactly like unsupported evidence — that is,
+    it cannot be supplied at all, and the evidence-free result is the same for every call."""
     task, plan = _render_task_and_plan()
-    handoff = _Handoff(_real_evidence(verified=True), _real_record(twin="twin-OTHER"))
-    result = ex.verify_semantic_target_r2a(task, plan, render_evidence=handoff)
-    assert 37 in result.applicable_rows
-    assert 36 not in result.applicable_rows
-    assert result.members["evidence_trust_basis"]["render_evidence"] == "DURABLE_RECORD_BACKED"
+    baseline = ex.verify_semantic_target_r2a(task, plan)
+    assert ex.R2A_RENDER_ROWS <= set(baseline.applicable_rows)
+    assert not (ex.R2A_UNREACHABLE_RENDER_ROWS & set(baseline.applicable_rows))
+    assert baseline.members["evidence_trust_basis"]["render_evidence"] == "NOT_ESTABLISHED"
+    again = ex.verify_semantic_target_r2a(task, plan)
+    assert again.result_digest == baseline.result_digest
+    # the close-to-real shapes are refused by the boundary itself, never inspected
+    for carrier in (_forged_evidence(), _forged_record(), _shadow_of(_real_evidence(True).__class__),
+                    _real_evidence(True), _real_record()):
+        with raises(TypeError):
+            ex.verify_semantic_target_r2a(task, plan, render_evidence=carrier)
 
 
-def test_b8_real_m5_refusal_is_row_36_and_missing_evidence_is_row_44():
+def test_r25_rows_36_and_37_are_unreachable_in_r2a():
+    """C: the evidence-dependent render rows cannot be produced, and the guard refuses a fabricated row set."""
     task, plan = _render_task_and_plan()
-    refused = ex.verify_semantic_target_r2a(task, plan, render_evidence=_Handoff(_real_evidence(False),
-                                                                                _real_record()))
-    assert 36 in refused.applicable_rows and 44 not in refused.applicable_rows
-    assert refused.members["render_job_identity"] is None
-    missing = ex.verify_semantic_target_r2a(task, plan)
-    assert 44 in missing.applicable_rows and 36 not in missing.applicable_rows
-    # the real types cannot be faked: a shadow object carrying the right field names is refused
-    shadow = type("UnrealEvidence", (), {"verified": True, "operation_name": "inspect_render_job"})()
-    assert 36 in ex.verify_semantic_target_r2a(
-        task, plan, render_evidence=_Handoff(shadow, _real_record())).applicable_rows
-    # a real evidence object without the durable record cannot establish the render dimension
-    assert 36 in ex.verify_semantic_target_r2a(
-        task, plan, render_evidence=_Handoff(_real_evidence(True), None)).applicable_rows
+    result = ex.verify_semantic_target_r2a(task, plan)
+    assert not (ex.R2A_UNREACHABLE_RENDER_ROWS & set(result.applicable_rows))
+    assert ex.R2A_UNREACHABLE_RENDER_ROWS == frozenset({36, 37})
+    members = dict(result.members)
+    with raises(ex.M126ContractError):
+        _trusted(members, tuple(sorted(result.applicable_rows + (36,))))
+    with raises(ex.M126ContractError):
+        _trusted(members, (36,))
+    with raises(ex.M126ContractError):
+        _trusted(dict(members, failure_codes=("RENDER_EVIDENCE_NOT_INDEPENDENTLY_VERIFIED",)),
+                 result.applicable_rows)
+    with raises(ex.M126ContractError):
+        _trusted(dict(members, failure_codes=("RENDER_JOB_TWIN_MISMATCH",)), result.applicable_rows)
+    with raises(ex.M126ContractError):
+        _trusted(dict(members, primary_failure_code="RENDER_JOB_TWIN_MISMATCH"), result.applicable_rows)
 
 
-def test_b8_no_mapping_only_path_remains():
+def test_r25_row_44_is_unconditional_for_render_bearing_inputs():
+    """D: every render-bearing R2-A input carries row 44 (and 32/42/43) with no evidence condition at all."""
     task, plan = _render_task_and_plan()
-    mapping_carrier = {"evidence": _real_evidence(True), "record": _real_record()}
-    assert 36 in ex.verify_semantic_target_r2a(task, plan, render_evidence=mapping_carrier).applicable_rows
+    assert 44 in ex.verify_semantic_target_r2a(task, plan).applicable_rows
+    assert ex.R2A_RENDER_ROWS <= set(ex.resolve(task, plan).applicable_rows)
+    # the row set is a property of the input class, not of anything a caller can supply: a caller cannot even
+    # pass a carrier, and the twin-mismatch variant is reached through the task/plan alone (row 13 preempts).
+    other_task, other_plan = _render_task_and_plan()
+    _mutate(other_plan, digital_twin_id="twin-OTHER")
+    mutated = ex.resolve(other_task, other_plan).applicable_rows
+    assert 13 in mutated and 36 not in mutated and 37 not in mutated
+    # a non-render input never carries the render rows
+    plain_task, plain_plan = _task_and_plan()
+    assert not (ex.R2A_RENDER_ROWS & set(ex.resolve(plain_task, plain_plan).applicable_rows))
+
+
+def test_r25_durable_record_backed_and_render_identities_are_never_produced():
+    """E + F: no durable-record trust basis, no render identity, and the guard refuses both if fabricated."""
+    task, plan = _render_task_and_plan()
+    result = ex.verify_semantic_target_r2a(task, plan)
+    assert result.members["evidence_trust_basis"] == {"semantic_observation": "NOT_ESTABLISHED",
+                                                      "render_evidence": "NOT_ESTABLISHED"}
+    for member in ("render_job_identity", "render_attempt_identity", "render_evidence_identity"):
+        assert result.members[member] is None, member
+    members = dict(result.members)
+    for name, value in (("render_job_identity", _JOB_ID), ("render_attempt_identity", 2),
+                        ("render_evidence_identity", "c" * 64),
+                        ("evidence_trust_basis", {"semantic_observation": "NOT_ESTABLISHED",
+                                                  "render_evidence": "DURABLE_RECORD_BACKED"})):
+        with raises(ex.M126ContractError):
+            _trusted(dict(members, **{name: value}), result.applicable_rows)
+
+
+def test_r25_render_state_is_not_verified_in_r2a():
+    """G: render_state stays NOT_VERIFIED for a render-bearing input and VERIFIED stays unreachable."""
+    task, plan = _render_task_and_plan()
+    result = ex.verify_semantic_target_r2a(task, plan)
+    assert result.members["render_state"] == "NOT_VERIFIED"
+    with raises(ex.M126ContractError):
+        _trusted(dict(result.members, render_state="VERIFIED"), result.applicable_rows)
+
+
+def test_r25_no_m5_provenance_machinery_exists_in_the_module():
+    """H + structural: the name/shape/identity recognition that was proven forgeable is gone, and a future
+    developer cannot reintroduce it while ordinary unit tests stay green."""
+    source = _module_source()
+    tree = ast.parse(source)
+    for token in ("__mro__", "__subclasses__", "__bases__", "UnrealEvidence", "AtlasRenderJobRecord",
+                  "verify_render_job_evidence", "_verify_render_evidence", "RenderEvidenceOutcome",
+                  "compute_evidence_identity_from_evidence", "_M5_EVIDENCE_TYPE_NAMES",
+                  "_M5_DURABLE_RECORD_TYPE_NAMES", "render_evidence:", "render_evidence=", "render_evidence = "):
+        assert token not in source, f"the module still references {token!r}"
+    # the sole surviving *quoted* mention of the R2-B-only trust basis is its declared vocabulary
+    assert source.count('"DURABLE_RECORD_BACKED"') == 1
+    vocabulary_line = next(line for line in source.splitlines() if '"DURABLE_RECORD_BACKED"' in line)
+    assert "frozenset(" in vocabulary_line
+    assert "_R2A_ALLOWED_RENDER_TRUST" in source      # the guard refuses it by vocabulary, not by name
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            assert not (name or "").startswith("verify_render"), node.lineno
+        if isinstance(node, ast.Attribute):
+            assert node.attr not in ("__mro__", "__subclasses__", "__bases__"), node.lineno
+    # the R2-A entry points accept the render dimension as a property of the task class only
+    assert "R2A_RENDER_ROWS" in source and source.count("R2A_RENDER_ROWS") == 2
+
+
+def test_r25_result_remains_structurally_complete_and_stable():
+    """J: the refusal-only result contract holds for render-bearing and non-render inputs alike."""
+    for task, plan in (_render_task_and_plan(), _task_and_plan()):
+        result = ex.verify_semantic_target_r2a(task, plan)
+        assert result.members["deciding_stage"] is not None and result.members["primary_failure_code"] is not None
+        assert result.members["semantic_state"] == "NOT_ESTABLISHED"
+        assert result.members["overall_state"] == "NOT_ESTABLISHED"
+        for member in ("semantic_state", "overall_state", "outcome_reason_class", "render_state"):
+            assert result.members[member] not in ex.R2A_UNREACHABLE_STATES[member], (member, result.members[member])
+        assert result.members["deciding_stage"] in {"S1", "S2", "S3", "S4"}
+        assert result.members["render_state"] == ("NOT_VERIFIED" if result.members["render_task"]
+                                                  else "NOT_REQUIRED")
+        assert result.canonical_dict()
+        assert ex.verify_semantic_target_r2a(task, plan).result_digest == result.result_digest
 
 
 # --------------------------------------------------------------- B9: structural assertions
@@ -487,10 +625,13 @@ def test_b9_x2_plan_digest_single_call_site():
 
 def test_b9_xxviii2_recorded_assertion_dataset():
     """XXVIII.2: the recorded file/line/category dataset, compared against the actual assertion values."""
-    if not R18_PATH.exists():
-        print("SKIP: the R18 artifact is not present in this environment")
+    if not R25_PATH.exists():
+        print("SKIP: the R25 artifact is not present in this environment")
         return
-    text = R18_PATH.read_text(encoding="utf-8")
+    import hashlib
+
+    assert hashlib.sha256(R25_PATH.read_bytes()).hexdigest() == R25_SHA
+    text = R25_PATH.read_text(encoding="utf-8")
     section = text[text.index("## XXVIII.2"):text.index("## XXVIII.3")]
     blocks = section.split("|---|---|---|---|")[1:]
     tables = [[line for line in block.splitlines()

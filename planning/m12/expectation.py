@@ -1,9 +1,9 @@
 """Atlas M12.6 R2-A refusal-only expectation machinery.
 
-Normative authority: ``ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV18.md``
-(sha256 ``ec5eab43a4dbd3dc8e7c376133aff954a6c25a4283c3eb0d2bed31081ae2b41d``), treated as the sole contract for
+Normative authority: ``ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md``
+(sha256 ``8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8``), treated as the sole contract for
 M12.6 R2-A. Clause references in this module (``VII.4``, ``VIII.1``, ``XI.4``, ``XIV.3.1``, ``Part XV``, ...) name
-that artifact.
+that artifact. No earlier revision and no historical implementation is authoritative.
 
 Scope implemented here (R2-A only, Part XXIV):
 
@@ -15,8 +15,12 @@ Scope implemented here (R2-A only, Part XXIV):
   (V.4.9, V.5.1, VIII.1-VIII.3);
 * the bounded structural preflight F1-F9 (VII.4);
 * the Part IX expectation closed-schema classification, including the case-relative target-member typing rule;
-* the resolver's S1-S4 decision set (rows 1, 3, 6, 9-14, 21, 22, 26, 27, 29-33, 36-44) and the verifier's
-  expectation-side S1/S3 rows (4, 5, 7, 8, 14, 21, 28, 30, 39), combined by the union rule (XIV.7.3);
+* the resolver's S1-S4 decision set (rows 1, 3, 6, 9-14, 21, 22, 26, 27, 29-33, 42-44) and the verifier's
+  expectation-side S1/S3 rows (4, 5, 7, 8, 14, 21, 28, 30, 39), combined by the union rule (XIV.7.3); rows 36 and
+  37 remain declared Part XV rows but are **unreachable in R2-A** (Part XVII item 6);
+* the **evidence-free render dimension** (Part XVII item 6, XXIV.1): the R2-A verifier has **no render-evidence
+  parameter**, rows 32/42/43/44 are unconditional for every render-bearing input, no render identity member is
+  established, the render trust basis stays ``NOT_ESTABLISHED`` and ``DURABLE_RECORD_BACKED`` is R2-B-only;
 * the closed M12.6 result object (XIV.4.5) with the unresolved entry form (XIV.4.1) and the two entry recipes
   (XIV.4.3, XIV.4.4), so every refusal is structurally complete.
 
@@ -1356,6 +1360,20 @@ R2A_UNREACHABLE_STATES = {
     "render_state": {"VERIFIED"},
 }
 
+#: Part XVII item 6 (Option C): the render rows an R2-A render-bearing input always carries, and the two
+#: evidence-dependent rows R2-A can never produce (R2-B territory). No evidence object exists in R2-A, so these
+#: two sets are the whole render decision.
+R2A_RENDER_ROWS = frozenset({32, 42, 43, 44})
+R2A_UNREACHABLE_RENDER_ROWS = frozenset({36, 37})
+R2A_UNREACHABLE_RENDER_TOKENS = frozenset({
+    "RENDER_EVIDENCE_NOT_INDEPENDENTLY_VERIFIED",   # row 36
+    "RENDER_JOB_TWIN_MISMATCH",                     # row 37
+})
+
+#: The only render trust-basis values an R2-A result may carry. Any other declared value (the durable-record
+#: basis reserved for R2-B) is refused at construction, so R2-A cannot produce it even by accident.
+_R2A_ALLOWED_RENDER_TRUST = frozenset({"NOT_APPLICABLE", "NOT_ESTABLISHED"})
+
 R2A_UNREACHABLE_TOKENS = frozenset(
     # Tokens that appear ONLY on S5 rows. A token is a row VALUE, not a key: `EXPECTED_VALUE_UNAVAILABLE` is
     # carried by rows 3/6 (S4) and 23/25 (S5) and is disambiguated by the deciding stage (XIV.3), so the
@@ -1542,6 +1560,10 @@ class M126Result:
             raise M126ContractError("one entry per required name (XIV.4.1.1)")
         if [e.invariant_name for e in entries] != list(m["required_invariant_names"]):
             raise M126ContractError("entries are in canonical order and preserve every required name")
+        if R2A_UNREACHABLE_RENDER_ROWS & set(self.applicable_rows):
+            raise M126ContractError(
+                "rows 36/37 are evidence-dependent and unreachable in R2-A (Part XVII item 6)"
+            )
         if m["render_task"] is None and m["render_state"] != "NOT_DECIDED":
             raise M126ContractError("render_task null requires render_state NOT_DECIDED")
         if m["render_task"] is False and m["render_state"] != "NOT_REQUIRED":
@@ -1592,6 +1614,19 @@ def validate_r2a_conformance(members: Mapping[str, Any]) -> None:
     for code in members["failure_codes"]:
         if code in R2A_UNREACHABLE_TOKENS:
             raise M126ContractError(f"R2-A produced an S5-only token: {code!r}")
+    # Part XVII item 6: the evidence-dependent render rows and the durable-record trust basis are R2-B-only, and
+    # no render identity member may be established — R2-A admits no render evidence of any kind.
+    for code in members["failure_codes"]:
+        if code in R2A_UNREACHABLE_RENDER_TOKENS:
+            raise M126ContractError(f"R2-A produced an R2-B-only render token: {code!r}")
+    basis = members["evidence_trust_basis"]
+    if isinstance(basis, Mapping) and basis.get("render_evidence") not in _R2A_ALLOWED_RENDER_TRUST:
+        raise M126ContractError("R2-A produced a render trust basis outside the admissible R2-A values")
+    for member in ("render_job_identity", "render_attempt_identity", "render_evidence_identity"):
+        if members[member] is not None:
+            raise M126ContractError(
+                f"R2-A established the render identity member {member!r}: no render evidence is admitted"
+            )
     for entry in members["invariant_results"]:
         if entry.invariant_state in R2A_UNREACHABLE_STATES["invariant_state"]:
             raise M126ContractError("R2-A produced an R2-B-only invariant_state")
@@ -1718,8 +1753,6 @@ def resolve(
     task: UnrealProductionTaskDefinition,
     plan: UnrealExecutionPlan,
     expectation: Any = None,
-    *,
-    render_evidence: Any = None,
 ) -> Resolution:
     """The resolver's S1-S4 evaluation (VII.9, XIV.7.3). R2-A produces refusals only."""
     rows = set()
@@ -1839,137 +1872,16 @@ def resolve(
         if target is None:
             rows.add(22)  # V.4 clause 3: no target row for the derived triple
         if is_render_task_class(task.task_class):
-            rows.update({32, 42, 43})  # the v1 code-level render dimension applies to every render-bearing input
-            render_outcome = _verify_render_evidence(render_evidence, task)
-            if render_outcome.verified:
-                # independently verified evidence: neither row 36 nor row 44, and the three render identity
-                # members are established (XIV.4.6), so the render trust basis becomes DURABLE_RECORD_BACKED.
-                members["render_job_identity"] = render_outcome.render_job_identity
-                members["render_attempt_identity"] = render_outcome.render_attempt_identity
-                members["render_evidence_identity"] = render_outcome.render_evidence_identity
-            elif render_outcome.supplied:
-                rows.add(36)  # M5 refused or failed to verify the supplied evidence
-            else:
-                rows.add(44)  # no render evidence is available for a render-bearing task
-            if render_outcome.twin_mismatch:
-                rows.add(37)
+            # Part XVII item 6 (Option C): R2-A admits no render evidence at all, so the render dimension is
+            # decided without one. Rows 32/42/43 keep their unconditional v1 code-level meaning and row 44
+            # (`RENDER_EVIDENCE_MISSING`) is unconditional because no evidence is ever admitted; rows 36/37 are
+            # evidence-dependent and therefore unreachable in R2-A (`R2A_UNREACHABLE_RENDER_ROWS`).
+            rows.update(R2A_RENDER_ROWS)
 
     derived.update(members)
     derived["selector_triple"] = triple
     derived["target"] = target
     return Resolution(frozenset(rows), target, triple, MappingProxyType(derived))
-
-
-@dataclass(frozen=True)
-class RenderEvidenceOutcome:
-    """Render-evidence disposition: which evidence rows apply and the verified identity members."""
-
-    verified: bool
-    twin_mismatch: bool
-    supplied: bool
-    render_job_identity: Optional[str] = None
-    render_attempt_identity: Optional[int] = None
-    render_evidence_identity: Optional[str] = None
-
-
-#: The real M5/durable-record type names, recognized by name so that M12.6 imports no M4-M10 module
-#: (Part XVII.5). The caller hands over the already-verified objects; M12.6 never calls M5.
-_M5_EVIDENCE_TYPE_NAMES = frozenset({"UnrealEvidence"})
-_M5_DURABLE_RECORD_TYPE_NAMES = frozenset({"AtlasRenderJobRecord"})
-
-
-def _type_names(value: Any) -> FrozenSet[str]:
-    return frozenset(cls.__name__ for cls in type(value).__mro__)
-
-
-def _is_m5_evidence(value: Any) -> bool:
-    return value is not None and bool(_type_names(value) & _M5_EVIDENCE_TYPE_NAMES)
-
-
-def _is_m5_durable_record(value: Any) -> bool:
-    return value is not None and bool(_type_names(value) & _M5_DURABLE_RECORD_TYPE_NAMES)
-
-
-def _verify_render_evidence(render_evidence: Any, task: UnrealProductionTaskDefinition) -> RenderEvidenceOutcome:
-    """Part XVII / XIV.3.1 / XIV.4.6: the evidence-dependent render rows and the verified identity members.
-
-    The caller (the permitted M5-to-M12.6 handoff) supplies the objects M5 already produced: the real
-    ``UnrealEvidence`` and the real ``AtlasRenderJobRecord``. M12.6 calls neither M5 nor the record module - it
-    imports no M4-M10 authority module at all (XVII.5) - and reads the declared members of those real types:
-
-      * ``evidence.verified is True``  -> M5 verified the evidence (the M5 signal, read from the real contract)
-      * no evidence / no durable record -> row 44 (missing) or row 36 (M5 did not verify)
-      * ``record.canonical_digital_twin_id != task.digital_twin_id`` -> row 37 additionally applicable
-      * verified -> neither row 36 nor row 44; the three render identity members are established from the
-        durable record (``atlas_job_id``, ``attempt_ordinal``) and the M12.5 evidence recipe
-
-    Every shape that cannot be established is a refusal (fail-closed): a mapping, a shadow object or an
-    unverified evidence object is row 36, never a silent success.
-    """
-    if render_evidence is None:
-        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=False)
-
-    evidence = getattr(render_evidence, "evidence", None)
-    record = getattr(render_evidence, "record", None)
-    if evidence is None and record is None:
-        # the carrier itself may be the evidence object (the single-object handoff form)
-        if _is_m5_evidence(render_evidence):
-            evidence = render_evidence
-        else:
-            return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
-
-    if not _is_m5_evidence(evidence) or not _is_m5_durable_record(record):
-        # the handoff must carry the real frozen M5 types: anything else cannot establish the render dimension
-        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
-
-    if getattr(evidence, "verified", False) is not True:
-        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
-
-    record_twin = getattr(record, "canonical_digital_twin_id", None)
-    job_identity = getattr(record, "atlas_job_id", None)
-    attempt_identity = getattr(record, "attempt_ordinal", None)
-    if not isinstance(job_identity, str) or not job_identity.strip():
-        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
-    if not isinstance(attempt_identity, int) or isinstance(attempt_identity, bool) or attempt_identity < 1:
-        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
-
-    evidence_identity = _domain_a_representable(lambda: compute_evidence_identity_from_evidence(evidence))
-    if evidence_identity is None:
-        return RenderEvidenceOutcome(verified=False, twin_mismatch=False, supplied=True)
-
-    return RenderEvidenceOutcome(
-        verified=True,
-        twin_mismatch=bool(record_twin is not None and record_twin != task.digital_twin_id),
-        supplied=True,
-        render_job_identity=job_identity,
-        render_attempt_identity=attempt_identity,
-        render_evidence_identity=evidence_identity,
-    )
-
-
-def _json_materialize(value: Any, depth: int = 0) -> Any:
-    """Materialize an object graph into Domain-A structures (mappings as objects, sequences as arrays).
-
-    The real M5/durable-record types store immutable mapping views; Domain A canonicalization requires plain
-    mapping/sequence structures. This is a projection of the value, not a semantic read of it.
-    """
-    if depth > PREFLIGHT_DEPTH_LIMIT:
-        raise M126ContractError("evidence projection exceeds the declared depth bound")
-    if isinstance(value, Mapping):
-        return {str(key): _json_materialize(item, depth + 1) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_materialize(item, depth + 1) for item in value]
-    return value
-
-
-def compute_evidence_identity_from_evidence(evidence: Any) -> str:
-    """XIV.4.6 / X.2 recipe for the render evidence identity, over the M5 evidence's declared members."""
-    return domain_a_digest({
-        "operation_name": evidence.operation_name,
-        "entity_ids": tuple(evidence.entity_ids),
-        "observed_state": _json_materialize(evidence.observed_state),
-        "source": evidence.source,
-    })
 
 
 # --------------------------------------------------------------------------- verifier + result construction
@@ -1979,7 +1891,6 @@ def verify_semantic_target_r2a(
     plan: UnrealExecutionPlan,
     expectation: Any = None,
     *,
-    render_evidence: Any = None,
     runtime_mapping_digest: Optional[str] = None,
 ) -> M126Result:
     """The M12.6 R2-A verdict boundary (XIV.7.3): one coherent result, refusal-only in R2-A.
@@ -1993,7 +1904,7 @@ def verify_semantic_target_r2a(
     try:
         return _verify_semantic_target_r2a_impl(
             task, plan, expectation,
-            render_evidence=render_evidence, runtime_mapping_digest=runtime_mapping_digest,
+            runtime_mapping_digest=runtime_mapping_digest,
         )
     except (M126UnreadableAuthorityError, M126ContractError):
         raise
@@ -2008,10 +1919,9 @@ def _verify_semantic_target_r2a_impl(
     plan: UnrealExecutionPlan,
     expectation: Any = None,
     *,
-    render_evidence: Any = None,
     runtime_mapping_digest: Optional[str] = None,
 ) -> M126Result:
-    resolution = resolve(task, plan, expectation, render_evidence=render_evidence)
+    resolution = resolve(task, plan, expectation)
     rows = set(resolution.applicable_rows)
 
     # verifier-owned expectation-side classification (S1 row 28 / S3 rows 4, 5, 7, 8, 14, 21, 30, 39)
@@ -2058,20 +1968,14 @@ def _verify_semantic_target_r2a_impl(
     members["expectation_digest"] = None
     members["observation_identity"] = None
     members["observation_digests"] = ()
-    members["render_job_identity"] = derived.get("render_job_identity")
-    members["render_attempt_identity"] = derived.get("render_attempt_identity")
-    members["render_evidence_identity"] = derived.get("render_evidence_identity")
-    render_evidentiary_basis = (
-        members["render_job_identity"] is not None
-        and members["render_attempt_identity"] is not None
-        and members["render_evidence_identity"] is not None
-    )
+    # Part XVII item 6 (Option C): R2-A establishes no render identity from any source, and the durable-record
+    # trust basis is R2-B-only. The three members are null and the render trust basis is fixed here.
+    members["render_job_identity"] = None
+    members["render_attempt_identity"] = None
+    members["render_evidence_identity"] = None
     members["evidence_trust_basis"] = {
         "semantic_observation": "NOT_ESTABLISHED",
-        "render_evidence": (
-            "NOT_APPLICABLE" if render_task is False
-            else ("DURABLE_RECORD_BACKED" if render_evidentiary_basis else "NOT_ESTABLISHED")
-        ),
+        "render_evidence": "NOT_APPLICABLE" if render_task is False else "NOT_ESTABLISHED",
     }
     members["invariant_results"] = tuple(unresolved_entry(name) for name in required_names)
     semantic_state, overall_state = map_states(outcome.deciding_stage, outcome.reason_class)
