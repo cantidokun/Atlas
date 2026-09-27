@@ -94,23 +94,21 @@ Frozen boundaries remain frozen unless a concrete, independently evidenced defec
 
 ## Current engineering track — Unreal
 
-The active engineering focus is the **separately maintained Unreal track**, including the existing
-Unreal-Aider work, while preserving the repository/architecture separation used during development.
+The active Unreal engineering focus is now **M12.6 R2-B normative design/review**, currently paused at REV4 pending fresh blind independent review.
 
-This is **not** a request to mix Blender and Unreal implementation indiscriminately.
+- R2-A is landed and frozen under R25.
+- R2-B REV4 is an external document-only architecture candidate.
+- No R2-B production implementation is authorized.
+- The exact current repository reference is main @ 2b39acb005e406f4f992531257b6ff3d82852ee8.
+- PR #142 remains historical blocked evidence only and must not be used as an implementation base.
+- State Extraction Fidelity v1 and M7 remain complete/live-gated.
+- M12.5 v1 remains implemented/merged; its dedicated promotion gates are a separate track and are not being reopened during this R2-B gate.
 
-The first Unreal gate was **read-only reconciliation**, and it is **COMPLETE**:
+### R2-B review discipline
 
-1. the open Unreal PR/branch stack was inventoried and selective integration was retained as the rule;
-2. no blanket merge is warranted — PRs #103/#41/#58/#50/#42/#40/#47 remain a separate historical/open stack;
-3. current `main` is the authoritative reference tree: `89ca71180cebd00619d7f839819549cf4ede4be9`;
-4. the M7 keeper-controlled live rung was executed from the merged M7 implementation and independently cleared;
-5. State Extraction Fidelity v1 is complete, merged, independently reviewed, and live-gated;
-6. M12.5 is the active Unreal architecture gate; the reconciled design remains unmerged on PR #137 pending final independent CLEAR.
-
-Known open Unreal stack (still unreconciled, still not to be blanket-merged): PRs #103, #41, #58,
-#50, #42, #40, #47 — they do not all share the same base. PR #105 (VERIFY-vs-WRITE classification
-for `verify_actor_*`) is superseded by PR #136, which merged the corrected boundary on current main; #105 is closed and must not be revived.
+- Fresh REV4 GLM + GPT-SOL-6 reviews must inspect the exact artifact SHA: 6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d.
+- Primary adversarial target: PCA authority under mutation, recomputed digest, cloning/copying, transfer, detached reconstruction, and stale-provenance reuse.
+- Do not alter R25, the landed R2-A implementation, PR #142, Blender, Temporal, M11, or unrelated historical Unreal PRs as part of this gate.
 
 ### Unreal State Extraction Fidelity v1 — COMPLETE / MERGED / LIVE-GATED
 
@@ -125,71 +123,67 @@ State Extraction Fidelity v1 is no longer a future gate.
 - Positive baseline digest: `5160b6fa11c95d594b6d7262d00ffe742fbf51e996fdef27abc4e793613cc3a` over 1862 canonical bytes.
 - Residual cases remain explicitly classified; none is promoted to a false live pass.
 
-## M12.6 — R2-A / R16 IMPLEMENTATION GATE PAUSED
+## M12.6 — R2-B normative design: REV4 REVIEW GATE PAUSED
 
-### Exact artifact under review
+**Current pause point — September 27, 2026**
 
-- Revision: **M12.6-R1-R16**
-- Artifact: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`
-- Exact SHA-256: `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`
-- Size: **393,092 bytes / 3,696 lines**
-- Self-recorded declaration digest: `ddbe9dd056f77627eb1196fdad20969e1105c54e9a35d484af9617c29c8ea7c3`
-- Functional implementation base remains **main @ `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`**.
-- PR #142 remains historical blocked evidence only and is **not** an implementation base.
+- R2-A is already landed and frozen under R25. Its implementation and review state are unchanged.
+- R2-B has **not** been implemented. No production files, tests, implementation branches, or PR #142 changes were made for R2-B.
+- Current external design candidate:
+  - C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md
+  - Revision: **M12.6-R2B-REV4**
+  - SHA-256: **6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d**
+  - Declaration self-digest: **7e2a2012b019300ef58e8514ebf2f67bb064b21aa1b003930a3e3c1798158581**
+  - 126,805 bytes / 1,410 lines; LF-only; no trailing newline.
+- REV4 preserves REV1/REV2/REV3 as byte-identical historical predecessors.
 
-### R16 remediation status
+### REV4 corrections from the REV3 blockers
 
-R16 was produced specifically to close the two R15 implementation-gate blockers:
+1. SATISFIED now has deciding_stage = null; only the S6 evaluated-mismatch state has deciding_stage = S6.
+2. Positive R2-B render serialization/digest requires a live, non-transferable in-process positive-claim authority (PCA) that re-establishes the complete H1-H5 chain from trusted source inputs. Mutation and recomputed result_digest are explicitly insufficient.
+3. evidence_source_class is no longer an entry-point authority input. It is derived internally from the H3 outcome, compared exactly with M5's validated class, and disagreements refuse closed.
 
-1. **Nine-case null-target matrix** added to Part XX, including the full input/boundary/owner/stage/code/state/constructibility tuples and the R2-A/R2-B controls.
-2. **ARTIFACT_DIGEST_RULE** changed to a self-locating declaration-field rule using the unique `Artifact SHA-256:` field, excluding predecessor/historical SHA values.
+The adversarial matrix was expanded from 34 to **41** attacks, including mutation/re-digestion, route mutation with coherent tuple replacement, hand-built positive results, detached reconstruction, serialization after trusted construction, and serialization after provenance invalidation.
 
-Artifact-local validation reported **35 PASS / 0 FAIL**, including declaration-field digest reproduction and two-independent-implementation agreement.
+### Review state
 
-### Independent review state
+- REV4 Hermes self-audit: **PASS** on all seven mandated checks.
+- REV3 historical review: **GLM CLEAR / GPT-SOL-6 BLOCKED**; REV4 is the surgical correction.
+- **Fresh REV4 GLM review: pending.**
+- **Fresh REV4 GPT-SOL-6 review: pending.**
+- Therefore the architecture is **NOT YET IMPLEMENTATION-AUTHORIZED**.
 
-Two review inputs exist for the exact R16 SHA:
+### Mandatory next gate
 
-- **GLM:** **CLEAR**. Fresh inspection of the 3,696-line artifact; no architecture-semantic or implementation-gate blocker found.
-- **GPT-SOL-6:** **BLOCKED** on one implementation-gate finding: **R16-1**.
+Run fresh blind reviews against the exact REV4 SHA. The primary adversarial question is whether the PCA is a genuine trusted authority boundary that cannot be manufactured, copied, transferred, or recreated from a mutated/re-digested result.
 
-The GPT-SOL-6 finding is specifically about **Part XX case 8** of the nine-case null-target matrix. The finding says the case requires a supplied expectation under the matrix common base, but the normative S3 expectation-validation path can fail before the S4 resolver target-table lookup that case 8 says should produce `PRODUCTION_TARGET_NOT_ESTABLISHED`. Therefore GPT-SOL-6 judged the mandated case-8 consumer-facing tuple unreachable as written.
+Secondary checks must preserve:
+- the landed R2-A/R25 contract;
+- the R2-A verifier_revision value m12.6-v1;
+- the R2-B route discriminator m12.6-r2b-v1;
+- rowless positive S6 semantics;
+- exact non-circular render identity digest;
+- the ten-field HMAC journal boundary;
+- genuinely read-only H1 loading;
+- authoritative durable-record digest recomputation;
+- U1 fail-closed population behaviour;
+- U4/U5 constraints and the Case A custody model.
 
-GLM did not identify this as a blocker. **No adjudication has yet been accepted as authoritative.**
+### Unresolved / human-gate items carried by REV4
 
-### Exact pause point
-
-The next action is **targeted adjudication of R16-1**, not implementation.
-
-Adjudication must determine whether:
-
-- case 8 is genuinely constructible under all of its stated preconditions and stage-precedence rules; or
-- case 8 is internally unreachable and requires the smallest gate-only R17 correction.
-
-No R17 artifact exists yet. No implementation is authorized.
-
-### Resume gate
-
-**A. If R16-1 is invalid:**
-1. record the adjudication;
-2. preserve R16 byte-identically;
-3. proceed to human authorization of the exact R16 SHA;
-4. only then create a fresh M12.6 R2-A implementation branch from the functional main baseline.
-
-**B. If R16-1 is valid:**
-1. keep R16 blocked;
-2. make only the minimal architecture/gate correction needed for case 8;
-3. produce a new exact artifact (R17);
-4. send R17 through fresh blind GLM + GPT-SOL-6 review;
-5. do not implement before both required independent reviews are clear.
+- **U1:** reviewed registry/expectation population remains an implementation prerequisite.
+- **U6:** attestation-contract boundary remains limited to the existing ten signed fields.
+- **U7:** deployment attestation of store custody is required for positive render claims.
+- Review/rider decisions still to be dispositioned explicitly: U5 four-member nonsemantic delta, the already-permitted two-value verifier_revision set, PCA cost/revalidation, and the stated ENGINE_LIVE-positive policy.
 
 ### Explicit prohibitions
 
-- Do **not** resume implementation from PR #142.
-- Do **not** patch production code while case 8 is unresolved.
-- Do **not** treat the GLM CLEAR as sufficient to override GPT-SOL-6 without adjudication.
-- Do **not** change the R16 artifact merely to make the reviewer dispute disappear without first establishing the normative execution path.
-- Do **not** reopen Blender, Temporal, M11, M12.5, or token-optimization work as part of this gate.
+- Do not implement R2-B yet.
+- Do not modify PR #142.
+- Do not use PR #142 as an implementation base.
+- Do not modify R25 or the landed R2-A implementation.
+- Do not reopen Blender, Temporal, M11, M12.5, or unrelated Unreal PR history as part of this gate.
+
 
 ## M12.5 — V1 IMPLEMENTED / MERGED / PAUSED FOR THE NIGHT
 
