@@ -1,49 +1,26 @@
 # Atlas
 
-> **Current-state reconciliation — September 26, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is paused at the R16 implementation-gate adjudication point.**
+> **Current-state reconciliation — September 27, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is landed and M12.6 R2-B is now paused at the REV4 independent-review gate.**
 >
-> **Functional implementation baseline:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`. **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
+> **Documentation checkpoint base:** main @ 2b39acb005e406f4f992531257b6ff3d82852ee8. This pause adds documentation only; production implementation state is unchanged.
 >
-> **R16 artifact:** `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`
+> **Landed M12.6 R2-A:** 7b591445d1a11e0ae181330fafaf0956d6cebdbb via PR #143; merge commit e9a572c2104153285b1139d7dc09d1e9acd479ac.
 >
-> **R16 exact SHA-256:** `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`
+> **R2-A contract:** ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md, SHA-256 8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8.
 >
-> GLM returned **CLEAR** on fresh inspection of the exact R16 artifact. GPT-SOL-6 returned **BLOCKED** on one implementation-gate finding, **R16-1**, concerning Part XX case 8. The dispute is intentionally unresolved at this pause.
+> **Current R2-B normative artifact:** C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md
+>
+> **REV4 exact SHA-256:** 6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d
+>
+> **REV4 declaration self-digest:** 7e2a2012b019300ef58e8514ebf2f67bb064b21aa1b003930a3e3c1798158581
+>
+> REV4 is the current external design candidate. Hermes' artifact-local self-audit is complete, but the required fresh blind GLM + GPT-SOL-6 review has **not yet been completed**. **Implementation remains NOT AUTHORIZED.**
+>
+> Previous REV3 dual review remains historical evidence: GLM **CLEAR**; GPT-SOL-6 **BLOCKED** on three surgical blockers. REV4 was authored to close those findings.
+>
+> **R2-B current gate:** fresh exact-SHA dual review of REV4, with special adversarial attention to the positive-claim authority (PCA), mutation + recomputed-digest attack, and evidence_source_class derivation.
 >
 > Historical dated handoffs are archival. The authoritative restart surfaces are the current handoff files listed below.
-
-## Active development checkpoint — September 26, 2026
-
-### M12.6 — R2-A / R16 IMPLEMENTATION GATE PAUSED
-
-- Normative artifact: **M12.6-R1-R16**.
-- Exact external path: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`.
-- Exact SHA-256: `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`.
-- R16 closes the two R15 implementation-gate blockers: the full nine-case Part XX matrix and the self-locating `ARTIFACT_DIGEST_RULE`.
-- Artifact-local validation: **35 PASS / 0 FAIL**.
-- **GLM: CLEAR.**
-- **GPT-SOL-6: BLOCKED — R16-1.**
-- R16-1 concerns whether Part XX case 8 can actually reach S4 with the mandated consumer-facing tuple when the matrix common base requires a supplied expectation and S3 validation precedes S4 lookup.
-- Current status: **implementation paused pending targeted adjudication**.
-- No R17 artifact exists; no production code has been changed; PR #142 remains historical blocked evidence only.
-- Required next gate: literal case-8 execution-path adjudication. If invalid → preserve R16 byte-identically and proceed to human authorization. If valid → minimal R17 gate correction and fresh blind GLM + GPT-SOL-6 review.
-- After the contract reaches the required CLEAR + human authorization state, implementation starts from a fresh branch on the functional main baseline `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`, never from PR #142.
-
-### M12.5 — V1 IMPLEMENTED / MERGED
-
-- PR #137 architecture: **MERGED**.
-- PR #138 implementation: **MERGED**.
-- Merge commit: `9b644d09a434ca97c21a15552383ff1268935a1f`.
-- Dedicated M12.5 semantic live promotion remains separate from repository deterministic CI.
-
-### Closed / frozen tracks
-
-- Blender: **CLOSED** for the current declared contract.
-- Temporal: **MERGED / LIVE-GATED / FROZEN**.
-- M11: **FROZEN**.
-- M12.1–M12.4: **IMPLEMENTED**.
-- M13.8/token optimization: **PAUSED**.
-- Older Unreal PR stack: **selective integration only; no blanket merge**.
 
 ## What Atlas is
 

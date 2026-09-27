@@ -11,6 +11,7 @@ Status of the M12 milestones as landed on `main`.
 | M12.5 | `verification.py`, `verification_result.py` | landed (frozen) |
 | M12.6 R1 | normative design chain (R16 → … → R25) | **R25 frozen — sole normative authority** |
 | M12.6 R2-A | `expectation.py` (refusal-only machinery) | **LANDED — independently reviewed, CI-green** |
+| M12.6 R2-B | normative external design (REV4) | **REV4 REVIEW GATE — implementation unauthorized** |
 
 ## M12.6-R2-A — refusal-only machinery (LANDED 2026-09-27)
 
@@ -34,3 +35,22 @@ Status of the M12 milestones as landed on `main`.
 - Not landed (R2-B, not started): render-evidence provenance and the M5→M12 provenance gate, target
   population/registration, positive semantic verification and receipts.
 - `PR #142` is historical and untouched; it is not an implementation base.
+## M12.6-R2-B — normative design paused at REV4 review gate (2026-09-27)
+
+**M12.6-R2-B — REV4 EXISTS; IMPLEMENTATION NOT AUTHORIZED**
+
+- External normative candidate: ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md.
+- Exact SHA-256: 6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d.
+- Declaration self-digest: 7e2a2012b019300ef58e8514ebf2f67bb064b21aa1b003930a3e3c1798158581.
+- REV4 is a document-only architecture artifact; no production code has been changed for R2-B.
+- REV3 historical review state: GLM **CLEAR**; GPT-SOL-6 **BLOCKED** on three concrete blockers.
+- REV4 explicitly closes those three blocker classes:
+  - SATISFIED => deciding_stage = null; S6 evaluated mismatch => S6;
+  - positive render serialization/digest requires live PCA-backed re-establishment of H1-H5 from trusted source inputs;
+  - evidence_source_class is internally derived from H3 and compared with M5's validated class.
+- Adversarial matrix: **41 cases**.
+- Route discriminator remains the existing canonical verifier_revision member: R2-A m12.6-v1, R2-B m12.6-r2b-v1.
+- R2-A/R25, U1/U6/U7, the ten-field journal-attestation boundary, exact render identity recipe, and read-only H1 semantics remain protected.
+- **Fresh exact-SHA GLM review: pending.**
+- **Fresh exact-SHA GPT-SOL-6 review: pending.**
+- Implementation is **not authorized** until both fresh independent reviews are CLEAR and the required human-gate/rider decisions are explicitly dispositioned.
