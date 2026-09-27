@@ -539,7 +539,8 @@ def test_r25_no_m5_provenance_machinery_exists_in_the_module():
         if isinstance(node, ast.Attribute):
             assert node.attr not in ("__mro__", "__subclasses__", "__bases__"), node.lineno
     # the R2-A entry points accept the render dimension as a property of the task class only
-    assert "R2A_RENDER_ROWS" in source and source.count("R2A_RENDER_ROWS") == 2
+    assert source.count("R2A_RENDER_ROWS = frozenset(") == 1      # one definition, no duplicate row set
+    assert source.count("R2A_RENDER_ROWS") >= 2                   # used by the resolver and the validation
 
 
 def test_r25_result_remains_structurally_complete_and_stable():
@@ -675,7 +676,9 @@ def test_r25_render_derivations_are_revalidated_at_serialization_after_mutation(
     # a bypass-init construction (no __post_init__) is still refused when it is serialized
     members, rows = _render_members()
     bypass = object.__new__(ex.M126Result)
-    object.__setattr__(bypass, "members", MappingProxyType(dict(members, render_state="NOT_REQUIRED")))
+    object.__setattr__(bypass, "members", MappingProxyType(dict(
+        members, render_state="NOT_REQUIRED",
+        evidence_trust_basis=MappingProxyType(dict(members["evidence_trust_basis"])))))
     object.__setattr__(bypass, "applicable_rows", tuple(rows))
     with raises(ex.M126ContractError):
         bypass.canonical_dict()
@@ -684,6 +687,120 @@ def test_r25_render_derivations_are_revalidated_at_serialization_after_mutation(
     object.__setattr__(good, "members", MappingProxyType(members))
     object.__setattr__(good, "applicable_rows", tuple(rows))
     assert good.canonical_dict()
+
+
+# --------------------------------------------------------------- R25 R1/R2: render_task coherence
+
+
+def _r1_members():
+    """Former Case A: the render-bearing baseline with only the classification relabelled."""
+    members, rows = _render_members()
+    return dict(members, render_task=False, render_state="NOT_REQUIRED",
+                evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                      "render_evidence": "NOT_APPLICABLE"}), rows
+
+
+def _r2_members():
+    """Former Case B: the S4 non-render baseline relabelled as render-bearing."""
+    members, rows = _plain_members()
+    return dict(members, render_task=True, render_state="NOT_VERIFIED",
+                evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                      "render_evidence": "NOT_ESTABLISHED"}), rows
+
+
+def test_r25_r1_render_rows_require_a_render_bearing_classification():
+    """R1: a render-only row set cannot be claimed by a non-render classification (false or null)."""
+    members, rows = _r1_members()
+    assert {32, 42, 43, 44} <= set(rows)
+    with raises(ex.M126ContractError):
+        _trusted(members, rows)
+    with raises(ex.M126ContractError):
+        _trusted(dict(members, render_task=None, render_state="NOT_DECIDED",
+                      evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                            "render_evidence": "NOT_ESTABLISHED"}), rows)
+    # a single render-only row is enough to trigger R1
+    for row in (32, 42, 43, 44):
+        other, other_rows = _plain_members()
+        with raises(ex.M126ContractError):
+            _trusted(dict(other, render_task=False, render_state="NOT_REQUIRED",
+                          evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                                "render_evidence": "NOT_APPLICABLE"}),
+                     tuple(sorted(set(other_rows) | {row})))
+
+
+def test_r25_r2_s4_render_bearing_decisions_require_the_render_rows():
+    """R2: at S4 a render-bearing input carries rows 32/42/43/44 unconditionally."""
+    members, rows = _r2_members()
+    assert members["render_task"] is True
+    with raises(ex.M126ContractError):
+        _trusted(members, rows)
+    # dropping one render row from a valid S4 render-bearing result is refused as well
+    good, good_rows = _render_members()
+    for row in (32, 42, 43, 44):
+        with raises(ex.M126ContractError):
+            _trusted(good, tuple(r for r in good_rows if r != row))
+
+
+def test_r25_r1_r2_do_not_over_enforce_on_earlier_stage_preemption():
+    """R2 must not fire when a render-bearing task legitimately finishes at S1/S2/S3."""
+    task, plan = _render_task_and_plan()
+    valid = ex.verify_semantic_target_r2a(task, plan)
+    assert valid.members["render_task"] is True
+    assert ex.R2A_RENDER_ROWS <= set(valid.applicable_rows)          # the valid S4 case still succeeds
+    # S3 preemption: a binding mismatch preempts the S4 render block
+    plan_s3 = generate_execution_plan(task)
+    _mutate(plan_s3, digital_twin_id="twin-OTHER")
+    preempted_s3 = ex.verify_semantic_target_r2a(task, plan_s3)
+    assert preempted_s3.members["render_task"] is True
+    assert 13 in preempted_s3.applicable_rows
+    assert not (ex.R2A_RENDER_ROWS & set(preempted_s3.applicable_rows))
+    # S1 preemption: a structurally invalid plan
+    plan_s1 = generate_execution_plan(task)
+    object.__setattr__(plan_s1, "undeclared_runtime_attribute", 1)      # F2 at S1 (VII.4)
+    preempted_s1 = ex.verify_semantic_target_r2a(task, plan_s1)
+    assert preempted_s1.members["render_task"] is True
+    assert 1 in preempted_s1.applicable_rows
+    assert not (ex.R2A_RENDER_ROWS & set(preempted_s1.applicable_rows))
+    # the preempted results survive a round trip through the trusted constructor unchanged
+    for preempted in (preempted_s3, preempted_s1):
+        assert _trusted(dict(preempted.members), preempted.applicable_rows).result_digest
+
+
+def test_r25_r1_r2_hold_at_serialization_after_mutation_and_under_bypass_init():
+    """The R1/R2 rules are revalidated at serialization, not only at construction."""
+    from types import MappingProxyType
+
+    task, plan = _render_task_and_plan()
+    for overrides in ({"render_task": False, "render_state": "NOT_REQUIRED",
+                       "evidence_trust_basis": {"semantic_observation": "NOT_ESTABLISHED",
+                                                "render_evidence": "NOT_APPLICABLE"}},):
+        result = ex.verify_semantic_target_r2a(task, plan)
+        assert result.canonical_dict()
+        mutated = dict(result.members, **overrides)
+        mutated["evidence_trust_basis"] = MappingProxyType(dict(mutated["evidence_trust_basis"]))
+        object.__setattr__(result, "members", MappingProxyType(mutated))
+        with raises(ex.M126ContractError):
+            result.canonical_dict()
+        with raises(ex.M126ContractError):
+            result.result_digest
+    plain_task, plain_plan = _task_and_plan()
+    flipped = ex.verify_semantic_target_r2a(plain_task, plain_plan)
+    assert flipped.members["render_task"] is False
+    object.__setattr__(flipped, "members", MappingProxyType(dict(
+        flipped.members, render_task=True, render_state="NOT_VERIFIED",
+        evidence_trust_basis=MappingProxyType({"semantic_observation": "NOT_ESTABLISHED",
+                                               "render_evidence": "NOT_ESTABLISHED"}))))
+    with raises(ex.M126ContractError):
+        flipped.canonical_dict()
+    with raises(ex.M126ContractError):
+        flipped.result_digest
+    members, rows = _r1_members()
+    bypass = object.__new__(ex.M126Result)
+    object.__setattr__(bypass, "members", MappingProxyType(dict(
+        members, evidence_trust_basis=MappingProxyType(dict(members["evidence_trust_basis"])))))
+    object.__setattr__(bypass, "applicable_rows", tuple(rows))
+    with raises(ex.M126ContractError):
+        bypass.canonical_dict()
 
 
 # --------------------------------------------------------------- B9: structural assertions

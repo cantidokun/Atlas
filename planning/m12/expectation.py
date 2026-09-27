@@ -1384,13 +1384,16 @@ _RENDER_STATE_DERIVATION = {False: "NOT_REQUIRED", True: "NOT_VERIFIED", None: "
 _RENDER_TRUST_DERIVATION = {False: "NOT_APPLICABLE", True: "NOT_ESTABLISHED", None: "NOT_ESTABLISHED"}
 
 
-def validate_render_derivations(members: Mapping[str, Any]) -> None:
-    """XIV.4.6 (iff-derivations), XIV.4.5 (representability), XXIV.1 (R2-A reachable subset).
+def validate_render_derivations(members: Mapping[str, Any], applicable_rows: Sequence[int]) -> None:
+    """XIV.4.6 (iff-derivations), XIV.4.5 (representability), XIV.3.1 (stage semantics), XXIV.1.
 
-    ``render_state`` and ``evidence_trust_basis.render_evidence`` are **derived** members, not validated inputs:
-    a value that is not the one its own rule derives for the readable render classification is a construction
-    error even when it belongs to the declared vocabulary. Enforced on the result object so it holds at
-    construction, at every serialization (the canonical dict revalidates) and after any low-level mutation.
+    ``render_task``, ``render_state`` and ``evidence_trust_basis.render_evidence`` are **derived** members, not
+    validated inputs: ``render_task`` is the task's own declared render classification (XIV.4.6, VIII.5) and the
+    render rows {32, 42, 43, 44} are the same classification seen from the row side (XIV.3.1, Part XVII item 6).
+    A value that is not the one its own rule derives, and a row set that contradicts the classification, are
+    construction errors even when they belong to the declared vocabularies. Enforced on the result object so it
+    holds at construction, at every serialization (the canonical dict revalidates) and after any low-level
+    mutation.
     """
     render_task = members["render_task"]
     if render_task is not True and render_task is not False and render_task is not None:
@@ -1414,6 +1417,27 @@ def validate_render_derivations(members: Mapping[str, Any]) -> None:
             "evidence_trust_basis.render_evidence is a derived member (XIV.4.6): "
             f"render_task={render_task!r} derives {derived_trust!r}, got {trust!r}"
         )
+
+    rows = frozenset(applicable_rows)
+    # R1 (XIV.3.1, Part XVII item 6): rows 32/42/43/44 are render-only, so a result that carries one of them has
+    # a render-bearing input and its `render_task` cannot be false or null.
+    if R2A_RENDER_ROWS & rows and render_task is not True:
+        raise M126ContractError(
+            "render_task contradicts the applicable render rows (XIV.4.6, Part XVII item 6): "
+            f"rows {sorted(R2A_RENDER_ROWS & rows)} require render_task=True, got {render_task!r}"
+        )
+    # R2 (XIV.3.1 stage semantics): when the decision is made at S4 - the stage of the lowest-numbered applicable
+    # row - a render-bearing input carries the render rows unconditionally; an S1/S2/S3 preemption carries none,
+    # which is why the rule is not applied there.
+    if render_task is True and not R2A_RENDER_ROWS <= rows:
+        stages = {row[0]: row[2] for row in PART_XV_ROWS}
+        applicable = sorted(row for row in rows if row in stages)
+        if applicable and stages[applicable[0]] == "S4":
+            raise M126ContractError(
+                "an S4 decision for a render-bearing input requires rows 32/42/43/44 (XIV.3.1, "
+                f"Part XVII item 6): missing {sorted(R2A_RENDER_ROWS - rows)}"
+            )
+
 
 R2A_UNREACHABLE_TOKENS = frozenset(
     # Tokens that appear ONLY on S5 rows. A token is a row VALUE, not a key: `EXPECTED_VALUE_UNAVAILABLE` is
@@ -1607,7 +1631,7 @@ class M126Result:
             )
         # XIV.4.6: render_state and the render trust basis are DERIVED from the readable render
         # classification; the derivation (not a vocabulary membership test) is what is enforced here.
-        validate_render_derivations(m)
+        validate_render_derivations(m, self.applicable_rows)
         if (m["expectation_identity"] is None) != (m["expectation_digest"] is None):
             raise M126ContractError("expectation_identity/expectation_digest move as a pair")
         if m["expectation_identity"] is not None and m["deciding_stage"] not in {"S4", "S5", "S6"}:
