@@ -1,51 +1,59 @@
 # Unreal Agent Handoff — Current State
 
-> **Authoritative current checkpoint — September 26, 2026.**
-> M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged. **M12.6 R2-A is paused at the R16 implementation-gate adjudication point.**
+> **Authoritative current checkpoint — September 27, 2026.**
+> M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; M12.6 R2-A is landed under R25. **M12.6 R2-B is currently paused at the REV4 independent-review gate.**
 > This document is the operational Unreal-track handoff. Dated checkpoint text below remains archival provenance.
 
 ## Exact repository state
 
-- Functional implementation baseline: `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge).
-- Current repository `main` after documentation-only checkpoints is newer than that functional baseline.
-- **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
-- **PR #142 head:** `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc`.
-- No M12.6 implementation has been merged or authorized.
+- Current main: 2b39acb005e406f4f992531257b6ff3d82852ee8 (documentation-only merge after PR #144).
+- Functional implementation baseline before M12.6 R2-A: 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6.
+- M12.6 R2-A landed implementation: 7b591445d1a11e0ae181330fafaf0956d6cebdbb; PR #143; merge commit e9a572c2104153285b1139d7dc09d1e9acd479ac.
+- **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED; head 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc; historical and untouched.
+- No M12.6 R2-B implementation has been merged or authorized.
 
-## M12.6 R2-A — R16 GATE DISPUTE / PAUSED
+## M12.6 R2-B — REV4 INDEPENDENT-REVIEW GATE / PAUSED
 
-- Sole contract under review: **M12.6-R1-R16**.
-- Path: `C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md`.
-- Exact SHA-256: `6a4520ad417c85ce16239b7b7afc18bc9b1585720c550744e8025e9eef5a1eff`.
-- Size: **393,092 bytes / 3,696 lines**.
-- R16 self-recorded declaration digest: `ddbe9dd056f77627eb1196fdad20969e1105c54e9a35d484af9617c29c8ea7c3`.
-- R16 closes R15's two gate blockers: nine-case Part XX matrix and self-locating `ARTIFACT_DIGEST_RULE`.
-- Artifact-local validation: **35 PASS / 0 FAIL**.
+- External normative candidate: **M12.6-R2B-REV4**.
+- Path: C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md.
+- Exact SHA-256: **6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d**.
+- Declaration self-digest: **7e2a2012b019300ef58e8514ebf2f67bb064b21aa1b003930a3e3c1798158581**.
+- Size: **126,805 bytes / 1,410 lines**.
+- Hermes artifact-local self-audit: **all seven mandated checks PASS**.
+- No production code/test/implementation branch/PR was modified for R2-B.
 
-### Dual-review state
+### What REV4 closed
 
-- **GLM: CLEAR.**
-- **GPT-SOL-6: BLOCKED — R16-1.**
+- SATISFIED stage contradiction: SATISFIED => deciding_stage = null; S6 evaluated mismatch => S6.
+- Mutation + recomputed-digest attack: positive serialization/digest requires a live, non-transferable in-process PCA that re-establishes H1-H5 from trusted source inputs.
+- evidence_source_class authority gap: the class is derived internally from H3 and compared to M5's validated class; it is not a caller-owned authority input.
 
-R16-1 targets Part XX case 8. GPT-SOL-6's claim is that the matrix common base requires a supplied expectation, while the normative S3 expectation-validation path can decide/fail before the S4 target-table lookup required to produce case 8's `PRODUCTION_TARGET_NOT_ESTABLISHED` tuple.
+The adversarial matrix expanded from 34 to 41 attacks. The landed R2-A/R25 semantics are explicitly preserved.
 
-This dispute is the sole current blocker. Do not implement, patch PR #142, or generate production code until the execution path is adjudicated from the literal R16 contract.
+### Independent-review gate
 
-### Required next gate
+- REV3 historical: GLM **CLEAR**; GPT-SOL-6 **BLOCKED** on the three blockers that REV4 addresses.
+- REV4 fresh GLM: **PENDING**.
+- REV4 fresh GPT-SOL-6: **PENDING**.
+- **Implementation remains NOT AUTHORIZED.**
 
-Perform a **targeted case-8 adjudication** against the exact R16 bytes. The adjudication must establish whether the case can actually construct the mandated consumer-facing tuple under all stated preconditions and stage-precedence rules.
+Primary review question: whether the PCA is a genuine trusted authority boundary rather than a relabelable/mutable in-memory marker, especially under mutation + recomputed digest, cloning/copying, detached reconstruction, PCA transfer, and stale-PCA reuse.
 
-- If the blocker is **invalid**: preserve R16 byte-identically and proceed to human authorization of the exact R16 SHA.
-- If the blocker is **valid**: keep R16 blocked, make the smallest gate-only correction as R17, then repeat fresh blind GLM + GPT-SOL-6 review.
+### Human-gate items carried forward
 
-### Implementation boundary
+- U1 reviewed registry/expectation population.
+- U6 existing ten-field attestation-contract boundary.
+- U7 deployment attestation of store custody for positive render claims.
+- Explicit disposition of U5 / two-value verifier-revision delta / PCA cost / ENGINE_LIVE-positive policy.
 
-When and only when the architecture contract reaches the required CLEAR + human authorization state, create the implementation branch from the functional main baseline `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6`.
+### Prohibitions
 
-**Never use PR #142 as the implementation base.**
-**No live Unreal execution is part of the current adjudication step.**
+- Do not implement R2-B.
+- Do not modify or revive PR #142.
+- Do not alter R25 or the landed R2-A code while reviewing R2-B.
+- Keep Blender, Temporal, M11, and unrelated Unreal PR history out of this gate.
 
-## M12.5 V1 — IMPLEMENTED / MERGED
+## M12.5 V1 — IMPLEMENTED / MERGED (HISTORICAL CURRENT IMPLEMENTATION)
 
 - PR #137 architecture: MERGED.
 - PR #138 implementation: MERGED.
