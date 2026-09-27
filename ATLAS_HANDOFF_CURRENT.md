@@ -1,13 +1,42 @@
 # Atlas Current Development Handoff
 
-> **Authoritative current-state reconciliation — September 26, 2026.**
+> **Authoritative current-state reconciliation — September 27, 2026.**
 >
-> **STATUS: M12.6 R1 R16 IMPLEMENTATION-GATE REVIEW DISPUTE — PAUSED FOR NIGHT**
-> **Functional implementation baseline:** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge). **PR #142:** OPEN / DRAFT / BLOCKED / NOT MERGED.
-> **M12.6 R16 artifact:** reviewed on exact SHA, but not yet authorized for implementation because GLM returned CLEAR while GPT-SOL-6 identified one implementation-gate blocker (R16-1). Targeted adjudication is pending.
->
-> This is a documentation/process pause. No M12.6 production implementation, PR #142 modification, implementation branch, or implementation commit was made during this checkpoint.
+> **STATUS: M12.6-R2-A — IMPLEMENTED, INDEPENDENTLY REVIEWED, CI-GREEN, LANDED**
+> **Functional implementation baseline (before this landing):** `4897d9d4524df6cc2fa59caf0c86fa0b269f35a6` (PR #140 merge).
+> **Current `main`:** `e9a572c2104153285b1139d7dc09d1e9acd479ac` (PR #143 merge, 2026-09-27).
+> **Landed M12.6-R2-A implementation:** `7b591445d1a11e0ae181330fafaf0956d6cebdbb` (tree `4f84f832b5e59d1fa8f47eecc382122a631faeb1`), landed by **PR #143** — merge commit
+> `e9a572c2104153285b1139d7dc09d1e9acd479ac`. The PR head was never amended, rebased or squashed: the landed commit is the reviewed commit.
+> **Contract:** `ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md`, SHA-256 `8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8` (declaration-field self-digest
+> `e80a4398db4816310720139e61b9772d6fa92615e25a23f017a4a0311b5ec5fa`). R25 is the sole normative authority for M12.6 R2-A; no earlier revision is.
+> **Independent implementation gate (human attestation, not author-verified):** GLM **CLEAR** and GPT-SOL-6
+> **CLEAR** on the exact implementation SHA.
+> **Evidence at that SHA:** focused R2-A suite **96 PASS / 0 FAIL** (pinned CPython 3.11.16); `tests/m12`
+> **486 passed**; full deterministic suite **4442 passed / 132 skipped / 0 failed**; deterministic CI
+> (Atlas Tests 3.9 + 3.11) **green** on the landed commit. The 132 skips and the queued live Blender jobs are
+> **environment-only**: the self-hosted engine runner `atlas-local` is offline; no live-engine failure occurred.
+> **PR #142** (head `80e0d5028291f3d44d1dd7b11f9431f820e2d7fc`) remains **OPEN / DRAFT / BLOCKED / NOT MERGED** — historical and
+> untouched by this landing; it is not an implementation base.
 
+
+## M12.6 — R2-A refusal-only machinery: LANDED (2026-09-27)
+
+**M12.6-R2-A — IMPLEMENTED, INDEPENDENTLY REVIEWED, CI-GREEN, LANDED**
+
+- Landed implementation commit: `7b591445d1a11e0ae181330fafaf0956d6cebdbb` (tree `4f84f832b5e59d1fa8f47eecc382122a631faeb1`); PR **#143**; merge commit `e9a572c2104153285b1139d7dc09d1e9acd479ac`.
+- Normative authority: `ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md`, SHA-256 `8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8`.
+- Design chain for this rung: R16 → R17 → R18 → R19 (Option C) → R20 → R21 → R22 → R23 → R24 → **R25**,
+  each step the smallest normative-document-only correction, with the frozen artifacts retained as history.
+- Implementation-gate adjudications along the way (all closed by scoped remediations before landing): the M5
+  render-evidence forgery boundary, the render-state / trust-basis derivations, the render_task ↔ row
+  coherence rules (R1), and the S4-stage row-membership rule (R2).
+- Landed behaviour: R2-A accepts **no render-evidence input**; rows 32/42/43/44 are unconditional for a
+  render-bearing input; rows 36/37 are unreachable; no M5 provenance is imported, called, inspected or
+  re-derived; `DURABLE_RECORD_BACKED` is R2-B-only; the three render identity members are `null`;
+  `render_state` stays `NOT_VERIFIED`; every outcome is a refusal.
+- Deferred to R2-B and **not started**: render-evidence provenance and the M5→M12 provenance gate, target
+  population/registration, positive semantic verification, observation/evaluation stages, receipts.
+- `runtime_mapping_digest` behaviour is unchanged (independently adjudicated non-blocking).
 ## Blender track — CLOSED for the current declared contract
 
 

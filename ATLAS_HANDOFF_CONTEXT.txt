@@ -1,11 +1,26 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 26, 2026 CURRENT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 27, 2026 CURRENT CHECKPOINT
 
 CURRENT REPOSITORY:
-- Functional implementation baseline = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6 (PR #140 merge).
-- Current main may be ahead only by documentation-only checkpoints.
-- PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED.
-- PR #142 head = 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc.
-- No M12.6 implementation has been merged or authorized.
+- main = e9a572c2104153285b1139d7dc09d1e9acd479ac (PR #143 merge, 2026-09-27).
+- Functional implementation baseline before this landing = 4897d9d4524df6cc2fa59caf0c86fa0b269f35a6 (PR #140 merge).
+- M12.6-R2-A is LANDED: implementation commit 7b591445d1a11e0ae181330fafaf0956d6cebdbb (tree 4f84f832b5e59d1fa8f47eecc382122a631faeb1).
+- PR #143 = MERGED (merge commit e9a572c2104153285b1139d7dc09d1e9acd479ac); PR head was never amended/rebased/squashed.
+- PR #142 = OPEN / DRAFT / BLOCKED / NOT MERGED (head 80e0d5028291f3d44d1dd7b11f9431f820e2d7fc) — historical, untouched.
+
+M12.6-R2-A — LANDED STATE:
+- Contract = C:\Users\Gavin's PC\Desktop\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md
+- Contract SHA-256 = 8f9cccc6c59635a554cc63f200c719d80c09dce0372e13715c83aee1809ae1c8
+- Declaration-field self-digest = e80a4398db4816310720139e61b9772d6fa92615e25a23f017a4a0311b5ec5fa
+- Independent implementation gate = GLM CLEAR + GPT-SOL-6 CLEAR (human attestation, not author-verified)
+- CI = Atlas Tests (3.9 + 3.11) green on the exact landed head; live Blender live-engine jobs skipped/queued
+  because the self-hosted engine runner atlas-local is offline (environment-only).
+- Evidence = focused R2-A 96 PASS / 0 FAIL; tests/m12 486 passed; full deterministic suite 4442 passed,
+  132 skipped, 0 failed.
+- Landed behaviour = no render-evidence input; rows 32/42/43/44 unconditional; rows 36/37 unreachable; no M5
+  provenance consumption; DURABLE_RECORD_BACKED R2-B-only; render identities null; render_state NOT_VERIFIED.
+- Deferred and NOT started (R2-B) = render-evidence provenance and the M5→M12 provenance gate, target
+  population/registration, positive semantic verification, receipts.
+- Landed implementation commit now in main: 7b591445d1a11e0ae181330fafaf0956d6cebdbb
 
 M12.6 R2-A — R16 GATE DISPUTE:
 - Exact artifact = C:\\Users\\Gavin's PC\\Desktop\\ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV16.md
