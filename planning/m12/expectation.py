@@ -1374,6 +1374,47 @@ R2A_UNREACHABLE_RENDER_TOKENS = frozenset({
 #: basis reserved for R2-B) is refused at construction, so R2-A cannot produce it even by accident.
 _R2A_ALLOWED_RENDER_TRUST = frozenset({"NOT_APPLICABLE", "NOT_ESTABLISHED"})
 
+#: XIV.4.6: the closed four-member `render_state` vocabulary (R9), and the derivations the same clause fixes by an
+#: `iff` rule keyed on the readable render classification. `VERIFIED` stays in the vocabulary but is unreachable in
+#: R2-A (XXIV.1): the derivation admits it only for a satisfied verification conjunction, which R2-A cannot
+#: establish. The trust-basis derivation follows the Part XIV member table: `NOT_APPLICABLE` only for a non-render
+#: task, and `NOT_ESTABLISHED` for every render-bearing case including the unreadable classification.
+_RENDER_STATE_VOCABULARY = frozenset({"NOT_REQUIRED", "NOT_VERIFIED", "NOT_DECIDED", "VERIFIED"})
+_RENDER_STATE_DERIVATION = {False: "NOT_REQUIRED", True: "NOT_VERIFIED", None: "NOT_DECIDED"}
+_RENDER_TRUST_DERIVATION = {False: "NOT_APPLICABLE", True: "NOT_ESTABLISHED", None: "NOT_ESTABLISHED"}
+
+
+def validate_render_derivations(members: Mapping[str, Any]) -> None:
+    """XIV.4.6 (iff-derivations), XIV.4.5 (representability), XXIV.1 (R2-A reachable subset).
+
+    ``render_state`` and ``evidence_trust_basis.render_evidence`` are **derived** members, not validated inputs:
+    a value that is not the one its own rule derives for the readable render classification is a construction
+    error even when it belongs to the declared vocabulary. Enforced on the result object so it holds at
+    construction, at every serialization (the canonical dict revalidates) and after any low-level mutation.
+    """
+    render_task = members["render_task"]
+    if render_task is not True and render_task is not False and render_task is not None:
+        raise M126ContractError(f"render_task is not a readable render classification: {render_task!r}")
+    state = members["render_state"]
+    if state not in _RENDER_STATE_VOCABULARY:
+        raise M126ContractError(
+            f"render_state is outside the closed four-member vocabulary (XIV.4.6): {state!r}"
+        )
+    derived_state = _RENDER_STATE_DERIVATION[render_task]
+    if state != derived_state:
+        raise M126ContractError(
+            "render_state is a derived member (XIV.4.6): "
+            f"render_task={render_task!r} derives {derived_state!r}, got {state!r}"
+        )
+    basis = members["evidence_trust_basis"]
+    trust = basis.get("render_evidence") if isinstance(basis, Mapping) else None
+    derived_trust = _RENDER_TRUST_DERIVATION[render_task]
+    if trust != derived_trust:
+        raise M126ContractError(
+            "evidence_trust_basis.render_evidence is a derived member (XIV.4.6): "
+            f"render_task={render_task!r} derives {derived_trust!r}, got {trust!r}"
+        )
+
 R2A_UNREACHABLE_TOKENS = frozenset(
     # Tokens that appear ONLY on S5 rows. A token is a row VALUE, not a key: `EXPECTED_VALUE_UNAVAILABLE` is
     # carried by rows 3/6 (S4) and 23/25 (S5) and is disambiguated by the deciding stage (XIV.3), so the
@@ -1564,10 +1605,9 @@ class M126Result:
             raise M126ContractError(
                 "rows 36/37 are evidence-dependent and unreachable in R2-A (Part XVII item 6)"
             )
-        if m["render_task"] is None and m["render_state"] != "NOT_DECIDED":
-            raise M126ContractError("render_task null requires render_state NOT_DECIDED")
-        if m["render_task"] is False and m["render_state"] != "NOT_REQUIRED":
-            raise M126ContractError("a non-render task is NOT_REQUIRED")
+        # XIV.4.6: render_state and the render trust basis are DERIVED from the readable render
+        # classification; the derivation (not a vocabulary membership test) is what is enforced here.
+        validate_render_derivations(m)
         if (m["expectation_identity"] is None) != (m["expectation_digest"] is None):
             raise M126ContractError("expectation_identity/expectation_digest move as a pair")
         if m["expectation_identity"] is not None and m["deciding_stage"] not in {"S4", "S5", "S6"}:
@@ -1622,6 +1662,10 @@ def validate_r2a_conformance(members: Mapping[str, Any]) -> None:
     basis = members["evidence_trust_basis"]
     if isinstance(basis, Mapping) and basis.get("render_evidence") not in _R2A_ALLOWED_RENDER_TRUST:
         raise M126ContractError("R2-A produced a render trust basis outside the admissible R2-A values")
+    if isinstance(basis, Mapping) and basis.get("render_evidence") == "NOT_APPLICABLE" and members["render_task"] is True:
+        raise M126ContractError(
+            "R2-A asserted the absence of a render requirement for a render-bearing task (XIV.4.6, Part XVII item 6)"
+        )
     for member in ("render_job_identity", "render_attempt_identity", "render_evidence_identity"):
         if members[member] is not None:
             raise M126ContractError(

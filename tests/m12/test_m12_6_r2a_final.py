@@ -558,6 +558,134 @@ def test_r25_result_remains_structurally_complete_and_stable():
         assert ex.verify_semantic_target_r2a(task, plan).result_digest == result.result_digest
 
 
+# --------------------------------------------------------------- R25 derivation enforcement (XIV.4.6/XXIV.1)
+
+
+def _render_members():
+    task, plan = _render_task_and_plan()
+    result = ex.verify_semantic_target_r2a(task, plan)
+    return dict(result.members), result.applicable_rows
+
+
+def _plain_members():
+    task, plan = _task_and_plan()
+    result = ex.verify_semantic_target_r2a(task, plan)
+    return dict(result.members), result.applicable_rows
+
+
+def _unreadable_members():
+    """The unreadable render classification (render_task = null) form of an otherwise valid refusal."""
+    members, rows = _plain_members()
+    members["render_task"] = None
+    members["render_state"] = "NOT_DECIDED"
+    members["evidence_trust_basis"] = {"semantic_observation": "NOT_ESTABLISHED",
+                                       "render_evidence": "NOT_ESTABLISHED"}
+    return members, rows
+
+
+def _attempt(members, rows, **overrides):
+    return _trusted(dict(members, **overrides), rows)
+
+
+def test_r25_render_state_derivation_is_enforced_for_render_bearing_results():
+    """A: render_task=True derives NOT_VERIFIED; every other value is a construction error, in and out of
+    vocabulary."""
+    members, rows = _render_members()
+    assert members["render_task"] is True
+    assert _attempt(members, rows).members["render_state"] == "NOT_VERIFIED"      # the derived value is accepted
+    for value in ("NOT_REQUIRED", "NOT_DECIDED", "NOT_APPLICABLE", "VERIFIED", "TOTALLY_BOGUS", "", "not_verified"):
+        with raises(ex.M126ContractError):
+            _attempt(members, rows, render_state=value)
+    for value in (None, 1, True, "NOT_VERIFIED "):
+        with raises(ex.M126ContractError):
+            _attempt(members, rows, render_state=value)
+    assert "VERIFIED" in ex._RENDER_STATE_VOCABULARY                             # reserved, but unreachable in R2-A
+
+
+def test_r25_render_state_derivation_is_enforced_for_non_render_and_unreadable_results():
+    """A: render_task=False derives NOT_REQUIRED; render_task=None derives NOT_DECIDED."""
+    plain, plain_rows = _plain_members()
+    assert plain["render_task"] is False
+    assert _attempt(plain, plain_rows).members["render_state"] == "NOT_REQUIRED"
+    for value in ("NOT_VERIFIED", "NOT_DECIDED", "NOT_APPLICABLE", "TOTALLY_BOGUS", "VERIFIED", ""):
+        with raises(ex.M126ContractError):
+            _attempt(plain, plain_rows, render_state=value)
+    unreadable, unreadable_rows = _unreadable_members()
+    assert _attempt(unreadable, unreadable_rows).members["render_state"] == "NOT_DECIDED"
+    for value in ("NOT_REQUIRED", "NOT_VERIFIED", "NOT_APPLICABLE", "TOTALLY_BOGUS", "VERIFIED", ""):
+        with raises(ex.M126ContractError):
+            _attempt(unreadable, unreadable_rows, render_state=value)
+
+
+def test_r25_trust_basis_derivation_is_enforced_for_every_render_classification():
+    """B: NOT_ESTABLISHED for render-bearing (and unreadable), NOT_APPLICABLE only for a non-render task."""
+    members, rows = _render_members()
+    for value in ("NOT_APPLICABLE", "DURABLE_RECORD_BACKED", "INVENTED", "", "not_established"):
+        with raises(ex.M126ContractError):
+            _attempt(members, rows, evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                                          "render_evidence": value})
+    assert _attempt(members, rows).members["evidence_trust_basis"]["render_evidence"] == "NOT_ESTABLISHED"
+    plain, plain_rows = _plain_members()
+    assert _attempt(plain, plain_rows).members["evidence_trust_basis"]["render_evidence"] == "NOT_APPLICABLE"
+    for value in ("NOT_ESTABLISHED", "DURABLE_RECORD_BACKED", "INVENTED"):
+        with raises(ex.M126ContractError):
+            _attempt(plain, plain_rows, evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                                              "render_evidence": value})
+    unreadable, unreadable_rows = _unreadable_members()
+    for value in ("NOT_APPLICABLE", "DURABLE_RECORD_BACKED", "INVENTED"):
+        with raises(ex.M126ContractError):
+            _attempt(unreadable, unreadable_rows, evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                                                        "render_evidence": value})
+
+
+def test_r25_combined_render_contradictions_are_refused_at_construction():
+    """C: the two exact contradictions the adjudication reproduced must fail at construction."""
+    members, rows = _render_members()
+    for state in ("NOT_REQUIRED", "NOT_DECIDED"):
+        combination = dict(members, render_state=state,
+                           evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                                 "render_evidence": "NOT_APPLICABLE"})
+        with raises(ex.M126ContractError):
+            _trusted(combination, rows)
+        # each half of the contradiction is refused on its own as well
+        with raises(ex.M126ContractError):
+            _attempt(members, rows, render_state=state)
+        with raises(ex.M126ContractError):
+            _attempt(members, rows, evidence_trust_basis={"semantic_observation": "NOT_ESTABLISHED",
+                                                          "render_evidence": "NOT_APPLICABLE"})
+
+
+def test_r25_render_derivations_are_revalidated_at_serialization_after_mutation():
+    """D: construction-time and serialization-time validation both hold, including a bypass-init construction and
+    low-level mutation of an already-valid result."""
+    from types import MappingProxyType
+
+    task, plan = _render_task_and_plan()
+    for name, mutated in (("render_state", "NOT_REQUIRED"),
+                          ("evidence_trust_basis", {"semantic_observation": "NOT_ESTABLISHED",
+                                                    "render_evidence": "NOT_APPLICABLE"})):
+        result = ex.verify_semantic_target_r2a(task, plan)
+        assert result.canonical_dict()                                   # valid before the mutation
+        object.__setattr__(result, "members", MappingProxyType(dict(result.members, **{name: mutated})))
+        assert result.members[name] != dict(_render_members()[0])[name]  # the mutation is in place
+        with raises(ex.M126ContractError):
+            result.canonical_dict()
+        with raises(ex.M126ContractError):
+            result.result_digest
+    # a bypass-init construction (no __post_init__) is still refused when it is serialized
+    members, rows = _render_members()
+    bypass = object.__new__(ex.M126Result)
+    object.__setattr__(bypass, "members", MappingProxyType(dict(members, render_state="NOT_REQUIRED")))
+    object.__setattr__(bypass, "applicable_rows", tuple(rows))
+    with raises(ex.M126ContractError):
+        bypass.canonical_dict()
+    # and a bypass-init construction of the valid form still validates normally
+    good = object.__new__(ex.M126Result)
+    object.__setattr__(good, "members", MappingProxyType(members))
+    object.__setattr__(good, "applicable_rows", tuple(rows))
+    assert good.canonical_dict()
+
+
 # --------------------------------------------------------------- B9: structural assertions
 
 
