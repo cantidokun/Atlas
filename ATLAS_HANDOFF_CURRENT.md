@@ -1,6 +1,6 @@
 > AUTHORITATIVE PAUSE OVERRIDE — September 28, 2026 UTC / September 27 local.
 >
-> The current restart point is the U1 synthetic mock validation track, not the older R2-B REV4 review instructions preserved later in this file. PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b; the current documentation tip on main is afa276cfe7f80949bdcbb8a893a990479198ee04. The portable read-only U1 extraction mechanism is therefore on main.
+> The current restart point is the U1 synthetic mock validation track, not the older R2-B REV4 review instructions preserved later in this file. PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b. The portable read-only U1 extraction mechanism is therefore on main.
 >
 > R2-B REV10 is now the frozen external normative baseline (SHA-256 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f; self-digest d9e014e5631471bfd37309bdccdaa602fef2797012e17b4a181488cdb3f645d0; 254,816 bytes / 2,155 lines). Fresh exact-SHA GLM CLEAR and GPT-SOL-6 CLEAR were obtained. R2-B implementation remains NOT AUTHORIZED because U1/U7 operational evidence and the required human gate remain outstanding.
 >
