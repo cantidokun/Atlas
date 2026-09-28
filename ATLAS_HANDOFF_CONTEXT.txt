@@ -1,5 +1,5 @@
 ATLAS CURRENT PAUSE OVERRIDE — SEPTEMBER 28, 2026 UTC
-- Current main = 8f601184e62da2362ec38c948e61b7ff8058f95b (PR #146 merge).
+- Current documentation tip on main = afa276cfe7f80949bdcbb8a893a990479198ee04; PR #146 functional merge = 8f601184e62da2362ec38c948e61b7ff8058f95b.
 - Current active track = U1 synthetic mock validation using AtlasU1MockTwin_CleanValidation.
 - MOCK TWIN VALIDATION INCOMPLETE.
 - Positive actor and sequencer extraction succeeded and their saved canonical hashes matched independently recomputed digests.
