@@ -1,6 +1,6 @@
 > Current pause — U1 mock validation (September 28, 2026 UTC).
 >
-> The current documentation tip on main is afa276cfe7f80949bdcbb8a893a990479198ee04; PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b, which adds the portable, read-only U1 extraction plugin. The current active work is validating the extraction mechanism against the synthetic AtlasU1MockTwin_CleanValidation project.
+> PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b, which adds the portable, read-only U1 extraction plugin. The current active work is validating the extraction mechanism against the synthetic AtlasU1MockTwin_CleanValidation project.
 >
 > MOCK TWIN VALIDATION INCOMPLETE. Positive actor and sequencer extraction are validated with matching saved canonical-byte hashes. Direct sequence inspection confirms two CineCameraActor possessables and one camera-cut section bound to MockCamera_Main; CAM_WIDE is not yet exercised by a camera-cut section.
 >
