@@ -1,4 +1,17 @@
-## 2026-09-27 — M12.6 R2-B REV4 end-of-night pause
+## 2026-09-28 — U1 mock validation pause / clean-fixture checkpoint
+
+- PR #146 — portable read-only U1 extraction plugin — is MERGED at 8f601184e62da2362ec38c948e61b7ff8058f95b.
+- A clean synthetic validation project exists at C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject.
+- Positive actor extraction succeeded and passed Atlas validation. Saved canonical response: Saved\\validation\\positive_extraction_complete.json; independently re-derived SHA-256: 16a8f89a990bfdb9eb963c9f501d6f096289eae7897ddfd4f7e9424248fdd141.
+- Positive sequencer extraction also succeeded and passed validation; saved canonical-byte hash matched its recorded digest.
+- Direct LevelSequence inspection: two CineCameraActor possessables (MockCamera_Main, MockCamera_Wide); one camera-cut track; one section spanning frames 100–240; section bound to MockCamera_Main.
+- Negative, lossy, incomplete-scope, and foreign extraction responses are INVALID / NOT EXERCISED because they returned the positive world /Game/AtlasU1MockTwin/Maps/AtlasMockStadium. A later negative-map extraction attempt timed out and did not produce replacement evidence.
+- Immediate blocker is target-map/process isolation: prove requested fixture = actual loaded fixture = extracted world before accepting any case result.
+- CreateNamedPipe error 231 is observed pipe contention only; the requested A–H crash-isolation matrix remains incomplete.
+- No production U1 expectation values, planning/m12/expectation.py, REV10, R25, or original mock project were modified.
+- STATUS: MOCK TWIN VALIDATION INCOMPLETE. U1 PRODUCTION AUTHORITY: NOT ESTABLISHED.
+- Next session: do not rebuild the mock. Fix/prove target-map isolation, prove NegativeCamera first, then run the remaining case matrix and crash-isolation matrix.
+\n## 2026-09-27 — M12.6 R2-B REV4 end-of-night pause
 
 - R2-A remains **LANDED / INDEPENDENTLY REVIEWED / CI-GREEN** under the frozen R25 contract. Its implementation SHA is 7b591445d1a11e0ae181330fafaf0956d6cebdbb; PR #143 merge commit is e9a572c2104153285b1139d7dc09d1e9acd479ac.
 - Current main for the documentation checkpoint is 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144 documentation-only merge).
