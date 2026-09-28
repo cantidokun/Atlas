@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Atlas Read-Only Extraction",
+	"Description": "Portable read-only Unreal state extraction transport for Atlas. Observation only: it exposes no write, render or fixture operation and holds no verification authority. The transport starts only under explicit opt-in.",
+	"Category": "Atlas",
+	"CreatedBy": "Atlas",
+	"EnabledByDefault": false,
+	"CanContainContent": false,
+	"Modules": [
+		{
+			"Name": "AtlasReadOnlyExtraction",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": []
+}
