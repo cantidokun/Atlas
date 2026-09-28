@@ -311,6 +311,16 @@ $ python -m pytest tests/test_unreal_state_extraction_*.py tests/test_unreal_tra
   token.
 
 
+### 8.6 Where this landed
+
+```
+branch:  feat/u1-readonly-extraction-plugin   (from origin/main @ 326105c6)
+commit:  aacb55e1  feat(u1): portable read-only extraction plugin for real-project evidence
+pr:      https://github.com/cantidokun/Atlas/pull/146
+scope:   17 files added, 0 modified, 0 deleted — the plugin, its Python contract, its two
+         test modules and this document
+```
+
 ## 9. Removal
 
 Delete `unreal/plugins/AtlasReadOnlyExtraction` (or disable the plugin in the host
