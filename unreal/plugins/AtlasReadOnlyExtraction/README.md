@@ -1,4 +1,8 @@
-# AtlasReadOnlyExtraction
+> Current validation checkpoint — September 28, 2026 UTC.
+>
+> PR #146 is merged at 8f601184e62da2362ec38c948e61b7ff8058f95b. The plugin remains a read-only observation mechanism and does not establish U1 authority.
+>
+> The current clean synthetic validation project is C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject. Positive actor and sequencer extraction succeed and validate with matching saved canonical-byte hashes. Negative/lossy/incomplete/foreign cases remain unverified because their extraction responses were actually from the positive world. Resume by proving target-map isolation; do not rebuild the fixture.\n\n# AtlasReadOnlyExtraction
 
 A portable, read-only Unreal Editor plugin that carries the Atlas state-extraction core and
 exposes it over a closed, two-operation transport. It exists so the U1 evidence run can
