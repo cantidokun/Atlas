@@ -1,0 +1,7 @@
+# Unreal build outputs of this plugin are never committed: the plugin is source only, and
+# a host project compiles it in place. Binaries and Intermediate appear under the plugin
+# directory when a host project is built against a junction to this folder.
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
