@@ -1,4 +1,16 @@
-# Unreal Agent Handoff — Current State
+> AUTHORITATIVE CURRENT PAUSE — September 28, 2026 UTC.
+>
+> Active Unreal task: U1 extraction validation on the synthetic AtlasU1MockTwin_CleanValidation project. PR #146 is merged at 8f601184e62da2362ec38c948e61b7ff8058f95b; the portable read-only extraction plugin is now on main.
+>
+> R2-B is not the active implementation task. REV10 is the frozen external normative baseline (exact SHA 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f; GLM CLEAR; GPT-SOL-6 CLEAR). R2-B implementation remains unauthorized pending U1/U7 operational evidence and the human gate.
+>
+> U1 mock: positive actor and sequencer extraction succeeded with matching saved canonical-byte hashes. Direct sequence inspection shows two CineCameraActor possessables, one camera-cut track, one section frames 100–240, bound to MockCamera_Main. Negative/lossy/incomplete/foreign responses are invalid because they actually extracted the positive world. The immediate blocker is target-map/process isolation, not fixture fidelity.
+>
+> Next action: establish requested fixture = actual loaded fixture = extracted world, prove one NegativeCamera run, then exercise the remaining cases. Complete the A–H crash matrix afterward. CreateNamedPipe error 231 remains only an observed contention symptom.
+>
+> Status: MOCK TWIN VALIDATION INCOMPLETE / U1 PRODUCTION AUTHORITY NOT ESTABLISHED.
+>
+> Full procedure: ATLAS_HANDOFF_2026-09-28_U1_MOCK_VALIDATION_PAUSE.md.\n\n# Unreal Agent Handoff — Current State
 
 > **Authoritative current checkpoint — September 27, 2026.**
 > M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; M12.6 R2-A is landed under R25. **M12.6 R2-B is currently paused at the REV4 independent-review gate.**
