@@ -1,6 +1,6 @@
 > AUTHORITATIVE CURRENT PAUSE — September 28, 2026 UTC.
 >
-> Active Unreal task: U1 extraction validation on the synthetic AtlasU1MockTwin_CleanValidation project. PR #146 is merged at 8f601184e62da2362ec38c948e61b7ff8058f95b; the portable read-only extraction plugin is now on main.
+> Active Unreal task: U1 extraction validation on the synthetic AtlasU1MockTwin_CleanValidation project. PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b; the current documentation tip on main is afa276cfe7f80949bdcbb8a893a990479198ee04. The portable read-only extraction plugin is now on main.
 >
 > R2-B is not the active implementation task. REV10 is the frozen external normative baseline (exact SHA 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f; GLM CLEAR; GPT-SOL-6 CLEAR). R2-B implementation remains unauthorized pending U1/U7 operational evidence and the human gate.
 >
