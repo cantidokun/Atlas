@@ -1,4 +1,26 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 27, 2026 CURRENT CHECKPOINT
+ATLAS CURRENT PAUSE OVERRIDE — SEPTEMBER 28, 2026 UTC
+- Current main = 8f601184e62da2362ec38c948e61b7ff8058f95b (PR #146 merge).
+- Current active track = U1 synthetic mock validation using AtlasU1MockTwin_CleanValidation.
+- MOCK TWIN VALIDATION INCOMPLETE.
+- Positive actor and sequencer extraction succeeded and their saved canonical hashes matched independently recomputed digests.
+- Direct sequence inspection: two CineCameraActor possessables (MockCamera_Main, MockCamera_Wide); one camera-cut track; one section frames 100–240; section bound to MockCamera_Main.
+- Negative/lossy/incomplete/foreign responses are invalid because they report the positive world /Game/AtlasU1MockTwin/Maps/AtlasMockStadium. Target-map isolation is the immediate next blocker.
+- A–H crash matrix incomplete. CreateNamedPipe error 231 is observed pipe contention, not a proven crash cause.
+- Do not rebuild the mock; do not create another project.
+- Do not populate planning/m12/expectation.py; no U1 production authority is established.
+
+R2-B CURRENT EXTERNAL BASELINE
+- REV10 exact SHA-256 = 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f.
+- Declaration self-digest = d9e014e5631471bfd37309bdccdaa602fef2797012e17b4a181488cdb3f645d0.
+- Size = 254,816 bytes / 2,155 lines.
+- Fresh exact-SHA GLM = CLEAR; GPT-SOL-6 = CLEAR.
+- R2-B implementation remains unauthorized pending U1/U7 operational evidence and the human gate.
+- Do not create REV11 absent a genuine new normative blocker.
+
+RESTART
+- Read ATLAS_HANDOFF_CURRENT.md, UNREAL_AGENT_HANDOFF_CURRENT.md, ATLAS_HANDOFF_CONTEXT.txt, and ATLAS_HANDOFF_2026-09-28_U1_MOCK_VALIDATION_PAUSE.md.
+- Resume by fixing/proving target-map isolation, then execute NegativeCamera before the other case matrix.
+\n\nATLAS DEVELOPMENT HANDOFF CONTEXT — SEPTEMBER 27, 2026 CURRENT CHECKPOINT
 
 CURRENT REPOSITORY:
 - Documentation checkpoint base = main @ 2b39acb005e406f4f992531257b6ff3d82852ee8 (PR #144, 2026-09-27); this pause adds documentation only.
