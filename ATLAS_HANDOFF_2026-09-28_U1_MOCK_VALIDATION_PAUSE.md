@@ -6,8 +6,8 @@
 
 ## Exact repository state
 
-- Current main: 8f601184e62da2362ec38c948e61b7ff8058f95b.
-- This is the merge commit for PR #146, the portable read-only U1 extraction plugin.
+- Current documentation tip on main: afa276cfe7f80949bdcbb8a893a990479198ee04.
+- PR #146 functional merge commit: 8f601184e62da2362ec38c948e61b7ff8058f95b., the portable read-only U1 extraction plugin.
 - PR #146 production plugin sources were not changed by the final CI-collection fix; the fix only added the Windows import guard / collection coverage.
 - This checkpoint is documentation/validation-state only. No production U1 expectation values, REV10, R25, or production implementation were changed during this pause.
 
