@@ -1,6 +1,6 @@
 ## Current U1 validation pause — September 28, 2026 UTC
 
-The portable read-only extraction mechanism is landed via PR #146 at 8f601184e62da2362ec38c948e61b7ff8058f95b. The current documentation tip on main is afa276cfe7f80949bdcbb8a893a990479198ee04.
+The portable read-only extraction mechanism is landed via PR #146 at 8f601184e62da2362ec38c948e61b7ff8058f95b.
 
 The current synthetic validation project is:
 
