@@ -1,6 +1,6 @@
 ## Current U1 validation pause — September 28, 2026 UTC
 
-The portable read-only extraction mechanism is now landed via PR #146 at main 8f601184e62da2362ec38c948e61b7ff8058f95b.
+The portable read-only extraction mechanism is landed via PR #146 at 8f601184e62da2362ec38c948e61b7ff8058f95b. The current documentation tip on main is afa276cfe7f80949bdcbb8a893a990479198ee04.
 
 The current synthetic validation project is:
 
@@ -25,7 +25,7 @@ Status of the M12 milestones as landed on `main`.
 | M12.5 | `verification.py`, `verification_result.py` | landed (frozen) |
 | M12.6 R1 | normative design chain (R16 → … → R25) | **R25 frozen — sole normative authority** |
 | M12.6 R2-A | `expectation.py` (refusal-only machinery) | **LANDED — independently reviewed, CI-green** |
-| M12.6 R2-B | normative external design (REV4) | **REV4 REVIEW GATE — implementation unauthorized** |
+| M12.6 R2-B | normative external design (REV10) | **REV10 FROZEN / REVIEW-CLEAR — implementation unauthorized** |
 
 ## M12.6-R2-A — refusal-only machinery (LANDED 2026-09-27)
 
@@ -49,9 +49,9 @@ Status of the M12 milestones as landed on `main`.
 - Not landed (R2-B, not started): render-evidence provenance and the M5→M12 provenance gate, target
   population/registration, positive semantic verification and receipts.
 - `PR #142` is historical and untouched; it is not an implementation base.
-## M12.6-R2-B — normative design paused at REV4 review gate (2026-09-27)
+## M12.6-R2-B — REV10 frozen normative baseline; implementation unauthorized
 
-**M12.6-R2-B — REV4 EXISTS; IMPLEMENTATION NOT AUTHORIZED**
+**M12.6-R2-B — REV10 FROZEN; IMPLEMENTATION NOT AUTHORIZED**
 
 - External normative candidate: ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV4.md.
 - Exact SHA-256: 6fc8027cd79908be0b8a551cf94f9ceafd6ada6f2237a372bca4fbb739c5fc7d.
