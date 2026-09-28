@@ -1,6 +1,6 @@
 > Current validation checkpoint — September 28, 2026 UTC.
 >
-> PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b; current documentation tip on main is afa276cfe7f80949bdcbb8a893a990479198ee04. The plugin remains a read-only observation mechanism and does not establish U1 authority.
+> PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b. The plugin remains a read-only observation mechanism and does not establish U1 authority.
 >
 > The current clean synthetic validation project is C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject. Positive actor and sequencer extraction succeed and validate with matching saved canonical-byte hashes. Negative/lossy/incomplete/foreign cases remain unverified because their extraction responses were actually from the positive world. Resume by proving target-map isolation; do not rebuild the fixture.\n\n# AtlasReadOnlyExtraction
 
