@@ -1,6 +1,6 @@
 ## Current evidence state — September 28, 2026 UTC
 
-PR #146 has landed at 8f601184e62da2362ec38c948e61b7ff8058f95b; the current documentation tip on main is afa276cfe7f80949bdcbb8a893a990479198ee04. The plugin remains an observation mechanism only.
+PR #146 has landed at 8f601184e62da2362ec38c948e61b7ff8058f95b. The plugin remains an observation mechanism only.
 
 The current U1 validation target is the synthetic project:
 
