@@ -30,9 +30,12 @@ What is asserted here:
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from typing import Dict, Sequence, Set, Tuple
 
@@ -61,6 +64,7 @@ PLUGIN_CONTRACT_CPP = contract.PRIVATE_DIR / "AtlasReadOnlyExtractionContract.cp
 PLUGIN_SERVER_CPP = contract.PRIVATE_DIR / "AtlasReadOnlyExtractionServer.cpp"
 PLUGIN_SERVER_H = contract.PUBLIC_DIR / "AtlasReadOnlyExtractionServer.h"
 PLUGIN_TESTS_CPP = contract.PRIVATE_DIR / contract.AUTOMATION_TEST_SOURCE_NAME
+LIVE_GATE_PATH = REPO_ROOT / "tests" / "test_unreal_read_only_extraction_live_gate.py"
 
 HARNESS_SERIALIZE_SIGNATURE = "FString FAtlasTransportServer::SerializeResponse(const FTransportResponse& Response)"
 PLUGIN_SERIALIZE_SIGNATURE = "FString FAtlasReadOnlyExtractionServer::SerializeResponse(const FResponse& Response) const"
@@ -535,8 +539,6 @@ def test_the_plugin_does_not_reach_the_u1_registry() -> None:
 
 def test_the_python_contract_imports_only_the_transport_contract() -> None:
     """The Python half of the contract may not import the registry or its authority."""
-    import ast
-
     module_source = _read(contract.REPO_ROOT / "planning" / "unreal_read_only_extraction.py")
     tree = ast.parse(module_source)
     imported: List[str] = []
@@ -558,6 +560,106 @@ def test_the_plugin_never_emits_a_decision_word_in_its_response_path() -> None:
     server_code = _strip_comments(_read(PLUGIN_SERVER_CPP)).lower()
     for term in ("satisfied", "expectation", "authoritative"):
         assert term not in server_code
+
+
+# ---------------------------------------------------------------------------
+# CI collection safety: the live gate must import on a platform without kernel32
+# ---------------------------------------------------------------------------
+
+def test_live_gate_binds_kernel32_only_under_the_platform_guard() -> None:
+    """The module-level Windows binding lives inside the IS_WINDOWS branch, nowhere else."""
+    tree = ast.parse(_read(LIVE_GATE_PATH))
+
+    guards = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.If) and "IS_WINDOWS" in ast.dump(node.test)
+    ]
+    assert len(guards) == 1, "the live gate must carry exactly one module-level IS_WINDOWS guard"
+    guard = guards[0]
+
+    windows_branch = ast.unparse(guard.body)
+    other_branch = ast.unparse(guard.orelse)
+    assert "ctypes.WinDLL" in windows_branch
+    assert "import ctypes.wintypes" in windows_branch
+    assert "kernel32 = None" in other_branch
+    assert "wintypes = None" in other_branch
+
+    for node in tree.body:
+        if node is guard or isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom),
+        ):
+            continue
+        dumped = ast.dump(node)
+        assert "WinDLL" not in dumped and "wintypes" not in dumped, (
+            "module-level code outside the platform guard touches the Windows binding"
+        )
+
+
+def test_live_gate_pipe_helpers_require_the_windows_binding() -> None:
+    """The way into kernel32 is guarded twice: by the module gate and by the helpers."""
+    tree = ast.parse(_read(LIVE_GATE_PATH))
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    assert "_require_windows_kernel32" in functions
+    assert "IS_WINDOWS" in ast.dump(functions["_require_windows_kernel32"])
+    assert "_require_windows_kernel32" in ast.dump(functions["pipe_connect"])
+
+
+def test_live_gate_module_imports_without_kernel32() -> None:
+    """Import the live gate the way CI collects it: where ``ctypes.WinDLL`` does not exist.
+
+    The probe fakes ``sys.platform`` and replaces ``ctypes.WinDLL`` with a trap, so a module
+    that still reached for the binding at import time fails here exactly as it fails on the
+    Linux runner.
+    """
+    probe = textwrap.dedent(
+        f"""
+        import ctypes, importlib.util, sys
+
+        sys.path.insert(0, {str(REPO_ROOT)!r})
+        sys.platform = "linux"
+
+        def _trap(*args, **kwargs):
+            raise AssertionError("ctypes.WinDLL was reached at import time off Windows")
+
+        ctypes.WinDLL = _trap
+
+        spec = importlib.util.spec_from_file_location("live_gate_probe", {str(LIVE_GATE_PATH)!r})
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        assert module.IS_WINDOWS is False, "IS_WINDOWS must follow sys.platform"
+        assert module.kernel32 is None, "kernel32 must not be bound off Windows"
+        assert module.wintypes is None, "ctypes.wintypes must not be imported off Windows"
+
+        marks = module.pytestmark
+        marks = list(marks) if isinstance(marks, (list, tuple)) else [marks]
+        skip_marks = [mark for mark in marks if getattr(mark, "name", None) == "skipif"]
+        assert skip_marks, "the live gate must be gated by a skipif mark"
+        assert skip_marks[0].args[0] is True, "the skipif condition must hold off Windows"
+
+        try:
+            module._require_windows_kernel32()
+        except AssertionError as exc:
+            assert "Windows named pipe" in str(exc), str(exc)
+        else:
+            raise AssertionError("the pipe helpers must refuse to run off Windows")
+
+        print("PROBE_OK")
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0 and "PROBE_OK" in completed.stdout, (
+        "the live gate does not import on a platform without kernel32:\n"
+        + completed.stdout
+        + completed.stderr
+    )
 
 
 # ---------------------------------------------------------------------------

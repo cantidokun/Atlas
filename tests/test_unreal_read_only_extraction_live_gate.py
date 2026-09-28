@@ -24,7 +24,6 @@ Run:
 from __future__ import annotations
 
 import ctypes
-import ctypes.wintypes as wintypes
 import json
 import os
 import re
@@ -39,6 +38,20 @@ import pytest
 
 from planning import unreal_read_only_extraction as contract
 from planning.unreal_transport_contract import UnrealTransportResponse
+
+#: This gate drives the plugin's transport through kernel32, and the transport is a Windows
+#: named pipe. The module must nevertheless import everywhere — CI collects the whole suite
+#: on Linux — so the Windows binding is created only on Windows and only the tests that need
+#: it are gated. The Windows run is unchanged: on Windows every test below still executes.
+IS_WINDOWS = sys.platform == "win32"
+
+pytestmark = pytest.mark.skipif(
+    not IS_WINDOWS,
+    reason=(
+        "the Atlas read-only extraction transport is a Windows named pipe: the live gate "
+        "executes on Windows and is skipped where kernel32 does not exist"
+    ),
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
@@ -80,44 +93,52 @@ INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 ERROR_PIPE_BUSY = 231
 ERROR_FILE_NOT_FOUND = 2
 
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-kernel32.CreateFileW.restype = wintypes.HANDLE
-kernel32.CreateFileW.argtypes = [
-    wintypes.LPCWSTR,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    wintypes.HANDLE,
-]
-kernel32.WaitNamedPipeW.restype = wintypes.BOOL
-kernel32.WaitNamedPipeW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
-kernel32.SetNamedPipeHandleState.restype = wintypes.BOOL
-kernel32.SetNamedPipeHandleState.argtypes = [
-    wintypes.HANDLE,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-]
-kernel32.WriteFile.restype = wintypes.BOOL
-kernel32.WriteFile.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.c_void_p,
-]
-kernel32.ReadFile.restype = wintypes.BOOL
-kernel32.ReadFile.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.c_void_p,
-]
-kernel32.CloseHandle.restype = wintypes.BOOL
-kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+if IS_WINDOWS:  # pragma: no cover - the Windows run exercises this branch
+    import ctypes.wintypes as wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.WaitNamedPipeW.restype = wintypes.BOOL
+    kernel32.WaitNamedPipeW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+    kernel32.SetNamedPipeHandleState.restype = wintypes.BOOL
+    kernel32.SetNamedPipeHandleState.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    kernel32.WriteFile.restype = wintypes.BOOL
+    kernel32.WriteFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    kernel32.ReadFile.restype = wintypes.BOOL
+    kernel32.ReadFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+else:  # pragma: no cover - the Linux CI collection exercises this branch
+    # A platform without kernel32: no binding is created, the module still imports, and the
+    # pipe helpers below refuse to run rather than failing obscurely.
+    wintypes = None
+    kernel32 = None
 
 
 # ---------------------------------------------------------------------------
@@ -338,8 +359,22 @@ def _stop(process: subprocess.Popen) -> None:
 # Named pipe client (ctypes; no pywin32 dependency)
 # ---------------------------------------------------------------------------
 
+def _require_windows_kernel32() -> None:
+    """Refuse to reach the kernel32 binding on a platform that has none.
+
+    The module-level gate already keeps the live tests off non-Windows platforms; this is the
+    second line of defence, so no future caller can reach the binding by accident.
+    """
+    if not IS_WINDOWS or kernel32 is None:
+        raise AssertionError(
+            "the Atlas read-only extraction transport is a Windows named pipe: the pipe "
+            f"helpers are unavailable on sys.platform={sys.platform!r}"
+        )
+
+
 def pipe_connect(pipe_name: str, timeout_ms: int = PIPE_TIMEOUT_MILLISECONDS) -> Optional[int]:
     """Return a connected message-mode handle, or None when the pipe is not there."""
+    _require_windows_kernel32()
     kernel32.WaitNamedPipeW(pipe_name, timeout_ms)
     handle = kernel32.CreateFileW(
         pipe_name,
