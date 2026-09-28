@@ -1,4 +1,18 @@
-# M12 — semantic → runtime line (`planning/m12`)
+## Current U1 validation pause — September 28, 2026 UTC
+
+The portable read-only extraction mechanism is now landed via PR #146 at main 8f601184e62da2362ec38c948e61b7ff8058f95b.
+
+The current synthetic validation project is:
+
+C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject
+
+Status: MOCK TWIN VALIDATION INCOMPLETE.
+
+Positive actor and sequencer extraction are validated; direct sequence inspection proves two camera possessables and one camera-cut section bound to MockCamera_Main. The negative/lossy/incomplete/foreign extraction responses are invalid because they report the positive world. The immediate blocker is target-map isolation.
+
+No mock data may populate planning/m12/expectation.py. U1 PRODUCTION AUTHORITY: NOT ESTABLISHED.
+
+R2-B REV10 is the frozen external normative baseline, exact SHA 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f; fresh GLM and GPT-SOL-6 reviews are CLEAR. R2-B implementation remains unauthorized pending U1/U7 and human-gate closure.\n\n# M12 — semantic → runtime line (`planning/m12`)
 
 Status of the M12 milestones as landed on `main`.
 
