@@ -1,8 +1,12 @@
-> Current validation checkpoint — September 28, 2026 UTC.
+> Current checkpoint — September 29, 2026 UTC.
 >
-> PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b. The plugin remains a read-only observation mechanism and does not establish U1 authority.
+> MOCK TWIN VALIDATED / FROZEN. PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b. The plugin is a read-only observation mechanism; it does not establish U1 production authority.
 >
-> The current clean synthetic validation project is C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject. Positive actor and sequencer extraction succeed and validate with matching saved canonical-byte hashes. Negative/lossy/incomplete/foreign cases remain unverified because their extraction responses were actually from the positive world. Resume by proving target-map isolation; do not rebuild the fixture.\n\n# AtlasReadOnlyExtraction
+> The synthetic validation project completed its isolated case matrix and final independent review: GLM CLEAR; GPT-SOL-6 CLEAR WITH MINOR FINDINGS, blockers none. Review bundle SHA: eacdeba5cfec9e8fa4af486e8ea0aaaa8f617bfbf7c43f5da92bd17067cc0079.
+>
+> Next use: point the plugin at the actual production .uproject, capture real session/project/world identity and actor/sequencer responses, and preserve raw evidence for REV10 review. Do not copy mock observations into planning/m12/expectation.py; do not rebuild or expand the mock fixture unless separately required.
+
+# AtlasReadOnlyExtraction
 
 A portable, read-only Unreal Editor plugin that carries the Atlas state-extraction core and
 exposes it over a closed, two-operation transport. It exists so the U1 evidence run can
