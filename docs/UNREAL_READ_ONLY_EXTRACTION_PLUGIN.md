@@ -1,16 +1,14 @@
-## Current evidence state — September 28, 2026 UTC
+## Current evidence state — September 29, 2026 UTC
 
-PR #146 has landed at 8f601184e62da2362ec38c948e61b7ff8058f95b. The plugin remains an observation mechanism only.
+PR #146 is merged at 8f601184e62da2362ec38c948e61b7ff8058f95b. The portable read-only plugin is validated as an observation mechanism; it does not establish U1 production authority.
 
-The current U1 validation target is the synthetic project:
+The synthetic closeout project was C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject.
 
-C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject
+Final mock status: VALIDATED / FROZEN. Positive actor and sequencer extraction passed; target-map/process identity was proven through fresh isolated runs; the final A–H selected runs completed without reproducing the earlier crash/231 combination; the final independent review returned GLM CLEAR and GPT-SOL-6 CLEAR WITH MINOR FINDINGS with no blockers.
 
-Positive actor and sequencer extraction have succeeded and passed validation, with matching independently recomputed canonical-byte hashes. Direct sequence inspection confirms two CineCameraActor possessables, one camera-cut track, and one section bound to MockCamera_Main.
+The plugin is ready for its intended next use: evidence collection from the real production Unreal project. No synthetic observation may be copied into planning/m12/expectation.py.
 
-Validation is still incomplete because the negative/lossy/incomplete/foreign extraction responses were not actually run against their requested maps: their returned world identity was the positive map. The next validation step is target-map isolation followed by a verified NegativeCamera run and then the remaining case matrix.
-
-This synthetic project is not the production Unreal project and establishes no U1 production authority. No values have been copied into planning/m12/expectation.py.\n\n# Unreal read-only extraction plugin (U1 evidence mechanism)
+# Unreal read-only extraction plugin (U1 evidence mechanism)
 
 Design and evidence record for `unreal/plugins/AtlasReadOnlyExtraction` — the portable,
 read-only Unreal Editor plugin that will collect U1 extraction evidence from the real
