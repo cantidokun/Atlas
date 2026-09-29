@@ -1,3 +1,17 @@
+## 2026-09-29 — U1 mock validation closeout / restart moved to real production intake
+
+- The U1 synthetic validation track is COMPLETE / VALIDATED / FROZEN. Final closeout: MOCK TWIN VALIDATED; U1 PRODUCTION AUTHORITY NOT ESTABLISHED.
+- PR #146 portable read-only extraction plugin is merged at 8f601184e62da2362ec38c948e61b7ff8058f95b.
+- Final clean fixture: C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject.
+- Positive actor and sequencer extraction passed Atlas validation; actor canonical digest 16a8f89a990bfdb9eb963c9f501d6f096289eae7897ddfd4f7e9424248fdd141 independently matched.
+- Fresh isolation proved requested fixture -> actual editor world -> extraction response/session identity. NegativeCamera was validated; the remaining named controls produced recorded identity-checked outcomes. UnsupportedClass/WrongClass success is extraction behavior, not a semantic-policy verdict.
+- Final accepted A-H selected runs completed without reproducing the earlier crash/231 combination. Error 231 remains an observed pipe-contention condition only; crash causality is not claimed.
+- Final independent review bundle SHA: eacdeba5cfec9e8fa4af486e8ea0aaaa8f617bfbf7c43f5da92bd17067cc0079. GLM CLEAR; GPT-SOL-6 CLEAR WITH MINOR FINDINGS, blockers none.
+- Distinct Project-B foreign-project control established a distinct plugin-reported .uproject project_identity and an independently matching canonical digest; this is not a general cross-project security guarantee.
+- R2-B REV10 remains frozen and implementation unauthorized pending real U1/U7 operational evidence and the human gate.
+- Next session: stop mock work; obtain the real production .uproject plus reviewed U1 target/expectation population, run the portable read-only plugin against the real project, preserve identity/canonical hashes, and review the evidence against REV10 before production registry population or R2-B implementation.
+- No Blender, Temporal, M11, R25, REV10, PR #142, or unrelated Unreal implementation was reopened or modified.
+
 ## 2026-09-28 — U1 mock validation pause / clean-fixture checkpoint
 
 - PR #146 — portable read-only U1 extraction plugin — is MERGED at 8f601184e62da2362ec38c948e61b7ff8058f95b.
