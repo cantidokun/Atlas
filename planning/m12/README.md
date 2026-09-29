@@ -1,18 +1,16 @@
-## Current U1 validation pause — September 28, 2026 UTC
+## Current U1 checkpoint — September 29, 2026 UTC
 
-The portable read-only extraction mechanism is landed via PR #146 at 8f601184e62da2362ec38c948e61b7ff8058f95b.
+MOCK TWIN VALIDATED / FROZEN. PR #146 is merged at 8f601184e62da2362ec38c948e61b7ff8058f95b.
 
-The current synthetic validation project is:
+The synthetic validation project C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject completed the isolated U1 fixture matrix and final independent review. Review bundle SHA: eacdeba5cfec9e8fa4af486e8ea0aaaa8f617bfbf7c43f5da92bd17067cc0079; GLM CLEAR; GPT-SOL-6 CLEAR WITH MINOR FINDINGS, blockers none.
 
-C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject
+The mock validates the extraction/evidence mechanism only. U1 PRODUCTION AUTHORITY IS NOT ESTABLISHED. Do not populate planning/m12/expectation.py from mock observations.
 
-Status: MOCK TWIN VALIDATION INCOMPLETE.
+The frozen R2-B normative baseline is REV10 (5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f), with exact-SHA GLM and GPT-SOL-6 CLEAR reviews. R2-B implementation remains unauthorized pending real U1/U7 operational evidence and the human gate.
 
-Positive actor and sequencer extraction are validated; direct sequence inspection proves two camera possessables and one camera-cut section bound to MockCamera_Main. The negative/lossy/incomplete/foreign extraction responses are invalid because they report the positive world. The immediate blocker is target-map isolation.
+Next work: obtain the real production .uproject plus reviewed U1 target/expectation population, run the portable read-only plugin against the real project, preserve session/project/world identity, independently rehash the canonical responses, and only then consider production registry population and the R2-B gate.
 
-No mock data may populate planning/m12/expectation.py. U1 PRODUCTION AUTHORITY: NOT ESTABLISHED.
-
-R2-B REV10 is the frozen external normative baseline, exact SHA 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f; fresh GLM and GPT-SOL-6 reviews are CLEAR. R2-B implementation remains unauthorized pending U1/U7 and human-gate closure.\n\n# M12 — semantic → runtime line (`planning/m12`)
+# M12 — semantic → runtime line (`planning/m12`)
 
 Status of the M12 milestones as landed on `main`.
 
