@@ -1,16 +1,20 @@
-> AUTHORITATIVE PAUSE OVERRIDE — September 28, 2026 UTC / September 27 local.
+> AUTHORITATIVE CURRENT PAUSE OVERRIDE — September 29, 2026 UTC / September 28 local.
 >
-> The current restart point is the U1 synthetic mock validation track, not the older R2-B REV4 review instructions preserved later in this file. PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b. The portable read-only U1 extraction mechanism is therefore on main.
+> MOCK TWIN VALIDATED. The synthetic U1 validation track is complete and frozen. Do not resume the older “mock validation incomplete / target-map isolation” instructions preserved later in this file.
 >
-> R2-B REV10 is now the frozen external normative baseline (SHA-256 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f; self-digest d9e014e5631471bfd37309bdccdaa602fef2797012e17b4a181488cdb3f645d0; 254,816 bytes / 2,155 lines). Fresh exact-SHA GLM CLEAR and GPT-SOL-6 CLEAR were obtained. R2-B implementation remains NOT AUTHORIZED because U1/U7 operational evidence and the required human gate remain outstanding.
+> PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b. The portable read-only U1 extraction mechanism is on main.
 >
-> U1 mock status: MOCK TWIN VALIDATION INCOMPLETE. The clean project is C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject. Positive actor and sequencer extraction are validated with matching saved canonical hashes. Direct LevelSequence inspection proves two CineCameraActor possessables, one camera-cut track, one section (100–240), bound to MockCamera_Main; CAM_WIDE is not yet proven to participate in a camera-cut section.
+> Final mock closeout: clean AtlasU1MockTwin_CleanValidation; positive actor and sequencer extraction validated; isolated case matrix completed; final A–H selected runs completed without reproducing the earlier crash/231 combination; review bundle eacdeba5cfec9e8fa4af486e8ea0aaaa8f617bfbf7c43f5da92bd17067cc0079; GLM CLEAR; GPT-SOL-6 CLEAR WITH MINOR FINDINGS, blockers none.
 >
-> The negative, lossy, incomplete-scope, and foreign extraction results are invalid evidence because the responses report the positive world /Game/AtlasU1MockTwin/Maps/AtlasMockStadium. The next action is target-map isolation: prove requested fixture = actual loaded fixture = extracted world before accepting any case result. Do not rebuild the mock.
+> U1 PRODUCTION AUTHORITY: NOT ESTABLISHED. The mock is evidence of the extraction/validation mechanism only. It must not populate planning/m12/expectation.py and it does not establish a general cross-project security guarantee.
 >
-> CreateNamedPipe error 231 is currently established only as pipe contention in the affected runs; the A–H crash-isolation matrix is incomplete. U1 PRODUCTION AUTHORITY: NOT ESTABLISHED.
+> R2-B REV10 remains the frozen external normative baseline (SHA-256 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f; self-digest d9e014e5631471bfd37309bdccdaa602fef2797012e17b4a181488cdb3f645d0; 254,816 bytes / 2,155 lines). Fresh exact-SHA GLM and GPT-SOL-6 reviews are CLEAR. R2-B implementation remains NOT AUTHORIZED pending U1/U7 operational evidence and the required human gate.
 >
-> See ATLAS_HANDOFF_2026-09-28_U1_MOCK_VALIDATION_PAUSE.md for the complete restart procedure.\n\n# Atlas Current Development Handoff
+> Next restart: real production U1 intake/evidence collection using the portable read-only plugin against the actual production .uproject and reviewed target/expectation population. Do not create another mock project, do not modify REV10/R25/PR #142, and do not start R2-B implementation.
+>
+> See ATLAS_HANDOFF_2026-09-29_U1_MOCK_VALIDATION_CLOSEOUT.md for the complete closeout/restart procedure.
+
+# Atlas Current Development Handoff
 
 > **Authoritative current-state reconciliation — September 27, 2026.**
 >
