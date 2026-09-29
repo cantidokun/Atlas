@@ -1,16 +1,16 @@
-> Current pause — U1 mock validation (September 28, 2026 UTC).
+> CURRENT PAUSE — September 29, 2026 UTC / September 28 local.
 >
-> PR #146 functional merge is 8f601184e62da2362ec38c948e61b7ff8058f95b, which adds the portable, read-only U1 extraction plugin. The current active work is validating the extraction mechanism against the synthetic AtlasU1MockTwin_CleanValidation project.
+> MOCK TWIN VALIDATED / FROZEN. The synthetic U1 validation project completed its final isolated evidence pass and independent review. The portable read-only extraction plugin is merged in PR #146 at 8f601184e62da2362ec38c948e61b7ff8058f95b.
 >
-> MOCK TWIN VALIDATION INCOMPLETE. Positive actor and sequencer extraction are validated with matching saved canonical-byte hashes. Direct sequence inspection confirms two CineCameraActor possessables and one camera-cut section bound to MockCamera_Main; CAM_WIDE is not yet exercised by a camera-cut section.
+> Final review bundle: eacdeba5cfec9e8fa4af486e8ea0aaaa8f617bfbf7c43f5da92bd17067cc0079; GLM CLEAR; GPT-SOL-6 CLEAR WITH MINOR FINDINGS, blockers none. The mock is a validation fixture only: U1 PRODUCTION AUTHORITY IS NOT ESTABLISHED, and mock observations must not populate planning/m12/expectation.py.
 >
-> The negative/lossy/incomplete/foreign responses are not evidence because those requests returned the positive world /Game/AtlasU1MockTwin/Maps/AtlasMockStadium. The immediate next task is to fix/verify target-map isolation, then exercise each case with an independently verified loaded-world identity. The A–H crash matrix remains incomplete; pipe error 231 is currently only proven contention.
+> The next task is real production U1 intake/evidence collection against the actual .uproject and reviewed target/expectation population. Do not create another mock project and do not begin R2-B implementation.
 >
-> U1 production authority is not established. Do not populate planning/m12/expectation.py from the mock.
+> R2-B REV10 remains the frozen external normative baseline (SHA-256 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f); fresh GLM + GPT-SOL-6 reviews are CLEAR, but implementation remains unauthorized pending U1/U7 and the human gate.
 >
-> The frozen external R2-B normative baseline is REV10 (exact SHA 5d2409cf2ee0c15e35f73ecbae59ab2e03ddbd70abdb3f8c5e4dfc1d9b0d452f); fresh GLM + GPT-SOL-6 reviews are CLEAR, but implementation remains unauthorized pending U1/U7 and human-gate closure.
->
-> Full restart details: ATLAS_HANDOFF_2026-09-28_U1_MOCK_VALIDATION_PAUSE.md.\n\n# Atlas
+> Full restart details: ATLAS_HANDOFF_2026-09-29_U1_MOCK_VALIDATION_CLOSEOUT.md.
+
+# Atlas
 
 > **Current-state reconciliation — September 27, 2026.** M7 is complete/live-proven; State Extraction Fidelity v1 is complete/merged/live-gated; M12.5 v1 is implemented/merged; **M12.6 R2-A is landed and M12.6 R2-B is now paused at the REV4 independent-review gate.**
 >
