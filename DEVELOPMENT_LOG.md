@@ -927,3 +927,17 @@ NEXT GATE: a fresh exact-head independent architectural/red-team review of the r
 - **Promotion status at pause:** implementation is merged and deterministic repository CI is green, but no dedicated M12.5 semantic live non-render or render-composition gate has yet been established or credited. The generic Temporal/Blender workflows are not substitutes.
 - Do not use this pause to introduce upstream Q8/Q9/Q10/Q11 contract changes. The next resume point is the dedicated post-implementation M12.5 promotion-gate work defined by design §24.
 - No Blender development was reopened; no Temporal redesign was started; no historical Unreal PR stack was blanket-merged.
+
+
+## 2026-09-29 — Blender Agent Readiness pause
+
+- Exact authoritative head: `2f972a582f9c3288fa2e40f94616c108c3b4976a`.
+- Blender Agent Readiness Gate completed read-only on a clean detached worktree.
+- Canonical Blender capability remains **ESTABLISHED**; the production agent path is not yet fully integrated as the canonical semantic authority.
+- Real soccer-asset readiness is **BLOCKED**: no qualifying production soccer reconstruction asset was found on the host, and no synthetic stand-in was accepted.
+- W1/W1b (`REMOVE_DUPLICATE_FACE`, `REMOVE_DEGENERATE_FACE`) are **AGENT-BLOCKED** and must not be exposed through agent tool catalogs or semantic task allowlists.
+- Winding/Merge (`REPAIR_FACE_WINDING`, `REPAIR_MERGE_VERTEX`) are also **AGENT-BLOCKED** because the repository has no legitimate production approval issuer/authenticated provenance or trusted artifact-selection boundary for `AuthorizationArtifact`.
+- The agent-facing implementation was attempted in isolated worktrees and safely aborted before commit when exact-head checks exposed contract/authority mismatches. The implementation worktree was reset to the exact base; the user's existing Desktop checkout was not modified.
+- Production lineage remains deferred.
+- **Next gate: DESIGN NEW APPROVAL AUTHORITY.** No implementation, correction-agent exposure, authorization-contract change, or Unreal work resumes until that gate is independently designed/reviewed.
+

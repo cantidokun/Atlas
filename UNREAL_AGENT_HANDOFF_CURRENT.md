@@ -1,3 +1,11 @@
+> **CURRENT PAUSE NOTE — September 29, 2026 local / September 30 UTC**
+>
+> Unreal development is intentionally paused while the Blender Agent Readiness / approval-authority gate is being resolved.
+>
+> No Unreal implementation changes were made in this pause. U1 mock validation remains validated/frozen; U1 production authority remains unestablished; R2-B implementation remains unauthorized.
+>
+> Resume Unreal from its existing exact documented gate after the Blender pause is formally closed.
+
 > AUTHORITATIVE CURRENT PAUSE — September 29, 2026 UTC.
 >
 > MOCK TWIN VALIDATED / FROZEN. U1 synthetic validation is complete on C:\Users\Gavin's PC\Desktop\AtlasU1MockTwin_CleanValidation\AtlasU1MockTwin.uproject.

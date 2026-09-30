@@ -1,3 +1,16 @@
+ATLAS CURRENT PAUSE OVERRIDE — BLENDER AGENT READINESS — SEPTEMBER 29, 2026 LOCAL / SEPTEMBER 30 UTC
+- Repository authority = main @ 2f972a582f9c3288fa2e40f94616c108c3b4976a.
+- Unreal work is intentionally paused; U1 mock validation remains validated/frozen and U1 production authority remains NOT ESTABLISHED.
+- Blender capability track remains CLOSED/FROZEN for the declared contract.
+- Exact-head Blender Agent Readiness audit completed at 2f972a582f9c3288fa2e40f94616c108c3b4976a.
+- Canonical Blender capability = ESTABLISHED; agent orchestration/semantic workflow integration = PARTIAL/NOT ESTABLISHED; real soccer-asset readiness = BLOCKED.
+- No qualifying real soccer-field reconstruction .blend was found on the host. Synthetic/placeholder scenes were explicitly rejected as substitutes.
+- W1/W1b agent exposure = BLOCKED.
+- REPAIR_FACE_WINDING and REPAIR_MERGE_VERTEX agent execution = BLOCKED because no production approval issuer/authenticated AuthorizationArtifact provenance/trusted artifact-selection boundary exists.
+- Two implementation attempts were aborted before commit; the temporary implementation worktree was reset to the exact base and the user's dirty Desktop checkout was left untouched.
+- SINGLE NEXT GATE = DESIGN NEW APPROVAL AUTHORITY.
+- No implementation, agent tool registration, authorization-contract change, correction bridge/executor policy change, production-lineage work, or Unreal implementation is authorized before that gate.
+
 ATLAS CURRENT PAUSE OVERRIDE — SEPTEMBER 29, 2026 UTC
 - MOCK TWIN VALIDATED / FROZEN.
 - PR #146 functional merge = 8f601184e62da2362ec38c948e61b7ff8058f95b.

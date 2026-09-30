@@ -1,3 +1,25 @@
+> **CURRENT PAUSE OVERRIDE — Blender Agent Readiness / September 29, 2026 local / September 30 UTC**
+>
+> **Repository authority:** `main @ 2f972a582f9c3288fa2e40f94616c108c3b4976a`.
+>
+> **Unreal:** intentionally paused. The U1 mock track is validated/frozen and U1 production authority remains unestablished; do not resume Unreal implementation from this pause.
+>
+> **Blender readiness:** the exact-head Blender Agent Readiness Gate is complete. The canonical Blender subsystem is established, but **full agent readiness is NOT ESTABLISHED**.
+>
+> **Real asset gate:** BLOCKED — no qualifying real soccer-field reconstruction was found on the host. No synthetic substitute was accepted.
+>
+> **Canonical-agent integration:** NOT ESTABLISHED. Existing canonical observation/correction capabilities are present, but the production agent path does not yet consume them as its sole semantic authority.
+>
+> **W1/W1b:** AGENT-BLOCKED. Do not expose duplicate-face or degenerate-face removal to the agent.
+>
+> **Winding/Merge:** AGENT-BLOCKED. Both require a legitimate approved `AuthorizationArtifact`; the exact head has no production approval issuer, authenticated provenance mechanism, or trusted artifact-selection workflow. The agent must never manufacture an APPROVED artifact.
+>
+> **Implementation attempts:** aborted safely. The failed implementation worktree was reset to the exact base with no commit; the user's dirty Desktop checkout was verified untouched.
+>
+> **Current single next gate:** **DESIGN NEW APPROVAL AUTHORITY** — define a legitimate issuer/trust boundary for canonical Blender correction approval before any agent-facing correction implementation resumes.
+>
+> **Until that gate passes:** no code implementation, no tool registration, no Winding/Merge agent exposure, no W1/W1b exposure, no AuthorizationArtifact changes, no ActionAuthorization changes, no correction bridge/executor policy changes, no production lineage work, and no Unreal implementation.
+
 > AUTHORITATIVE CURRENT PAUSE OVERRIDE — September 29, 2026 UTC / September 28 local.
 >
 > MOCK TWIN VALIDATED. The synthetic U1 validation track is complete and frozen. Do not resume the older “mock validation incomplete / target-map isolation” instructions preserved later in this file.

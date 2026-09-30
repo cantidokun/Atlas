@@ -1,3 +1,19 @@
+> **CURRENT BLENDER AGENT PAUSE — September 29, 2026 local / September 30 UTC.**
+>
+> The Blender capability itself remains **CLOSED / frozen for the declared contract**. A separate exact-head readiness audit was completed at `2f972a582f9c3288fa2e40f94616c108c3b4976a`.
+>
+> **Agent readiness is NOT ESTABLISHED.** Canonical Blender extraction, deterministic scene analysis, bounded correction, real-Blender execution, and the existing recovery/evidence machinery are established; the production agent path does not yet legitimately own canonical correction authority.
+>
+> **Real soccer-asset readiness: BLOCKED.** No qualifying real soccer-field reconstruction was found on the host; available soccer-named .blend files were synthetic/placeholder assets.
+>
+> **W1/W1b agent status: BLOCKED.** `REMOVE_DUPLICATE_FACE` and `REMOVE_DEGENERATE_FACE` remain outside the agent capability surface.
+>
+> **Winding / Merge agent status: BLOCKED.** `REPAIR_FACE_WINDING` and `REPAIR_MERGE_VERTEX` require a legitimately approved `AuthorizationArtifact`, but the exact-head repository contains no production issuer/authenticated approval or trusted artifact-selection boundary. Do not mint or fabricate approval inside the agent workflow.
+>
+> Two implementation attempts were explicitly aborted before commit after exact-head review exposed contract/authority mismatches. The temporary implementation worktree was reset to clean at the exact base; the user's Desktop checkout was left untouched.
+>
+> **Single next gate: DESIGN NEW APPROVAL AUTHORITY.** No implementation, agent exposure, authorization-contract change, lineage work, or Unreal work is authorized from this checkpoint.
+
 # Blender Development README
 
 > **Current authoritative checkpoint — September 20, 2026.**

@@ -1,3 +1,15 @@
+> **CURRENT PAUSE OVERRIDE — September 29, 2026 local / September 30 UTC.**
+>
+> The current engineering focus is **Blender Agent Readiness / authority design**, with Unreal intentionally paused.
+>
+> Main authority is `2f972a582f9c3288fa2e40f94616c108c3b4976a`.
+>
+> The Blender capability track is stable/frozen for its declared contract, but the **Blender agent is not yet production-ready** for the original Atlas mission: the real soccer-asset gate is blocked, canonical-agent integration is not established, and no legitimate production approval issuer exists for canonical Winding/Merge corrections.
+>
+> W1/W1b remain agent-blocked. Winding/Merge remain agent-blocked pending a new approval-authority design. No implementation is authorized from this pause.
+>
+> **Next single gate: DESIGN NEW APPROVAL AUTHORITY.**
+
 > CURRENT PAUSE — September 29, 2026 UTC / September 28 local.
 >
 > MOCK TWIN VALIDATED / FROZEN. The synthetic U1 validation project completed its final isolated evidence pass and independent review. The portable read-only extraction plugin is merged in PR #146 at 8f601184e62da2362ec38c948e61b7ff8058f95b.
