@@ -1,3 +1,25 @@
+> **CURRENT PAUSE OVERRIDE — Approval Authority Architecture / September 30, 2026 local / October 1 UTC**
+>
+> **Code baseline:** `main @ 2bd3c4a3c753ba0e696e872e2602edeabbb46b32` before these documentation-only updates. Subsequent commits in this pause are documentation only.
+>
+> **Active track:** Blender Approval Authority Architecture.
+>
+> **Rev 8 independent review:** **B — PARTIALLY CLOSED / REVISION REQUIRED.** Rev 8 SHA: `676aa8c4dac80d56c5c33fa8c45c256454a740381cd2684b3b2a0b4acf5596fc`.
+>
+> **Rev 9:** architecture-only remediation completed. SHA: `4071ad52bccc02055a26c599827f116925ab878679cea9c9d1cc7db3ea0a23f9`.
+>
+> **Current gate:** Rev 9 has **not yet received the fresh independent red-team verdict**. Hermes' NEW-1…NEW-8 closure claims are provisional until independently confirmed.
+>
+> **Hard stop:** no implementation, no feasibility-gate implementation, no key/TPM/service provisioning, no agent exposure, no correction-bridge/executor work, and no Unreal implementation.
+>
+> **Open prerequisites:** A-ENUM, A-INJ, A-TDM-PARSE, A-REF, A-MAT, A-TPM-POLICY, A-NV, A-TOKEN, A-PROF, A-H2.
+>
+> **Prior safety closure:** the Rev 8 independent review confirmed the Rev 4 provenance-laundering defense remained intact. Rev 9 reports the same regression result; independent Rev 9 confirmation remains pending.
+>
+> **Next single gate:** **fresh SHA-bound independent red-team of Rev 9**.
+>
+> **Restart artifact:** `ATLAS_HANDOFF_2026-09-30_APPROVAL_AUTHORITY_PAUSE.md`.
+>
 > **CURRENT PAUSE OVERRIDE — Blender Agent Readiness / September 29, 2026 local / September 30 UTC**
 >
 > **Repository authority:** `main @ 2f972a582f9c3288fa2e40f94616c108c3b4976a`.
