@@ -1,3 +1,19 @@
+> **CURRENT PAUSE OVERRIDE — Approval Authority Architecture / September 30, 2026 local / October 1 UTC.**
+>
+> The active engineering focus is the **Blender Approval Authority Architecture**. The Blender capability itself remains stable/frozen for its declared contract, but full production agent readiness remains **NOT ESTABLISHED**.
+>
+> Rev 8 received an independent **B — PARTIALLY CLOSED / REVISION REQUIRED** verdict. Rev 9 is the architecture-only remediation at SHA `4071ad52bccc02055a26c599827f116925ab878679cea9c9d1cc7db3ea0a23f9`.
+>
+> **Current gate:** a fresh SHA-bound independent red-team of Rev 9. Hermes' NEW-1…NEW-8 closure claims remain provisional until that review.
+>
+> No implementation, agent exposure, feasibility implementation, key/TPM/service provisioning, correction-bridge/executor work, or Unreal implementation is authorized before that gate.
+>
+> Open feasibility prerequisites remain OPEN: A-ENUM, A-INJ, A-TDM-PARSE, A-REF, A-MAT, A-TPM-POLICY, A-NV, A-TOKEN, A-PROF, A-H2.
+>
+> The Rev 8 independent review confirmed the Rev 4 provenance-laundering defense remained intact. Rev 9 must independently preserve that closure.
+>
+> **Next single gate: FRESH SHA-BOUND INDEPENDENT RED-TEAM OF REV 9.**
+>
 > **CURRENT PAUSE OVERRIDE — September 29, 2026 local / September 30 UTC.**
 >
 > The current engineering focus is **Blender Agent Readiness / authority design**, with Unreal intentionally paused.
