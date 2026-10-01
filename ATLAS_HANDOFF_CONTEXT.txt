@@ -1,3 +1,21 @@
+ATLAS CURRENT PAUSE OVERRIDE — APPROVAL AUTHORITY ARCHITECTURE — SEPTEMBER 30, 2026 LOCAL / OCTOBER 1 UTC
+- Repository/code baseline remains the exact Atlas main state at 2bd3c4a3c753ba0e696e872e2602edeabbb46b32 before these documentation-only updates.
+- Documentation commits after that baseline must not be interpreted as implementation changes.
+- The engineering focus is now the Blender Approval Authority Architecture required before any agent-facing canonical correction implementation.
+- Rev 8 independent red-team verdict = B — PARTIALLY CLOSED / REVISION REQUIRED.
+- Rev 8 SHA-256 = 676aa8c4dac80d56c5c33fa8c45c256454a740381cd2684b3b2a0b4acf5596fc.
+- Rev 9 architecture-only artifact was authored and SHA-bound.
+- Rev 9 SHA-256 = 4071ad52bccc02055a26c599827f116925ab878679cea9c9d1cc7db3ea0a23f9.
+- Rev 9 remains UNREVIEWED by the fresh independent red-team. Its NEW-1..NEW-8 closure claims are not yet independently credited.
+- No implementation is authorized. Do not begin A-ENUM, A-INJ, or A-TDM-PARSE implementation/feasibility work.
+- All approval-authority work remains design-only until the fresh SHA-bound Rev 9 red-team returns a verdict.
+- The Rev 4 provenance-laundering closure was independently confirmed intact during the Rev 8 review; Rev 9 reports no regression, but Rev 9 still awaits independent confirmation.
+- Unreal remains intentionally paused; do not resume Unreal implementation from this checkpoint.
+- W1/W1b and Winding/Merge remain agent-blocked pending a legitimate production approval authority.
+- NEXT GATE: fresh SHA-bound independent red-team of Rev 9.
+- Rev 9 artifact path: C:\Users\Gavin's PC\AppData\Local\Temp\rev9_authoritative.txt.
+- Resume tomorrow by independently reviewing the exact Rev 9 artifact; do not author Rev 10 and do not implement feasibility gates before that review.
+
 ATLAS CURRENT PAUSE OVERRIDE — BLENDER AGENT READINESS — SEPTEMBER 29, 2026 LOCAL / SEPTEMBER 30 UTC
 - Repository authority = main @ 2f972a582f9c3288fa2e40f94616c108c3b4976a.
 - Unreal work is intentionally paused; U1 mock validation remains validated/frozen and U1 production authority remains NOT ESTABLISHED.
