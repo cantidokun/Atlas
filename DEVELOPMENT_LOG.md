@@ -941,3 +941,18 @@ NEXT GATE: a fresh exact-head independent architectural/red-team review of the r
 - Production lineage remains deferred.
 - **Next gate: DESIGN NEW APPROVAL AUTHORITY.** No implementation, correction-agent exposure, authorization-contract change, or Unreal work resumes until that gate is independently designed/reviewed.
 
+## 2026-09-30 — Approval Authority Architecture Rev 9 pause
+
+- The Blender Approval Authority Architecture is the active engineering track; no implementation work resumed.
+- Rev 8 independent red-team verdict: **B — PARTIALLY CLOSED / REVISION REQUIRED**.
+- Rev 8 SHA-256: `676aa8c4dac80d56c5c33fa8c45c256454a740381cd2684b3b2a0b4acf5596fc`.
+- Rev 9 architecture-only remediation authored and SHA-bound:
+  - artifact: `C:\Users\Gavin's PC\AppData\Local\Temp\rev9_authoritative.txt`
+  - SHA-256: `4071ad52bccc02055a26c599827f116925ab878679cea9c9d1cc7db3ea0a23f9`
+- Rev 9 Hermes report claims NEW-1 through NEW-8 are closed by design; **independent confirmation is still pending**.
+- Next gate: **fresh SHA-bound independent red-team of Rev 9**. Do not author Rev 10 or begin feasibility implementation before that review.
+- Open prerequisites remain unclaimed: A-ENUM, A-INJ, A-TDM-PARSE, A-REF, A-MAT, A-TPM-POLICY, A-NV, A-TOKEN, A-PROF, A-H2.
+- The Rev 8 independent review re-ran the historical Rev 4 provenance-laundering attack and found the closure intact. Rev 9 reports the same regression result; fresh Rev 9 confirmation remains pending.
+- Unreal remains intentionally paused; U1 mock validation is validated/frozen, U1 production authority is not established, and R2-B remains unauthorized.
+- W1/W1b and Winding/Merge remain agent-blocked pending a legitimate production approval authority.
+- No implementation, repository code, service, key, TPM, ACL, identity, deployment, commit, or merge work was performed as part of this architecture checkpoint.
