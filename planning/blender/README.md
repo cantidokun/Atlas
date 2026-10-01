@@ -1,3 +1,17 @@
+> **CURRENT BLENDER AGENT PAUSE — September 30, 2026 local / October 1 UTC**
+>
+> The canonical Blender capability remains **CLOSED / frozen for the declared contract**. Full production agent readiness remains **NOT ESTABLISHED**.
+>
+> The active blocker is no longer a capability implementation gap; it is the **Approval Authority Architecture** required to establish a legitimate production authorization issuer/trust boundary for canonical corrections.
+>
+> Rev 8 independent review returned **B — PARTIALLY CLOSED / REVISION REQUIRED**. Rev 9 was authored as a design-only remediation and is SHA-bound at `4071ad52bccc02055a26c599827f116925ab878679cea9c9d1cc7db3ea0a23f9`.
+>
+> Rev 9 is currently awaiting a **fresh independent red-team**. Do not implement A-ENUM, A-INJ, A-TDM-PARSE, register new agent correction tools, or resume Winding/Merge agent exposure before that gate.
+>
+> W1/W1b remain agent-blocked. `REPAIR_FACE_WINDING` and `REPAIR_MERGE_VERTEX` remain agent-blocked pending the authority gate.
+>
+> **Next single gate: fresh SHA-bound independent red-team of Rev 9.**
+>
 > **CURRENT BLENDER AGENT PAUSE — September 29, 2026 local / September 30 UTC.**
 >
 > The Blender capability itself remains **CLOSED / frozen for the declared contract**. A separate exact-head readiness audit was completed at `2f972a582f9c3288fa2e40f94616c108c3b4976a`.
