@@ -1,3 +1,13 @@
+> **CURRENT PAUSE NOTE — September 30, 2026 local / October 1 UTC**
+>
+> Unreal development remains intentionally paused while the Blender Approval Authority Architecture is being completed and independently reviewed.
+>
+> No Unreal implementation changes were made in this pause. U1 mock validation remains validated/frozen; U1 production authority remains unestablished; R2-B implementation remains unauthorized.
+>
+> The Blender authority track is currently at a fresh SHA-bound independent-review gate for Rev 9. Resume Unreal from its existing documented gate only after the current Blender authority pause is formally closed.
+>
+> Next Blender gate: independent red-team of Rev 9; do not resume R2-B or other Unreal implementation from this checkpoint.
+>
 > **CURRENT PAUSE NOTE — September 29, 2026 local / September 30 UTC**
 >
 > Unreal development is intentionally paused while the Blender Agent Readiness / approval-authority gate is being resolved.
