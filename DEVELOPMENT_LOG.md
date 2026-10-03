@@ -1,3 +1,19 @@
+## 2026-10-03 — Approval Authority Rev 16 pause
+
+- Rev 15 was independently reviewed by DeepSeek Pro (**B — PARTIALLY CLOSED / REVISION REQUIRED**) and GPT-6 Luna (**C — BLOCKED / MATERIAL ARCHITECTURAL DEFECT**).
+- Rev 16 was authored as a documentation-only convergence remediation. Hermes reports:
+  - \`C:\Users\Gavin's PC\AppData\Local\Temp\rev16_authoritative.txt\`
+  - SHA-256: `31b4a5a83a57effc432cc2fd347a18845e31b37821f58977244732e4bee5711d`
+  - 290,160 bytes / 1,033 LF lines
+  - terminal newline present
+- Rev 16's stated remediation covers the journal freshness anchor/C_AUTH model, five-member conformance pinning, IMPORT byte→CM→lineage binding, K_DEC/key-lifecycle authority, deterministic X-RUNTIME/X-DERIVED semantics, and documentation hygiene.
+- These Rev 16 closure claims are **provisional** pending a fresh SHA-bound independent red-team. No feasibility claim is made.
+- **Current status: ARCHITECTURE-ONLY / PAUSED / AWAITING FRESH REV 16 INDEPENDENT REVIEW.**
+- All feasibility prerequisites remain OPEN: A-ENUM, A-INJ, A-TDM-PARSE, A-REF, A-MAT, A-TPM-POLICY, A-NV, A-TOKEN, A-PROF, A-H2.
+- Hard stops remain in force: no implementation, no services, no provisioning, no keys/TPM, no agent exposure, no correction bridge/executor work, and no Unreal implementation.
+- Rev 17 is **not authored**.
+
+---
 ## 2026-09-29 — U1 mock validation closeout / restart moved to real production intake
 
 - The U1 synthetic validation track is COMPLETE / VALIDATED / FROZEN. Final closeout: MOCK TWIN VALIDATED; U1 PRODUCTION AUTHORITY NOT ESTABLISHED.
