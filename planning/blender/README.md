@@ -7,6 +7,14 @@
 > implemented and merged. Blender correction waves through Wave 14 are either live-validated and
 > merged or explicitly retained as deterministic-only capabilities awaiting a dedicated live
 > boundary milestone.
+> **Global development pause — October 7, 2026.**
+>
+> The Blender track is frozen during the current Atlas development pause. Blender Extraction Fidelity v1
+> remains frozen; Temporal Observation + State Delta v1 remains implemented/merged; completed correction
+> waves remain closed. No new Wave 16 or other Blender implementation is authorized during this pause.
+> The next Blender step remains a separately gated discovery/design decision only after development is
+> resumed.
+
 
 ## Architectural position
 
