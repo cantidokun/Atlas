@@ -1,3 +1,19 @@
+## 2026-10-07 — Development pause / Approval Authority R45-4 red-team gate
+
+- Paused Atlas development intentionally after the author-side **F6 correction** in Approval Authority R45-4.
+- R11 artifact: `rev45_r45_4_blocker_resolution_candidate_r11.txt`; SHA-256
+  `9b52bffe1e30ffdd0ddcb94649917cb62af66c94a9fb3f81efc8d8caf1776c3f`.
+- F6 corrected the reachability evidence by separating pre-selector S6 `INVALID_AUTH` failures, S9 selector
+  refusals, and post-selection S10/S12 validation; case 21 was restricted and cases 22/23 were added.
+- The same author-side pass detected stale P.6 self-citations caused by inserted lines and regenerated the
+  self-measured verdict block on the final artifact.
+- Prior F3/F4/F5 selector/authority corrections remain preserved; frozen PREPARE/PREIMAGE_E evidence and the
+  11/11 witness results remain unchanged according to the R11 report.
+- R45-4 is **NOT YET CLEARED — AWAITING INDEPENDENT REVIEW**. Overall Rev45 remains **NOT CLEAR** and Rev46
+  remains **NOT AUTHORIZED**.
+- No production code, keys, signatures, provisioning, PR, or merge was performed. The next action after the
+  pause is an independent red-team review of the exact R11 SHA.
+
 ## 2026-09-18 - Unreal development resumed on state extraction fidelity
 
 - M12.5 semantic evidence verification is intentionally **deferred** and untouched.
