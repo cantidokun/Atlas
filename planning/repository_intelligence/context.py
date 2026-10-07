@@ -11,15 +11,17 @@ from typing import Mapping
 from planning.repository_intelligence.index import RepositoryIndex
 from planning.repository_intelligence.relevance import RelevanceQuery, RelevanceWeights, RelevanceExplanation, rank_repository_files
 
-DEFAULT_MAX_CONTEXT_CHARS = 48_000
-DEFAULT_MAX_FILE_CHARS = 16_000
+DEFAULT_MAX_CONTEXT_CHARS = 32_000
+DEFAULT_MAX_FILE_CHARS = 12_000
 DEFAULT_MIN_SCORE = 1
 SECONDARY_MIN_SCORE = 15
+STRUCTURAL_MAX_FILES = 6
+SECONDARY_MAX_FILES = 8
 SENSITIVE_PATH_MARKERS = frozenset({".env", ".pem", ".key", ".p12", ".pfx", "credentials", "secrets", "secret"})
 SECONDARY_CONTEXT_RESERVE_RATIO = 0.25
 SECONDARY_COVERAGE_PER_SIGNAL = 1
 SECONDARY_COVERAGE_FILE_RATIO = 0.5
-SECONDARY_COVERAGE_SIGNAL_SLOTS = 8
+SECONDARY_COVERAGE_SIGNAL_SLOTS = 6
 SECONDARY_SNIPPET_CONTEXT_LINES = 1
 SECONDARY_SNIPPET_HEADER_LINES = 3
 _CONTENT_TERM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
@@ -67,8 +69,9 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     anchor_paths = _explicit_anchor_paths(ranking.explanations, query)
     anchors = _explicit_anchor_explanations(anchor_paths, query, ranking.explanations, records)
     structural = _structural_candidates(ranking.explanations, anchor_paths)
-    secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural and item.score >= minimum_score]
-    coverage = _coverage_candidates(secondary)
+    secondary_minimum_score = max(minimum_score, SECONDARY_MIN_SCORE)
+    secondary = [item for item in ranking.explanations if item.path not in anchor_paths and item not in structural and item.score >= secondary_minimum_score]
+    coverage = _coverage_candidates(secondary)[:SECONDARY_MAX_FILES]
     anchor_count = len(anchors)
     anchor_budget = remaining
     anchor_file_budget = max(1, anchor_budget // anchor_count) if anchor_count else 0
@@ -79,27 +82,29 @@ def compile_context(index: RepositoryIndex, query: RelevanceQuery, source_by_pat
     structural_used = _append_context_files(structural, priority_budget, max_file_chars, minimum_score, source_by_path, included, excluded)
     remaining -= structural_used
     secondary_budget = min(remaining, reserve + max(0, priority_budget - structural_used))
-    coverage_budget = min(secondary_budget, max(1, int(secondary_budget * SECONDARY_COVERAGE_FILE_RATIO))) if coverage else 0
     coverage_slots = min(len(coverage), SECONDARY_COVERAGE_SIGNAL_SLOTS)
+    coverage_budget = min(secondary_budget, max(1, int(secondary_budget * SECONDARY_COVERAGE_FILE_RATIO))) if coverage else 0
     coverage_file_budget = max(1, coverage_budget // coverage_slots) if coverage_slots else 0
-    coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, minimum_score, source_by_path, included, excluded, per_file_budget=coverage_file_budget)
-    secondary_used = coverage_used
-    remaining -= secondary_used
+    coverage_used = _append_context_files(coverage, coverage_budget, max_file_chars, secondary_minimum_score, source_by_path, included, excluded, per_file_budget=coverage_file_budget)
+    remaining -= coverage_used
     if remaining > 0:
         coverage_paths = {candidate.path for candidate in coverage}
         remainder = [item for item in secondary if item.path not in coverage_paths]
-        optimized_sources = {
-            item.path: _secondary_context_source(item, query, source_by_path[item.path], min(max_file_chars, remaining))
-            for item in remainder
-            if item.path in source_by_path and isinstance(source_by_path[item.path], str)
-        }
-        _append_context_files(_token_aware_secondary_order(remainder, optimized_sources, max_file_chars, budget=remaining), remaining, max_file_chars, SECONDARY_MIN_SCORE, optimized_sources, included, excluded)
+        remaining_slots = max(0, SECONDARY_MAX_FILES - len(coverage))
+        if remaining_slots:
+            optimized_sources = {
+                item.path: _secondary_context_source(item, query, source_by_path[item.path], min(max_file_chars, remaining))
+                for item in remainder
+                if item.path in source_by_path and isinstance(source_by_path[item.path], str)
+            }
+            ordered = _token_aware_secondary_order(remainder, optimized_sources, max_file_chars, budget=remaining)
+            _append_context_files(ordered[:remaining_slots], remaining, max_file_chars, secondary_minimum_score, optimized_sources, included, excluded)
     selected = {item.path for item in included}
     excluded.update(path for path in records if path not in selected)
     excluded.update(path for path in source_by_path if path not in records)
     stable = stable_instructions
     dynamic = dict(dynamic_state or {})
-    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__, "secondary_min_score": SECONDARY_MIN_SCORE}
+    manifest = {"repository_fingerprint": index.fingerprint, "included": [item.path for item in included], "excluded": sorted(excluded), "max_context_chars": max_context_chars, "max_file_chars": max_file_chars, "minimum_score": minimum_score, "weights": weights.__dict__, "secondary_min_score": SECONDARY_MIN_SCORE, "structural_max_files": STRUCTURAL_MAX_FILES, "secondary_max_files": SECONDARY_MAX_FILES}
     fingerprint = hashlib.sha256(json.dumps({"manifest": manifest, "stable_instructions": stable, "dynamic_state": dynamic, "content": [(item.path, item.content) for item in included]}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return ContextPackage(query, index.fingerprint, tuple(included), tuple(sorted(excluded)), stable, dynamic, fingerprint, max_context_chars, max_file_chars)
 
@@ -144,10 +149,12 @@ def _explicit_anchor_explanations(anchor_paths: set[str], query: RelevanceQuery,
 def _structural_candidates(explanations: tuple, anchor_paths: set[str]) -> list[RelevanceExplanation]:
     architectural = [item for item in explanations if item.path not in anchor_paths and any(reason.startswith("architectural_role:") for reason in item.reasons)]
     dependencies = [item for item in explanations if item.path not in anchor_paths and "direct_dependency" in item.reasons and item not in architectural]
-    return architectural + dependencies
+    candidates = architectural + dependencies
+    candidates.sort(key=lambda item: (-item.score, 0 if any(reason.startswith("architectural_role:") for reason in item.reasons) else 1, item.path, item.reasons))
+    return candidates[:STRUCTURAL_MAX_FILES]
 
 def _coverage_candidates(explanations: list) -> list:
-    signal_order = ("reverse_dependency", "test_association", "contract_association", "architectural_role", "recent_change", "content_match", "documentation_role", "lexical_match", "same_directory")
+    signal_order = ("reverse_dependency", "test_association", "contract_association", "architectural_role", "documentation_role", "recent_change")
     selected: list = []
     selected_paths: set[str] = set()
     for signal in signal_order:

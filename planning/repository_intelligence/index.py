@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-DEFAULT_IGNORED_DIRS = frozenset({".git", ".hg", ".svn", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", "__pycache__", ".venv", "venv", "node_modules", "dist", "build"})
+DEFAULT_IGNORED_DIRS = frozenset({".git", ".hg", ".svn", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", "__pycache__", ".venv", "venv", "node_modules", "dist", "build", ".vs", "Binaries", "Intermediate", "Saved", "DerivedDataCache"})
 PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 CONTENT_TERM_LIMIT = 512
 CONTENT_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
