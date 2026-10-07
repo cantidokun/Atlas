@@ -4,6 +4,40 @@
 >
 > Historical dated handoffs remain archival and are not rewritten. This document is the authoritative current development handoff.
 
+> **Current development pause — October 7, 2026.**
+>
+> This block supersedes older active-development checkpoints below. Atlas development is intentionally
+> paused for now. The current active workstream is **Approval Authority Architecture / Rev45-R45-4
+> closure review**; no production implementation is authorized during this pause.
+>
+> **Current repository state:** branch `feat/blender-scene-profile-compliance-evidence-v1`. The latest
+> recorded working-tree checkpoint is HEAD `ea51be50787544f801cf679362f1e5ed75427022`, with 20 status
+> entries, empty tracked/staged diff, and no repository modification from the Approval Authority review.
+>
+> **R45-4 status:** author-side closure candidate **R11**, exact artifact
+> `rev45_r45_4_blocker_resolution_candidate_r11.txt`, SHA
+> `9b52bffe1e30ffdd0ddcb94649917cb62af66c94a9fb3f81efc8d8caf1776c3f`. R11 is **NOT independently
+> cleared**. The next gate is a genuinely separate-process red-team review of that exact artifact.
+>
+> F3/F4/F5/F6 were addressed in successive author-side corrections. R11 corrected the F6 reachability
+> issue by separating pre-selector S6 failures from S9 selector failures and post-selection S10/S12
+> failures; it also regenerated self-measured verdict citations after detecting stale line references.
+> These are author-side claims pending independent review.
+>
+> **Overall Rev45:** NOT CLEAR. **Rev46:** NOT AUTHORIZED.
+>
+> During this pause:
+> - do not implement or correct production code;
+> - do not create or merge a PR for R45-4;
+> - do not generate/provision keys or signatures;
+> - do not authorize Rev46;
+> - keep Blender, Unreal, Temporal, and optimization tracks frozen unless a separately authorized gate is opened.
+>
+> **Resume point:** read this file, `ATLAS_HANDOFF_2026-10-07_APPROVAL_AUTHORITY_PAUSE.md`,
+> `ATLAS_HANDOFF_CONTEXT.txt`, `README.md`, and the Unreal/Blender current handoffs. Then perform
+> the independent red-team review of the exact R11 SHA before any implementation or merge decision.
+
+
 ## Current position — September 20, 2026
 
 ### Active development: Temporal Observation ↔ Blender Correction Integration v3
