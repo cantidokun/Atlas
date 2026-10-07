@@ -16,6 +16,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
+from controller.command_registry import ControllerCommandRegistry, CommandRegistryError
+
 
 PROTOCOL_VERSION = "1"
 
@@ -40,10 +42,18 @@ class ControllerCommunicationGateway:
     The gateway is intentionally synchronous.  The caller owns the transport
     and may run this gateway over stdin/stdout, a local socket, or another
     process boundary without changing protocol or controller semantics.
+
+    When a command registry is supplied, command dispatch is fail-closed:
+    unknown commands are rejected before the host handler can see them.
     """
 
-    def __init__(self, handle_command: CommandHandler):
+    def __init__(
+        self,
+        handle_command: CommandHandler,
+        command_registry: Optional[ControllerCommandRegistry] = None,
+    ):
         self._handle_command = handle_command
+        self._command_registry = command_registry
         self._sessions: Dict[str, _Session] = {}
 
     def open_session(self, requested_session_id: Optional[str] = None) -> Dict[str, Any]:
@@ -118,6 +128,12 @@ class ControllerCommunicationGateway:
             raise CommunicationProtocolError("payload.command must be a non-empty string")
         if not isinstance(arguments, dict):
             raise CommunicationProtocolError("payload.arguments must be an object")
+
+        if self._command_registry is not None:
+            try:
+                self._command_registry.resolve(command)
+            except CommandRegistryError as exc:
+                raise CommunicationProtocolError(str(exc)) from exc
 
         result = self._handle_command(session_id, request_id, {
             "command": command,
