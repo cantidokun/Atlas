@@ -6,6 +6,15 @@
 >
 > Historical dated Unreal status text below is retained for provenance.
 
+> **Global development pause — October 7, 2026.**
+>
+> No Unreal implementation work is authorized during the current Atlas development pause. The active
+> review surface is Approval Authority R45-4, not an Unreal milestone. M12.5 and all other deferred
+> Unreal work remain deferred. Preserve the existing Unreal authority, evidence, recovery, and
+> fail-closed boundaries and do not infer new implementation authorization from any older section
+> below. Revalidate this handoff against `ATLAS_HANDOFF_CURRENT.md` before resuming Unreal work.
+
+
 
 ## Current development focus
 
