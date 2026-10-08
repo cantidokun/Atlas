@@ -78,9 +78,9 @@ RESTART SURFACES
 
 NON-REGRESSION
 - Do not reopen Blender Extraction Fidelity v1 without a concrete defect.
-- Do not advance Unreal M12.5 during this pause.
-- Do not reopen frozen Temporal contracts.
-- Do not resume M13.8/token optimization.
+- Do not advance Unreal M12.5 unless separately re-opened under its own gate.
+- Do not reopen frozen Temporal contracts without a separately authorized design gate.
+- Do not resume M13.8/token optimization without a separately authorized gate.
 - Preserve Atlas authority boundaries: models/agents propose and reason; Atlas validates, authorizes, executes,
   tracks, verifies, and recovers.
 - Preserve independent review separation from implementation authority.

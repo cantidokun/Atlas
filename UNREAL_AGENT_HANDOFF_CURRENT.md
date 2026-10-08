@@ -18,9 +18,6 @@
 
 ## Current development focus
 
-
-## Current development focus
-
 - **Primary:** Unreal State Extraction Fidelity v1 — design branch `feat/unreal-state-extraction-fidelity-v1-design`; implementation not yet authorized.
 - **Immediate repair:** draft PR #105 fixes a concrete authority-boundary defect where `verify_actor_location`, `verify_actor_rotation`, and `verify_actor_scale` were classified as WRITE instead of VERIFY. CI/local execution has not yet been established in this environment; do not merge until the focused regression and normal suite gates are observed.
 - **Deferred:** M12.5 semantic evidence verification. Do not modify or advance it unless explicitly re-opened.

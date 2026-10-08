@@ -24,7 +24,7 @@
 
 
 
-## Current position — September 20, 2026
+## Historical development checkpoint — September 20, 2026 (superseded)
 
 ### Active development: Temporal Observation ↔ Blender Correction Integration v3
 

@@ -26,7 +26,7 @@ Authoritative restart surface:
 
 
 
-## Active development checkpoint — September 20, 2026
+## Historical development checkpoint — September 20, 2026 (superseded)
 
 The current active work is **PR #122 — Temporal Observation ↔ Blender Correction Integration v3**.
 
