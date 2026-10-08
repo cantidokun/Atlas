@@ -162,15 +162,43 @@ def _target_object(object_id: Optional[str], mesh_id: Optional[str]):
     return obj
 
 
-def _face_removal_mutator(engine_state, *, object_id, mesh_id, face_ids=None, dup_tuple=None, face_id=None, face_tuple=None):
+_MUTATOR_ARG_UNSET = object()
+
+
+def _face_removal_mutator(
+    engine_state, *, object_id, mesh_id,
+    selected_face_index=_MUTATOR_ARG_UNSET,
+    expected_face_tuple=_MUTATOR_ARG_UNSET,
+    face_id=_MUTATOR_ARG_UNSET,
+    face_tuple=_MUTATOR_ARG_UNSET,
+):
     obj = _target_object(object_id, mesh_id)
     faces = [tuple(int(v) for v in polygon.vertices) for polygon in obj.data.polygons]
-    if face_ids is not None:
-        ids = [int(value) for value in face_ids]
-        if len(ids) != 2:
-            raise BridgeRuntimeError("duplicate-face mutation requires exactly two recorded face ids")
-        remove_index = max(ids)
+    duplicate_selector_present = (
+        selected_face_index is not _MUTATOR_ARG_UNSET
+        or expected_face_tuple is not _MUTATOR_ARG_UNSET
+    )
+    degenerate_selector_present = (
+        face_id is not _MUTATOR_ARG_UNSET or face_tuple is not _MUTATOR_ARG_UNSET
+    )
+    if duplicate_selector_present == degenerate_selector_present:
+        raise BridgeRuntimeError("face removal requires exactly one complete operation selector")
+    if duplicate_selector_present:
+        if (selected_face_index is _MUTATOR_ARG_UNSET
+                or expected_face_tuple is _MUTATOR_ARG_UNSET
+                or face_id is not _MUTATOR_ARG_UNSET
+                or face_tuple is not _MUTATOR_ARG_UNSET):
+            raise BridgeRuntimeError("duplicate-face mutation requires only its exact index and expected tuple")
+        if type(selected_face_index) is not int:
+            raise BridgeRuntimeError("duplicate-face selected_face_index must be an exact int")
+        if selected_face_index < 0 or selected_face_index >= len(faces):
+            raise BridgeRuntimeError("duplicate-face selected index is outside the live Blender mesh")
+        if faces[selected_face_index] != expected_face_tuple:
+            raise BridgeRuntimeError("selected duplicate face tuple changed before the engine mutation")
+        remove_index = selected_face_index
     else:
+        if face_id is _MUTATOR_ARG_UNSET or face_tuple is _MUTATOR_ARG_UNSET:
+            raise BridgeRuntimeError("degenerate-face mutation requires face_id and face_tuple")
         if type(face_id) is not int:
             raise BridgeRuntimeError("degenerate-face mutation requires an exact face_id")
         remove_index = face_id

@@ -309,28 +309,49 @@ def _assert_target_mesh(scene: SceneModel, object_id: Optional[str], mesh_id: Op
     return owners[0], owners[0].mesh
 
 
-def _recorded_duplicate_tuple(mesh: MeshModel, face_ids: Sequence[int]) -> Tuple[int, ...]:
-    """The recorded duplicate content: the face tuple at the recorded face_id, verified consistent."""
-    if not isinstance(face_ids, (tuple, list)):
-        raise PreconditionError("parameters['face_ids'] must be a sequence of ints")
-    if len(face_ids) != 2:
-        raise PreconditionError("REMOVE_DUPLICATE_FACE requires exactly two face_ids")
+_MISSING_FACE_IDS = object()
+
+
+def _recorded_duplicate_selection(
+    mesh: MeshModel, face_ids: Any
+) -> Tuple[int, int, Tuple[int, ...]]:
+    """Validate and lock the executor-authoritative duplicate occurrence.
+
+    Return (counterpart_index, selected_index, expected_selected_face_tuple).
+    Selection is exactly face_ids[1]; input order is not normalized.
+    """
+    if face_ids is _MISSING_FACE_IDS:
+        raise PreconditionError("parameters['face_ids'] is required")
+    if type(face_ids) is not tuple:
+        raise PreconditionError("parameters['face_ids'] must be an exact tuple")
     try:
-        ids = tuple(int(f) for f in face_ids)
-    except (TypeError, ValueError):
-        raise PreconditionError("face_ids must be integers")
-    n = len(mesh.faces)
-    for fid in ids:
-        if not (0 <= fid < n):
-            raise PreconditionError(f"face index {fid} out of range for mesh of {n} faces")
-    f0, f1 = mesh.faces[ids[0]], mesh.faces[ids[1]]
-    k0 = _duplicate_key(f0, mesh.vertices)
-    k1 = _duplicate_key(f1, mesh.vertices)
-    if k0 != k1:
+        if len(face_ids) != 2:
+            raise PreconditionError("REMOVE_DUPLICATE_FACE requires exactly two face_ids")
+        if any(type(value) is not int for value in face_ids):
+            raise PreconditionError("face_ids must contain exact integers (bool is rejected)")
+        counterpart_index, selected_index = face_ids[0], face_ids[1]
+        if counterpart_index == selected_index:
+            raise PreconditionError("duplicate face_ids must identify distinct occurrences")
+        n = len(mesh.faces)
+        for face_index in (counterpart_index, selected_index):
+            if not (0 <= face_index < n):
+                raise PreconditionError(f"face index {face_index} out of range for mesh of {n} faces")
+    except PreconditionError:
+        raise
+    except Exception as exc:
+        raise PreconditionError(f"duplicate face_ids validation failed: {exc}") from None
+    try:
+        counterpart_face = tuple(mesh.faces[counterpart_index])
+        expected_face_tuple = tuple(mesh.faces[selected_index])
+        counterpart_key = _duplicate_key(counterpart_face, mesh.vertices)
+        selected_key = _duplicate_key(expected_face_tuple, mesh.vertices)
+    except Exception as exc:
+        raise PreconditionError(f"canonical duplicate face lookup failed: {exc}") from None
+    if counterpart_key != selected_key:
         raise PreconditionError(
-            f"recorded face pair ({ids[0]},{ids[1]}) is not an exact duplicate under the kernel key"
+            f"recorded face pair ({counterpart_index},{selected_index}) is not an exact duplicate under the kernel key"
         )
-    return tuple(f0)
+    return counterpart_index, selected_index, expected_face_tuple
 
 
 def _verify_duplicate_preconditions(
@@ -338,18 +359,26 @@ def _verify_duplicate_preconditions(
     *,
     object_id: Optional[str],
     mesh_id: Optional[str],
-    face_ids: Sequence[int],
-) -> Tuple[ObjectModel, MeshModel, Tuple[int, ...]]:
+    face_ids: Any,
+) -> Tuple[ObjectModel, MeshModel, Tuple[int, int, Tuple[int, ...]]]:
     """Evaluate REMOVE_DUPLICATE_FACE preconditions on the authoritative source SceneModel."""
     resolved_obj, mesh = _assert_target_mesh(source_scene, object_id, mesh_id)
-    dup_tuple = _recorded_duplicate_tuple(mesh, face_ids)
-    key = _duplicate_key(dup_tuple, mesh.vertices)
-    count = sum(1 for f in mesh.faces if _duplicate_key(f, mesh.vertices) == key)
+    counterpart_index, selected_index, expected_face_tuple = _recorded_duplicate_selection(mesh, face_ids)
+    try:
+        key = _duplicate_key(expected_face_tuple, mesh.vertices)
+        count = sum(1 for f in mesh.faces if _duplicate_key(f, mesh.vertices) == key)
+    except Exception as exc:
+        raise PreconditionError(f"canonical duplicate key validation failed: {exc}") from None
     if count < 2:
         raise PreconditionError(
             f"recorded duplicate condition no longer holds (only {count} face(s) with key)"
         )
-    return resolved_obj, mesh, dup_tuple
+    selection = {
+        "counterpart_index": counterpart_index,
+        "selected_index": selected_index,
+        "expected_face_tuple": expected_face_tuple,
+    }
+    return resolved_obj, mesh, selection
 
 
 def _recorded_degenerate_tuple(mesh: MeshModel, face_id: int) -> Tuple[int, ...]:
@@ -395,6 +424,7 @@ def _verify_postconditions(
     mesh_id: Optional[str],
     removed_face_tuple: Tuple[int, ...],
     source_report_digest: str,
+    duplicate_selection: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Verify the post-mutation state against the immutable pre-mutation snapshot (Wave 1).
 
@@ -414,7 +444,18 @@ def _verify_postconditions(
         raise PostconditionError("target mesh identity changed after mutation")
     pre = snapshot["target"]["ordered_face_tuples"]
     post = tuple(t_mesh.faces)
-    if Counter(post) != Counter(pre) - Counter([removed_face_tuple]):
+    if duplicate_selection is not None:
+        selected_index = duplicate_selection["selected_index"]
+        expected_post = pre[:selected_index] + pre[selected_index + 1:]
+        if post != expected_post:
+            raise PostconditionError(
+                "ordered face table is not the exact pre-state with the selected occurrence removed"
+            )
+        if Counter(post) != Counter(pre) - Counter([removed_face_tuple]):
+            raise PostconditionError(
+                "face multiset changed by more than exactly one recorded face"
+            )
+    elif Counter(post) != Counter(pre) - Counter([removed_face_tuple]):
         raise PostconditionError(
             "face multiset changed by more than exactly one recorded face (or the wrong face)"
         )
@@ -540,7 +581,7 @@ def _execute_face_removal(
             return result
         params = dict(corr.parameters)
         # parameters are allowlisted: only expected keys are accepted; anything else fails.
-        failure = validate_params(params)
+        failure = validate_params(params, corr.mesh_id) if operation == "REMOVE_DUPLICATE_FACE" else validate_params(params)
         if failure is not None:
             result["result"] = ExecutionOutcome.PLAN_INVALID
             result["failure_code"] = failure
@@ -564,7 +605,7 @@ def _execute_face_removal(
 
         # ---- 2. Preconditions (policy-derived) ----
         try:
-            target_obj, target_mesh, removed_face_tuple = verify_preconditions(
+            target_obj, target_mesh, precondition_result = verify_preconditions(
                 source_scene,
                 object_id=object_id,
                 mesh_id=mesh_id,
@@ -575,6 +616,12 @@ def _execute_face_removal(
             result["failure_code"] = "PRECONDITION_FAILED"
             result["precondition_results"].append({"ok": False, "reason": str(exc)})
             return result
+        if operation == "REMOVE_DUPLICATE_FACE":
+            selection_result = precondition_result
+            removed_face_tuple = selection_result["expected_face_tuple"]
+        else:
+            selection_result = None
+            removed_face_tuple = precondition_result
         resolved_object_id = target_obj.object_id
         result["precondition_results"].append({"ok": True, "target": [resolved_object_id, mesh_id]})
 
@@ -588,7 +635,10 @@ def _execute_face_removal(
         try:
             _mutator(
                 engine_state,
-                **mutator_kwargs(resolved_object_id, mesh_id, params, removed_face_tuple),
+                **mutator_kwargs(
+                    resolved_object_id, mesh_id, params,
+                    selection_result if operation == "REMOVE_DUPLICATE_FACE" else removed_face_tuple,
+                ),
             )
         except Exception as exc:
             result["result"] = ExecutionOutcome.MUTATION_FAILED
@@ -611,6 +661,7 @@ def _execute_face_removal(
                 mesh_id=mesh_id,
                 removed_face_tuple=removed_face_tuple,
                 source_report_digest=plan.source_report_digest,
+                duplicate_selection=selection_result,
             )
         except PostconditionError as exc:
             result["result"] = ExecutionOutcome.POSTCONDITION_FAILED
@@ -651,27 +702,36 @@ def _execute_face_removal(
 _DUPLICATE_ALLOWED_PARAM_KEYS = frozenset({"mesh_id", "face_ids", "duplicate_relationship"})
 
 
-def _validate_duplicate_params(params: Dict[str, Any]) -> Optional[str]:
+def _validate_duplicate_params(params: Dict[str, Any], mesh_id: Optional[str]) -> Optional[str]:
+    if type(params) is not dict:
+        return "INVALID_DUPLICATE_PARAMETERS"
     extra = set(params.keys()) - _DUPLICATE_ALLOWED_PARAM_KEYS
     if extra:
         return "UNEXPECTED_PARAMETER:" + ",".join(sorted(extra))
-    if params.get("duplicate_relationship") not in (None, "exact_duplicate"):
+    if type(mesh_id) is not str or not mesh_id or \
+            type(params.get("mesh_id")) is not str or params["mesh_id"] != mesh_id:
+        return "INVALID_DUPLICATE_MESH_ID"
+    if type(params.get("duplicate_relationship")) is not str or \
+            params["duplicate_relationship"] != "exact_duplicate":
         return "INVALID_DUPLICATE_RELATIONSHIP"
     return None
 
 
 def _duplicate_precond_kwargs(params: Dict[str, Any]) -> Dict[str, Any]:
-    return {"face_ids": params.get("face_ids")}
+    return {"face_ids": params.get("face_ids", _MISSING_FACE_IDS)}
 
 
 def _duplicate_mutator_kwargs(
-    resolved_object_id: str, mesh_id: str, params: Dict[str, Any], dup_tuple: Tuple[int, ...]
+    resolved_object_id: str, mesh_id: str, params: Dict[str, Any],
+    selection: Dict[str, Any]
 ) -> Dict[str, Any]:
+    selected_index = selection["selected_index"]
+    expected_face_tuple = selection["expected_face_tuple"]
     return {
         "object_id": resolved_object_id,
         "mesh_id": mesh_id,
-        "face_ids": params.get("face_ids"),
-        "dup_tuple": dup_tuple,
+        "selected_face_index": selected_index,
+        "expected_face_tuple": expected_face_tuple,
     }
 
 
@@ -684,12 +744,9 @@ def execute_remove_duplicate_face(
 ) -> Dict[str, Any]:
     """Execute a REMOVE_DUPLICATE_FACE plan (Wave-1 authority), fail-closed, deterministic.
 
-    Deletes EXACTLY ONE face whose content == the recorded duplicate tuple from the target mesh,
-    changing NOTHING else. The mutation boundary (`mutator`) is injected and stubbed in tests; the
-    postcondition verifies the exact multiset delta + unchanged unrelated state.
-
-    NOTE: the cleared REMOVE_DUPLICATE_FACE behavior is preserved EXACTLY (no extra postcondition was
-    added on top of the approved one), so `target_predicate_clear` is None for this operation.
+    Deletes exactly face_ids[1] after fresh validation of both occurrences and the selected tuple.
+    The injected mutator receives the locked index/tuple; ordered state and unrelated state are
+    checked after mutation. No global duplicate-clear predicate is required.
     """
     return _execute_face_removal(
         engine_state=engine_state,

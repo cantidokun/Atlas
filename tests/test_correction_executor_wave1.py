@@ -69,64 +69,45 @@ class Engine:
         self.scene = scene
 
 
-def _stub_mutator(engine_state, *, object_id, mesh_id, face_ids, dup_tuple, fraud=None):
-    """In-memory mutation: remove exactly ONE face == dup_tuple from the target mesh.
-
-    `fraud` (test-only) injects a specific violation to exercise postcondition failure:
-      - "vertex"      : change a vertex coordinate
-      - "wrong_face"  : remove a DIFFERENT face (not the dup content)
-      - "extra_face"  : remove TWO faces
-      - "unrelated"   : change an unrelated object's name/pose
-    """
+def _stub_mutator(engine_state, *, object_id, mesh_id, selected_face_index, expected_face_tuple, fraud=None):
+    """In-memory mutator consumes only the executor-selected occurrence and expected tuple."""
     sc = engine_state.scene
     new_objects = []
-    for o in sc.objects:
-        if o.object_id == object_id and fraud != "unrelated_target":
-            mesh = o.mesh
+    for obj in sc.objects:
+        if obj.object_id == object_id and fraud != "unrelated_target":
+            mesh = obj.mesh
             faces = list(mesh.faces)
+            if not (0 <= selected_face_index < len(faces)):
+                raise AssertionError("test mutator received out-of-range selected index")
+            if tuple(faces[selected_face_index]) != tuple(expected_face_tuple):
+                raise AssertionError("test mutator received stale expected face tuple")
             if fraud == "wrong_face":
-                # remove a face that is NOT the dup content (e.g. the last face)
-                out = [tuple(f) for f in faces[:-1]]
-                new_mesh = _rebuild_mesh(mesh, faces=out, vertex_fraud=(fraud == "vertex"))
+                alternate = 0 if selected_face_index != 0 else len(faces) - 1
+                out = [tuple(face) for index, face in enumerate(faces) if index != alternate]
+                new_mesh = _rebuild_mesh(mesh, faces=out)
             elif fraud == "extra_face":
-                removed = 0
-                out = []
-                for f in faces:
-                    if (not removed) and tuple(f) == tuple(dup_tuple):
-                        removed = True
-                        continue
-                    if tuple(f) != tuple(dup_tuple) and len(out) < len(faces) - 2:
-                        pass
-                    out.append(tuple(f))
-                # force remove two faces total
-                out = out[:-1]
-                new_mesh = _rebuild_mesh(mesh, faces=out, vertex_fraud=False)
+                out = [tuple(face) for index, face in enumerate(faces)
+                       if index not in {selected_face_index, 0 if selected_face_index != 0 else 1}]
+                new_mesh = _rebuild_mesh(mesh, faces=out)
+            elif fraud == "noop":
+                new_mesh = mesh
             else:
-                removed = False
-                out = []
-                for f in faces:
-                    if (not removed) and tuple(f) == tuple(dup_tuple):
-                        removed = True
-                        continue
-                    out.append(tuple(f))
-                new_mesh = _rebuild_mesh(
-                    mesh, faces=out, vertex_fraud=(fraud == "vertex")
-                )
-            new_objects.append(_rebuild_object(o, new_mesh))
+                out = [tuple(face) for index, face in enumerate(faces)
+                       if index != selected_face_index]
+                new_mesh = _rebuild_mesh(mesh, faces=out, vertex_fraud=(fraud == "vertex"))
+            new_objects.append(_rebuild_object(obj, new_mesh))
         else:
-            if fraud == "unrelated" and o.object_id != object_id:
-                # mutate an unrelated object's name/pose
+            if fraud == "unrelated" and obj.object_id != object_id:
                 new_objects.append(ObjectModel(
-                    object_id=o.object_id, name=o.name + "_mutated",
-                    collection=o.collection, parent_object_id=o.parent_object_id,
-                    location=o.location, scale=o.scale, rotation=o.rotation,
-                    visible=o.visible, mesh=o.mesh,
+                    object_id=obj.object_id, name=obj.name + "_mutated",
+                    collection=obj.collection, parent_object_id=obj.parent_object_id,
+                    location=obj.location, scale=obj.scale, rotation=obj.rotation,
+                    visible=obj.visible, mesh=obj.mesh,
                 ))
             else:
-                new_objects.append(o)
-    engine_state.scene = SceneModel(
-        scene_id=sc.scene_id, unit_system=sc.unit_system, objects=new_objects
-    )
+                new_objects.append(obj)
+    engine_state.scene = SceneModel(scene_id=sc.scene_id, unit_system=sc.unit_system,
+                                   objects=new_objects)
 
 
 def _rebuild_mesh(mesh, faces, vertex_fraud=False):
@@ -158,12 +139,19 @@ def _default_plan():
     return scene, _plan_for_scene(scene)
 
 
-def _exec(scene, plan, *, mutator=None, extractor=None, plan_override=None):
+def _exec(scene, plan, *, mutator=None, extractor=None, plan_override=None, invocations=None):
     eng = Engine(scene)
+    recorded = invocations if invocations is not None else []
+    delegate = mutator if mutator is not None else _stub_mutator
+
+    def recording_mutator(engine_state, **kwargs):
+        recorded.append(dict(kwargs))
+        return delegate(engine_state, **kwargs)
+
     return execute_remove_duplicate_face(
         engine_state=eng,
         plan=plan_override if plan_override is not None else plan,
-        mutator=mutator if mutator is not None else _stub_mutator,
+        mutator=recording_mutator,
         extractor=extractor if extractor is not None else _extractor,
     ), eng
 
@@ -174,8 +162,16 @@ def _exec(scene, plan, *, mutator=None, extractor=None, plan_override=None):
 
 def test_valid_duplicate_deletion_completes():
     scene, plan = _default_plan()
-    res, eng = _exec(scene, plan)
+    invocations = []
+    res, eng = _exec(scene, plan, invocations=invocations)
     assert res["result"] == ExecutionOutcome.COMPLETED
+    correction = next(c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    kwargs, = invocations
+    assert set(kwargs) == {"object_id", "mesh_id", "selected_face_index", "expected_face_tuple"}
+    assert kwargs["selected_face_index"] == correction.parameters["face_ids"][1]
+    assert kwargs["expected_face_tuple"] == scene.objects[0].mesh.faces[kwargs["selected_face_index"]]
+    assert kwargs["object_id"] == (correction.object_id or scene.objects[0].object_id)
+    assert kwargs["mesh_id"] == correction.mesh_id
     assert len(eng.scene.objects[0].mesh.faces) == 3
     # exactly one duplicate removed; counts of (0,1,2) now 1
     content = [tuple(f) for f in eng.scene.objects[0].mesh.faces]
@@ -193,12 +189,198 @@ def test_exactly_one_face_delta_and_vertex_unchanged():
     assert len(mesh.faces) == 3
 
 
-def test_face_count_only_false_success_rejected():
-    # a mutator that removes the wrong (non-duplicate) face -> face count drops to 3 BUT the multiset
-    # delta does not equal one recorded dup -> POSTCONDITION_FAILED
+def _single_duplicate_plan(scene, face_ids):
+    plan = _plan_for_scene(scene)
+    correction = next(c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    proposal = _bare_proposal(correction, parameters={**dict(correction.parameters),
+                                                        "face_ids": list(face_ids)})
+    return _plan_with_proposals(plan, [proposal])
+
+
+@pytest.mark.parametrize("face_ids", [(0, 2), (0, 3)])
+def test_identical_triple_each_single_occurrence_is_locked_by_invocation(face_ids):
+    faces = [(0, 1, 2), (0, 3, 1), (0, 1, 2), (0, 1, 2)]
+    scene = _scene(faces, QUEEN)
+    plan = _single_duplicate_plan(scene, face_ids)
+    invocations = []
+    result, engine = _exec(scene, plan, invocations=invocations)
+
+    assert result["result"] == ExecutionOutcome.COMPLETED
+    invocation, = invocations
+    assert invocation["selected_face_index"] == face_ids[1]
+    assert invocation["expected_face_tuple"] == scene.objects[0].mesh.faces[face_ids[1]]
+    assert invocation["object_id"] == scene.objects[0].object_id
+    assert invocation["mesh_id"] == scene.objects[0].mesh.mesh_id
+    assert tuple(engine.scene.objects[0].mesh.faces) == tuple(faces[:face_ids[1]] + faces[face_ids[1] + 1:])
+
+
+def test_executor_accepts_reversed_pair_and_selects_second_recorded_index():
+    faces = [(0, 1, 2), (0, 1, 2), (0, 3, 1)]
+    scene = _scene(faces, QUEEN)
+    plan = _single_duplicate_plan(scene, (1, 0))
+    invocations = []
+    result, engine = _exec(scene, plan, invocations=invocations)
+    assert result["result"] == ExecutionOutcome.COMPLETED
+    invocation, = invocations
+    assert invocation["selected_face_index"] == 0
+    assert invocation["expected_face_tuple"] == faces[0]
+    assert tuple(engine.scene.objects[0].mesh.faces) == (tuple(faces[1]), tuple(faces[2]))
+
+
+def test_later_occurrence_selected_for_a_x_a():
+    faces = [(0, 1, 2), (0, 3, 1), (0, 1, 2)]
+    scene = _scene(faces, QUEEN)
+    plan = _single_duplicate_plan(scene, (0, 2))
+    invocations = []
+    result, engine = _exec(scene, plan, invocations=invocations)
+    assert result["result"] == ExecutionOutcome.COMPLETED
+    invocation, = invocations
+    assert invocation["selected_face_index"] == 2
+    assert tuple(engine.scene.objects[0].mesh.faces) == (tuple(faces[0]), tuple(faces[1]))
+
+
+def test_rotated_loop_duplicate_selects_second_tuple_not_first():
+    faces = [(0, 1, 2), (1, 2, 0), (0, 3, 1)]
+    scene = _scene(faces, ((0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)))
+    plan = _single_duplicate_plan(scene, (0, 1))
+    invocations = []
+    result, engine = _exec(scene, plan, invocations=invocations)
+    assert result["result"] == ExecutionOutcome.COMPLETED
+    invocation, = invocations
+    assert invocation["selected_face_index"] == 1
+    assert invocation["expected_face_tuple"] == (1, 2, 0)
+    assert tuple(engine.scene.objects[0].mesh.faces) == (tuple(faces[0]), tuple(faces[2]))
+
+
+def test_multiple_duplicate_proposals_remain_ambiguous():
+    faces = [(0, 1, 2), (0, 3, 1), (0, 1, 2), (0, 1, 2)]
+    scene = _scene(faces, QUEEN)
+    plan = _plan_for_scene(scene)
+    result, _ = _exec(scene, plan)
+    assert result["result"] == ExecutionOutcome.PLAN_INVALID
+    assert result["failure_code"] == "AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS"
+
+
+@pytest.mark.parametrize("bad_index", [True, False, 0.8, 1.0, "0", None])
+def test_invalid_exact_face_id_types_are_precondition_failures(bad_index):
+    scene, base_plan = _default_plan()
+    corr = next(c for c in base_plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    bad_corr = _bare_proposal(corr, parameters={**dict(corr.parameters), "face_ids": [bad_index, 1]})
+    result, _ = _exec(scene, base_plan, plan_override=_plan_with_proposals(base_plan, [bad_corr]))
+    assert result["result"] == ExecutionOutcome.PRECONDITION_FAILED
+    assert result["failure_code"] == "PRECONDITION_FAILED"
+
+
+@pytest.mark.parametrize("face_ids", [(0, 999999), (-1, 1), (0, 0)])
+def test_out_of_range_and_equal_duplicate_indices_are_precondition_failures(face_ids):
+    scene, base_plan = _default_plan()
+    corr = next(c for c in base_plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    bad_corr = _bare_proposal(corr, parameters={**dict(corr.parameters), "face_ids": list(face_ids)})
+    result, _ = _exec(scene, base_plan, plan_override=_plan_with_proposals(base_plan, [bad_corr]))
+    assert result["result"] == ExecutionOutcome.PRECONDITION_FAILED
+    assert result["failure_code"] == "PRECONDITION_FAILED"
+
+
+def test_missing_face_ids_is_precondition_failure():
+    scene, base_plan = _default_plan()
+    corr = next(c for c in base_plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    params = dict(corr.parameters)
+    del params["face_ids"]
+    bad_corr = _bare_proposal(corr, parameters=params)
+    result, _ = _exec(scene, base_plan, plan_override=_plan_with_proposals(base_plan, [bad_corr]))
+    assert result["result"] == ExecutionOutcome.PRECONDITION_FAILED
+    assert result["failure_code"] == "PRECONDITION_FAILED"
+
+
+def test_missing_duplicate_relationship_is_plan_invalid():
+    scene, base_plan = _default_plan()
+    corr = next(c for c in base_plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    params = dict(corr.parameters)
+    del params["duplicate_relationship"]
+    bad_corr = _bare_proposal(corr, parameters=params)
+    result, _ = _exec(scene, base_plan, plan_override=_plan_with_proposals(base_plan, [bad_corr]))
+    assert result["result"] == ExecutionOutcome.PLAN_INVALID
+    assert result["failure_code"] == "INVALID_DUPLICATE_RELATIONSHIP"
+
+
+def test_stale_source_digest_precedes_malformed_face_ids():
+    scene, base_plan = _default_plan()
+    corr = next(c for c in base_plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    bad_corr = _bare_proposal(corr, parameters={**dict(corr.parameters), "face_ids": [True, 1]})
+    malformed_plan = _plan_with_proposals(base_plan, [bad_corr])
+    stale_source = _scene([(0, 1, 2), (0, 3, 1), (0, 1, 2), (1, 3, 2)], QUEEN,
+                          scene_id="stale-source")
+    result, _ = _exec(stale_source, malformed_plan)
+    assert result["result"] == ExecutionOutcome.SOURCE_MISMATCH
+    assert result["failure_code"] == "SOURCE_DIGEST_MISMATCH"
+
+
+def test_stale_duplicate_relationship_is_plan_invalid():
+    scene, base_plan = _default_plan()
+    corr = next(c for c in base_plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    bad_corr = _bare_proposal(corr, parameters={**dict(corr.parameters),
+                                                "duplicate_relationship": "near_duplicate"})
+    result, _ = _exec(scene, base_plan, plan_override=_plan_with_proposals(base_plan, [bad_corr]))
+    assert result["result"] == ExecutionOutcome.PLAN_INVALID
+    assert result["failure_code"] == "INVALID_DUPLICATE_RELATIONSHIP"
+
+
+def test_mutator_wrong_expected_tuple_fails_as_mutation_failed():
+    scene, base_plan = _default_plan()
+    def wrong_expected(engine_state, **kwargs):
+        assert kwargs["expected_face_tuple"] == scene.objects[0].mesh.faces[kwargs["selected_face_index"]]
+        kwargs["expected_face_tuple"] = (9, 8, 7)
+        return _stub_mutator(engine_state, **kwargs)
+    result, _ = _exec(scene, base_plan, mutator=wrong_expected)
+    assert result["result"] == ExecutionOutcome.MUTATION_FAILED
+    assert result["failure_code"] == "MUTATION_FAILED"
+
+
+def test_mutator_attempting_alternate_rotated_occurrence_fails_ordered_postcondition():
+    faces = [(0, 1, 2), (1, 2, 0), (0, 3, 1)]
+    scene = _scene(faces, ((0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)))
+    plan = _single_duplicate_plan(scene, (0, 1))
+    result, _ = _exec(scene, plan, mutator=lambda e, **kw: _stub_mutator(e, fraud="wrong_face", **kw))
+    assert result["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert result["failure_code"] == "POSTCONDITION_FAILED"
+
+
+def test_noop_mutator_fails_ordered_postcondition():
     scene, plan = _default_plan()
+    result, _ = _exec(scene, plan, mutator=lambda e, **kw: _stub_mutator(e, fraud="noop", **kw))
+    assert result["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert result["failure_code"] == "POSTCONDITION_FAILED"
+
+
+def test_ordered_postcondition_rejects_reordering_surviving_duplicate_faces():
+    faces = [(0, 1, 2), (1, 2, 0), (0, 3, 1)]
+    scene = _scene(faces, ((0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)))
+    plan = _single_duplicate_plan(scene, (0, 1))
+
+    def reorder_after_valid_deletion(engine_state, **kwargs):
+        _stub_mutator(engine_state, **kwargs)
+        obj = engine_state.scene.objects[0]
+        reordered = (obj.mesh.faces[1], obj.mesh.faces[0])
+        engine_state.scene = SceneModel(
+            scene_id=engine_state.scene.scene_id,
+            unit_system=engine_state.scene.unit_system,
+            objects=[_rebuild_object(obj, _rebuild_mesh(obj.mesh, faces=reordered))],
+        )
+
+    result, _ = _exec(scene, plan, mutator=reorder_after_valid_deletion)
+    assert result["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert result["failure_code"] == "POSTCONDITION_FAILED"
+
+
+def test_alternate_occurrence_is_rejected_by_ordered_postcondition():
+    # Use a rotated-loop pair so deleting index 0 instead of the selected index 1
+    # preserves the duplicate multiset but changes the ordered canonical table.
+    faces = [(0, 1, 2), (1, 2, 0), (0, 3, 1)]
+    scene = _scene(faces, ((0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)))
+    plan = _single_duplicate_plan(scene, (0, 1))
     res, _ = _exec(scene, plan, mutator=lambda e, **kw: _stub_mutator(e, fraud="wrong_face", **kw))
     assert res["result"] == ExecutionOutcome.POSTCONDITION_FAILED
+    assert res["failure_code"] == "POSTCONDITION_FAILED"
 
 
 # ---------------------------------------------------------------------------
@@ -668,7 +850,8 @@ def test_object_id_none_unknown_mesh_fails_closed():
     scene, plan = _default_plan()
     dup = [c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE"][0]
     # override the correction's mesh_id to a nonexistent mesh
-    corr = _bare_proposal(dup, mesh_id="ghost")
+    corr = _bare_proposal(dup, mesh_id="ghost",
+                          parameters={**dict(dup.parameters), "mesh_id": "ghost"})
     res, _ = _exec(scene, plan, plan_override=_plan_with_proposals(plan, [corr]))
     assert res["result"] == ExecutionOutcome.PRECONDITION_FAILED, res
 
@@ -678,7 +861,7 @@ def test_object_id_none_unknown_mesh_fails_closed():
 # ---------------------------------------------------------------------------
 
 def test_invalid_duplicate_relationship_rejected():
-    """duplicate_relationship must be 'exact_duplicate' (or absent/None); any other string must be
+    """duplicate_relationship must be 'exact_duplicate'; any other string must be
     REJECTED as PLAN_INVALID — never silently normalized."""
     scene, plan = _default_plan()
     dup = [c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE"][0]
@@ -688,3 +871,45 @@ def test_invalid_duplicate_relationship_rejected():
         res, _ = _exec(scene, plan, plan_override=_plan_with_proposals(plan, [corr]))
         assert res["result"] == ExecutionOutcome.PLAN_INVALID, (bad_rel, res)
         assert res["failure_code"] == "INVALID_DUPLICATE_RELATIONSHIP"
+
+
+def test_parameter_stage_precedence_unexpected_key_before_relationship_validation():
+    scene, plan = _default_plan()
+    corr = next(c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    params = dict(corr.parameters)
+    params.pop("duplicate_relationship")
+    params["unexpected"] = True
+    malformed = _bare_proposal(corr, parameters=params)
+    result, _ = _exec(scene, plan, plan_override=_plan_with_proposals(plan, [malformed]))
+    assert result["result"] == ExecutionOutcome.PLAN_INVALID
+    assert result["failure_code"] == "UNEXPECTED_PARAMETER:unexpected"
+
+
+def test_missing_face_ids_precondition_exception_is_not_generic_internal_error():
+    scene, plan = _default_plan()
+    corr = next(c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    params = dict(corr.parameters)
+    params.pop("face_ids")
+    malformed = _bare_proposal(corr, parameters=params)
+    result, _ = _exec(scene, plan, plan_override=_plan_with_proposals(plan, [malformed]))
+    assert result["result"] == ExecutionOutcome.PRECONDITION_FAILED
+    assert result["failure_code"] == "PRECONDITION_FAILED"
+
+
+@pytest.mark.parametrize("mesh_param", [None, "", 3, "other"])
+def test_duplicate_mesh_parameter_must_bind_correction_target(mesh_param):
+    scene, plan = _default_plan()
+    corr = next(c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    malformed = _bare_proposal(corr, parameters={**dict(corr.parameters), "mesh_id": mesh_param})
+    result, _ = _exec(scene, plan, plan_override=_plan_with_proposals(plan, [malformed]))
+    assert result["result"] == ExecutionOutcome.PLAN_INVALID
+
+
+def test_duplicate_missing_mesh_parameter_is_plan_invalid():
+    scene, plan = _default_plan()
+    corr = next(c for c in plan.corrections if c.correction_type == "REMOVE_DUPLICATE_FACE")
+    params = dict(corr.parameters)
+    params.pop("mesh_id")
+    malformed = _bare_proposal(corr, parameters=params)
+    result, _ = _exec(scene, plan, plan_override=_plan_with_proposals(plan, [malformed]))
+    assert result["result"] == ExecutionOutcome.PLAN_INVALID
