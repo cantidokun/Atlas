@@ -1,3 +1,28 @@
+
+
+## REV46-M1 — M1 IMPLEMENTATION GATE CLOSED — 2026-10-08
+
+**Design status:** **R12 = CLEAR / FROZEN.** Fresh independent review by **GPT 6.1 Sol** returned **REV46-M1-R12 — CLEAR**.
+
+- R12 artifact: `REV46_M1_R12_FINAL_CLOSURE.txt`
+- R12 SHA-256: `75b32f8681a8e1b02110412ea68e0829bca0ae7a4a05208844088af02f8b7b18`
+- Authorized implementation baseline: `3dc2fca3d1f26cadd45a6c4d773bcb2e24f7cad7`
+
+**Implementation branch:** `feat/rev46-m1-duplicate-occurrence`
+
+**Implementation commit:** `90e4d0a862cedb0b79b33b703ba716a327230847` (parent `1717c0b8f1633abda9bae51cc9b53eea1f7e033b`).
+
+**Independent implementation review:** **Claude Sonnet — CLEAR WITH MINOR FINDINGS.** The review confirmed: executor-authoritative duplicate-occurrence selection (`face_ids[1]`); exact integer validation with no coercion; no min/max/search/fallback target reconstruction; `expected_face_tuple` taken from the selected occurrence; `params["mesh_id"]` as a consistency check only, with `corr.mesh_id` the authoritative target identity; exact-index mutation; the ordered postcondition; harness-side invocation evidence distinguishing identical `[A,X,A,A]` occurrences; passing W1/W1b live gates; no A-REF implementation; no authority/persistence/recovery/receipt/Unreal scope leakage.
+
+**M1 implementation gate: CLOSED.** Minor findings are non-blocking and do not trigger another R12 revision.
+
+**Documented limitation (non-blocking):** the identical-occurrence mutant (identical `[A,X,A,A]` tuples — the two removal candidates yield the same canonical child) is a documented R12 limitation, not a blocker.
+
+**No R13 is authorized or required.** A-REF implementation has **NOT** started.
+
+**Next gate: A-REF design red-team** — a fresh independent review of the A-REF design artifact is required before any A-REF implementation.
+
+
 > **CURRENT PAUSE OVERRIDE — Approval Authority Architecture / September 30, 2026 local / October 1 UTC**
 >
 > **Code baseline:** `main @ 2bd3c4a3c753ba0e696e872e2602edeabbb46b32` before these documentation-only updates. Subsequent commits in this pause are documentation only.

@@ -1,3 +1,14 @@
+## 2026-10-08 — Rev46-M1 implementation gate closed
+
+- R12 design remains **CLEAR / FROZEN** (fresh independent review by GPT 6.1 Sol; R12 SHA-256 `75b32f8681a8e1b02110412ea68e0829bca0ae7a4a05208844088af02f8b7b18`; authorized baseline `3dc2fca3d1f26cadd45a6c4d773bcb2e24f7cad7`).
+- Rev46-M1 implementation commit: `90e4d0a862cedb0b79b33b703ba716a327230847` on `feat/rev46-m1-duplicate-occurrence` (parent `1717c0b8f1633abda9bae51cc9b53eea1f7e033b`).
+- Independent implementation review by **Claude Sonnet**: **CLEAR WITH MINOR FINDINGS** — executor-authoritative duplicate selection (`face_ids[1]`), exact integer validation with no coercion, no min/max/search/fallback reconstruction, `expected_face_tuple` from the selected occurrence, `params["mesh_id"]` consistency-only with `corr.mesh_id` authoritative, exact-index mutation, ordered postcondition, harness invocation evidence distinguishing identical `[A,X,A,A]` occurrences, W1/W1b live gates passed, no A-REF implementation, and no authority/persistence/recovery/receipt/Unreal scope leakage.
+- **M1 implementation gate: CLOSED.** Minor findings are non-blocking. The identical-occurrence mutant is a documented R12 limitation, not a blocker.
+- No R13 is authorized or required. A-REF implementation has **NOT** started.
+- **Next gate: A-REF design red-team** — a fresh independent review of the A-REF design artifact is required before any A-REF implementation.
+
+---
+
 ## 2026-10-03 — Approval Authority Rev 16 pause
 
 - Rev 15 was independently reviewed by DeepSeek Pro (**B — PARTIALLY CLOSED / REVISION REQUIRED**) and GPT-6 Luna (**C — BLOCKED / MATERIAL ARCHITECTURAL DEFECT**).
