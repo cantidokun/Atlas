@@ -24,7 +24,7 @@ The remainder of this file is retained below as the **historical October 7 pause
 
 ## Superseded historical pause state
 
-## Current status## Current status
+## Current status
 
 Atlas development is intentionally paused for now.
 

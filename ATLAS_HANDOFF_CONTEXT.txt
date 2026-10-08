@@ -61,37 +61,15 @@ AUTHOR-SIDE CLOSURE HISTORY
   are deterministic and non-conflicting.
 - R15 was independently reviewed by GPT Luna 6 and returned CLEAR.
 
-AUTHOR-SIDE CLOSURE HISTORY
-- R7 corrected F1/F2 documentation/register issues after the earlier H.8/PREPARE closure work.
-- R8 corrected F3: matching registry entries are distinguished from matching-but-non-ACTIVE keys.
-- R9 corrected F4: a pin entry cannot manufacture historical registry key state; matching requires pin match plus
-  historical registry existence.
-- R10 corrected F5: the inherited INVALID_AUTH handling was re-scoped so SELECT_KEY owns key-state refusal semantics,
-  while INVALID_AUTH remains available for object/authentication validity at the appropriate stages.
-- R11 corrected F6: the execution/reachability model now distinguishes pre-selector S6 failures from S9 selector
-  failures and later S10/S12 validation. Case 21 is restricted to post-S9 failure; cases 22/23 cover S6 failures.
-- R11 also regenerated self-measured P.6 verdict citations after stale line references were found following inserted text.
-- These are author-side corrections only. They have NOT been independently cleared.
-
 NEXT GATE
-1. Perform a genuinely separate-process independent red-team review of the exact R11 artifact SHA:
-   9b52bffe1e30ffdd0ddcb94649917cb62af66c94a9fb3f81efc8d8caf1776c3f
-2. Attack, rather than accept:
-   - the S6/S9/S10/S12 stage model;
-   - the F5 boundary between SELECT_KEY key-state refusal and INVALID_AUTH;
-   - F4 P1/P2/P3 predicate ownership;
-   - compatibility between the new selector predicates and inherited SELECT_KEY/kernel semantics;
-   - H.8 PREPARE schema supersession;
-   - PREIMAGE_E and frozen-vector evidence;
-   - I8/Genesis/EPOCH_OF historical-state closure;
-   - verdict and citation integrity.
-3. Do not implement or merge anything from an independent CLEAR until every other required Rev45 gate is separately satisfied.
-4. If the independent review is BLOCKED, resolve only the identified blocker and repeat independent review on the exact new artifact.
-5. If CLEAR, overall Rev45 still remains NOT CLEAR until every other Rev45 gate is separately closed; Rev46 remains unauthorized.
+1. Select the next concrete Rev46 development target after revalidating its current branch/PR state and track-specific handoff.
+2. Apply that track's own design, deterministic validation, live-boundary, CI, and independent-review gates.
+3. Do not treat the Approval Authority CLEAR as blanket authorization to merge previously paused work.
+4. Keep historical dated handoffs archival and do not reopen frozen boundaries without a concrete, separately gated defect or design need.
 
 RESTART SURFACES
 1. ATLAS_HANDOFF_CURRENT.md
-2. ATLAS_HANDOFF_2026-10-07_APPROVAL_AUTHORITY_PAUSE.md
+2. ATLAS_HANDOFF_2026-10-07_APPROVAL_AUTHORITY_CLOSED.md
 3. ATLAS_HANDOFF_CONTEXT.txt
 4. README.md
 5. UNREAL_AGENT_HANDOFF_CURRENT.md
