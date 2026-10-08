@@ -49,9 +49,8 @@ KNOWN, DOCUMENTED LIMITATIONS carried into this gate (not silently claimed away)
   * repeated-index polygons — Blender persists them, extraction emits them, and the canonical parser
     refuses them (``scene_model.py`` ``_canon_face``); they are recorded as a parser limitation and
     are NEVER a live-positive case;
-  * the canonical postcondition is a face MULTISET delta, so a hostile mutator that removes two
-    identical faces and adds one copy back is state-indistinguishable from the authorized single
-    removal (measured live in this gate as a documented limitation);
+  * identical duplicate values make the removed occurrence unobservable in state alone; the M1
+    harness records actual mutator kwargs as conformance evidence, not production provenance;
   * ``polygon.material_index`` — non-claim (above);
   * W1's unrelated-material limitation — documented limitation, not a new canonical guarantee.
 """
@@ -366,7 +365,7 @@ def test_w2_is_not_implemented_here(live_results):
 
 
 def test_every_case_matches_its_declared_expectation(live_results):
-    assert len(live_results["cases"]) == 37
+    assert len(live_results["cases"]) == 41
     for case in live_results["cases"]:
         expect = case["expect"]
         result, failure_code = _outcome(case)
@@ -523,6 +522,45 @@ def test_w1_positive_single_mutation_and_receipt(live_results):
     assert_equal(case["receipt"]["skipped_correction_ids"], [], "W1 skipped correction ids")
     assert case["receipt"]["output_report_digest"] == case["post"]["digest"]
     assert case["receipt"]["source_report_digest_recomputed"] == case["plan"]["source_report_digest"]
+
+
+@pytest.mark.parametrize("label,face_ids,selected_tuple", [
+    ("w1-positive-duplicate-final-index", [2, 3], [4, 5, 6]),
+    ("w1-positive-rotated-loop", [0, 1], [5, 6, 4]),
+    ("w1-positive-triple-select-2", [0, 2], [4, 5, 6]),
+    ("w1-positive-triple-select-3", [0, 3], [4, 5, 6]),
+])
+def test_w1_production_mutator_invocation_is_executor_selected(
+        live_results, label, face_ids, selected_tuple):
+    case = _case(live_results, label)
+    assert _outcome(case) == ("COMPLETED", None)
+    assert case["binding"]["proposal_count"] == 1
+    assert case["binding"]["parameters"][0]["face_ids"] == face_ids
+    (call,) = case["mutator"]["calls"]
+    assert case["mutator"]["invocations"] == 1
+    assert set(call) == {"object_id", "mesh_id", "selected_face_index", "expected_face_tuple"}
+    assert call == {"object_id": case["target"]["object_id"],
+                    "mesh_id": case["target"]["mesh_id"],
+                    "selected_face_index": face_ids[1],
+                    "expected_face_tuple": selected_tuple}
+    pre_faces = case["pre"]["faces"]
+    assert selected_tuple == pre_faces[face_ids[1]]
+    assert case["post"]["faces"] == pre_faces[:face_ids[1]] + pre_faces[face_ids[1] + 1:]
+
+
+def test_w1_triple_corrections_remain_ambiguous(live_results):
+    case = _case(live_results, "w1-negative-triple-ambiguous")
+    assert case["binding"]["proposal_count"] == 2
+    assert _outcome(case) == ("PLAN_INVALID", "AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS")
+    assert case["mutator"]["invocations"] == 0
+
+
+def test_production_duplicate_mutator_rejects_invalid_selectors_without_edit(live_results):
+    refusals = live_results["duplicate_mutator_refusals"]
+    assert set(refusals) == {"bool", "float", "string", "out_of_range", "wrong_tuple",
+                             "duplicate_missing_tuple", "duplicate_missing_index", "both",
+                             "mixed", "neither", "degenerate_missing_tuple"}
+    assert all(refusals.values()), refusals
 
 
 # --------------------------------------------------------------------------- W1 material evidence

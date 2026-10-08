@@ -58,6 +58,7 @@ import bpy
 
 from planning.blender.bpy_extraction import extract_scene
 from planning.blender.correction_contract import CorrectionPlan
+from planning.blender import correction_execution_bridge_runtime as bridge_runtime
 from planning.blender.correction_executor import (
     execute_remove_degenerate_face,
     execute_remove_duplicate_face,
@@ -100,9 +101,8 @@ TARGET_SLOTS_WITH_UNASSIGNED = (("DATA", "turf"), ("DATA", None), ("DATA", "goal
 TARGET_SLOTS_WITH_OBJECT_LINKED = (("DATA", "turf"), ("OBJECT", "line_markings"))
 DECOY_SLOTS = (("DATA", "banner"),)
 
-#: W1 F-1 fixture (§C.1 / §M.7): the duplicate pair is the FINAL two face indices, so removing the
-#: second member renumbers nothing (identity map), and faces 0/1 form an UNRELATED same-direction
-#: winding pair whose finding must survive the repair bit-identically.
+#: W1 fixture: planner-produced face_ids are ascending, and executor removes face_ids[1].
+#: Faces 0/1 form an unrelated same-direction winding pair whose finding must survive bit-identically.
 W1_VERTS = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0),
             (10.0, 0.0, 0.0), (11.0, 0.0, 0.0), (10.0, 1.0, 0.0)]
 W1_FACES = [(0, 1, 2), (0, 1, 3), (4, 5, 6), (4, 5, 6)]
@@ -112,6 +112,8 @@ W1_FACES = [(0, 1, 2), (0, 1, 3), (4, 5, 6), (4, 5, 6)]
 #: whose members are identical makes swapping WHICH member is removed invisible; a follower does not).
 W1_MID_VERTS = W1_VERTS + [(20.0, 0.0, 0.0), (21.0, 0.0, 0.0), (20.0, 1.0, 0.0)]
 W1_MID_FACES = [(0, 1, 2), (0, 1, 3), (4, 5, 6), (4, 5, 6), (7, 8, 9)]
+W1_TRIPLE_FACES = [(4, 5, 6), (0, 1, 2), (4, 5, 6), (4, 5, 6)]
+W1_ROTATED_FACES = [(4, 5, 6), (5, 6, 4), (0, 1, 2)]
 
 #: W1b fixtures (§D.A–§D.C).
 W1B_ZERO_AREA_VERTS = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (5.0, 5.0, 0.0)]
@@ -414,18 +416,21 @@ class _BaseMutator:
 
 
 class W1Mutator(_BaseMutator):
-    """W1 live primitive: delete EXACTLY ONE face of the recorded duplicate pair (design §C)."""
+    """W1 live primitive: delete exactly the executor-selected duplicate occurrence."""
 
-    def __call__(self, engine_state, *, object_id, mesh_id, face_ids, dup_tuple, **kwargs):
-        self._record({"object_id": object_id, "mesh_id": mesh_id, "face_ids": face_ids,
-                      "dup_tuple": dup_tuple})
-        pair = [int(i) for i in face_ids]
+    def __call__(self, engine_state, *, object_id, mesh_id, selected_face_index,
+                 expected_face_tuple, **kwargs):
+        self._record({"object_id": object_id, "mesh_id": mesh_id,
+                      "selected_face_index": selected_face_index,
+                      "expected_face_tuple": expected_face_tuple})
+        if type(selected_face_index) is not int:
+            raise RuntimeError("executor selected_face_index must be an exact int")
         if self.mode == "faithful":
-            drop = {pair[-1]}                      # the FINAL recorded member (fixture policy)
+            drop = {selected_face_index}
         elif self.mode == "first_member":
-            drop = {pair[0]}
+            drop = {selected_face_index - 1}  # deliberately wrong hostile fixture
         elif self.mode == "both_members":
-            drop = set(pair)
+            drop = {selected_face_index, selected_face_index - 1}  # hostile fixture
         elif self.mode == "wrong_face":
             drop = {0}                             # a face that is not part of the pair
         elif self.mode == "noop":
@@ -433,9 +438,8 @@ class W1Mutator(_BaseMutator):
         elif self.mode in ("vertex_shift", "unrelated_mutation", "survivor_pair_altered",
                            "slot_destruction", "datablock_replacement", "orphan_creation",
                            "net_multiset_equivalent"):
-            # hostile / evidence modes all START from the authorized single-face deletion and then
-            # add their collateral damage
-            drop = {pair[-1]}
+            # hostile / evidence modes start from the executor-selected deletion.
+            drop = {selected_face_index}
         else:
             raise RuntimeError(f"unknown W1 mutator mode {self.mode!r}")
         if self.mode == "noop" or self.liar:
@@ -479,9 +483,11 @@ class W1Mutator(_BaseMutator):
             # members, then add one copy back -- so the surviving face MULTISET equals the
             # authorized one-face delta while the engine was edited twice.
             self.engine_edits = 2
-            self._rebuild(obj, [f for index, f in enumerate(faces) if index not in set(pair)])
-            self._rebuild(obj, [f for index, f in enumerate(faces) if index not in set(pair)]
-                          + [list(dup_tuple)])
+            self._rebuild(obj, [f for index, f in enumerate(faces)
+                                if index not in (selected_face_index - 1, selected_face_index)])
+            self._rebuild(obj, [f for index, f in enumerate(faces)
+                                if index not in (selected_face_index - 1, selected_face_index)]
+                          + [list(expected_face_tuple)])
             return None
         elif self.mode == "orphan_creation":
             self._rebuild(obj, keep)
@@ -543,7 +549,8 @@ class W1BMutator(_BaseMutator):
 # --------------------------------------------------------------------------- case runner
 def run_case(label, *, capability, verts, faces, target_slots=TARGET_SLOTS_ASSIGNED,
              decoy_slots=DECOY_SLOTS, decoy_faces=W1B_DECOY_FACES, mutator_mode="faithful",
-             liar=False, remap=None, engine_mutation=None, expect=None):
+             liar=False, remap=None, engine_mutation=None, expect=None,
+             selected_pair=None):
     """Build the disposable scene, run the whole live path, capture canonical + raw evidence."""
     build_scene(verts=verts, faces=faces, target_slots=target_slots, decoy_slots=decoy_slots,
                 decoy_faces=decoy_faces)
@@ -565,6 +572,19 @@ def run_case(label, *, capability, verts, faces, target_slots=TARGET_SLOTS_ASSIG
     plan = real_plan(pre_report)
     if remap is not None:
         plan = remap_plan(plan, capability=capability, **remap)
+    if selected_pair is not None:
+        # The planner can emit both (0,2) and (0,3). Select a single correction
+        # as a fixture input; the executor must never choose between them.
+        matches = [c for c in plan.corrections if c.correction_type == W1
+                   and tuple(c.parameters["face_ids"]) == selected_pair]
+        if len(matches) != 1:
+            raise RuntimeError(f"fixture pair {selected_pair!r} not unique: {len(matches)}")
+        plan = CorrectionPlan(
+            plan_id="", source_report_digest=plan.source_report_digest,
+            source_revision_id=plan.source_revision_id, planner_version=plan.planner_version,
+            profile=thaw_jsonable(plan.profile), corrections=tuple(matches),
+            dependencies=(), summary_metrics=thaw_jsonable(plan.summary_metrics),
+            state=plan.state, planning_errors=tuple(plan.planning_errors))
     corrections = [c for c in plan.corrections if c.correction_type == capability]
     parameters = [thaw_jsonable(c.parameters) for c in corrections]
 
@@ -574,8 +594,27 @@ def run_case(label, *, capability, verts, faces, target_slots=TARGET_SLOTS_ASSIG
     mutator = (W1Mutator(mode=mutator_mode, liar=liar) if capability == W1
                else W1BMutator(mode=mutator_mode, liar=liar))
     raw_before = raw_snapshot()
-    if capability == W1:
-        receipt = execute_remove_duplicate_face(engine_state=engine, plan=plan, mutator=mutator,
+    actual_calls = []
+    # Record the real production bridge mutator's kwargs at the harness boundary.
+    # Do not change the production receipt or engine-evidence schema.
+    if capability == W1 and mutator_mode == "faithful" and not liar:
+        delegate = bridge_runtime._face_removal_mutator
+        def recording_mutator(engine_state, **kwargs):
+            actual_calls.append(dict(kwargs))
+            return delegate(engine_state, **kwargs)
+        injected = recording_mutator
+    else:
+        injected = mutator
+    if injected is not mutator:
+        bridge_runtime._face_removal_mutator = recording_mutator
+        try:
+            bridge_result = bridge_runtime._run_executor(plan, {"operation": W1})
+        finally:
+            bridge_runtime._face_removal_mutator = delegate
+        receipt = bridge_result["receipt"]
+        assert bridge_result["mutator_invocations"] == len(actual_calls)
+    elif capability == W1:
+        receipt = execute_remove_duplicate_face(engine_state=engine, plan=plan, mutator=injected,
                                                 extractor=live_extractor)
     else:
         receipt = execute_remove_degenerate_face(engine_state=engine, plan=plan, mutator=mutator,
@@ -592,6 +631,18 @@ def run_case(label, *, capability, verts, faces, target_slots=TARGET_SLOTS_ASSIG
 
     pre_faces = raw_object(raw_before, TARGET_OBJECT_ID)["faces"]
     post_faces = raw_object(raw_after, TARGET_OBJECT_ID)["faces"]
+    if capability == W1 and injected is not mutator and receipt["result"] == "COMPLETED":
+        (call,) = actual_calls  # exactly one production-mutator invocation
+        (correction,) = corrections
+        (counterpart_index, selected_index) = correction.parameters["face_ids"]
+        assert counterpart_index != selected_index
+        assert set(call) == {"object_id", "mesh_id", "selected_face_index", "expected_face_tuple"}
+        assert call["selected_face_index"] == selected_index
+        assert call["expected_face_tuple"] == tuple(pre_faces[selected_index])
+        assert call["object_id"] == target_obj.object_id == TARGET_OBJECT_ID
+        assert call["mesh_id"] == target_obj.mesh.mesh_id == TARGET_MESH_ID
+        assert tuple(map(tuple, post_faces)) == (tuple(map(tuple, pre_faces[:selected_index]))
+                                                  + tuple(map(tuple, pre_faces[selected_index + 1:])))
     mapping = renumbering_map(pre_faces, post_faces)
     return {
         "case": label,
@@ -623,8 +674,10 @@ def run_case(label, *, capability, verts, faces, target_slots=TARGET_SLOTS_ASSIG
                  "source_report_digest": plan.source_report_digest,
                  "all_correction_types": [c.correction_type for c in plan.corrections]},
         "mutator": {"primitive": mutator.primitive, "mode": mutator_mode, "liar": liar,
-                    "invocations": len(mutator.calls), "engine_edits": mutator.engine_edits,
-                    "calls": mutator.calls},
+                    "invocations": len(actual_calls) if injected is not mutator else len(mutator.calls),
+                    "engine_edits": mutator.engine_edits,
+                    "calls": [{k: list(v) if isinstance(v, tuple) else v for k, v in call.items()}
+                              for call in actual_calls] if injected is not mutator else mutator.calls},
         "pre": {
             "digest": pre_report.digest(),
             "vertex_count": len(target_obj.mesh.vertices),
@@ -709,6 +762,19 @@ CASES = [
     ("w1-positive-duplicate-final-index", dict(
         capability=W1, verts=W1_VERTS, faces=W1_FACES,
         expect={"result": "COMPLETED", "failure_code": None, "mutations": 1})),
+    ("w1-positive-rotated-loop", dict(
+        capability=W1, verts=W1_VERTS, faces=W1_ROTATED_FACES,
+        expect={"result": "COMPLETED", "failure_code": None, "mutations": 1})),
+    ("w1-positive-triple-select-2", dict(
+        capability=W1, verts=W1_VERTS, faces=W1_TRIPLE_FACES, selected_pair=(0, 2),
+        expect={"result": "COMPLETED", "failure_code": None, "mutations": 1})),
+    ("w1-positive-triple-select-3", dict(
+        capability=W1, verts=W1_VERTS, faces=W1_TRIPLE_FACES, selected_pair=(0, 3),
+        expect={"result": "COMPLETED", "failure_code": None, "mutations": 1})),
+    ("w1-negative-triple-ambiguous", dict(
+        capability=W1, verts=W1_VERTS, faces=W1_TRIPLE_FACES,
+        expect={"result": "PLAN_INVALID",
+                "failure_code": "AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS", "mutations": 0})),
     ("w1-positive-unassigned-slot-raw-only", dict(
         capability=W1, verts=W1_VERTS, faces=W1_FACES,
         target_slots=TARGET_SLOTS_WITH_UNASSIGNED,
@@ -936,6 +1002,40 @@ def save_attempt_probe():
     return probe
 
 
+def duplicate_mutator_refusal_probe():
+    """Test production mutator guards directly, with an unchanged real Blender mesh."""
+    build_scene(verts=W1_VERTS, faces=W1_FACES)
+    engine = LiveEngine(bpy)
+    before = raw_snapshot()
+    base = {"object_id": TARGET_OBJECT_ID, "mesh_id": TARGET_MESH_ID,
+            "selected_face_index": 3, "expected_face_tuple": (4, 5, 6)}
+    bad_calls = {
+        "bool": {**base, "selected_face_index": True},
+        "float": {**base, "selected_face_index": 3.0},
+        "string": {**base, "selected_face_index": "3"},
+        "out_of_range": {**base, "selected_face_index": 99},
+        "wrong_tuple": {**base, "expected_face_tuple": (0, 1, 2)},
+        "duplicate_missing_tuple": {k: v for k, v in base.items()
+                                    if k != "expected_face_tuple"},
+        "duplicate_missing_index": {k: v for k, v in base.items()
+                                    if k != "selected_face_index"},
+        "both": {**base, "face_id": 2, "face_tuple": (4, 5, 6)},
+        "mixed": {**base, "face_tuple": (4, 5, 6)},
+        "neither": {"object_id": TARGET_OBJECT_ID, "mesh_id": TARGET_MESH_ID},
+        "degenerate_missing_tuple": {"object_id": TARGET_OBJECT_ID,
+                                     "mesh_id": TARGET_MESH_ID, "face_id": 1},
+    }
+    observed = {}
+    for label, kwargs in bad_calls.items():
+        try:
+            bridge_runtime._face_removal_mutator(engine, **kwargs)
+        except bridge_runtime.BridgeRuntimeError:
+            observed[label] = raw_snapshot() == before
+        else:
+            observed[label] = False
+    return observed
+
+
 def main():
     results = {"environment": {
         "blender_version": bpy.app.version_string,
@@ -961,6 +1061,8 @@ def main():
             results["cases"].append(run_case(label, **dict(kwargs)))
         except Exception:  # noqa: BLE001 - record, never abort the whole run
             results["errors"].append({"case": label, "traceback": traceback.format_exc()[-3000:]})
+
+    results["duplicate_mutator_refusals"] = duplicate_mutator_refusal_probe()
 
     try:
         results["repeated_index_limitation"] = repeated_index_limitation()
