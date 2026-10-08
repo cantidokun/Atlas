@@ -1,3 +1,59 @@
+
+
+---
+
+## REV46-M1 IMPLEMENTATION PAUSE CHECKPOINT — 2026-10-08
+
+**Current phase:** Rev46-M1 duplicate-occurrence implementation.
+
+**Design status:** Rev46-M1 design is CLOSED at **R12**. Fresh independent review by **GPT 6.1 Sol** returned **REV46-M1-R12 — CLEAR** and marked the contract implementation-ready.
+
+- R12 artifact: `REV46_M1_R12_FINAL_CLOSURE.txt`
+- R12 SHA-256: `75b32f8681a8e1b02110412ea68e0829bca0ae7a4a05208844088af02f8b7b18`
+- Exact implementation baseline: `3dc2fca3d1f26cadd45a6c4d773bcb2e24f7cad7`
+
+**Implementation branch:** `feat/rev46-m1-duplicate-occurrence`
+
+**Implementation status:** AUTHORIZED / STARTED / **INCOMPLETE — NOT COMMITTED**.
+
+The fresh implementation worktree was created from the exact authorized baseline. The stale pre-existing checkout was left untouched.
+
+### Verified so far
+
+- `pytest -q tests/test_correction_executor_wave1.py` → **55 passed**.
+- No implementation commit has been made.
+- No A-REF implementation has started.
+- No live Blender regression has been claimed or accepted.
+
+### Remaining implementation work
+
+- harness-side recording of the actual live duplicate mutator kwargs;
+- live selected-occurrence assertions on the actual production mutator call;
+- separate `[A,X,A,A]` single-correction conformance cases for `(0,2)` and `(0,3)`;
+- complete R12 deterministic positive/negative coverage;
+- broader relevant non-integration test suite;
+- final diff review and file/line-ending hygiene;
+- implementation commit only after all required gates pass.
+
+### Exact resume point
+
+Resume in the SAME branch/worktree:
+
+`feat/rev46-m1-duplicate-occurrence`
+
+Do not return to the stale checkout and do not reset/discard its implementation changes.
+
+The next task is to finish the already-frozen R12 implementation requirements, then run the required test gates and prepare the implementation commit.
+
+### Next review/gate after implementation
+
+A genuinely fresh independent implementation review of the committed diff is required. After that, continue to the live Blender regression and A-REF sequence already defined for Rev46-M1.
+
+**R12 is frozen. Do not author another design revision unless implementation exposes a new material contradiction.**
+
+**Documentation checkpoint only:** this section records state; it does not imply implementation completion or a clean working tree.
+
+
 > **CURRENT BLENDER AGENT PAUSE — September 30, 2026 local / October 1 UTC**
 >
 > The canonical Blender capability remains **CLOSED / frozen for the declared contract**. Full production agent readiness remains **NOT ESTABLISHED**.

@@ -1,3 +1,17 @@
+## 2026-10-08 — Rev46-M1 implementation pause
+
+- Rev46-M1 design closed at R12 after a genuinely fresh independent review by GPT 6.1 Sol returned **REV46-M1-R12 — CLEAR**; R12 SHA-256: `75b32f8681a8e1b02110412ea68e0829bca0ae7a4a05208844088af02f8b7b18`.
+- Exact implementation baseline: `3dc2fca3d1f26cadd45a6c4d773bcb2e24f7cad7`.
+- Implementation branch: `feat/rev46-m1-duplicate-occurrence`.
+- Implementation is authorized and started but **incomplete / not committed**. The fresh worktree started at the exact authorized baseline; the stale checkout remained untouched.
+- Verified: `pytest -q tests/test_correction_executor_wave1.py` → **55 passed**.
+- Remaining: harness-side live invocation kwargs evidence; live selected-occurrence assertions; separate [A,X,A,A] single-correction cases for (0,2)/(0,3); complete deterministic R12 coverage; broader relevant non-integration tests; final diff and line-ending review; implementation commit.
+- No live Blender regression PASS is claimed. No A-REF implementation has started. No implementation review has occurred.
+- Resume in the same `feat/rev46-m1-duplicate-occurrence` worktree. Do not reset/discard current implementation changes and do not return to the stale checkout.
+- R12 remains frozen; do not create another design revision unless implementation reveals a new material contradiction.
+
+---
+
 ## 2026-10-03 — Approval Authority Rev 16 pause
 
 - Rev 15 was independently reviewed by DeepSeek Pro (**B — PARTIALLY CLOSED / REVISION REQUIRED**) and GPT-6 Luna (**C — BLOCKED / MATERIAL ARCHITECTURAL DEFECT**).
