@@ -1,26 +1,65 @@
-ATLAS DEVELOPMENT HANDOFF CONTEXT — OCTOBER 7, 2026 CURRENT CHECKPOINT
+ATLAS DEVELOPMENT HANDOFF CONTEXT — OCTOBER 7, 2026 APPROVAL AUTHORITY CLOSURE
 
 GLOBAL STATUS
-- Atlas development is intentionally PAUSED for now.
-- No production implementation, corrective coding, key/signature generation, provisioning, PR creation, merge,
-  or Rev46 authorization is permitted from this checkpoint.
-- The current active workstream is Approval Authority Architecture / Rev45-R45-4 closure review.
-- Blender, Unreal, Temporal, and optimization tracks are frozen unless explicitly re-opened under their own gates.
+- The October 7 global development pause is CLOSED.
+- Approval Authority R45-4 is CLEAR following an independent exact-SHA red-team review by GPT Luna 6.
+- Overall Rev45: CLEAR.
+- Rev46: AUTHORIZED.
+- Current closure artifact:
+  rev45_r45_4_blocker_resolution_candidate_r15.txt
+- R15 SHA-256: a315d1f1381e8bf2efba86d7daf87a9c5c5ae5a0a93e2e403f5f3e4ff16a0f9d
+- No production implementation, key/signature generation, provisioning, PR creation, or merge was performed
+  during the closure pass.
+- Blender, Unreal, Temporal, and optimization tracks may now be revalidated for resumption under their own
+  gates; they are not implicitly authorized merely by Rev46 authorization.
 
 REPOSITORY
 - Repository: cantidokun/Atlas
 - Branch: feat/blender-scene-profile-compliance-evidence-v1
-- Latest recorded working-tree checkpoint: HEAD ea51be50787544f801cf679362f1e5ed75427022
-- Reported state: 20 status entries, empty tracked/staged diff, no repository modification during the Approval Authority review.
+- The Approval Authority closure changed documentation only. Production implementation files were not modified
+  by the review/closure work.
+- Previously recorded implementation-tree checkpoint:
+  HEAD ea51be50787544f801cf679362f1e5ed75427022
+- Subsequent branch movement in the review/closure period has consisted of documentation-only commits.
 
-APPROVAL AUTHORITY — CURRENT REVIEW STATE
-- Overall Rev45: NOT CLEAR.
-- R45-4: NOT YET CLEARED — AWAITING INDEPENDENT REVIEW.
-- Rev46: NOT AUTHORIZED.
-- Current author-side artifact:
-  rev45_r45_4_blocker_resolution_candidate_r11.txt
-- Exact R11 SHA-256:
-  9b52bffe1e30ffdd0ddcb94649917cb62af66c94a9fb3f81efc8d8caf1776c3f
+APPROVAL AUTHORITY — FINAL REVIEW STATE
+- R45-4: CLEAR.
+- Independent reviewer: GPT Luna 6.
+- Overall Rev45: CLEAR.
+- Rev46: AUTHORIZED.
+- R15 exact SHA-256: a315d1f1381e8bf2efba86d7daf87a9c5c5ae5a0a93e2e403f5f3e4ff16a0f9d
+- Final independently reviewed semantics:
+  - MATCHING = P1 AND P2.
+  - APPLICABLE = MATCHING AND ACTIVE.
+  - SELECT_KEY resolves candidate cardinality before selected-key predicates.
+  - matching non-ACTIVE entries return KEY_NOT_ACTIVE_AT_EPOCH before class checks.
+  - multiple ACTIVE applicable candidates return AMBIGUOUS_KEY_SELECTION before selected-key checks.
+  - F7/F5/F3/F4 and Genesis/I8/EPOCH boundaries remain coherent.
+
+RESUME STATE
+- The Approval Authority architecture review loop for Rev45-R45-4 is CLOSED.
+- Development may resume under Rev46.
+- Rev46 authorization is not a blanket implementation or merge approval. Each concrete milestone retains its own
+  design, deterministic validation, live-boundary, CI, and independent-review gates.
+- Before resuming a previously paused track, revalidate its current handoff and branch/PR state. Do not rely on
+  the September or October 7 pre-closure checkpoint as current implementation authorization.
+
+AUTHOR-SIDE CLOSURE HISTORY
+- R7 corrected F1/F2 documentation/register issues.
+- R8 corrected F3: matching registry entries are distinguished from matching-but-non-ACTIVE key status.
+- R9 corrected F4: a pin cannot manufacture historical registry key state; matching requires both pin match and
+  historical registry existence.
+- R10 corrected F5: SELECT_KEY owns key-state refusal semantics while INVALID_AUTH remains available for the
+  appropriate object/authentication validity stages.
+- R11 corrected F6: the reachability model distinguishes pre-selector S6 failures from S9 selector failures and
+  post-selection S10/S12 validation; P.6 verdict citations were regenerated after stale references were found.
+- R12 corrected F7: duplicate principal_id remains post-selector at S10, and object authority_class mismatch is
+  distinct from selected-key key_class mismatch.
+- R13 made the REVOKED/non-ACTIVE key-state result occur before selected-key class validation.
+- R14 moved uniqueness before selected-key predicates.
+- R15 separated MATCHING from APPLICABLE so historical match existence, ACTIVE state, cardinality, and selection
+  are deterministic and non-conflicting.
+- R15 was independently reviewed by GPT Luna 6 and returned CLEAR.
 
 AUTHOR-SIDE CLOSURE HISTORY
 - R7 corrected F1/F2 documentation/register issues after the earlier H.8/PREPARE closure work.

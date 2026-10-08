@@ -4,28 +4,25 @@
 
 ## Current development status — October 7, 2026
 
-**Development is intentionally paused for now.** This checkpoint supersedes the older September active-
-development wording below.
+**Approval Authority R45-4 is CLEAR.**
 
-The current active workstream is the **Approval Authority Architecture / Rev45-R45-4 closure review**.
-The latest author-side closure artifact is:
+The latest author-side closure artifact was R15:
 
-- `rev45_r45_4_blocker_resolution_candidate_r11.txt`
-- SHA-256: `9b52bffe1e30ffdd0ddcb94649917cb62af66c94a9fb3f81efc8d8caf1776c3f`
-- R45-4: **NOT YET CLEARED — AWAITING INDEPENDENT REVIEW**
-- Overall Rev45: **NOT CLEAR**
-- Rev46: **NOT AUTHORIZED**
+- `rev45_r45_4_blocker_resolution_candidate_r15.txt`
+- SHA-256: `a315d1f1381e8bf2efba86d7daf87a9c5c5ae5a0a93e2e403f5f3e4ff16a0f9d`
+- Independent reviewer: **GPT Luna 6**
+- R45-4: **CLEAR**
+- Overall Rev45: **CLEAR**
+- Rev46: **AUTHORIZED**
 
-The R11 author-side correction reconciles the latest F6 stage/reachability issue and regenerates the
-self-measured verdict citations. This does not constitute independent clearance. The next gate is a
-genuinely separate-process red-team review of the exact R11 artifact.
+The independent review confirmed closure of the R13 and R14 selector-sequencing blockers and preservation of the established F7/F5/F3/F4, Genesis/I8/EPOCH, H.8/PREPARE, PREIMAGE_E, and frozen-vector boundaries.
 
-No production implementation, key/signature generation, provisioning, PR creation, or merge is authorized
-from this checkpoint. Blender, Unreal, Temporal, and optimization tracks remain frozen until explicitly
-re-opened under their own gates.
+The October 7 global development pause is closed. This closure was documentation-only; no production implementation, key/signature generation, provisioning, PR creation, or merge was performed as part of the review closure.
+
+Development may resume under Rev46. Rev46 authorization does not automatically authorize a particular implementation or merge; concrete work remains subject to its own design, validation, live-boundary, CI, and independent-review gates.
 
 Authoritative restart surface:
-`ATLAS_HANDOFF_CURRENT.md` plus `ATLAS_HANDOFF_2026-10-07_APPROVAL_AUTHORITY_PAUSE.md`.
+`ATLAS_HANDOFF_CURRENT.md` plus `ATLAS_HANDOFF_2026-10-07_APPROVAL_AUTHORITY_CLOSED.md`.
 
 
 

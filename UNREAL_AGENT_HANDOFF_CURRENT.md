@@ -6,14 +6,17 @@
 >
 > Historical dated Unreal status text below is retained for provenance.
 
-> **Global development pause — October 7, 2026.**
+> **Global Approval Authority closure — October 7, 2026.**
 >
-> No Unreal implementation work is authorized during the current Atlas development pause. The active
-> review surface is Approval Authority R45-4, not an Unreal milestone. M12.5 and all other deferred
-> Unreal work remain deferred. Preserve the existing Unreal authority, evidence, recovery, and
-> fail-closed boundaries and do not infer new implementation authorization from any older section
-> below. Revalidate this handoff against `ATLAS_HANDOFF_CURRENT.md` before resuming Unreal work.
+> The October 7 global Atlas development pause is closed following independent GPT Luna 6 CLEAR of Approval Authority R45-4 on R15 (a315d1f1381e8bf2efba86d7daf87a9c5c5ae5a0a93e2e403f5f3e4ff16a0f9d).
+>
+> **Overall Rev45: CLEAR. Rev46: AUTHORIZED.**
+>
+> Unreal work may now be reconsidered under its own milestone gates. This does **not** automatically authorize any specific Unreal implementation, PR, or merge. M12.5 remains deferred unless separately re-opened, and the existing Unreal authority, evidence, recovery, and fail-closed boundaries remain in force.
 
+
+
+## Current development focus
 
 
 ## Current development focus

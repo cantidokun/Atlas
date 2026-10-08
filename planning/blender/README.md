@@ -7,13 +7,14 @@
 > implemented and merged. Blender correction waves through Wave 14 are either live-validated and
 > merged or explicitly retained as deterministic-only capabilities awaiting a dedicated live
 > boundary milestone.
-> **Global development pause — October 7, 2026.**
+> **Approval Authority closure — October 7, 2026.**
 >
-> The Blender track is frozen during the current Atlas development pause. Blender Extraction Fidelity v1
-> remains frozen; Temporal Observation + State Delta v1 remains implemented/merged; completed correction
-> waves remain closed. No new Wave 16 or other Blender implementation is authorized during this pause.
-> The next Blender step remains a separately gated discovery/design decision only after development is
-> resumed.
+> The October 7 global development pause is closed following independent GPT Luna 6 CLEAR of R45-4 on R15 (a315d1f1381e8bf2efba86d7daf87a9c5c5ae5a0a93e2e403f5f3e4ff16a0f9d).
+> Overall Rev45 is CLEAR and Rev46 is AUTHORIZED.
+>
+> The Blender track remains independently gated: Extraction Fidelity v1 remains frozen, completed correction
+> waves remain closed, and there is still no implementation-authorized Wave 16 correction family at this checkpoint.
+> The next Blender step remains a separately gated discovery/design decision under Rev46.
 
 
 ## Architectural position

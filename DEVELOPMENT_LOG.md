@@ -1,4 +1,18 @@
-## 2026-10-07 — Development pause / Approval Authority R45-4 red-team gate
+## 2026-10-07 — Approval Authority Rev45-4 closure
+
+- Closed the October 7 global development pause after a fresh independent exact-SHA red-team review by **GPT Luna 6** returned **CLEAR** for R15.
+- Final reviewed artifact: `rev45_r45_4_blocker_resolution_candidate_r15.txt`; SHA-256:
+  `a315d1f1381e8bf2efba86d7daf87a9c5c5ae5a0a93e2e403f5f3e4ff16a0f9d`.
+- Independent review confirmed the R13/R14 blockers are closed and that SELECT_KEY deterministically separates
+  MATCHING, APPLICABLE/ACTIVE state, candidate cardinality, unique selection, and selected-key predicates.
+- F7/F5/F3/F4 and Genesis/I8/EPOCH semantics remain coherent; 11/11 frozen values and established PREPARE/PREIMAGE_E
+  byte/digest checks remain intact.
+- **R45-4: CLEAR. Overall Rev45: CLEAR. Rev46: AUTHORIZED.**
+- This closure was documentation-only. No production implementation, keys, signatures, provisioning, PR, or merge was performed.
+- Development may resume under Rev46, with each concrete milestone retaining its own design, deterministic validation,
+  live-boundary, CI, and independent-review gates.
+
+## 2026-10-07 — Development pause / Approval Authority R45-4 red-team gate (superseded)
 
 - Paused Atlas development intentionally after the author-side **F6 correction** in Approval Authority R45-4.
 - R11 artifact: `rev45_r45_4_blocker_resolution_candidate_r11.txt`; SHA-256
