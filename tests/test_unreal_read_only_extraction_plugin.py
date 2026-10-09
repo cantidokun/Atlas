@@ -31,7 +31,9 @@ What is asserted here:
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -47,6 +49,20 @@ from planning import unreal_read_only_extraction as contract
 from tests.test_unreal_state_extraction_readonly_source import (
     FORBIDDEN_ENGINE_PATHS,
     FORBIDDEN_TOKENS,
+)
+# The build-provenance helpers live with the live gate that performs the build; importing them
+# keeps these checks tied to the real decision logic instead of restating it.
+from tests.test_unreal_read_only_extraction_live_gate import (
+    BUILD_EXIT_MARKER,
+    MODULE_PROVENANCE_SCHEMA,
+    _build_failure_reason,
+    _build_result_ok,
+    _build_wrapper_text,
+    _ensure_plugin_junction,
+    _module_provenance_path,
+    _plugin_source_fingerprint,
+    _reuse_decision,
+    _write_module_provenance,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -774,3 +790,205 @@ def test_the_change_touches_no_normative_or_existing_artifact() -> None:
     )
     for path in _branch_changed_files():
         assert not path.startswith(protected), f"protected artifact modified: {path}"
+
+
+# ---------------------------------------------------------------------------
+# Module provenance: current source -> recorded build -> artifact the gate inspects
+# ---------------------------------------------------------------------------
+
+MODULE_NAME = "UnrealEditor-AtlasReadOnlyExtraction.dll"
+
+
+def _fake_build(
+    directory: Path,
+    source_fingerprint: str = "a" * 64,
+    exit_code: int = 0,
+    module_bytes: bytes = b"built module",
+) -> Tuple[Path, Path]:
+    """A disposable module and its provenance record; no toolchain involved."""
+    module = directory / "Binaries" / "Win64" / MODULE_NAME
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_bytes(module_bytes)
+    record = _write_module_provenance(module, source_fingerprint, exit_code)
+    return module, record
+
+
+def test_the_provenance_record_binds_the_artifact_the_build_produced(tmp_path: Path) -> None:
+    module, record = _fake_build(tmp_path, "b" * 64)
+    assert record == _module_provenance_path(module)
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    assert payload["schema"] == MODULE_PROVENANCE_SCHEMA
+    assert payload["source_fingerprint"] == "b" * 64
+    assert payload["module_sha256"] == hashlib.sha256(b"built module").hexdigest()
+    assert payload["module_bytes"] == len(b"built module")
+    assert payload["build_exit_code"] == 0
+
+
+def test_reuse_is_refused_unless_the_record_matches_the_current_source(tmp_path: Path) -> None:
+    fingerprint = "c" * 64
+
+    assert _reuse_decision(tmp_path / "absent" / MODULE_NAME, fingerprint) == (
+        False,
+        "no existing module",
+    )
+
+    module, record = _fake_build(tmp_path / "no-record", fingerprint)
+    record.unlink()
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "record" in reason, reason
+
+    module, record = _fake_build(tmp_path / "unreadable", fingerprint)
+    record.write_text("{ not json", encoding="utf-8")
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "record" in reason, reason
+
+    module, record = _fake_build(tmp_path / "schema", fingerprint)
+    record.write_text(json.dumps({"schema": 99, "build_exit_code": 0, "source_fingerprint": fingerprint}), encoding="utf-8")
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "schema" in reason, reason
+
+    module, record = _fake_build(tmp_path / "failed", fingerprint, exit_code=6)
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "succeed" in reason, reason
+
+    module, record = _fake_build(tmp_path / "drifted", "d" * 64)
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "fingerprint" in reason, reason
+
+    module, record = _fake_build(tmp_path / "replaced", fingerprint)
+    module.write_bytes(b"a different artifact")
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "artifact" in reason, reason
+
+    module, record = _fake_build(tmp_path / "valid", fingerprint)
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert reusable, reason
+
+
+def test_the_source_fingerprint_tracks_source_and_ignores_build_outputs(tmp_path: Path) -> None:
+    plugin = tmp_path / "AtlasReadOnlyExtraction"
+    (plugin / "Source").mkdir(parents=True)
+    (plugin / "Source" / "module.cpp").write_text("// one\n", encoding="utf-8")
+    (plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+    first = _plugin_source_fingerprint(plugin)
+    assert _plugin_source_fingerprint(plugin) == first, "the fingerprint must be deterministic"
+
+    (plugin / "Source" / "module.cpp").write_text("// two\n", encoding="utf-8")
+    changed = _plugin_source_fingerprint(plugin)
+    assert changed != first, "a source edit must change the fingerprint"
+
+    (plugin / "Binaries" / "Win64").mkdir(parents=True)
+    (plugin / "Binaries" / "Win64" / MODULE_NAME).write_bytes(b"build output")
+    (plugin / "Intermediate").mkdir()
+    (plugin / "Intermediate" / "module.obj").write_bytes(b"build output")
+    assert _plugin_source_fingerprint(plugin) == changed, "build outputs are not source"
+
+
+def test_a_build_is_judged_by_its_process_result_not_by_console_text(tmp_path: Path) -> None:
+    module = tmp_path / MODULE_NAME
+    assert not _build_result_ok(0, module), "a missing module is not a successful build"
+    module.write_bytes(b"module")
+    assert not _build_result_ok(6, module), "a failed process is not a successful build"
+    assert _build_result_ok(0, module)
+
+    # A wrapper can mask its own exit code (a batch file returns the exit code of its last
+    # command); the BUILD_EXIT marker it prints is the second, independent failure signal.
+    masked = "text before\nBUILD_EXIT=6\ntext after\n"
+    assert not _build_result_ok(0, module, masked), (
+        "a wrapper that reports a failed build must not be certified by its masked exit code"
+    )
+    assert _build_result_ok(0, module, "BUILD_EXIT=0\n"), "a clean build stays certified"
+    assert _build_failure_reason(0, module, "BUILD_EXIT=6\n") is not None
+    assert _build_failure_reason(6, module, "BUILD_EXIT=6\n") is not None
+    assert _build_failure_reason(0, module, "no marker at all\n") is None
+    assert BUILD_EXIT_MARKER.findall("BUILD_EXIT=13 then BUILD_EXIT=0") == ["13", "0"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the build wrapper is a batch file")
+def test_the_generated_build_wrapper_propagates_the_real_exit_code(tmp_path: Path) -> None:
+    """The wrapper must report the toolchain's exit code, not the exit code of its own echo."""
+    engine = tmp_path / "fake-engine"
+    batch_files = engine / "Engine" / "Build" / "BatchFiles"
+    batch_files.mkdir(parents=True)
+    (batch_files / "Build.bat").write_text(
+        "@echo off\necho the toolchain ran\nexit /b 6\n", encoding="utf-8"
+    )
+    wrapper = tmp_path / "build_plugin.bat"
+    wrapper.write_text(_build_wrapper_text(engine, tmp_path / "AtlasReadOnlyHost.uproject"), encoding="utf-8")
+
+    completed = subprocess.run(
+        ["cmd", "/c", str(wrapper)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    output = (completed.stdout or "") + (completed.stderr or "")
+    assert "BUILD_EXIT=6" in output, output
+    assert completed.returncode == 6, (
+        f"the wrapper masked the failed build: rc={completed.returncode}, output={output!r}"
+    )
+    assert _build_failure_reason(completed.returncode, tmp_path / "absent.dll", output) is not None
+
+    # the stub succeeds -> the wrapper reports success
+    (batch_files / "Build.bat").write_text("@echo off\nrem ok\nexit /b 0\n", encoding="utf-8")
+    completed = subprocess.run(
+        ["cmd", "/c", str(wrapper)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    output = (completed.stdout or "") + (completed.stderr or "")
+    assert "BUILD_EXIT=0" in output, output
+    assert completed.returncode == 0, f"rc={completed.returncode}, output={output!r}"
+
+
+def test_the_success_path_records_provenance_only_after_a_successful_build() -> None:
+    source = LIVE_GATE_PATH.read_text(encoding="utf-8", errors="replace")
+    body = source[source.index("def build_plugin(") : source.index("def _deploy_plugin_binary(")]
+    removed = body.index("for stale in (BUILT_PLUGIN_DLL,")
+    launched = body.index('["cmd", "/c", "build_plugin.bat"]')
+    judged = body.index("_build_failure_reason(completed.returncode, BUILT_PLUGIN_DLL, build_output)")
+    recorded = body.index("_write_module_provenance(BUILT_PLUGIN_DLL")
+    assert removed < launched < judged < recorded, (
+        "a stale module must be removed before the build, the build judged before anything is "
+        "written back, and the provenance record written only for a successful build"
+    )
+    assert "return completed.returncode, tail" in body[judged:recorded], (
+        "a build that fails the judgment must return before any provenance record is written"
+    )
+    assert "reused existing build" in body, "the reuse path must stay distinguishable"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is a Windows reparse point")
+def test_a_stale_plugin_link_is_repointed_and_its_previous_target_is_left_alone(tmp_path: Path) -> None:
+    repository_plugin = tmp_path / "repository" / "AtlasReadOnlyExtraction"
+    repository_plugin.mkdir(parents=True)
+    (repository_plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    sentinel = decoy / "SENTINEL.txt"
+    sentinel.write_text("the previous target must not be touched\n", encoding="utf-8")
+
+    link = tmp_path / "host" / "Plugins" / "AtlasReadOnlyExtraction"
+    link.parent.mkdir(parents=True)
+    created = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(decoy)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(decoy))
+
+    _ensure_plugin_junction(link, repository_plugin)
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert sentinel.read_text(encoding="utf-8") == "the previous target must not be touched\n", (
+        "re-pointing the link must never modify the previous target"
+    )
+
+    _ensure_plugin_junction(link, repository_plugin)
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin)), (
+        "re-pointing an already correct link must be a no-op"
+    )
+
+    os.rmdir(str(link))
+    link.mkdir(parents=True)
+    (link / "stale-copy.txt").write_text("a stale plain copy\n", encoding="utf-8")
+    _ensure_plugin_junction(link, repository_plugin)
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert not (link / "stale-copy.txt").exists()
