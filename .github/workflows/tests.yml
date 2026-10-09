@@ -16,7 +16,12 @@ jobs:
 
     steps:
       - name: Check out repository
+        # Full history: the change-scope check walks the change range's commits (the event's base
+        # and head identities), which a default depth-1 checkout cannot do — it would see a
+        # grafted commit and refuse rather than guess.
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
