@@ -24,10 +24,12 @@ Run:
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -55,7 +57,13 @@ pytestmark = pytest.mark.skipif(
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
-HOST_PROJECT_DIR = LOCALAPPDATA / "Temp" / "atlas_u1_ro_plugin_host"
+#: The host project lives outside the repository, so a run must be able to choose its own
+#: fixture directory instead of sharing one machine-wide path (two checkouts, or the same
+#: checkout run twice, must not silently re-point and rebuild each other's fixture). The
+#: default is unchanged when no override is given.
+HOST_PROJECT_DIR = Path(
+    os.environ.get("ATLAS_U1_RO_PLUGIN_HOST_DIR") or (LOCALAPPDATA / "Temp" / "atlas_u1_ro_plugin_host")
+)
 HOST_PROJECT_NAME = "AtlasReadOnlyHost"
 
 #: Where the host project's build puts the plugin binary. A project-hosted plugin in a
@@ -157,7 +165,201 @@ def _selected_engine() -> Path:
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\r\n")
+    # ``Path.write_text(newline=...)`` is Python 3.10+, and this gate supports the declared 3.9:
+    # on 3.9 the call raises TypeError before anything is written, which took the whole live gate
+    # down at the first host-project file. Open the file explicitly instead.
+    with path.open("w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write(text)
+
+
+# ---------------------------------------------------------------------------
+# Build provenance: which source produced the module the gate inspects
+# ---------------------------------------------------------------------------
+
+#: Build outputs and editor caches inside the plugin directory are products of a build, not
+#: source a developer wrote, and are excluded from the source fingerprint.
+PLUGIN_SOURCE_EXCLUDED_DIRECTORIES = ("Binaries", "Intermediate", "Saved", "DerivedDataCache")
+
+#: Sidecar written next to the built module. It is the only authoritative statement of which
+#: source fingerprint a module was produced from and which artifact the build produced; the
+#: reuse decision trusts nothing else.
+MODULE_PROVENANCE_SCHEMA = 1
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _plugin_source_fingerprint(plugin_dir: Optional[Path] = None) -> str:
+    """Digest over the plugin's source files: "which source would a build read right now".
+
+    Files are visited in sorted relative-path order — directory order cannot change the result
+    — and each contributes its relative path and its own digest. Build outputs and caches under
+    the excluded directories are not source and are not fingerprinted.
+    """
+    root = plugin_dir if plugin_dir is not None else contract.PLUGIN_DIR
+    parts: List[str] = []
+    for candidate in sorted(path for path in root.rglob("*") if path.is_file()):
+        relative = candidate.relative_to(root)
+        if relative.parts and relative.parts[0] in PLUGIN_SOURCE_EXCLUDED_DIRECTORIES:
+            continue
+        parts.append(f"{relative.as_posix()} {_sha256_file(candidate)}")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def _module_provenance_path(module_path: Optional[Path] = None) -> Path:
+    module = module_path if module_path is not None else BUILT_PLUGIN_DLL
+    return module.with_name(module.name + ".provenance.json")
+
+
+def _read_module_provenance(record_path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        payload = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_module_provenance(module_path: Path, source_fingerprint: str, build_exit_code: int) -> Path:
+    """Record which source fingerprint produced the module now on disk, and which artifact it is.
+
+    Written only after a successful build (exit code 0 and the module present). A failed build
+    writes no record, so the next non-forced call rebuilds instead of trusting a leftover.
+    """
+    record_path = _module_provenance_path(module_path)
+    payload = {
+        "schema": MODULE_PROVENANCE_SCHEMA,
+        "source_fingerprint": source_fingerprint,
+        "module_sha256": _sha256_file(module_path),
+        "module_bytes": module_path.stat().st_size,
+        "build_exit_code": build_exit_code,
+    }
+    record_path.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return record_path
+
+
+def _reuse_decision(module_path: Path, source_fingerprint: str) -> Tuple[bool, str]:
+    """Whether an existing module may stand in for a build of the source that is in place now.
+
+    Fail closed. The module is reused only when a provenance record exists, parses, uses the
+    supported schema, was written by a successful build, names the CURRENT source fingerprint and
+    names exactly the artifact that is on disk. Anything else — no record, an unreadable record,
+    a source change since the recorded build, a replaced or truncated artifact — forces a build.
+    """
+    if not module_path.is_file():
+        return False, "no existing module"
+    record = _read_module_provenance(_module_provenance_path(module_path))
+    if record is None:
+        return False, "no readable provenance record"
+    if record.get("schema") != MODULE_PROVENANCE_SCHEMA:
+        return False, "unsupported provenance schema"
+    if record.get("build_exit_code") != 0:
+        return False, "the recorded build did not succeed"
+    if record.get("source_fingerprint") != source_fingerprint:
+        return False, "the source fingerprint changed since the recorded build"
+    if record.get("module_sha256") != _sha256_file(module_path):
+        return False, "the artifact on disk is not the artifact the recorded build produced"
+    return True, "the provenance record matches the current source and artifact"
+
+
+#: The build wrapper prints the toolchain's own exit code as this marker. The wrapper is the
+#: only thing that reports it: a batch file's exit code is its last command's, so a wrapper
+#: without an explicit ``exit /b`` returns 0 even when the build failed.
+BUILD_EXIT_MARKER = re.compile(r"BUILD_EXIT=(-?\d+)")
+
+
+def _build_failure_reason(returncode: int, module_path: Path, build_output: str = "") -> Optional[str]:
+    """Why the build must be treated as failed, or None when it succeeded.
+
+    Three independent signals, any of which is enough to refuse certification: the process exit
+    code (the wrapper now propagates the toolchain's own code), the BUILD_EXIT marker the wrapper
+    prints (a guard for a wrapper that masks its exit code), and the module's presence (a build
+    that failed must not leave a leftover module for the record to bind against). The console text
+    can therefore only ADD evidence of failure, never override the process result, and a non-UTF-8
+    code page cannot hide one.
+    """
+    reported = BUILD_EXIT_MARKER.findall(build_output)
+    if reported and reported[-1] != "0":
+        return f"the wrapper reported BUILD_EXIT={reported[-1]}"
+    if returncode != 0:
+        return f"the build process exited with {returncode}"
+    if not module_path.is_file():
+        return "the build produced no module"
+    return None
+
+
+def _build_result_ok(returncode: int, module_path: Path, build_output: str = "") -> bool:
+    """A build succeeded only when no failure signal was found (see _build_failure_reason)."""
+    return _build_failure_reason(returncode, module_path, build_output) is None
+
+
+#: Windows reparse-point attribute. Read through ``getattr`` because the constant is only
+#: present on Windows builds of :mod:`stat`; the module still has to import on Linux.
+_FILE_ATTRIBUTE_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _is_link_like(path: Path) -> bool:
+    """Whether ``path`` is a symlink, a junction, or another Windows reparse point.
+
+    ``Path.is_junction()`` cannot be used here: it was added in Python 3.12, while this
+    repository's supporting interpreters are 3.9 and 3.11 — on those the call raises
+    ``AttributeError`` instead of returning False, which took the whole live gate down (the
+    missing-link first run included). This is the file-attribute test the newer API wraps: a
+    junction carries ``FILE_ATTRIBUTE_REPARSE_POINT``. A path that does not exist, or a plain
+    directory, is not link-like — the answer is never "no" merely because the interpreter is
+    older.
+    """
+    if os.path.islink(path):
+        return True
+    try:
+        attributes = os.lstat(path).st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _ensure_plugin_junction(plugin_link: Path, target_plugin: Optional[Path] = None) -> None:
+    """Make the host project's plugin folder a junction to this repository's plugin.
+
+    An existing link is reused only when it resolves to the repository's plugin directory. A
+    stale junction (for example one left behind by another checkout) would make the host
+    project's plugin source a different source entirely — which is exactly what the provenance
+    test exists to catch — so it is replaced. A junction is removed with rmdir, which removes
+    only the reparse point and never its target; a stale plain copy is confined to the host
+    project and is replaced outright. The target is a parameter so the behaviour is testable
+    without touching the repository's plugin directory.
+    """
+    plugin_dir = target_plugin if target_plugin is not None else contract.PLUGIN_DIR
+    target = Path(os.path.realpath(plugin_dir))
+    if plugin_link.exists() or _is_link_like(plugin_link):
+        if Path(os.path.realpath(plugin_link)) == target:
+            return
+        if _is_link_like(plugin_link):
+            os.rmdir(str(plugin_link))
+        else:
+            shutil.rmtree(plugin_link)
+    plugin_link.parent.mkdir(parents=True, exist_ok=True)
+    created = subprocess.run(
+        [
+            "cmd",
+            "/c",
+            "mklink",
+            "/J",
+            str(plugin_link),
+            str(plugin_dir),
+        ],
+        capture_output=True,
+        text=True,
+        # mklink's own message is localised and not always UTF-8; the verdict is the return code.
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert created.returncode == 0, f"could not junction the plugin: {created.stdout} {created.stderr}"
 
 
 def ensure_host_project() -> Path:
@@ -226,59 +428,86 @@ def ensure_host_project() -> Path:
     (HOST_PROJECT_DIR / "Content").mkdir(parents=True, exist_ok=True)
 
     plugin_link = HOST_PROJECT_DIR / "Plugins" / "AtlasReadOnlyExtraction"
-    if not plugin_link.exists():
-        plugin_link.parent.mkdir(parents=True, exist_ok=True)
-        created = subprocess.run(
-            [
-                "cmd",
-                "/c",
-                "mklink",
-                "/J",
-                str(plugin_link),
-                str(contract.PLUGIN_DIR),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert created.returncode == 0, f"could not junction the plugin: {created.stdout} {created.stderr}"
+    _ensure_plugin_junction(plugin_link)
 
     build_script = HOST_PROJECT_DIR / "build_plugin.bat"
     uproject_path = HOST_PROJECT_DIR / f"{HOST_PROJECT_NAME}.uproject"
-    _write(
-        build_script,
+    _write(build_script, _build_wrapper_text(engine, uproject_path))
+
+    return HOST_PROJECT_DIR
+
+
+def _build_wrapper_text(engine: Path, uproject_path: Path) -> str:
+    """The batch wrapper that builds the plugin through the bare host project.
+
+    The wrapper must report the toolchain's own exit code twice: as the BUILD_EXIT marker (which
+    survives a localised, non-UTF-8 console) and as the process exit code, via an explicit
+    ``exit /b`` — without it a batch file returns the exit code of its last command, which is the
+    ``echo`` that always succeeds, and a failed build would look like a successful one.
+    """
+    return (
         "@echo off\n"
         "rem Atlas U1 — build the read-only extraction plugin through the bare host project.\n"
         "rem The project path is absolute because Build.bat changes directory to the engine\n"
         "rem batch-files folder.\n"
         f'call "{engine}\\Engine\\Build\\BatchFiles\\Build.bat" '
         f'{HOST_PROJECT_NAME}Editor Win64 Development -project="{uproject_path}" -waitmutex\n'
-        "echo BUILD_EXIT=%ERRORLEVEL%\n",
+        "set ATLAS_BUILD_RESULT=%ERRORLEVEL%\n"
+        "echo BUILD_EXIT=%ATLAS_BUILD_RESULT%\n"
+        "exit /b %ATLAS_BUILD_RESULT%\n"
     )
-
-    return HOST_PROJECT_DIR
 
 
 def build_plugin(force: bool = False) -> Tuple[int, str]:
-    """Build (or reuse) the plugin for the host project; return the exit code and log tail."""
+    """Build the plugin, or reuse a module whose provenance matches the current source.
+
+    Reuse is provenance-verified: an existing module stands in for a build only when its record
+    shows a successful build of the source fingerprint that is in place NOW (see
+    ``_reuse_decision``). A missing, unreadable or mismatching record forces a build, so the
+    module the gate inspects is the artifact of the source the gate is testing.
+    """
     ensure_host_project()
     log_path = HOST_PROJECT_DIR / "build.log"
-    if not force and BUILT_PLUGIN_DLL.is_file():
-        _deploy_plugin_binary()
-        return 0, f"reused existing build: {BUILT_PLUGIN_DLL}"
+    source_fingerprint = _plugin_source_fingerprint()
+    rebuild_reason = "forced"
+    if not force:
+        reusable, reason = _reuse_decision(BUILT_PLUGIN_DLL, source_fingerprint)
+        if reusable:
+            _deploy_plugin_binary()
+            return 0, f"reused existing build ({reason}): {BUILT_PLUGIN_DLL}"
+        rebuild_reason = reason
+
+    # A failed build must not be able to certify a leftover: Unreal Build Tool does not delete a
+    # module whose compilation failed, so the module, its record and the host project's copy are
+    # removed before the build and nothing is written back unless the build actually succeeded.
+    for stale in (BUILT_PLUGIN_DLL, _module_provenance_path(BUILT_PLUGIN_DLL), HOST_PLUGIN_DLL):
+        if stale.is_file():
+            stale.unlink()
 
     completed = subprocess.run(
         ["cmd", "/c", "build_plugin.bat"],
         cwd=str(HOST_PROJECT_DIR),
         capture_output=True,
         text=True,
+        # The build toolchain's console output is not always UTF-8 (localised messages on a
+        # non-UTF-8 code page); a strict decode leaves stdout/stderr None and this function then
+        # crashes instead of recording the build result. The log is recorded with replacement
+        # characters; the build judgment itself is the exit code and the module presence below.
+        encoding="utf-8",
+        errors="replace",
         timeout=1800,
         check=False,
     )
-    log_path.write_text(completed.stdout + completed.stderr, encoding="utf-8", errors="replace")
-    tail = "\n".join((completed.stdout + completed.stderr).splitlines()[-25:])
-    if BUILT_PLUGIN_DLL.is_file():
-        _deploy_plugin_binary()
+    build_output = (completed.stdout or "") + (completed.stderr or "")
+    log_path.write_text(build_output, encoding="utf-8", errors="replace")
+    tail = f"rebuild required: {rebuild_reason}\n" + "\n".join(build_output.splitlines()[-25:])
+    failure = _build_failure_reason(completed.returncode, BUILT_PLUGIN_DLL, build_output)
+    if failure is not None:
+        # Nothing is written back for a failed build (the module was removed above), so the next
+        # non-forced call rebuilds instead of certifying a leftover.
+        return completed.returncode, tail + f"\nbuild judged failed: {failure}"
+    _write_module_provenance(BUILT_PLUGIN_DLL, source_fingerprint, completed.returncode)
+    _deploy_plugin_binary()
     return completed.returncode, tail
 
 
@@ -721,12 +950,41 @@ def test_the_built_plugin_comes_from_the_repository_source(built_plugin: Path) -
     assert built_plugin.is_file(), f"the plugin binary is missing: {built_plugin}"
     link = HOST_PROJECT_DIR / "Plugins" / "AtlasReadOnlyExtraction"
     assert link.exists(), "the host project has no plugin link"
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(contract.PLUGIN_DIR)), (
+        "the host project's plugin link does not resolve to the repository's plugin directory"
+    )
     descriptor = link / "AtlasReadOnlyExtraction.uplugin"
     assert descriptor.read_bytes() == contract.DESCRIPTOR_PATH.read_bytes(), (
         "the host project's plugin source is not the repository's plugin source"
     )
     assert built_plugin.resolve() == (contract.PLUGIN_DIR / "Binaries" / "Win64" / built_plugin.name).resolve(), (
         "the plugin binary was not produced from the repository's plugin directory"
+    )
+
+    # The chain the test claims: current repository source -> recorded build -> inspected
+    # artifact. The build helper refuses to reuse a module whose record does not match the
+    # current source fingerprint or the artifact on disk, so a matching record is what ties the
+    # module the gate just inspected to the source the repository holds now.
+    record = _read_module_provenance(_module_provenance_path(built_plugin))
+    assert record is not None, (
+        "the plugin module carries no provenance record: it cannot be shown to have been built "
+        "from the current repository source"
+    )
+    assert record.get("schema") == MODULE_PROVENANCE_SCHEMA, record
+    assert record.get("build_exit_code") == 0, record
+    current_fingerprint = _plugin_source_fingerprint()
+    assert record.get("source_fingerprint") == current_fingerprint, (
+        "the provenance record names a different source fingerprint than the plugin source in "
+        "the repository now"
+    )
+    module_in_repository = contract.PLUGIN_DIR / "Binaries" / "Win64" / built_plugin.name
+    assert record.get("module_sha256") == _sha256_file(built_plugin), record
+    assert record.get("module_sha256") == _sha256_file(module_in_repository), (
+        "the inspected module and the module in the repository plugin directory differ"
+    )
+    print(
+        f"\n[evidence] module provenance: source fingerprint {current_fingerprint[:16]}..., "
+        f"module sha256 {record['module_sha256'][:16]}..."
     )
 
 

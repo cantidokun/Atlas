@@ -1,0 +1,126 @@
+{
+ "corrections": [
+  {
+   "correction_id": "MESH_WINDING_INCONSISTENT-atlas-target-46cb5c8e",
+   "correction_type": "REPAIR_FACE_WINDING",
+   "dependencies": [],
+   "determinism": "HEURISTIC",
+   "expected_postcondition": {
+    "finding_cleared": "MESH_WINDING_INCONSISTENT",
+    "unrelated_topology_unchanged": true
+   },
+   "finding_code": "MESH_WINDING_INCONSISTENT",
+   "mesh_id": "atlas-target",
+   "object_id": null,
+   "out_of_scope": false,
+   "parameters": {
+    "candidate_faces": [
+     0,
+     1
+    ],
+    "counterpart_faces": [
+     1
+    ],
+    "designated_face_index": null,
+    "mesh_id": "atlas-target",
+    "orientation": "reverse_designated_face_to_shared_edge_opposite",
+    "recorded_edges": [
+     [
+      2,
+      3
+     ]
+    ]
+   },
+   "preconditions": [
+    {
+     "source_report_digest": "269ffcbea6441f9f689ee98ad2a348aef9cc3821b30426fb23b2bf0e1f30f383"
+    },
+    {
+     "finding_code": "MESH_WINDING_INCONSISTENT"
+    },
+    {
+     "affected_entity": {
+      "mesh_id": "atlas-target",
+      "object_id": null
+     }
+    }
+   ],
+   "rationale": "deterministic aggregated winding correction for finding MESH_WINDING_INCONSISTENT (evidence-designated aggregate; one face reversal resolves every recorded edge)",
+   "requires_human_review": true,
+   "reversibility": "partially_reversible",
+   "risk": "FIDELITY_GEOMETRY",
+   "severity": "error"
+  },
+  {
+   "correction_id": "MESH_WINDING_INCONSISTENT-atlas-unrelated-9941b8aa",
+   "correction_type": "REPAIR_FACE_WINDING",
+   "dependencies": [],
+   "determinism": "HEURISTIC",
+   "expected_postcondition": {
+    "finding_cleared": "MESH_WINDING_INCONSISTENT",
+    "unrelated_topology_unchanged": true
+   },
+   "finding_code": "MESH_WINDING_INCONSISTENT",
+   "mesh_id": "atlas-unrelated",
+   "object_id": null,
+   "out_of_scope": false,
+   "parameters": {
+    "candidate_faces": [
+     0,
+     1
+    ],
+    "counterpart_faces": [
+     1
+    ],
+    "designated_face_index": null,
+    "mesh_id": "atlas-unrelated",
+    "orientation": "reverse_designated_face_to_shared_edge_opposite",
+    "recorded_edges": [
+     [
+      2,
+      3
+     ]
+    ]
+   },
+   "preconditions": [
+    {
+     "source_report_digest": "269ffcbea6441f9f689ee98ad2a348aef9cc3821b30426fb23b2bf0e1f30f383"
+    },
+    {
+     "finding_code": "MESH_WINDING_INCONSISTENT"
+    },
+    {
+     "affected_entity": {
+      "mesh_id": "atlas-unrelated",
+      "object_id": null
+     }
+    }
+   ],
+   "rationale": "deterministic aggregated winding correction for finding MESH_WINDING_INCONSISTENT (evidence-designated aggregate; one face reversal resolves every recorded edge)",
+   "requires_human_review": true,
+   "reversibility": "partially_reversible",
+   "risk": "FIDELITY_GEOMETRY",
+   "severity": "error"
+  }
+ ],
+ "dependencies": [],
+ "plan_id": "457574824e1f00ac00eff39d868df551a974b38510b9e77d97cc7ba747d32729",
+ "planner_version": "1",
+ "planning_errors": [],
+ "profile": {
+  "name": "soccer-field",
+  "version": "1"
+ },
+ "source_report_digest": "269ffcbea6441f9f689ee98ad2a348aef9cc3821b30426fb23b2bf0e1f30f383",
+ "source_revision_id": null,
+ "state": "REVIEW_REQUIRED",
+ "summary_metrics": {
+  "deterministic": 0,
+  "heuristic": 2,
+  "planning_errors": 0,
+  "requires_review": 4,
+  "total": 6,
+  "unsafe_to_automate": 0,
+  "unsupported": 0
+ }
+}

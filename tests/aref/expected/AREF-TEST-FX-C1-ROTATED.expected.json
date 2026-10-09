@@ -1,0 +1,46 @@
+{
+  "authorization_fixture": null,
+  "expected": {
+    "child_digest": "b2e6c7426cba0463d4322c6cd0fdbe44bbf68e7742f09c22c7e42af4ef3b1109",
+    "disposition": "POSITIVELY_DEMONSTRATED",
+    "graph_witness": {
+      "material_slots": [],
+      "objects": [
+        {
+          "data_block_name": "atlas-target",
+          "name": "atlas-target",
+          "type": "MESH"
+        }
+      ],
+      "order": [
+        "atlas-target"
+      ],
+      "shared": {
+        "atlas-target": [
+          "atlas-target"
+        ]
+      }
+    },
+    "oc_class": "OC2",
+    "outcomes": {
+      "live": null,
+      "pure": "COMPLETED"
+    },
+    "plan": {
+      "artifact_sha256": "7e8e7027cc56b90e046582432bda4ad486a143770265ab5fccda1e209e664267",
+      "correction_ids": [
+        "MESH_DUPLICATE_FACE-atlas-target-153b72e2"
+      ],
+      "plan_id": "b6b6ca8736443a14ea29d9d9e802b910418bf41cf139da57852179cde23c7c8f",
+      "source_report_digest": "70cd7f8d59fc35a6938528c8b7152b9d76a63f3551c2b721b8897a1953926e04"
+    },
+    "pre_digest": "d5a1e104dc3d51366c527c3e530c439ece0c061fe844e16170c891e2c46bc211"
+  },
+  "observed": {
+    "failure_code": null,
+    "invocations": 1,
+    "oc_class": "OC2",
+    "result": "COMPLETED",
+    "status": "observed"
+  }
+}

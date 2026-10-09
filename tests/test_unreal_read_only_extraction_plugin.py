@@ -31,13 +31,15 @@ What is asserted here:
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import Dict, Sequence, Set, Tuple
+from typing import Dict, Optional, Sequence, Set, Tuple
 
 import pytest
 
@@ -47,6 +49,21 @@ from planning import unreal_read_only_extraction as contract
 from tests.test_unreal_state_extraction_readonly_source import (
     FORBIDDEN_ENGINE_PATHS,
     FORBIDDEN_TOKENS,
+)
+# The build-provenance helpers live with the live gate that performs the build; importing them
+# keeps these checks tied to the real decision logic instead of restating it.
+from tests.test_unreal_read_only_extraction_live_gate import (
+    BUILD_EXIT_MARKER,
+    MODULE_PROVENANCE_SCHEMA,
+    _build_failure_reason,
+    _build_result_ok,
+    _build_wrapper_text,
+    _ensure_plugin_junction,
+    _module_provenance_path,
+    _plugin_source_fingerprint,
+    _reuse_decision,
+    _write,
+    _write_module_provenance,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +146,16 @@ CHANGE_ALLOWED_PREFIXES = (
     "tests/test_unreal_read_only_extraction_plugin.py",
     "tests/test_unreal_read_only_extraction_live_gate.py",
     "docs/UNREAL_READ_ONLY_EXTRACTION_PLUGIN.md",
+)
+
+#: Artifacts the change must never touch (the protected-artifact check's reference set).
+PROTECTED_PREFIXES = (
+    "ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV10.md",
+    "ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md",
+    "planning/m12/expectation.py",
+    "unreal/AtlasUnrealHarness/",
+    "tests/test_unreal_state_extraction_readonly_source.py",
+    "planning/unreal_state_extraction/",
 )
 
 
@@ -666,45 +693,307 @@ def test_live_gate_module_imports_without_kernel32() -> None:
 # The change stays where it belongs
 # ---------------------------------------------------------------------------
 
-def _changed_files() -> Sequence[str]:
-    """Every path this change touches: committed against the merge base, plus the worktree."""
-    touched: List[str] = []
+def _branch_changed_files(repo: Path = REPO_ROOT) -> Sequence[str]:
+    """Every path the change's commit range touches: each commit's own files, plus the worktree.
 
-    merge_base = subprocess.run(
-        ["git", "merge-base", "origin/main", "HEAD"],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if merge_base.returncode == 0:
-        diff = subprocess.run(
-            ["git", "diff", "--name-only", merge_base.stdout.strip(), "HEAD"],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            check=True,
+    The branch-wide reference, used by the protected-artifact check. It is deliberately wider
+    than ``_changed_files`` (no allowlist filter: EVERY commit in the range is examined), but it
+    is the SAME change range, taken from the most authoritative source available — the explicit
+    ``ATLAS_CHANGE_BASE``/``ATLAS_CHANGE_HEAD`` override, the GitHub Actions event payload, then
+    the merge base with the default branch. An earlier version derived the range from
+    ``git merge-base origin/main HEAD`` directly, which on a push to ``main`` is HEAD itself: the
+    diff collapsed to an empty path set and the protected-artifact check passed vacuously while
+    the pushed commit edited a protected path. A range that cannot be established — no override,
+    no event payload, no resolvable default branch, a missing base commit, or a shallow checkout
+    whose boundaries would truncate the walk — is a hard failure, never a vacuous pass.
+
+    Each commit contributes the files it contributes ITSELF (``_commit_own_files``: both sides of
+    a rename, a merge's own resolution only), so a protected path renamed out of its prefix — or
+    an out-of-scope path renamed into the plugin directory — cannot hide its source side.
+    """
+    base, head = _change_identities(repo)
+    if head is None or not _revision_resolves(repo, head):
+        raise AssertionError(
+            f"cannot identify this change's head commit ({head!r}) in this checkout: "
+            "fetch enough history for the change range before checking its scope"
         )
-        touched.extend(line.strip() for line in diff.stdout.splitlines() if line.strip())
+    if base is None:
+        raise AssertionError(
+            "cannot establish the base of this change: no ATLAS_CHANGE_BASE/ATLAS_CHANGE_HEAD, "
+            "no GitHub Actions event payload, and no default branch to compare against"
+        )
+    if not _revision_resolves(repo, base):
+        raise AssertionError(
+            f"this change's base commit ({base}) is not available in this checkout: "
+            "the checkout does not carry the change range (shallow clone?); fetch full history"
+        )
+    if _is_shallow(repo):
+        raise AssertionError(
+            f"this checkout is shallow, so the change range {base}..{head} cannot be walked "
+            "completely (a grafted commit would be listed as an entire tree): fetch full history "
+            "before checking scope (actions/checkout with fetch-depth: 0)"
+        )
 
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all"],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    for line in status.stdout.splitlines():
-        entry = line[3:].strip()
+    touched: List[str] = []
+    listed = _git_in(repo, "log", "--format=%H", f"{base}..{head}")
+    for sha in listed.stdout.split():
+        touched.extend(_commit_own_files(repo, sha))
+    if head != "HEAD":
+        # The change's head identity is not the checkout itself (a locally checked-out synthetic
+        # merge: ``_change_identities`` walked through its second parent). The merge commit's OWN
+        # contribution — a conflict resolution or an "evil merge" edit, content from no single
+        # parent — is part of what this checkout holds, so it is examined too. A clean merge
+        # contributes nothing, so this adds no false positive.
+        touched.extend(_commit_own_files(repo, "HEAD"))
+
+    touched.extend(_worktree_changed_files(repo))
+    return sorted(set(touched))
+
+
+def _worktree_changed_files(repo: Path = REPO_ROOT) -> Sequence[str]:
+    """Uncommitted and untracked paths in this worktree (staged, unstaged and untracked).
+
+    Read through the NUL-separated porcelain form (``-z``). The human-readable form renders a
+    rename as ONE ``old -> new`` field, which (a) hid the source path as soon as only the
+    destination was kept — a protected or out-of-scope file could be staged into the allowlist
+    with the scope rules satisfied — and (b) is ambiguous for a name that itself contains
+    `` -> `` (legal on Linux, where CI runs) and C-quotes/escapes unusual names. With ``-z`` a
+    rename is ``XY <new>`` followed by a second, NUL-separated field holding the ORIGINAL path,
+    verbatim: BOTH sides are retained and neither is guessed.
+    """
+    status = _git_in(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    fields = status.stdout.split("\0")
+    touched: List[str] = []
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
         if not entry:
             continue
-        if " -> " in entry:
-            entry = entry.split(" -> ", 1)[1].strip()
-        if entry.startswith('"') and entry.endswith('"'):
-            entry = entry[1:-1]
-        touched.append(entry)
+        status_code = entry[:2]
+        path = entry[3:]
+        if path:
+            touched.append(path)
+        # A rename/copy record carries its ORIGINAL path as the next NUL-separated field.
+        if "R" in status_code or "C" in status_code:
+            original = fields[index] if index < len(fields) else ""
+            index += 1
+            if original:
+                touched.append(original)
+    return touched
 
+
+#: The base and head of the current change may be supplied explicitly; a local run, or a test of
+#: this machinery, can then name the change it means instead of relying on inference.
+CHANGE_BASE_ENV = "ATLAS_CHANGE_BASE"
+CHANGE_HEAD_ENV = "ATLAS_CHANGE_HEAD"
+
+#: The all-zero object name Git uses for "no such object" (a push event's `before` on a new branch).
+ZERO_OBJECT_NAME = "0" * 40
+
+
+def _git_in(repo: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        # A path in the `-z` walk is emitted verbatim (not quoted, not escaped), so a name outside
+        # the console code page must not kill the reader thread. The scope prefixes are ASCII, so a
+        # replacement character can never move a path into or out of them.
+        encoding="utf-8",
+        errors="replace",
+        check=check,
+    )
+
+
+def _revision_resolves(repo: Path, revision: str) -> bool:
+    return _git_in(repo, "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}", check=False).returncode == 0
+
+
+def _github_event_change_range() -> Optional[Tuple[str, str]]:
+    """The (base, head) identities GitHub Actions reports for this run, when it reports them.
+
+    For a pull request the payload carries the real base and head commits, so the synthetic
+    merge commit GitHub checks out is never used as a change boundary. For a push it carries
+    ``before`` and ``after``: the pushed commits themselves, which is what the repository's
+    landing strategy (individual commits preserved) leaves on the branch.
+    """
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+    if not event_path or not Path(event_path).is_file():
+        return None
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    pull_request = payload.get("pull_request")
+    if isinstance(pull_request, dict):
+        base = str((pull_request.get("base") or {}).get("sha") or "").strip()
+        head = str((pull_request.get("head") or {}).get("sha") or "").strip()
+        if base and head:
+            return base, head
+    before = str(payload.get("before") or "").strip()
+    after = str(payload.get("after") or "").strip()
+    if after and before and before != ZERO_OBJECT_NAME:
+        return before, after
+    return None
+
+
+def _change_identities(repo: Path = REPO_ROOT) -> Tuple[Optional[str], Optional[str]]:
+    """The base and head of the current change, from the most authoritative source available.
+
+    Order: explicit ``ATLAS_CHANGE_BASE``/``ATLAS_CHANGE_HEAD``; the GitHub Actions event payload;
+    then, locally, the merge base with the default branch. ``None`` for the base means no base
+    could be established and the caller must fail closed rather than treat the whole history or a
+    bare tree listing as "this change".
+    """
+    base = os.environ.get(CHANGE_BASE_ENV, "").strip()
+    head = os.environ.get(CHANGE_HEAD_ENV, "").strip()
+    if base or head:
+        if not (base and head):
+            raise AssertionError(
+                "ATLAS_CHANGE_BASE and ATLAS_CHANGE_HEAD must be set together: a half-set "
+                "override would silently fall back to inference, so it is refused"
+            )
+        return base, head
+    from_event = _github_event_change_range()
+    if from_event is not None:
+        return from_event
+    for default_branch in ("origin/main", "main"):
+        if not _revision_resolves(repo, default_branch):
+            continue
+        # A locally checked-out synthetic merge (GitHub's `refs/pull/N/merge` shape) is not the
+        # change's head: its second parent is. Recognise that shape structurally — a merge whose
+        # first parent is the default branch — instead of guessing parent order blindly.
+        head = "HEAD"
+        if _parent_count(repo, "HEAD") >= 2:
+            first_parent = _git_in(repo, "rev-parse", "HEAD^1", check=False).stdout.strip()
+            ancestor = _git_in(repo, "merge-base", "--is-ancestor", first_parent, default_branch, check=False)
+            if first_parent and ancestor.returncode == 0:
+                head = "HEAD^2"
+        merge_base = _git_in(repo, "merge-base", default_branch, head, check=False)
+        if merge_base.returncode == 0 and merge_base.stdout.strip():
+            return merge_base.stdout.strip(), head
+    return None, "HEAD"
+
+
+def _parent_count(repo: Path, revision: str) -> int:
+    """How many parent records this clone holds for a commit (0 for a root or a shallow graft)."""
+    listed = _git_in(repo, "rev-list", "--parents", "-n", "1", revision, check=False)
+    if listed.returncode != 0:
+        return 0
+    return max(len(listed.stdout.split()) - 1, 0)
+
+
+def _is_shallow(repo: Path) -> bool:
+    """Whether this clone has history boundaries (a shallow checkout) that break range walks."""
+    completed = _git_in(repo, "rev-parse", "--is-shallow-repository", check=False)
+    if completed.returncode == 0 and completed.stdout.strip():
+        return completed.stdout.strip() == "true"
+    return (repo / ".git" / "shallow").is_file()
+
+
+def _plugin_change_commits(repo: Path = REPO_ROOT) -> Sequence[str]:
+    """The commits of THIS change that touch an allowlisted path.
+
+    The walk is bounded by the change's own base..head identities, so history outside the change
+    cannot contribute paths — including history on the target branch that once touched the same
+    plugin paths. A base that cannot be established, or a shallow checkout whose boundaries make
+    the walk incomplete (which is how a grafted merge commit once got listed as an entire tree),
+    is a hard failure, never a vacuous pass.
+
+    Selection is by design "commits that touch the allowlist": a change with no plugin work at all
+    (for example a merge that only adds an unrelated file) is not this test's subject and yields
+    an empty selection — only changes that include plugin work are policed here.
+    """
+    base, head = _change_identities(repo)
+    if head is None or not _revision_resolves(repo, head):
+        raise AssertionError(
+            f"cannot identify this change's head commit ({head!r}) in this checkout: "
+            "fetch enough history for the change range before checking its scope"
+        )
+    if base is None:
+        raise AssertionError(
+            "cannot establish the base of this change: no ATLAS_CHANGE_BASE/ATLAS_CHANGE_HEAD, "
+            "no GitHub Actions event payload, and no default branch to compare against"
+        )
+    if not _revision_resolves(repo, base):
+        raise AssertionError(
+            f"this change's base commit ({base}) is not available in this checkout: "
+            "the checkout does not carry the change range (shallow clone?); fetch full history"
+        )
+    if _is_shallow(repo):
+        raise AssertionError(
+            f"this checkout is shallow, so the change range {base}..{head} cannot be walked "
+            "completely (a grafted commit would be listed as an entire tree): fetch full history "
+            "before checking scope (actions/checkout with fetch-depth: 0)"
+        )
+    # --full-history: default history simplification can hide a merge-brought commit whose
+    # allowlisted edit was resolved away in the merge result, which would hide its other paths.
+    listed = _git_in(
+        repo, "log", "--full-history", "--format=%H", f"{base}..{head}", "--", *CHANGE_ALLOWED_PREFIXES
+    )
+    return [line.strip() for line in listed.stdout.splitlines() if line.strip()]
+
+
+def _changed_files(repo: Path = REPO_ROOT) -> Sequence[str]:
+    """Every path this change touches: its range-bounded commits' files, plus the worktree.
+
+    "This change" is the plugin work, identified by the commits inside the change range that
+    touch an allowlisted path (the plugin, its tests or its contract): every file those commits
+    touch must itself be inside the allowlist. Two earlier references were wrong: the merge base
+    against the target branch stopped isolating this change once unrelated work landed beside it
+    on the same branch, and an unbounded `git log -- <paths>` reached back through the whole of
+    history and, in a shallow checkout, selected a grafted merge commit whose listing is an
+    entire tree.
+    """
+    touched: List[str] = []
+
+    for sha in _plugin_change_commits(repo):
+        touched.extend(_commit_own_files(repo, sha))
+
+    touched.extend(_worktree_changed_files(repo))
     return sorted(set(touched))
+
+
+def _commit_own_files(repo: Path, sha: str) -> Sequence[str]:
+    """The files a commit itself contributes, not what it brings from elsewhere.
+
+    A merge's first-parent diff is everything it brings from the other side: on a landing merge
+    that is the whole pull request, and on an "update branch" merge it is the target branch's own
+    work. Those paths belong to the commits that made them — they are already examined there, and
+    they may legitimately include files outside the allowlist — so they are left to those commits.
+    What remains is the merge's own contribution: the paths whose content differs from EVERY
+    parent (the combined-diff notion) — an "evil merge" that writes a file no side commit wrote,
+    or a conflict resolution whose result comes from no single parent — which must still satisfy
+    the scope.
+
+    ``--no-renames``: a rename must show BOTH sides, or a protected file renamed into the plugin
+    directory would hide its source path. ``-m --first-parent``: a merge shows its first-parent
+    diff instead of printing nothing.
+    """
+    show = _git_in(
+        repo, "show", "--name-only", "--format=", "--no-renames", "-m", "--first-parent", sha,
+    )
+    files = {line.strip() for line in show.stdout.splitlines() if line.strip()}
+    parents = _parent_count(repo, sha)
+    if parents >= 2:
+        # A merge's own paths are the ones whose content differs from EVERY parent — the
+        # combined-diff notion. What a clean landing merge or an "update branch" merge brings
+        # equals one parent, so it is excluded and stays attributed to the commits that made it;
+        # a conflict resolution (or an "evil merge" edit) is content from no single parent, so it
+        # is kept and must satisfy the scope. A name-only subtraction would erase the resolution.
+        own: Optional[Set[str]] = None
+        for ordinal in range(1, parents + 1):
+            versus_parent = _git_in(
+                repo, "diff", "--name-only", "--no-renames", sha, f"{sha}^{ordinal}", check=False,
+            )
+            names = {line.strip() for line in versus_parent.stdout.splitlines() if line.strip()}
+            own = names if own is None else (own & names)
+        files = files & (own or set())
+    return sorted(files)
 
 
 def test_the_change_is_limited_to_the_plugin_its_tests_and_its_contract() -> None:
@@ -713,13 +1002,806 @@ def test_the_change_is_limited_to_the_plugin_its_tests_and_its_contract() -> Non
 
 
 def test_the_change_touches_no_normative_or_existing_artifact() -> None:
-    protected = (
-        "ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV10.md",
-        "ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md",
-        "planning/m12/expectation.py",
-        "unreal/AtlasUnrealHarness/",
-        "tests/test_unreal_state_extraction_readonly_source.py",
-        "planning/unreal_state_extraction/",
+    for path in _branch_changed_files():
+        assert not path.startswith(PROTECTED_PREFIXES), f"protected artifact modified: {path}"
+
+
+# ---------------------------------------------------------------------------
+# Module provenance: current source -> recorded build -> artifact the gate inspects
+# ---------------------------------------------------------------------------
+
+MODULE_NAME = "UnrealEditor-AtlasReadOnlyExtraction.dll"
+
+
+def _fake_build(
+    directory: Path,
+    source_fingerprint: str = "a" * 64,
+    exit_code: int = 0,
+    module_bytes: bytes = b"built module",
+) -> Tuple[Path, Path]:
+    """A disposable module and its provenance record; no toolchain involved."""
+    module = directory / "Binaries" / "Win64" / MODULE_NAME
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_bytes(module_bytes)
+    record = _write_module_provenance(module, source_fingerprint, exit_code)
+    return module, record
+
+
+def test_the_provenance_record_binds_the_artifact_the_build_produced(tmp_path: Path) -> None:
+    module, record = _fake_build(tmp_path, "b" * 64)
+    assert record == _module_provenance_path(module)
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    assert payload["schema"] == MODULE_PROVENANCE_SCHEMA
+    assert payload["source_fingerprint"] == "b" * 64
+    assert payload["module_sha256"] == hashlib.sha256(b"built module").hexdigest()
+    assert payload["module_bytes"] == len(b"built module")
+    assert payload["build_exit_code"] == 0
+
+
+def test_reuse_is_refused_unless_the_record_matches_the_current_source(tmp_path: Path) -> None:
+    fingerprint = "c" * 64
+
+    assert _reuse_decision(tmp_path / "absent" / MODULE_NAME, fingerprint) == (
+        False,
+        "no existing module",
     )
-    for path in _changed_files():
-        assert not path.startswith(protected), f"protected artifact modified: {path}"
+
+    module, record = _fake_build(tmp_path / "no-record", fingerprint)
+    record.unlink()
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "record" in reason, reason
+
+    module, record = _fake_build(tmp_path / "unreadable", fingerprint)
+    record.write_text("{ not json", encoding="utf-8")
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "record" in reason, reason
+
+    module, record = _fake_build(tmp_path / "schema", fingerprint)
+    record.write_text(json.dumps({"schema": 99, "build_exit_code": 0, "source_fingerprint": fingerprint}), encoding="utf-8")
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "schema" in reason, reason
+
+    module, record = _fake_build(tmp_path / "failed", fingerprint, exit_code=6)
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "succeed" in reason, reason
+
+    module, record = _fake_build(tmp_path / "drifted", "d" * 64)
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "fingerprint" in reason, reason
+
+    module, record = _fake_build(tmp_path / "replaced", fingerprint)
+    module.write_bytes(b"a different artifact")
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert not reusable and "artifact" in reason, reason
+
+    module, record = _fake_build(tmp_path / "valid", fingerprint)
+    reusable, reason = _reuse_decision(module, fingerprint)
+    assert reusable, reason
+
+
+def test_the_source_fingerprint_tracks_source_and_ignores_build_outputs(tmp_path: Path) -> None:
+    plugin = tmp_path / "AtlasReadOnlyExtraction"
+    (plugin / "Source").mkdir(parents=True)
+    (plugin / "Source" / "module.cpp").write_text("// one\n", encoding="utf-8")
+    (plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+    first = _plugin_source_fingerprint(plugin)
+    assert _plugin_source_fingerprint(plugin) == first, "the fingerprint must be deterministic"
+
+    (plugin / "Source" / "module.cpp").write_text("// two\n", encoding="utf-8")
+    changed = _plugin_source_fingerprint(plugin)
+    assert changed != first, "a source edit must change the fingerprint"
+
+    (plugin / "Binaries" / "Win64").mkdir(parents=True)
+    (plugin / "Binaries" / "Win64" / MODULE_NAME).write_bytes(b"build output")
+    (plugin / "Intermediate").mkdir()
+    (plugin / "Intermediate" / "module.obj").write_bytes(b"build output")
+    assert _plugin_source_fingerprint(plugin) == changed, "build outputs are not source"
+
+
+def test_a_build_is_judged_by_its_process_result_not_by_console_text(tmp_path: Path) -> None:
+    module = tmp_path / MODULE_NAME
+    assert not _build_result_ok(0, module), "a missing module is not a successful build"
+    module.write_bytes(b"module")
+    assert not _build_result_ok(6, module), "a failed process is not a successful build"
+    assert _build_result_ok(0, module)
+
+    # A wrapper can mask its own exit code (a batch file returns the exit code of its last
+    # command); the BUILD_EXIT marker it prints is the second, independent failure signal.
+    masked = "text before\nBUILD_EXIT=6\ntext after\n"
+    assert not _build_result_ok(0, module, masked), (
+        "a wrapper that reports a failed build must not be certified by its masked exit code"
+    )
+    assert _build_result_ok(0, module, "BUILD_EXIT=0\n"), "a clean build stays certified"
+    assert _build_failure_reason(0, module, "BUILD_EXIT=6\n") is not None
+    assert _build_failure_reason(6, module, "BUILD_EXIT=6\n") is not None
+    assert _build_failure_reason(0, module, "no marker at all\n") is None
+    assert BUILD_EXIT_MARKER.findall("BUILD_EXIT=13 then BUILD_EXIT=0") == ["13", "0"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the build wrapper is a batch file")
+def test_the_generated_build_wrapper_propagates_the_real_exit_code(tmp_path: Path) -> None:
+    """The wrapper must report the toolchain's exit code, not the exit code of its own echo."""
+    engine = tmp_path / "fake-engine"
+    batch_files = engine / "Engine" / "Build" / "BatchFiles"
+    batch_files.mkdir(parents=True)
+    (batch_files / "Build.bat").write_text(
+        "@echo off\necho the toolchain ran\nexit /b 6\n", encoding="utf-8"
+    )
+    wrapper = tmp_path / "build_plugin.bat"
+    wrapper.write_text(_build_wrapper_text(engine, tmp_path / "AtlasReadOnlyHost.uproject"), encoding="utf-8")
+
+    completed = subprocess.run(
+        ["cmd", "/c", str(wrapper)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    output = (completed.stdout or "") + (completed.stderr or "")
+    assert "BUILD_EXIT=6" in output, output
+    assert completed.returncode == 6, (
+        f"the wrapper masked the failed build: rc={completed.returncode}, output={output!r}"
+    )
+    assert _build_failure_reason(completed.returncode, tmp_path / "absent.dll", output) is not None
+
+    # the stub succeeds -> the wrapper reports success
+    (batch_files / "Build.bat").write_text("@echo off\nrem ok\nexit /b 0\n", encoding="utf-8")
+    completed = subprocess.run(
+        ["cmd", "/c", str(wrapper)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    output = (completed.stdout or "") + (completed.stderr or "")
+    assert "BUILD_EXIT=0" in output, output
+    assert completed.returncode == 0, f"rc={completed.returncode}, output={output!r}"
+
+
+def test_the_success_path_records_provenance_only_after_a_successful_build() -> None:
+    source = LIVE_GATE_PATH.read_text(encoding="utf-8", errors="replace")
+    body = source[source.index("def build_plugin(") : source.index("def _deploy_plugin_binary(")]
+    removed = body.index("for stale in (BUILT_PLUGIN_DLL,")
+    launched = body.index('["cmd", "/c", "build_plugin.bat"]')
+    judged = body.index("_build_failure_reason(completed.returncode, BUILT_PLUGIN_DLL, build_output)")
+    recorded = body.index("_write_module_provenance(BUILT_PLUGIN_DLL")
+    assert removed < launched < judged < recorded, (
+        "a stale module must be removed before the build, the build judged before anything is "
+        "written back, and the provenance record written only for a successful build"
+    )
+    assert "return completed.returncode, tail" in body[judged:recorded], (
+        "a build that fails the judgment must return before any provenance record is written"
+    )
+    assert "reused existing build" in body, "the reuse path must stay distinguishable"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is a Windows reparse point")
+def test_a_stale_plugin_link_is_repointed_and_its_previous_target_is_left_alone(tmp_path: Path) -> None:
+    repository_plugin = tmp_path / "repository" / "AtlasReadOnlyExtraction"
+    repository_plugin.mkdir(parents=True)
+    (repository_plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    sentinel = decoy / "SENTINEL.txt"
+    sentinel.write_text("the previous target must not be touched\n", encoding="utf-8")
+
+    link = tmp_path / "host" / "Plugins" / "AtlasReadOnlyExtraction"
+    link.parent.mkdir(parents=True)
+    created = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(decoy)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(decoy))
+
+    _ensure_plugin_junction(link, repository_plugin)
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert sentinel.read_text(encoding="utf-8") == "the previous target must not be touched\n", (
+        "re-pointing the link must never modify the previous target"
+    )
+
+    _ensure_plugin_junction(link, repository_plugin)
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin)), (
+        "re-pointing an already correct link must be a no-op"
+    )
+
+    os.rmdir(str(link))
+    link.mkdir(parents=True)
+    (link / "stale-copy.txt").write_text("a stale plain copy\n", encoding="utf-8")
+    _ensure_plugin_junction(link, repository_plugin)
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert not (link / "stale-copy.txt").exists()
+
+
+def test_the_host_project_writer_keeps_crlf_on_every_supported_interpreter(tmp_path: Path) -> None:
+    """The gate's own writer must not use a 3.10-only keyword.
+
+    ``Path.write_text(newline=...)`` raised TypeError on the declared Python 3.9 the moment the
+    live gate tried to write its first host-project file, so the gate could not run there at all.
+    Unlike the junction tests below this one runs on EVERY interpreter, including the Linux 3.9 job.
+    """
+    target = tmp_path / "nested" / "AtlasReadOnlyHost.uproject"
+    _write(target, '{\n\t"FileVersion": 3\n}\n')
+    assert target.read_bytes() == b'{\r\n\t"FileVersion": 3\r\n}\r\n', target.read_bytes()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is a Windows reparse point")
+def test_a_missing_plugin_link_is_created_and_resolves_to_its_target(tmp_path: Path) -> None:
+    """First run: there is no link at all, so it must be created — not crash on the way in.
+
+    ``Path.is_junction`` (used before this fix) does not exist before Python 3.12, so on the
+    supported 3.9/3.11 interpreters the missing-link path raised AttributeError before any
+    junction was made and the whole live gate was unusable there.
+    """
+    repository_plugin = tmp_path / "repository" / "AtlasReadOnlyExtraction"
+    repository_plugin.mkdir(parents=True)
+    (repository_plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+
+    link = tmp_path / "host" / "Plugins" / "AtlasReadOnlyExtraction"
+    assert not link.exists()
+
+    _ensure_plugin_junction(link, repository_plugin)
+
+    assert link.exists() and link.is_dir()
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert (link / "AtlasReadOnlyExtraction.uplugin").is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is a Windows reparse point")
+def test_a_stale_plain_copy_is_replaced_by_the_junction(tmp_path: Path) -> None:
+    """A stale plain directory (not a reparse point) stays in the host project and is replaced."""
+    repository_plugin = tmp_path / "repository" / "AtlasReadOnlyExtraction"
+    repository_plugin.mkdir(parents=True)
+    (repository_plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+
+    link = tmp_path / "host" / "Plugins" / "AtlasReadOnlyExtraction"
+    link.mkdir(parents=True)
+    (link / "stale-copy.txt").write_text("stale\n", encoding="utf-8")
+
+    _ensure_plugin_junction(link, repository_plugin)
+
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert not (link / "stale-copy.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# The change-scope detector: range-bounded, fail-closed, deterministic
+# ---------------------------------------------------------------------------
+
+ALLOWED_SAMPLE = "unreal/plugins/AtlasReadOnlyExtraction/Source/probe.cpp"
+UNRELATED_SAMPLE = "docs/UNRELATED_SCOPE_SAMPLE.md"
+WORKFLOW_SAMPLE = ".github/workflows/blender-correction-bridge-live.yml"
+
+
+def _git_cli(repo: Path, *arguments: str) -> str:
+    completed = subprocess.run(["git", *arguments], cwd=str(repo), capture_output=True, text=True, check=True)
+    return completed.stdout
+
+
+def _scope_repo(tmp_path: Path, name: str = "scope-repo") -> Path:
+    """A disposable repository with a stable identity, so scope behaviour is deterministic."""
+    repo = tmp_path / name
+    repo.mkdir(parents=True, exist_ok=True)
+    # git 2.24 (this workstation) predates `git init -b`, so select the branch explicitly.
+    _git_cli(repo, "init", "-q", ".")
+    _git_cli(repo, "symbolic-ref", "HEAD", "refs/heads/main")
+    _git_cli(repo, "config", "user.email", "scope@example.invalid")
+    _git_cli(repo, "config", "user.name", "Scope Probe")
+    return repo
+
+
+def _scope_commit(repo: Path, message: str, files: Dict[str, str]) -> str:
+    for relative, content in files.items():
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    _git_cli(repo, "add", "-A")
+    _git_cli(repo, "commit", "-q", "-m", message)
+    return _git_cli(repo, "rev-parse", "HEAD").strip()
+
+
+def _pin_change(monkeypatch, base: str, head: str = "HEAD") -> None:
+    monkeypatch.setenv(CHANGE_BASE_ENV, base)
+    monkeypatch.setenv(CHANGE_HEAD_ENV, head)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+
+def _event_payload(monkeypatch, tmp_path: Path, payload: Dict[str, object]) -> Path:
+    path = tmp_path / "event.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(path))
+    monkeypatch.delenv(CHANGE_BASE_ENV, raising=False)
+    monkeypatch.delenv(CHANGE_HEAD_ENV, raising=False)
+    return path
+
+
+def test_a_historical_commit_outside_the_change_range_cannot_contaminate_it(tmp_path, monkeypatch):
+    """The CI failure this check exists for: history before the change must never leak in."""
+    repo = _scope_repo(tmp_path)
+    historical = _scope_commit(
+        repo,
+        "historical: plugin path and a workflow file in one commit",
+        {ALLOWED_SAMPLE: "historical\n", WORKFLOW_SAMPLE: "name: historical\n"},
+    )
+    _scope_commit(repo, "later target work", {"docs/other.md": "unrelated\n"})
+    _scope_commit(repo, "the change", {ALLOWED_SAMPLE: "change\n"})
+    _pin_change(monkeypatch, historical)
+
+    touched = _changed_files(repo)
+    assert WORKFLOW_SAMPLE not in touched, (
+        "a commit that predates this change's base contributed a path: " + repr(touched)
+    )
+    assert set(touched) == {ALLOWED_SAMPLE}
+
+
+def test_a_commit_inside_the_change_range_touching_outside_files_is_flagged(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    base = _scope_commit(repo, "base", {ALLOWED_SAMPLE: "base\n"})
+    _scope_commit(repo, "the change mixes scopes", {ALLOWED_SAMPLE: "change\n", UNRELATED_SAMPLE: "out\n"})
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert UNRELATED_SAMPLE in touched, "a mixed commit inside the range must be visible"
+    assert not all(path.startswith(CHANGE_ALLOWED_PREFIXES) for path in touched), (
+        "the scope assertion must fail for a commit inside the range that touches unrelated files"
+    )
+
+
+def test_a_change_confined_to_the_allowlist_passes(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    base = _scope_commit(repo, "base", {UNRELATED_SAMPLE: "base\n"})
+    _scope_commit(repo, "the change", {ALLOWED_SAMPLE: "change\n"})
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert touched and all(path.startswith(CHANGE_ALLOWED_PREFIXES) for path in touched), touched
+
+
+def test_a_rename_inside_the_range_reports_both_paths(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    old = "unreal/plugins/AtlasReadOnlyExtraction/Source/old_name.cpp"
+    new = "unreal/plugins/AtlasReadOnlyExtraction/Source/new_name.cpp"
+    base = _scope_commit(repo, "base", {old: "content\n"})
+    _git_cli(repo, "mv", old, new)
+    _git_cli(repo, "commit", "-q", "-m", "rename a plugin file")
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert old in touched and new in touched, touched
+
+
+def test_a_merge_inside_the_range_is_read_as_its_first_parent_diff(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    second_allowed = "unreal/plugins/AtlasReadOnlyExtraction/Source/probe_two.cpp"
+    third_allowed = "unreal/plugins/AtlasReadOnlyExtraction/Source/probe_three.cpp"
+    base = _scope_commit(repo, "base", {ALLOWED_SAMPLE: "base\n"})
+    _scope_commit(repo, "the change", {second_allowed: "change\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "side", base)
+    _scope_commit(repo, "side work", {third_allowed: "side\n", UNRELATED_SAMPLE: "side\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert second_allowed in touched and third_allowed in touched, touched
+    assert UNRELATED_SAMPLE in touched, (
+        "a merge that brings an unrelated file onto the branch must be visible: " + repr(touched)
+    )
+
+
+def test_worktree_changes_are_part_of_the_change(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    _scope_commit(repo, "base", {ALLOWED_SAMPLE: "base\n", UNRELATED_SAMPLE: "base\n"})
+    (repo / ALLOWED_SAMPLE).write_text("unstaged\n", encoding="utf-8")
+    (repo / UNRELATED_SAMPLE).write_text("staged\n", encoding="utf-8")
+    _git_cli(repo, "add", UNRELATED_SAMPLE)
+    (repo / "docs" / "untracked.md").write_text("untracked\n", encoding="utf-8")
+    _pin_change(monkeypatch, "HEAD", "HEAD")
+
+    touched = _changed_files(repo)
+    assert set(touched) >= {ALLOWED_SAMPLE, UNRELATED_SAMPLE, "docs/untracked.md"}, touched
+
+
+def test_a_push_event_payload_defines_a_working_range(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    historical = _scope_commit(
+        repo, "historical", {ALLOWED_SAMPLE: "historical\n", WORKFLOW_SAMPLE: "name: historical\n"}
+    )
+    after = _scope_commit(repo, "pushed plugin-only work", {ALLOWED_SAMPLE: "pushed\n"})
+    _event_payload(monkeypatch, tmp_path, {"before": historical, "after": after})
+
+    assert _change_identities(repo) == (historical, after)
+    touched = _changed_files(repo)
+    assert WORKFLOW_SAMPLE not in touched, touched
+    assert set(touched) == {ALLOWED_SAMPLE}
+
+
+def test_a_new_branch_push_without_a_usable_before_fails_closed(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    _scope_commit(repo, "first", {ALLOWED_SAMPLE: "first\n"})
+    _git_cli(repo, "branch", "-m", "feature-without-a-default-branch")
+    _event_payload(monkeypatch, tmp_path, {"before": ZERO_OBJECT_NAME, "after": "f" * 40})
+
+    base, head = _change_identities(repo)
+    assert base is None and head == "HEAD"
+    with pytest.raises(AssertionError, match="cannot establish the base"):
+        _plugin_change_commits(repo)
+
+
+def test_a_pull_request_payload_prefers_the_real_base_and_head(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    base = _scope_commit(repo, "base", {ALLOWED_SAMPLE: "base\n"})
+    head = _scope_commit(repo, "the change", {ALLOWED_SAMPLE: "change\n"})
+    _event_payload(
+        monkeypatch,
+        tmp_path,
+        {"pull_request": {"base": {"sha": base}, "head": {"sha": head}}},
+    )
+    assert _change_identities(repo) == (base, head)
+
+
+def test_a_shallow_checkout_fails_closed_instead_of_listing_a_tree(tmp_path, monkeypatch):
+    """The CI signature: a grafted commit must be refused, never listed as an entire tree."""
+    repo = _scope_repo(tmp_path)
+    head = _scope_commit(repo, "only commit", {ALLOWED_SAMPLE: "content\n", WORKFLOW_SAMPLE: "name: x\n"})
+    shallow = tmp_path / "shallow-clone"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{repo.as_posix()}", str(shallow)],
+        capture_output=True, text=True, check=True,
+    )
+    assert _is_shallow(shallow), "the clone must be shallow for this check"
+
+    # a base the clone does not hold is refused first ...
+    _pin_change(monkeypatch, "0123456789abcdef0123456789abcdef01234567", "HEAD")
+    with pytest.raises(AssertionError, match="not available in this checkout"):
+        _plugin_change_commits(shallow)
+
+    # ... and a walk that a shallow checkout cannot complete is refused as well
+    _pin_change(monkeypatch, head, "HEAD")
+    with pytest.raises(AssertionError, match="shallow"):
+        _plugin_change_commits(shallow)
+
+
+def test_a_locally_checked_out_synthetic_merge_uses_its_second_parent(tmp_path, monkeypatch):
+    """GitHub's `refs/pull/N/merge` shape: the merge is not the change's head, its second parent is."""
+    repo = _scope_repo(tmp_path)
+    base = _scope_commit(repo, "base", {UNRELATED_SAMPLE: "base\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", base)
+    head = _scope_commit(repo, "the change", {ALLOWED_SAMPLE: "change\n"})
+    # the synthetic merge GitHub builds: first parent = the target tip, second parent = the head,
+    # created on its own ref so `main` itself does not move
+    _git_cli(repo, "checkout", "-q", "-b", "synthetic-merge", base)
+    _git_cli(repo, "merge", "-q", "--no-ff", "-m", "synthetic merge", "feature")
+    monkeypatch.delenv(CHANGE_BASE_ENV, raising=False)
+    monkeypatch.delenv(CHANGE_HEAD_ENV, raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    _git_cli(repo, "remote", "add", "origin", f"file://{repo.as_posix()}")
+    _git_cli(repo, "fetch", "-q", "origin", "main:refs/remotes/origin/main")
+
+    inferred_base, inferred_head = _change_identities(repo)
+    assert inferred_base == base, (inferred_base, base)
+    assert inferred_head == "HEAD^2", inferred_head
+    touched = _changed_files(repo)
+    assert set(touched) == {ALLOWED_SAMPLE}, touched
+
+
+def test_a_merge_resolved_away_plugin_edit_still_shows_its_other_paths(tmp_path, monkeypatch):
+    """History simplification must not hide a commit inside the range (M2 in review round 1)."""
+    repo = _scope_repo(tmp_path)
+    base = _scope_commit(repo, "base", {ALLOWED_SAMPLE: "base\n", "docs/far_away.md": "base\n"})
+    _scope_commit(repo, "the change", {ALLOWED_SAMPLE: "change\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "side", base)
+    _scope_commit(repo, "side work", {ALLOWED_SAMPLE: "side\n", UNRELATED_SAMPLE: "side\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    # -X ours: the plugin file is resolved to this side of the merge, so the side commit's
+    # plugin edit is not in the merge result — default simplification would drop it entirely
+    _git_cli(repo, "merge", "-q", "--no-ff", "-X", "ours", "-m", "merge side", "side")
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert UNRELATED_SAMPLE in touched, (
+        "a commit inside the range was hidden by history simplification; its other paths are "
+        "still part of this change: " + repr(touched)
+    )
+    assert not all(path.startswith(CHANGE_ALLOWED_PREFIXES) for path in touched)
+
+
+def test_a_half_set_override_is_refused(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    _scope_commit(repo, "base", {ALLOWED_SAMPLE: "base\n"})
+    monkeypatch.setenv(CHANGE_BASE_ENV, "HEAD")
+    monkeypatch.delenv(CHANGE_HEAD_ENV, raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    with pytest.raises(AssertionError, match="must be set together"):
+        _change_identities(repo)
+    monkeypatch.delenv(CHANGE_BASE_ENV, raising=False)
+    monkeypatch.setenv(CHANGE_HEAD_ENV, "HEAD")
+    with pytest.raises(AssertionError, match="must be set together"):
+        _change_identities(repo)
+
+
+def test_a_landing_merge_commit_does_not_re_flag_what_it_brings(tmp_path, monkeypatch):
+    """F1: a merge-commit landing must not go red for files that have their own commits."""
+    repo = _scope_repo(tmp_path)
+    tip = _scope_commit(repo, "target work", {"docs/other.md": "before\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", tip)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "change\n"})
+    _scope_commit(repo, "a separate, legitimate commit", {WORKFLOW_SAMPLE: "name: ci\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-ff", "-m", "Merge pull request", "feature")
+    _pin_change(monkeypatch, tip)
+
+    touched = _changed_files(repo)
+    assert ALLOWED_SAMPLE in touched, touched
+    assert WORKFLOW_SAMPLE not in touched, (
+        "the landing merge re-flagged a file that its own commit made: " + repr(touched)
+    )
+    assert all(path.startswith(CHANGE_ALLOWED_PREFIXES) for path in touched), touched
+
+
+def test_an_evil_merge_that_writes_its_own_file_is_still_flagged(tmp_path, monkeypatch):
+    """The merge-ownership rule must not become a hole: a merge's own edits still count."""
+    repo = _scope_repo(tmp_path)
+    tip = _scope_commit(repo, "target work", {"docs/other.md": "before\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", tip)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "change\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-commit", "--no-ff", "feature")
+    (repo / UNRELATED_SAMPLE).parent.mkdir(parents=True, exist_ok=True)
+    (repo / UNRELATED_SAMPLE).write_text("written by the merge itself\n", encoding="utf-8")
+    _git_cli(repo, "add", UNRELATED_SAMPLE)
+    _git_cli(repo, "commit", "-q", "-m", "Merge pull request (with an extra edit)")
+    _pin_change(monkeypatch, tip)
+
+    touched = _changed_files(repo)
+    assert UNRELATED_SAMPLE in touched, (
+        "a file written by the merge itself is part of this change: " + repr(touched)
+    )
+
+
+def test_an_update_branch_merge_does_not_import_the_targets_files(tmp_path, monkeypatch):
+    """F2: merging the target into the branch brings the target's work, which is not this change."""
+    repo = _scope_repo(tmp_path)
+    fork_point = _scope_commit(repo, "shared base", {ALLOWED_SAMPLE: "base\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", fork_point)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "change\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    target_tip = _scope_commit(
+        repo, "target work", {ALLOWED_SAMPLE: "base\n", WORKFLOW_SAMPLE: "name: ci\n"}
+    )
+    _git_cli(repo, "checkout", "-q", "feature")
+    _git_cli(repo, "merge", "-q", "--no-ff", "-X", "ours", "-m", "Merge main into feature", "main")
+    # a pull_request event: base = the target tip at event time, head = the branch tip
+    monkeypatch.setenv(CHANGE_BASE_ENV, target_tip)
+    monkeypatch.setenv(CHANGE_HEAD_ENV, "HEAD")
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    touched = _changed_files(repo)
+    assert WORKFLOW_SAMPLE not in touched, (
+        "the target's own file was imported as if this change had touched it: " + repr(touched)
+    )
+    assert all(path.startswith(CHANGE_ALLOWED_PREFIXES) for path in touched), touched
+
+
+def test_a_merge_resolution_is_kept_even_when_the_side_touched_that_path(tmp_path, monkeypatch):
+    """Round-3 M1: a merge's own rewrite must survive even if a side commit touched the path."""
+    repo = _scope_repo(tmp_path)
+    side_path = "docs/p.md"
+    base = _scope_commit(repo, "base", {ALLOWED_SAMPLE: "base\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", base)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "side\n"})
+    _scope_commit(repo, "a docs commit", {side_path: "side\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-commit", "--no-ff", "feature")
+    # the merge keeps the plugin from the side but rewrites the docs path to content from
+    # NEITHER parent — a real merge-time edit, not something a side commit made
+    (repo / side_path).write_text("written by the merge itself\n", encoding="utf-8")
+    _git_cli(repo, "add", side_path)
+    _git_cli(repo, "commit", "-q", "-m", "Merge pull request (resolving docs)")
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert side_path in touched, (
+        "the merge's own rewrite of a path the side also touched was hidden: " + repr(touched)
+    )
+
+# ---------------------------------------------------------------------------
+# Range and rename regressions (review round 2)
+# ---------------------------------------------------------------------------
+
+PROTECTED_SAMPLE = "planning/m12/expectation.py"
+PROTECTED_PREFIX_SAMPLE = "unreal/AtlasUnrealHarness/"
+PLUGIN_DIR_SAMPLE = "unreal/plugins/AtlasReadOnlyExtraction/Source/"
+
+
+def path_allowed(paths: Sequence[str]) -> bool:
+    """The predicate of test_the_change_is_limited_to_the_plugin_its_tests_and_its_contract."""
+    return all(path.startswith(CHANGE_ALLOWED_PREFIXES) for path in paths)
+
+
+def path_untouched_by_protected_rule(paths: Sequence[str]) -> bool:
+    """The predicate of test_the_change_touches_no_normative_or_existing_artifact."""
+    return not any(path.startswith(PROTECTED_PREFIXES) for path in paths)
+
+
+def test_the_branch_wide_check_uses_the_push_range_not_a_collapsed_merge_base(tmp_path, monkeypatch):
+    """A push-to-main checkout has origin/main == HEAD; the check must still see the push.
+
+    The former reference was ``git merge-base origin/main HEAD``, which under that shape IS HEAD:
+    the diff was empty and a pushed commit editing a protected artifact passed the check.
+    """
+    repo = _scope_repo(tmp_path)
+    base = _scope_commit(repo, "base", {ALLOWED_SAMPLE: "p\n"})
+    head = _scope_commit(repo, "the pushed commit edits a protected artifact", {PROTECTED_SAMPLE: "edited\n"})
+    _git_cli(repo, "update-ref", "refs/remotes/origin/main", head)  # the push checkout shape
+    _event_payload(monkeypatch, tmp_path, {"before": base, "after": head})
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert any(path.startswith("planning/m12/") for path in branch), branch
+    assert not path_allowed(branch), branch
+
+
+def test_the_branch_wide_check_keeps_only_the_change_range(tmp_path, monkeypatch):
+    """The target branch's OWN earlier protected edit is not this change and must not be flagged."""
+    repo = _scope_repo(tmp_path)
+    target_tip = _scope_commit(
+        repo, "the target's own work", {ALLOWED_SAMPLE: "base\n", PROTECTED_SAMPLE: "target\n"}
+    )
+    _git_cli(repo, "checkout", "-q", "-b", "feature", target_tip)
+    head = _scope_commit(repo, "the change", {ALLOWED_SAMPLE: "change\n"})
+    _event_payload(
+        monkeypatch, tmp_path, {"pull_request": {"base": {"sha": target_tip}, "head": {"sha": head}}}
+    )
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE not in branch, branch
+    assert ALLOWED_SAMPLE in branch, branch
+
+
+def test_the_branch_wide_check_fails_closed_without_a_change_range(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    _scope_commit(repo, "only commit", {ALLOWED_SAMPLE: "x\n"})
+    _git_cli(repo, "branch", "-m", "feature-without-a-default-branch")
+    monkeypatch.delenv(CHANGE_BASE_ENV, raising=False)
+    monkeypatch.delenv(CHANGE_HEAD_ENV, raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    with pytest.raises(AssertionError, match="cannot establish the base"):
+        _branch_changed_files(repo)
+
+
+def test_the_branch_wide_check_refuses_a_shallow_checkout(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    head = _scope_commit(repo, "only commit", {ALLOWED_SAMPLE: "content\n"})
+    shallow = tmp_path / "shallow-clone"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{repo.as_posix()}", str(shallow)],
+        capture_output=True, text=True, check=True,
+    )
+    assert _is_shallow(shallow), "the clone must be shallow for this check"
+    _pin_change(monkeypatch, head, "HEAD")
+
+    with pytest.raises(AssertionError, match="shallow"):
+        _branch_changed_files(shallow)
+
+
+def test_the_branch_wide_check_flags_a_local_merges_own_edit_without_an_event(tmp_path, monkeypatch):
+    """No event payload: the locally checked-out merge's OWN edit must still be examined.
+
+    ``_change_identities`` walks a locally checked-out merge through its second parent, so the
+    merge commit itself is outside the walked range; its own contribution is added separately.
+    """
+    repo = _scope_repo(tmp_path)
+    tip = _scope_commit(repo, "target work", {"docs/other.md": "before\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", tip)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "change\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-commit", "--no-ff", "feature")
+    (repo / PROTECTED_SAMPLE).parent.mkdir(parents=True, exist_ok=True)
+    (repo / PROTECTED_SAMPLE).write_text("written by the merge itself\n", encoding="utf-8")
+    _git_cli(repo, "add", PROTECTED_SAMPLE)
+    _git_cli(repo, "commit", "-q", "-m", "Merge pull request (editing a protected path)")
+    _git_cli(repo, "update-ref", "refs/remotes/origin/main", tip)  # the default branch is behind
+    monkeypatch.delenv(CHANGE_BASE_ENV, raising=False)
+    monkeypatch.delenv(CHANGE_HEAD_ENV, raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_the_branch_wide_check_flags_a_protected_edit_the_merge_itself_makes(tmp_path, monkeypatch):
+    """A merge's own edit of a protected path is the merge's contribution and must be caught.
+
+    The merge's own files are the combined-diff notion (content from no single parent), so the
+    landing-merge rule that keeps brought-in files attributed to their own commits cannot hide it.
+    """
+    repo = _scope_repo(tmp_path)
+    tip = _scope_commit(repo, "target work", {"docs/other.md": "before\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", tip)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "change\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-commit", "--no-ff", "feature")
+    (repo / PROTECTED_SAMPLE).parent.mkdir(parents=True, exist_ok=True)
+    (repo / PROTECTED_SAMPLE).write_text("written by the merge itself\n", encoding="utf-8")
+    _git_cli(repo, "add", PROTECTED_SAMPLE)
+    _git_cli(repo, "commit", "-q", "-m", "Merge pull request (editing a protected path)")
+    _pin_change(monkeypatch, tip)
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_a_staged_rename_of_a_protected_path_into_the_plugin_is_flagged(tmp_path, monkeypatch):
+    """Both sides of a staged rename are part of the change: the old parser kept the new one only."""
+    repo = _scope_repo(tmp_path)
+    moved = PLUGIN_DIR_SAMPLE + "expectation.py"
+    base = _scope_commit(repo, "base", {PROTECTED_SAMPLE: "normative\n", ALLOWED_SAMPLE: "p\n"})
+    _git_cli(repo, "mv", PROTECTED_SAMPLE, moved)
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert PROTECTED_SAMPLE in touched and moved in touched, touched
+    assert not path_allowed(touched), touched
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_a_staged_rename_of_an_out_of_scope_file_into_the_plugin_is_flagged(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    source = "tests/aref/aref_fixture.py"
+    moved = PLUGIN_DIR_SAMPLE + "aref_fixture.py"
+    base = _scope_commit(repo, "base", {source: "fixture\n", ALLOWED_SAMPLE: "p\n"})
+    _git_cli(repo, "mv", source, moved)
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert source in touched and moved in touched, touched
+    assert not path_allowed(touched), touched
+
+
+def test_a_worktree_move_reports_both_paths_verbatim(tmp_path, monkeypatch):
+    """An unstaged move, with a space in the destination name, is reported unquoted on both sides."""
+    repo = _scope_repo(tmp_path)
+    moved = PLUGIN_DIR_SAMPLE + "expect ation.py"
+    base = _scope_commit(repo, "base", {PROTECTED_SAMPLE: "normative\n", ALLOWED_SAMPLE: "p\n"})
+    (repo / moved).parent.mkdir(parents=True, exist_ok=True)
+    os.replace(repo / PROTECTED_SAMPLE, repo / moved)
+    _pin_change(monkeypatch, base)
+
+    touched = _worktree_changed_files(repo)
+    assert PROTECTED_SAMPLE in touched and moved in touched, touched
+
+
+def test_a_committed_rename_out_of_a_protected_prefix_is_flagged(tmp_path, monkeypatch):
+    """A committed rename out of a protected prefix must show its source side to the guard."""
+    repo = _scope_repo(tmp_path)
+    source = PROTECTED_PREFIX_SAMPLE + "AtlasHarness.cpp"
+    moved = "unreal/AtlasUnrealHarnessRenamed/AtlasHarness.cpp"
+    base = _scope_commit(repo, "base", {source: "harness\n", ALLOWED_SAMPLE: "p\n"})
+    (repo / moved).parent.mkdir(parents=True, exist_ok=True)  # git mv needs the destination dir
+    _git_cli(repo, "mv", source, moved)
+    _git_cli(repo, "commit", "-q", "-m", "rename the protected file out of its prefix")
+    _pin_change(monkeypatch, base)
+
+    branch = _branch_changed_files(repo)
+    assert source in branch and moved in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_a_committed_rename_of_a_protected_path_into_the_plugin_is_flagged(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    moved = PLUGIN_DIR_SAMPLE + "expectation.py"
+    base = _scope_commit(repo, "base", {PROTECTED_SAMPLE: "normative\n", ALLOWED_SAMPLE: "p\n"})
+    _git_cli(repo, "mv", PROTECTED_SAMPLE, moved)
+    _git_cli(repo, "commit", "-q", "-m", "rename the protected file into the plugin")
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert PROTECTED_SAMPLE in touched and moved in touched, touched
+    assert not path_allowed(touched), touched
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch

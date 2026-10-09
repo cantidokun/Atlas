@@ -1,0 +1,65 @@
+{
+ "corrections": [
+  {
+   "correction_id": "MESH_DUPLICATE_FACE-atlas-target-b67ced1f",
+   "correction_type": "REMOVE_DUPLICATE_FACE",
+   "dependencies": [],
+   "determinism": "DETERMINISTIC",
+   "expected_postcondition": {
+    "finding_cleared": "MESH_DUPLICATE_FACE",
+    "unrelated_topology_unchanged": true
+   },
+   "finding_code": "MESH_DUPLICATE_FACE",
+   "mesh_id": "atlas-target",
+   "object_id": null,
+   "out_of_scope": false,
+   "parameters": {
+    "duplicate_relationship": "exact_duplicate",
+    "face_ids": [
+     0,
+     3
+    ],
+    "mesh_id": "atlas-target"
+   },
+   "preconditions": [
+    {
+     "source_report_digest": "eedefa6ed9e79e38d3dd09bab95943c793a4eae595ae60682733fd343d8a498a"
+    },
+    {
+     "finding_code": "MESH_DUPLICATE_FACE"
+    },
+    {
+     "affected_entity": {
+      "mesh_id": "atlas-target",
+      "object_id": null
+     }
+    }
+   ],
+   "rationale": "deterministic correction for finding MESH_DUPLICATE_FACE",
+   "requires_human_review": false,
+   "reversibility": "reversible",
+   "risk": "FIDELITY_SAFE",
+   "severity": "warning"
+  }
+ ],
+ "dependencies": [],
+ "plan_id": "cbe5dd3efd3976af829dc20cedd5410d8d3c106a76ae09277813f971120e7f51",
+ "planner_version": "1",
+ "planning_errors": [],
+ "profile": {
+  "name": "soccer-field",
+  "version": "1"
+ },
+ "source_report_digest": "eedefa6ed9e79e38d3dd09bab95943c793a4eae595ae60682733fd343d8a498a",
+ "source_revision_id": null,
+ "state": "REVIEW_REQUIRED",
+ "summary_metrics": {
+  "deterministic": 2,
+  "heuristic": 0,
+  "planning_errors": 0,
+  "requires_review": 3,
+  "total": 5,
+  "unsafe_to_automate": 0,
+  "unsupported": 0
+ }
+}

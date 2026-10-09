@@ -1,0 +1,55 @@
+{
+  "authorization_fixture": null,
+  "expected": {
+    "child_digest": "418d0f161af661eb83719ac7e780036a75dc4ce2e02e78d964a0e3bf4c4f8cac",
+    "disposition": "POSITIVELY_DEMONSTRATED",
+    "graph_witness": {
+      "material_slots": [],
+      "objects": [
+        {
+          "data_block_name": "atlas-target",
+          "name": "atlas-target",
+          "type": "MESH"
+        },
+        {
+          "data_block_name": "atlas-target",
+          "name": "atlas-unrelated",
+          "type": "MESH"
+        }
+      ],
+      "order": [
+        "atlas-target",
+        "atlas-unrelated"
+      ],
+      "shared": {
+        "atlas-target": [
+          "atlas-target",
+          "atlas-unrelated"
+        ]
+      }
+    },
+    "oc_class": "OC1",
+    "outcomes": {
+      "live": null,
+      "pure": "PLAN_INVALID"
+    },
+    "plan": {
+      "artifact_sha256": "6fc9f6c853d05663477024b627eb1ec1424c7a4a64cdabb89210f5bc74d1ece9",
+      "correction_ids": [
+        "MESH_WINDING_INCONSISTENT-atlas-target-46cb5c8e",
+        "MESH_WINDING_INCONSISTENT-atlas-unrelated-9941b8aa"
+      ],
+      "plan_id": "457574824e1f00ac00eff39d868df551a974b38510b9e77d97cc7ba747d32729",
+      "source_report_digest": "269ffcbea6441f9f689ee98ad2a348aef9cc3821b30426fb23b2bf0e1f30f383"
+    },
+    "pre_digest": "418d0f161af661eb83719ac7e780036a75dc4ce2e02e78d964a0e3bf4c4f8cac"
+  },
+  "observed": {
+    "failure_code": "AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS",
+    "invocations": 0,
+    "note": "ambiguity refusal precedes the authorization gate; no auth fixture",
+    "oc_class": "OC1",
+    "result": "PLAN_INVALID",
+    "status": "observed"
+  }
+}

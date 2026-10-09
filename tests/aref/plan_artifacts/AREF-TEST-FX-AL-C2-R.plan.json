@@ -1,0 +1,62 @@
+{
+ "corrections": [
+  {
+   "correction_id": "MESH_DEGENERATE_FACE-atlas-target-6af409a4",
+   "correction_type": "REMOVE_DEGENERATE_FACE",
+   "dependencies": [],
+   "determinism": "DETERMINISTIC",
+   "expected_postcondition": {
+    "finding_cleared": "MESH_DEGENERATE_FACE",
+    "unrelated_topology_unchanged": true
+   },
+   "finding_code": "MESH_DEGENERATE_FACE",
+   "mesh_id": "atlas-target",
+   "object_id": null,
+   "out_of_scope": false,
+   "parameters": {
+    "face_id": 0,
+    "mesh_id": "atlas-target",
+    "reason": "degenerate_face"
+   },
+   "preconditions": [
+    {
+     "source_report_digest": "70d6bb14b69b489616ab3f2c01df9d23ad4421d0fda0ac87c3fca52fdd017071"
+    },
+    {
+     "finding_code": "MESH_DEGENERATE_FACE"
+    },
+    {
+     "affected_entity": {
+      "mesh_id": "atlas-target",
+      "object_id": null
+     }
+    }
+   ],
+   "rationale": "deterministic correction for finding MESH_DEGENERATE_FACE",
+   "requires_human_review": false,
+   "reversibility": "reversible",
+   "risk": "FIDELITY_SAFE",
+   "severity": "error"
+  }
+ ],
+ "dependencies": [],
+ "plan_id": "5f77bd35b154164f502569d71917b4e8666b054df80f5010de574e9f1b5ed1ac",
+ "planner_version": "1",
+ "planning_errors": [],
+ "profile": {
+  "name": "soccer-field",
+  "version": "1"
+ },
+ "source_report_digest": "70d6bb14b69b489616ab3f2c01df9d23ad4421d0fda0ac87c3fca52fdd017071",
+ "source_revision_id": null,
+ "state": "REVIEW_REQUIRED",
+ "summary_metrics": {
+  "deterministic": 2,
+  "heuristic": 2,
+  "planning_errors": 0,
+  "requires_review": 0,
+  "total": 4,
+  "unsafe_to_automate": 0,
+  "unsupported": 0
+ }
+}
