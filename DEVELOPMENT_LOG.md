@@ -4,8 +4,8 @@
 - Rev46-M1 implementation commit: `90e4d0a862cedb0b79b33b703ba716a327230847` on `feat/rev46-m1-duplicate-occurrence` (parent `1717c0b8f1633abda9bae51cc9b53eea1f7e033b`).
 - Independent implementation review by **Claude Sonnet**: **CLEAR WITH MINOR FINDINGS** — executor-authoritative duplicate selection (`face_ids[1]`), exact integer validation with no coercion, no min/max/search/fallback reconstruction, `expected_face_tuple` from the selected occurrence, `params["mesh_id"]` consistency-only with `corr.mesh_id` authoritative, exact-index mutation, ordered postcondition, harness invocation evidence distinguishing identical `[A,X,A,A]` occurrences, W1/W1b live gates passed, no A-REF implementation, and no authority/persistence/recovery/receipt/Unreal scope leakage.
 - **M1 implementation gate: CLOSED.** Minor findings are non-blocking. The identical-occurrence mutant is a documented R12 limitation, not a blocker.
-- No R13 is authorized or required. A-REF implementation has **NOT** started.
-- **Next gate: A-REF design red-team** — a fresh independent review of the A-REF design artifact is required before any A-REF implementation.
+- No R13 is authorized or required. **A-REF implementation: design gate CLEARED (R4F) — the test-only conformance harness is implemented and independently reviewed.** It drives the existing `CorrectionExecutor` unchanged and adds no production correction authority, no second executor and no expanded correction capability.
+- **A-REF design gate: CLEARED** (R4F). The A-ENUM/A-INJ/A-TDM-PARSE/A-REF/A-MAT/A-TPM-POLICY/A-NV/A-TOKEN/A-PROF/A-H2 prerequisite list belongs to the separate Approval Authority track and is unchanged by this work.
 
 ---
 

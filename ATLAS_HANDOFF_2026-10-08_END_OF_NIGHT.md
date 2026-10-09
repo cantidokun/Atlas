@@ -42,12 +42,12 @@ Minor findings are non-blocking and must not trigger another R12 revision.
 - **M1 implementation gate: CLOSED.**
 - The identical-occurrence mutant (identical `[A,X,A,A]` tuples — the two removal candidates yield the same canonical child) is a documented R12 limitation, not a blocker.
 - **No R13 is authorized or required.**
-- A-REF implementation has **NOT** started.
-- **Next gate: A-REF design red-team** — a fresh independent review of the A-REF design artifact is required before any A-REF implementation.
+- A-REF implementation: design gate CLEARED (R4F) — the test-only conformance harness is implemented and independently reviewed (no production correction authority, no second executor, no expanded correction capability).
+- **A-REF design gate: CLEARED** (R4F, fresh independent review of the frozen design artifact).
 
 ### Resume instructions
 
-Rev46-M1 is complete and committed at `90e4d0a8...`. Do not amend or rebase that commit; do not author another design revision (no R13) unless a genuinely new material contradiction appears. The next task is the A-REF design red-team; no A-REF implementation may begin before that gate clears.
+Rev46-M1 is complete and committed at `90e4d0a8...`. Do not amend or rebase that commit; do not author another design revision (no R13) unless a genuinely new material contradiction appears. The A-REF design gate has since CLEARED (R4F) and its test-only conformance implementation landed; this checkpoint is not a current status statement.
 
 ### Architectural boundary
 

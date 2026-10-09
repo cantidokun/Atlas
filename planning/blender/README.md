@@ -20,9 +20,9 @@
 
 **Documented limitation (non-blocking):** the identical-occurrence mutant (identical `[A,X,A,A]` tuples — the two removal candidates yield the same canonical child) is a documented R12 limitation, not a blocker.
 
-**No R13 is authorized or required.** A-REF implementation has **NOT** started.
+**No R13 is authorized or required.** **A-REF implementation: design gate CLEARED (R4F) — the test-only conformance harness is implemented and independently reviewed.** It drives the existing `CorrectionExecutor` unchanged and adds no production correction authority, no second executor and no expanded correction capability.
 
-**Next gate: A-REF design red-team** — a fresh independent review of the A-REF design artifact is required before any A-REF implementation.
+**A-REF design gate: CLEARED** (R4F, fresh independent review of the frozen design artifact). The work that followed is test-only; the A-ENUM/A-INJ/A-TDM-PARSE/A-REF/A-MAT/A-TPM-POLICY/A-NV/A-TOKEN/A-PROF/A-H2 prerequisite list in this document belongs to the separate Approval Authority track and is unchanged by this work.
 
 
 > **CURRENT BLENDER AGENT PAUSE — September 30, 2026 local / October 1 UTC**
