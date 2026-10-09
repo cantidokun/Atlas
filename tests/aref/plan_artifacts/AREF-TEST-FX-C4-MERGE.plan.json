@@ -1,0 +1,95 @@
+{
+ "corrections": [
+  {
+   "correction_id": "MESH_DUPLICATE_VERTEX-atlas-target-6823aa98",
+   "correction_type": "REPAIR_MERGE_VERTEX",
+   "dependencies": [],
+   "determinism": "REQUIRES_REVIEW",
+   "expected_postcondition": {
+    "finding_cleared": "MESH_DUPLICATE_VERTEX",
+    "unrelated_topology_unchanged": true
+   },
+   "finding_code": "MESH_DUPLICATE_VERTEX",
+   "mesh_id": "atlas-target",
+   "object_id": "atlas-target",
+   "out_of_scope": false,
+   "parameters": {
+    "all_groups_exact": true,
+    "duplicate_groups": [
+     [
+      0,
+      1
+     ],
+     [
+      3,
+      4
+     ]
+    ],
+    "mapping_digest": "c3165f8ee53bc3297641a2a1bf576e3582fc5e597113496fa3b84a5cf184aaa0",
+    "mesh_id": "atlas-target",
+    "old_to_new_mapping": [
+     0,
+     0,
+     1,
+     2,
+     2,
+     3
+    ],
+    "predicted_topology_unchanged": true,
+    "recorded_pairs": [
+     [
+      0,
+      1
+     ],
+     [
+      3,
+      4
+     ]
+    ],
+    "survivor_indices": [
+     0,
+     3
+    ]
+   },
+   "preconditions": [
+    {
+     "source_report_digest": "53330069f0ab2dab9e62a279677b375e9b92a3ae7ab5993ce1296e714a23dd2d"
+    },
+    {
+     "finding_code": "MESH_DUPLICATE_VERTEX"
+    },
+    {
+     "affected_entity": {
+      "mesh_id": "atlas-target",
+      "object_id": "atlas-target"
+     }
+    }
+   ],
+   "rationale": "deterministic merge correction for finding MESH_DUPLICATE_VERTEX (explicit operator request; duplicate groups re-derived from the authoritative vertex table, case classified bitwise, mapping recomputed, predicted post-state checked)",
+   "requires_human_review": true,
+   "reversibility": "partially_reversible",
+   "risk": "FIDELITY_GEOMETRY",
+   "severity": "warning"
+  }
+ ],
+ "dependencies": [],
+ "plan_id": "69dec42ad8542eeff5fbcbe06306a68abfa5a81bbc39bf20d26656b748216d62",
+ "planner_version": "1",
+ "planning_errors": [],
+ "profile": {
+  "name": "soccer-field",
+  "version": "1"
+ },
+ "source_report_digest": "53330069f0ab2dab9e62a279677b375e9b92a3ae7ab5993ce1296e714a23dd2d",
+ "source_revision_id": null,
+ "state": "REVIEW_REQUIRED",
+ "summary_metrics": {
+  "deterministic": 0,
+  "heuristic": 0,
+  "planning_errors": 0,
+  "requires_review": 1,
+  "total": 1,
+  "unsafe_to_automate": 0,
+  "unsupported": 0
+ }
+}

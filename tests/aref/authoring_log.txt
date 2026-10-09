@@ -1,0 +1,73 @@
+
+--- authoring run ---
+AREF-TEST-FX-AL-C1: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-AL-C1-R: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C1-PAIR: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C1-REVERSED: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C1-ROTATED: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C1-TRIPLE-AMB: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C1-TRIPLE-S2: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C1-TRIPLE-S3: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C2-DEGEN: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C3-AUTHREQ: ERROR FixtureError: expected.oc_class: OC1..OC8
+AREF-TEST-FX-C3-POS: {'status': 'AUTH_VARIANT_UNAVAILABLE', 'detail': {'status': 'observed', 'params_mismatch': {'orientation': {'declared': 'OUTWARD', 'plan': None}}, 'auth_variant_errors': ['FixtureError: expected.oc_class: OC1..OC8', 'FixtureError: expected.oc_class: OC1..OC8']}}
+AREF-TEST-FX-C4-AUTHREQ: ERROR FixtureError: expected.plan.correction_ids: planner-derived ids required
+AREF-TEST-FX-MM-C1: ERROR FixtureError: expected.oc_class: OC1..OC8
+
+--- authoring run ---
+AREF-TEST-FX-AL-C1: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-AL-C1-R: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C1-PAIR: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C1-REVERSED: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C1-ROTATED: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C1-TRIPLE-AMB: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C1-TRIPLE-S2: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C1-TRIPLE-S3: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C2-DEGEN: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C3-AUTHREQ: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-C3-POS: {'status': 'AUTH_VARIANT_UNAVAILABLE', 'detail': {'status': 'observed', 'auth_variant_errors': ["AttributeError: 'dict' object has no attribute 'plan_id'", "AttributeError: 'dict' object has no attribute 'plan_id'"]}}
+AREF-TEST-FX-C4-AUTHREQ: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+AREF-TEST-FX-MM-C1: ERROR AttributeError: 'dict' object has no attribute 'plan_id'
+
+--- authoring run ---
+AREF-TEST-FX-AL-C1: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-AL-C1-R: {'status': 'observed', 'result': 'POSTCONDITION_FAILED', 'failure_code': 'POSTCONDITION_FAILED', 'oc_class': 'OC5', 'invocations': 1}
+AREF-TEST-FX-C1-PAIR: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-REVERSED: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-ROTATED: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-TRIPLE-AMB: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-C1-TRIPLE-S2: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-TRIPLE-S3: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C2-DEGEN: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C3-AUTHREQ: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'NO_EXECUTABLE_CORRECTION', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-C3-POS: {'status': 'AUTH_VARIANT_UNAVAILABLE', 'detail': {'status': 'observed'}}
+AREF-TEST-FX-C4-AUTHREQ: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'NO_EXECUTABLE_CORRECTION', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-MM-C1: {'status': 'observed', 'result': 'MUTATION_FAILED', 'failure_code': 'MUTATION_FAILED', 'oc_class': 'OC3', 'invocations': 1}
+
+--- authoring run ---
+AREF-TEST-FX-AL-C1: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-AL-C1-R: {'status': 'observed', 'result': 'POSTCONDITION_FAILED', 'failure_code': 'POSTCONDITION_FAILED', 'oc_class': 'OC5', 'invocations': 1}
+AREF-TEST-FX-C1-PAIR: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-PRECOND: {'status': 'observed', 'result': 'PRECONDITION_FAILED', 'failure_code': 'PRECONDITION_FAILED', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-C1-REVERSED: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-ROTATED: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-TRIPLE-AMB: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-C1-TRIPLE-S2: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C1-TRIPLE-S3: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C2-DEGEN: {'status': 'observed', 'result': 'COMPLETED', 'failure_code': None, 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-C3-AUTHREQ: {'status': 'observed', 'result': 'AUTHORIZATION_REQUIRED', 'failure_code': 'AUTHORIZATION_REQUIRED', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-C3-POS: {'status': 'observed', 'result': 'COMPLETED', 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-MM-C1: {'status': 'observed', 'result': 'MUTATION_FAILED', 'failure_code': 'MUTATION_FAILED', 'oc_class': 'OC3', 'invocations': 1}
+
+--- authoring run ---
+AREF-TEST-FX-C4-MERGE: {'status': 'observed', 'result': 'COMPLETED', 'oc_class': 'OC2', 'invocations': 1}
+AREF-TEST-FX-MM-C2: {'status': 'observed', 'result': 'MUTATION_FAILED', 'failure_code': 'MUTATION_FAILED', 'oc_class': 'OC3', 'invocations': 1}
+AREF-TEST-FX-MM-C3: {'status': 'observed', 'result': 'MUTATION_FAILED', 'oc_class': 'OC3', 'invocations': 1}
+AREF-TEST-FX-MM-C4: {'status': 'observed', 'result': 'MUTATION_FAILED', 'oc_class': 'OC3', 'invocations': 1}
+AREF-TEST-FX-AL-C2: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS', 'oc_class': 'OC1', 'invocations': 0}
+AREF-TEST-FX-AL-C2-R: {'status': 'observed', 'result': 'POSTCONDITION_FAILED', 'failure_code': 'POSTCONDITION_FAILED', 'oc_class': 'OC5', 'invocations': 1}
+AREF-TEST-FX-AL-C3: {'status': 'AUTH_VARIANT_UNAVAILABLE', 'detail': {'status': 'observed'}}
+AREF-TEST-FX-AL-C3-R: {'status': 'observed', 'result': 'POSTCONDITION_FAILED', 'oc_class': 'OC5', 'invocations': 1}
+
+--- authoring run ---
+AREF-TEST-FX-AL-C3: {'status': 'observed', 'result': 'PLAN_INVALID', 'failure_code': 'AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS', 'oc_class': 'OC1', 'invocations': 0, 'note': 'ambiguity refusal precedes the authorization gate; no auth fixture'}

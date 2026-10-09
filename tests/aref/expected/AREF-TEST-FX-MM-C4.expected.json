@@ -1,0 +1,57 @@
+{
+  "authorization_fixture": {
+    "authorization_policy_version": "1",
+    "authorization_version": "1",
+    "authorized_at_utc": "2026-10-08T00:00:00Z",
+    "authorized_by": "AREF-TEST-fixture",
+    "correction_id": "MESH_DUPLICATE_VERTEX-atlas-target-6823aa98",
+    "correction_type": "REPAIR_MERGE_VERTEX",
+    "decision": "APPROVED",
+    "expected_merge_mapping_digest": "c3165f8ee53bc3297641a2a1bf576e3582fc5e597113496fa3b84a5cf184aaa0",
+    "plan_id": "69dec42ad8542eeff5fbcbe06306a68abfa5a81bbc39bf20d26656b748216d62",
+    "scope_note": "AREF-TEST-AREF-TEST-FX-MM-C4",
+    "source_report_digest": "53330069f0ab2dab9e62a279677b375e9b92a3ae7ab5993ce1296e714a23dd2d"
+  },
+  "expected": {
+    "child_digest": "09445bda75b45d20db2acacdb1c18cdceb754374327c6e2fac4667ca7d52df71",
+    "disposition": "POSITIVELY_DEMONSTRATED",
+    "graph_witness": {
+      "material_slots": [],
+      "objects": [
+        {
+          "data_block_name": "atlas-mesh",
+          "name": "atlas-target",
+          "type": "MESH"
+        }
+      ],
+      "order": [
+        "atlas-target"
+      ],
+      "shared": {
+        "atlas-mesh": [
+          "atlas-target"
+        ]
+      }
+    },
+    "oc_class": "OC3",
+    "outcomes": {
+      "live": null,
+      "pure": "MUTATION_FAILED"
+    },
+    "plan": {
+      "artifact_sha256": "c3d0b9d10cd6799cdc3f54317a0c19c8c50c1181176437ed5ef93aa8d5dad803",
+      "correction_ids": [
+        "MESH_DUPLICATE_VERTEX-atlas-target-6823aa98"
+      ],
+      "plan_id": "69dec42ad8542eeff5fbcbe06306a68abfa5a81bbc39bf20d26656b748216d62",
+      "source_report_digest": "53330069f0ab2dab9e62a279677b375e9b92a3ae7ab5993ce1296e714a23dd2d"
+    },
+    "pre_digest": "09445bda75b45d20db2acacdb1c18cdceb754374327c6e2fac4667ca7d52df71"
+  },
+  "observed": {
+    "invocations": 1,
+    "oc_class": "OC3",
+    "result": "MUTATION_FAILED",
+    "status": "observed"
+  }
+}

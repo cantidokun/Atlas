@@ -1,0 +1,64 @@
+{
+  "authorization_fixture": {
+    "authorization_policy_version": "1",
+    "authorization_version": "1",
+    "authorized_at_utc": "2026-10-08T00:00:00Z",
+    "authorized_by": "AREF-TEST-fixture",
+    "correction_id": "MESH_WINDING_INCONSISTENT-atlas-target-46cb5c8e",
+    "correction_type": "REPAIR_FACE_WINDING",
+    "decision": "APPROVED",
+    "designated_face_index": 0,
+    "plan_id": "f19f001aa108f33b2c50cb1dc822dee4bd8544ff0c222f6ae5f665a1b489978c",
+    "scope_note": "AREF-TEST-AREF-TEST-FX-AL-C3-R",
+    "source_report_digest": "269ffcbea6441f9f689ee98ad2a348aef9cc3821b30426fb23b2bf0e1f30f383"
+  },
+  "expected": {
+    "child_digest": "ff4e933a6525ec06ce2e6b1a641c777696d6cb2fb87e4b4d420f3e61e1618baf",
+    "disposition": "POSITIVELY_DEMONSTRATED",
+    "graph_witness": {
+      "material_slots": [],
+      "objects": [
+        {
+          "data_block_name": "atlas-target",
+          "name": "atlas-target",
+          "type": "MESH"
+        },
+        {
+          "data_block_name": "atlas-target",
+          "name": "atlas-unrelated",
+          "type": "MESH"
+        }
+      ],
+      "order": [
+        "atlas-target",
+        "atlas-unrelated"
+      ],
+      "shared": {
+        "atlas-target": [
+          "atlas-target",
+          "atlas-unrelated"
+        ]
+      }
+    },
+    "oc_class": "OC5",
+    "outcomes": {
+      "live": null,
+      "pure": "POSTCONDITION_FAILED"
+    },
+    "plan": {
+      "artifact_sha256": "d985181cdd5680feab9dc94d5230a705ac17b9f910fac5c7253060818e019f83",
+      "correction_ids": [
+        "MESH_WINDING_INCONSISTENT-atlas-target-46cb5c8e"
+      ],
+      "plan_id": "f19f001aa108f33b2c50cb1dc822dee4bd8544ff0c222f6ae5f665a1b489978c",
+      "source_report_digest": "269ffcbea6441f9f689ee98ad2a348aef9cc3821b30426fb23b2bf0e1f30f383"
+    },
+    "pre_digest": "418d0f161af661eb83719ac7e780036a75dc4ce2e02e78d964a0e3bf4c4f8cac"
+  },
+  "observed": {
+    "invocations": 1,
+    "oc_class": "OC5",
+    "result": "POSTCONDITION_FAILED",
+    "status": "observed"
+  }
+}

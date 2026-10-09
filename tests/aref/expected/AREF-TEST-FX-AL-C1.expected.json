@@ -1,0 +1,54 @@
+{
+  "authorization_fixture": null,
+  "expected": {
+    "child_digest": "adb1e48212092e82013b7cb2383f3f04b728776fb57bae32e4fa1af018b2edfc",
+    "disposition": "POSITIVELY_DEMONSTRATED",
+    "graph_witness": {
+      "material_slots": [],
+      "objects": [
+        {
+          "data_block_name": "atlas-target",
+          "name": "atlas-target",
+          "type": "MESH"
+        },
+        {
+          "data_block_name": "atlas-target",
+          "name": "atlas-unrelated",
+          "type": "MESH"
+        }
+      ],
+      "order": [
+        "atlas-target",
+        "atlas-unrelated"
+      ],
+      "shared": {
+        "atlas-target": [
+          "atlas-target",
+          "atlas-unrelated"
+        ]
+      }
+    },
+    "oc_class": "OC1",
+    "outcomes": {
+      "live": null,
+      "pure": "PLAN_INVALID"
+    },
+    "plan": {
+      "artifact_sha256": "74667193a800cb48e9c6d6993296a6f3797f354144a583803ab047bd6667d2c6",
+      "correction_ids": [
+        "MESH_DUPLICATE_FACE-atlas-target-1b434609",
+        "MESH_DUPLICATE_FACE-atlas-unrelated-84fdef43"
+      ],
+      "plan_id": "824e9ed07de3f0aeb7c01365febfdebcaadaa4cc410d6fa434c1066fb617f4e0",
+      "source_report_digest": "4697753aaa0f959a51976ccafe527aa2b8c1f9dd305559a6ddfba3657bbac1ce"
+    },
+    "pre_digest": "adb1e48212092e82013b7cb2383f3f04b728776fb57bae32e4fa1af018b2edfc"
+  },
+  "observed": {
+    "failure_code": "AMBIGUOUS_MULTIPLE_EXECUTABLE_CORRECTIONS",
+    "invocations": 0,
+    "oc_class": "OC1",
+    "result": "PLAN_INVALID",
+    "status": "observed"
+  }
+}
