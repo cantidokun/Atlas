@@ -160,6 +160,41 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\r\n")
 
 
+def _ensure_plugin_junction(plugin_link: Path) -> None:
+    """Make the host project's plugin folder a junction to this repository's plugin.
+
+    An existing link is reused only when it resolves to the repository's plugin directory. A
+    stale junction (for example one left behind by another checkout) would make the host
+    project's plugin source a different source entirely — which is exactly what the provenance
+    test exists to catch — so it is replaced. A junction is removed with rmdir, which removes
+    only the reparse point and never its target; a stale plain copy is confined to the host
+    project and is replaced outright.
+    """
+    target = Path(os.path.realpath(contract.PLUGIN_DIR))
+    if plugin_link.exists() or plugin_link.is_junction():
+        if Path(os.path.realpath(plugin_link)) == target:
+            return
+        if plugin_link.is_junction() or plugin_link.is_symlink():
+            os.rmdir(str(plugin_link))
+        else:
+            shutil.rmtree(plugin_link)
+    plugin_link.parent.mkdir(parents=True, exist_ok=True)
+    created = subprocess.run(
+        [
+            "cmd",
+            "/c",
+            "mklink",
+            "/J",
+            str(plugin_link),
+            str(contract.PLUGIN_DIR),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert created.returncode == 0, f"could not junction the plugin: {created.stdout} {created.stderr}"
+
+
 def ensure_host_project() -> Path:
     """Create the bare host project and junction the repository plugin into it."""
     engine = _selected_engine()
@@ -226,22 +261,7 @@ def ensure_host_project() -> Path:
     (HOST_PROJECT_DIR / "Content").mkdir(parents=True, exist_ok=True)
 
     plugin_link = HOST_PROJECT_DIR / "Plugins" / "AtlasReadOnlyExtraction"
-    if not plugin_link.exists():
-        plugin_link.parent.mkdir(parents=True, exist_ok=True)
-        created = subprocess.run(
-            [
-                "cmd",
-                "/c",
-                "mklink",
-                "/J",
-                str(plugin_link),
-                str(contract.PLUGIN_DIR),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert created.returncode == 0, f"could not junction the plugin: {created.stdout} {created.stderr}"
+    _ensure_plugin_junction(plugin_link)
 
     build_script = HOST_PROJECT_DIR / "build_plugin.bat"
     uproject_path = HOST_PROJECT_DIR / f"{HOST_PROJECT_NAME}.uproject"
@@ -272,11 +292,18 @@ def build_plugin(force: bool = False) -> Tuple[int, str]:
         cwd=str(HOST_PROJECT_DIR),
         capture_output=True,
         text=True,
+        # The build toolchain's console output is not always UTF-8 (localised messages on a
+        # non-UTF-8 code page); a strict decode leaves stdout/stderr None and this function then
+        # crashes instead of recording the build result. The log is recorded with replacement
+        # characters; the build judgment itself is the exit code and the module presence below.
+        encoding="utf-8",
+        errors="replace",
         timeout=1800,
         check=False,
     )
-    log_path.write_text(completed.stdout + completed.stderr, encoding="utf-8", errors="replace")
-    tail = "\n".join((completed.stdout + completed.stderr).splitlines()[-25:])
+    build_output = (completed.stdout or "") + (completed.stderr or "")
+    log_path.write_text(build_output, encoding="utf-8", errors="replace")
+    tail = "\n".join(build_output.splitlines()[-25:])
     if BUILT_PLUGIN_DLL.is_file():
         _deploy_plugin_binary()
     return completed.returncode, tail

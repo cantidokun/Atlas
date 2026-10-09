@@ -666,8 +666,13 @@ def test_live_gate_module_imports_without_kernel32() -> None:
 # The change stays where it belongs
 # ---------------------------------------------------------------------------
 
-def _changed_files() -> Sequence[str]:
-    """Every path this change touches: committed against the merge base, plus the worktree."""
+def _branch_changed_files() -> Sequence[str]:
+    """Every path the branch touches: committed against the merge base, plus the worktree.
+
+    The branch-wide reference, used by the protected-artifact check: it is deliberately wider
+    than ``_changed_files`` so that a commit anywhere on this branch that edits a protected
+    artifact is caught, whether or not it belongs to the plugin change.
+    """
     touched: List[str] = []
 
     merge_base = subprocess.run(
@@ -687,6 +692,12 @@ def _changed_files() -> Sequence[str]:
         )
         touched.extend(line.strip() for line in diff.stdout.splitlines() if line.strip())
 
+    touched.extend(_worktree_changed_files())
+    return sorted(set(touched))
+
+
+def _worktree_changed_files() -> Sequence[str]:
+    """Uncommitted and untracked paths in this worktree."""
     status = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=str(REPO_ROOT),
@@ -694,6 +705,7 @@ def _changed_files() -> Sequence[str]:
         text=True,
         check=True,
     )
+    touched: List[str] = []
     for line in status.stdout.splitlines():
         entry = line[3:].strip()
         if not entry:
@@ -703,7 +715,46 @@ def _changed_files() -> Sequence[str]:
         if entry.startswith('"') and entry.endswith('"'):
             entry = entry[1:-1]
         touched.append(entry)
+    return touched
 
+
+def _plugin_change_commits() -> Sequence[str]:
+    """The commits that carry this change: every commit that touched an allowlisted path."""
+    log = subprocess.run(
+        ["git", "log", "--format=%H", "--", *CHANGE_ALLOWED_PREFIXES],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line.strip() for line in log.stdout.splitlines() if line.strip()]
+
+
+def _changed_files() -> Sequence[str]:
+    """Every path this change touches: the files of this change's own commits, plus the worktree.
+
+    "This change" is the plugin work, identified by the commits that touch an allowlisted path
+    (the plugin, its tests or its contract): every file those commits touch must itself be
+    inside the allowlist. The reference used to be merge-base(origin/main, HEAD)..HEAD, which
+    stopped isolating this change once unrelated work (documentation, later milestones) landed
+    on the same branch — it then flagged paths that are not part of this change at all.
+    """
+    touched: List[str] = []
+
+    for sha in _plugin_change_commits():
+        show = subprocess.run(
+            # --no-renames: a rename must show BOTH sides, or a protected file renamed into the
+            # plugin directory would hide its source path. -m --first-parent: a merge shows its
+            # first-parent diff instead of printing nothing.
+            ["git", "show", "--name-only", "--format=", "--no-renames", "-m", "--first-parent", sha],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        touched.extend(line.strip() for line in show.stdout.splitlines() if line.strip())
+
+    touched.extend(_worktree_changed_files())
     return sorted(set(touched))
 
 
@@ -721,5 +772,5 @@ def test_the_change_touches_no_normative_or_existing_artifact() -> None:
         "tests/test_unreal_state_extraction_readonly_source.py",
         "planning/unreal_state_extraction/",
     )
-    for path in _changed_files():
+    for path in _branch_changed_files():
         assert not path.startswith(protected), f"protected artifact modified: {path}"
