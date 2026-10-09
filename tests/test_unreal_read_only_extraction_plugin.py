@@ -62,6 +62,7 @@ from tests.test_unreal_read_only_extraction_live_gate import (
     _module_provenance_path,
     _plugin_source_fingerprint,
     _reuse_decision,
+    _write,
     _write_module_provenance,
 )
 
@@ -145,6 +146,16 @@ CHANGE_ALLOWED_PREFIXES = (
     "tests/test_unreal_read_only_extraction_plugin.py",
     "tests/test_unreal_read_only_extraction_live_gate.py",
     "docs/UNREAL_READ_ONLY_EXTRACTION_PLUGIN.md",
+)
+
+#: Artifacts the change must never touch (the protected-artifact check's reference set).
+PROTECTED_PREFIXES = (
+    "ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV10.md",
+    "ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md",
+    "planning/m12/expectation.py",
+    "unreal/AtlasUnrealHarness/",
+    "tests/test_unreal_state_extraction_readonly_source.py",
+    "planning/unreal_state_extraction/",
 )
 
 
@@ -682,49 +693,93 @@ def test_live_gate_module_imports_without_kernel32() -> None:
 # The change stays where it belongs
 # ---------------------------------------------------------------------------
 
-def _branch_changed_files() -> Sequence[str]:
-    """Every path the branch touches: committed against the merge base, plus the worktree.
+def _branch_changed_files(repo: Path = REPO_ROOT) -> Sequence[str]:
+    """Every path the change's commit range touches: each commit's own files, plus the worktree.
 
-    The branch-wide reference, used by the protected-artifact check: it is deliberately wider
-    than ``_changed_files`` so that a commit anywhere on this branch that edits a protected
-    artifact is caught, whether or not it belongs to the plugin change.
+    The branch-wide reference, used by the protected-artifact check. It is deliberately wider
+    than ``_changed_files`` (no allowlist filter: EVERY commit in the range is examined), but it
+    is the SAME change range, taken from the most authoritative source available — the explicit
+    ``ATLAS_CHANGE_BASE``/``ATLAS_CHANGE_HEAD`` override, the GitHub Actions event payload, then
+    the merge base with the default branch. An earlier version derived the range from
+    ``git merge-base origin/main HEAD`` directly, which on a push to ``main`` is HEAD itself: the
+    diff collapsed to an empty path set and the protected-artifact check passed vacuously while
+    the pushed commit edited a protected path. A range that cannot be established — no override,
+    no event payload, no resolvable default branch, a missing base commit, or a shallow checkout
+    whose boundaries would truncate the walk — is a hard failure, never a vacuous pass.
+
+    Each commit contributes the files it contributes ITSELF (``_commit_own_files``: both sides of
+    a rename, a merge's own resolution only), so a protected path renamed out of its prefix — or
+    an out-of-scope path renamed into the plugin directory — cannot hide its source side.
     """
-    touched: List[str] = []
-
-    merge_base = subprocess.run(
-        ["git", "merge-base", "origin/main", "HEAD"],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if merge_base.returncode == 0:
-        diff = subprocess.run(
-            ["git", "diff", "--name-only", merge_base.stdout.strip(), "HEAD"],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            check=True,
+    base, head = _change_identities(repo)
+    if head is None or not _revision_resolves(repo, head):
+        raise AssertionError(
+            f"cannot identify this change's head commit ({head!r}) in this checkout: "
+            "fetch enough history for the change range before checking its scope"
         )
-        touched.extend(line.strip() for line in diff.stdout.splitlines() if line.strip())
+    if base is None:
+        raise AssertionError(
+            "cannot establish the base of this change: no ATLAS_CHANGE_BASE/ATLAS_CHANGE_HEAD, "
+            "no GitHub Actions event payload, and no default branch to compare against"
+        )
+    if not _revision_resolves(repo, base):
+        raise AssertionError(
+            f"this change's base commit ({base}) is not available in this checkout: "
+            "the checkout does not carry the change range (shallow clone?); fetch full history"
+        )
+    if _is_shallow(repo):
+        raise AssertionError(
+            f"this checkout is shallow, so the change range {base}..{head} cannot be walked "
+            "completely (a grafted commit would be listed as an entire tree): fetch full history "
+            "before checking scope (actions/checkout with fetch-depth: 0)"
+        )
 
-    touched.extend(_worktree_changed_files())
+    touched: List[str] = []
+    listed = _git_in(repo, "log", "--format=%H", f"{base}..{head}")
+    for sha in listed.stdout.split():
+        touched.extend(_commit_own_files(repo, sha))
+    if head != "HEAD":
+        # The change's head identity is not the checkout itself (a locally checked-out synthetic
+        # merge: ``_change_identities`` walked through its second parent). The merge commit's OWN
+        # contribution — a conflict resolution or an "evil merge" edit, content from no single
+        # parent — is part of what this checkout holds, so it is examined too. A clean merge
+        # contributes nothing, so this adds no false positive.
+        touched.extend(_commit_own_files(repo, "HEAD"))
+
+    touched.extend(_worktree_changed_files(repo))
     return sorted(set(touched))
 
 
 def _worktree_changed_files(repo: Path = REPO_ROOT) -> Sequence[str]:
-    """Uncommitted and untracked paths in this worktree (staged, unstaged and untracked)."""
-    status = _git_in(repo, "status", "--porcelain", "--untracked-files=all")
+    """Uncommitted and untracked paths in this worktree (staged, unstaged and untracked).
+
+    Read through the NUL-separated porcelain form (``-z``). The human-readable form renders a
+    rename as ONE ``old -> new`` field, which (a) hid the source path as soon as only the
+    destination was kept — a protected or out-of-scope file could be staged into the allowlist
+    with the scope rules satisfied — and (b) is ambiguous for a name that itself contains
+    `` -> `` (legal on Linux, where CI runs) and C-quotes/escapes unusual names. With ``-z`` a
+    rename is ``XY <new>`` followed by a second, NUL-separated field holding the ORIGINAL path,
+    verbatim: BOTH sides are retained and neither is guessed.
+    """
+    status = _git_in(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    fields = status.stdout.split("\0")
     touched: List[str] = []
-    for line in status.stdout.splitlines():
-        entry = line[3:].strip()
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
         if not entry:
             continue
-        if " -> " in entry:
-            entry = entry.split(" -> ", 1)[1].strip()
-        if entry.startswith('"') and entry.endswith('"'):
-            entry = entry[1:-1]
-        touched.append(entry)
+        status_code = entry[:2]
+        path = entry[3:]
+        if path:
+            touched.append(path)
+        # A rename/copy record carries its ORIGINAL path as the next NUL-separated field.
+        if "R" in status_code or "C" in status_code:
+            original = fields[index] if index < len(fields) else ""
+            index += 1
+            if original:
+                touched.append(original)
     return touched
 
 
@@ -743,6 +798,11 @@ def _git_in(repo: Path, *arguments: str, check: bool = True) -> subprocess.Compl
         cwd=str(repo),
         capture_output=True,
         text=True,
+        # A path in the `-z` walk is emitted verbatim (not quoted, not escaped), so a name outside
+        # the console code page must not kill the reader thread. The scope prefixes are ASCII, so a
+        # replacement character can never move a path into or out of them.
+        encoding="utf-8",
+        errors="replace",
         check=check,
     )
 
@@ -942,16 +1002,8 @@ def test_the_change_is_limited_to_the_plugin_its_tests_and_its_contract() -> Non
 
 
 def test_the_change_touches_no_normative_or_existing_artifact() -> None:
-    protected = (
-        "ATLAS_M12_6_R2B_NORMATIVE_DESIGN_REV10.md",
-        "ATLAS_M12_6_R1_NORMATIVE_DESIGN_REV25.md",
-        "planning/m12/expectation.py",
-        "unreal/AtlasUnrealHarness/",
-        "tests/test_unreal_state_extraction_readonly_source.py",
-        "planning/unreal_state_extraction/",
-    )
     for path in _branch_changed_files():
-        assert not path.startswith(protected), f"protected artifact modified: {path}"
+        assert not path.startswith(PROTECTED_PREFIXES), f"protected artifact modified: {path}"
 
 
 # ---------------------------------------------------------------------------
@@ -1152,6 +1204,57 @@ def test_a_stale_plugin_link_is_repointed_and_its_previous_target_is_left_alone(
     link.mkdir(parents=True)
     (link / "stale-copy.txt").write_text("a stale plain copy\n", encoding="utf-8")
     _ensure_plugin_junction(link, repository_plugin)
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert not (link / "stale-copy.txt").exists()
+
+
+def test_the_host_project_writer_keeps_crlf_on_every_supported_interpreter(tmp_path: Path) -> None:
+    """The gate's own writer must not use a 3.10-only keyword.
+
+    ``Path.write_text(newline=...)`` raised TypeError on the declared Python 3.9 the moment the
+    live gate tried to write its first host-project file, so the gate could not run there at all.
+    Unlike the junction tests below this one runs on EVERY interpreter, including the Linux 3.9 job.
+    """
+    target = tmp_path / "nested" / "AtlasReadOnlyHost.uproject"
+    _write(target, '{\n\t"FileVersion": 3\n}\n')
+    assert target.read_bytes() == b'{\r\n\t"FileVersion": 3\r\n}\r\n', target.read_bytes()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is a Windows reparse point")
+def test_a_missing_plugin_link_is_created_and_resolves_to_its_target(tmp_path: Path) -> None:
+    """First run: there is no link at all, so it must be created — not crash on the way in.
+
+    ``Path.is_junction`` (used before this fix) does not exist before Python 3.12, so on the
+    supported 3.9/3.11 interpreters the missing-link path raised AttributeError before any
+    junction was made and the whole live gate was unusable there.
+    """
+    repository_plugin = tmp_path / "repository" / "AtlasReadOnlyExtraction"
+    repository_plugin.mkdir(parents=True)
+    (repository_plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+
+    link = tmp_path / "host" / "Plugins" / "AtlasReadOnlyExtraction"
+    assert not link.exists()
+
+    _ensure_plugin_junction(link, repository_plugin)
+
+    assert link.exists() and link.is_dir()
+    assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
+    assert (link / "AtlasReadOnlyExtraction.uplugin").is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is a Windows reparse point")
+def test_a_stale_plain_copy_is_replaced_by_the_junction(tmp_path: Path) -> None:
+    """A stale plain directory (not a reparse point) stays in the host project and is replaced."""
+    repository_plugin = tmp_path / "repository" / "AtlasReadOnlyExtraction"
+    repository_plugin.mkdir(parents=True)
+    (repository_plugin / "AtlasReadOnlyExtraction.uplugin").write_text("{}\n", encoding="utf-8")
+
+    link = tmp_path / "host" / "Plugins" / "AtlasReadOnlyExtraction"
+    link.mkdir(parents=True)
+    (link / "stale-copy.txt").write_text("stale\n", encoding="utf-8")
+
+    _ensure_plugin_junction(link, repository_plugin)
+
     assert Path(os.path.realpath(link)) == Path(os.path.realpath(repository_plugin))
     assert not (link / "stale-copy.txt").exists()
 
@@ -1497,3 +1600,208 @@ def test_a_merge_resolution_is_kept_even_when_the_side_touched_that_path(tmp_pat
     assert side_path in touched, (
         "the merge's own rewrite of a path the side also touched was hidden: " + repr(touched)
     )
+
+# ---------------------------------------------------------------------------
+# Range and rename regressions (review round 2)
+# ---------------------------------------------------------------------------
+
+PROTECTED_SAMPLE = "planning/m12/expectation.py"
+PROTECTED_PREFIX_SAMPLE = "unreal/AtlasUnrealHarness/"
+PLUGIN_DIR_SAMPLE = "unreal/plugins/AtlasReadOnlyExtraction/Source/"
+
+
+def path_allowed(paths: Sequence[str]) -> bool:
+    """The predicate of test_the_change_is_limited_to_the_plugin_its_tests_and_its_contract."""
+    return all(path.startswith(CHANGE_ALLOWED_PREFIXES) for path in paths)
+
+
+def path_untouched_by_protected_rule(paths: Sequence[str]) -> bool:
+    """The predicate of test_the_change_touches_no_normative_or_existing_artifact."""
+    return not any(path.startswith(PROTECTED_PREFIXES) for path in paths)
+
+
+def test_the_branch_wide_check_uses_the_push_range_not_a_collapsed_merge_base(tmp_path, monkeypatch):
+    """A push-to-main checkout has origin/main == HEAD; the check must still see the push.
+
+    The former reference was ``git merge-base origin/main HEAD``, which under that shape IS HEAD:
+    the diff was empty and a pushed commit editing a protected artifact passed the check.
+    """
+    repo = _scope_repo(tmp_path)
+    base = _scope_commit(repo, "base", {ALLOWED_SAMPLE: "p\n"})
+    head = _scope_commit(repo, "the pushed commit edits a protected artifact", {PROTECTED_SAMPLE: "edited\n"})
+    _git_cli(repo, "update-ref", "refs/remotes/origin/main", head)  # the push checkout shape
+    _event_payload(monkeypatch, tmp_path, {"before": base, "after": head})
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert any(path.startswith("planning/m12/") for path in branch), branch
+    assert not path_allowed(branch), branch
+
+
+def test_the_branch_wide_check_keeps_only_the_change_range(tmp_path, monkeypatch):
+    """The target branch's OWN earlier protected edit is not this change and must not be flagged."""
+    repo = _scope_repo(tmp_path)
+    target_tip = _scope_commit(
+        repo, "the target's own work", {ALLOWED_SAMPLE: "base\n", PROTECTED_SAMPLE: "target\n"}
+    )
+    _git_cli(repo, "checkout", "-q", "-b", "feature", target_tip)
+    head = _scope_commit(repo, "the change", {ALLOWED_SAMPLE: "change\n"})
+    _event_payload(
+        monkeypatch, tmp_path, {"pull_request": {"base": {"sha": target_tip}, "head": {"sha": head}}}
+    )
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE not in branch, branch
+    assert ALLOWED_SAMPLE in branch, branch
+
+
+def test_the_branch_wide_check_fails_closed_without_a_change_range(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    _scope_commit(repo, "only commit", {ALLOWED_SAMPLE: "x\n"})
+    _git_cli(repo, "branch", "-m", "feature-without-a-default-branch")
+    monkeypatch.delenv(CHANGE_BASE_ENV, raising=False)
+    monkeypatch.delenv(CHANGE_HEAD_ENV, raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    with pytest.raises(AssertionError, match="cannot establish the base"):
+        _branch_changed_files(repo)
+
+
+def test_the_branch_wide_check_refuses_a_shallow_checkout(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    head = _scope_commit(repo, "only commit", {ALLOWED_SAMPLE: "content\n"})
+    shallow = tmp_path / "shallow-clone"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{repo.as_posix()}", str(shallow)],
+        capture_output=True, text=True, check=True,
+    )
+    assert _is_shallow(shallow), "the clone must be shallow for this check"
+    _pin_change(monkeypatch, head, "HEAD")
+
+    with pytest.raises(AssertionError, match="shallow"):
+        _branch_changed_files(shallow)
+
+
+def test_the_branch_wide_check_flags_a_local_merges_own_edit_without_an_event(tmp_path, monkeypatch):
+    """No event payload: the locally checked-out merge's OWN edit must still be examined.
+
+    ``_change_identities`` walks a locally checked-out merge through its second parent, so the
+    merge commit itself is outside the walked range; its own contribution is added separately.
+    """
+    repo = _scope_repo(tmp_path)
+    tip = _scope_commit(repo, "target work", {"docs/other.md": "before\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", tip)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "change\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-commit", "--no-ff", "feature")
+    (repo / PROTECTED_SAMPLE).parent.mkdir(parents=True, exist_ok=True)
+    (repo / PROTECTED_SAMPLE).write_text("written by the merge itself\n", encoding="utf-8")
+    _git_cli(repo, "add", PROTECTED_SAMPLE)
+    _git_cli(repo, "commit", "-q", "-m", "Merge pull request (editing a protected path)")
+    _git_cli(repo, "update-ref", "refs/remotes/origin/main", tip)  # the default branch is behind
+    monkeypatch.delenv(CHANGE_BASE_ENV, raising=False)
+    monkeypatch.delenv(CHANGE_HEAD_ENV, raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_the_branch_wide_check_flags_a_protected_edit_the_merge_itself_makes(tmp_path, monkeypatch):
+    """A merge's own edit of a protected path is the merge's contribution and must be caught.
+
+    The merge's own files are the combined-diff notion (content from no single parent), so the
+    landing-merge rule that keeps brought-in files attributed to their own commits cannot hide it.
+    """
+    repo = _scope_repo(tmp_path)
+    tip = _scope_commit(repo, "target work", {"docs/other.md": "before\n"})
+    _git_cli(repo, "checkout", "-q", "-b", "feature", tip)
+    _scope_commit(repo, "the plugin change", {ALLOWED_SAMPLE: "change\n"})
+    _git_cli(repo, "checkout", "-q", "main")
+    _git_cli(repo, "merge", "-q", "--no-commit", "--no-ff", "feature")
+    (repo / PROTECTED_SAMPLE).parent.mkdir(parents=True, exist_ok=True)
+    (repo / PROTECTED_SAMPLE).write_text("written by the merge itself\n", encoding="utf-8")
+    _git_cli(repo, "add", PROTECTED_SAMPLE)
+    _git_cli(repo, "commit", "-q", "-m", "Merge pull request (editing a protected path)")
+    _pin_change(monkeypatch, tip)
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_a_staged_rename_of_a_protected_path_into_the_plugin_is_flagged(tmp_path, monkeypatch):
+    """Both sides of a staged rename are part of the change: the old parser kept the new one only."""
+    repo = _scope_repo(tmp_path)
+    moved = PLUGIN_DIR_SAMPLE + "expectation.py"
+    base = _scope_commit(repo, "base", {PROTECTED_SAMPLE: "normative\n", ALLOWED_SAMPLE: "p\n"})
+    _git_cli(repo, "mv", PROTECTED_SAMPLE, moved)
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert PROTECTED_SAMPLE in touched and moved in touched, touched
+    assert not path_allowed(touched), touched
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_a_staged_rename_of_an_out_of_scope_file_into_the_plugin_is_flagged(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    source = "tests/aref/aref_fixture.py"
+    moved = PLUGIN_DIR_SAMPLE + "aref_fixture.py"
+    base = _scope_commit(repo, "base", {source: "fixture\n", ALLOWED_SAMPLE: "p\n"})
+    _git_cli(repo, "mv", source, moved)
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert source in touched and moved in touched, touched
+    assert not path_allowed(touched), touched
+
+
+def test_a_worktree_move_reports_both_paths_verbatim(tmp_path, monkeypatch):
+    """An unstaged move, with a space in the destination name, is reported unquoted on both sides."""
+    repo = _scope_repo(tmp_path)
+    moved = PLUGIN_DIR_SAMPLE + "expect ation.py"
+    base = _scope_commit(repo, "base", {PROTECTED_SAMPLE: "normative\n", ALLOWED_SAMPLE: "p\n"})
+    (repo / moved).parent.mkdir(parents=True, exist_ok=True)
+    os.replace(repo / PROTECTED_SAMPLE, repo / moved)
+    _pin_change(monkeypatch, base)
+
+    touched = _worktree_changed_files(repo)
+    assert PROTECTED_SAMPLE in touched and moved in touched, touched
+
+
+def test_a_committed_rename_out_of_a_protected_prefix_is_flagged(tmp_path, monkeypatch):
+    """A committed rename out of a protected prefix must show its source side to the guard."""
+    repo = _scope_repo(tmp_path)
+    source = PROTECTED_PREFIX_SAMPLE + "AtlasHarness.cpp"
+    moved = "unreal/AtlasUnrealHarnessRenamed/AtlasHarness.cpp"
+    base = _scope_commit(repo, "base", {source: "harness\n", ALLOWED_SAMPLE: "p\n"})
+    (repo / moved).parent.mkdir(parents=True, exist_ok=True)  # git mv needs the destination dir
+    _git_cli(repo, "mv", source, moved)
+    _git_cli(repo, "commit", "-q", "-m", "rename the protected file out of its prefix")
+    _pin_change(monkeypatch, base)
+
+    branch = _branch_changed_files(repo)
+    assert source in branch and moved in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch
+
+
+def test_a_committed_rename_of_a_protected_path_into_the_plugin_is_flagged(tmp_path, monkeypatch):
+    repo = _scope_repo(tmp_path)
+    moved = PLUGIN_DIR_SAMPLE + "expectation.py"
+    base = _scope_commit(repo, "base", {PROTECTED_SAMPLE: "normative\n", ALLOWED_SAMPLE: "p\n"})
+    _git_cli(repo, "mv", PROTECTED_SAMPLE, moved)
+    _git_cli(repo, "commit", "-q", "-m", "rename the protected file into the plugin")
+    _pin_change(monkeypatch, base)
+
+    touched = _changed_files(repo)
+    assert PROTECTED_SAMPLE in touched and moved in touched, touched
+    assert not path_allowed(touched), touched
+
+    branch = _branch_changed_files(repo)
+    assert PROTECTED_SAMPLE in branch, branch
+    assert not path_untouched_by_protected_rule(branch), branch

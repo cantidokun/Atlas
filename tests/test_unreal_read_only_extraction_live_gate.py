@@ -29,6 +29,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -164,7 +165,11 @@ def _selected_engine() -> Path:
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\r\n")
+    # ``Path.write_text(newline=...)`` is Python 3.10+, and this gate supports the declared 3.9:
+    # on 3.9 the call raises TypeError before anything is written, which took the whole live gate
+    # down at the first host-project file. Open the file explicitly instead.
+    with path.open("w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write(text)
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +297,31 @@ def _build_result_ok(returncode: int, module_path: Path, build_output: str = "")
     return _build_failure_reason(returncode, module_path, build_output) is None
 
 
+#: Windows reparse-point attribute. Read through ``getattr`` because the constant is only
+#: present on Windows builds of :mod:`stat`; the module still has to import on Linux.
+_FILE_ATTRIBUTE_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _is_link_like(path: Path) -> bool:
+    """Whether ``path`` is a symlink, a junction, or another Windows reparse point.
+
+    ``Path.is_junction()`` cannot be used here: it was added in Python 3.12, while this
+    repository's supporting interpreters are 3.9 and 3.11 — on those the call raises
+    ``AttributeError`` instead of returning False, which took the whole live gate down (the
+    missing-link first run included). This is the file-attribute test the newer API wraps: a
+    junction carries ``FILE_ATTRIBUTE_REPARSE_POINT``. A path that does not exist, or a plain
+    directory, is not link-like — the answer is never "no" merely because the interpreter is
+    older.
+    """
+    if os.path.islink(path):
+        return True
+    try:
+        attributes = os.lstat(path).st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
 def _ensure_plugin_junction(plugin_link: Path, target_plugin: Optional[Path] = None) -> None:
     """Make the host project's plugin folder a junction to this repository's plugin.
 
@@ -305,10 +335,10 @@ def _ensure_plugin_junction(plugin_link: Path, target_plugin: Optional[Path] = N
     """
     plugin_dir = target_plugin if target_plugin is not None else contract.PLUGIN_DIR
     target = Path(os.path.realpath(plugin_dir))
-    if plugin_link.exists() or plugin_link.is_junction():
+    if plugin_link.exists() or _is_link_like(plugin_link):
         if Path(os.path.realpath(plugin_link)) == target:
             return
-        if plugin_link.is_junction() or plugin_link.is_symlink():
+        if _is_link_like(plugin_link):
             os.rmdir(str(plugin_link))
         else:
             shutil.rmtree(plugin_link)
